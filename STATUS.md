@@ -1282,11 +1282,17 @@ its whole deliverable and accept that it converts nothing until finished.
   wanted them is `isPartOfPossiblyValidTypeOrAbstractComputedPropertyName`
   (`ast/utilities.go:3143`) — a computed property name on an `abstract` member
   or in an interface/type literal is erased. §121's attribution was right all
-  along. Five wrong lines remain, and **§124 read them: three families** — `export =` /
-  `export default` of a type-only alias (upstream reports there, so a blind
-  decline trades wrong lines for missing ones), two uncaught computed property
-  names, and one unread TS1362. **Read the upstream baseline before writing any
-  decline on this row.**
+  along. **§125 took it to three.** §124 declared the
+  `export =` family untouchable on the strength of the fixture's own `// Error`
+  comment; `importEquals1.errors.txt` puts TS1361 on the four **consumer** files
+  and nothing on the re-exporting one, so those two lines were plain false
+  positives and declining cost nothing. Three remain, both families unread.
+- **FOUR instrument failures this session, all one shape — the artefact decides,
+  not the description of it.** §118 a probe below an early return; §122 a `grep`
+  over a `head`-truncated listing; §124 **a fixture's `// Error` comment read as
+  a baseline**; and §88's wrong column pricing *lines* where `extraonly` prices
+  *cases*. **ADR-0006 already says this about `ast.json` versus generated Go.
+  It generalises: read the baseline.**
 - **`head` and `grep` compose into a SILENT FALSE NEGATIVE** (§123). §122's
   "the wrong column holds no TS1361" came from filtering a `head`-truncated
   listing: the filter matched nothing because the lines were **cut off**, not
