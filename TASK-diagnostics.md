@@ -23,9 +23,28 @@ whose every missing diagnostic carries a code some rule here **already emits** �
 cases that need no new rule at all, only completeness.
 
 ```
-cases reachable by deepening existing rules: 1,304      (against 1,296 passing)
-TS2322 ~549 · TS2345 ~137 · TS2339 ~128 · TS2741 ~80 · TS2454 ~56 · TS2353 ~52
-re-run it; the tail moved a lot over §55–§69
+cases reachable by deepening existing rules : 1,305   (against 1,301 passing)
+  wants only relation-bound codes           :   937
+  wants a mix                               :    52
+  wants NO relation-bound code              :   316
+```
+
+**That split (§75) is the answer to "is it time to wait on the checker": not
+yet.** Relation-bound means TS2322, TS2345, TS2339, TS2741, TS2353, TS2352,
+TS2416, TS2430, TS2420, TS2415, TS2403, TS2411 — the subsystem STATUS.md §5
+refuses. **316 cases plus a share of 52 need none of it**, which is about the
+size of everything the eleventh session converted, and they are the *cheaper*
+quarter: every attempt this project has made to reach into the relation from the
+diagnostics side was refused or heavily bounded (§16's TS2322 at 988 wrong
+lines, §24's TS2403 at 6 losses, §49's type parameters at 48 wrong lines).
+**The 937 will convert with no diagnostics work at all** as the relation lands —
+they already report nothing extra and are short only on assignability lines.
+Re-take the split whenever the `.types` workstream lands relation work; 937 is
+the number that says how much of `diagnostics` that workstream is carrying.
+
+```
+per code, the relation-free head (re-run for current values)
+TS2454 ~56 · TS2554 ~36 · TS2564 ~36 · TS7006 ~28 · TS2304 ~40
 ```
 
 **This is the board now.** Eleven builds of this session each took a
