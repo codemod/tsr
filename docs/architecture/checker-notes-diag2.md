@@ -9948,3 +9948,40 @@ nothing in this repo records that state alongside the refusal.**
 
 This section is the smallest possible fix for that: the four rows now have a
 timestamped baseline in the same file as the refusal they justify.
+
+## §143 — TS2540's gap is not the operator, and this is a pricing not a build
+
+TS2540 sits at **11 sole-obstacle cases** and its missing lines look syntactic:
+
+```
+constDeclarations-access3.ts(26,3)   ++M.x;
+externalModuleImmutableBindings f2.ts(6,7) (7,7) (11,7)
+```
+
+`++` on a read-only property. The obvious reading is that
+`check_readonly_assignment_target` handles `=` and not `++`. **It is wrong.**
+`assignment_target` (`expressions.rs:1775`) already walks
+`PrefixUnaryExpression` and `PostfixUnaryExpression` and
+`assignment_target_kind` already classifies them `Compound`, so the rule's first
+gate passes.
+
+The gap is downstream, in the half that needs the receiver's type. Two
+candidates, **neither measured**, and named as candidates for that reason:
+
+- `declared_members_are_complete(receiver_type)` — `M` is a namespace and the
+  receiver type is `typeof M`, whose members come through the export table;
+- `get_property_of_type(receiver_type, "x")` finding nothing for the same
+  reason.
+
+**This is `checker_types`-adjacent, not a syntactic row**, and the session's own
+rule applies before anyone builds on this paragraph: *probe at the rule's entry
+and print which gate returned.* §128, §130, §133 and §134 all ended that way and
+every inference that skipped it on this board was wrong.
+
+### Why the pricing is worth recording even though nothing was built
+
+`diaggap` ranks by case count and says nothing about which layer a row needs.
+Four rows this session looked syntactic and were (TS1029, TS1163, TS1206,
+TS18013); this one looks syntactic and is not. **The tell was cheap: read the
+existing rule before assuming the missing arm is the obvious one** — twelve
+lines of `expressions.rs` said the operator was already handled.
