@@ -2666,3 +2666,18 @@ adverse convert. The §16 CaseKeyword trap fired a THIRD time en route —
 `CaseOrDefaultClause` is one struct whose `kind` token reads CaseKeyword
 everywhere; the side-table node kind decides, now noted at the type.
 `checker_types` right 401,574 → **401,639 (83.86%)**.
+
+## §56.3 — the argument position
+
+The arc's fourth position: an object-literal argument to a
+SINGLE-CANDIDATE NON-GENERIC callee resolves its member path against the
+parameter's written type (`getContextualTypeForArgument`'s one slice
+whose signature this port already resolves). The reentrancy guard keys
+the CALL node — resolving the signature checks the arguments, whose
+object-literal members walk back to the same call; the first build keyed
+the callee and hit a stack overflow (`arrayToLocaleStringES2015`).
+
+**§56.3 score — LANDED.** **+91 (W→R), ZERO adverse** — 79 of them in
+`compiler/temporal`, the board's top mountain moving for the first time
+(its option-bag arguments under unit-membered parameter types).
+`checker_types` right 401,639 → **401,730 (83.88%)**.

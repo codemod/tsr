@@ -1482,6 +1482,48 @@ impl<'a> Checker<'a, '_> {
             let holder = self.nodes.parent(literal)?;
             match self.nodes.kind(holder) {
                 SyntaxKind::PropertyAssignment => current = holder,
+                // §56.3: the ARGUMENT position, single-candidate
+                // non-generic callees only — the parameter's written type
+                // is the contextual member root (`getContextualTypeForArgument`,
+                // the one slice whose signature this port can already
+                // resolve). Reentrancy-guarded: typing the callee from
+                // inside a member-symbol computation can recurse.
+                SyntaxKind::CallExpression => {
+                    let Some(Node::CallExpression(call)) = self.node_map.get(holder) else {
+                        return None;
+                    };
+                    let callee = call.expression?;
+                    // The guard keys the CALL node: resolving the signature
+                    // checks the ARGUMENTS, whose object-literal members
+                    // walk back to this call — the cycle the first build hit
+                    // as a stack overflow (`arrayToLocaleStringES2015`).
+                    if !self.narrow_value_stack.insert(holder) {
+                        return None;
+                    }
+                    let callee_type = self.check_expression(callee);
+                    let signature = self.resolve_call_signature(callee_type, Some(call.arguments));
+                    self.narrow_value_stack.remove(&holder);
+                    let signature = signature?;
+                    if !signature.type_parameters.is_empty() {
+                        return None;
+                    }
+                    let index = call
+                        .arguments
+                        .iter()
+                        .position(|argument| argument.node_id() == Some(literal))?;
+                    let parameter = signature.parameters.get(index)?;
+                    if parameter.rest {
+                        return None;
+                    }
+                    let mut t = parameter.r#type;
+                    for name in path.iter().rev() {
+                        if t == self.intrinsics.error {
+                            return None;
+                        }
+                        t = self.get_type_of_property_of_type(t, name)?;
+                    }
+                    return (t != self.intrinsics.error).then_some(t);
+                }
                 // §56.1: the RETURN position — the literal returned from a
                 // function whose return type is WRITTEN resolves its member
                 // path against that annotation, the same rule at the arc's
