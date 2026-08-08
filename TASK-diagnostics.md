@@ -12,7 +12,7 @@ FIRST: git pull. Then read, in this order:
   builds.
 
 STATE AT HANDOFF (verify with a fresh coverage run):
-  diagnostics    1,432/5,488 = 26.09%   (was 1,346; +86 over 24 builds and
+  diagnostics    1,432/5,488 = 26.09%   (was 1,346; +86 over 25 builds and
                  THREE priced refusals — §94, §96, §97 —
                  **zero cases lost, and the wrong column FELL in two of them**)
   checker_types  3,842/9,538 · 84.13% — the other workstream's, and it moves
