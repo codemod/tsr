@@ -9347,3 +9347,53 @@ for seven counting §129.
 **Do not build on this row again without a probe that shows the hop.** The three
 lines are worth three lines; the discipline is worth more, and this session has
 now paid for it twice at the same address.
+
+## §130 — the hop probe, and the answer is a MISSING MERGE
+
+§129's prescribed probe, printing every hop of `type_only_alias_declaration`:
+
+```
+HOP kind=ImportSpecifier verdict=None        <- `import { Row } from './a'`, not type-only
+HOP kind=ExportSpecifier verdict=Some(true)  <- `export type { Row }` in the target
+```
+
+So the TS1362 is emitted because the chain reaches a type-only **re-export**.
+Upstream reaches it too — and reports nothing, because of the conjunct this port
+dropped between §117 and §121: `result.Flags&SymbolFlagsValue == 0`
+(`checker.go:1860`). `Row` is *also* a variable; the baseline's two TS2451s say
+so outright (`Cannot redeclare block-scoped variable 'Row'`). A symbol that
+names a value is usable as one however its alias half was declared.
+
+**Restoring that conjunct changed nothing: still 3 wrong.** Reverted.
+
+Which is the answer, and the case name has been saying it the whole time.
+**`mergeSymbolRexportFunction`.** Upstream's `Row` carries `VALUE` because the
+import alias and the variable **merge into one symbol**. This binder does not
+merge them, so `resolve_name` hands back an alias with no `VALUE` bit, the
+conjunct cannot fire, and no amount of work inside the type-only rule can
+recover it.
+
+**Owner: `tsr_binder`'s symbol merging** — the same subsystem §5 names for
+TS7026 and §85 for TS2454, and the same shape as the enum-member destination
+divergence §102 recorded. **The TS1362 line is not this rule's to fix**, and
+that is now established by measurement rather than asserted.
+
+### The tally on three lines
+
+**Eight attempts, two conversions.** The two that worked were both stated
+outright by an upstream artefact. The six that failed were all inferences about
+this port's internals — and the one that finally produced the answer was not a
+fix at all but a two-line probe, prescribed by §129 after §127 prescribed a
+weaker version of it and §128 ran it one level too shallow.
+
+**The probe that works is the one that prints every step of the thing you are
+guessing about.** §118 probed a function and learned nothing because it sat
+below an early return. §128 probed the symbol and learned the argument was
+missing. §130 probed the *loop* and learned the loop was never the problem.
+
+Two lines remain (`component.ts(32,12)`, `(36,4)`), both computed property
+names in a **class** and an **object literal**, both of which upstream reports
+on — so they are **missing lines wearing a wrong-column badge**: this port emits
+TS1361 at those positions and upstream emits it at *different* positions in the
+same file. That is a position bug, not a predicate bug, and it has not been
+looked at once.

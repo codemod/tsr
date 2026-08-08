@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 binder_symbols Summary:
 What a pass means: every symbol in the .symbols baseline exists with the same declaration lines
-Passed         : 8432/8461 (99.66%)
-Failed         : 29
+Passed         : 8433/8461 (99.67%)
+Failed         : 28
 Skipped        : 3983 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -52,8 +52,6 @@ conformance/inlineJsxFactoryDeclarationsLocalTypes
   3 symbol(s): renderer.d.ts: dom.JSX: no symbol; renderer.d.ts: dom.JSX.Element: no symbol; renderer2.d.ts: predom.JSX: no symbol
 conformance/inlineJsxFactoryLocalTypeGlobalFallback
   2 symbol(s): renderer2.d.ts: predom.JSX: no symbol; renderer2.d.ts: predom.JSX.Element: no symbol
-conformance/jsdocTemplateTag6
-  1 symbol(s): x: declared on {5, 17, 29, 40, 54, 55, 64, 70}, expected to include {5, 17, 29, 40, 48, 54, 55, 64, 70}
 conformance/moduleExportsAliasLoop2
   1 symbol(s): fn2: declared on {1}, expected to include {0, 1}
 conformance/noUncheckedIndexedAccessDestructuring
@@ -65,7 +63,7 @@ conformance/propertyAssignmentUseParentType1
 conformance/thisPrototypeMethodCompoundAssignmentJs
   1 symbol(s): (Missing): no symbol
 conformance/thisTag1
-  2 symbol(s): (Missing): no symbol; n: declared on {9}, expected to include {0, 9}
+  1 symbol(s): (Missing): no symbol
 conformance/thisTypeInFunctionsNegative
   2 symbol(s): (Missing): no symbol; C: declared on {0}, expected to include {0, 171}
 conformance/unicodeEscapesInJsxtags
