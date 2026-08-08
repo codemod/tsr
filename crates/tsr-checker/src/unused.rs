@@ -236,7 +236,20 @@ impl Checker<'_, '_> {
         let named = match self.node_map.get(node) {
             Some(Node::PropertyAccessExpression(access)) => access.name.and_then(|n| n.node_id()),
             Some(Node::QualifiedName(name)) => name.right.and_then(|n| n.node_id),
+            // An element access whose index is a **literal union** names every
+            // property the union can reach, and upstream marks each of them
+            // inside the access resolution (`checker.go:27033`). Asking the
+            // argument for its type is the one type question this otherwise
+            // syntactic pass needs; anything that is not a string literal or a
+            // union of them keeps the old answer, which is the
+            // missing-diagnostic direction (`checker-notes-diag2.md` §61).
             Some(Node::ElementAccessExpression(access)) => {
+                if let Some(argument) = access.argument_expression {
+                    let indexed = self.check_expression(argument);
+                    for value in self.string_literal_values(indexed) {
+                        self.note_member_name(&value);
+                    }
+                }
                 access.argument_expression.and_then(|e| e.node_id())
             }
             // `({ x } = this)` and `({ x: y } = this)` both reach a member `x`
@@ -252,6 +265,24 @@ impl Checker<'_, '_> {
         let Some(text) = self.identifier_text_of(named) else { return };
         let text = text.to_string();
         self.note_member_name(&text);
+    }
+
+    /// Every string-literal value a type can be — the type itself, or each
+    /// constituent of a union of them. Empty for anything else.
+    fn string_literal_values(&self, id: crate::types::TypeId) -> Vec<String> {
+        let value_of = |id: crate::types::TypeId| match &self.store.get(id).data {
+            crate::types::TypeData::StringLiteral(value) => Some(value.clone()),
+            _ => None,
+        };
+        if let Some(value) = value_of(id) {
+            return vec![value];
+        }
+        match &self.store.get(id).data {
+            crate::types::TypeData::Union { types, .. } => {
+                types.iter().filter_map(|&constituent| value_of(constituent)).collect()
+            }
+            _ => Vec::new(),
+        }
     }
 
     /// Is this identifier a name being *declared*, or a member being named,

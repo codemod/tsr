@@ -4521,3 +4521,90 @@ has been right twice running. The reason is structural and is worth stating
 plainly: a case blocked by an extra **alone** has exactly one thing wrong with
 it, so counting those cases *is* the forecast. Every other column counts cases
 that need an unknown amount of work and can only bound it.
+
+---
+
+## 61. `this[key]` with a literal-union index marks the properties it can reach
+
+`extraonly.rs`'s TS6133 rows are one case,
+`typeGuardNarrowsIndexedAccessOfKnownProperty9`:
+
+```ts
+class C1 {
+    private a = "a";     // ok upstream, reported here
+    private b = "b";     // ok upstream, reported here
+    private c = "c";     // error unused prop  <- both agree
+    private d = "d";     // error unused prop  <- both agree
+    getValue(key: "a" | "b") { return this[key]; }
+}
+```
+
+`markPropertyAsReferenced` runs inside the **element access resolution**, once
+per property the index type can name (`checker.go:27033`). `crate::unused` notes
+member names *syntactically* (`note_member_name_at`) and for an element access
+notes the **argument's own identifier text** — `key`, not `a` and `b`.
+
+The repair stays inside the syntactic design: ask the argument for its type and,
+when it is a string literal or a union of them, note each literal's value.
+Anything else keeps today's answer, which is the missing-diagnostic direction.
+
+### 61.1 A class-expression member's contextually typed parameter
+
+`extraonly.rs`'s TS7006 rows are also one case,
+`contextuallyTypedClassExpressionMethodDeclaration01`:
+
+```ts
+function getFoo2(): Foo {
+    return class {
+        static method1 = (arg) => { … };   // `arg` is contextually typed by Foo
+    };
+}
+```
+
+The class expression is contextually typed by the function's declared return
+type, so `arg` is not an implicit `any`. Contextual typing is `STATUS.md` §5's
+standing refusal, and the *decline* is one line: a parameter of a function or
+arrow that initialises a member of a **class expression** is contextually typed
+whenever the class expression is, and this port cannot tell whether it is.
+
+### The bar
+
+| leg | registered |
+|---|---|
+| 1 | `diagnostics` passes ≥ **1,244**. Forecast **+2** — `extraonly.rs` names one case each and has been exact three times |
+| 2 | `checker_types` pass count unchanged at **3,683** |
+| 3 | LOST must not grow |
+| 4 | TS6133's and TS7006's WRONG fall; neither RIGHT falls |
+| 5 | every other snapshot unchanged |
+
+### Scored — **+1 of 2**, and §61.1 is REFUSED at 4 right lines for 4 wrong
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| 1 | passes ≥ 1,244, forecast +2 | **1,245 / 5,488 = 22.69%** | pass, one short |
+| 2 | `checker_types` pass count 3,683 | **3,683**, snapshot unchanged | pass |
+| 3 | LOST must not grow | **0 → 0** | pass |
+| 4 | both WRONGs fall, neither RIGHT falls | §61 pass; **§61.1 fired** | see below |
+| 5 | every other snapshot unchanged | only `diagnostics.snap` differs | pass |
+
+`diag2307.rs` over the unused and implicit-any codes: **WRONG 17 → 15,
+RIGHT 446, CONVERTS 125, LOST 0.**
+
+**§61.1 is refused on its own leg.** Declining every class-expression member's
+parameters measured **RIGHT 446 → 442 and WRONG 15 → 11** — eight lines
+suppressed, half of them correct — and the suite did not move.
+`contextuallyTypedClassExpressionMethodDeclaration01` carries **both**: four
+TS7006 lines upstream reports inside class expressions and four it does not, and
+the difference between them is exactly whether the enclosing class expression has
+a contextual type. A blanket decline cannot tell those apart, and the case is not
+converted by removing half its extras.
+
+> **`extraonly.rs` says a case is one removal from passing; it does not say the
+> removal is expressible.** Its first three forecasts were exact because the
+> extras were a *shape* — a narrowing, a second report, a scope entry. This one
+> is a *quantity*: four of eight, split by the very thing the port cannot
+> compute. The instrument stays exact about what it measures and the fourth
+> build is where the difference showed.
+
+§61 stands: the literal-union element access is the shape it looked like, and
+`typeGuardNarrowsIndexedAccessOfKnownProperty9` converts.
