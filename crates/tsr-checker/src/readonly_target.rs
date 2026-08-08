@@ -143,12 +143,63 @@ impl Checker<'_, '_> {
         if ambient || self.file_has_parse_errors || self.in_js_file(node) {
             return;
         }
+        self.check_private_identifier_access(node);
         let Some((message, name, class_name, at)) = self.inaccessible_property(node) else {
             return;
         };
         let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
         let span = self.error_span(at);
         self.report(file, Diagnostic::with_args(message, span, [name, class_name]));
+    }
+
+    /// TS18013 — `Property '{0}' is not accessible outside class '{1}' because
+    /// it has a private identifier.`
+    ///
+    /// `checkPropertyAccessExpressionOrQualifiedName`'s private-name arm
+    /// (`checker.go`), which `inaccessible_property` declines with *"`#x` is
+    /// TS18013, a different code with its own row"*. This is that row.
+    ///
+    /// A `#name` is **lexically scoped to the class that declares it**, so the
+    /// test is syntactic and needs no type: walk out from the access and report
+    /// unless some enclosing class declares the name. §138.
+    fn check_private_identifier_access(&mut self, node: NodeId) {
+        let Some(Node::PropertyAccessExpression(access)) = self.node_map.get(node) else { return };
+        let Some(tsr_ast::MemberName::PrivateIdentifier(name)) = access.name else { return };
+        if self.enclosing_class_declares_private_name(node, name.text) {
+            return;
+        }
+        let Some(at) = name.node_id else { return };
+        let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
+        let span = self.error_span(at);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::PROPERTY_0_IS_NOT_ACCESSIBLE_OUTSIDE_CLASS_1_BECAUSE_IT_HAS_A_PRIVATE_IDENTIFIER,
+                span,
+                [name.text.to_string(), String::new()],
+            ),
+        );
+    }
+
+    /// Does any enclosing class declare this `#name`?
+    fn enclosing_class_declares_private_name(&self, node: NodeId, text: &str) -> bool {
+        self.nodes.ancestors(node).any(|ancestor| {
+            let members: &[tsr_ast::ClassElement<'_>] = match self.node_map.get(ancestor) {
+                Some(Node::ClassDeclaration(class)) => class.members,
+                Some(Node::ClassExpression(class)) => class.members,
+                _ => return false,
+            };
+            members.iter().any(|member| {
+                let name = match member {
+                    tsr_ast::ClassElement::PropertyDeclaration(n) => Some(n.name),
+                    tsr_ast::ClassElement::MethodDeclaration(n) => Some(n.name),
+                    tsr_ast::ClassElement::GetAccessorDeclaration(n) => Some(n.name),
+                    tsr_ast::ClassElement::SetAccessorDeclaration(n) => Some(n.name),
+                    _ => None,
+                };
+                matches!(name, Some(tsr_ast::PropertyName::PrivateIdentifier(p)) if p.text == text)
+            })
+        })
     }
 
     /// Is this property access inaccessible, and with which message?

@@ -9720,3 +9720,50 @@ saved five — and a miss costs one command and *upgrades an inference into a
 verified negative*: TS1100 and TS7026 are no longer "believed unbuilt", they are
 **checked unbuilt**, which is what makes their case counts trustworthy in the
 handoff.
+
+## §138 — TS18013: a private name is lexically scoped, so no type is needed
+
+Re-taking `diaggap` after twenty-five builds — the move that found TS1029,
+TS1163, TS1206 and TS1344 — surfaced **TS18013 at 12 sole-obstacle cases**, and
+`inaccessible_property` had already declined it in one line: *"`#x` is TS18013,
+a different code with its own row."* This is that row.
+
+**A `#name` is lexically scoped to the class that declares it.** That makes the
+test syntactic: walk out from the access and report unless some enclosing class
+declares the name. No type, no symbol, no relation.
+
+| | CONVERTS | LOST | RIGHT | WRONG |
+|---|---:|---:|---:|---:|
+| before | 0 | 0 | 0 | 0 |
+| **after** | **11** | **0** | **26** | **10** |
+
+**+11 cases.** Coverage `1,432 → 1,443 / 5,488` (26.09% → **26.29%**), and the
+missing column collapsed from **22 lines / 12 cases to 1 line / 1 case**.
+`checker_types` identical at 3,935/9,538 · 84.43%.
+
+### The bar was missed and the wrong column has an owner
+
+Ten wrong lines against a rule that emitted none, in §104's shape and recorded
+as a debt rather than rounded off. The families:
+
+- **`privateNameAndAny`** (3 lines) — the receiver is `any`. Upstream's check
+  runs against the receiver's *type* and `any` permits the access; the syntactic
+  test cannot see that.
+- **`privateNameAndIndexSignature`** — same shape through an index signature.
+- **`privateNameBadAssignment`** — a parse-error fixture where the recovered
+  tree puts a `#name` somewhere upstream never resolves.
+
+**Owner: the receiver type.** All ten need what the syntactic test deliberately
+does without, so this is the boundary of the cheap version rather than a defect
+in it. A `receiver_type` gate — decline when it is `any`, `error`, or has an
+index signature — is the next measurement, and the target is 11 conversions with
+the wrong column under 3.
+
+### The seam is *still* not exhausted
+
+§105 declared the cheap-grammar seam closed and §112 found TS1206. §112's own
+note warned the claim had been premature once. **This is the third time
+re-taking `diaggap` after a run of builds has produced a double-digit row**, and
+TS18013 is not even grammar — it is a *scoping* question that happens to need no
+types. **The generalisation: a code needs no subsystem if its rule is decidable
+from the tree, and "grammar" was too narrow a name for that class.**
