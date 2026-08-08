@@ -370,3 +370,25 @@ stash-and-remeasure rule extended to REFUSAL evidence.
 §85 residue: NonNullable-in-annotation positions (the conditional-
 type utility, different head), row-113 condition-position leak, one
 JSDoc-generic disturbance.
+
+
+ADDENDUM AFTER BUILD 144 (84.46%):
+
+§86 rest-tuple contextual parameters landed (+33/0). Its residue
+diagnosed: `[number, boolean, ...string[]]` rest-tuples are §40
+PRINT-ONLY (no element list), so positional expansion declines —
+extending needs variadic element-list modeling (elements + a trailing
+rest slot), which also unlocks restTuplesFromContextualTypes' 100+
+and the `(args_0: number, ...)` expanded-signature prints.
+
+GENERIC-ALIAS INSTANTIATION diagnosed by probe: annotation positions
+already print `merge<{a},{b}>` correctly — the Omit/merge WANTS
+expand because instantiation THROUGH CALL RETURNS drops the alias
+(upstream's instantiateType maps the body and prints it expanded;
+`doMerge(x, y)`'s inferred return). The subsystem's entry is
+instantiate_type over alias-reference returns, not the annotation
+mint. longObjectInstantiationChain3 166 + Omit/merge 142 hang off it.
+
+Session window closes at build 144: 23 landed builds (122-144),
++1,807 right, 84.07% → 84.46%, ten priced refusals, one false
+refusal corrected loudly. Everything pushed.

@@ -286,7 +286,10 @@ spells `NonNullable<T>` — LANDED AFTER A FALSE REFUSAL: the pricing
 adverse was the parallel session's rows against a pre-rebase
 baseline, the §88 trap's first WRONG-REFUSAL firing; rule sharpened
 to re-run scorepair on the clean tree before pricing any adverse) =
-**404,423 — builds 25–143 (84.45%)**. §81 (blunt
+**404,423 — builds 25–143 (84.45%)**; then + 33 (§86: rest-tuple
+contextual parameters expand positionally, ZERO adverse — and §50's
+destructured-discriminant narrowing composes with it for free) =
+**404,456 — builds 25–144 (84.46%)**. §81 (blunt
 qualified names) REFUSED at 114:6,769 — the qualifier is decided by
 the VIEWER's position; per-site printing context now owns THREE heads
 (import-spelling, qualified names, `temporal`'s 400). §77.2 (union written order) refused TWICE — 35:249, then
