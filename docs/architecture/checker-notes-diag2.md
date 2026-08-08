@@ -8779,3 +8779,63 @@ work would have changed that.
 
 *Print whether the rule runs before asking what it decided.* Six payments, one
 skip, and the skip cost a build while the payment cost five minutes.
+
+## §119 — §118's conclusion was WRONG, and the correction is the finding
+
+§118 read a zero-line probe as *"the rule's host never runs"* and rewrote the
+board around it: TS1361/TS1362 was reclassified from a rule gap to a **traversal
+coverage gap**, flagged as *"potentially worth far more than 18 cases"*, and
+`file_has_parse_errors` was named as the first thing to test.
+
+**All of that is wrong.** Two runs, each one line of instrumentation:
+
+```
+SKIPPED-UNIT …            → count = 0    (no unit is skipped)
+UNIT framework-hooks.ts parse_errors=false
+UNIT component.ts       parse_errors=false
+```
+
+`check_source_file` is called for `component.ts`, with no parse errors. **The
+traversal is fine. There is no coverage gap.**
+
+### Why the probe was silent
+
+§118's `eprintln!` was placed at `check_value_identifier`'s **meaning ladder**,
+which sits *after* the function's early returns — including the one taken when
+the name resolves with `VALUE` meaning. This port files an import alias as a
+symbol that answers `VALUE`, so every identifier in the case returned before
+reaching the probe. **The silence measured the probe's position, not the rule's
+execution.**
+
+### The rule, corrected
+
+*Print whether the rule runs before asking what it decided* — and **the print
+must be at the rule's ENTRY, not at the branch you are interested in.** §118
+claimed a seventh payment for that rule while committing a subtler version of
+the same error §117 made: §117 asked "what does it decide" without asking
+whether it ran; §118 asked "does it run" **at the wrong line** and got a
+confident answer to a question it had not asked.
+
+A probe that can be silent for two different reasons has told you nothing, and
+the fix is one line higher.
+
+### Where TS1361 actually stands
+
+Back to §117's candidate list, with (1) now the *likely* answer rather than the
+excluded one: the alias resolves with `VALUE` meaning here, so
+`check_value_identifier` returns before any type-only test could fire. Upstream's
+condition is precisely `result.Flags&SymbolFlagsAlias != 0 && result.Flags&
+SymbolFlagsValue == 0` (`checker.go:1860`) — **this port's alias symbols carry
+`VALUE` where upstream's do not**, which is a symbol-flags divergence of the
+same family as §93, §95 and §100.
+
+**Owner: `classify`'s `S::ALIAS`**, which §102's audit passed as "not a collapse"
+because upstream also declares all five import/export forms as `Alias` — true,
+and it says nothing about whether the *meaning* those symbols answer matches.
+§102 checked the flag and not its consequences; that limitation is now recorded
+in both places.
+
+No case count is claimed for this until it is measured. **The 18 cases stay on
+the board with no owner change and no size change**, because §118 changed both
+on the strength of a bad probe and this section is undoing that, not replacing it
+with another guess.
