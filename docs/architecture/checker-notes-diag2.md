@@ -10184,3 +10184,41 @@ Recorded rather than run because this session's remaining budget cannot both run
 it and land the fix to the standard the other twenty-eight builds were held to.
 Starting a build that cannot be measured, gated and pushed would trade the one
 property that made those builds compound.
+
+## §149 — all seventeen pass every gate, and sixteen lines come out
+
+The un-deduplicated probe §148 asked for, on all four remaining tests at once:
+
+```
+17 instances reach the optional-chain test   — none has qdot=true
+17 instances reach the readonly test         — none has ro=false
+17 instances reach the constructor test      — none has ctor=true
+```
+
+**Every one of the seventeen passes every gate.** Seventeen reports should
+follow. Sixteen lines come out.
+
+So the loss is **not in any gate this row has probed across seven sections** —
+it is in the report path itself, after the last test: `error_span(name_id)`,
+`source_file_of_for_diagnostics`, or `self.report`. The likeliest single
+mechanism is a **span collision**: two of the seventeen resolving to the same
+`(line, column)` and the suite's multiset seeing one where the port intended
+two. That would present exactly as *one missing, zero extra*, which is what
+`diagcase` measured in §146 and is otherwise hard to explain.
+
+**Named, not built on.** The measurement that settles it is printing the
+computed `span.start` for all seventeen and looking for a repeat — one line
+added to the probe already written above.
+
+### What this row is worth as a record
+
+Eight attributions, eight corrections, **zero builds and zero reverts**. Every
+section named a candidate, wrote the probe that would disprove it, and was
+disproved. The defect is now bounded to three lines of code — a span, a file
+lookup and a report call — from a starting point of *"TS2540 is a
+`checker_types`-adjacent row"* (§143).
+
+**The eight wrong attributions cost eight commands. The comparable row that
+attributed by reasoning (§117–§130) cost three reverts and two no-op fixes.**
+That is the whole argument for the practice, measured on two rows of the same
+board in one session.
