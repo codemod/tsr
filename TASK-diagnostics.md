@@ -12,7 +12,7 @@ FIRST: git pull. Then read, in this order:
   builds.
 
 STATE AT HANDOFF (verify with a fresh coverage run):
-  diagnostics    1,381/5,488 = 25.16%   (was 1,346; +35 over 7 builds,
+  diagnostics    1,383/5,488 = 25.20%   (was 1,346; +37 over 8 builds,
                  **zero cases lost, and the wrong column FELL in two of them**)
   checker_types  3,842/9,538 · 84.13% — the other workstream's, and it moves
                  HOURLY: it changed three times inside this one session. Do not
@@ -127,8 +127,11 @@ TS2540      12         9
    `excludes()`** — every `ModuleDeclaration` is mapped to `VALUE_MODULE`, where
    upstream picks `NamespaceModule` for a non-instantiated one. The unlock is
    moving §89's `GetModuleInstanceState` out of `crate::check` into `tsr-ast`,
-   after which the flag choice is one line and this refusal reverses. **That is
-   the highest-value item on this board that nobody has started.**
+   after which the flag choice is one line and this refusal reverses. **DONE, §95** — the
+   move landed, the flag choice is one line in `classify`, and the refusal
+   reversed at +2 cases and **wrong 79 → 64**. Note that §95 is the one build of
+   the session that moved `checker_types` (3,843 → 3,846, upward); if the
+   `.types` workstream objects, the revert is that one line.
 
 3. **TS2300's 61 false positives** — the largest wrong column this workstream
    owns, and `augmentedTypesModules` / `duplicateExportAssignments` /
