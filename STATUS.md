@@ -40,7 +40,7 @@ Measured at the §42-v2 landing, 2026-08-07 (ninth session, continued: builds 25
 | `dts_emit` | 161/339 | 47.49% | |
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
-| **`checker_types`** | **3,784/9,538** | **39.67%** | **gradient 83.83%** — the target (builds 25–105) |
+| **`checker_types`** | **3,784/9,538** | **39.67%** | **gradient 83.83%** — the target (builds 25–106) |
 | `diagnostics` | **1,346/5,488** | **24.53%** | **measured at HEAD, twelfth session (§76–§84), +44 over 8 builds, 0 lost.** The running total is 80 → 1,322, **16.5×**. One build ever shipped with a named loss (§33); every other is 0 lost. `checker_types` byte-identical across every `diagnostics` build of the eleventh and twelfth sessions |
 
 ### `checker_types`, the number the project is steered by
@@ -212,7 +212,10 @@ members — THE CONTEXTUAL ARC'S FIRST LANDED SLICE, const holders only,
 both falsifiers fired and contained, ZERO adverse) = 400,225; then §57 (the element-access write seam, ONE LINE) aligned
 1,704 previously-unreproducible lines — the denominator itself grew to
 470,619 and right to 401,521 (+1,296 gross, +10 cases, 83.83%) — builds
-25–105. The right+gap+wrong identity now sums against 470,619.
+25–105; then + 10 (§58: join-position member-set identity, ZERO adverse;
+the let re-admission re-deferred at 3.6:1 with the anonymous-object
+union-print diagnosis) = 401,531 exactly — builds 25–106. The
+right+gap+wrong identity now sums against 470,619.
 Build 96 (scorepair) and the probefile tool are the loop's new
 instruments; the full run is 21s since the §52 memo. §35 records a FINDING: tsgo prints
 ` : error` in JS chains across 123 baseline files — ADR-0038's premise
