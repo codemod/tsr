@@ -4608,3 +4608,88 @@ converted by removing half its extras.
 
 §61 stands: the literal-union element access is the shape it looked like, and
 `typeGuardNarrowsIndexedAccessOfKnownProperty9` converts.
+
+---
+
+## 62. TS2411's member names — string and numeric literals, and `isNumericLiteralName`
+
+`diagreach.rs` puts TS2411 at **34 cases** and `diagmissing.rs` names the shapes:
+
+```
+ 8  compiler/propertiesAndIndexersForNumericNames        public "1": string  beside  [i: number]: number
+ 7  conformance/derivedInterfaceIncompatibleWithBaseIndexer   1: {…}  and  '1': {…}
+ 6  compiler/inheritedMembersAndIndexSignaturesFromDifferentBases
+ 2  conformance/computedPropertyNames44/45_ES6
+```
+
+`check_index_constraints` (§28) collects members whose name node is an
+**`Identifier`** and drops every other kind. A property named `"1"` or `1` is
+exactly the one a *numeric* index signature constrains, so the rule was blind to
+its own headline population.
+
+### `isNumericLiteralName` is a round-trip, and `parse::<f64>()` is not it
+
+`constrains(Number)` tests `name.parse::<f64>().is_ok()`. Upstream
+(`utilities.go:898`) is
+
+```go
+return jsnum.FromString(name).String() == name
+```
+
+*"we test whether `ToString(ToNumber(name))` is exactly equal to `name`"* — and
+the comment above it spends fifteen lines on why: `"0xF00D"` indexes as
+`"61453"`, so it is **not** a numeric name even though it parses. The corpus
+tests the boundary directly:
+
+| name | numeric? |
+|---|---|
+| `"1"`, `"-1"`, `"-2.5"`, `"3.141592"`, `"1.2e-20"` | yes |
+| `"Infinity"`, `"-Infinity"`, `"NaN"` | **yes**, deliberately |
+| `" 1"`, `"1    "`, `""`, `"0xF00D"` | no |
+
+Rust's `parse::<f64>()` accepts `"+1"`, `"inf"` and `"nan"`, which JS's
+`ToNumber` does not round-trip, and rejects nothing that matters in the other
+direction. The port is the round-trip: reject any character outside
+`[0-9.eE+-]` unless the whole name is one of the three special spellings, then
+compare against a JS-shaped `Number#toString` (exponential below `1e-6` and at
+or above `1e21`, with the `+` JS writes on a non-negative exponent).
+
+### The bar
+
+| leg | registered |
+|---|---|
+| 1 | `diagnostics` passes > **1,245**. Forecast **+3 to +10** of the 27 sole-obstacle cases |
+| 2 | `checker_types` pass count unchanged at **3,683** |
+| 3 | LOST must not grow (currently **0** on `RULE_CODES = [2411]`) |
+| 4 | own WRONG ≤ **15** |
+| 5 | every other snapshot unchanged |
+
+**Falsifier.** If the wrong column fills with `"1"`-style names against a
+*string* index signature, the two signature kinds are being applied to the same
+member when upstream applies only the more specific one — `getApplicableIndexInfo`
+picks one, and the rule loops over all of them.
+
+### Scored — **+3**, and the wrong column did not move at all
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| 1 | passes > 1,245, forecast +3 to +10 | **1,248 / 5,488 = 22.74%** | pass |
+| 2 | `checker_types` pass count 3,683 | **3,683**, snapshot unchanged | pass |
+| 3 | LOST must not grow | **0 → 0** | pass |
+| 4 | own WRONG ≤ 15 | **1 → 1** | pass |
+| 5 | every other snapshot unchanged | only `diagnostics.snap` differs | pass |
+
+`diag2307.rs` isolated to 2411: **CONVERTS 2 → 5 · RIGHT 15 → 37 · WRONG 1 → 1 ·
+LOST 0.**
+
+**Twenty-two new right lines and not one new wrong one.** The falsifier — a
+`"1"`-style name reported against the *string* signature as well as the numeric
+one — did not fire, and the reason is that `constrains(String)` is `true` for
+every name and always was: the rule already looped over both signatures for
+every identifier-named member and the corpus never produced a pair where both
+fail. Widening the *names* did not widen that.
+
+The two cases that did not convert of the seven the shapes named
+(`inheritedMembersAndIndexSignaturesFromDifferentBases`,
+`propertiesAndIndexersForNumericNames`) are `STILL SHORT`: they gain their
+TS2411 lines and want other codes.

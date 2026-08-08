@@ -48,7 +48,7 @@ impl IndexKind {
     fn constrains(self, name: &str) -> bool {
         match self {
             Self::String => true,
-            Self::Number => name.parse::<f64>().is_ok(),
+            Self::Number => is_numeric_literal_name(name),
         }
     }
 }
@@ -63,6 +63,22 @@ impl Checker<'_, '_> {
     fn type_from_type_node_id(&mut self, node: NodeId) -> Option<TypeId> {
         let typed = tsr_ast::TypeNode::try_from(self.node_map.get(node)?).ok()?;
         Some(self.get_type_from_type_node(typed))
+    }
+
+    /// A member's **written** name, for the three spellings a declared member
+    /// can carry: an identifier, a string literal, or a numeric literal.
+    ///
+    /// §28 collected identifiers alone, which dropped exactly the population a
+    /// *numeric* index signature constrains — `public "1": string` beside
+    /// `[i: number]: number` (`checker-notes-diag2.md` §62). A computed name is
+    /// still `None`: its text is not the property's key.
+    fn written_member_name(&self, name: NodeId) -> Option<String> {
+        match self.node_map.get(name)? {
+            Node::Identifier(written) => Some(written.text.to_string()),
+            Node::StringLiteral(written) => Some(written.text.to_string()),
+            Node::NumericLiteral(written) => Some(written.text.to_string()),
+            _ => None,
+        }
     }
 
     /// The index-constraint check for one class or interface declaration.
@@ -86,12 +102,7 @@ impl Checker<'_, '_> {
                     })
                     .filter_map(|(name, annotation)| {
                         let id = name.node_id()?;
-                        match self.node_map.get(id) {
-                            Some(Node::Identifier(written)) => {
-                                Some((written.text.to_string(), id, annotation))
-                            }
-                            _ => None,
-                        }
+                        Some((self.written_member_name(id)?, id, annotation))
                     })
                     .collect()
             }
@@ -110,12 +121,7 @@ impl Checker<'_, '_> {
                     })
                     .filter_map(|(name, annotation)| {
                         let id = name.node_id()?;
-                        match self.node_map.get(id) {
-                            Some(Node::Identifier(written)) => {
-                                Some((written.text.to_string(), id, annotation))
-                            }
-                            _ => None,
-                        }
+                        Some((self.written_member_name(id)?, id, annotation))
                     })
                     .collect()
             }
@@ -228,4 +234,48 @@ impl Checker<'_, '_> {
         }
         Some(found)
     }
+}
+
+/// `isNumericLiteralName` (`utilities.go:898`) — *"we test whether
+/// `ToString(ToNumber(name))` is exactly equal to `name`"*.
+///
+/// The round-trip is the point, and it is why `"0xF00D"` is **not** a numeric
+/// name: indexing with `0xF00D` indexes with `"61453"`. `Infinity`,
+/// `-Infinity` and `NaN` are accepted deliberately — upstream's comment says so
+/// — because indexing with them really does index with those strings.
+///
+/// `parse::<f64>()` is not this predicate: it accepts `"+1"`, `"inf"` and
+/// `"nan"`, none of which round-trips. Every character outside `[0-9.eE+-]` is
+/// rejected up front, which covers the hex, octal and whitespace spellings the
+/// corpus tests without needing JS's full `ToNumber`.
+fn is_numeric_literal_name(name: &str) -> bool {
+    if matches!(name, "Infinity" | "-Infinity" | "NaN") {
+        return true;
+    }
+    if name.is_empty()
+        || !name.bytes().all(|byte| byte.is_ascii_digit() || b".eE+-".contains(&byte))
+    {
+        return false;
+    }
+    name.parse::<f64>().is_ok_and(|value| js_number_to_string(value) == name)
+}
+
+/// `Number#toString` for a finite value — decimal in JS's `[1e-6, 1e21)` band
+/// and exponential outside it, with the `+` JS writes on a non-negative
+/// exponent.
+fn js_number_to_string(value: f64) -> String {
+    if value == 0.0 {
+        return "0".to_string();
+    }
+    let magnitude = value.abs();
+    if !(1e-6..1e21).contains(&magnitude) {
+        let exponential = format!("{value:e}");
+        return match exponential.split_once('e') {
+            Some((mantissa, exponent)) if !exponent.starts_with('-') => {
+                format!("{mantissa}e+{exponent}")
+            }
+            _ => exponential,
+        };
+    }
+    format!("{value}")
 }
