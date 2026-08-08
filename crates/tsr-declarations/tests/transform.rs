@@ -1096,3 +1096,24 @@ fn runtime_statements_are_elided() {
         "export declare const a: number;",
     );
 }
+
+// ----- object-literal accessors ---------------------------------------------
+
+#[test]
+fn annotated_object_accessors_keep_their_shape() {
+    // `declarationEmitObjectLiteralAccessors1`: a get/set pair keeps both
+    // signatures in source order; a lone getter is a `readonly` property of its
+    // return type; a lone setter a mutable property of its parameter type.
+    assert_emits(
+        "export const a = {\n    get x(): string { return \"\"; },\n    set x(v: number) {},\n};",
+        "export declare const a: {\n    get x(): string;\n    set x(v: number);\n};",
+    );
+    assert_emits(
+        "export const b = { get x(): string { return \"\"; } };",
+        "export declare const b: {\n    readonly x: string;\n};",
+    );
+    assert_emits(
+        "export const c = { set x(v: number) {} };",
+        "export declare const c: {\n    x: number;\n};",
+    );
+}

@@ -171,6 +171,45 @@ impl Suite for DtsEmit {
     }
 }
 
+/// Emit every unit the way [`DtsEmit::run`] does and hand back the texts, for
+/// the `dtsdump` diagnostic. `None` when the case would not be judged.
+#[must_use]
+pub fn dump_case(case: &CaseEntry) -> Option<Vec<(String, String, String)>> {
+    let text = std::fs::read_to_string(case.baseline_path("js")).ok()?;
+    let baseline = JsBaseline::parse(&text);
+    let parsed_case = case.load().ok()?;
+    let units = output_units(&baseline, &parsed_case);
+    let mut out = Vec::new();
+    for (unit, expected) in &units {
+        let kind = ScriptKind::from_file_name(&unit.name);
+        let arena = Arena::new();
+        let parsed = tsr_parser::parse_with_script_kind(&arena, &unit.content, kind);
+        if !parsed.diagnostics.is_empty() {
+            return None;
+        }
+        let references = rebase_path_references(
+            declaration_references(&parsed.file_references),
+            &unit.name,
+            &expected.name,
+        );
+        let mut nodes = parsed.nodes;
+        stamp_javascript_root(&unit.name, parsed.source_file, &mut nodes);
+        let options = declaration_emit_options(&parsed_case, &unit.name, &unit.content);
+        let result = tsr_declarations::emit_with_references_and_options(
+            &arena,
+            &mut nodes,
+            parsed.source_file,
+            &references,
+            options,
+        );
+        if !result.diagnostics.is_empty() {
+            return None;
+        }
+        out.push((unit.name.clone(), result.text, expected.content.clone()));
+    }
+    Some(out)
+}
+
 /// The units this case has declaration output for, paired with it.
 ///
 /// **Computed before anything is emitted.** Deciding case-by-case *while* emitting

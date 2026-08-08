@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 dts_emit Summary:
 What a pass means: the .d.ts text this port emits is byte-identical to upstream's, for every unit of a case that needs no inference — the emitter's own rate, over the population dts_reachable_target measures
-Passed         : 328/374 (87.70%)
-Failed         : 46
+Passed         : 329/374 (87.97%)
+Failed         : 45
 Skipped        : 12070 (excluded from the denominator)
 
   636  skipped: a declaration in this case needs inference (see dts_reachable_target)
@@ -28,8 +28,6 @@ compiler/declarationEmitNameConflicts2
   line 12: want `    var f: typeof base.f;`, got `    var f: any;`
 compiler/declarationEmitNoNonRequiredParens
   line 7: want `export declare const bar: Test[];`, got `export declare const bar: TestType[Extract<keyof TestType, string>][];`
-compiler/declarationEmitObjectLiteralAccessors1
-  line 1: want `export declare const obj1: {`, got `export declare const obj1: any;`
 compiler/declarationEmitPrivatePromiseLikeInterface
   emitted Api.d.ts, upstream emitted no declaration file
 compiler/declarationEmitPrivateSymbolCausesVarDeclarationToBeEmitted

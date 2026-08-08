@@ -350,9 +350,98 @@ fn object_literal_type<'a>(
                     )),
                 }
             }
-            // Shorthand (`TS9016`), spread (`TS9015`) and accessors in an object
-            // literal are all reported by the analysis, so refusing here keeps the
-            // two in agreement rather than inventing a shape.
+            // An annotated accessor is in the target — the analysis reports only
+            // the unannotated ones. Upstream's shape rules
+            // (`declarationEmitObjectLiteralAccessors1`): a get/set pair keeps
+            // both signatures in source order, a lone getter is a `readonly`
+            // property of its return type, a lone setter a mutable property of
+            // its parameter type. A const context would have to decide what
+            // `readonly` adds to an accessor pair, and no baseline in the corpus
+            // exercises it — refused until one does.
+            Member::GetAccessorDeclaration(get) => {
+                if freshness == Freshness::Const {
+                    return None;
+                }
+                let return_type = get.r#type?;
+                let key = property_name_key(&get.name)?;
+                let member_span = factory.span_of(get.node_id);
+                if accessor_partner_exists(object, &key, AccessorHalf::Set)? {
+                    TypeElement::GetAccessorDeclaration(factory.alloc(
+                        tsr_ast::GetAccessorDeclaration::new(
+                            &[],
+                            get.name,
+                            &[],
+                            &[],
+                            Some(return_type),
+                            None,
+                            None,
+                            None,
+                            None,
+                        ),
+                        SyntaxKind::GetAccessor,
+                        member_span,
+                        NodeFlags::empty(),
+                    ))
+                } else {
+                    let readonly = factory.modifier(SyntaxKind::ReadonlyKeyword, member_span);
+                    let modifiers = factory.slice(&[readonly]);
+                    TypeElement::PropertySignatureDeclaration(factory.alloc(
+                        PropertySignatureDeclaration::new(
+                            modifiers,
+                            get.name,
+                            None,
+                            Some(return_type),
+                            None,
+                        ),
+                        SyntaxKind::PropertySignature,
+                        member_span,
+                        NodeFlags::empty(),
+                    ))
+                }
+            }
+            Member::SetAccessorDeclaration(set) => {
+                if freshness == Freshness::Const {
+                    return None;
+                }
+                let value_type = set.parameters.first().and_then(|parameter| parameter.r#type)?;
+                let key = property_name_key(&set.name)?;
+                let member_span = factory.span_of(set.node_id);
+                if accessor_partner_exists(object, &key, AccessorHalf::Get)? {
+                    let parameters = declaration_parameters(factory, set.parameters);
+                    TypeElement::SetAccessorDeclaration(factory.alloc(
+                        tsr_ast::SetAccessorDeclaration::new(
+                            &[],
+                            set.name,
+                            &[],
+                            parameters,
+                            None,
+                            None,
+                            None,
+                            None,
+                            None,
+                        ),
+                        SyntaxKind::SetAccessor,
+                        member_span,
+                        NodeFlags::empty(),
+                    ))
+                } else {
+                    TypeElement::PropertySignatureDeclaration(factory.alloc(
+                        PropertySignatureDeclaration::new(
+                            &[],
+                            set.name,
+                            None,
+                            Some(value_type),
+                            None,
+                        ),
+                        SyntaxKind::PropertySignature,
+                        member_span,
+                        NodeFlags::empty(),
+                    ))
+                }
+            }
+            // Shorthand (`TS9016`) and spread (`TS9015`) are reported by the
+            // analysis, so refusing here keeps the two in agreement rather than
+            // inventing a shape.
             _ => return None,
         };
         members.push(member);
@@ -365,6 +454,59 @@ fn object_literal_type<'a>(
         span,
         NodeFlags::empty(),
     )))
+}
+
+/// Which half of an accessor pair to look for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AccessorHalf {
+    Get,
+    Set,
+}
+
+/// Whether `object` declares the other accessor half under `key`.
+///
+/// `None` — refuse the whole literal — when the same half appears twice, which
+/// is a duplicate the checker reports and no shape this builder should invent.
+fn accessor_partner_exists(
+    object: &tsr_ast::ObjectLiteralExpression<'_>,
+    key: &str,
+    partner: AccessorHalf,
+) -> Option<bool> {
+    use tsr_ast::ObjectLiteralElementLike as Member;
+    let mut gets = 0usize;
+    let mut sets = 0usize;
+    for property in object.properties {
+        match property {
+            Member::GetAccessorDeclaration(get)
+                if property_name_key(&get.name).as_deref() == Some(key) =>
+            {
+                gets += 1;
+            }
+            Member::SetAccessorDeclaration(set)
+                if property_name_key(&set.name).as_deref() == Some(key) =>
+            {
+                sets += 1;
+            }
+            _ => {}
+        }
+    }
+    if gets > 1 || sets > 1 {
+        return None;
+    }
+    Some(match partner {
+        AccessorHalf::Get => gets == 1,
+        AccessorHalf::Set => sets == 1,
+    })
+}
+
+/// A textual key for pairing accessors; computed names have none.
+fn property_name_key(name: &tsr_ast::PropertyName<'_>) -> Option<String> {
+    match name {
+        tsr_ast::PropertyName::Identifier(identifier) => Some(identifier.text.to_string()),
+        tsr_ast::PropertyName::StringLiteral(literal) => Some(literal.text.to_string()),
+        tsr_ast::PropertyName::NumericLiteral(literal) => Some(literal.text.to_string()),
+        _ => None,
+    }
 }
 
 fn property_signature<'a>(
