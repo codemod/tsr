@@ -10031,3 +10031,37 @@ almost nothing to be wrong.
 
 That is the practice worth keeping from this row: **name the layer, label it a
 candidate, and write the probe that would settle it in the same breath.**
+
+## §145 — the readonly gate passes too; TS2540's gap is past it
+
+§144 named two candidates at the readonly gate and, following its own rule, did
+not guess between them. Probed:
+
+```
+2540 x  flags=SymbolFlags(BLOCK_SCOPED_VARIABLE)  ro=true
+```
+
+**`is_readonly_symbol` returns `true`.** Both of §144's candidates are wrong —
+the symbol is `BLOCK_SCOPED_VARIABLE`, `is_constant_variable` sees the `const`,
+and the gate passes. So does everything before it (§144 measured that).
+
+The rule therefore **reaches its report** for `x`, and the missing baseline line
+at `(26,3)` is not a rule that declined. What remains between the gate and the
+report is one test — `assignment_is_inside_the_declaring_constructor` — and the
+report's own position, which is `error_span(name_id)`, the **`x`**. Upstream's
+missing lines are at **column 3**, the start of `++M.x`.
+
+**Most likely a position divergence, not a decline** — but that is a hypothesis
+and this section will not build on it. The measurement that settles it is a
+`diagcase` on `constDeclarations-access3` with the expected and actual TS2540
+columns read side by side; the run above was truncated before the actual half.
+
+### Four attributions on this row, four corrected by the next probe
+
+§143 said receiver type; §144's probe said no. §144 said the readonly gate;
+§145's probe says no. **Each correction cost one run because each section named
+its candidates as candidates and wrote the probe alongside them** — the practice
+§144 recorded, now demonstrated twice in succession.
+
+The row is one probe from an answer and has cost no build. That is the shape
+this board's investigations should have had from §117 onward.
