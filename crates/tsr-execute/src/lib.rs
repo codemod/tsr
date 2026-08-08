@@ -24,6 +24,7 @@
 pub mod baseline;
 pub mod compile;
 pub mod help;
+pub mod help_all;
 pub mod os_system;
 pub mod show_config;
 pub mod system;

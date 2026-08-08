@@ -382,7 +382,7 @@ too, because phase 0 exists.
 
 | # | item | worth | state |
 |---|---|---|---|
-| 1 | `--help --all` | 1 baseline | **the largest item left.** 138 options across 13 categories, plus watch and build sections, each needing a description and a category. Pure transcription; ~600 lines of table data |
+| 1 | `--help --all` | 1 baseline | **structure done**, and the table is *generated* from upstream rather than transcribed — 106 options, categories and descriptions as `Message` references (`help_all.rs`). Still short: the `--build` pseudo-option, 11 options whose description constant does not resolve, and the `WATCH OPTIONS` / `BUILD OPTIONS` sections |
 | 2 | `--showConfig` implied options | 3 baselines | the *rule* is implemented ([`IMPLIED_OPTIONS`]); `useDefineForClassFields` and `moduleDetection` still differ, and `paths` is not rendered |
 | 3 | `extends` diagnostics | 2 baselines | a non-string `files`/`include` element must report TS5024 **positioned in the base file**, which needs per-element spans carried across the `extends` hop |
 | 4 | `--locale` | 2 baselines | one locale shipped; upstream has a message catalogue per language. **Refused** |

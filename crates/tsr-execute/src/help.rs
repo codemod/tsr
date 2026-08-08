@@ -18,12 +18,13 @@
 //! the next line mid-word. Reproduced rather than improved, because the
 //! baselines contain the cut.
 //!
-//! # `--help --all` is not ported
+//! # `--help --all`
 //!
-//! It lists all ~135 compiler options plus the watch and build sections, each
-//! with a description, a category and a default. This port declares 71 options
-//! and has no watch or build table, so the output could only be a subset
-//! pretending to be the whole. `--all` falls back to the simplified view.
+//! Ported, over the 106 options whose category and description resolve to a
+//! message in this catalogue — see [`crate::help_all`], where the table is
+//! *derived* from upstream's declarations rather than transcribed. Two sections
+//! upstream prints are missing: `WATCH OPTIONS` has descriptions this port does
+//! not carry, and `BUILD OPTIONS` needs a build table that does not exist.
 
 use std::fmt::Write as _;
 
@@ -299,7 +300,11 @@ fn use_colors(sys: &dyn System) -> bool {
 /// `PrintHelp` — the simplified view.
 ///
 /// `--all` is accepted and prints the same thing; see the module docs.
-pub fn print_help(sys: &mut dyn System, _all: bool) {
+pub fn print_help(sys: &mut dyn System, all: bool) {
+    if all {
+        print_all_help(sys);
+        return;
+    }
     let colors = use_colors(sys);
     let width = sys.width_of_terminal();
     let paint = |text: &str, style: (&str, &str)| {
@@ -357,6 +362,45 @@ pub fn print_help(sys: &mut dyn System, _all: bool) {
     sys.write(&output);
 }
 
+/// `printAllHelp` — every option, grouped by category.
+///
+/// The heading of each group is `### `-prefixed, which is upstream's
+/// sub-category shape (`generateSectionOptionsOutput`'s `subCategory` branch),
+/// and the options within it use the same per-option rendering as the
+/// simplified view.
+fn print_all_help(sys: &mut dyn System) {
+    let colors = use_colors(sys);
+    let width = sys.width_of_terminal();
+    let paint = |text: &str, style: (&str, &str)| {
+        if colors { format!("{}{text}{}", style.0, style.1) } else { text.to_string() }
+    };
+
+    let mut output = String::new();
+    let banner = format!("tsc: The TypeScript Compiler - Version {}", sys.version());
+    write_header(&mut output, &banner, width, colors);
+
+    let _ = writeln!(output, "{}\n", paint("ALL COMPILER OPTIONS", BOLD));
+
+    for (category, options) in crate::help_all::grouped() {
+        let _ = writeln!(output, "### {category}\n");
+        let entries: Vec<HelpOption> = options
+            .iter()
+            .map(|option| HelpOption {
+                name: option.name,
+                short: option.short,
+                description: option.description.text(),
+                value_line: None,
+                default_line: None,
+            })
+            .collect();
+        write_options(&mut output, &entries, colors, width);
+    }
+
+    let _ =
+        writeln!(output, "You can learn about all of the compiler options at https://aka.ms/tsc\n");
+    sys.write(&output);
+}
+
 /// The banner, with the "TS" icon when there is room (`getHeader`).
 ///
 /// The icon is two lines of five columns right-aligned at **120 at most**, even
@@ -398,6 +442,18 @@ fn write_section(
     };
 
     let _ = writeln!(output, "{}\n", paint(title, BOLD));
+    write_options(output, options, colors, width);
+
+    if let Some(after) = after {
+        let _ = writeln!(output, "{after}\n");
+    }
+}
+
+/// The options of one group, with their columns sized to the widest name in it.
+fn write_options(output: &mut String, options: &[HelpOption], colors: bool, width: usize) {
+    let paint = |text: &str, style: (&str, &str)| {
+        if colors { format!("{}{text}{}", style.0, style.1) } else { text.to_string() }
+    };
 
     // `generateGroupOptionOutput`: the left column is as wide as the longest
     // display name in *this section*, plus two, and the right column starts two
@@ -460,10 +516,6 @@ fn write_section(
             }
         }
         output.push('\n');
-    }
-
-    if let Some(after) = after {
-        let _ = writeln!(output, "{after}\n");
     }
 }
 
