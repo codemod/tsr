@@ -986,6 +986,9 @@ impl Checker<'_, '_> {
         symbol: tsr_binder::SymbolId,
         text: &str,
     ) {
+        if self.is_valid_type_only_alias_use_site(node) {
+            return;
+        }
         let Some(exported) = self.type_only_alias_declaration(symbol) else { return };
         let message = if exported {
             &messages::_0_CANNOT_BE_USED_AS_A_VALUE_BECAUSE_IT_WAS_EXPORTED_USING_EXPORT_TYPE
@@ -995,6 +998,60 @@ impl Checker<'_, '_> {
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
         let span = self.error_span(node);
         self.report(file, Diagnostic::with_args(message, span, [text.to_string()]));
+    }
+
+    /// `IsValidTypeOnlyAliasUseSite` (`ast/utilities.go:3124`) — §121's debt,
+    /// and §122 attributed it to the wrong clauses.
+    ///
+    /// A type-only alias is legal wherever the name is **not emitted**. The
+    /// clause the residual actually wanted is
+    /// `isPartOfPossiblyValidTypeOrAbstractComputedPropertyName` (`:3143`): a
+    /// **computed property name** on an `abstract` member, or on a member of an
+    /// interface or type literal, is erased. `conformance/computedPropertyName`
+    /// is three of the eight lines and `mergeSymbolRexportFunction` the fourth.
+    ///
+    /// `IsPartOfTypeQuery` is ported alongside it — `typeof X` names an alias
+    /// without emitting it, and this port routes type queries through
+    /// `check_value_identifier` because §79 made them a value position for
+    /// TS2304's purposes. §123.
+    fn is_valid_type_only_alias_use_site(&self, node: NodeId) -> bool {
+        if self.entity_name_root_is_a_type_query(node) {
+            return true;
+        }
+        // Walk out through the entity name, exactly as upstream's loop does.
+        let mut at = node;
+        while matches!(
+            self.nodes.kind(at),
+            SyntaxKind::Identifier | SyntaxKind::PropertyAccessExpression
+        ) {
+            let Some(parent) = self.nodes.parent(at) else { return false };
+            at = parent;
+        }
+        if self.nodes.kind(at) != SyntaxKind::ComputedPropertyName {
+            return false;
+        }
+        let Some(member) = self.nodes.parent(at) else { return false };
+        if self.member_is_abstract(member) {
+            return true;
+        }
+        self.nodes.parent(member).is_some_and(|owner| {
+            matches!(
+                self.nodes.kind(owner),
+                SyntaxKind::InterfaceDeclaration | SyntaxKind::TypeLiteral
+            )
+        })
+    }
+
+    /// `HasSyntacticModifier(node.Parent, ModifierFlagsAbstract)`.
+    fn member_is_abstract(&self, member: NodeId) -> bool {
+        let modifiers = match self.node_map.get(member) {
+            Some(Node::PropertyDeclaration(n)) => n.modifiers,
+            Some(Node::MethodDeclaration(n)) => n.modifiers,
+            Some(Node::GetAccessorDeclaration(n)) => n.modifiers,
+            Some(Node::SetAccessorDeclaration(n)) => n.modifiers,
+            _ => return false,
+        };
+        has_modifier(modifiers, SyntaxKind::AbstractKeyword)
     }
 
     /// `getTypeOnlyAliasDeclarationEx` (`checker.go:1861`), reduced to its

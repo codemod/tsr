@@ -8979,3 +8979,62 @@ it was written down with a number attached**.
 
 **An attribution is a hypothesis. Isolate the code alone before believing which
 rule owns a line.**
+
+## §123 — the debt paid, and §122's second claim retracted
+
+§122 made two claims about §121's eight wrong lines. **Both were wrong**, and
+one measurement retires both.
+
+Isolating `RULE_CODES = [1361, 1362]` **alone** — §122's own prescribed first
+step — gives:
+
+```
+CONVERTS 5   LOST 0   RIGHT 22   WRONG 8
+  conformance/computedPropertyName  component.ts(28,13) TS1361
+  conformance/computedPropertyName  component.ts(32,12) TS1361
+  conformance/computedPropertyName  component.ts(36,4)  TS1361
+  compiler/mergeSymbolRexportFunction  main.ts(2,1)     TS1362
+```
+
+- **§122 said the wrong column contained no TS1361/TS1362.** It contains eight,
+  all of them this rule's. That claim came from a `grep` over a `head`-truncated
+  listing — **the filter matched nothing because the lines had been cut off, not
+  because they were absent.**
+- **§122 said `IsValidTypeOnlyAliasUseSite` was the wrong owner.** It is the
+  right one; §122 ported the two clauses the residual did *not* want and
+  concluded from their failure that the function was innocent.
+
+The clause the residual wanted is
+`isPartOfPossiblyValidTypeOrAbstractComputedPropertyName`
+(`ast/utilities.go:3143`) — a **computed property name** on an `abstract` member,
+or on a member of an interface or type literal, is erased. §122 skipped it with
+the words *"neither has a case in the residual"*, which was an assertion with no
+measurement behind it.
+
+| | CONVERTS | LOST | RIGHT | WRONG |
+|---|---:|---:|---:|---:|
+| §121 | 5 | 0 | 22 | **8** |
+| §122, wrong clauses | 5 | 0 | 22 | **8** |
+| **§123, computed-name clause** | **5** | **0** | **22** | **5** |
+
+**Wrong 8 → 5 at no cost**, `checker_types` identical, all five gates green.
+Coverage holds at `1,430 / 5,488` — the three lines removed were in cases short
+of other codes, so they buy no conversion today and unblock three.
+
+### The lesson, and it is about instruments rather than TypeScript
+
+**`head` and `grep` compose into a silent false negative.** `diag2307`'s wrong
+listing is long; `grep -A 12` over it and then filtering for a code answers
+"absent" for anything past the twelfth line. §122 built two conclusions on that
+answer and wrote both into `STATUS.md`.
+
+This is the same failure as §118's misplaced probe, one layer out: **a query that
+can return empty for two different reasons has told you nothing.** §118's was a
+probe below an early return; this was a filter below a truncation. The fix in
+both cases is to make the instrument answer the question you asked — here,
+`RULE_CODES = [1361, 1362]` alone, which is exactly what §122 itself prescribed
+and did not run before concluding.
+
+Three sections attributed this residual and two were wrong. **The one that was
+right — §121's — was right for a reason it could not justify at the time**, and
+was overturned by an argument that felt more rigorous and was less so.
