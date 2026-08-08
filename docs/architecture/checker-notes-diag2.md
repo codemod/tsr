@@ -8093,3 +8093,64 @@ separate: `YieldExpression8_es6`, `YieldStarExpression1_es6` and
 tracking**, which is the same information `NodeFlags::YIELD_CONTEXT` would carry
 if anything set it — so the flag and the wrong column have one owner between
 them, and fixing the parser closes both.
+
+## §105 — the remaining grammar row, priced
+
+§103 and §104 took the two cheap grammar codes and named three more as "the same
+shape and unpriced". They are priced here. **Two of the three are not the same
+shape**, and saying so is the point of pricing before building.
+
+### TS1100 — `Invalid use of '{0}' in strict mode.` — 12 cases, and it is the BINDER's
+
+Not a `grammarchecks.go` rule at all. `checkStrictModeEvalOrArguments`
+(`binder.go:1449`) fires from **seven** binder call sites — a parameter name, a
+variable declaration, a function name, an assignment target, a catch clause
+variable, and both unary operand forms — and reports on `eval` or `arguments`
+used as a name while the binder is in strict mode.
+
+Three things make it more than a transcription:
+
+1. **The message is a three-way choice**, and only one of the three is TS1100.
+   `getStrictModeEvalOrArgumentsMessage` (`binder.go:1456`) returns TS1210 inside
+   a class, TS1215 in an external module, and TS1100 otherwise — so a port that
+   emits TS1100 everywhere is *wrong at the right position* on the module and
+   class cases, which is both a missing line and an extra one.
+2. **It needs `b.inStrictMode`**, which this binder does not track. Strictness
+   comes from a `"use strict"` prologue, from being an external module, or from
+   `alwaysStrict` — the same plumbing TS1212's row has wanted for four handoffs.
+3. Of the twelve cases, `alwaysStrict`, `alwaysStrictES6` and `alwaysStrictModule`
+   want the **option**; `parserStrictMode8`–`13` want the **prologue**;
+   `importCallExpressionInScriptContext1`/`2` want the **module** arm.
+
+**A checker-side implementation would reach the same output** and is explicitly
+*not* recommended: it would put a binder rule in the checker to dodge the
+`binder_symbols` rail, and this port's whole discipline is that the structure is
+the deliverable. **Owner: `tsr_binder`, one build, three messages.** Price it
+against the rail, not just against `diagnostics`.
+
+### TS1109 — `Expression expected.` — 11 cases, and it is the PARSER's
+
+Every line is a recovery position: `YieldExpression5_es6`,
+`YieldStarExpression3_es6`, `await_unaryExpression_es2017_3` and `_es6_3` (two
+lines each). These are `yield` and `await` parsed in contexts where the operand
+is missing or the keyword is not a keyword — **the same yield/await context
+tracking §104's wrong column named**. Not a checker build at all.
+
+**Owner: `tsr_parser`**, and it now has three things behind it: §104's 7 wrong
+lines, `NodeFlags::YIELD_CONTEXT` being unset, and this row's 11 cases. That
+makes yield/await context tracking the largest single parser-owned item this
+workstream has identified.
+
+### TS1183 — zero
+
+`diagmissing -- 1183` reports **0 missing lines and 0 blocked cases**. It was
+listed from an older `diagemit` reading where its `want` was non-zero; the row
+has since been closed by other work. **Removed from the board.**
+
+### What pricing three rows cost, and what it bought
+
+One `diagmissing` run each. It moved TS1183 off the board entirely, reassigned
+TS1109 to the parser, and turned TS1100 from "cheap grammar code" into "binder
+build with a three-way message split and a rail to watch". **None of the three
+was the build the previous section advertised**, and the cheapest way to find
+that out was not to start any of them.
