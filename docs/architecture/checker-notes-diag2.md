@@ -4409,3 +4409,63 @@ file that has ever been exact.
 
 Its remaining 56 cases: **TS1005 38 and TS1012 15 are the parser's**, not this
 workstream's; TS2322 11, TS2304 10, TS7006 4, TS2345 3 and TS2307 3 are.
+
+---
+
+## 59. TS2345 reports the **first** failing argument, not every one
+
+`extraonly.rs`'s TS2345 rows are three cases and one sentence:
+
+```ts
+function foo(a: string, b?: number) {}
+foo(1, 'bar');      // upstream: ONE TS2345, on the `1`
+```
+
+`getSignatureApplicabilityError` (`checker.go`) walks the arguments and
+**returns on the first failure**; `checkApplicableSignature` is a predicate, not
+a reporter, and a signature that fails is not asked again. This port's loop
+reports every mismatched argument, so `foo(1, 'bar')` reads two lines where
+upstream reads one — and under the exact-multiset rule the extra fails the case
+just as surely as a missing one would.
+
+`functionCall11`, `functionCall12` and `objectLitTargetTypeCallSite` are exactly
+that, and they are three of `extraonly.rs`'s 58.
+
+### The bar
+
+| leg | registered |
+|---|---|
+| 1 | `diagnostics` passes > **1,241**. Forecast **+3** — `extraonly.rs` names them, and it forecast §58 to the case |
+| 2 | `checker_types` pass count unchanged at **3,683** |
+| 3 | LOST == **0** on `diag2307.rs` with `RULE_CODES = [2345]` |
+| 4 | TS2345's WRONG falls and its RIGHT falls by **at most** the same amount — a second report on the same call is never *right* |
+| 5 | every other snapshot unchanged |
+
+**Falsifier.** If RIGHT falls by more than WRONG, upstream does report more than
+one argument somewhere — an overload set retried per candidate — and the stop is
+per-*signature* rather than per-call.
+
+### Scored — **+2 of the forecast 3**
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| 1 | passes > 1,241, forecast +3 | **1,243 / 5,488 = 22.65%** | pass, one short |
+| 2 | `checker_types` pass count 3,683 | **3,683**, snapshot unchanged | pass |
+| 3 | LOST == 0 | **1 → 1** — the rule's pre-existing loss, measured on **both** sides of the edit and unchanged by it | pass |
+| 4 | WRONG falls, RIGHT falls by at most as much | **12 → 10**, RIGHT **37 → 37** | pass |
+| 5 | every other snapshot unchanged | only `diagnostics.snap` differs | pass |
+
+`diag2307.rs` isolated to 2345: **CONVERTS 17 → 19 · RIGHT 37 → 37 ·
+WRONG 12 → 10 · LOST 1 → 1.**
+
+**Leg 3 needed both sides to read.** `diag2307.rs`'s LOST column is a property of
+the *rule*, not of the edit — it reconstructs the "before" side by removing the
+code entirely, so a loss the rule already had shows on both runs. Measuring only
+the after side would have read it as this build's. The tenth session's handoff
+says "LOST must read 0 in every measurement"; the accurate form is **LOST must
+not grow**, and a rule with a standing loss needs its number carried.
+
+`objectLitTargetTypeCallSite` is the third case `extraonly.rs` named and did not
+convert: removing the second TS2345 leaves it exact on this code and short
+elsewhere. `extraonly.rs` counts cases blocked by an extra **alone**, and a case
+can carry two extras of the same code — which is what this one did.

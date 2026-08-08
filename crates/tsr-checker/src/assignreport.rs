@@ -513,22 +513,30 @@ impl<'a> Checker<'a, '_> {
     /// [`Checker::report_assignability_failure`] with a different code and no
     /// TS2741 arm (an argument's missing property is elaborated differently
     /// upstream).
-    pub(crate) fn report_argument_failure(&mut self, at: NodeId, source: TypeId, target: TypeId) {
+    /// Answers **whether it reported**, so the caller can stop:
+    /// `getSignatureApplicabilityError` returns on the first failing argument
+    /// (`checker-notes-diag2.md` §59).
+    pub(crate) fn report_argument_failure(
+        &mut self,
+        at: NodeId,
+        source: TypeId,
+        target: TypeId,
+    ) -> bool {
         if self.nodes.kind(at) == SyntaxKind::ObjectLiteralExpression
             && self.type_of(target).flags.contains(TypeFlags::UNION)
         {
-            return;
+            return false;
         }
         if !self.pair_is_reportable(source, target) {
-            return;
+            return false;
         }
         if self.relate_ternary(source, target, crate::relater::Relation::Assignable)
             != crate::relater::Ternary::NotRelated
             && !self.object_against_primitive(source, target)
         {
-            return;
+            return false;
         }
-        let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
+        let Some(file) = self.source_file_of_for_diagnostics(at) else { return false };
         let span = self.error_span(at);
         let source_text = self.type_to_string(source);
         let target_text = self.type_to_string(target);
@@ -540,6 +548,7 @@ impl<'a> Checker<'a, '_> {
                 [source_text, target_text],
             ),
         );
+        true
     }
 
     /// Report the assignability failure at `span`, choosing the code the way

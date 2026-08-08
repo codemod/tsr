@@ -125,7 +125,14 @@ impl<'a> Checker<'a, '_> {
             // §23 wrote; only the target changes.
             self.check_excess_properties(target, argument_id);
             let source = self.check_expression(*argument);
-            self.report_argument_failure(argument_id, source, target);
+            // `getSignatureApplicabilityError` **returns on the first
+            // failure** — a signature that fails is not asked about its
+            // remaining arguments. `foo(1, 'bar')` against
+            // `foo(a: string, b?: number)` is one TS2345 upstream and was two
+            // here (`checker-notes-diag2.md` §59).
+            if self.report_argument_failure(argument_id, source, target) {
+                return;
+            }
         }
     }
 
@@ -160,7 +167,9 @@ impl<'a> Checker<'a, '_> {
             let Some(argument_id) = argument.node_id() else { continue };
             let Some(target) = self.type_from_annotation_id(annotation) else { continue };
             let source = self.check_expression(*argument);
-            self.report_argument_failure(argument_id, source, target);
+            if self.report_argument_failure(argument_id, source, target) {
+                break;
+            }
         }
         // `sole_constructor_parameters` stops at the first rest parameter and
         // keeps every position in order, so the count is exact and the unbounded
