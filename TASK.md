@@ -52,6 +52,18 @@ STATE AT HANDOFF (verify with a fresh coverage run):
   They stay with bd tsr-9or.1 until the host learns symlink/path-mapping
   resolution — DO NOT re-derive).
 
+  BUILDS 108–110 addendum: §58.1 closed the anonymous-object union-print
+  seam (TSR_JOIN_DEBUG one-line diagnosis) and lifted §56's let gate
+  (+33); §59 landed switch(true) clause narrowing — the §5x condition
+  family composes there free (+67, the §16 CaseKeyword trap's THIRD
+  firing is noted at the type); §56.3 landed argument-position retention
+  (+91, TEMPORAL'S FIRST 79 LINES). Temporal's remaining 799 decompose
+  as: qualified `Temporal.X` spellings inside signature prints (the §41
+  site-sensitivity mountain — the case's true owner) + method results
+  through those signatures. §56.4 (new-argument via interface road) and
+  §31.1 (ES-import findability) measured zero/refused — recorded, do not
+  re-derive.
+
   NEXT HEADS, each with its section: the enum residue (string-length
   folding, cross-enum refs, §53's entry-order class), the || early-return
   divergence (7 lines, blocked on non-strict per-constituent facts), the
