@@ -1788,3 +1788,19 @@ print time. That is a store reshape (`TypeData::Union` gains an origin
 list; `filterType`/narrowing filters learn to subset it), not a text
 override. REFUSED until that reshape; the +246 winnable lines
 (`arithmeticOperatorWithEnumUnion` 161 at the head) are its bounty.
+
+### §31.1 ES-import findability REFUSED at 2.7:1
+
+The §31 rule extended to ES-import forms (import clause, specifier,
+namespace) measured +110/117 unrestricted and +35/13 gated to relative
+specifiers — the adverse is resolver-parity, not rule shape: upstream
+resolves symlinked workspaces (`symlinkedWorkspace*`, every unrestricted
+miss), `// @link` symlinks and path mappings
+(`moduleResolutionWithSymlinks_notInNodeModules`,
+`pathMappingBasedModuleResolution6_node` under the relative gate), where
+the host's `module_resolution_found` sees nothing. The predicate is
+calibrated for the TS2307 emitter's conservative silence, and the
+type-side admission inverts the failure cost: a diagnostic not emitted
+is silence, an `any` minted where upstream resolves is a wrong line per
+use. REFUSED until the host learns symlink/path-mapping resolution;
+the ~2,500-line no-value-decl ALIAS rows stay with `bd tsr-9or.1`.
