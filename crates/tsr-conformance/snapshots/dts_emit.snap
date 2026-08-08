@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 dts_emit Summary:
 What a pass means: the .d.ts text this port emits is byte-identical to upstream's, for every unit of a case that needs no inference — the emitter's own rate, over the population dts_reachable_target measures
-Passed         : 319/378 (84.39%)
-Failed         : 59
+Passed         : 321/378 (84.92%)
+Failed         : 57
 Skipped        : 12066 (excluded from the denominator)
 
   632  skipped: a declaration in this case needs inference (see dts_reachable_target)
@@ -96,8 +96,6 @@ compiler/unionTypeWithLeadingOperator
   line 1: want `export type D = /*leading1*/ 1 | /*leading2*/ 2;`, got `export type D = 1 | 2;`
 conformance/assignmentToVoidZero1
   line 1: missing `export declare var y: 2;`
-conformance/callbackOnConstructor
-  line 1: want `export type ValueGetter_2 = (name: string) => boolean | number | string | undefined;`, got `export declare class Preferences {`
 conformance/callbackTagVariadicType
   line 1: want `/**`, got `/** @type {Foo} */`
 conformance/contextuallyTypedStringLiteralsInJsxAttributes01
@@ -117,15 +115,13 @@ conformance/jsDeclarationsImportNamespacedType
 conformance/jsDeclarationsReusesExistingNodesMappingJSDocTypes
   line 2: want `export declare const a: any | null;`, got `export declare const a: null;`
 conformance/jsDeclarationsTypedefDescriptionsPreserved
-  line 1: missing `/**`
+  line 1: want `/**`, got `type FooOptions = Object;`
 conformance/jsdocTemplateTagNameResolution
-  line 6: want `type Foo<T, K extends keyof T> = T[K];`, got `declare const x: {`
+  line 1: want `/**`, got `type Foo<T, K extends keyof T> = T[K];`
 conformance/recursiveTypeReferences2
-  line 1: want `/** @typedef {ReadonlyArray<Json>} JsonArray */`, got `/** @type {XMLObject<{foo:string}>} */`
+  line 1: want `/** @typedef {ReadonlyArray<Json>} JsonArray */`, got `type JsonArray = ReadonlyArray<Json>;`
 conformance/typeFromPropertyAssignment39
   line 1: want `declare const foo: {`, got `declare const foo: {};`
-conformance/typedefOnSemicolonClassElement
-  line 1: want `export type A = string;`, got `export declare class Preferences {`
 conformance/varianceAnnotationsWithCircularlyReferencesError
   line 1: want `type T1<in , > = T1;`, got `type T1<in in> = T1;`
 conformance/weakTypesAndLiterals01

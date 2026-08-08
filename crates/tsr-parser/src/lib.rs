@@ -173,6 +173,37 @@ pub fn parse_into<'a>(
     }
 }
 
+/// Parse a standalone type, appending its nodes to an existing table.
+///
+/// Made for JSDoc `{type}` texts: declaration emit parses the braced text and
+/// grafts the subtree into an already-parsed file's tree, which is sound
+/// because the new ids continue the table exactly as [`parse_into`]'s
+/// multi-file ranges do, and the arena is the file's own. `source` must be
+/// *positioned*: the type text sits at its original file offset with the
+/// preceding bytes present (whitespace padding works), so every span lands
+/// inside the file. Returns `None` when the text does not parse cleanly or
+/// does not consume the whole input.
+///
+/// The node map produced while parsing is discarded, so program-level id→node
+/// recovery does not cover the grafted subtree; declaration emit never asks
+/// it to.
+#[must_use]
+pub fn parse_standalone_type<'a>(
+    arena: &'a Arena,
+    source: &'a str,
+    nodes: &mut tsr_ast::NodeTable,
+) -> Option<tsr_ast::TypeNode<'a>> {
+    let options =
+        ParseOptions { script_kind: ScriptKind::TypeScript, jsdoc: false, ..Default::default() };
+    let mut parser =
+        Parser::with_tables(arena, source, options, std::mem::take(nodes), tsr_ast::NodeMap::new());
+    let r#type = parser.parse_type();
+    let consumed = parser.at(tsr_ast::SyntaxKind::EndOfFile);
+    let (diagnostics, node_table, _, _) = parser.finish();
+    *nodes = node_table;
+    (diagnostics.is_empty() && consumed).then_some(r#type)
+}
+
 /// One file parsed into a program's shared tables, by [`parse_into`].
 ///
 /// Everything [`ParsedSourceFile`] carries except the two tables, which the

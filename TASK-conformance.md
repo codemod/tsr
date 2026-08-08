@@ -5,13 +5,13 @@ CURRENT PROGRESS (2026-08-08)
   parser_typescript      5,031/5,031 = 100.00% (up from 5,001)
   dts_reachable_target     496/1,162 = 42.69%  (up from 495; corrected visibility
                                                 exposed one inference case)
-  dts_emit                  319/378  = 84.39%  (denominator moved three times:
+  dts_emit                  321/378  = 84.92%  (denominator moved three times:
                                                 grew 341 -> 395 pairing outDir-
                                                 remapped baselines, shrank to
                                                 376 removing input-echo
                                                 mispairings, grew to 378 with
                                                 positional duplicate pairing)
-  dts_shape                840/1,007 = 83.42%  (same corrections; was 753/918
+  dts_shape                853/1,007 = 84.71%  (same corrections; was 753/918
                                                 before them)
   printer_round_trip    11,755/11,778 = 99.80%
 
@@ -234,6 +234,17 @@ untyped parameters; `@implements A` appends a heritage clause. The type builder
 covers keywords and bare names only — unions, generics, and function types
 still fall to `any` (the whole `argumentsReferenceInConstructor*_Js` family
 plus three `jsdocImplements*` cases, +8 exact).
+
+The second JSDoc slice parses braced type texts for real: a type is
+whitespace-padded to its original file offset and parsed by
+`tsr_parser::parse_standalone_type`, whose nodes continue the file's own node
+table so the grafted subtree behaves exactly like parsed syntax. On top of
+that, `@typedef {T} Name` and `@callback Name` (+`@param`/`@returns`)
+synthesize type aliases with `@template` type parameters, placed before the
+top-level statement containing their comment and exported in modules; `@type`
+annotates written class properties and single-declarator variable statements
+(+2 emit, +13 shape). The remaining typedef mismatches are comment-group
+replay above alias runs, which needs all-leading-comments printer semantics.
 
 `TASK.md` belongs to the checker-types gradient and `TASK-diagnostics.md` belongs
 to diagnostics. Do not put work from either stream here. This file owns the

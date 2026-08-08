@@ -222,6 +222,36 @@ fn js_constructor_this_assignments_declare_typed_properties() {
 }
 
 #[test]
+fn a_rich_jsdoc_type_is_parsed_into_the_declaration_tree() {
+    // Union, generic, and function types come from a real parse grafted into
+    // the transform's own arena and node table.
+    let output = emit_javascript(
+        "class A {\n    /** @param {Map<string, number[]>} m */\n    constructor(m) {\n        /** @type {string | number} */\n        this.x = m;\n        /** @type {(a: string) => void} */\n        this.f = m;\n    }\n}",
+    );
+    assert!(output.contains("x: string | number;"), "{output}");
+    assert!(output.contains("f: (a: string) => void;"), "{output}");
+    assert!(output.contains("constructor(m: Map<string, number[]>);"), "{output}");
+}
+
+#[test]
+fn jsdoc_typedef_and_callback_synthesize_type_aliases() {
+    // `typedefOnSemicolonClassElement` / `callbackOnConstructor`: aliases are
+    // hoisted before the statement containing their comment, exported in a
+    // module, with `@template` tags as type parameters.
+    let output = emit_javascript(
+        "export class P {\n    /** @typedef {string} A */\n    ;\n    /** @type {A} */\n    a = 'ok';\n    /**\n     * @callback Get\n     * @param {string} name\n     * @returns {boolean|number}\n     */\n    constructor() {}\n}",
+    );
+    assert!(output.starts_with("export type A = string;"), "{output}");
+    assert!(output.contains("export type Get = (name: string) => boolean | number;"), "{output}");
+    assert!(output.contains("a: A;"), "{output}");
+
+    let generic = emit_javascript(
+        "/**\n * @template T\n * @template {keyof T} K\n * @typedef {T[K]} Foo\n */\nconst x = 1;\nexport { x };",
+    );
+    assert!(generic.contains("export type Foo<T, K extends keyof T> = T[K];"), "{generic}");
+}
+
+#[test]
 fn a_jsdoc_implements_tag_becomes_a_heritage_clause() {
     // `jsdocImplements_properties`: braced, bare, and comment-closing forms.
     let output = emit_javascript("class A {}\n/** @implements A*/\nclass B {}");

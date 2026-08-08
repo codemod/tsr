@@ -176,8 +176,22 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             })
             .collect();
 
+        // Each synthesized alias goes before the top-level statement its
+        // declaring comment sits in (or above) — a `@typedef` inside a class
+        // body hoists before the class, one between statements stays between
+        // them.
+        let mut aliases = self.synthesize_jsdoc_aliases(is_module).into_iter().peekable();
         let mut statements: Vec<Statement<'a>> = Vec::with_capacity(file.statements.len());
         for statement in file.statements {
+            let statement_end = self.span_of(statement.node_id()).end as usize;
+            while let Some((position, _)) = aliases.peek() {
+                if *position < statement_end {
+                    let (_, alias) = aliases.next().expect("peeked");
+                    statements.push(alias);
+                } else {
+                    break;
+                }
+            }
             if self.should_strip_internal(statement.node_id()) {
                 continue;
             }
@@ -197,6 +211,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                 statements.push(result);
             }
         }
+        statements.extend(aliases.map(|(_, alias)| alias));
 
         // Visibility is initially computed from source syntax so declarations
         // needed by an emitted type are available to the transformer. Recompute
@@ -659,6 +674,16 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         let flags = self.factory.flags_of(list.node_id);
         let is_const = flags.intersects(NodeFlags::CONSTANT);
 
+        // In JavaScript, a single-declarator statement's leading `@type` JSDoc
+        // annotates that declarator (`callbackOnConstructor`'s `ooscope2`).
+        let jsdoc_annotation = if list.declarations.len() == 1 {
+            let span = self.span_of(node.node_id);
+            self.leading_jsdoc(node.node_id)
+                .and_then(|comment| self.jsdoc_type(comment, "type", span))
+        } else {
+            None
+        };
+
         let mut declarations = Vec::with_capacity(list.declarations.len());
         for declaration in list.declarations {
             if declaration.name.is_some_and(|name| !binding_name_has_bindings(name)) {
@@ -683,7 +708,11 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                     ));
                 }
             } else {
-                declarations.push(self.transform_variable_declaration(declaration, is_const));
+                declarations.push(self.transform_variable_declaration(
+                    declaration,
+                    is_const,
+                    jsdoc_annotation,
+                ));
             }
         }
         if declarations.is_empty() {
@@ -830,10 +859,14 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         &mut self,
         declaration: &'a tsr_ast::VariableDeclaration<'a>,
         is_const: bool,
+        jsdoc_annotation: Option<TypeNode<'a>>,
     ) -> &'a tsr_ast::VariableDeclaration<'a> {
         let host = LiteralConstHost::Variable(declaration, is_const);
         let initializer = self.ensure_no_initializer(host);
-        let annotation = declaration.r#type.map(|r#type| self.transform_written_type(r#type));
+        let annotation = declaration
+            .r#type
+            .map(|r#type| self.transform_written_type(r#type))
+            .or(jsdoc_annotation);
         let r#type = if initializer.is_some() {
             // `ensureType`'s first branch: a literal const emits its value, not a
             // type, and emitting both would be a syntax error.
@@ -1503,6 +1536,196 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         None
     }
 
+    /// A JSDoc type the simple builder cannot spell, parsed for real.
+    ///
+    /// The braced text is parsed into the transform's own arena and node
+    /// table ([`Factory::parse_grafted_type`]), padded to its original file
+    /// offset so every span lands inside the source. Multi-line type texts
+    /// carry `*` line prefixes that are not type syntax, so they answer
+    /// `None`.
+    fn rich_jsdoc_type(&mut self, comment: &'a str, tag: &str) -> Option<TypeNode<'a>> {
+        let range = jsdoc_braced_range(comment, tag)?;
+        self.graft_jsdoc_range(comment, range)
+    }
+
+    /// Parse `comment[start..end]` as a type at its original file offset.
+    fn graft_jsdoc_range(
+        &mut self,
+        comment: &'a str,
+        (start, end): (usize, usize),
+    ) -> Option<TypeNode<'a>> {
+        let source = self.options.source_text?;
+        let text = &comment[start..end];
+        if text.contains(['\n', '\r']) || text.trim().is_empty() {
+            return None;
+        }
+        let comment_offset = (comment.as_ptr() as usize).checked_sub(source.as_ptr() as usize)?;
+        if comment_offset + comment.len() > source.len() {
+            return None;
+        }
+        let padded = format!("{}{}", " ".repeat(comment_offset + start), text);
+        let padded = self.factory.alloc_str(&padded);
+        self.factory.parse_grafted_type(padded)
+    }
+
+    /// The type a JSDoc tag declares: the simple builder first, then a real
+    /// parse of the braced text.
+    fn jsdoc_type(&mut self, comment: &'a str, tag: &str, span: Span) -> Option<TypeNode<'a>> {
+        if let Some(text) = jsdoc_tag_text(comment, tag)
+            && let Some(node) = self.simple_jsdoc_type(&text, span)
+        {
+            return Some(node);
+        }
+        self.rich_jsdoc_type(comment, tag)
+    }
+
+    /// Type aliases a JS file declares through `@typedef` and `@callback`.
+    ///
+    /// Upstream hoists them to the top of the `.d.ts`, exported when the file
+    /// is a module, without replaying the declaring comment. Dotted names
+    /// (`@typedef {number} Dotted.Name`) declare namespace members this port
+    /// does not yet synthesize and are skipped.
+    fn synthesize_jsdoc_aliases(&mut self, is_module: bool) -> Vec<(usize, Statement<'a>)> {
+        if !self.javascript_file {
+            return Vec::new();
+        }
+        let Some(source) = self.options.source_text else { return Vec::new() };
+        let mut result = Vec::new();
+        let mut cursor = 0usize;
+        while let Some(found) = source[cursor..].find("/**") {
+            let start = cursor + found;
+            let Some(close) = source[start..].find("*/") else { break };
+            let end = start + close + 2;
+            cursor = end;
+            let comment = &source[start..end];
+            if let Some(range) = jsdoc_braced_range(comment, "typedef") {
+                let after = &comment[range.1 + 1..];
+                let name_start = range.1 + 1 + (after.len() - after.trim_start().len());
+                let Some(name) = identifier_at(comment, name_start) else { continue };
+                let Some(r#type) = self.graft_jsdoc_range(comment, range) else { continue };
+                let alias = self.jsdoc_alias(&name, r#type, comment, is_module);
+                result.push((start, alias));
+            } else if let Some(name) = jsdoc_tag_text(comment, "callback") {
+                if identifier_at(&name, 0).as_deref() != Some(name.as_str()) {
+                    continue;
+                }
+                let Some(r#type) = self.jsdoc_callback_type(comment) else { continue };
+                let alias = self.jsdoc_alias(&name, r#type, comment, is_module);
+                result.push((start, alias));
+            }
+        }
+        result
+    }
+
+    fn jsdoc_alias(
+        &mut self,
+        name: &str,
+        r#type: TypeNode<'a>,
+        comment: &'a str,
+        is_module: bool,
+    ) -> Statement<'a> {
+        // A zero span: the alias is hoisted away from its comment, and upstream
+        // does not replay the declaring `@typedef` block above it.
+        let span = Span::new(0, 0);
+        let type_parameters = self.jsdoc_template_parameters(comment, span);
+        let text = self.factory.alloc_str(name);
+        let name = self.factory.identifier(text, span);
+        let modifiers: &'a [ModifierLike<'a>] = if is_module {
+            let token = self.factory.modifier(SyntaxKind::ExportKeyword, span);
+            self.factory.slice(&[token])
+        } else {
+            &[]
+        };
+        Statement::TypeAliasDeclaration(self.factory.alloc(
+            tsr_ast::TypeAliasDeclaration::new(
+                modifiers,
+                Some(name),
+                type_parameters,
+                Some(r#type),
+            ),
+            SyntaxKind::TypeAliasDeclaration,
+            span,
+            NodeFlags::empty(),
+        ))
+    }
+
+    /// `@template T` and `@template {C} K` tags as alias type parameters.
+    fn jsdoc_template_parameters(
+        &mut self,
+        comment: &'a str,
+        span: Span,
+    ) -> &'a [&'a tsr_ast::TypeParameterDeclaration<'a>] {
+        let mut parameters: Vec<&'a tsr_ast::TypeParameterDeclaration<'a>> = Vec::new();
+        let mut cursor = 0usize;
+        while let Some(found) = comment[cursor..].find("@template") {
+            let index = cursor + found;
+            let after = index + "@template".len();
+            cursor = after;
+            if !comment[after..].chars().next().is_none_or(char::is_whitespace) {
+                continue;
+            }
+            let rest = &comment[after..];
+            let mut position = after + (rest.len() - rest.trim_start().len());
+            let mut constraint = None;
+            if comment[position..].starts_with('{')
+                && let Some(close) = matched_brace(&comment[position + 1..])
+            {
+                constraint = self.graft_jsdoc_range(comment, (position + 1, position + 1 + close));
+                position = position + 1 + close + 1;
+                let rest = &comment[position..];
+                position += rest.len() - rest.trim_start().len();
+            }
+            let Some(name) = identifier_at(comment, position) else { continue };
+            let text = self.factory.alloc_str(&name);
+            let identifier = self.factory.identifier(text, span);
+            parameters.push(self.factory.alloc(
+                tsr_ast::TypeParameterDeclaration::new(
+                    &[],
+                    Some(identifier),
+                    constraint,
+                    None,
+                    None,
+                ),
+                SyntaxKind::TypeParameter,
+                span,
+                NodeFlags::empty(),
+            ));
+        }
+        self.factory.slice(&parameters)
+    }
+
+    /// The function type a `@callback` block declares, built from its `@param`
+    /// tags and `@returns`, then parsed like any other grafted type.
+    fn jsdoc_callback_type(&mut self, comment: &'a str) -> Option<TypeNode<'a>> {
+        let source = self.options.source_text?;
+        let mut text = String::from("(");
+        for (index, (range, name, optional)) in jsdoc_param_tags(comment).into_iter().enumerate() {
+            if index > 0 {
+                text.push_str(", ");
+            }
+            text.push_str(&name);
+            if optional {
+                text.push('?');
+            }
+            text.push_str(": ");
+            text.push_str(&comment[range.0..range.1]);
+        }
+        text.push_str(") => ");
+        match jsdoc_braced_range(comment, "returns")
+            .or_else(|| jsdoc_braced_range(comment, "return"))
+        {
+            Some(range) => text.push_str(&comment[range.0..range.1]),
+            None => text.push_str("void"),
+        }
+        if text.contains(['\n', '\r']) {
+            return None;
+        }
+        let offset = (comment.as_ptr() as usize).checked_sub(source.as_ptr() as usize)?;
+        let padded = format!("{}{}", " ".repeat(offset), text);
+        let padded = self.factory.alloc_str(&padded);
+        self.factory.parse_grafted_type(padded)
+    }
+
     /// The nearest leading JSDoc before `node_id`, when the file is JavaScript.
     fn leading_jsdoc(&self, node_id: Option<tsr_ast::NodeId>) -> Option<&'a str> {
         if !self.javascript_file {
@@ -1524,8 +1747,11 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         let mut map = HashMap::new();
         if let Some(comment) = self.leading_jsdoc(node_id) {
             let span = self.span_of(node_id);
-            for (r#type, name) in jsdoc_param_tags(comment) {
-                if let Some(node) = self.simple_jsdoc_type(&r#type, span) {
+            for (range, name, _) in jsdoc_param_tags(comment) {
+                let node = self
+                    .simple_jsdoc_type(&comment[range.0..range.1], span)
+                    .or_else(|| self.graft_jsdoc_range(comment, range));
+                if let Some(node) = node {
                     map.insert(name, node);
                 }
             }
@@ -1641,8 +1867,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             // expression widens like a property initializer would.
             let r#type = self
                 .leading_jsdoc(statement.node_id)
-                .and_then(|comment| jsdoc_tag_text(comment, "type"))
-                .and_then(|text| self.simple_jsdoc_type(&text, span))
+                .and_then(|comment| self.jsdoc_type(comment, "type", span))
                 .or_else(|| {
                     self.ensure_type(
                         None,
@@ -1708,11 +1933,17 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                     node.postfix_token.filter(|token| token.kind != SyntaxKind::ExclamationToken);
                 let host = LiteralConstHost::Property(node);
                 let initializer = self.ensure_no_initializer(host);
+                // In JavaScript, a member's leading `@type` JSDoc is its
+                // written annotation (`typedefOnSemicolonClassElement`).
+                let annotation = node.r#type.or_else(|| {
+                    let comment = self.leading_jsdoc(node.node_id)?;
+                    self.jsdoc_type(comment, "type", span)
+                });
                 let r#type = if initializer.is_some() || private {
                     None
                 } else {
                     self.ensure_type(
-                        node.r#type,
+                        annotation,
                         node.initializer.as_ref(),
                         Freshness::Widening,
                         node.node_id,
@@ -2560,6 +2791,63 @@ fn statement_modifiers<'a>(statement: &Statement<'a>) -> Option<&'a [ModifierLik
 ///
 /// Returning one comment is intentional: an intervening non-internal comment
 /// prevents an older `@internal` comment from being attached to the declaration.
+/// The identifier starting at `position`, when one does and nothing dotted
+/// follows it.
+fn identifier_at(text: &str, position: usize) -> Option<String> {
+    let rest = text.get(position..)?;
+    let mut chars = rest.chars();
+    let head = chars.next()?;
+    if !(head.is_alphabetic() || head == '_' || head == '$') {
+        return None;
+    }
+    let name: String =
+        rest.chars().take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '$').collect();
+    if rest[name.len()..].starts_with('.') {
+        return None;
+    }
+    Some(name)
+}
+
+/// The end of a brace-matched region starting after an opening `{`.
+fn matched_brace(text: &str) -> Option<usize> {
+    let mut depth = 1usize;
+    for (index, c) in text.char_indices() {
+        match c {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(index);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// The brace-matched `{…}` range following `@<tag>`, as offsets into `comment`.
+fn jsdoc_braced_range(comment: &str, tag: &str) -> Option<(usize, usize)> {
+    let marker = format!("@{tag}");
+    let mut cursor = 0usize;
+    loop {
+        let index = comment[cursor..].find(&marker)? + cursor;
+        let after = index + marker.len();
+        cursor = after;
+        if !comment[after..].chars().next().is_none_or(char::is_whitespace) {
+            continue;
+        }
+        let rest = &comment[after..];
+        let skipped = rest.len() - rest.trim_start().len();
+        let open = after + skipped;
+        if !comment[open..].starts_with('{') {
+            continue;
+        }
+        let close = matched_brace(&comment[open + 1..])?;
+        return Some((open + 1, open + 1 + close));
+    }
+}
+
 /// The text following `@<tag>` in a JSDoc comment — braced (`{T}`) or the
 /// bare first token. The boundary check keeps `@type` from matching
 /// `@typedef`.
@@ -2589,29 +2877,36 @@ fn jsdoc_tag_text(comment: &str, tag: &str) -> Option<String> {
     }
 }
 
-/// Every `@param {T} name` pair in a JSDoc comment. A bracketed name
-/// (`[name]`, `[name=default]`) is JSDoc's optional syntax; the brackets and
-/// default are not part of the name.
-fn jsdoc_param_tags(comment: &str) -> Vec<(String, String)> {
+/// Every `@param {T} name` tag in a JSDoc comment, as the type's brace-matched
+/// range into `comment` plus the parameter name. A bracketed name (`[name]`,
+/// `[name=default]`) is JSDoc's optional syntax; the brackets and default are
+/// not part of the name.
+fn jsdoc_param_tags(comment: &str) -> Vec<((usize, usize), String, bool)> {
     let mut result = Vec::new();
-    let mut search = comment;
-    while let Some(index) = search.find("@param") {
-        let after = &search[index + "@param".len()..];
-        search = after;
-        if !after.chars().next().is_none_or(char::is_whitespace) {
+    let mut cursor = 0usize;
+    while let Some(found) = comment[cursor..].find("@param") {
+        let index = cursor + found;
+        let after = index + "@param".len();
+        cursor = after;
+        if !comment[after..].chars().next().is_none_or(char::is_whitespace) {
             continue;
         }
-        let rest = after.trim_start();
-        let Some(inner) = rest.strip_prefix('{') else { continue };
-        let Some(end) = inner.find('}') else { continue };
-        let r#type = inner[..end].trim().to_string();
-        let name_part = inner[end + 1..].trim_start();
+        let rest = &comment[after..];
+        let skipped = rest.len() - rest.trim_start().len();
+        let open = after + skipped;
+        if !comment[open..].starts_with('{') {
+            continue;
+        }
+        let Some(close) = matched_brace(&comment[open + 1..]) else { continue };
+        let range = (open + 1, open + 1 + close);
+        let name_part = comment[range.1 + 1..].trim_start();
         let raw = name_part.split_whitespace().next().unwrap_or("");
+        let optional = raw.starts_with('[');
         let raw = raw.strip_prefix('[').unwrap_or(raw);
         let name: String =
             raw.chars().take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '$').collect();
-        if !name.is_empty() && !r#type.is_empty() {
-            result.push((r#type, name));
+        if !name.is_empty() && range.0 < range.1 {
+            result.push((range, name, optional));
         }
     }
     result
