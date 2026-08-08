@@ -95,6 +95,15 @@ STATE AT HANDOFF (verify with a fresh coverage run):
   keeps its union (right); the residue is function-expression prints
   and deeper contextual hops (concise arrow bodies next).
 
+  OMIT/MERGE DECOMPOSED (build 120): all 161 lines are
+  longObjectInstantiationChain3 — `merge<A,B>` alias chains whose WANTS
+  are the recursively-EXPANDED `Omit<...>` bodies. One mechanism:
+  generic alias BODY instantiation (substitute the args through the
+  body and print the result — the §46 members-carrying reference's
+  EVALUATION half, plus §36's alias-declared-positions-evaluate rule
+  applied to generic aliases). Single-case mountain; needs
+  instantiate_type over alias bodies with the §42-v2 registration.
+
   NEXT HEADS, each with its section: the enum residue (string-length
   folding, cross-enum refs, §53's entry-order class), the || early-return
   divergence (7 lines, blocked on non-strict per-constituent facts), the
