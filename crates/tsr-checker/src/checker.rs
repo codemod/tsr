@@ -308,6 +308,8 @@ pub struct Checker<'a, 'n> {
     /// (`checker.go:12534`) — so unset is `false` and the comma-operator
     /// diagnostic is on by default.
     pub(crate) allow_unreachable_code: bool,
+    /// `unreachableCodeIsError` — the option written **explicitly** `false`.
+    pub(crate) unreachable_code_is_error: bool,
     /// `compilerOptions.noUnusedLocals`, read as `IsTrue()`
     /// (`checker.go:7107`) — unset is `false`, which is what keeps the whole
     /// unused-identifier family off for every case that does not ask for it.
@@ -584,6 +586,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             strict_property_initialization: true,
             file_has_parse_errors: false,
             allow_unreachable_code: false,
+            unreachable_code_is_error: false,
             no_implicit_any: false,
             no_unused_locals: false,
             no_unused_parameters: false,
@@ -667,6 +670,20 @@ impl<'a, 'n> Checker<'a, 'n> {
     /// `false` and the comma-operator diagnostic fires.
     pub fn set_allow_unreachable_code(&mut self, on: bool) {
         self.allow_unreachable_code = on;
+    }
+
+    /// Set [`Checker::unreachable_code_is_error`] from a case's compiler
+    /// options.
+    ///
+    /// `unreachableCodeIsError` (`binder.go`) is
+    /// `AllowUnreachableCode == core.TSFalse` — **explicitly** false, not
+    /// merely unset. With the option unset upstream emits a *suggestion*, which
+    /// never reaches a `.errors.txt`. This is the third state
+    /// [`Checker::allow_unreachable_code`]'s `bool` cannot carry, and reading
+    /// unset as `false` would report TS7027 on every case in the corpus with
+    /// dead code — `checker-notes-diag2.md` §82.
+    pub fn set_unreachable_code_is_error(&mut self, on: bool) {
+        self.unreachable_code_is_error = on;
     }
 
     /// Set `noUnusedLocals` / `noUnusedParameters` from a case's compiler

@@ -6353,3 +6353,153 @@ is **not** `NodeFlagsAmbient`. It is widened at `VariableStatement` and
 a *class member* must read the member's own `declare` modifier as well. Nothing
 else in `crate::check` does this today, and every rule that takes `ambient` for
 a member is one `declare` away from the same bug.
+
+---
+
+## 82. TS7027 — the binder already computed it
+
+`diaggap.rs` at `3446c5a`: **TS7027, 12 cases would convert alone**, the largest
+relation-free row left that §5 does not refuse (TS7026's 28 are still behind
+`declare global` merging in the binder, unchanged since §13).
+
+```ts
+// @allowUnreachableCode: false
+while (true);
+var x = 1;      // reachabilityChecks1.ts(2,1): error TS7027: Unreachable code detected.
+```
+
+**This looks like a binder rule and does not have to be one.** Upstream reports
+it from `Binder.checkUnreachable`, which needs `b.options.AllowUnreachableCode`
+— and *"compiler options plumbed into `tsr_binder::bind`, which nothing does
+today"* is the standing blocker this workstream has carried for TS1212 across
+three handoffs. It does not apply here: `tsr_binder` **already records the
+answer per node**. `bind_children` (`binder.rs:1019`) sets
+`NodeFacts::UNREACHABLE` on every potentially-executable node it binds under
+`current_flow == flow.unreachable()`, and `BindResult::facts` hands it to the
+checker. No signature changes, no options in the binder.
+
+### The three things upstream does that a fact per node does not
+
+**1. One report per run, not one per statement.** `checkUnreachable` sets
+`b.currentFlow = b.reportedUnreachableFlow` after reporting, and that node is
+*not* `unreachableFlow`, so the next statement's `currentFlow != unreachableFlow`
+test fails and it stays silent. The binder's fact is on every node in the
+region. The checker's walk is pre-order document order, so the model is a flag
+that is **set on report and cleared the moment a node without the fact is
+visited** — which is exactly what replacing `currentFlow` with a reachable node
+does upstream.
+
+**2. `var x;` does not report, `let x;` does.** The condition
+(`binder.go`, `checkUnreachable`'s `isError`) is *not a variable statement, or a
+block-scoped one, or one with at least one initialised declaration*. A bare
+`var x;` is hoisted and genuinely reachable in effect.
+
+**3. Unset is a SUGGESTION, not an error.** `unreachableCodeIsError(options)` is
+`AllowUnreachableCode == TSFalse` — **explicitly** false. With the option unset
+upstream emits a suggestion, which never appears in a `.errors.txt`. The
+checker's `allow_unreachable_code` is a `bool` today and cannot tell unset from
+false, so it needs the third state. **This is the trap §80 just paid for, in the
+opposite direction**: there the default was wrong because unset meant *on*; here
+reading unset as *off* would report TS7027 on every case in the corpus with dead
+code. The option is a `Tristate` upstream for a reason, and `GetStrictOptionValue`
+is not the function that reads it.
+
+### The bar
+
+**+9 cases**, against twelve sole-obstacle ones.
+
+**Falsifier (a):** the wrong column fills with second-and-later statements of a
+run. Then the pre-order flag is not modelling `reportedUnreachableFlow` and the
+collapse has to be done structurally, per statement list.
+
+**Falsifier (b):** wrong lines on `var` statements — condition 2 above is
+narrower or wider than stated.
+
+**Falsifier (c):** wrong lines in cases that do **not** write
+`@allowUnreachableCode: false`. That is the tristate failing, and it is the
+failure mode that would be largest by far.
+
+**Falsifier (d):** `checker_types` byte-identical.
+
+### Measured: **+3, bar of +9 MISSED, and the model was wrong twice before it was right**
+
+```
+diagnostics   1,337 -> 1,340    (+3 cases)
+checker_types 3,742 -> 3,742    byte-identical, falsifier (d) did not fire
+diag2307, RULE_CODES = [7027] alone
+  CONVERTS     0 -> 3
+  RIGHT        0 -> 31
+  WRONG        0 ->  3
+  LOST         0 ->  0
+```
+
+**Falsifier (c) did not fire** — no wrong line in a case without
+`@allowUnreachableCode: false`. The tristate is doing its job, and that was the
+failure mode that would have been largest by far.
+
+**Falsifier (b) did not fire** — no `var` line. `is_potentially_executable_node`
+(`narrowing.rs:500`) already carries upstream's variable-statement clause, which
+is the whole reason this build needed no binder change.
+
+**Falsifier (a) fired, twice, and the second firing is the finding.**
+
+*First cut* — 19 wrong against 22 right. Two separate bugs:
+
+1. **`error_span` narrows a declaration to its name.** Upstream's
+   `errorOnEachUnreachableRange` reports the statement's **own range**:
+   `reachabilityChecks1.ts(47,5)` for a `namespace A { … }`, where `error_span`
+   gives column 11. This is now the one report site in `crate::check` that
+   deliberately bypasses `error_span`, and §48's centralisation is what makes
+   the exception visible rather than invisible.
+2. **`reportedUnreachableFlow` as mutable walk state does not survive this
+   binder.** The flag was set on report and cleared on the next reachable
+   statement — a faithful reading of upstream. It over-reported every top-level
+   `namespace` after the first, because **this binder starts a fresh flow for a
+   namespace body and upstream does not**, so the flag was cleared on the way in
+   and re-armed on the way out.
+
+*Second cut* — the model is now **structural and stateless**: report only when
+no **ancestor** and no **preceding sibling** carries the fact. Same question,
+no dependence on the walk, and immune to the flow divergence entirely. Wrong
+went 19 → 11 (position) → 7 (ancestors) → **3** (siblings), with RIGHT rising
+22 → 30 → 30 → 31 throughout: **every one of the three corrections was pure
+subtraction from the wrong column.**
+
+> **The transferable part.** A port of a stateful upstream algorithm can be
+> wrong *because the state means something different here*, while every line of
+> it reads as a faithful transcription. Asking the tree the same question
+> statelessly was both shorter and right. This is the fourth build of the
+> session where the fix was a sentence about *why* rather than a threshold.
+
+### Why +3 and not +9, and the residual
+
+`diaggap` said twelve cases would convert alone; three did. The row is
+dominated by `reachabilityChecks1`…`11`, which are **one file re-run under
+eleven option combinations** — they share every shape, so they convert or fail
+together, and the sole-obstacle count counts them separately.
+**`diaggap`'s case count is not eleven independent cases when the corpus writes
+a family**, which is a limit on §79's metric that had not been seen before: it
+is still the right metric, but a row concentrated in one *file name stem* should
+be discounted the way a row concentrated in one case is.
+
+The three remaining wrong lines are all `const enum`:
+
+```ts
+// @preserveConstEnums: false
+while (true) { }
+const enum E { X }     // the port reports; upstream does not
+```
+
+`checkUnreachable`'s `reportError` admits an enum only when it is not a `const`
+enum **or** `ShouldPreserveConstEnums()` holds, and a module counts only when
+`isInstantiatedModule(node, ShouldPreserveConstEnums())` — a namespace whose
+only member is a non-preserved const enum generates no code and is not
+executable. **`preserveConstEnums` is not plumbed into this checker**, so the
+condition cannot be asked. Declining const enums unconditionally would be wrong
+for `reachabilityChecks1`, which writes `preserveConstEnums: true`.
+
+**Owner: the option.** `preserveConstEnums` is one line in
+`diagnostics_suite.rs` and a field on `Checker`, and it is the same shape as
+§80's and §82's own tristate — the third option in three builds. **The next
+session should plumb the remaining `CompilerOptions` this corpus writes in one
+build rather than one per rule.**

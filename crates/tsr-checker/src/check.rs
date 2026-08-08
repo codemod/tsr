@@ -47,7 +47,7 @@
 //! week.
 
 use tsr_ast::{ClassElement, ModifierLike, Node, NodeId, SyntaxKind};
-use tsr_binder::SymbolFlags;
+use tsr_binder::{NodeFacts, SymbolFlags};
 use tsr_diagnostics::{Diagnostic, messages};
 
 use crate::checker::Checker;
@@ -392,6 +392,7 @@ impl Checker<'_, '_> {
             }
             _ => ambient,
         };
+        self.check_unreachable(node, ambient);
         self.check_truthiness_sites(node, ambient);
         self.note_member_name_at(node);
         self.register_for_unused_check(node);
@@ -1679,6 +1680,123 @@ impl Checker<'_, '_> {
     /// the position (`checker.go:12537`); that whole class is already excluded
     /// here by the parse-error gate, which is the first time that gate has paid
     /// for something other than tree shape.
+    /// TS7027 — `Unreachable code detected.`
+    ///
+    /// `Binder.checkUnreachable` (`binder.go`) upstream, and **not a binder rule
+    /// here**: `tsr_binder` already records the answer per node.
+    /// `bind_children` (`binder.rs:1019`) sets [`NodeFacts::UNREACHABLE`] on
+    /// every node `is_potentially_executable_node` accepts while
+    /// `current_flow == flow.unreachable()`, and that predicate
+    /// (`narrowing.rs:500`) is already upstream's `reportError` condition
+    /// including the variable-statement clause — a bare `var x;` is hoisted and
+    /// does not report, a `let x;` is temporal-dead-zone observable and does.
+    ///
+    /// So the standing *"compiler options are not plumbed into
+    /// `tsr_binder::bind`"* blocker — carried for TS1212 across three handoffs —
+    /// does not apply here. `checker-notes-diag2.md` §82.
+    ///
+    /// # Three things the per-node fact is not
+    ///
+    /// **One report per run.** Upstream sets `currentFlow =
+    /// reportedUnreachableFlow` after reporting, so every later statement of
+    /// the run stays silent. Here that is **structural** rather than walk
+    /// state: a node reports only when no ancestor and no preceding sibling
+    /// carries the fact. Mutable walk state was tried first and is what §82
+    /// records as wrong.
+    ///
+    /// **`EmptyStatement` and declarations.**
+    /// `IsStatementButNotDeclaration(node) && node.Kind != KindEmptyStatement ||
+    /// ClassDeclaration || …`. The binder's predicate is the *kind range*, which
+    /// is wider on both counts, so the two extra tests are here.
+    ///
+    /// **Unset is a suggestion.** `unreachableCodeIsError` is
+    /// `AllowUnreachableCode == TSFalse`, explicitly — see
+    /// [`Checker::set_unreachable_code_is_error`].
+    fn check_unreachable(&mut self, node: NodeId, ambient: bool) {
+        if self.file_has_parse_errors
+            || !self.binder.facts(node).contains(NodeFacts::UNREACHABLE)
+            || !Self::is_reportable_unreachable_kind(self.nodes.kind(node))
+        {
+            return;
+        }
+        let Some(parent) = self.nodes.parent(node) else { return };
+        // An unreachable statement *inside* an unreachable one is the same run:
+        // upstream's `currentFlow` is still `reportedUnreachableFlow` all the
+        // way down.
+        if self
+            .nodes
+            .ancestors(node)
+            .any(|ancestor| self.binder.facts(ancestor).contains(NodeFacts::UNREACHABLE))
+        {
+            return;
+        }
+        // …and so is a statement whose **preceding sibling** is unreachable.
+        // Modelling `reportedUnreachableFlow` as mutable walk state was tried
+        // first and got this wrong: it clears on a reachable statement, and
+        // this binder starts a fresh flow inside a namespace body where
+        // upstream does not, so the flag came back on and every top-level
+        // `namespace` after the first reported. Asking the sibling list is the
+        // same question with no state — §82.
+        let Some(typed) = self.node_map.get(parent) else { return };
+        let mut siblings: Vec<NodeId> = Vec::new();
+        tsr_ast::for_each_child_id(typed, |child| siblings.push(child));
+        let Some(index) = siblings.iter().position(|&child| child == node) else { return };
+        if siblings[..index]
+            .iter()
+            .any(|&earlier| self.binder.facts(earlier).contains(NodeFacts::UNREACHABLE))
+        {
+            return;
+        }
+        // `!(node.Flags&NodeFlagsAmbient != 0)` — a statement in an ambient
+        // context is already an error and upstream declines there.
+        if ambient || !self.unreachable_code_is_error {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        // `errorOnEachUnreachableRange` reports on the **statement's own
+        // range**, not on `GetErrorRangeForNode`'s narrowing: upstream writes
+        // `reachabilityChecks1.ts(47,5)` for a `namespace A { … }` where
+        // `error_span` would give the name at column 11. This is the one report
+        // site in `crate::check` that must not go through `error_span`, and §48
+        // centralised the others precisely so an exception is visible.
+        let span = self.nodes.span(node);
+        self.report(file, Diagnostic::new(&messages::UNREACHABLE_CODE_DETECTED, span));
+    }
+
+    /// The kinds `checkUnreachable`'s `reportError` accepts, minus the
+    /// variable-statement clause the binder's own predicate already applied —
+    /// see [`Checker::check_unreachable`].
+    fn is_reportable_unreachable_kind(kind: SyntaxKind) -> bool {
+        if kind == SyntaxKind::EmptyStatement {
+            return false;
+        }
+        if matches!(
+            kind,
+            SyntaxKind::ClassDeclaration
+                | SyntaxKind::EnumDeclaration
+                | SyntaxKind::ModuleDeclaration
+        ) {
+            return true;
+        }
+        // `IsStatementButNotDeclaration`: a declaration is hoisted and is not
+        // "code" that control reaches.
+        if matches!(
+            kind,
+            SyntaxKind::FunctionDeclaration
+                | SyntaxKind::InterfaceDeclaration
+                | SyntaxKind::TypeAliasDeclaration
+                | SyntaxKind::ImportDeclaration
+                | SyntaxKind::ImportEqualsDeclaration
+                | SyntaxKind::ExportDeclaration
+                | SyntaxKind::ExportAssignment
+                | SyntaxKind::ModuleBlock
+        ) {
+            return false;
+        }
+        (SyntaxKind::FIRST_STATEMENT as u16) <= (kind as u16)
+            && (kind as u16) <= (SyntaxKind::LAST_STATEMENT as u16)
+    }
+
     fn check_comma_left(&mut self, node: NodeId, left: Option<NodeId>) {
         if self.file_has_parse_errors || self.allow_unreachable_code {
             return;

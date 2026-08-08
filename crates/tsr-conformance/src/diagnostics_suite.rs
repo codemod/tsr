@@ -268,6 +268,13 @@ fn from_check_traversal(test: &crate::TestCase) -> Vec<BaselineDiagnostic> {
     checker.set_allow_unreachable_code(
         test.options.get("allowunreachablecode").is_some_and(|v| v.eq_ignore_ascii_case("true")),
     );
+    // `unreachableCodeIsError` (`binder.go`) is `AllowUnreachableCode ==
+    // core.TSFalse` — **explicitly** false. Unset is a *suggestion* upstream and
+    // never reaches a `.errors.txt`, so this cannot be the negation of the line
+    // above (`checker-notes-diag2.md` §82).
+    checker.set_unreachable_code_is_error(
+        test.options.get("allowunreachablecode").is_some_and(|v| v.eq_ignore_ascii_case("false")),
+    );
 
     // `unusedIsError` (`checker.go:7104`) reads both as `IsTrue()`, so an unset
     // option is off and `crate::unused` reports nothing at all — which is what
