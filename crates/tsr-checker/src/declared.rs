@@ -657,7 +657,16 @@ impl<'a> Checker<'a, '_> {
         let printed = match node.node_id.and_then(|id| self.alias_symbol_for_type_node(id)) {
             // Shared with `checkObjectLiteral`, so the two structural renderers
             // cannot drift apart — see `crate::objects::render_object_type`.
-            None => crate::objects::render_object_type(&members),
+            // §77.1 (`checker-notes-narrow.md`): a literal whose subtree holds
+            // a SINGLE-QUOTED string literal type keeps its written spelling —
+            // the same gate as the parameter carriage, at the mint.
+            None => {
+                let mut single_quoted = false;
+                match crate::signatures::written_type_literal_text(node, &mut single_quoted) {
+                    Some(text) if single_quoted => text,
+                    _ => crate::objects::render_object_type(&members),
+                }
+            }
             Some(alias) if self.local_type_parameters_of(alias).is_empty() => {
                 self.binder.symbols().get(alias).name.to_string()
             }

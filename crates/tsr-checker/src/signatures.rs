@@ -1600,7 +1600,10 @@ impl<'a> Checker<'a, '_> {
     /// §77's bounded written-node renderer. `None` for any shape outside the
     /// bounded set; sets `single_quoted` when a `'…'` literal appears, which
     /// is the caller's gate.
-    fn written_type_text(annotation: TypeNode<'_>, single_quoted: &mut bool) -> Option<String> {
+    pub(crate) fn written_type_text(
+        annotation: TypeNode<'_>,
+        single_quoted: &mut bool,
+    ) -> Option<String> {
         match annotation {
             TypeNode::KeywordTypeNode(keyword) => match keyword.kind {
                 SyntaxKind::StringKeyword => Some("string".to_string()),
@@ -2293,6 +2296,15 @@ fn apply_renames(text: &str, renames: &[(String, String)]) -> String {
         out = result;
     }
     out
+}
+
+/// §77.1's entry for a bare `TypeLiteralNode` (no `TypeNode` wrapper at the
+/// mint site) — same renderer, same gate.
+pub(crate) fn written_type_literal_text(
+    node: &tsr_ast::TypeLiteralNode<'_>,
+    single_quoted: &mut bool,
+) -> Option<String> {
+    Checker::written_type_text(TypeNode::TypeLiteralNode(node), single_quoted)
 }
 
 #[cfg(test)]

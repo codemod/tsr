@@ -2999,3 +2999,21 @@ wins precisely where it cannot be.
 
 **§77 score — LANDED.** right 403,331 → **403,701 (84.30%)** —
 **+370, ZERO adverse**, the largest zero-cost build since §64.
+
+## §77.1 landed, §77.2 REFUSED at 35:249
+
+§77.1 extends the quote gate to the TYPE-LITERAL MINT (`{ kind: 'foo';
+foo: string; }` prints its written spelling everywhere, not only in
+parameter carriage): **+53, zero adverse** — right 403,701 → 403,754
+(84.31%).
+
+§77.2 — the same idea at the UNION mint, routed through §53's origin
+machinery to preserve written constituent order — measured **35 W→R
+against 94 R→G + 20 R→W** (net right −132): the origin road's
+declines (an entry whose print errors kills the union; the slice
+gates) turn working sorted-print unions into gaps at scale, and the
+narrowed-constituent positions (`controlFlowAliasing`'s single-object
+prints) need DISCRIMINANT NARROWING to fire on aliased conditions,
+which no print change supplies. Union order at annotation sites stays
+priced; re-open only with an origin path that cannot gap an
+already-working union. Reverted.
