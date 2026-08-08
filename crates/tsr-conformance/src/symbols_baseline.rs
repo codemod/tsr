@@ -124,10 +124,24 @@ pub fn line_and_character(source: &str, offset: u32) -> (u32, u32) {
     let offset = offset as usize;
     let mut line = 0u32;
     let mut line_start = 0usize;
-    for (index, byte) in source.as_bytes().iter().enumerate().take(offset) {
-        if *byte == b'\n' {
+    // Upstream's `core.ComputeLineStarts`: `\r\n`, `\r`, `\n`, and the Unicode
+    // line and paragraph separators all end a line
+    // (`allowUnescapedParagraphAndLineSeparatorsInStringLiteral`).
+    let mut characters = source.char_indices().take_while(|(index, _)| *index < offset).peekable();
+    while let Some((_, character)) = characters.next() {
+        let broke = match character {
+            '\n' | '\u{2028}' | '\u{2029}' => true,
+            '\r' => {
+                if characters.peek().is_some_and(|(_, next)| *next == '\n') {
+                    characters.next();
+                }
+                true
+            }
+            _ => false,
+        };
+        if broke {
             line += 1;
-            line_start = index + 1;
+            line_start = characters.peek().map_or(source.len().min(offset), |(next, _)| *next);
         }
     }
     let character = source

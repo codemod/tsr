@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 binder_symbols Summary:
 What a pass means: every symbol in the .symbols baseline exists with the same declaration lines
-Passed         : 8407/8473 (99.22%)
-Failed         : 66
+Passed         : 8408/8473 (99.23%)
+Failed         : 65
 Skipped        : 3971 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -80,8 +80,6 @@ compiler/staticFieldWithInterfaceContext
   3 symbol(s): c.x: declared on {3}, expected to include {3, 15, 17}; c10.x: no symbol; c11.x: no symbol
 compiler/strictOptionalProperties4
   1 symbol(s): foo: no symbol
-conformance/allowUnescapedParagraphAndLineSeparatorsInStringLiteral
-  3 symbol(s): arr: declared on {16}, expected to include {28}; stringContainingUnescapedLineSeparator2: declared on {7}, expected to include {11}; stringContainingUnescapedLineSeparator3: declared on {11}, expected to include {19}
 conformance/assertionTypePredicates2
   1 symbol(s): y: no symbol
 conformance/autoAccessorNoUseDefineForClassFields
