@@ -6610,3 +6610,86 @@ proper.
 `checkResolvedBlockScopedVariable` picks between the three off the symbol's
 flags and shares everything else. Building it for one code would be building it
 for three.
+
+---
+
+## 84. The rest of the strict family — auditing every option default at once
+
+§80 found `noImplicitAny` defaulting off in the diagnostics harness when
+`GetStrictOptionValue` (`core/compileroptions.go:294`) makes an unset option
+**on**, ten lines below a `strictNullChecks` that already had it right. The
+obvious next question — *which of the others are wrong?* — is one grep, and this
+is the build that asks it rather than waiting for a rule to trip over one.
+
+Every option the checker owns, against the upstream function that reads it:
+
+| option | upstream reader | unset means | harness | verdict |
+|---|---|---|---|---|
+| `strictNullChecks` | `GetStrictOptionValue` (`checker.go:925`) | **on** | `unwrap_or(true)` | right |
+| `noImplicitAny` | `GetStrictOptionValue` (`:924`) | **on** | `unwrap_or(true)` | right, since §80 |
+| `strictPropertyInitialization` | `GetStrictOptionValue` (`:922`) | **on** | `unwrap_or(true)` | right |
+| **`useUnknownInCatchVariables`** | **`GetStrictOptionValue` (`:926`)** | **on** | **never set — `false`** | **WRONG** |
+| `noUncheckedIndexedAccess` | `== core.TSTrue` (`:6115`) | off | not set here | right |
+| `noUnusedLocals` / `noUnusedParameters` | `IsTrue()` (`:7104`) | off | `is_some_and("true")` | right |
+| `allowUnreachableCode` | `Tristate`, three meanings | suggestion | §82's pair | right |
+
+**One is wrong, and it is the one no rule had reached for.**
+`set_use_unknown_in_catch_variables` exists on the `Checker`, is read at
+`symbols.rs:1597`, and **the diagnostics harness never calls it** — so every
+un-annotated `catch (e)` in the corpus has type `any` here and `unknown`
+upstream.
+
+### Why this is a diagnostics build and not a `.types` one
+
+Nothing reports TS-anything about a catch variable directly. The type is an
+*input* to rules that ask what a value is: TS2571 (`Object is of type
+'unknown'`), TS18046, TS2339 on `e.message`, TS2345 passing `e` on. **Its
+blast radius is other rules**, which makes it exactly the kind of change that
+can be net negative, and exactly the kind that never gets made because no single
+row points at it.
+
+### The bar
+
+**+0.** This is a *correctness* build, not a conversion one: the honest
+prediction is that almost nothing moves, because the rules that consume a catch
+variable's type are mostly relation-bound and already silent. It is worth
+landing at zero for the same reason §68 and §69 were — it removes a wrong input
+from every rule that reads it, and the next build in that family would otherwise
+debug the option instead of the rule.
+
+**Falsifier (a):** a net negative. Then `unknown` is reaching a rule that was
+silently correct on `any`, and the finding is *which* rule — that is the
+interesting outcome, not the option.
+
+**Falsifier (b):** `checker_types` moves. It must not: this is the diagnostics
+harness only, and `trace_case.rs` has its own option plumbing.
+
+### Measured: **zero, and VERIFIED zero rather than merely measured**
+
+```
+diagnostics   1,346 -> 1,346   (+0 cases, as barred)
+checker_types 3,742 -> 3,742   byte-identical, falsifier (b) did not fire
+diag2307, the FULL RULE_CODES list, both sides of the edit:
+  CONVERTS 1,227 | RIGHT 12,019 | WRONG 746 | LOST 1   — identical
+```
+
+**Falsifier (a) did not fire**: no net negative, and nothing moved in either
+direction. The whole-suite counterfactual was run on both sides precisely
+because a case count of zero cannot distinguish *"nothing depends on this"* from
+*"the code does not run"* — §49's trap. At the **line** level the two sides are
+identical too, so no diagnostic in the 5,488 judged cases is sensitive to a
+catch variable's type today.
+
+**What that does and does not establish.** It establishes that the change is
+free. It does **not** establish that `symbols.rs:1597` is exercised by a judged
+case at all — a zero on both sides is consistent with the reader never being
+reached. That is left unproven rather than asserted, and it is the one thing a
+future reader should not take from this section.
+
+The build is kept on §68/§69's precedent: it removes a wrong input from every
+rule that will read it, and the alternative is that the next build in that
+family spends its first hour debugging the option instead of the rule. The
+audit table above is the durable part — **five of the seven options were already
+right, and the wrong one was the only one no rule had reached for yet**, which
+is the general shape: an option nobody consumes is an option nobody has
+checked.

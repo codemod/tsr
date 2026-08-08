@@ -286,6 +286,14 @@ fn from_check_traversal(test: &crate::TestCase) -> Vec<BaselineDiagnostic> {
     // `strictNullChecks` above already applies; these two lines disagreed about
     // one question for eleven sessions, and `strictNullChecks` was the right
     // one (`checker-notes-diag2.md` §80).
+    // `c.useUnknownInCatchVariables = GetStrictOptionValue(...)`
+    // (`checker.go:926`) — a strict option like the three above, and the one
+    // this harness never set at all. Every un-annotated `catch (e)` in the
+    // corpus therefore had type `any` here and `unknown` upstream
+    // (`checker-notes-diag2.md` §84).
+    checker.set_use_unknown_in_catch_variables(
+        explicit("useunknownincatchvariables").or_else(|| explicit("strict")).unwrap_or(true),
+    );
     checker.set_no_implicit_any(
         explicit("noimplicitany").or_else(|| explicit("strict")).unwrap_or(true),
     );
