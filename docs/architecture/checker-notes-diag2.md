@@ -8839,3 +8839,48 @@ No case count is claimed for this until it is measured. **The 18 cases stay on
 the board with no owner change and no size change**, because §118 changed both
 on the strength of a bad probe and this section is undoing that, not replacing it
 with another guess.
+
+## §120 — §119's hypothesis confirmed with a number, and the row refused at +2/+7
+
+§119 said, unmeasured and labelled as such, that TS1361 dies because this port's
+alias symbols answer `VALUE` and `check_value_identifier` returns at its
+`VALUE`-resolution early return, before any type-only test.
+
+**Confirmed.** Moving the test to that early return — where the symbol is in
+hand — makes the rule fire:
+
+| | CONVERTS | LOST | RIGHT | WRONG |
+|---|---:|---:|---:|---:|
+| before | 219 | 2 | 2,409 | 414 |
+| after | **221** | **2** | **2,423** | **421** |
+
+**+2 cases, +14 right lines, +7 wrong, LOST unchanged. Refused and reverted** —
++2 for +7 is the worst ratio this session has landed anything at, and §104's
++10/+7 was already recorded as a missed bar.
+
+### What the 7 wrong lines are, and what would fix them
+
+The rule inspects **the alias's own declaration only**. Upstream walks the alias
+**chain** — `getTypeOnlyAliasDeclarationEx` (`checker.go:1861`) follows
+re-exports and intermediate aliases to find *which* declaration carried the
+`type`, and returns `nil` when none did. Without the walk, an alias whose
+type-only-ness lives one hop away is either missed or attributed wrongly, and
+seven lines is what that costs.
+
+**So the row's real requirement is the alias chain, which is exactly what §115
+priced it at** — and §115's reasoning survives this section even though §116
+knocked TS2302 out of the same bucket. The difference is that TS2302 needed only
+*that resolution had been attempted*, and TS1361 needs *what resolution found,
+one hop out*.
+
+### Three sections to reach one confirmed diagnosis
+
+§117 wrote the predicate and measured zero. §118 mis-sited a probe and
+concluded, wrongly, that the traversal was broken. §119 disproved that and
+named the real cause without measuring it. §120 measured it.
+
+The useful part is that the diagnosis is now **numbered**, not asserted: the
+`VALUE` early return is the blocker (+2 cases when bypassed) and the alias chain
+is the remainder (+7 wrong without it). **Owner: `getTypeOnlyAliasDeclarationEx`,
+and the 18 cases stay on the board at that price** — which is the first time
+this row has had one.
