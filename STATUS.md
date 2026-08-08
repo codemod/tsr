@@ -1282,7 +1282,11 @@ its whole deliverable and accept that it converts nothing until finished.
   wanted them is `isPartOfPossiblyValidTypeOrAbstractComputedPropertyName`
   (`ast/utilities.go:3143`) — a computed property name on an `abstract` member
   or in an interface/type literal is erased. §121's attribution was right all
-  along. Five wrong lines remain, unattributed and un-guessed.
+  along. Five wrong lines remain, and **§124 read them: three families** — `export =` /
+  `export default` of a type-only alias (upstream reports there, so a blind
+  decline trades wrong lines for missing ones), two uncaught computed property
+  names, and one unread TS1362. **Read the upstream baseline before writing any
+  decline on this row.**
 - **`head` and `grep` compose into a SILENT FALSE NEGATIVE** (§123). §122's
   "the wrong column holds no TS1361" came from filtering a `head`-truncated
   listing: the filter matched nothing because the lines were **cut off**, not
