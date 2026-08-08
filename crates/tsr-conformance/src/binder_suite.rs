@@ -244,6 +244,47 @@ impl Suite for BinderSymbols {
                             }
                         }
                     }
+                    // A late-bound member — `["" + ""]`, `[k]` — binds as an
+                    // anonymous `__computed` symbol, and the baseline prints it
+                    // under the *written bracket text*: bare (`[e]`) or
+                    // container-juxtaposed (`C["\" + \""]`), with a
+                    // string-quoted expression re-wrapped after escaping. Offer
+                    // those spellings; each declaration's own line rides in, so
+                    // sibling `__computed` symbols of one written name union
+                    // under one key exactly as upstream's one late-bound symbol
+                    // lists every declaration.
+                    if symbol.name == "__computed" {
+                        for declaration in &symbol.declarations {
+                            if !file.contains(*declaration) {
+                                continue;
+                            }
+                            let Some(computed) = bound.computed_name(*declaration) else {
+                                continue;
+                            };
+                            let span = nodes.span(computed);
+                            let Some(text) =
+                                unit.content.get(span.start as usize..span.end as usize)
+                            else {
+                                continue;
+                            };
+                            let Some(bracket) = computed_display(text) else { continue };
+                            let mut spelled = vec![bracket.clone()];
+                            if let Some(parent) = symbol.parent {
+                                for container in display_names(
+                                    bound,
+                                    nodes,
+                                    parent,
+                                    &names_by_declaration,
+                                    &unit.content,
+                                ) {
+                                    spelled.push(format!("{container}{bracket}"));
+                                }
+                            }
+                            for name in spelled {
+                                ours.entry(name).or_default().extend(&declared);
+                            }
+                        }
+                    }
                 }
                 // Alias transparency, the same accommodation as the dotted
                 // suffixes above. The baseline is checker-written, and the
@@ -753,6 +794,28 @@ fn is_numeric_literal(text: &str) -> bool {
             || *byte == b'_'
             || (matches!(byte, b'+' | b'-') && index > 0 && matches!(bytes[index - 1], b'e' | b'E'))
     })
+}
+
+/// The baseline's spelling of a computed member name, from its written text.
+///
+/// `scanner.DeclarationNameToString` gives the written form; the qualified
+/// element-access display re-wraps a string-quoted expression after escaping
+/// its quotes (`["" + ""]` prints as `["\" + \""]`), while identifiers and
+/// templates stay verbatim (`[e]`, ``Foo[`b`]``).
+fn computed_display(text: &str) -> Option<String> {
+    let text = text.trim();
+    let inner = text.strip_prefix('[')?.strip_suffix(']')?.trim();
+    if inner.is_empty() {
+        return None;
+    }
+    for quote in ['"', '\''] {
+        if inner.len() >= 2 && inner.starts_with(quote) && inner.ends_with(quote) {
+            let middle = &inner[1..inner.len() - 1];
+            let escaped = middle.replace(quote, &format!("\\{quote}"));
+            return Some(format!("[{quote}{escaped}{quote}]"));
+        }
+    }
+    Some(format!("[{inner}]"))
 }
 
 /// The numeric spellings a symbol's declarations were written with.
