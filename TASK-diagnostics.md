@@ -12,7 +12,7 @@ FIRST: git pull. Then read, in this order:
   builds.
 
 STATE AT HANDOFF (verify with a fresh coverage run):
-  diagnostics    1,383/5,488 = 25.20%   (was 1,346; +37 over 8 builds and
+  diagnostics    1,385/5,488 = 25.24%   (was 1,346; +39 over 9 builds and
                  THREE priced refusals — §94, §96, §97 —
                  **zero cases lost, and the wrong column FELL in two of them**)
   checker_types  3,842/9,538 · 84.13% — the other workstream's, and it moves
@@ -141,27 +141,15 @@ TS2540      12         9
    lists none of them, so none is a *sole* obstacle and they are not 61
    conversions. Price them with `extraonly`, not with `diag2307`'s wrong column.
 
-4. **`isBlockScopedNameDeclaredBeforeUse` — THREE measurements, and it is now
-   down to DEBUGGING ONE FIXTURE.** §96 approximated the deferrals (176 wrong,
-   6 LOST); §97 ported them (21 wrong, 1 LOST); §98 ported
-   `GetEnclosingBlockScopeContainer` too (**CONVERTS 6 → 8, RIGHT 14 → 31**,
-   21 wrong, 1 LOST). All three reverted, the last **on the LOST alone**.
-
-   **The remaining blocker is one named case: `conformance/controlFlowNullishCoalesce`,
-   in the block-scoped-variable arm** — §98 confirmed the arm by removing the
-   enum arm and watching LOST stay at 1. Reproduce it with `diagcase`, find the
-   deferral it needs, and this lands.
-
-   **Keep all three findings; each cost a measurement.** (a) A use in a type
-   context is deferred regardless of position (`checker.go:1932`) — 155 of the
-   original 176 wrong lines. (b) Decline a symbol with more than one declaration
-   — a merge's declaration position is arbitrary among its members, and this
-   took LOST from 6 to 1. (c) The ancestor walk must quit at the declaration's
-   **block-scope container** (`checker.go:2011`, `utilities.go:2171`), worth +1
-   conversion and +10 right lines.
-
-   Thirteen sole-obstacle cases behind it (TS2448 7, TS2449 5, TS2450 1), all
-   relation-free.
+4. ~~`isBlockScopedNameDeclaredBeforeUse`~~ **DONE, §99** — refused three times
+   (§96, §97, §98) and landed on the fourth at **+2 cases, wrong 21 → 1, LOST
+   0**. The last blocker was §83's `declaration_is_in_an_ambient_context`
+   holding only two node kinds; a `declare const` puts the modifier on the
+   enclosing `VariableStatement`. **One wrong line is left**:
+   `enumUsedBeforeDeclaration(2,24)`, owner `getEnclosingBlockScopeContainer`
+   for an enum, whose container differs from a variable's. TS2449's remaining
+   rows still want the deferral arms this build did not port (JSDoc, the
+   instance-property `isStatic` split).
 
 5. **The rest of `diaggap`'s relation-free single-code column** — re-run it;
    TS2693, TS2364, TS2703, TS2558 were 9/7/7/6 before this session's builds.
