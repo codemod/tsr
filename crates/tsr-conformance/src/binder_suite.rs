@@ -181,6 +181,27 @@ impl Suite for BinderSymbols {
                         names_by_declaration.entry(*declaration).or_default().push(symbol.name);
                     }
                 }
+                // `export default foo` is a declaration of the `default`
+                // symbol whose written name is the exported identifier —
+                // `getNameOfDeclaration` of an export assignment is its
+                // expression, so `symbolToString` prints `foo`
+                // (`exportDefaultClassAndValue`). No symbol shares that
+                // declaration, so the name is read off the statement.
+                if let Some(source_file) = program.source_file(&unit.name) {
+                    for statement in source_file.source_file().statements {
+                        let tsr_ast::Statement::ExportAssignment(assignment) = statement else {
+                            continue;
+                        };
+                        let Some(tsr_ast::Expression::Identifier(identifier)) =
+                            assignment.expression
+                        else {
+                            continue;
+                        };
+                        if let Some(id) = assignment.node_id {
+                            names_by_declaration.entry(id).or_default().push(identifier.text);
+                        }
+                    }
+                }
 
                 // What we produced, keyed by *qualified* name.
                 let mut ours: std::collections::HashMap<String, BTreeSet<u32>> =
