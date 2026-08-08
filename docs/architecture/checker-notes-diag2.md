@@ -7159,3 +7159,54 @@ are real and still worth removing, but they are not 61 conversions and they are
 not the cheapest thing on the board. The claim was made from the wrong
 instrument: `diag2307`'s wrong column prices *lines*, and only `extraonly`
 prices a false positive in *cases*.
+
+## §90 — TS2554's `new` half: arity does not need generics, and "1-2" is an ARGUMENT
+
+Diagnosis, sized for the next build. **Not built here.**
+
+TS2554 is the largest actionable relation-free row left: **18 sole-obstacle
+cases over 29 missing lines**, a concentration of 1.6 — the best shape on the
+board, and the opposite of the trap §82 hit.
+
+`classWithConstructors` carries five of them and splits the row cleanly. The
+rule already reports `new C()` for a plain class and already hops one `extends`
+link; what it declines is:
+
+```ts
+class C2 { constructor(x: number); constructor(x: string); constructor(x: any) {} }
+new C2();          // declined: sole_constructor_parameters wants ONE constructor
+class C<T> { constructor(x: T) {} }
+new C();           // declined: declines any class with type parameters
+```
+
+**Both declines are about the argument-TYPE half and neither is about arity.**
+`constructor(x: T)` takes one argument whether or not `T` is inferred, and an
+overload set has a perfectly well-defined `(min, max)` — the min over each
+signature's minimum and the max over each signature's length. The rule computes
+arity and argument types in one pass and declines both together; splitting them
+so the arity half survives a generic or overloaded constructor is the build.
+
+### The finding worth having before starting
+
+`Expected 1-2 arguments, but got 0.` is **also TS2554**. There is no separate
+message and no separate code — `EXPECTED_0_ARGUMENTS_BUT_GOT_1` is
+`"Expected {0} arguments, but got {1}."`, and upstream passes the string `"1-2"`
+as `{0}` when min and max differ. Checked against
+`baselines/reference/classWithConstructors.errors.txt` lines 5-6, which read
+`TS2554: Expected 1-2 arguments, but got 0.` — the same code as lines 1-4's
+`Expected 1 arguments`.
+
+An implementation that reaches for a second message will not find one in
+`messages.rs`; the argument is composed, not selected. That is worth an hour to
+whoever would otherwise go looking for `Expected_0_1_arguments_but_got_2`.
+
+### The rest of the row, unsized
+
+`functionOverloads29`/`34`/`37` are the same overload question on the **call**
+arm rather than the `new` arm. `genericRestArity`, `requiredInitializedParameter1`
+and `spreadOfParamsFromGeneratorMakesRequiredParams` are rest-parameter and
+initialiser-ordering shapes that `sole_signature_arity` declines with
+`take_while(dot_dot_dot_token.is_none())`. The JS cases
+(`argumentsObjectCreatesRestForJs`, `argumentsPropertyNameInJsMode1`/`2`) are
+behind `in_js_file`, and §74's rule applies: **a JS decline does not transfer
+between arms** — they need measuring, not assuming.
