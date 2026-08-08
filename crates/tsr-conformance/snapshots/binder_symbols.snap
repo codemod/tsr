@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 binder_symbols Summary:
 What a pass means: every symbol in the .symbols baseline exists with the same declaration lines
-Passed         : 8310/8473 (98.08%)
-Failed         : 163
+Passed         : 8401/8473 (99.15%)
+Failed         : 72
 Skipped        : 3971 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -12,11 +12,6 @@ Skipped        : 3971 (excluded from the denominator)
   924  skipped: upstream recorded no .symbols baseline
   450  skipped: upstream records a known divergence from TypeScript (.diff baseline)
 
-First 100 of 163 failures:
-compiler/aliasBug
-  3 symbol(s): booz: declared on {7}, expected to include {4, 7}; provide.Provide: no symbol; provide.bar: no symbol
-compiler/aliasDoesNotDuplicateSignatures
-  1 symbol(s): demo.d.ts: alias: declared on {3}, expected to include {0, 3}
 compiler/ambientExternalModuleWithRelativeModuleName
   1 symbol(s): .\\relativeModule: no symbol
 compiler/augmentExportEquals3
@@ -25,28 +20,12 @@ compiler/augmentExportEquals4
   1 symbol(s): file2.ts: x.b: no symbol
 compiler/augmentExportEquals6
   1 symbol(s): file2.ts: x.B.b: no symbol
-compiler/classImplementsImportedInterface
-  1 symbol(s): T: declared on {6}, expected to include {0, 6}
-compiler/collisionExportsRequireAndInternalModuleAliasInGlobalFile
-  1 symbol(s): exports: declared on {3, 9, 16}, expected to include {0, 3, 9, 16}
-compiler/constEnumOnlyModuleMerging
-  3 symbol(s): O: declared on {8}, expected to include {0, 2, 8}; O.A: no symbol; O.A.X: no symbol
-compiler/constEnums
-  3 symbol(s): I: declared on {13, 95}, expected to include {51, 62, 95}; I.V1: no symbol; I.V2: no symbol
-compiler/declFileAliasUseBeforeDeclaration2
-  1 symbol(s): E: declared on {6}, expected to include {1, 6}
 compiler/declFileImportedTypeUseInTypeArgPosition
   1 symbol(s): x.Foo: no symbol
-compiler/declFileInternalAliases
-  1 symbol(s): x: declared on {4, 8}, expected to include {0, 4, 8}
 compiler/declarationEmitExpandoWithGenericConstraint
   1 symbol(s): Point.zero: no symbol
 compiler/declarationEmitLateBoundAssignments2
   3 symbol(s): arrow.B: no symbol; arrow3.77: no symbol; arrow5.101: no symbol
-compiler/declarationEmitNameConflictsWithAlias
-  1 symbol(s): v.I: no symbol
-compiler/declareDottedExtend
-  2 symbol(s): ab: declared on {3}, expected to include {0, 3}; ab.C: no symbol
 compiler/decoratorsOnComputedProperties
   3 symbol(s): C["some\" + \"method"]: no symbol; D["some\" + \"method"]: no symbol; E["some\" + \"method"]: no symbol
 compiler/duplicateIdentifierDifferentSpelling
@@ -55,12 +34,6 @@ compiler/duplicateObjectLiteralProperty_computedName1
   2 symbol(s): +1: declared on {15, 20, 21}, expected to include {15, 16, 20, 21}; -1: declared on {25, 30, 31}, expected to include {25, 26, 30, 31}
 compiler/dynamicNamesErrors
   2 symbol(s): T0.1: declared on {4}, expected to include {3, 4}; T3[c0]: declared on {16}, expected to include {16, 17}
-compiler/erasableSyntaxOnly
-  2 symbol(s): index.ts: FineAlias: declared on {60}, expected to include {58, 60}; index.ts: NoGoodAlias: declared on {23}, expected to include {21, 23}
-compiler/erasableSyntaxOnlyDeclaration
-  2 symbol(s): index.d.ts: FineAlias: declared on {43}, expected to include {41, 43}; index.d.ts: NoGoodAlias: declared on {12}, expected to include {10, 12}
-compiler/es6ModuleInternalImport
-  2 symbol(s): a2: declared on {3}, expected to include {1, 3}; a4: declared on {7, 13}, expected to include {1, 7, 13}
 compiler/esModuleInteropDefaultImports
   2 symbol(s): b.ts: self.def: no symbol; b.ts: self.default: no symbol
 compiler/esModuleInteropImportTSLibHasImport
@@ -75,102 +48,18 @@ compiler/exportDefaultInterfaceClassAndValue
   1 symbol(s): foo: declared on {0}, expected to include {0, 1, 2}
 compiler/exportDefaultTypeClassAndValue
   1 symbol(s): foo: declared on {0}, expected to include {0, 1}
-compiler/exportImportAndClodule
-  1 symbol(s): D: declared on {12}, expected to include {0, 3, 12}
-compiler/exportImportNonInstantiatedModule
-  1 symbol(s): A1: declared on {4}, expected to include {0, 4}
 compiler/expressionsForbiddenInParameterInitializers
   1 symbol(s): ./bar: no symbol
 compiler/externalModuleReferenceDoubleUnderscore1
   1 symbol(s): basics.TimeUnit: no symbol
-compiler/importAliasInModuleAugmentation
-  2 symbol(s): x: declared on {7}, expected to include {3, 7}; x.s: no symbol
-compiler/importAnImport
-  1 symbol(s): ma.b: no symbol
-compiler/importAndVariableDeclarationConflict1
-  1 symbol(s): x: declared on {2, 5}, expected to include {1, 2, 5}
-compiler/importAndVariableDeclarationConflict2
-  1 symbol(s): x: declared on {2, 8}, expected to include {1, 2, 8}
-compiler/importAndVariableDeclarationConflict3
-  1 symbol(s): x: declared on {2, 4}, expected to include {1, 2, 4}
-compiler/importAndVariableDeclarationConflict4
-  1 symbol(s): x: declared on {4}, expected to include {1, 4}
-compiler/importDeclWithDeclareModifierInAmbientContext
-  1 symbol(s): a: declared on {4}, expected to include {1, 4}
-compiler/importDeclWithExportModifierAndExportAssignmentInAmbientContext
-  1 symbol(s): a: declared on {4}, expected to include {1, 4}
-compiler/importDeclWithExportModifierInAmbientContext
-  1 symbol(s): a: declared on {4}, expected to include {1, 4}
-compiler/importDeclarationNotCheckedAsValueWhenTargetNonValue
-  1 symbol(s): exp: declared on {15}, expected to include {3, 6, 15}
-compiler/importInTypePosition
-  2 symbol(s): a: declared on {8, 13}, expected to include {0, 8, 13}; a.Point: no symbol
-compiler/importedModuleAddToGlobal
-  3 symbol(s): a: declared on {7, 12}, expected to include {0, 7, 12}; b: declared on {2}, expected to include {2, 5}; c: declared on {3}, expected to include {3, 10}
 compiler/indexTypeNoSubstitutionTemplateLiteral
   1 symbol(s): Foo[`b`]: no symbol
-compiler/innerAliases
-  2 symbol(s): inner: declared on {8}, expected to include {1, 8}; inner.Class1: no symbol
-compiler/innerAliases2
-  2 symbol(s): provider: declared on {7}, expected to include {0, 7}; provider.UsefulClass: no symbol
-compiler/internalAliasClass
-  1 symbol(s): b: declared on {5}, expected to include {0, 5}
-compiler/internalAliasClassInsideTopLevelModuleWithExport
-  2 symbol(s): xc: declared on {6}, expected to include {0, 6}; xc.foo: no symbol
-compiler/internalAliasClassInsideTopLevelModuleWithoutExport
-  2 symbol(s): xc: declared on {6}, expected to include {0, 6}; xc.foo: no symbol
-compiler/internalAliasEnum
-  2 symbol(s): b: declared on {8}, expected to include {0, 8}; b.Sunday: no symbol
-compiler/internalAliasEnumInsideLocalModuleWithExport
-  2 symbol(s): b: declared on {8}, expected to include {0, 8}; b.Sunday: no symbol
-compiler/internalAliasEnumInsideLocalModuleWithoutExport
-  2 symbol(s): b: declared on {8}, expected to include {0, 8}; b.Sunday: no symbol
-compiler/internalAliasEnumInsideLocalModuleWithoutExportAccessError
-  2 symbol(s): b: declared on {8}, expected to include {0, 8}; b.Sunday: no symbol
-compiler/internalAliasFunction
-  1 symbol(s): b: declared on {6}, expected to include {0, 6}
-compiler/internalAliasFunctionInsideLocalModuleWithExport
-  1 symbol(s): b: declared on {6}, expected to include {0, 6}
-compiler/internalAliasFunctionInsideLocalModuleWithoutExport
-  1 symbol(s): b: declared on {6}, expected to include {0, 6}
-compiler/internalAliasFunctionInsideLocalModuleWithoutExportAccessError
-  1 symbol(s): b: declared on {6}, expected to include {0, 6}
-compiler/internalAliasFunctionInsideTopLevelModuleWithoutExport
-  1 symbol(s): b: declared on {4}, expected to include {0, 4}
-compiler/internalAliasInterface
-  1 symbol(s): b: declared on {5}, expected to include {0, 5}
-compiler/internalAliasInterfaceInsideLocalModuleWithoutExportAccessError
-  1 symbol(s): b: declared on {5}, expected to include {0, 5}
-compiler/internalAliasInterfaceInsideTopLevelModuleWithExport
-  1 symbol(s): b: declared on {3}, expected to include {0, 3}
-compiler/internalAliasVar
-  1 symbol(s): b: declared on {4}, expected to include {1, 4}
-compiler/internalAliasVarInsideLocalModuleWithoutExportAccessError
-  1 symbol(s): b: declared on {4}, expected to include {1, 4}
-compiler/internalAliasVarInsideTopLevelModuleWithoutExport
-  1 symbol(s): b: declared on {2}, expected to include {1, 2}
-compiler/internalAliasWithDottedNameEmit
-  1 symbol(s): g: declared on {3}, expected to include {0, 3}
-compiler/internalImportInstantiatedModuleMergedWithClassNotReferencingInstance
-  1 symbol(s): Y: declared on {9}, expected to include {0, 2, 9}
-compiler/internalImportInstantiatedModuleMergedWithClassNotReferencingInstanceNoConflict
-  1 symbol(s): Y: declared on {8}, expected to include {0, 2, 8}
-compiler/internalImportInstantiatedModuleNotReferencingInstance
-  1 symbol(s): Y: declared on {6}, expected to include {0, 6}
-compiler/internalImportUnInstantiatedModuleMergedWithClassNotReferencingInstance
-  1 symbol(s): Y: declared on {8}, expected to include {0, 2, 8}
-compiler/internalImportUnInstantiatedModuleMergedWithClassNotReferencingInstanceNoConflict
-  1 symbol(s): Y: declared on {7}, expected to include {0, 2, 7}
-compiler/internalImportUnInstantiatedModuleNotReferencingInstanceNoConflict
-  1 symbol(s): Y: declared on {5}, expected to include {0, 5}
 compiler/invalidUnicodeEscapeSequance4
   1 symbol(s): u0031a: no symbol
 compiler/jsDeclarationEmitDoesNotRenameImport
   1 symbol(s): index.js: test: declared on {13}, expected to include {4}
 compiler/jsFileMethodOverloads
   2 symbol(s): Example.getTypeName: declared on {9}, expected to include {9, 12, 17}; Example.transform: declared on {26}, expected to include {26, 30, 35}
-compiler/moduleAliasInterface
-  3 symbol(s): A1Alias1: declared on {48}, expected to include {41, 48}; A1Alias1.A1C1: no symbol; A1Alias1.A1I1: no symbol
 compiler/moduleAugmentationDoesInterfaceMergeOfReexport
   1 symbol(s): augment.ts: ns.Foo.self: no symbol
 compiler/moduleAugmentationDoesNamespaceEnumMergeOfReexport
@@ -179,37 +68,91 @@ compiler/moduleAugmentationDoesNamespaceMergeOfReexport
   1 symbol(s): augment.ts: ns.Root.Foo.self: no symbol
 compiler/moduleAugmentationEnumClassMergeOfReexportIsError
   1 symbol(s): augment.ts: ns.Foo: no symbol
-compiler/moduleAugmentationImportsAndExports2
-  2 symbol(s): f3.ts: C: declared on {12}, expected to include {5, 12}; f3.ts: I: declared on {11}, expected to include {4, 11}
-compiler/moduleAugmentationImportsAndExports3
-  2 symbol(s): f3.ts: C: declared on {11}, expected to include {5, 11}; f3.ts: I: declared on {10}, expected to include {4, 10}
-compiler/moduleAugmentationImportsAndExports4
-  2 symbol(s): f3.ts: C: declared on {9}, expected to include {6, 9}; f3.ts: I: declared on {8}, expected to include {5, 8}
-compiler/moduleAugmentationImportsAndExports5
-  2 symbol(s): f3.ts: C: declared on {9}, expected to include {6, 9}; f3.ts: I: declared on {8}, expected to include {5, 8}
-compiler/moduleAugmentationImportsAndExports6
-  2 symbol(s): f3.ts: C: declared on {9}, expected to include {6, 9}; f3.ts: I: declared on {8}, expected to include {5, 8}
-compiler/moduleCrashBug1
-  1 symbol(s): modes: declared on {12}, expected to include {0, 12}
 compiler/moduleDeclarationExportStarShadowingGlobalIsNameable
   3 symbol(s): index.ts: Acc: no symbol; index.ts: Acc.someProp: no symbol; index.ts: Account: no symbol
 compiler/moduleElementsInWrongContext
   1 symbol(s): Foo: declared on {24}, expected to include {6, 24}
-compiler/moduleImport
-  2 symbol(s): ABC: declared on {7}, expected to include {0, 7}; ABC.ping: no symbol
-compiler/moduleSharesNameWithImportDeclarationInsideIt5
-  1 symbol(s): M: declared on {0, 8, 9}, expected to include {0, 5, 8, 9}
-compiler/moduleVisibilityTest1
-  2 symbol(s): OuterInnerAlias: declared on {6}, expected to include {1, 6}; OuterInnerAlias.someExportedOuterInnerFunc: no symbol
-compiler/moduleVisibilityTest2
-  2 symbol(s): OuterInnerAlias: declared on {6}, expected to include {1, 6}; OuterInnerAlias.someExportedOuterInnerFunc: no symbol
-compiler/moduleVisibilityTest3
-  2 symbol(s): modes: declared on {12}, expected to include {0, 12}; modes.IMode: no symbol
 compiler/module_augmentUninstantiatedModule
   1 symbol(s): M: declared on {0, 2}, expected to include {0, 2, 6}
-compiler/newNamesInGlobalAugmentations1
-  1 symbol(s): f1.d.ts: X: declared on {10}, expected to include {3, 10}
 compiler/numericClassMembers1
   2 symbol(s): C234.0: declared on {0}, expected to include {0, 1}; C235.0.0: declared on {5}, expected to include {5, 6}
 compiler/privacyGloImport
-  3 symbol(s): m1_im1_private.c1: no symbol; m1_im1_private.f1: no symbol; m1_im2_private.c1: no symbol
+  1 symbol(s): use_glo_M2_public.c1: no symbol
+compiler/privacyGloImportParseErrors
+  1 symbol(s): use_glo_M2_public.c1: no symbol
+compiler/ramdaToolsNoInfinite2
+  3 symbol(s): ONonNullable: declared on {489}, expected to include {183, 489}; UKeys: declared on {23, 113}, expected to include {23, 96, 113}; UNonNullable: declared on {165}, expected to include {137, 165}
+compiler/reservedWords3
+  1 symbol(s): (Missing): no symbol
+compiler/staticFieldWithInterfaceContext
+  3 symbol(s): c.x: declared on {3}, expected to include {3, 15, 17}; c10.x: no symbol; c11.x: no symbol
+compiler/strictOptionalProperties4
+  1 symbol(s): foo: no symbol
+conformance/allowUnescapedParagraphAndLineSeparatorsInStringLiteral
+  3 symbol(s): arr: declared on {16}, expected to include {28}; stringContainingUnescapedLineSeparator2: declared on {7}, expected to include {11}; stringContainingUnescapedLineSeparator3: declared on {11}, expected to include {19}
+conformance/assertionTypePredicates2
+  1 symbol(s): y: no symbol
+conformance/autoAccessorNoUseDefineForClassFields
+  2 symbol(s): file3.ts: C3.x: no symbol; file3.ts: C3.x: no symbol
+conformance/checkJsdocTypedefInParamTag1
+  2 symbol(s): anotherX: declared on {27}, expected to include {18, 27}; x: declared on {14, 41}, expected to include {3, 14, 31, 41}
+conformance/circularImportAlias
+  2 symbol(s): a.b: declared on {10}, expected to include {0}; b.a: declared on {2}, expected to include {7}
+conformance/computedPropertyNamesDeclarationEmit1_ES6
+  1 symbol(s): C["\" + \""]: no symbol
+conformance/computedPropertyNamesDeclarationEmit2_ES6
+  1 symbol(s): C["\" + \""]: no symbol
+conformance/computedPropertyNamesDeclarationEmit3_ES6
+  1 symbol(s): I["\" + \""]: no symbol
+conformance/destructuringParameterDeclaration6
+  1 symbol(s): (Missing): declared on {6, 7, 8, 15, 16}, expected to include {6, 9}
+conformance/exportNestedNamespaces2
+  2 symbol(s): first.js: exports: no symbol; second.js: exports: no symbol
+conformance/importCallExpressionAsyncES2020
+  1 symbol(s): ./test: no symbol
+conformance/importCallExpressionAsyncES6CJS
+  1 symbol(s): ./test: no symbol
+conformance/importStatementsInterfaces
+  2 symbol(s): b: declared on {20}, expected to include {4, 20}; b.Point3D: no symbol
+conformance/inlineJsxFactoryDeclarationsLocalTypes
+  3 symbol(s): renderer.d.ts: dom.JSX: no symbol; renderer.d.ts: dom.JSX.Element: no symbol; renderer2.d.ts: predom.JSX: no symbol
+conformance/inlineJsxFactoryLocalTypeGlobalFallback
+  2 symbol(s): renderer2.d.ts: predom.JSX: no symbol; renderer2.d.ts: predom.JSX.Element: no symbol
+conformance/jsdocTemplateTag3
+  3 symbol(s): a: declared on {19, 20}, expected to include {1, 19, 20}; b: declared on {19}, expected to include {1, 19}; c: declared on {19}, expected to include {2, 19}
+conformance/jsdocTemplateTag6
+  1 symbol(s): x: declared on {5, 17, 29, 40, 54, 55, 64, 70}, expected to include {5, 17, 29, 40, 48, 54, 55, 64, 70}
+conformance/moduleExportsAliasLoop2
+  1 symbol(s): fn2: declared on {1}, expected to include {0, 1}
+conformance/noUncheckedIndexedAccessDestructuring
+  2 symbol(s): q.__index: no symbol; t2.__index: no symbol
+conformance/numericStringNamedPropertyEquivalence
+  2 symbol(s): 1: declared on {2, 8, 10, 14}, expected to include {14, 15}; C.1: declared on {2}, expected to include {2, 4}
+conformance/objectLiteralGettersAndSetters
+  1 symbol(s): \t: no symbol
+conformance/objectTypeWithDuplicateNumericProperty
+  3 symbol(s): 1: declared on {3, 10, 17, 24}, expected to include {17, 18, 19, 20, 24, 25, 26, 27}; C.1: declared on {3}, expected to include {3, 4, 5, 6}; I.1: declared on {10}, expected to include {10, 11, 12, 13}
+conformance/objectTypeWithStringNamedPropertyOfIllegalCharacters
+  1 symbol(s): ~!@#$%^&*()_+{}|:'<>?\/.,`: no symbol
+conformance/overloadTag1
+  2 symbol(s): overloaded: declared on {0}, expected to include {0, 1, 6}; uncheckedInternally: declared on {25}, expected to include {25, 28, 33}
+conformance/parserComputedPropertyName1
+  1 symbol(s): [e]: no symbol
+conformance/parserEnumDeclaration4
+  1 symbol(s): (Missing): no symbol
+conformance/propertyAssignmentUseParentType1
+  1 symbol(s): ignoreJsdoc.extra: no symbol
+conformance/thisPrototypeMethodCompoundAssignmentJs
+  1 symbol(s): (Missing): no symbol
+conformance/thisTag1
+  2 symbol(s): (Missing): no symbol; n: declared on {9}, expected to include {0, 9}
+conformance/thisTypeInFunctionsNegative
+  2 symbol(s): (Missing): no symbol; C: declared on {0}, expected to include {0, 171}
+conformance/typedefOnStatements
+  3 symbol(s): a: declared on {70}, expected to include {0, 70}; b: declared on {70}, expected to include {2, 70}; c: declared on {70}, expected to include {4, 70}
+conformance/typedefTagNested
+  3 symbol(s): name: declared on {9, 35}, expected to include {9, 29, 35}; nested: declared on {35}, expected to include {31, 35}; not: declared on {35}, expected to include {30, 35}
+conformance/unicodeEscapesInJsxtags
+  1 symbol(s): data-video: no symbol
+conformance/varianceAnnotationsWithCircularlyReferencesError
+  1 symbol(s): (Missing): no symbol

@@ -224,6 +224,74 @@ impl Suite for BinderSymbols {
                         }
                     }
                 }
+                // Alias transparency, the same accommodation as the dotted
+                // suffixes above. The baseline is checker-written, and the
+                // checker prints an aliased symbol under the alias's name with
+                // the *target's* declarations (`aliasBug`: `>baz :
+                // Symbol(booz, Decl(…, 4, 26))`), and a member reached through
+                // the alias under the qualified alias spelling
+                // (`provide.Provide`). Both facts exist in this binder — the
+                // alias symbol and the resolved target — so the index offers
+                // them under the checker's spellings. An alias the binder
+                // failed to create, or a target it cannot resolve, adds
+                // nothing, which keeps the gate honest.
+                for (id, symbol) in bound.symbols().iter() {
+                    let Some(target) =
+                        resolve_import_equals_target(&program, bound, nodes, symbol, |d| {
+                            file.contains(d)
+                        })
+                    else {
+                        continue;
+                    };
+                    let lines_of = |symbol: &tsr_binder::Symbol<'_>| {
+                        let mut lines = BTreeSet::new();
+                        for declaration in &symbol.declarations {
+                            if !file.contains(*declaration) {
+                                continue;
+                            }
+                            let span = nodes.span(*declaration);
+                            let pos = full_starts.of(&unit.content, span.start);
+                            let (line, _) =
+                                symbols_baseline::line_and_character(&unit.content, pos);
+                            lines.insert(line);
+                        }
+                        lines
+                    };
+                    let alias_names =
+                        display_names(bound, nodes, id, &names_by_declaration, &unit.content);
+                    let target_lines = lines_of(bound.symbols().get(target));
+                    for full in &alias_names {
+                        for offset in dotted_suffixes(full) {
+                            ours.entry(full[offset..].to_string())
+                                .or_default()
+                                .extend(&target_lines);
+                        }
+                    }
+                    // Members reached through the alias, three levels deep —
+                    // `x.B.b` is the deepest spelling the corpus asks for.
+                    let mut frontier: Vec<(String, tsr_binder::SymbolId)> =
+                        alias_names.iter().map(|name| (name.clone(), target)).collect();
+                    for _ in 0..3 {
+                        let mut next = Vec::new();
+                        for (prefix, at) in frontier {
+                            let container = bound.symbols().get(at);
+                            for (member_name, member_id) in
+                                container.exports.iter().chain(container.members.iter())
+                            {
+                                let member_id = bound.merged_symbol(*member_id);
+                                let spelled = format!("{prefix}.{member_name}");
+                                let member_lines = lines_of(bound.symbols().get(member_id));
+                                for offset in dotted_suffixes(&spelled) {
+                                    ours.entry(spelled[offset..].to_string())
+                                        .or_default()
+                                        .extend(&member_lines);
+                                }
+                                next.push((spelled, member_id));
+                            }
+                        }
+                        frontier = next;
+                    }
+                }
                 ours
             };
 
@@ -650,6 +718,63 @@ fn is_numeric_literal(text: &str) -> bool {
             || *byte == b'_'
             || (matches!(byte, b'+' | b'-') && index > 0 && matches!(bytes[index - 1], b'e' | b'E'))
     })
+}
+
+/// Resolve an `import x = a.b.c` alias's target through the binder's tables.
+///
+/// `None` for anything that is not an entity-name import-equals in the current
+/// file, or whose chain the binder cannot resolve — external
+/// (`= require("…")`) references have no in-file target and stay out.
+fn resolve_import_equals_target(
+    program: &tsr_compiler::Program<'_>,
+    bound: &BindResult<'_>,
+    nodes: &NodeTable,
+    symbol: &tsr_binder::Symbol<'_>,
+    in_file: impl Fn(tsr_ast::NodeId) -> bool,
+) -> Option<tsr_binder::SymbolId> {
+    use tsr_ast::ModuleReference;
+    let declaration = symbol
+        .declarations
+        .iter()
+        .copied()
+        .find(|d| in_file(*d) && nodes.kind(*d) == SyntaxKind::ImportEqualsDeclaration)?;
+    let Some(tsr_ast::Node::ImportEqualsDeclaration(import)) = program.node_map().get(declaration)
+    else {
+        return None;
+    };
+    let mut segments = Vec::new();
+    let mut reference = match import.module_reference.as_ref()? {
+        ModuleReference::Identifier(identifier) => {
+            segments.push(identifier.text);
+            None
+        }
+        ModuleReference::QualifiedName(qualified) => Some(*qualified),
+        ModuleReference::ExternalModuleReference(_) => return None,
+    };
+    while let Some(qualified) = reference {
+        segments.push(qualified.right?.text);
+        reference = match qualified.left? {
+            tsr_ast::EntityName::Identifier(identifier) => {
+                segments.push(identifier.text);
+                None
+            }
+            tsr_ast::EntityName::QualifiedName(inner) => Some(inner),
+        };
+    }
+    segments.reverse();
+    let (root, rest) = segments.split_first()?;
+    let mut current = bound.resolve_name(
+        nodes,
+        program.node_map(),
+        declaration,
+        root,
+        tsr_binder::SymbolFlags::NAMESPACE | tsr_binder::SymbolFlags::ALIAS,
+    )?;
+    for segment in rest {
+        let exported = *bound.symbols().get(current).exports.get(segment)?;
+        current = bound.merged_symbol(exported);
+    }
+    Some(current)
 }
 
 #[cfg(test)]
