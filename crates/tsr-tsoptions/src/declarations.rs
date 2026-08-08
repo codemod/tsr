@@ -815,6 +815,30 @@ pub static COMPILER_OPTIONS: &[OptionDeclaration] = &[
         apply: |options, value| string(options, value, |o| &mut o.locale),
         ..OptionDeclaration::DEFAULT
     },
+    OptionDeclaration {
+        name: "sourceMap",
+        kind: OptionKind::Boolean,
+        apply: |options, value| tristate(options, value, |o| &mut o.source_map),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "declarationMap",
+        kind: OptionKind::Boolean,
+        apply: |options, value| tristate(options, value, |o| &mut o.declaration_map),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "emitDeclarationOnly",
+        kind: OptionKind::Boolean,
+        apply: |options, value| tristate(options, value, |o| &mut o.emit_declaration_only),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "removeComments",
+        kind: OptionKind::Boolean,
+        apply: |options, value| tristate(options, value, |o| &mut o.remove_comments),
+        ..OptionDeclaration::DEFAULT
+    },
 ];
 
 #[cfg(test)]

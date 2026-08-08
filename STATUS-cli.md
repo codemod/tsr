@@ -25,7 +25,7 @@ Measured at the CLI-scaffold landing, 2026-08-08, by
 
 | | |
 |---|---:|
-| **`cli_baselines`** | **19/43 judged = 44.19%** |
+| **`cli_baselines`** | **26/43 judged = 60.47%** |
 | behind the emitter (excluded) | 151 |
 | total `tsc` baselines | 194 |
 
@@ -55,8 +55,9 @@ with an upstream anchor and a test, and no caller sequencing them.
 | a `System` (writer, cwd, TTY, width, env, clock, version) | **done** | `tsr_execute::system::System`; `OsSystem` and `BaselineSystem` implement it |
 | pretty diagnostic rendering | **done** | `tsr_diagnostics::format`, the refusal retired — see below |
 | the baseline runner | **done** | `tsr_execute::baseline` + the `cli_baselines` bin |
-| `--showConfig` | **partial** | renders; option *ordering* is an open question, §7.5 |
-| `--help` / `--init` | **stub / refused** | §3 phase 4 |
+| `--showConfig` | **done** | struct-order options, implied options, config-relative paths |
+| `--help` | **done (narrow layout)** | the wide two-column form and `--all` are not, §3 phase 4 |
+| `--init` | **refused** | writes a template built from per-option descriptions this port lacks |
 | **emit** | **missing** | no `tsr-transformers`; `tsr-dts` is declaration-shape only |
 | watch, `--build`, incremental | **refused, loudly** | report `NotImplemented` (upstream's status 5) rather than silently compiling once |
 
@@ -64,11 +65,11 @@ with an upstream anchor and a test, and no caller sequencing them.
 
 | | upstream | here | share |
 |---|---:|---:|---:|
-| `CompilerOptions` fields | 130 | 73 | 56% |
-| declared options (`declscompiler.go` / `declarations.rs`) | 135 | 71 | 53% |
+| `CompilerOptions` fields | 130 | 77 | 59% |
+| declared options (`declscompiler.go` / `declarations.rs`) | 135 | 76 | 56% |
 
 Counted by `awk '/^type CompilerOptions struct/,/^}/' | grep -cE '^\t[A-Z]'` and
-`grep -c 'name: "'`. Was 50/48 before the CLI; the 23 added are the command-line
+`grep -c 'name: "'`. Was 50/48 before the CLI; the 27 added are the command-line
 surface — `--help`, `--project`, `--showConfig`, `--pretty` and the rest — which
 had nowhere to land before there was a driver to read them.
 
@@ -175,8 +176,8 @@ Port enough of `internal/execute/tsctests` to execute a baseline file: parse the
 run the driver, and diff. Add a `cli_baselines` suite to `tsr-conformance`
 alongside the existing sixteen.
 
-**Landed. The suite reads 19/43 judged (44.19%), 151 excluded as behind the
-emitter.** The gate as written expected a number near zero; the real first
+**Landed. The suite reads 26/43 judged (60.47%), 151 excluded as behind the
+emitter.** It has read 13 → 19 → 20 → 25 → 26 as each phase landed. The gate as written expected a number near zero; the real first
 reading was 13/43, because the phases below were built alongside rather than
 after. Both halves of the original argument held: the runner found four separate
 defects within minutes of first running — the version string, the exit status for
@@ -276,25 +277,44 @@ upstream: a config that fails to parse exits **2** (`OutputsGenerated`), not 1,
 and `tsc` with no config and no files prints its banner and help then exits
 **1**, not 0.
 
-### Phase 4 — help, version, `--showConfig` · **PARTLY DONE**
+### Phase 4 — help, version, `--showConfig` · **DONE**
 
 `tsc/help.go` (15.9 KB), the version banner, and `tsoptions/showconfig.go` (389
 LOC). Dull, large, and worth **17/17 of `showConfig`** plus a large share of
 `commandLine` — the best ratio of any phase, because the output is a pure
 function of the option table.
 
-**Version and `--showConfig` landed; `--help` did not.** `--help` prints the
-option names from the one table, honestly labelled a port in progress. Upstream's
-is 15.9 KB with per-option descriptions, category grouping, colour and
-terminal-width-aware two-column layout, and roughly six baselines want it
-byte-for-byte. It is the largest remaining piece of pure transcription and the
-clearest next item.
+**All three landed.** `--help` is `printEasyHelp` in the narrow layout: the
+header, the seven `COMMON COMMANDS` examples, and 27 options across
+`COMMAND LINE FLAGS` and `COMMON COMPILER OPTIONS`, each with its description
+and, where it has one, its `type:`/`one of:` and `default:` lines.
+
+**The 27 entries live in `tsr-execute/src/help.rs`, not on the declarations.**
+Upstream hangs `Description`, `Category`, `DefaultValueDescription` and
+`ShowInSimplifiedHelpView` off every option; carrying four more fields on all 71
+declarations to populate 27 would put help presentation into the table the
+*parser* reads. The duplication is guarded by three tests that fail the build if
+a help entry names an option that does not exist, documents a short name the
+parser does not have, or carries a description that is not **verbatim** from the
+generated diagnostic catalogue. That last one is what proves no help text here
+was written by hand.
+
+**Two regimes, one ported.** `generateOptionOutput` branches on
+`terminalWidth >= 80`; above it each option is a wrapped two-column layout with a
+blue-background "TS" icon in the header. Exactly one baseline sets
+`TS_TEST_TERMINAL_WIDTH` to reach it. Not approximated.
+
+**`--help --all` is not ported** and falls back to the simplified view: it lists
+all ~135 options plus watch and build sections, and this port declares 71 with no
+watch or build table, so the output could only be a subset pretending to be
+the whole.
 
 `--init` is **refused** rather than approximated: it writes a commented
 `tsconfig.json` built from the same per-option descriptions, and a *different*
 template is an artifact that would end up committed in users' repositories.
 
-**Gate:** `showConfig` at or near 17/17. Currently short of it — see §7.5.
+**`--showConfig`'s ordering rule was found rather than guessed** — see §7.5,
+which is now answered.
 
 ### Phase 5 — the checking driver · **DONE**
 
@@ -353,14 +373,16 @@ too, because phase 0 exists.
 
 | # | item | worth | why here |
 |---|---|---|---|
-| 1 | **upstream's `--help` text** (`tsc/help.go`, 15.9 KB) | ~6 baselines | the largest pure-transcription item left, and four of the current failures are only its first three lines |
-| 2 | **`--showConfig` option ordering** (§7.5) | ~5 baselines | an open question, not a build: the order is neither the config's nor the struct's |
-| 3 | **config-file error paths** | ~3 baselines | `non-object-config-root`, `extends` with non-string `files`/`include`: errors the config parser does not yet raise |
-| 4 | option table 71 → 135 | all | a missing option is an unknown-option error, not a default |
-| 5 | `commandlineparser_test.go`'s table (572 LOC) | — | a stronger oracle for phase 1 than the 27 hand-written tests |
-| 6 | watch option table | 0 today | `--watchFile` reports as unknown; upstream accepts it |
-| 7 | `${configDir}` templates | 1 baseline | `extends/configDir-template-showConfig` |
-| 8 | emit (`tsr-transformers`) | **151 baselines** | not a CLI item; the ceiling above everything |
+| 1 | **config-file error paths** | ~3 baselines | `non-object-config-root`, `extends` with non-string `files`/`include` |
+| 2 | **`--help --all`** | 1 baseline | needs all 135 options with descriptions, plus watch and build tables |
+| 3 | **the wide `--help` layout** | 1 baseline | `getPrettyOutput`'s wrapping and the header icon |
+| 4 | **`--lib` value validation** | 1 baseline | `TS6046` listing all 104 lib names; the names exist in `tsr_tsoptions::libs` |
+| 5 | option table 76 → 135 | all | a missing option is an unknown-option error, not a default |
+| 6 | `commandlineparser_test.go`'s table (572 LOC) | — | a stronger oracle for phase 1 than the 31 hand-written tests |
+| 7 | watch option table | 0 today | `--watchFile` reports as unknown; upstream accepts it |
+| 8 | `${configDir}` templates | 1 baseline | `extends/configDir-template-showConfig` |
+| 9 | the baseline runner's `env` section | 2 baselines | `NO_COLOR`/`FORCE_COLOR` and `TS_TEST_TERMINAL_WIDTH` are set per case and not parsed |
+| 10 | emit (`tsr-transformers`) | **151 baselines** | not a CLI item; the ceiling above everything |
 
 **Refused, with the reason:** `--locale` (`commandLine/locale.js` wants
 `Verze FakeTSVersion`). This port ships one locale, upstream ships a message
@@ -439,18 +461,27 @@ in users' repositories, so it reports `NotImplemented` (upstream's own status 5)
    so the CLI's oracle carries no dependency on the compiler's.
 4. **`FakeTSVersion`** — resolved as (2). The real version is a constant in
    `tsr_execute::system::VERSION` and still has no build-time source.
-5. **`--showConfig` option ordering — open, and two hypotheses are ruled out.**
-   `Show-TSConfig-with-compileOnSave-and-more.js` writes its options as
-   `esModuleInterop, target, module, strict` and upstream prints
-   `module, strict, target, esModuleInterop, useDefineForClassFields`. So it is
-   **not** the order the config wrote them in (the current implementation, and
-   wrong), and **not** Go struct field order either — `CompilerOptions` declares
-   `Composite`(14), `Declaration`(18), `Incremental`(38), `Strict`(84),
-   `Module`(47), and `Show-TSConfig-with-references.js` prints
-   `composite, strict, declaration, incremental`, which matches neither. Whatever
-   the rule is, it also appends *implied* options (`useDefineForClassFields`
-   appears unwritten). Reading `showconfig.go` (389 LOC) properly is the next
-   step; guessing a third time is not.
+5. ~~**`--showConfig` option ordering.**~~ **Answered by reading
+   `showconfig.go` instead of guessing a third time.** `serializeCompilerOptions`
+   (`:172`) reflects over `core.CompilerOptions` and emits every non-zero
+   exported field in **Go struct declaration order**, skipping the command-line
+   and output-formatting categories. Then `addImpliedOptions` (`:300`) appends
+   derived options under three conditions: not written explicitly, at least one
+   dependency written, and the computed value differing from what wholly default
+   options would compute. All three are now implemented.
+
+   Worth keeping as a record of method: the first version guessed our
+   declaration-table order, the second guessed the config's written order and
+   matched two baselines by luck. Both were guesses at a rule stated outright in
+   389 lines of Go. **Two wrong guesses cost more than reading the source
+   would have.**
+
+6. **The wide `--help` layout** (`getPrettyOutput`, terminal width ≥ 80): the
+   two-column wrap and the blue-background icon. One baseline.
+
+7. **Config-file error paths.** `non-object-config-root` and `extends` with a
+   non-string `files`/`include` expect diagnostics the config parser does not
+   raise, and an exit status of 2.
 
 ## 8. Updating this file
 

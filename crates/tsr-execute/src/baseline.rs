@@ -220,7 +220,12 @@ impl System for BaselineSystem {
     }
 
     fn width_of_terminal(&self) -> usize {
-        80
+        // **Zero**, which is upstream's harness default (`tsctests/sys.go:227`)
+        // and which selects `--help`'s narrow layout. A baseline wanting the
+        // wide, two-column form sets `TS_TEST_TERMINAL_WIDTH`; this replay does
+        // not parse the environment section yet, so that one case fails
+        // honestly rather than by a guessed width.
+        0
     }
 
     fn environment_variable(&self, _name: &str) -> String {

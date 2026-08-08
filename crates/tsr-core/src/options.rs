@@ -552,6 +552,14 @@ pub struct CompilerOptions {
     pub composite: Tristate,
     /// Parse and emit without checking.
     pub no_check: Tristate,
+    /// Emit a source map beside each output.
+    pub source_map: Tristate,
+    /// Emit a source map for each `.d.ts`.
+    pub declaration_map: Tristate,
+    /// Emit only declarations.
+    pub emit_declaration_only: Tristate,
+    /// Strip comments from the output.
+    pub remove_comments: Tristate,
     /// Check a side-effect-only `import "x"` resolves.
     ///
     /// Reads as **on when unset** (`IsTrueOrUnknown`), which is why only an

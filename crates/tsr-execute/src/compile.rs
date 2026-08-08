@@ -3,8 +3,6 @@
 //! Ported from `internal/execute/tsc/compile.go` and `emit.go`'s
 //! diagnostic-reporting half at the pinned commit.
 
-use std::fmt::Write as _;
-
 use tsr_core::CompilerOptions;
 use tsr_diagnostics::format::{DiagnosticFile, FormattingOptions, LocatedDiagnostic};
 use tsr_diagnostics::{Diagnostic, messages};
@@ -147,6 +145,7 @@ pub fn run_compilation(
 
     if options.show_config.is_true() {
         let text = crate::show_config::show_config(
+            &options,
             &root_files,
             &raw,
             &current_directory,
@@ -395,62 +394,4 @@ fn report_located(
         .collect();
     let text = render(sys, &located, options);
     sys.write(&text);
-}
-
-/// `PrintHelp` — the option list.
-///
-/// **Not upstream's help text.** `internal/execute/tsc/help.go` is 15.9 KB of
-/// layout with per-option descriptions, category grouping, colour, and a
-/// terminal-width-aware two-column format, all of it baselined. Reproducing it
-/// is STATUS-cli.md phase 4; what is here is the honest minimum — the option
-/// names this compiler actually accepts, generated from the one table, so it
-/// cannot claim to support something it does not.
-pub fn print_help(sys: &mut dyn System, all: bool) {
-    let mut text = format!("tsc: The TypeScript Compiler - Version {}\n", sys.version());
-    text.push_str("Usage: tsr [options] [file...]\n\n");
-    text.push_str("This is a port in progress. It type-checks; it does not emit.\n\n");
-    text.push_str("OPTIONS\n\n");
-
-    let mut seen: Vec<&str> = Vec::new();
-    for declaration in tsr_tsoptions::declarations::COMPILER_OPTIONS {
-        if !all && !is_common_option(declaration.name) {
-            continue;
-        }
-        let mut line = format!("--{}", declaration.name);
-        if let Some(short) = declaration.short_name {
-            let _ = write!(line, ", -{short}");
-        }
-        if seen.contains(&declaration.name) && declaration.short_name.is_none() {
-            continue;
-        }
-        seen.push(declaration.name);
-        let _ = writeln!(text, "  {line}");
-    }
-    if !all {
-        text.push_str("\nUse --help --all to list every option.\n");
-    }
-    sys.write(&text);
-}
-
-/// The options `--help` lists without `--all`.
-///
-/// Upstream picks these by a `showInSimplifiedHelpView` flag on the declaration.
-/// That flag is not ported — it exists only for help rendering and phase 4 is
-/// where it belongs — so the set is listed here and is deliberately small.
-fn is_common_option(name: &str) -> bool {
-    matches!(
-        name,
-        "help"
-            | "version"
-            | "all"
-            | "project"
-            | "noEmit"
-            | "target"
-            | "module"
-            | "lib"
-            | "strict"
-            | "showConfig"
-            | "listFilesOnly"
-            | "pretty"
-    )
 }

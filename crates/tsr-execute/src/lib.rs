@@ -23,6 +23,7 @@
 
 pub mod baseline;
 pub mod compile;
+pub mod help;
 pub mod os_system;
 pub mod show_config;
 pub mod system;
@@ -93,7 +94,7 @@ fn tsc_compilation(sys: &mut dyn System, args: &[String]) -> ExitStatus {
     }
 
     if options.help.is_true() || options.all.is_true() {
-        crate::compile::print_help(sys, options.all.is_true());
+        crate::help::print_help(sys, options.all.is_true());
         return ExitStatus::Success;
     }
 
@@ -183,7 +184,7 @@ fn tsc_compilation(sys: &mut dyn System, args: &[String]) -> ExitStatus {
                 // exits **1**, not 0. A build script that treats "no config" as
                 // success would otherwise pass while compiling nothing.
                 print_version(sys);
-                crate::compile::print_help(sys, false);
+                crate::help::print_help(sys, false);
             }
             return ExitStatus::DiagnosticsPresentOutputsSkipped;
         }
