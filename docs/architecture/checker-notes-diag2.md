@@ -7762,3 +7762,69 @@ second is a false positive, so the enum arm has the shape right and a position
 wrong. It is one line in one case and the rule now reports 31 right lines
 against it. **Owner: `getEnclosingBlockScopeContainer` for an enum**, whose
 container differs from a variable's; not worth a fifth measurement today.
+
+## §100 — a `const enum` is not a `RegularEnum`, and the rule closes at zero wrong
+
+§99 left one wrong line, `enumUsedBeforeDeclaration.ts(2,24)`, and named the
+wrong owner. It is not `getEnclosingBlockScopeContainer`. The case is four lines:
+
+```ts
+const v: Color = Color.Green;              // TS2450 — reported by upstream
+const v2: ConstColor = ConstColor.Green;   // NOTHING — a const enum is inlined
+enum Color { Red, Green, Blue }
+const enum ConstColor { Red, Green, Blue }
+```
+
+`checkResolvedBlockScopedVariable` tests `SymbolFlagsRegularEnum`
+(`checker.go:1908`), not `SymbolFlagsEnum`: a `const enum` is substituted at
+every use site, so it has no temporal dead zone to be inside.
+
+Changing the checker's test to `REGULAR_ENUM` **did nothing**, and that is the
+finding: `classify` maps **every** `EnumDeclaration` to `S::REGULAR_ENUM`, so
+`ConstColor`'s symbol carried the regular-enum flag and answered the narrower
+test anyway.
+
+**This is §95's defect one flag over.** Upstream's binder splits on
+`IsEnumConst` because `ConstEnum` and `RegularEnum` have different excludes —
+`ConstEnumExcludes = (Value|Type) & ^ConstEnum`, so a const enum merges only
+with another const enum, where a regular one also merges with a namespace
+(`symbolflags.go:64-65`). Both the flag choice and the excludes are ported here.
+
+### Measured
+
+`diag2307` with `RULE_CODES = [2448, 2449, 2450]`, against the state §96 started
+from:
+
+| | CONVERTS | LOST | RIGHT | WRONG |
+|---|---:|---:|---:|---:|
+| before §96 | 6 | 0 | 14 | **0** |
+| §96 | 7 | 6 | 23 | 176 |
+| §97 | 7 | 1 | 21 | 21 |
+| §98 | 8 | 1 | 31 | 21 |
+| §99 | 8 | 0 | 31 | 1 |
+| **§100** | **9** | **0** | **31** | **0** |
+
+**+3 cases and +17 right lines over five measurements, ending where it started
+on the wrong column: zero.** Coverage `1,385 → 1,386 / 5,488` (**25.26%**).
+`binder_symbols` unmoved at 8,311/8,475 · 98.06% and `checker_types` identical
+at 3,860/9,538 · 84.19%, both by stash-and-remeasure.
+
+### The pattern this session found three times
+
+§93, §95 and §100 are the same defect at three sites:
+
+| | derived / collapsed | upstream distinguishes |
+|---|---|---|
+| §93 | excludes from the declared flags | `excludes` is a separate argument |
+| §95 | every module is a `ValueModule` | `IsInstantiatedModule` picks the flag |
+| §100 | every enum is a `RegularEnum` | `IsEnumConst` picks the flag |
+
+Two of the three were found only because a *consumer* asked a question the
+collapsed flag could not answer, and in both cases the first fix attempt was
+aimed at the consumer — §94 changed the excludes mask, §100's first cut changed
+the checker's flag test — and measured nothing or worse. **When a consumer's
+faithful test gives an unfaithful answer, suspect the flag before the test.**
+
+`classify` is now checked against upstream's binder for modules and enums. The
+remaining collapse candidates, unaudited: `S::PROPERTY` for five different node
+kinds, and `S::ALIAS` for five import/export forms.

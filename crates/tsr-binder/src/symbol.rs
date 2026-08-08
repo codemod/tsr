@@ -205,8 +205,15 @@ impl SymbolFlags {
         if self.contains(Self::INTERFACE) {
             return Self::TYPE & !(Self::INTERFACE | Self::CLASS);
         }
+        // `RegularEnumExcludes = (Value|Type) & ^(RegularEnum|ValueModule)` and
+        // `ConstEnumExcludes = (Value|Type) & ^ConstEnum` (`symbolflags.go:64-65`)
+        // — a const enum merges only with another const enum, not with a
+        // namespace and not with a regular one. §100.
+        if self.contains(Self::CONST_ENUM) {
+            return (Self::VALUE | Self::TYPE) & !Self::CONST_ENUM;
+        }
         if self.intersects(Self::ENUM) {
-            return (Self::VALUE | Self::TYPE) & !(Self::ENUM | Self::VALUE_MODULE);
+            return (Self::VALUE | Self::TYPE) & !(Self::REGULAR_ENUM | Self::VALUE_MODULE);
         }
         // Upstream has **two** module excludes (`symbolflags.go:66-67`), and
         // returning `NamespaceModuleExcludes` for both is what §94 measured and

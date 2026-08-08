@@ -1294,7 +1294,12 @@ impl Checker<'_, '_> {
                     &messages::BLOCK_SCOPED_VARIABLE_0_USED_BEFORE_ITS_DECLARATION,
                     &[SyntaxKind::VariableDeclaration],
                 )
-            } else if entry.flags.intersects(SymbolFlags::ENUM) {
+            } else if entry.flags.intersects(SymbolFlags::REGULAR_ENUM) {
+                // `RegularEnum`, not `Enum` (`checker.go:1908`). A `const enum`
+                // is inlined at every use site, so it has no temporal dead zone
+                // and upstream says nothing about using one early —
+                // `enumUsedBeforeDeclaration` reports on its `Color` and not on
+                // its `ConstColor`, and `ENUM` here was §99's one wrong line.
                 (&messages::ENUM_0_USED_BEFORE_ITS_DECLARATION, &[SyntaxKind::EnumDeclaration])
             } else if is_class {
                 (

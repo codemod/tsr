@@ -3991,7 +3991,22 @@ fn classify(node: Node<'_>) -> Option<(SymbolFlags, Destination)> {
         Node::ClassDeclaration(_) | Node::ClassExpression(_) => (S::CLASS, D::Locals),
         Node::InterfaceDeclaration(_) => (S::INTERFACE, D::Locals),
         Node::TypeAliasDeclaration(_) => (S::TYPE_ALIAS, D::Locals),
-        Node::EnumDeclaration(_) => (S::REGULAR_ENUM, D::Locals),
+        // `bindEnumDeclaration` (`binder.go`) splits on `IsEnumConst`:
+        // `ConstEnum` and `RegularEnum` are separate flags with separate
+        // excludes (`symbolflags.go:64-65`, const enums merge only with const
+        // enums), and consumers ask for the one they mean —
+        // `checkResolvedBlockScopedVariable` (`checker.go:1908`) tests
+        // `RegularEnum` because a `const enum` is inlined and has no temporal
+        // dead zone. Mapping both to `REGULAR_ENUM` is the same defect §95 fixed
+        // for modules, one flag over: see `checker-notes-diag2.md` §100.
+        Node::EnumDeclaration(declaration) => (
+            if tsr_ast::has_syntactic_modifier(declaration.modifiers, SyntaxKind::ConstKeyword) {
+                S::CONST_ENUM
+            } else {
+                S::REGULAR_ENUM
+            },
+            D::Locals,
+        ),
         // `bindModuleDeclaration` (`binder.go:1268`) picks the flag from
         // `GetModuleInstanceState`: a namespace that emits no JavaScript is a
         // `NamespaceModule` and collides with nothing, and one that does is a
