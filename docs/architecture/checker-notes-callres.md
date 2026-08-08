@@ -1599,3 +1599,28 @@ prefix (`(keyof T)[]`). Final: **+324 G→R / 22 G→W** (15:1, accepted per
 the §23/§34 precedent — residue: written `Array<U>` spellings, an
 `import("lodash")` type, narrowing corners). `checker_types` right
 396,815 → **397,139 (82.91%)**.
+
+### §35.1 Concrete `keyof` over a plain interface
+
+The resolvable half: `keyof I` where `I` is a non-generic, heritage-free
+interface whose members are all plainly named — upstream's
+`getIndexType` answers the union of key-literal types in DECLARATION
+order (the binder's member table is unordered here, so the DECLARATION's
+member list is the source). Method and property names both contribute;
+numeric-looking names contribute NUMBER literals (upstream keys `{ 0: a }`
+with `0`, not `"0"`); empty interfaces answer `never`. Everything exotic
+declines whole: heritage (inherited keys), generics, computed/index/call
+members, classes (modifier filtering), type-literal operands (reachable
+but unmeasured).
+
+**Falsifiers.** (a) Quoted names — if upstream prints `"a-b"` differently
+than the literal mint, W. (b) Union ORDER — if upstream's index type
+orders differently than declaration order, W on multi-key interfaces.
+
+**§35.1 REFUSED at +3/32.** Neither named falsifier — the concrete union
+UNLOCKED downstream consumers (contextual JSX attributes, mapped-type
+machinery) that answer through it wrongly, the §6.1-class failure mode:
+the expression arm's value is captured almost entirely by consumers this
+port hasn't built, and the honest keyof union feeds them confident
+wrongs. Reverted whole. The road into concrete `keyof` is those
+consumers (mapped types, JSX attribute checking), not the operator arm.
