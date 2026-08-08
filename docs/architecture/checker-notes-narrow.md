@@ -2932,3 +2932,13 @@ converge; that case is overload SELECTION, still priced.
 
 **§74 score — LANDED.** right 402,954 → **402,984 (84.14%)** — +30,
 zero adverse.
+
+**Process failure, recorded loudly:** the §74 landing commit SHIPPED
+RED — clippy 7 (a doc block orphaned onto the new fn) and two expired
+pins (`named_callee_signatures`, `new_expression`, both asserting the
+§44-era generic decline) — because the gate chain's counts were
+printed and the commit ran anyway in the same compound command. The
+same class as the `head`-piped gate and `180bcb0`: instrument correct,
+reading skipped. Fixed in the follow-up commit; the pins flipped to
+`Box<1>`. Rule reaffirmed: the landing commit runs AFTER the gate
+counts are READ, never in the same command.

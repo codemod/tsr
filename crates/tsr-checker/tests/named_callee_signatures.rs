@@ -123,10 +123,11 @@ fn an_overload_set_that_disagrees_is_still_a_gap() {
 }
 
 #[test]
-fn a_generic_signature_member_is_still_a_gap() {
-    // The pair of `a_construct_signature_member_answers_its_return_type`. 926 of
-    // the classified lines stop here — `new Set()` wanting `Set<number>` — and
-    // it is `inferTypes`, not this arm.
+fn a_generic_signature_member_infers_from_arguments() {
+    // This test pinned the OPPOSITE ("still a gap") until §74: a generic
+    // construct candidate now answers through `check_generic_call`, so
+    // `new C(1)` on `new <T>(value: T): Box<T>` is `Box<1>` — the fresh
+    // literal, exactly as the call road keeps it for `id(1)`.
     assert_eq!(
         type_of_last(
             "interface Box<T> { value: T; }\n\
@@ -134,7 +135,7 @@ fn a_generic_signature_member_is_still_a_gap() {
              declare const C: BoxConstructor;\n\
              const made = new C(1);"
         ),
-        "error"
+        "Box<1>"
     );
 }
 

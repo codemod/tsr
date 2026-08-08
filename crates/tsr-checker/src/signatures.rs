@@ -253,51 +253,6 @@ impl<'a> Checker<'a, '_> {
         Some(result)
     }
 
-    /// The single call or construct signature a type that prints as a **name**
-    /// declares, or `None`.
-    ///
-    /// Ported from `Checker.getSignaturesOfType` (`checker.go:18959`) over the
-    /// interface arm of `resolveStructuredTypeMembers` (`checker.go:18410`),
-    /// reduced to the sets that need no selection to answer.
-    ///
-    /// # Why this exists beside [`Checker::get_signatures_of_symbol`]
-    ///
-    /// That one reads a **symbol's declarations**, which is right for a
-    /// function and empty for an interface: `interface DateConstructor` is not
-    /// a signature-shaped declaration. Its signatures live in its *members*,
-    /// and reaching them is the whole of `bd tsr-4sa`. The natural citation for
-    /// the item — `bd tsr-qk9`, "`signature_parts_of` has no arm for
-    /// `CallSignatureDeclaration`" — has been false since that arm landed;
-    /// `docs/architecture/checker-notes-namedcallee.md` §1 records the
-    /// correction.
-    ///
-    /// # What it declines, and why each refusal is cheaper than the answer
-    ///
-    /// Every branch below is a **gap** where upstream has an answer this port
-    /// cannot reproduce. Each was measured with its cost *and* its benefit by
-    /// `examples/namedcallee.rs`; the numbers are in
-    /// `docs/architecture/checker-notes-namedcallee.md` §4.
-    ///
-    /// - **A heritage clause** (27 lines refused, 20 of them convertible).
-    ///   Upstream folds the base types' signatures in, so the direct members
-    ///   are only part of the candidate set and a lone survivor here may be one
-    ///   arm of an inherited overload. Answering off a knowingly incomplete set
-    ///   is a wrong rule rather than a bad trade, which is why this refusal is
-    ///   kept at a net cost of thirteen lines.
-    /// - **A generic candidate** (926 lines). That is `inferTypes`, the largest
-    ///   gate in `callgate.rs`'s own split.
-    /// - **Candidates that disagree about the return type** (48 lines). That is
-    ///   overload selection by assignability, which this port has over
-    ///   primitives only. Candidates that *agree* need no selection —
-    ///   `DateConstructor`'s four construct signatures all return `Date` — so
-    ///   they answer.
-    /// - **A return that is a type parameter** (3 lines). On an instantiated
-    ///   callee it would have to be substituted, and `bd tsr-4qx`'s seam
-    ///   instantiates properties rather than signatures.
-    /// - **A return whose name would need a namespace qualifier** (75 lines) —
-    ///   `Intl.NumberFormat` where this prints `NumberFormat`. `STATUS.md` §5's
-    ///   standing refusal (`bd tsr-93f`, 2.7 wrong per right) reached through a
-    ///   new door.
     /// §74's raw candidate list: every construct/call signature a named
     /// type's interface declarations carry, GENERICS INCLUDED, or `None`
     /// for shapes `get_signature_of_named_type` also declines (no member
@@ -345,6 +300,51 @@ impl<'a> Checker<'a, '_> {
         Some(candidates)
     }
 
+    /// The single call or construct signature a type that prints as a **name**
+    /// declares, or `None`.
+    ///
+    /// Ported from `Checker.getSignaturesOfType` (`checker.go:18959`) over the
+    /// interface arm of `resolveStructuredTypeMembers` (`checker.go:18410`),
+    /// reduced to the sets that need no selection to answer.
+    ///
+    /// # Why this exists beside [`Checker::get_signatures_of_symbol`]
+    ///
+    /// That one reads a **symbol's declarations**, which is right for a
+    /// function and empty for an interface: `interface DateConstructor` is not
+    /// a signature-shaped declaration. Its signatures live in its *members*,
+    /// and reaching them is the whole of `bd tsr-4sa`. The natural citation for
+    /// the item — `bd tsr-qk9`, "`signature_parts_of` has no arm for
+    /// `CallSignatureDeclaration`" — has been false since that arm landed;
+    /// `docs/architecture/checker-notes-namedcallee.md` §1 records the
+    /// correction.
+    ///
+    /// # What it declines, and why each refusal is cheaper than the answer
+    ///
+    /// Every branch below is a **gap** where upstream has an answer this port
+    /// cannot reproduce. Each was measured with its cost *and* its benefit by
+    /// `examples/namedcallee.rs`; the numbers are in
+    /// `docs/architecture/checker-notes-namedcallee.md` §4.
+    ///
+    /// - **A heritage clause** (27 lines refused, 20 of them convertible).
+    ///   Upstream folds the base types' signatures in, so the direct members
+    ///   are only part of the candidate set and a lone survivor here may be one
+    ///   arm of an inherited overload. Answering off a knowingly incomplete set
+    ///   is a wrong rule rather than a bad trade, which is why this refusal is
+    ///   kept at a net cost of thirteen lines.
+    /// - **A generic candidate** (926 lines). That is `inferTypes`, the largest
+    ///   gate in `callgate.rs`'s own split.
+    /// - **Candidates that disagree about the return type** (48 lines). That is
+    ///   overload selection by assignability, which this port has over
+    ///   primitives only. Candidates that *agree* need no selection —
+    ///   `DateConstructor`'s four construct signatures all return `Date` — so
+    ///   they answer.
+    /// - **A return that is a type parameter** (3 lines). On an instantiated
+    ///   callee it would have to be substituted, and `bd tsr-4qx`'s seam
+    ///   instantiates properties rather than signatures.
+    /// - **A return whose name would need a namespace qualifier** (75 lines) —
+    ///   `Intl.NumberFormat` where this prints `NumberFormat`. `STATUS.md` §5's
+    ///   standing refusal (`bd tsr-93f`, 2.7 wrong per right) reached through a
+    ///   new door.
     pub(crate) fn get_signature_of_named_type(
         &mut self,
         callee: TypeId,

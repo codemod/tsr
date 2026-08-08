@@ -109,8 +109,9 @@ fn new_on_a_non_class_callee_is_a_gap() {
     // (`bd tsr-4sa`,
     // `docs/architecture/checker-notes-namedcallee.md`), so the assertion is
     // rewritten as the **pair** rather than flipped: the plain construct
-    // signature answers, and the generic one beside it still gaps because that
-    // is inference.
+    // signature answers, and the generic one beside it — a gap until §74
+    // (`checker-notes-narrow.md`) — now INFERS through `check_generic_call`,
+    // keeping the fresh literal exactly as the call road does.
     assert_eq!(
         type_of_last("interface Ctor { new (): string; }\nvar C: Ctor;\nconst x = new C();"),
         "string"
@@ -122,6 +123,6 @@ fn new_on_a_non_class_callee_is_a_gap() {
              var C: Ctor;\n\
              const x = new C(1);"
         ),
-        "error"
+        "Box<1>"
     );
 }
