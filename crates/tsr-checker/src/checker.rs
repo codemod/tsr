@@ -30,6 +30,9 @@ use crate::{
     types::{TypeId, TypeStore},
 };
 
+/// §79/§80's interning key: (member, optional) pairs, labels, readonly.
+pub(crate) type OptionalTupleKey = (Vec<(TypeId, bool)>, Vec<Option<String>>, bool);
+
 /// Computes types.
 ///
 /// **Every method takes `&mut self` and returns [`TypeId`].** No method hands out
@@ -430,7 +433,7 @@ pub struct Checker<'a, 'n> {
     /// §79: interning for optional-element tuples, keyed on (member,
     /// optional) pairs so `[number, string?]` and `[number, string]` stay
     /// distinct types.
-    pub(crate) optional_tuple_types: FxHashMap<(Vec<(TypeId, bool)>, bool), TypeId>,
+    pub(crate) optional_tuple_types: FxHashMap<OptionalTupleKey, TypeId>,
     /// §79: which positions of an optional-element tuple carry `?` — read at
     /// the index roads, where an optional element answers `| undefined`.
     pub(crate) tuple_optional_masks: FxHashMap<TypeId, Vec<bool>>,

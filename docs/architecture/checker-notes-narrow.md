@@ -3088,3 +3088,19 @@ exactOptional×optional-tuple interplay
 **§79 score — LANDED.** right 403,879 → **404,063 (84.37%)**. §78.1
 (element-access write removal) rode along as a measured zero — kept,
 faithful arm on the reachable set.
+
+## §80 — labeled tuple members
+
+`[first: string, second?: number]` mints through §79's road with the
+label in the print (the label owns the `?` — `[first?: string]`,
+never `[first: string?]`); labeled rests keep the decline. **+71 net
+(103 G→R against 32 G→W, 3.2:1)** — the 32 are two named residues,
+both prior gaps: SPLICED tuples lose labels (`spreadParameterTupleType`'s
+`[a: string, a: string, …]` from spreads prints unlabeled members),
+and REST-PARAMETER EXPANSION positions want the STRUCTURAL labeled
+print where the §79.1 alias arm answers the alias name
+(`getExpandedParameters` prints structure; `[s: string]` vs `A`) —
+the alias rule and the expansion rule disagree at exactly these
+positions and the expansion machinery is unported.
+
+**§80 score — LANDED.** right 404,116 → **404,219 (84.40%)**.

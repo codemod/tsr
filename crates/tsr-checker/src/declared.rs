@@ -965,22 +965,34 @@ impl<'a> Checker<'a, '_> {
                 format!("{}[{}]", if readonly { "readonly " } else { "" }, pieces.join(", "));
             return self.store.new_named(TypeFlags::OBJECT, text, None);
         }
-        let mut any_optional = false;
+        let mut any_marked = false;
+        let mut labels: Vec<Option<String>> = Vec::with_capacity(node.elements.len());
         for element in node.elements {
-            // `NamedTupleMember` and rests stay refused whole. §79
-            // (`checker-notes-narrow.md`): an OPTIONAL element resolves its
-            // inner type and marks the position — the print carries the `?`
-            // (`[number, string?, boolean?]`), the element list carries the
-            // members, and index reads answering the plain member where
-            // upstream adds `| undefined` is the arm's priced residue.
-            let (inner, optional) = match element {
-                TypeNode::NamedTupleMember(_) | TypeNode::RestTypeNode(_) => return error,
+            // Rests stay refused whole. §79 (`checker-notes-narrow.md`): an
+            // OPTIONAL element resolves its inner type and marks the
+            // position — the print carries the `?` (`[number, string?,
+            // boolean?]`), the element list carries the members, and index
+            // reads consult the mask. §80: a LABELED member (`[first:
+            // string]`) carries its label into the print the same way; a
+            // labeled REST keeps the decline.
+            let (inner, optional, label) = match element {
+                TypeNode::RestTypeNode(_) => return error,
+                TypeNode::NamedTupleMember(member) => {
+                    if member.dot_dot_dot_token.is_some() {
+                        return error;
+                    }
+                    let (Some(inner), Some(name)) = (member.r#type, member.name) else {
+                        return error;
+                    };
+                    any_marked = true;
+                    (inner, member.question_token.is_some(), Some(name.text.to_string()))
+                }
                 TypeNode::OptionalTypeNode(optional) => {
                     let Some(inner) = optional.r#type else { return error };
-                    any_optional = true;
-                    (inner, true)
+                    any_marked = true;
+                    (inner, true, None)
                 }
-                other => (*other, false),
+                other => (*other, false, None),
             };
             let resolved = self.get_type_from_type_node(inner);
             // A gap in an element is a gap in the tuple, the rule the array arm
@@ -989,13 +1001,14 @@ impl<'a> Checker<'a, '_> {
                 return error;
             }
             elements.push((resolved, optional));
+            labels.push(label);
         }
-        if any_optional {
+        if any_marked {
             let readonly = node
                 .node_id
                 .and_then(|id| self.nodes.parent(id))
                 .is_some_and(|parent| self.is_readonly_type_operator(parent));
-            return self.create_optional_tuple_type(elements, readonly);
+            return self.create_optional_tuple_type(&elements, &labels, readonly);
         }
         let elements: Vec<TypeId> = elements.into_iter().map(|(t, _)| t).collect();
         let readonly = node
@@ -1022,17 +1035,27 @@ impl<'a> Checker<'a, '_> {
     /// the all-required spelling.
     fn create_optional_tuple_type(
         &mut self,
-        elements: Vec<(TypeId, bool)>,
+        elements: &[(TypeId, bool)],
+        labels: &[Option<String>],
         readonly: bool,
     ) -> TypeId {
-        if let Some(&cached) = self.optional_tuple_types.get(&(elements.clone(), readonly)) {
+        let key = (elements.to_vec(), labels.to_vec(), readonly);
+        if let Some(&cached) = self.optional_tuple_types.get(&key) {
             return cached;
         }
         let printed = elements
             .iter()
-            .map(|&(element, optional)| {
+            .zip(labels)
+            .map(|(&(element, optional), label)| {
                 let text = self.type_to_string(element);
-                if optional { format!("{text}?") } else { text }
+                match label {
+                    // §80: the label owns the `?` — `[first?: string]`,
+                    // never `[first: string?]`.
+                    Some(label) if optional => format!("{label}?: {text}"),
+                    Some(label) => format!("{label}: {text}"),
+                    None if optional => format!("{text}?"),
+                    None => text,
+                }
             })
             .collect::<Vec<_>>()
             .join(", ");
@@ -1043,7 +1066,7 @@ impl<'a> Checker<'a, '_> {
         let mask: Vec<bool> = elements.iter().map(|&(_, optional)| optional).collect();
         self.tuple_element_lists.insert(id, (plain, readonly));
         self.tuple_optional_masks.insert(id, mask);
-        self.optional_tuple_types.insert((elements, readonly), id);
+        self.optional_tuple_types.insert(key, id);
         id
     }
 
