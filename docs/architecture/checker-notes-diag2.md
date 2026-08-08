@@ -8690,3 +8690,46 @@ half* was required, and the checker already had it.
 (`bd tsr-5e7.6`), so only the `nil` is ported"* — has been stale since §113 and
 is now doubly so: the decision stays in the resolver, the report is the
 checker's, and neither had to move.
+
+## §117 — TS1361/TS1362 attempted on §116's pattern: a measured ZERO, and where it dies
+
+§116's lesson — *the site may already exist, occupied by a silence* — points
+straight at TS1361. `check_value_identifier`'s meaning ladder returns silently
+when a name resolves as `ALIAS` (§79 added that arm), and upstream reports there
+when the alias is type-only and has no `Value` meaning (`checker.go:1860`).
+
+Split the `ALIAS` arm out of the ladder, ask whether the resolved alias's
+declaration carried `type`, and report TS1361 or TS1362 on the import/export
+split.
+
+| | CONVERTS | LOST | RIGHT | WRONG |
+|---|---:|---:|---:|---:|
+| before | 219 | 2 | 2,409 | 414 |
+| after | **219** | **2** | **2,409** | **414** |
+
+**Byte-identical. The rule never fires.** Reverted — an unmeasured restructure
+of a hot ladder earns nothing.
+
+### Where it dies, for whoever picks it up
+
+Three candidates, none eliminated, and eliminating them is one `eprintln!` each
+— the instrument that has paid five times in this workstream (§76, §80):
+
+1. **`check_value_identifier` may not reach these names.** Its gates
+   (`is_value_reference`, the `null`/`this` skip, the parse-error gate) are ahead
+   of the ladder.
+2. **`resolve_name(…, SymbolFlags::ALIAS)` may not answer.** This binder files
+   import specifiers as `ALIAS` in `Locals`, but the *value* meaning is tried
+   first in the ladder above and a type-only import may already be answering it.
+3. **`is_type_only` / `phase_modifier` may be unset by this parser.** Upstream
+   unified `import type` and `import defer` into `ImportClause.PhaseModifier`,
+   and `ImportSpecifier`/`ExportSpecifier` carry their own `is_type_only` — but
+   nothing in this port has ever read them, so nothing has ever proved the
+   parser writes them. **That is the same class of finding as
+   `NodeFlags::YIELD_CONTEXT` (§104): a field that exists, compiles, and is set
+   by nobody.** Check this one first.
+
+**PRINT WHETHER THE RULE RUNS BEFORE ASKING WHAT IT DECIDED** — the finding the
+twelfth session paid for, and the one this attempt skipped. A byte-identical
+measurement is the cheapest possible signal that the answer is (1) or (3) rather
+than a wrong predicate, and it cost one build to get it the expensive way.
