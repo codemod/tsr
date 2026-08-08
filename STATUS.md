@@ -40,7 +40,7 @@ Measured at the §42-v2 landing, 2026-08-07 (ninth session, continued: builds 25
 | `dts_emit` | 161/339 | 47.49% | |
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
-| **`checker_types`** | **3,798/9,538** | **39.82%** | **gradient 83.89%** — the target (builds 25–111) |
+| **`checker_types`** | **3,798/9,538** | **39.82%** | **gradient 83.90%** — the target (builds 25–112) |
 | `diagnostics` | **1,373/5,488** | **25.02%** | **measured at HEAD, thirteenth session (§86–§90), +27 over 4 builds, 0 lost, and the wrong column fell in two of them.** The running total is 80 → 1,373, **17.2×**. One build ever shipped with a named loss (§33); every other is 0 lost. `checker_types` byte-identical across every `diagnostics` build of the eleventh, twelfth and thirteenth sessions — verified by stash-and-remeasure, never against a number written down before the last push (§88) |
 
 ### `checker_types`, the number the project is steered by
@@ -225,8 +225,11 @@ declines at 33:1) = 401,639; then + 91 (§56.3: argument-position
 retention, ZERO adverse — temporal's first 79 lines move) = 401,730;
 then + 53 (§60: the qualified heritage base at 6:1 — with the
 inside-namespace refusal re-measured at 1.4:1 and the §33 const gate
-proved load-bearing at 850 R→G, both priced) = 401,783 exactly — builds
-25–111. The
+proved load-bearing at 850 R→G, both priced) = 401,783; then + 58 (§62: unique symbols are per-declaration, 2
+parameter-split residue at 30:1; §61's auto-var counter refused — it
+cannot reach the cap without upstream's recursion — and §56.5's generic
+un-gate measured redundant, both priced) = 401,841 exactly — builds
+25–112. The
 right+gap+wrong identity now sums against 470,619.
 Build 96 (scorepair) and the probefile tool are the loop's new
 instruments; the full run is 21s since the §52 memo. §35 records a FINDING: tsgo prints
