@@ -321,3 +321,30 @@ variables (131), generic-alias body instantiation (166+142),
 best-common-type freshness (true|boolean 97), per-site printing
 (3 heads). Next session should pick ONE subsystem and build its
 prerequisite seam rather than continue shape-mining.
+
+
+ADDENDUM AFTER BUILD 141 (84.44%):
+
+The narrowing-subsystem block, builds 139-141:
+  - §82/§82.1 aliased conditions (+43/0): const-initializer inlining
+    (depth 5), the logical arms narrow_type lacked (an inlined
+    initializer has no flow branch nodes), and the constant-reference
+    gate (const vars / never-assigned params via mark_node_assignments;
+    ungated measured 12 adverse, gated ZERO).
+  - §83 instanceof, TRUE branch only (+126 at 18:1): identity +
+    extends-chain slice. THE FALSE BRANCH IS EVIDENCE-SPLIT: 
+    typeGuardOfFormInstanceOf's else keeps the whole union while
+    instanceofWithStructurallyIdenticalTypes narrows by derived-from —
+    global var vs parameter is the visible difference; needs an
+    upstream trace before the false arm lands. The narrowing stand-in
+    fixture expired a FIFTH time (now: computed-name in).
+  - §84 sibling-truthiness discriminant (+6/0) — and a REDUNDANCY
+    caught by measurement: a hand-rolled dependent-destructuring
+    equality arm measured zero transitions (the §50 pseudo-reference
+    road already owned every position) and was REMOVED, not landed.
+
+dependentDestructuredVariables residue (148 wrong): callback
+contextual tuple-rest parameters (f50/f51), generic alias unions
+(AB<T>), Iterator.next destructuring, f22's
+parent-flow-at-declaration, f23's exhaustive-never. Each is its own
+machine; none is a narrowing arm.

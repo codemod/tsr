@@ -274,7 +274,12 @@ parameter finally read) + 184 (§79/§79.1: optional-element tuples
 with alias names — three measured gates: generic→structural,
 rest→variadic-road, empty→`[]`) + 71 (§80: labeled tuple members) +
 the parallel sessions' arrivals under rebases = **404,219 — builds
-25–138 (84.40%)** against a population grown to 470,657. §81 (blunt
+25–138 (84.40%)** against a population grown to 470,657. Then + 43 (§82 aliased conditions, gated
+to ZERO adverse) + 126 (§83 instanceof TRUE-branch at 18:1 — the
+false branch is evidence-split between two baselines and awaits an
+upstream trace) + 6 (§84 sibling truthiness; a redundant §84 equality
+arm measured zero against §50's existing road and was REMOVED) =
+**404,377 — builds 25–141 (84.44%)**. §81 (blunt
 qualified names) REFUSED at 114:6,769 — the qualifier is decided by
 the VIEWER's position; per-site printing context now owns THREE heads
 (import-spelling, qualified names, `temporal`'s 400). §77.2 (union written order) refused TWICE — 35:249, then
