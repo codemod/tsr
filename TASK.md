@@ -86,6 +86,15 @@ STATE AT HANDOFF (verify with a fresh coverage run):
   §65.1's null twin refused at 2.4:1 (fourth key undecoded — START THERE
   or at the argument-road generalization). 84% and 40% both crossed.
 
+  BUILDS 117–119 addendum: the CONTEXTUAL DISPATCH RE-MEASUREMENT SWEEP
+  — three once-rejected arms (return statements §68, parenthesization
+  §68.1, array elements §68.2) all landed at zero adverse; every
+  concentration-based rejection in checker-notes-ctx.md predates the
+  §57 alignment jump and is suspect. §65.1/§66/§67 refused en route
+  with the generatedContextualTyping decline point TRACED: the literal
+  keeps its union (right); the residue is function-expression prints
+  and deeper contextual hops (concise arrow bodies next).
+
   NEXT HEADS, each with its section: the enum residue (string-length
   folding, cross-enum refs, §53's entry-order class), the || early-return
   divergence (7 lines, blocked on non-strict per-constituent facts), the
