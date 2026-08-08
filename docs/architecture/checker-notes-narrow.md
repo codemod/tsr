@@ -2814,3 +2814,9 @@ arrow parameters. The case's remaining 56 need the returned arrow's
 parameters to see the contextual signature through MORE hops (the
 concise-body and nested-return positions). `checker_types` right
 402,325 → **402,349 (84.01%)**.
+
+## §68.1 — the parenthesized recursion
+
+`checker.go:29392`, one line, un-rejected with §68's own argument.
+**+16 (15 W→R, 1 G→R), ZERO adverse.** `checker_types` right 402,349 →
+**402,365 (84.02%)**.
