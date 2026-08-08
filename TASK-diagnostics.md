@@ -12,7 +12,7 @@ FIRST: git pull. Then read, in this order:
   builds.
 
 STATE AT HANDOFF (verify with a fresh coverage run):
-  diagnostics    1,395/5,488 = 25.42%   (was 1,346; +49 over 12 builds and
+  diagnostics    1,405/5,488 = 25.60%   (was 1,346; +59 over 13 builds and
                  THREE priced refusals — §94, §96, §97 —
                  **zero cases lost, and the wrong column FELL in two of them**)
   checker_types  3,842/9,538 · 84.13% — the other workstream's, and it moves
@@ -104,9 +104,13 @@ TS2540      12         9
    no flow, no relation* — a `Vec` of seen keywords and a left-to-right walk.
    It had sat untouched for thirteen sessions because every session ranked with
    `diagreach`, which measures cases reachable by **deepening rules that exist**;
-   a code with no rule appears only in `diaggap`. **`TS1100` (12 cases),
-   `TS1109` (11), `TS1163` (10) and `TS1183` are the same shape and are
-   unpriced.** Read `grammarchecks.go` for each. Two rules §103 paid for: at most
+   a code with no rule appears only in `diaggap`. **§104 then took `TS1163` for +10 cases**
+   (10 lines / 10 cases, concentration 1.0). **`TS1100` (12 cases), `TS1109` (11)
+   and `TS1183` remain unpriced and are the same shape.**
+   Before porting any rule that reads a `NodeFlag`, **grep whether anything sets
+   it**: `NodeFlags::YIELD_CONTEXT` is a fourth declared-and-never-set flag
+   alongside `AMBIENT`, `JAVASCRIPT_FILE` and `SymbolFlags::OPTIONAL`, and §104
+   had to derive it structurally. Read `grammarchecks.go` for each. Two rules §103 paid for: at most
    **one** grammar report per node (every upstream arm is a `return`), and the
    `else if` **order is the specification**.
 
