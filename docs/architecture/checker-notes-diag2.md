@@ -9305,3 +9305,45 @@ six and was prescribed by the section that ran out of inferences, not by the one
 that ran out of patience.** Every wrong guess here was made by reasoning from
 artefacts that describe *upstream*; the defect was in what *this port* did with
 an argument it never had.
+
+## §129 — the seventh inference, and the one §127 forbade
+
+§128's probe named a real gap: `getTypeOnlyAliasDeclarationEx` takes a **meaning**
+and this port's walk does not. That much is fact, read off upstream's signature.
+
+**What that meaning should *do* was then inferred, and the inference was wrong.**
+The guess was "a hop whose target is a real value ends the chain". Implemented:
+
+| | CONVERTS | LOST | RIGHT | WRONG |
+|---|---:|---:|---:|---:|
+| §125 | 5 | 0 | 22 | 3 |
+| §129 | 5 | 0 | 22 | **3** |
+
+Unchanged. Reverted. The guard never fires, because the hop that produces the
+TS1362 resolves to **another alias** — an `ExportSpecifier` — which carries
+`ALIAS` and so passes a test written for concrete values.
+
+### This is §127's rule being broken by the section that quoted it
+
+§127 wrote *"do not implement another hypothesis; instrument"*. §128 instrumented
+and found the missing argument. §129 then **inferred its semantics instead of
+probing them** — the same failure one level down, and the seventh wrong guess on
+three lines.
+
+The probe that would have settled it is one line longer than §128's: print the
+declaration kind **at each hop** of `type_only_alias_declaration`, not just the
+symbol's own. That shows which declaration supplies the `Some(true)` and whether
+upstream's meaning filter would have rejected it. **That is the next action on
+this row and it is not a build.**
+
+### Standing verdict on these three lines
+
+**Seven inferences, two right.** The two that worked (§123's computed-property
+clause, §125's `export =` decline) were both cases where an *upstream artefact
+stated the answer outright* — a named function in `utilities.go`, a baseline
+file. Every inference about *this port's* internal behaviour has failed, seven
+for seven counting §129.
+
+**Do not build on this row again without a probe that shows the hop.** The three
+lines are worth three lines; the discipline is worth more, and this session has
+now paid for it twice at the same address.
