@@ -1539,3 +1539,36 @@ carries `const` — a gap beats a wrong, costing 10 potential wins). Final:
 **+134 (G→R), ZERO adverse.** `checker_types` right 396,553 →
 **396,687 (82.83%)**. Residue: const inference (literal retention,
 readonly-tuple minting) — the real subsystem behind the declined calls.
+
+### §34 Deferred indexed-access type nodes print as written
+
+`correlatedUnions` (100+ GAP): `RecordMap[P]` in an annotation, where `P`
+is a TYPE PARAMETER — upstream DEFERS the indexed access (the index
+cannot resolve until instantiation) and the baseline prints the node as
+written, in annotations and inside signature prints alike
+(`(v: RecordMap[P]) => void`). This port's `get_type_from_type_node` has
+no `IndexedAccessTypeNode` arm — `errorType`, poisoning every signature
+that mentions one.
+
+**The bar.** The §31-mint pattern (`unresolved_type_reference`): when the
+INDEX is a type reference resolving to a TYPE PARAMETER (upstream's
+deferral condition, approximated) and the OBJECT is a spellable type
+reference, mint a Named carrying `Object[Index]` as written, registered
+in `unresolved_types` so `is_error` stays true — every consumer keeps
+gapping; only the printed line changes. Literal indexes (`Funcs["cat"]`)
+stay declined: upstream resolves those CONCRETELY, and the written text
+would be a wrong line.
+
+**Falsifiers.** (a) Call-site instantiations where upstream substitutes
+`P` and prints the resolved type — the mint leaks the written form; R→W/
+G→W at call results. (b) If upstream normalizes the spelling (spacing,
+qualifier changes), W on exotic spellings.
+
+**§34 score — LANDED (narrowed once).** First pair +154/29: a variant of
+(b) fired — upstream EXPANDS a type-ALIAS object in the deferred print
+(`ArgMap[P]` wants `{ sum: ...; concat: ... }[P]`,
+`mappedTypeIndexedAccessConstraint`); interfaces keep their name. Alias
+objects now decline. Final pair: **+121 G→R / 2 G→W** — the 2 are
+falsifier (a)'s population (constraint substitution under instantiation,
+`deeplyNestedConstraints`), accepted at 60:1 per the §23/§6 precedent.
+`checker_types` right 396,694 → **396,815 (82.85%)**.

@@ -128,6 +128,92 @@ impl<'a> Checker<'a, '_> {
                 }
                 self.intrinsics.error
             }
+            // §34 (`checker-notes-callres.md`): a DEFERRED indexed access —
+            // the index is a type parameter, upstream cannot resolve it until
+            // instantiation — prints as written via the §31 mint; is_error
+            // stays true through `unresolved_types`, so only the printed
+            // line changes. Literal indexes resolve concretely upstream and
+            // stay declined here.
+            TypeNode::IndexedAccessTypeNode(node) => {
+                let deferred_index = match node.index_type {
+                    Some(TypeNode::TypeReferenceNode(index)) => {
+                        let text = Self::entity_name_text(index.type_name);
+                        let is_type_parameter = index
+                            .type_name
+                            .and_then(|name| match name {
+                                tsr_ast::EntityName::Identifier(identifier) => {
+                                    identifier.node_id.and_then(|id| {
+                                        self.binder.resolve_name(
+                                            self.nodes,
+                                            self.node_map,
+                                            id,
+                                            identifier.text,
+                                            SymbolFlags::TYPE,
+                                        )
+                                    })
+                                }
+                                tsr_ast::EntityName::QualifiedName(_) => None,
+                            })
+                            .is_some_and(|symbol| {
+                                self.binder
+                                    .symbols()
+                                    .get(symbol)
+                                    .flags
+                                    .contains(SymbolFlags::TYPE_PARAMETER)
+                            });
+                        if index.type_arguments.is_empty() && is_type_parameter {
+                            text
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                };
+                let object_text = match node.object_type {
+                    Some(TypeNode::TypeReferenceNode(object))
+                        if object.type_arguments.is_empty() =>
+                    {
+                        // §34's narrowing (29 G→W in the first pair): a TYPE
+                        // ALIAS object EXPANDS in upstream's deferred print
+                        // (`ArgMap[P]` wants `{ sum: ...; concat: ... }[P]`);
+                        // only a non-alias object keeps its written name.
+                        let is_alias = object
+                            .type_name
+                            .and_then(|name| match name {
+                                tsr_ast::EntityName::Identifier(identifier) => {
+                                    identifier.node_id.and_then(|id| {
+                                        self.binder.resolve_name(
+                                            self.nodes,
+                                            self.node_map,
+                                            id,
+                                            identifier.text,
+                                            SymbolFlags::TYPE,
+                                        )
+                                    })
+                                }
+                                tsr_ast::EntityName::QualifiedName(_) => None,
+                            })
+                            .is_some_and(|symbol| {
+                                self.binder
+                                    .symbols()
+                                    .get(symbol)
+                                    .flags
+                                    .contains(SymbolFlags::TYPE_ALIAS)
+                            });
+                        if is_alias { None } else { Self::entity_name_text(object.type_name) }
+                    }
+                    _ => None,
+                };
+                match (object_text, deferred_index) {
+                    (Some(object), Some(index)) => {
+                        let printed = format!("{object}[{index}]");
+                        let id = self.store.new_named(TypeFlags::ANY, printed, None);
+                        self.unresolved_types.insert(id);
+                        id
+                    }
+                    _ => self.intrinsics.error,
+                }
+            }
             _ => self.intrinsics.error,
         }
     }
