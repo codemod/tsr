@@ -12,10 +12,11 @@ FIRST: git pull. Then read, in this order:
   builds.
 
 STATE AT HANDOFF (verify with a fresh coverage run):
-  diagnostics    1,373/5,488 = 25.02%   (was 1,346; +27 over 4 builds,
+  diagnostics    1,375/5,488 = 25.05%   (was 1,346; +29 over 5 builds,
                  **zero cases lost, and the wrong column FELL in two of them**)
-  checker_types  3,786/9,538 · 83.84% — the other workstream's, and it moves
-                 hourly. Do not touch it.
+  checker_types  3,838/9,538 · 84.10% — the other workstream's, and it moves
+                 HOURLY: it changed three times inside this one session. Do not
+                 touch it, and do not compare against this number — remeasure.
 
 ## CHECK BYTE-IDENTITY THE ONLY WAY THAT WORKS
 
@@ -105,10 +106,11 @@ TS2540      12         9
    18 sole-obstacle cases over 29 missing lines, a **concentration of 1.6**,
    which is the best shape on the board. §90 took the `new` half; what is left
    is the same overload question on the **call** arm
-   (`functionOverloads29`/`34`/`37`), rest-parameter and initialiser ordering
-   (`genericRestArity`, `requiredInitializedParameter1`,
-   `spreadOfParamsFromGeneratorMakesRequiredParams` — all declined by
-   `sole_signature_arity`'s `take_while(dot_dot_dot_token.is_none())`), and the
+   (`functionOverloads29`/`34`/`37` — `sole_signature_arity` requires a symbol
+   with exactly ONE declaration; §90's `new` arm already shows the shape, so
+   this is that change transplanted), rest-parameter ordering (`genericRestArity`,
+   `spreadOfParamsFromGeneratorMakesRequiredParams` — declined by
+   `sole_signature_arity`'s rest handling), and the
    JS arm, where **§74's rule applies: a JS decline does not transfer between
    arms.** Measure it, do not assume it.
 
@@ -283,6 +285,12 @@ Push before you stop. A build that is not pushed did not happen.
   got 0.` is TS2554, the same `Message` as `Expected 1 arguments`; upstream
   composes the range into `{0}`. There is no `Expected_0_1_arguments_but_got_2`
   to reach for in `messages.rs`.
+- **`getMinArgumentCount` counts BACKWARDS** (§91). Upstream resets it at every
+  non-optional parameter, so it is the position after the *last required* one,
+  not the index of the *first optional* one. The two agree on every signature
+  with trailing optionals — which is why the forward reading survived twelve
+  sessions — and disagree on `function f1(a, b = 0, c)`. When a computation
+  "obviously" has two equivalent formulations, check the one upstream wrote.
 - **Price a false positive with `extraonly`, never with `diag2307`'s wrong
   column.** The wrong column counts *lines*; only `extraonly` says whether a
   case is one false positive from passing. §88 got this wrong about TS2300's 61
