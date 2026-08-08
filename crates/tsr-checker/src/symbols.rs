@@ -1458,6 +1458,100 @@ impl<'a> Checker<'a, '_> {
         None
     }
 
+    /// §56: the annotation-derived contextual type of an object-literal
+    /// MEMBER, reached syntactically — property assignments and nested
+    /// object literals only, ending at a `VariableDeclaration` with a written
+    /// annotation. `None` everywhere else (the refused general machinery).
+    pub(crate) fn annotation_member_context(&mut self, declaration: NodeId) -> Option<TypeId> {
+        let mut path: Vec<String> = Vec::new();
+        let mut current = declaration;
+        loop {
+            let Some(Node::PropertyAssignment(assignment)) = self.node_map.get(current) else {
+                return None;
+            };
+            let name = match assignment.name {
+                tsr_ast::PropertyName::Identifier(n) => n.text.to_string(),
+                tsr_ast::PropertyName::StringLiteral(n) => n.text.to_string(),
+                _ => return None,
+            };
+            path.push(name);
+            let literal = self.nodes.parent(current)?;
+            if self.nodes.kind(literal) != SyntaxKind::ObjectLiteralExpression {
+                return None;
+            }
+            let holder = self.nodes.parent(literal)?;
+            match self.nodes.kind(holder) {
+                SyntaxKind::PropertyAssignment => current = holder,
+                SyntaxKind::VariableDeclaration => {
+                    let Some(Node::VariableDeclaration(variable)) = self.node_map.get(holder)
+                    else {
+                        return None;
+                    };
+                    // §56's second fired leg (`tryCatchFinallyControlFlow`):
+                    // a LET's retained literals flow into reassignment joins
+                    // this port's assignment narrowing cannot reduce
+                    // (upstream's `getAssignmentReducedType` is unported) —
+                    // CONST holders only.
+                    if !self.combined_node_flags(holder).intersects(tsr_ast::NodeFlags::CONSTANT) {
+                        return None;
+                    }
+                    let annotation = variable.r#type?;
+                    let mut t = self.get_type_from_type_node(annotation);
+                    for name in path.iter().rev() {
+                        if t == self.intrinsics.error {
+                            return None;
+                        }
+                        t = self.get_type_of_property_of_type(t, name)?;
+                    }
+                    return (t != self.intrinsics.error).then_some(t);
+                }
+                _ => return None,
+            }
+        }
+    }
+
+    /// §56's retention test: the contextual member is a UNIT, or a union of
+    /// UNITs — the shapes where upstream's `isLiteralOfContextualType`
+    /// answers yes without the relation.
+    pub(crate) fn type_wants_literal(&self, contextual: TypeId, checked: TypeId) -> bool {
+        // §56's first fired leg (`widenedTypes`): the contextual unit must
+        // be the checked literal's own FAMILY — `typeof undefined` is a
+        // unit that wants no string.
+        use crate::flags::TypeFlags;
+        let family = {
+            let flags = self.store.get(checked).flags;
+            if flags.contains(TypeFlags::STRING_LITERAL) {
+                TypeFlags::STRING_LITERAL
+            } else if flags.contains(TypeFlags::NUMBER_LITERAL) {
+                TypeFlags::NUMBER_LITERAL
+            } else if flags.contains(TypeFlags::BIG_INT_LITERAL) {
+                TypeFlags::BIG_INT_LITERAL
+            } else if flags.contains(TypeFlags::BOOLEAN_LITERAL) {
+                TypeFlags::BOOLEAN_LITERAL
+            } else {
+                return false;
+            }
+        };
+        let unit_of_family = |checker: &Self, id: TypeId| {
+            let flags = checker.store.get(id).flags;
+            flags.intersects(TypeFlags::UNIT) && flags.contains(family)
+        };
+        if unit_of_family(self, contextual)
+            && !self.store.get(contextual).flags.contains(TypeFlags::UNION)
+        {
+            return true;
+        }
+        match &self.store.get(contextual).data {
+            crate::types::TypeData::Union { types, .. } => {
+                types.iter().any(|&part| unit_of_family(self, part))
+                    && types
+                        .iter()
+                        .all(|&part| self.store.get(part).flags.intersects(TypeFlags::UNIT))
+            }
+            _ => false,
+        }
+    }
+
     fn get_type_of_variable_or_parameter_or_property(&mut self, symbol: SymbolId) -> TypeId {
         if let Some(&cached) = self.symbol_types.get(&symbol) {
             return cached;
@@ -1518,7 +1612,22 @@ impl<'a> Checker<'a, '_> {
                     return self.intrinsics.error;
                 };
                 match assignment.initializer {
-                    Some(initializer) => self.check_expression_for_mutable_location(initializer),
+                    Some(initializer) => {
+                        // §56 (`checker-notes-narrow.md`): a fresh literal
+                        // RETAINS its literal form when the annotation's
+                        // member wants a unit there
+                        // (`isLiteralOfContextualType`, checker.go:13838).
+                        if let Some(contextual) = self.annotation_member_context(declaration) {
+                            let checked = self.check_expression(initializer);
+                            if self.type_wants_literal(contextual, checked) {
+                                self.get_regular_type_of_literal_type(checked)
+                            } else {
+                                self.check_expression_for_mutable_location(initializer)
+                            }
+                        } else {
+                            self.check_expression_for_mutable_location(initializer)
+                        }
+                    }
                     None => self.intrinsics.error,
                 }
             }

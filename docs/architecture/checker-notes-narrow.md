@@ -2516,3 +2516,39 @@ module-merged/imported single-member enums wanting qualified spellings
 (`constEnumOnlyModuleMerging`, `enumFromExternalModule`), accepted.
 `checker_types` right 399,963 → **400,173 (83.55%)** — the right count
 crosses 400,000.
+
+## §56 — literal retention under unit contextual members (the arc opens)
+
+The contextual-typing arc's narrowest provable slice:
+`isLiteralOfContextualType` (`checker.go:13838`) keeps a FRESH literal's
+literal form when the contextual type wants a literal there — the 107
+want-`true`-got-`boolean` lines are object members under unit-typed
+annotation members (`const a: { ready: true } = { ready: true }`). The
+slice: an object-literal PROPERTY whose enclosing literal chain hangs
+(through property assignments and nested literals only) off a
+VariableDeclaration WITH an annotation; the member path resolves through
+`get_type_of_property_of_type`; retention iff the resolved member type is
+UNIT or a union of UNITs. Retained = the member's type is the regular
+literal, not the widened base. The general contextual machinery
+(arguments, returns, satisfies, casts) stays refused — this is one
+POSITION, syntactically provable.
+
+**Falsifiers.** (a) The §7-era leg: positions where upstream does NOT
+retain despite a unit member (fresh-vs-regular subtleties) — R→W on
+literal-member lines. (b) The print/type shared road (`objects.rs`) must
+move WITH the symbol road or literals print one thing and carry another —
+divergence shows as object-print wrongs beside right member lines.
+
+**§56 score — LANDED (both falsifiers fired and are contained).** (a)
+fired as FAMILY mismatch: `typeof undefined` is a unit that wants no
+string (`widenedTypes`) — retention now requires the contextual unit to
+carry the checked literal's own literal-family flag. (b) fired
+immediately: the object PRINT diverged from the member type until
+`objects.rs`'s member computation gained the same retention. A third leg
+the bar did not name: a LET's retained literals flow into reassignment
+JOINS this port cannot reduce (`getAssignmentReducedType` unported —
+`tryCatchFinallyControlFlow`'s 11 R→G), so retention is gated to CONST
+holders, costing ~30 let-shaped wins. Final: **+52 (W→R), ZERO
+adverse.** `checker_types` right 400,173 → **400,225 (83.57%)**. The
+arc's next slices: let-holders behind `getAssignmentReducedType`,
+parameter defaults, return positions, and the argument road.

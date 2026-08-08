@@ -303,9 +303,11 @@ impl Checker<'_, '_> {
             // reachable here: a method needs `checkObjectLiteralMethod` and a
             // signature member this port cannot print, and a spread or accessor
             // is not in that list at all.
+            let mut property_node_id: Option<tsr_ast::NodeId> = None;
             let (name_node, value) = match property {
                 tsr_ast::ObjectLiteralElementLike::PropertyAssignment(assignment) => {
                     let Some(initializer) = assignment.initializer else { return error };
+                    property_node_id = assignment.node_id;
                     (assignment.name, PropertyValue::Initializer(initializer))
                 }
                 // `{ a }`. `checkShorthandPropertyAssignment` (`checker.go:13689`)
@@ -442,7 +444,22 @@ impl Checker<'_, '_> {
             };
             let member_type = match value {
                 PropertyValue::Initializer(initializer) => {
-                    self.check_expression_for_mutable_location(initializer)
+                    // §56 (`checker-notes-narrow.md`): the PRINT road moves
+                    // WITH the symbol road — a fresh literal under a
+                    // unit-wanting annotation member retains its literal
+                    // form here too, or the object prints one thing while
+                    // the member carries another (the §56 bar's leg (b)).
+                    let retained = property_node_id
+                        .and_then(|id| self.annotation_member_context(id))
+                        .and_then(|contextual| {
+                            let checked = self.check_expression(initializer);
+                            self.type_wants_literal(contextual, checked)
+                                .then(|| self.get_regular_type_of_literal_type(checked))
+                        });
+                    match retained {
+                        Some(t) => t,
+                        None => self.check_expression_for_mutable_location(initializer),
+                    }
                 }
                 PropertyValue::Shorthand(identifier) => self.check_expression_for_mutable_location(
                     tsr_ast::Expression::Identifier(identifier),
