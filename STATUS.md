@@ -41,7 +41,7 @@ Measured at the §42-v2 landing, 2026-08-07 (ninth session, continued: builds 25
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
 | **`checker_types`** | **3,742/9,538** | **39.23%** | **gradient 83.41%** — the target (builds 25–97) |
-| `diagnostics` | **1,078/5,488** | **19.64%** | **tenth session, +361** — 717 → 1,078 across forty-one builds and nine measured refusals; the running total is 80 → 1,078, 13.5×. One build shipped with a named loss (§33); every other is 0 lost |
+| `diagnostics` | **1,322/5,488** | **24.09%** | **measured at `77e2866`, twelfth session (§76–§79), +20 over 3 builds, 0 lost.** The running total is 80 → 1,322, **16.5×**. One build ever shipped with a named loss (§33); every other is 0 lost. `checker_types` byte-identical across every `diagnostics` build of the eleventh and twelfth sessions |
 
 ### `checker_types`, the number the project is steered by
 
@@ -1110,6 +1110,39 @@ its whole deliverable and accept that it converts nothing until finished.
 
 ## 5. Refused, with the number that refused it
 
+### New, twelfth session, `diagnostics`
+
+- **Containing `errorType` inside a type constructor — REFUSED at 22 lines /
+  3 cases**, `checker-notes-diag2.md` §77. TS2564's largest residual is
+  `class X<T> { p1: () => X }`: upstream's `() => errorType` is an anonymous
+  object type and is **not** `AnyOrUnknown`, so the rule fires; this port
+  answers the bare `errorType` for the whole annotation, because
+  `get_signature_from_declaration` returns `None` whenever a *part* is an error
+  and `signature_bearing_type_node` turns that into `errorType`. That
+  propagation exists for the same reason §42.1's union guard did — **this port
+  computes printed text when a type is created, and there is no text for
+  `() => error`**. §76 was cheap because `get_union_type_unprinted` already
+  existed and one call site needed rerouting; the signature equivalent would be
+  a whole unprinted road through `get_signature_from_declaration`,
+  `signature_to_string` and `store.new_anonymous`, all of them on the
+  `checker_types` query path. **Owner: `checker_types`** — whoever ports
+  print-from-the-store gets it for free, because the reason to propagate
+  disappears with print-at-creation. **How this would be shown wrong:** if a
+  single non-printing consumer can be given the unprinted road in isolation, the
+  way §76 did for unions, with no query-path call site reaching it. Refused on
+  cost, not on impossibility.
+- **A TS2554 decline for `callWithMissingVoid` — measured and REJECTED**
+  (§78). `class X<T> { f(t: T) }` with `X<void>`, `X<void | number>` and
+  `X<any>` writes the *same* annotation `t: T` at all three call sites, so any
+  test that silences the two false positives silences the true one too. The
+  build's arrival in that case is 3 right lines against 2 wrong, and the case
+  cannot pass either way. Owner: `parameter_annotation_is_void`, which reads the
+  written annotation rather than the instantiated type.
+- **TS2345's callee gate deliberately NOT generalised** (§78). TS2345 is
+  relation-bound and §75's split says do not build into the assignability
+  family, so `sole_signature_parameters` stays on `FunctionDeclaration` while
+  `sole_signature_arity` accepts all four signature kinds.
+
 ### New, eleventh session, `diagnostics` — the later builds
 
 - **TS2365's four declines**, each with an owner rather than a threshold (§49):
@@ -1315,6 +1348,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-08-08 | §79 landing (`77e2866`) | — | **`diagnostics` 1,322 / 5,488 = 24.09%** | **+20, 0 lost, 3 builds** | **The twelfth session, `diagnostics`.** Worked §75's 316 relation-free cases throughout; `checker_types` byte-identical across all three. §76 **a union ANNOTATION of named types declares `errorType`** (+5 for **zero** new wrong lines — §42.1's guard one level up: `get_type_from_union_type_node` routes `var c: E \| F` through the *printing* union worker, so every enum-union declaration silenced TS2454 at its first type test; found by one `eprintln!` behind `TSR_DEBUG_2454`). §77 **TS2564's residual is the same phenomenon at SIGNATURE scale — REFUSED with its number**: `() => X` is `errorType` here because `get_signature_from_declaration` answers `None` when a part is, where upstream *contains* the error inside the type constructor; 22 lines / 3 cases against the signature road `checker_types` is steered by. Owner named. §78 **TS2554's callee gate accepted one declaration kind out of four** (+2 — a method, a method signature and `var f = function(){}` were all declined at the same `Node::FunctionDeclaration` match, while `callee_symbol` already resolved all of them; falsifier fired and an *annotated* variable now declines, at zero cost). §79 **`typeof A` is a value position** (**+13**, and the wrong column went **DOWN 9** — the allow-list had no `TypeQueryNode` arm, so eleven cases never reached the rule; two declines found by reading the wrong column, of which `ALIAS` on the meaning-ladder was worth ten lines across the whole corpus). **The session's transferable finding: take the bar off `diagreach`'s CASE count, never off `diagmissing`'s line count** — §76 and §78 were barred off lines and read 5 and 2 against 8 and 6, and §79 was barred off cases and met at +13. The two line-barred builds both measured a 15:1 concentration. Also: TS2304's parse-error gate got its **third** measurement (absent is right — §40.3 +6, §50.1 −6, §79 clean on three recovered trees), and the three standing LOST are diagnosed in the notes, `resolutionModeTripleSlash1`/`3` newly so (`/// <reference types>` + conditional `exports`, owner `file_loader`, three cases behind it) |
 | 2026-08-08 | §73 landing | — | **`diagnostics` 1,301 / 5,488 = 23.71%** | **+183, 0 lost, 34 builds** | **The eleventh session, `diagnostics`.** §42–§48 (+57, in the row below), then §49 TS2365 (+3, four declines took its wrong column 58 → 0), §50 TS18050 is chosen by the NODE not the type (+5, wrong 96 → 0), §51 the other five `checkNonNullType` messages (+1), §52 TS2464 (+3), §53 TS2540 (+1 for 71 right lines), **§54 `diagreach.rs`** — 1,334 cases reachable by deepening existing rules, the largest number this workstream has taken — §55 TS2304 in **type** positions (**+43**, the session's largest single build), §56 TS2554 for constructors (+1, wrong 31 → 6), §57 **`names_in_scope` takes a meaning** (+7 — §55's refusal retired by the condition it named, and the *value* arm wanted the filter too), and **§58–§61 off `extraonly.rs`** (+6 — the cases blocked by an extra diagnostic ALONE, exact three times running and then §61.1, which showed the limit: the instrument says a case is one removal from passing, not that the removal is *expressible*), §62 TS2411's literal member names and `isNumericLiteralName` (+3), **§63 TS2389** (+13 — §14 declined it and the decline was *exact*, so the port was the message and its two positions), and **§64 a constructor has no symbol in this binder** (+10 — a one-line trace found `symbol_of` returning `None` for a `Constructor`, which silenced four codes at once), **§65 `diagemit.rs` + TS2362/TS2363** (+13 — `want` against `have` per code found the two largest *unported* rows in the corpus, and 866 right lines came for four wrong), §66 TS2356 at the `++`/`--` operand (+5 for zero wrong), §67 TS2341 (+7 for zero wrong), and **two measured zeros kept on the reachable set** — §68 TS2445 and §69 TS2374, 63 right lines and 0 wrong between them, moving `diagreach.rs` 1,283 → **1,304** — and §70, an inaccessible property's access answering `errorType` so no assignment check follows it (+2) |
 | 2026-08-08 | §48 landing (`adfd789`) | — | **`diagnostics` 1,175 / 5,488 = 21.41%** | **+57, 0 lost, 7 builds** | **The eleventh session, `diagnostics`.** §42 the outer-variable disjunct (+1 — `markNodeAssignments` was already ported and the handoff still named it as missing), §42.1 the named-union PRINTING guard silencing a non-printing consumer (+7), §43 TS2564's private and computed name kinds plus `is_error` for `== errorType` (+14), §44 the same correction at `pair_is_reportable` (a measured zero, kept), §45 TS2367 (+15 — §31's inherited decline was a stand-in for `getBaseTypeOfLiteralType`, not for the relation), §46 TS2352 ported to the real widening (zero, kept), §47 `checkTruthinessOfType` (+21, the top of its forecast), §48 `GetErrorRangeForNode` centrally (0 converted, 4 wrong lines removed, **0 lost across 36 report sites**). New instruments: `diagmissing.rs`, `diagcase.rs` |
 | 2026-08-07 | §49 landing | **82.62%** | **3,659** | **+734/268** | **Builds 71–74: the reference/member block.** Alias bodies carry members (§46, +46), `this` results answer receivers (§29-callres, +66), plain binding patterns render (§48, +149 — the token-kind trap's second firing caught by the pair), union property projection (§49, +734 — the dependent-flow family's prerequisite laid). The shipped-red protocol now reads: FULL suite before the landing commit |
