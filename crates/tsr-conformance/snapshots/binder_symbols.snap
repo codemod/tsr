@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 binder_symbols Summary:
 What a pass means: every symbol in the .symbols baseline exists with the same declaration lines
-Passed         : 8401/8473 (99.15%)
-Failed         : 72
+Passed         : 8402/8473 (99.16%)
+Failed         : 71
 Skipped        : 3971 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -96,8 +96,6 @@ conformance/autoAccessorNoUseDefineForClassFields
   2 symbol(s): file3.ts: C3.x: no symbol; file3.ts: C3.x: no symbol
 conformance/checkJsdocTypedefInParamTag1
   2 symbol(s): anotherX: declared on {27}, expected to include {18, 27}; x: declared on {14, 41}, expected to include {3, 14, 31, 41}
-conformance/circularImportAlias
-  2 symbol(s): a.b: declared on {10}, expected to include {0}; b.a: declared on {2}, expected to include {7}
 conformance/computedPropertyNamesDeclarationEmit1_ES6
   1 symbol(s): C["\" + \""]: no symbol
 conformance/computedPropertyNamesDeclarationEmit2_ES6

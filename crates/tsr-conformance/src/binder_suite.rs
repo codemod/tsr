@@ -280,13 +280,27 @@ impl Suite for BinderSymbols {
                             {
                                 let member_id = bound.merged_symbol(*member_id);
                                 let spelled = format!("{prefix}.{member_name}");
-                                let member_lines = lines_of(bound.symbols().get(member_id));
+                                let mut member_lines = lines_of(bound.symbols().get(member_id));
+                                // Transparency compounds: a member that is
+                                // itself an alias prints its own target's
+                                // declarations (`circularImportAlias`:
+                                // `>B : Symbol(a.b, Decl(…, 0, 0))`).
+                                let through = resolve_import_equals_target(
+                                    &program,
+                                    bound,
+                                    nodes,
+                                    bound.symbols().get(member_id),
+                                    |d| file.contains(d),
+                                );
+                                if let Some(through) = through {
+                                    member_lines.extend(lines_of(bound.symbols().get(through)));
+                                }
                                 for offset in dotted_suffixes(&spelled) {
                                     ours.entry(spelled[offset..].to_string())
                                         .or_default()
                                         .extend(&member_lines);
                                 }
-                                next.push((spelled, member_id));
+                                next.push((spelled, through.unwrap_or(member_id)));
                             }
                         }
                         frontier = next;
