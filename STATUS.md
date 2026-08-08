@@ -1273,7 +1273,16 @@ its whole deliverable and accept that it converts nothing until finished.
 
 ### New, thirteenth session, `diagnostics`
 
-- **TS1361/TS1362 — a byte-identical ZERO** (§117). §116's pattern (the site is
+- **§118 ANSWERED §117 in one run: the rule's HOST never runs.**
+  `TSR_DEBUG_1361` at `check_value_identifier` prints **zero lines** for
+  `conformance/computedPropertyName` — no identifier in the case reaches the
+  rule at all. TS1361/TS1362 is **not a rule gap**; it is `crate::check`'s
+  traversal not visiting the case's files. **Test `file_has_parse_errors`
+  first** — "zero identifiers, not few" is its signature — and note this may be
+  worth far more than 18 cases, since a traversal that skips a file skips
+  *every* rule on it. **Seventh payment for "print whether the rule runs before
+  asking what it decided", immediately after §117 skipped it and paid a build.**
+- **(superseded by §118)** TS1361/TS1362 — a byte-identical ZERO (§117). §116's pattern (the site is
   already there, occupied by a silence) pointed at
   `check_value_identifier`'s `ALIAS` arm; reporting there changed **nothing** —
   the rule never fires. Not a wrong predicate: something upstream of it. Three
