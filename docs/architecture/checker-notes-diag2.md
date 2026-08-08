@@ -5673,3 +5673,226 @@ standing-LOST rule, they are three families:
 ones. The rest of that row is the three families above plus
 `compiler/dynamicNames` and the `moduleAugmentation*` family, which are a
 different question again.
+
+---
+
+## 77. TS2564's residual is §76's phenomenon at signature scale — DIAGNOSED, NOT BUILT
+
+`diagreach.rs` ranks TS2564 at **37 cases**, the third relation-free row.
+`diagmissing -- 2564` puts 22 of its lines in three cases —
+`compiler/missingTypeArguments1` (8), `compiler/returnTypeTypeArguments` (8),
+`compiler/privacyVarDeclFile` (6) — and the first two are one shape:
+
+```ts
+class X<T>  { p1: () => X;         }   // upstream: TS2314 on X, AND TS2564 on p1
+class X2<T> { p2: { [idx: number]: X2 } }
+class X3<T> { p3: X3[]             }
+class X5<T> { p5: X5;              }   // upstream: TS2314 only, NO TS2564
+```
+
+An `eprintln!` behind `TSR_DEBUG_2564` at the rule's type gate, printing the
+declared type *and* the annotation's own type:
+
+```
+2564 p1: ty=TypeId(1) anno=Some((TypeId(1), "error")) is_error=true
+...
+2564 pa: ty=TypeId(1) anno=Some((TypeId(1), "error")) is_error=true
+```
+
+**All ten read the intrinsic `errorType`, including the annotation read
+directly**, so the rule is not looking at the wrong type: `() => X` — a
+`FunctionTypeNode` — *is* `errorType` in this port.
+
+### Why upstream reports p1–p4 and p6–p9 but not p5
+
+`getTypeFromClassOrInterfaceReference` (`checker.go:23196`) reports the arity
+error and returns `c.errorType`, which carries `TypeFlagsAny`, so
+`checkPropertyInitialization`'s `t.flags&TypeFlagsAnyOrUnknown`
+(`checker.go:4946`) skips it. That is `p5: X5` — a *bare* reference, and the one
+member of the family upstream is silent on, which the port gets right for the
+right reason.
+
+For the other nine the error is **nested**: upstream's `() => errorType` is an
+anonymous object type with a call signature, and an object type is not
+`AnyOrUnknown`. **Upstream contains the error inside the type constructor; this
+port propagates it outward.**
+
+### Where the propagation lives, and why it is not a bug
+
+`signature_bearing_type_node` (`function_types.rs:130`) returns `errorType` when
+`get_signature_from_declaration` answers `None`, and that function answers
+`None` whenever a *part* is `errorType` — a parameter's annotation
+(`signatures.rs:1413`), an inferred return (`:1068`), a return expression
+(`:903`). That is the port's standing "a gap in a part is a gap in the whole"
+convention, and it exists **for the same reason §42.1's union guard exists**:
+this port computes a type's printed text when the type is created, and there is
+no text for `() => error`.
+
+So TS2564's residual is **§76's finding at signature scale**. §76 was cheap
+because `get_union_type_unprinted` already existed and one call site needed
+rerouting. The signature equivalent does not exist: it would mean an unprinted
+road through `get_signature_from_declaration`, `signature_to_string` and
+`store.new_anonymous`, all of which are on the `checker_types` query path.
+
+### REFUSED here, with the number and the owner
+
+**Not built. 22 lines across 3 cases**, and `diagreach` prices the whole TS2564
+row at 37 cases of which this is a part — against a change that touches the
+signature road `checker_types` is steered by. §76's own ratio (76 right lines →
+5 cases) says the case yield here would be low single digits.
+
+**Owner: `checker_types`.** The general question is *"does a type constructor
+contain an `errorType` part or propagate it?"*, and the answer upstream is
+**contain**. Whoever ports print-from-the-store (the deletion
+`get_named_union_type`'s doc comment already anticipates) gets this for free,
+because the reason to propagate disappears with print-at-creation.
+
+**How this refusal would be shown wrong:** if a *non-printing* consumer of
+`get_signature_from_declaration` can be given the unprinted road in isolation —
+the way §76 did for unions — without any query-path call site reaching it. That
+was not attempted and is a real possibility; it is refused on cost here, not on
+impossibility.
+
+---
+
+## 78. TS2554's callee gate accepts one declaration kind out of four
+
+`diagreach.rs` ranks TS2554 at **36 cases**, relation-free.
+`diagmissing -- 2554` puts 15 of its lines in one case,
+`compiler/optionalParamArgsTest`, and diffing that case whole is what named the
+gap — **nothing** about it is a decline in the arity arithmetic:
+
+```
+function F1() { return 0; }        F1(1);          <- ALREADY REPORTED
+var L1 = function() { return 0; }  L1(1);          <- missing
+interface I1 { C1M1(): number; }   i1o1.C1M1(1);   <- missing
+class C1 { public C1M1() { … } }   c1o1.C1M1(1);   <- missing
+```
+
+Every missing line is a callee whose declaration is not a `FunctionDeclaration`.
+`sole_signature_arity` (`call_arity.rs:403`) and `sole_signature_parameters`
+(`:479`) both gate on `SymbolFlags::FUNCTION` **and** then pattern-match
+`Node::FunctionDeclaration`, so a method, a method signature, and a variable
+holding a function expression are all declined at the same line — five, eight
+and two of that case's fifteen respectively.
+
+**`callee_symbol` (`:349`) already resolves all of them.** Its
+`PropertyAccessExpression` arm was built for TS2345 and answers the method
+symbol correctly today; the declaration match is the only thing between it and a
+diagnostic.
+
+### Why this is the same rule and not a new one
+
+Upstream never had four cases here. `getMinArgumentCount` and
+`getParameterCount` are properties of a **`Signature`**, and
+`getSignatureFromDeclaration` (`checker.go:19902`) accepts any
+`SignatureDeclaration` — a `FunctionDeclaration`, a `MethodDeclaration`, a
+`MethodSignature`, a `FunctionExpression`, an `ArrowFunction`. This module's own
+opening paragraph says the rule reads the declaration and counts, "a syntactic
+fact with no incompleteness to leak"; restricting *which* declaration was a
+first-slice convenience, not a decision, and no note records it as one.
+
+### The one place the kinds genuinely differ
+
+The existing gate requires `declaration.body`, on the argument that "an overload
+set of one — a declaration with no body — is still an overload set, and its
+implementation may be in another file". That argument is about
+`FunctionDeclaration` and `MethodDeclaration`, where a bodiless spelling **is**
+an overload signature. A **`MethodSignature`** in an interface never has a body
+and is not an overload set: requiring one there would decline every interface
+method in the corpus. So the body test becomes per-kind rather than universal.
+An overload *set* is still excluded everywhere by `declarations.len() != 1`.
+
+### The bar
+
+**+6 cases.** `optionalParamArgsTest` is one case however many of its fifteen
+lines land, so the bar is about the *rest* of the corpus:
+`const f = (a, b) => …` and `obj.method(x)` are the two commonest callee
+spellings in modern TypeScript, and TS2554's row is 36 cases. Below +6 the
+generalisation is reaching shapes the corpus does not write at this rule's other
+gates.
+
+**Falsifier (a):** if the wrong column grows on **interface** methods — that
+would mean the per-kind body test is admitting overload signatures after all,
+and `declarations.len() != 1` is not the whole guard it is claimed to be.
+
+**Falsifier (b):** if the wrong column grows on `var f = function …` where the
+variable is **reassigned** to a different function later. The symbol has one
+*declaration* but more than one function, and arity read off the declaration
+would be a confident wrong answer. §76's discipline: name the shape before
+measuring, not after.
+
+**Falsifier (c):** if TS2345 (which shares `sole_signature_parameters`) moves at
+all in the wrong direction. It is a relation-bound code and this build must not
+feed it new callees it cannot judge — if it does, the parameters half stays on
+`FunctionDeclaration` and only the arity half generalises.
+
+**Falsifier (d):** `checker_types` byte-identical.
+
+### Measured: **+2, and the bar of +6 was MISSED — §76's lesson, repeated**
+
+```
+diagnostics   1,307 -> 1,309     (+2 cases)
+checker_types 3,742 -> 3,742     byte-identical, falsifier (d) did not fire
+diag2307, RULE_CODES = [2554, 2555] alone
+  CONVERTS    16 -> 18
+  RIGHT       48 -> 78           (+30 right lines)
+  WRONG        6 -> 8            (+2, both named below)
+  LOST         0 -> 0
+```
+
+**Falsifier (a) did not fire.** No interface method appears in the wrong column;
+the per-kind body test admits `MethodSignatureDeclaration` and nothing else that
+`declarations.len() != 1` was not already excluding.
+
+**Falsifier (b) fired, in a shape close to but not the one predicted, and was
+honoured in-build.** The prediction was *a variable reassigned to a different
+function*. What actually fired was **a variable with a written type
+annotation**: `var Component: C = () => {}` where `C` is a call signature taking
+one argument. The annotation **is** the signature and the initialiser is
+contextually typed by it, so the initialiser's empty parameter list said
+*Expected 0 arguments* on every call to `Component`
+(`thislessFunctionsNotContextSensitive1`, 2 wrong lines). An annotated variable
+now declines outright. **The decline cost nothing**: RIGHT stayed at 78 and
+CONVERTS at 18 across it, so the two lines it removed were pure false positives.
+Owner named in the code: reading the annotation's signature is
+`crate::signatures`' road.
+
+**Falsifier (c) was not tested, deliberately.** `sole_signature_parameters` —
+TS2345's half — was left on `FunctionDeclaration`. TS2345 is a relation-bound
+code and §75's split says do not build into it; generalising the callee gate
+there is a separate bar.
+
+### The two remaining new wrong lines, and why they are NOT declined
+
+Both are `conformance/callWithMissingVoid`:
+
+```ts
+class X<T> { f(t: T) { return { a: t }; } }
+declare const x: X<void>;             x.f()       // upstream: no error
+declare const xUnion: X<void | number>; xUnion.f() // upstream: no error
+declare const xAny: X<any>;           xAny.f()    // upstream: TS2554
+```
+
+`parameter_annotation_is_void` reads the **written** annotation and `t: T` is not
+`void`, so the minimum stays 1 and the first two report. That limitation is
+already named where it lives (`call_arity.rs:452`, "an alias for `void`, and a
+type parameter instantiated with it") and this build did not create it — it
+routed methods into it.
+
+**Declining it was measured and rejected**: all three calls write the *same*
+annotation `t: T`, so any test that silences the first two silences `xAny.f()`
+too. The build's own arrival in this case is **3 right lines against 2 wrong**,
+and the case cannot pass either way — it wants 11 TS2554 lines and this port
+emits 9. **Owner: `parameter_annotation_is_void`, and the fix is the instantiated
+type rather than the annotation.**
+
+### Why the bar was missed, again
+
++30 right lines into +2 cases is 15:1 — **the identical concentration §76
+measured**, from a completely different rule. Two builds is not a law, but the
+board's per-code column is a count of *cases* and `diagmissing`'s output is a
+count of *lines*, and a bar taken off the second will keep overshooting the
+first by whatever the concentration is. **Take the next bar off `diagreach`'s
+case count and the share of it a shape plausibly covers, never off a line
+count.**

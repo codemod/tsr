@@ -108,7 +108,7 @@ fn main() {
             *cases.entry(case_of(key)).or_default() += 1;
         }
         let mut ranked: Vec<(&str, usize)> = cases.into_iter().collect();
-        ranked.sort_by(|a, b| b.1.cmp(&a.1));
+        ranked.sort_by_key(|entry| std::cmp::Reverse(entry.1));
         let mut attribution = String::new();
         for (case, n) in ranked.iter().take(if adverse { 6 } else { 3 }) {
             let _ = write!(attribution, "  {case} {n}");

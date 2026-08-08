@@ -387,35 +387,96 @@ impl<'a> Checker<'a, '_> {
         }
     }
 
-    /// `(getMinArgumentCount, getParameterCount)` where the callee names exactly
-    /// one function-like declaration.
+    /// The **sole** signature declaration a callee names, whatever kind it is
+    /// spelled as, together with whether it is generic.
+    ///
+    /// Upstream has no four-way choice here: `getSignatureFromDeclaration`
+    /// (`checker.go:19902`) accepts any `SignatureDeclaration`, and
+    /// `getMinArgumentCount` / `getParameterCount` read the `Signature` it
+    /// builds. The four kinds below are that set restricted to the ones a
+    /// *callee* can name — §78.
     ///
     /// `None` for every other shape, and each `None` is a decline with a reason:
     ///
-    /// - **not a bare identifier** — a property access needs the receiver's type
-    ///   to find the member, which is [`crate::members`]' road;
     /// - **more than one declaration** — an overload set, whose selection is
     ///   `resolveCall`'s and whose arity error upstream computes across *all*
     ///   candidates (`checker.go:9715`);
-    /// - **not a function or method declaration** — a class is a construct
-    ///   signature, a variable holds a function *type* whose parameter list is
-    ///   not on the declaration.
-    fn sole_signature_arity(&mut self, callee: NodeId) -> Option<(usize, Option<usize>)> {
+    /// - **a bodiless `FunctionDeclaration` or `MethodDeclaration`** — an
+    ///   overload set of one is still an overload set as far as the corpus is
+    ///   concerned, and its implementation may be in another file this rule has
+    ///   not looked at. A **`MethodSignatureDeclaration`** never has a body and
+    ///   is not an overload set, so the test is per-kind rather than universal;
+    /// - **a variable with no function-valued initialiser** — it holds a
+    ///   function *type*, whose parameter list is not on the declaration;
+    /// - **a class** — that is a construct signature, and `new` is a different
+    ///   node kind this rule does not visit.
+    fn sole_signature_declaration(
+        &mut self,
+        callee: NodeId,
+    ) -> Option<(&'a [&'a tsr_ast::ParameterDeclaration<'a>], bool)> {
         let symbol = self.callee_symbol(callee)?;
         let entry = self.binder.symbols().get(symbol);
-        if !entry.flags.intersects(SymbolFlags::FUNCTION) || entry.declarations.len() != 1 {
+        if !entry
+            .flags
+            .intersects(SymbolFlags::FUNCTION | SymbolFlags::METHOD | SymbolFlags::VARIABLE)
+            || entry.declarations.len() != 1
+        {
             return None;
         }
-        let Some(Node::FunctionDeclaration(declaration)) = self.node_map.get(entry.declarations[0])
-        else {
-            return None;
+        let declaration = entry.declarations[0];
+        // A variable is the *indirect* spelling: `var f = function () {}` and
+        // `const f = (a) => a` declare a symbol whose declaration carries no
+        // parameter list of its own. The initialiser does, and only when it is
+        // written as a function right there — an initialiser that is a *call*,
+        // or a reference to another function, is a type this rule cannot read
+        // syntactically.
+        let signature = match self.node_map.get(declaration)? {
+            Node::VariableDeclaration(variable) => {
+                // **A written annotation IS the signature**, and the initialiser
+                // is contextually typed by it — so the initialiser's parameter
+                // list may be shorter than the type's and says nothing about
+                // arity. `var Component: C = () => {}` where `C` is a call
+                // signature taking one argument reported *Expected 0, got 1* on
+                // every call to it (`thislessFunctionsNotContextSensitive1`,
+                // §78's second and third wrong lines). Reading the annotation
+                // instead is `crate::signatures`' road, not a syntactic
+                // parameter count. Owner: TS2554's own next slice.
+                if variable.r#type.is_some() {
+                    return None;
+                }
+                variable.initializer.and_then(|initializer| initializer.node_id())?
+            }
+            _ => declaration,
         };
-        // An overload set of one — a declaration with no body — is still an
-        // overload set as far as the corpus is concerned, and its implementation
-        // may be in another file this rule has not looked at.
-        declaration.body?;
-        let parameters: Vec<&tsr_ast::ParameterDeclaration<'_>> = declaration
-            .parameters
+        let (parameters, type_parameters) = match self.node_map.get(signature)? {
+            Node::FunctionDeclaration(node) => {
+                node.body?;
+                (node.parameters, node.type_parameters)
+            }
+            Node::MethodDeclaration(node) => {
+                node.body?;
+                (node.parameters, node.type_parameters)
+            }
+            Node::MethodSignatureDeclaration(node) => (node.parameters, node.type_parameters),
+            Node::FunctionExpression(node) => {
+                node.body?;
+                (node.parameters, node.type_parameters)
+            }
+            Node::ArrowFunction(node) => {
+                node.body?;
+                (node.parameters, node.type_parameters)
+            }
+            _ => return None,
+        };
+        Some((parameters, type_parameters.is_empty()))
+    }
+
+    /// `(getMinArgumentCount, getParameterCount)` where the callee names exactly
+    /// one signature declaration — see [`Checker::sole_signature_declaration`]
+    /// for which shapes those are and why each other one declines.
+    fn sole_signature_arity(&mut self, callee: NodeId) -> Option<(usize, Option<usize>)> {
+        let (declaration_parameters, _) = self.sole_signature_declaration(callee)?;
+        let parameters: Vec<&tsr_ast::ParameterDeclaration<'_>> = declaration_parameters
             .iter()
             .copied()
             // `this` is not an argument (`getParameterCount` skips it).
