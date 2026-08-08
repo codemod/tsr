@@ -4339,3 +4339,73 @@ recorded there and repeated here.
 > a dead end.** Third retirement in this file by the procedure §21 set (§9's,
 > §22's, and now §55's), and the first where the condition was named in the same
 > session it was met.
+
+---
+
+## 58. `x.constructor === C` joins the unported-narrowing list
+
+`examples/extraonly.rs` (new) prints the cases whose **only** defect is a
+diagnostic the baseline does not record — every one is a single false positive
+away from passing. There are **58**, and TS2454 owns 15 of them:
+
+```
+38  TS1005 (parser)   15  TS2454   15  TS1012 (parser)   11  TS2322   10  TS2304
+```
+
+`typeGuardConstructorPrimitiveTypes` and
+`typeGuardConstructorNarrowPrimitivesInUnion` are the whole of TS2454's share and
+they are one shape:
+
+```ts
+let var1: string | number | boolean | any[] | symbol | bigint;
+if (var1.constructor === String) {
+    var1;                    // <- reported here; upstream reads `string`
+}
+```
+
+Upstream narrows by the **constructor property** (`narrowTypeByConstructor`), so
+inside the branch `var1` no longer carries `undefined`. This port does not, so
+the flow type still does and the reference reads as used-before-assigned.
+
+§8 built `reference_is_guarded_by_a_condition_on` for exactly this asymmetry —
+*"every narrowing this port does not model removes `undefined` upstream and
+leaves it here, and each of them is written as a guard"* — and gated it on the
+condition containing **a call or an `instanceof`**, the two mechanisms known at
+the time. A `.constructor === C` comparison is a third, and the list was always
+meant to grow: `subtree_has_unported_narrowing`'s doc comment names the
+mechanisms rather than describing a syntax.
+
+### The bar
+
+| leg | registered |
+|---|---|
+| 1 | `diagnostics` passes > **1,239**. Forecast **+2** — `extraonly.rs` says exactly two cases carry this and nothing else |
+| 2 | `checker_types` pass count unchanged at **3,683** |
+| 3 | LOST == **0** on `diag2307.rs` with `RULE_CODES = [2454]` |
+| 4 | TS2454's own WRONG **falls**; its RIGHT must not |
+| 5 | every other snapshot unchanged |
+
+**Falsifier.** If RIGHT falls, the guard is declining references upstream does
+report — `.constructor` appears in conditions that narrow nothing — and the
+right shape is the property name rather than the subtree.
+
+### Scored — **+2**, the forecast to the case
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| 1 | passes > 1,239, forecast **+2** | **1,241 / 5,488 = 22.61%** | pass, exactly |
+| 2 | `checker_types` pass count 3,683 | **3,683**, snapshot unchanged | pass |
+| 3 | LOST == 0 | **0** | pass |
+| 4 | WRONG falls, RIGHT does not | **30 → 15**, RIGHT **3,784** unchanged | pass |
+| 5 | every other snapshot unchanged | only `diagnostics.snap` differs | pass |
+
+**`extraonly.rs` forecast the conversion count exactly, and that is the point of
+it.** Every other instrument in this workstream forecasts a *ceiling*:
+`diaggap.rs`'s single-code column has been high by a factor of five all session,
+and `diagreach.rs` counts cases needing an unknown amount of work. A case blocked
+by an extra diagnostic **alone** needs exactly one thing — that diagnostic gone —
+so the list is a forecast rather than an ordering. It is the only one in the
+file that has ever been exact.
+
+Its remaining 56 cases: **TS1005 38 and TS1012 15 are the parser's**, not this
+workstream's; TS2322 11, TS2304 10, TS7006 4, TS2345 3 and TS2307 3 are.

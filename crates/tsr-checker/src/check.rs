@@ -1408,10 +1408,11 @@ impl Checker<'_, '_> {
                 _ => None,
             };
             // The condition must both name the reference **and** contain one of
-            // the two narrowing mechanisms this port does not model — a call
-            // (a user-defined type predicate) or an `instanceof`. Requiring the
-            // mechanism as well as the name is what keeps the guard from
-            // declining a TS2454 upstream really does report.
+            // the narrowing mechanisms this port does not model — a call
+            // (a user-defined type predicate), an `instanceof`, or a
+            // `.constructor === C` comparison. Requiring the mechanism as well
+            // as the name is what keeps the guard from declining a TS2454
+            // upstream really does report.
             if let Some(condition) = condition
                 && self.subtree_mentions(condition, text, 0)
                 && self.subtree_has_unported_narrowing(condition, 0)
@@ -1424,8 +1425,14 @@ impl Checker<'_, '_> {
         false
     }
 
-    /// Does the subtree contain a call or an `instanceof` — the two narrowing
-    /// mechanisms `crate::flow` does not model?
+    /// Does the subtree contain one of the narrowing mechanisms `crate::flow`
+    /// does not model — a call, an `instanceof`, or a `.constructor`
+    /// comparison?
+    ///
+    /// The list names *mechanisms* rather than a syntax and is meant to grow:
+    /// `narrowTypeByConstructor` was the third
+    /// (`checker-notes-diag2.md` §58), and it is the whole of TS2454's share of
+    /// `extraonly.rs`'s single-false-positive cases.
     fn subtree_has_unported_narrowing(&self, node: NodeId, depth: u32) -> bool {
         if depth > 32 {
             return false;
@@ -1434,6 +1441,9 @@ impl Checker<'_, '_> {
         if matches!(typed, Node::CallExpression(_))
             || matches!(typed, Node::BinaryExpression(binary)
                 if binary.operator_token.is_some_and(|t| t.kind == SyntaxKind::InstanceOfKeyword))
+            || matches!(typed, Node::PropertyAccessExpression(access)
+                if matches!(access.name, Some(tsr_ast::MemberName::Identifier(name))
+                    if name.text == "constructor"))
         {
             return true;
         }
