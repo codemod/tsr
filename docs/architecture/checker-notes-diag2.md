@@ -6503,3 +6503,110 @@ for `reachabilityChecks1`, which writes `preserveConstEnums: true`.
 §80's and §82's own tristate — the third option in three builds. **The next
 session should plumb the remaining `CompilerOptions` this corpus writes in one
 build rather than one per rule.**
+
+---
+
+## 83. TS2449 — `Class '{0}' used before its declaration`, bounded to the one position that cannot defer
+
+`diaggap.rs` at `21202b0`: **TS2449, 11 cases would convert alone**, and — §82's
+lesson applied before the bar rather than after — those eleven are **eight
+distinct file-name stems**, not one file under eleven configurations. The row is
+real.
+
+```ts
+class A extends B { foo() { this.bar(); } }
+class B { bar() { } }
+// classOrder2.ts(1,17): error TS2449: Class 'B' used before its declaration.
+```
+
+`checkResolvedBlockScopedVariable` (`checker.go:1888`) picks between TS2448
+(block-scoped variable), TS2449 (class) and TS2450 (enum) off the symbol's
+flags, and gates the whole thing on
+`declaration.Flags&NodeFlagsAmbient == 0 && !isBlockScopedNameDeclaredBeforeUse(declaration, errorLocation)`.
+
+### The bound: an `extends` clause is never a deferred position
+
+`isBlockScopedNameDeclaredBeforeUse` (`checker.go:1922`) is eighty lines, and
+almost all of them are about **deferral** — a use inside a function body, an
+instance property initialiser, an export specifier, a binding element, a
+decorator, a computed property name — each of which is legal *because the code
+does not run yet*. Porting that predicate is a rule of its own.
+
+**The heritage clause needs none of it.** `class A extends B` evaluates `B` at
+class-definition time, in the enclosing scope, immediately. There is no function
+between the use and the declaration by construction, so every deferral arm is
+excluded by the position rather than by a test. What is left is the two lines
+that matter: **the same file, and the declaration starts after the use.**
+
+That is why this build is `extends`-only and not "TS2449". The other positions
+are a second slice with the predicate as its subject, and pretending otherwise
+would put an unported eighty-line function's worth of false positives into a
+rule whose whole population is eleven cases.
+
+`is_value_reference` (`check.rs:1107`) already has the `extends`-clause arm,
+built for TS2304 and carrying the `implements`-versus-`extends` distinction
+(`heritage.token.kind == ExtendsKeyword`) that this rule needs exactly.
+
+### The bar
+
+**+7 cases**, against eleven.
+
+**Falsifier (a):** a wrong line where the class is declared in **another file**.
+`isBlockScopedNameDeclaredBeforeUse` returns `true` outright when the files
+differ — *"nodes are in different files and order cannot be determined"* — and
+`privacyClassExtendsClauseDeclFile` is a multi-file case in this very row.
+
+**Falsifier (b):** a wrong line on an **ambient** declaration. The gate is
+`declaration.Flags&NodeFlagsAmbient == 0` and reads the *declaration's* flag,
+not the use's — and `NodeFlags::AMBIENT` is one of the three this parser never
+sets, so it must be asked of the `declare` modifier and the enclosing
+`declare namespace`, the same gap §81 closed for class members.
+
+**Falsifier (c):** a wrong line where the symbol merges — a class merged with a
+namespace or an interface has several declarations and upstream picks the
+class-like one with `core.Find`. Picking `declarations.first()` instead would
+compare against whichever the binder happened to record first.
+
+**Falsifier (d):** `checker_types` byte-identical.
+
+### Measured: **+6 for ZERO wrong lines** — bar of +7 missed by one
+
+```
+diagnostics   1,340 -> 1,346    (+6 cases)
+checker_types 3,742 -> 3,742    byte-identical, falsifier (d) did not fire
+diag2307, RULE_CODES = [2449] alone
+  CONVERTS     0 -> 6
+  RIGHT        0 -> 14
+  WRONG        0 ->  0
+  LOST         0 ->  0
+```
+
+**No falsifier could fire: the wrong column is empty.** (a), (b) and (c) were
+each written as a shape to look for and each was pre-empted by a guard the bar
+named before the code existed — the cross-file test, the transitive ambient
+walk, and `core.Find` over the declaration list rather than `first()`. Writing
+the three down as falsifiers is what put the three guards in the first draft;
+this is the cleanest case in the session for **registering the bar before the
+code** rather than after.
+
+**The bound is the whole build.** Fourteen right lines came from about twenty
+lines of rule, because `class A extends B` excludes
+`isBlockScopedNameDeclaredBeforeUse`'s eighty lines *by position* rather than by
+test. §63's lesson inverted: there, a faithful decline turned out to contain the
+unported rule; here, choosing the one position where the unported predicate
+cannot apply bought the rule without porting it.
+
+### The five that did not convert, and the second slice they name
+
+`diaggap` said eleven; six converted. The remainder is
+`classDeclarationShouldBeOutOfScopeInComputedNames` (4 lines) and the tail of
+`resolvingClassDeclarationWhenInBaseTypeResolution`, and they are **exactly the
+deferral arms this build declined to port**: a computed property name inside the
+class body, and uses under `typeof`. Both are `isBlockScopedNameDeclaredBeforeUse`
+proper.
+
+**The second slice, when someone takes it**, is that predicate with TS2448
+(block-scoped variable) and TS2450 (enum) as its other two consumers —
+`checkResolvedBlockScopedVariable` picks between the three off the symbol's
+flags and shares everything else. Building it for one code would be building it
+for three.

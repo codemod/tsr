@@ -387,6 +387,7 @@ impl Checker<'_, '_> {
                 self.check_value_identifier(node, identifier.text);
                 self.check_type_reference_name(node, identifier.text);
                 self.check_used_before_assigned(node, identifier.text);
+                self.check_used_before_its_declaration(node, identifier.text);
                 self.mark_identifier_reference(node, identifier.text);
                 ambient
             }
@@ -1254,6 +1255,132 @@ impl Checker<'_, '_> {
             }
         }
         false
+    }
+
+    /// TS2449 — `Class '{0}' used before its declaration.`
+    ///
+    /// `checkResolvedBlockScopedVariable` (`checker.go:1888`), gated on
+    /// `declaration.Flags&NodeFlagsAmbient == 0 &&
+    /// !isBlockScopedNameDeclaredBeforeUse(declaration, errorLocation)`.
+    ///
+    /// # Bounded to an `extends` clause, and that is what makes it cheap
+    ///
+    /// `isBlockScopedNameDeclaredBeforeUse` (`checker.go:1922`) is eighty lines
+    /// and almost all of them are about **deferral** — a use inside a function
+    /// body, an instance property initialiser, an export specifier, a binding
+    /// element, a decorator, a computed property name — each legal because the
+    /// code does not run yet.
+    ///
+    /// `class A extends B` evaluates `B` at class-definition time, in the
+    /// enclosing scope, immediately. **There is no function between the use and
+    /// the declaration by construction**, so every deferral arm is excluded by
+    /// the position rather than by a test, and what is left is the two lines
+    /// that matter: the same file, and the declaration starts after the use.
+    ///
+    /// The other positions are a second slice with that predicate as its
+    /// subject — `checker-notes-diag2.md` §83. TS2448 (block-scoped variable)
+    /// and TS2450 (enum) are its siblings and wait on the same thing.
+    fn check_used_before_its_declaration(&mut self, node: NodeId, text: &str) {
+        if self.file_has_parse_errors || !self.is_in_extends_clause(node) {
+            return;
+        }
+        let Some(symbol) =
+            self.binder.resolve_name(self.nodes, self.node_map, node, text, SymbolFlags::VALUE)
+        else {
+            return;
+        };
+        let symbol = self.binder.merged_symbol(symbol);
+        let entry = self.binder.symbols().get(symbol);
+        if !entry.flags.intersects(SymbolFlags::CLASS) {
+            return;
+        }
+        // `core.Find(result.Declarations, IsBlockOrCatchScoped || IsClassLike ||
+        // IsEnumDeclaration)` — **not** `first()`. A class merged with a
+        // namespace or an interface has several declarations and only the
+        // class-like one carries the position upstream compares.
+        let Some(declaration) = entry.declarations.iter().copied().find(|&declaration| {
+            matches!(
+                self.nodes.kind(declaration),
+                SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
+            )
+        }) else {
+            return;
+        };
+        // `declarationFile != useFile` returns `true` outright upstream —
+        // *"nodes are in different files and order cannot be determined"*.
+        if self.source_file_of_for_diagnostics(declaration)
+            != self.source_file_of_for_diagnostics(node)
+        {
+            return;
+        }
+        // `declaration.Flags&NodeFlagsAmbient == 0`, read of the **declaration**
+        // and not of the use. `NodeFlags::AMBIENT` is one of the three this
+        // parser never sets, so the question goes to the `declare` modifiers on
+        // the declaration and on everything containing it — the gap §81 closed
+        // for class members, here for a whole declaration.
+        if self.declaration_is_in_an_ambient_context(declaration) {
+            return;
+        }
+        // `declaration.Pos() <= usage.Pos()` is upstream's "declaration is
+        // before usage" test, so the report is its negation.
+        if self.nodes.span(declaration).start <= self.nodes.span(node).start {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let span = self.error_span(node);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::CLASS_0_USED_BEFORE_ITS_DECLARATION,
+                span,
+                [text.to_string()],
+            ),
+        );
+    }
+
+    /// Is this node the expression of an `extends` heritage clause?
+    ///
+    /// The `implements`-versus-`extends` distinction is the same one
+    /// [`Checker::is_value_reference`] draws, and for the same reason: only
+    /// `extends` resolves its name as a *value*.
+    fn is_in_extends_clause(&self, node: NodeId) -> bool {
+        let Some(parent) = self.nodes.parent(node) else { return false };
+        let Some(Node::ExpressionWithTypeArguments(with_arguments)) = self.node_map.get(parent)
+        else {
+            return false;
+        };
+        if with_arguments.expression.and_then(|e| e.node_id()) != Some(node) {
+            return false;
+        }
+        self.nodes.parent(parent).is_some_and(|clause| {
+            matches!(
+                self.node_map.get(clause),
+                Some(Node::HeritageClause(heritage))
+                    if heritage.token.kind == SyntaxKind::ExtendsKeyword
+            )
+        })
+    }
+
+    /// Is this declaration in an ambient **context** — its own `declare`, or
+    /// any containing one?
+    ///
+    /// [`Checker::declaration_is_ambient`] answers only the first half, which
+    /// is all its callers need. `NodeFlagsAmbient` is upstream's *transitive*
+    /// answer and this parser never sets it (see [`tsr_ast::NodeFlags::AMBIENT`],
+    /// declared and written by nothing), so a rule reading the flag of a
+    /// declaration rather than of a use has to walk.
+    fn declaration_is_in_an_ambient_context(&self, declaration: NodeId) -> bool {
+        std::iter::once(declaration).chain(self.nodes.ancestors(declaration)).any(|at| {
+            match self.node_map.get(at) {
+                Some(Node::ClassDeclaration(n)) => {
+                    has_modifier(n.modifiers, SyntaxKind::DeclareKeyword)
+                }
+                Some(Node::ModuleDeclaration(n)) => {
+                    has_modifier(n.modifiers, SyntaxKind::DeclareKeyword)
+                }
+                _ => false,
+            }
+        })
     }
 
     /// TS2454 — `Variable '{0}' is used before being assigned.`
