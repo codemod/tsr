@@ -1,12 +1,16 @@
 THIS FILE IS THE NON-CHECKER, NON-DIAGNOSTICS CONFORMANCE WORKSTREAM'S HANDOFF.
 
-CURRENT PROGRESS (2026-08-07)
+CURRENT PROGRESS (2026-08-08)
 
   parser_typescript      5,031/5,031 = 100.00% (up from 5,001)
   dts_reachable_target     496/1,162 = 42.69%  (up from 495; corrected visibility
                                                 exposed one inference case)
-  dts_emit                  278/341  = 81.52%  (up from 161/339)
-  dts_shape                 753/918  = 82.03%  (up from 618/912)
+  dts_emit                  303/395  = 76.71%  (denominator grew 341 -> 395:
+                                                outDir-remapped baselines now
+                                                pair; 25 of the 54 new cases
+                                                pass, was 278/341 = 81.52%)
+  dts_shape                820/1,016 = 80.71%  (denominator grew 918 -> 1,016
+                                                the same way; was 753/918)
   printer_round_trip    11,755/11,778 = 99.80%
 
 The parser clean-file milestone is complete. Its harness now prepares virtual
@@ -184,6 +188,15 @@ Module detection now honors the non-syntactic inputs: a `.mts`/`.cts` unit (or
 `moduleDetection: force`) is a module with no import/export syntax, so its
 private declarations drop and the `export {}` marker remains
 (`moduleDetectionIsolatedModulesCjsFileScope`, +1 emit and +1 shape).
+
+Baseline declaration sections name the *output* location while units name the
+*source* one, so exact-name matching silently excluded every
+outDir/declarationDir-remapped case as "no emitted .d.ts section" — upstream had
+emitted. A unique-basename fallback (declining any ambiguous pairing) grew the
+emit denominator 341 -> 395 and shape 918 -> 1,016; 25 emit and 67 shape of the
+new population pass at once, and the newly visible failures are genuine
+JS-declaration JSDoc and program-level import gaps, not mispairings. Scores
+before and after this change are not directly comparable.
 
 `TASK.md` belongs to the checker-types gradient and `TASK-diagnostics.md` belongs
 to diagnostics. Do not put work from either stream here. This file owns the

@@ -188,15 +188,49 @@ pub(crate) fn output_units<'a>(
                 && !is_declaration_file_name(&unit.name)
         })
         .filter_map(|unit| {
-            let name = declaration_name(&unit.name);
-            let section = baseline.sections.iter().find(|section| {
-                section.name == name
-                    && section.is_declaration()
-                    && !inputs.contains(section.name.as_str())
-            })?;
+            let section = matching_section(baseline, case, &inputs, &unit.name)?;
             Some((unit, section))
         })
         .collect()
+}
+
+/// The baseline declaration section a source unit was emitted into.
+///
+/// Matching is exact first. When `outDir`/`declarationDir` remap output paths,
+/// the baseline names the *output* location (`thing.d.ts`) while the unit names
+/// the *source* one (`src/thing.ts`), so a fallback compares final path
+/// components — but only when that basename is unique among both the case's
+/// units and the baseline's declaration sections, because an ambiguous basename
+/// would silently pair the wrong files.
+fn matching_section<'a>(
+    baseline: &'a JsBaseline,
+    case: &crate::TestCase,
+    inputs: &std::collections::HashSet<&str>,
+    unit_name: &str,
+) -> Option<&'a crate::js_baseline::Section> {
+    let name = declaration_name(unit_name);
+    let is_output = |section: &&crate::js_baseline::Section| {
+        section.is_declaration() && !inputs.contains(section.name.as_str())
+    };
+    if let Some(section) =
+        baseline.sections.iter().find(|section| section.name == name && is_output(section))
+    {
+        return Some(section);
+    }
+
+    let base = |path: &str| path.rsplit('/').next().map(str::to_string).unwrap_or_default();
+    let wanted = base(&name);
+    if case.files.iter().filter(|other| base(&declaration_name(&other.name)) == wanted).count() != 1
+    {
+        return None;
+    }
+    let mut candidates =
+        baseline.sections.iter().filter(is_output).filter(|section| base(&section.name) == wanted);
+    let section = candidates.next()?;
+    if candidates.next().is_some() {
+        return None;
+    }
+    Some(section)
 }
 
 /// The declaration file name for a source unit.
@@ -284,14 +318,7 @@ pub(crate) fn unemitted_units<'a>(
             ScriptKind::from_file_name(&unit.name) != ScriptKind::Json
                 && !is_declaration_file_name(&unit.name)
         })
-        .filter(|unit| {
-            let name = declaration_name(&unit.name);
-            !baseline.sections.iter().any(|section| {
-                section.name == name
-                    && section.is_declaration()
-                    && !inputs.contains(section.name.as_str())
-            })
-        })
+        .filter(|unit| matching_section(baseline, case, &inputs, &unit.name).is_none())
         .collect()
 }
 
