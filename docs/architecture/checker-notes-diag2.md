@@ -8275,3 +8275,52 @@ that walk and deserves its own measurement.
 
 **§106's remaining value is now 11 cases (TS1109) and the never-set flag**, not
 11 cases plus 7 wrong lines. The wrong-line half is mostly paid.
+
+## §108 — a computed property name is evaluated in the ENCLOSING context
+
+§107 left four wrong lines, all in `awaitAndYieldInProperty`, with the cause
+written down. This is that five-line fix, and it takes TS1163's wrong column to
+**zero**.
+
+```ts
+async function* test(x: Promise<string>) {
+    class C {
+        [yield 1] = yield 2;      // NAME: in the generator.  INITIALISER: not.
+    }
+}
+```
+
+A class body is not a yield context, but a **computed property name is evaluated
+where the class is**, not where its members are. §104's ancestor walk stopped at
+`PropertyDeclaration` for both halves and so answered "not a generator" for the
+name as well as the initialiser.
+
+The walk now passes *through* a class member when it arrived via a
+`ComputedPropertyName`, and stops at it otherwise. That required turning the
+`find_map` into a loop carrying the child it came from — the boundary test is a
+property of the **edge**, not of the node, and a `find_map` over ancestors can
+only see nodes.
+
+| | CONVERTS | LOST | RIGHT | WRONG |
+|---|---:|---:|---:|---:|
+| §104 | 10 | 0 | 18 | 7 |
+| §107 | 10 | 0 | 18 | 4 |
+| **§108** | **10** | **0** | **18** | **0** |
+
+**+0 cases, wrong 4 → 0.** Coverage unchanged at `1,405 / 5,488`;
+`checker_types` identical at 3,921/9,538 · 84.32%.
+
+### TS1163 closes clean, and what the three sections cost
+
+Ten cases and eighteen right lines for **zero wrong and zero LOST**, over three
+measurements. §104 landed it at 7 wrong and recorded that as a **missed bar**;
+§107 and §108 paid the miss off rather than leaving it as furniture — which is
+the rule the eleventh session paid for, *a standing wrong line is an undiagnosed
+finding, not decoration*, applied to a column this workstream created itself.
+
+**The boundary-as-edge idea generalises.** Every scope question in this checker
+is currently asked of ancestor *nodes*, and at least three of them —
+`use_is_not_deferred`, `enclosing_block_scope_container`, this one — have or
+will have cases where the answer depends on **which child the walk came up
+through**. A computed property name, a parameter initialiser and a decorator all
+sit syntactically inside a construct whose scope they do not share.
