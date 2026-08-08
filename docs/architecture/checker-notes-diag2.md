@@ -9642,3 +9642,45 @@ table above is what makes that checkable next time rather than a claim.
 still declared and still set by nothing — the third time this session that flag
 family has been the root of a bug (§104's `YIELD_CONTEXT`, §132's ambient
 clause, §134's member `declare`).
+
+## §136 — TS2303 is already priced, in `symbols.rs`, by whoever wrote `resolve_alias`
+
+TS2303 (`Circular definition of import alias`) has sat on this board at **10
+sole-obstacle cases** since §115 called it resolver-owned. It is more precisely
+priced than that, and the pricing has been in the tree the whole time —
+`resolve_alias`'s own doc comment:
+
+> **Upstream's circularity frame is deliberately not ported, and this is the
+> evidence.** `resolveAlias` pushes `TypeSystemPropertyNameAliasTarget`
+> (`checker.go:16272`) and, on failure, reports
+> `Circular_definition_of_import_alias_0`. Two files re-exporting through each
+> other is a real shape, so that frame was written here first — a
+> `PropertyName::AliasTarget` variant and a push/pop around the dispatch below.
+> **It was measured and it could not fire, so it was removed.** … The reason is
+> structural rather than a property of those fixtures: **this function is not
+> self-recursive.**
+
+So TS2303 is not "unported"; it is **unreachable**. The frame exists in history,
+was measured, and was removed for cause. Reporting a cycle requires
+`resolve_alias` to become **transitive** first — each arm resolving through to
+its target rather than one hop — and only then can a push/pop detect one.
+
+**That is a `checker_types`-shaped change** (it alters what every alias resolves
+to), not a diagnostics one, and it is exactly the same dependency §121's chain
+walk had to work around by looping externally.
+
+### The finding is about where pricing lives
+
+This is the third board item this session whose answer was already written down
+somewhere in the repo and not connected to the board: §134's ambient-member gap
+was in §81, §135's sweep was implied by §81, and TS2303's blocker is in
+`symbols.rs`'s rustdoc.
+
+**`STATUS.md` §5 records refusals with numbers; nothing records refusals made in
+a doc comment at the point of code.** `resolve_alias`'s note is a refusal — it
+has the measurement, the reason and the falsifier — and it never reached the
+board, so this workstream carried TS2303 as an open row for five sessions.
+
+**Actionable: when a rule's row will not move, grep the crate for the
+function upstream reports from before pricing it.** The answer is written at the
+call site more often than the board suggests.
