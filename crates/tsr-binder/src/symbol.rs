@@ -208,8 +208,20 @@ impl SymbolFlags {
         if self.intersects(Self::ENUM) {
             return (Self::VALUE | Self::TYPE) & !(Self::ENUM | Self::VALUE_MODULE);
         }
-        // Namespaces merge with almost everything; that is what makes declaration
-        // merging useful.
+        // Upstream has **two** module excludes (`symbolflags.go:66-67`), and
+        // returning `NamespaceModuleExcludes` for both is what §94 measured and
+        // refused: a namespace that emits JavaScript occupies value space and
+        // does collide with a variable of the same name. §95 supplies the
+        // missing half, and it only became correct once `classify` started
+        // choosing the flag — the refusal's owner was the flag, not the mask.
+        // A value module still merges with a function, a class, an enum and
+        // another value module, which is what makes declaration merging useful.
+        if self.contains(Self::VALUE_MODULE) {
+            return Self::VALUE
+                & !(Self::FUNCTION | Self::CLASS | Self::REGULAR_ENUM | Self::VALUE_MODULE);
+        }
+        // `NamespaceModuleExcludes = None` — a namespace that emits nothing
+        // collides with nothing.
         if self.intersects(Self::MODULE) {
             return Self::empty();
         }
@@ -404,8 +416,20 @@ mod tests {
         assert!(!SymbolFlags::CLASS.excludes().contains(SymbolFlags::INTERFACE));
         assert!(!SymbolFlags::CLASS.excludes().contains(SymbolFlags::VALUE_MODULE));
         assert!(!SymbolFlags::FUNCTION.excludes().contains(SymbolFlags::VALUE_MODULE));
-        // A namespace merges with anything.
-        assert!(SymbolFlags::VALUE_MODULE.excludes().is_empty());
+        // A NON-instantiated namespace merges with anything — it emits nothing,
+        // so it occupies no space to collide in. This assertion used to be made
+        // of `VALUE_MODULE`, which encoded the divergence §95 fixed: upstream
+        // has two module excludes (`symbolflags.go:66-67`) and `classify` picks
+        // between them with `GetModuleInstanceState`.
+        assert!(SymbolFlags::NAMESPACE_MODULE.excludes().is_empty());
+        // An instantiated one occupies value space. It still merges with a
+        // function, a class, an enum and another namespace — those are the
+        // declaration-merging pairs — and collides with a variable.
+        let value_module = SymbolFlags::VALUE_MODULE.excludes();
+        assert!(!value_module.contains(SymbolFlags::FUNCTION));
+        assert!(!value_module.contains(SymbolFlags::CLASS));
+        assert!(!value_module.contains(SymbolFlags::VALUE_MODULE));
+        assert!(value_module.contains(SymbolFlags::BLOCK_SCOPED_VARIABLE));
     }
 
     #[test]

@@ -2014,74 +2014,11 @@ impl Checker<'_, '_> {
 
     /// `IsInstantiatedModule` (`ast/utilities.go:2443`).
     fn is_instantiated_module(&self, node: NodeId) -> bool {
-        match self.module_instance_state(node, 0) {
-            ModuleInstanceState::Instantiated => true,
-            ModuleInstanceState::ConstEnumOnly => self.preserve_const_enums,
-            ModuleInstanceState::NonInstantiated => false,
-        }
-    }
-
-    /// `getModuleInstanceStateWorker` (`ast/utilities.go:2352`).
-    ///
-    /// Called on a module declaration, its body, or any statement inside one.
-    /// The recursion is upstream's; the `visited` map is not needed because the
-    /// only cycle it guards is `getModuleInstanceStateForAliasTarget`'s walk
-    /// back out through enclosing statement lists, and that arm is declined —
-    /// see §89. The depth cap stands in for it.
-    fn module_instance_state(&self, node: NodeId, depth: u32) -> ModuleInstanceState {
-        if depth > 64 {
-            return ModuleInstanceState::Instantiated;
-        }
-        let Some(typed) = self.node_map.get(node) else { return ModuleInstanceState::Instantiated };
-        match typed {
-            Node::InterfaceDeclaration(_) | Node::TypeAliasDeclaration(_) => {
-                ModuleInstanceState::NonInstantiated
-            }
-            Node::EnumDeclaration(declaration)
-                if has_modifier(declaration.modifiers, SyntaxKind::ConstKeyword) =>
-            {
-                ModuleInstanceState::ConstEnumOnly
-            }
-            // A non-exported import declares nothing in the emitted module.
-            Node::ImportDeclaration(declaration)
-                if !has_modifier(declaration.modifiers, SyntaxKind::ExportKeyword) =>
-            {
-                ModuleInstanceState::NonInstantiated
-            }
-            Node::ImportEqualsDeclaration(declaration)
-                if !has_modifier(declaration.modifiers, SyntaxKind::ExportKeyword) =>
-            {
-                ModuleInstanceState::NonInstantiated
-            }
-            // `export { … }` with no module specifier resolves each specifier
-            // against the enclosing statement lists. That arm is declined to
-            // `Instantiated`, which is upstream's own "couldn't locate, assume
-            // could refer to a value" fallback (`utilities.go:2436`).
-            Node::ModuleDeclaration(declaration) => match declaration.body {
-                Some(body) => body.node_id().map_or(ModuleInstanceState::Instantiated, |body| {
-                    self.module_instance_state(body, depth + 1)
-                }),
-                // `declare module "x";` with no body is instantiated upstream.
-                None => ModuleInstanceState::Instantiated,
-            },
-            Node::ModuleBlock(_) => {
-                let mut children = Vec::new();
-                tsr_ast::for_each_child_id(typed, |child| children.push(child));
-                let mut state = ModuleInstanceState::NonInstantiated;
-                for child in children {
-                    match self.module_instance_state(child, depth + 1) {
-                        ModuleInstanceState::Instantiated => {
-                            return ModuleInstanceState::Instantiated;
-                        }
-                        ModuleInstanceState::ConstEnumOnly => {
-                            state = ModuleInstanceState::ConstEnumOnly;
-                        }
-                        ModuleInstanceState::NonInstantiated => {}
-                    }
-                }
-                state
-            }
-            _ => ModuleInstanceState::Instantiated,
+        let Some(typed) = self.node_map.get(node) else { return true };
+        match tsr_ast::module_instance_state(typed) {
+            tsr_ast::ModuleInstanceState::Instantiated => true,
+            tsr_ast::ModuleInstanceState::ConstEnumOnly => self.preserve_const_enums,
+            tsr_ast::ModuleInstanceState::NonInstantiated => false,
         }
     }
 
@@ -3185,15 +3122,6 @@ fn is_numeric_binary_operator(kind: SyntaxKind) -> bool {
 ///
 /// A decorator in the modifier list is not a modifier; the enum keeps them
 /// together because the parser does (`ModifierLike`).
-/// `ModuleInstanceState` (`ast/utilities.go`), minus the `Unknown` state, which
-/// exists only for `getModuleInstanceStateCached`'s cycle guard.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ModuleInstanceState {
-    NonInstantiated,
-    ConstEnumOnly,
-    Instantiated,
-}
-
 /// The `<T, U>` list this node declares, empty for a node that declares none.
 ///
 /// The union of the node kinds upstream's four `checkTypeParameters` call sites

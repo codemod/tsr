@@ -3992,7 +3992,20 @@ fn classify(node: Node<'_>) -> Option<(SymbolFlags, Destination)> {
         Node::InterfaceDeclaration(_) => (S::INTERFACE, D::Locals),
         Node::TypeAliasDeclaration(_) => (S::TYPE_ALIAS, D::Locals),
         Node::EnumDeclaration(_) => (S::REGULAR_ENUM, D::Locals),
-        Node::ModuleDeclaration(_) => (S::VALUE_MODULE, D::Locals),
+        // `bindModuleDeclaration` (`binder.go:1268`) picks the flag from
+        // `GetModuleInstanceState`: a namespace that emits no JavaScript is a
+        // `NamespaceModule` and collides with nothing, and one that does is a
+        // `ValueModule` and occupies value space. This port mapped every module
+        // to `VALUE_MODULE`, which is why §94's excludes fix over-reported on
+        // ambient and augmentation declarations — `checker-notes-diag2.md` §95.
+        Node::ModuleDeclaration(_) => (
+            if tsr_ast::module_instance_state(node) == tsr_ast::ModuleInstanceState::Instantiated {
+                S::VALUE_MODULE
+            } else {
+                S::NAMESPACE_MODULE
+            },
+            D::Locals,
+        ),
         Node::TypeParameterDeclaration(_) => (S::TYPE_PARAMETER, D::Locals),
         Node::ParameterDeclaration(_) => (S::FUNCTION_SCOPED_VARIABLE, D::Locals),
 

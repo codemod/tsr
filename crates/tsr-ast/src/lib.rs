@@ -290,3 +290,99 @@ mod tests {
         assert_eq!(t.ancestors(grandchild).collect::<Vec<_>>(), vec![child, root]);
     }
 }
+
+/// `ModuleInstanceState` (`ast/utilities.go`), minus the `Unknown` state, which
+/// exists only for `getModuleInstanceStateCached`'s cycle guard.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModuleInstanceState {
+    /// The declaration emits nothing — it contains only types.
+    NonInstantiated,
+    /// It emits only `const enum`s, so whether it is code depends on
+    /// `preserveConstEnums`.
+    ConstEnumOnly,
+    /// It emits JavaScript.
+    Instantiated,
+}
+
+/// `getModuleInstanceStateWorker` (`ast/utilities.go:2352`).
+///
+/// Answers whether a module declaration — or any statement that could appear in
+/// one — contributes anything to the emitted JavaScript. Two subsystems need
+/// it and neither can own it: the **checker** asks whether an unreachable
+/// namespace is unreachable *code* (`isSourceElementUnreachable`,
+/// `checker.go:2461`), and the **binder** asks whether a namespace declares a
+/// value, which is what picks `ValueModule` over `NamespaceModule` and
+/// therefore which excludes mask it gets. It lives here, beside the other
+/// `ast/utilities.go` ports, for the same reason it lives there upstream.
+///
+/// Written against the **typed** tree via [`push_children`] rather than against
+/// node ids, so it needs no side tables and no `&Checker` — that is what makes
+/// it shareable. `getModuleInstanceStateCached`'s `visited` map is not ported:
+/// the only cycle it guards is `getModuleInstanceStateForAliasTarget`'s walk
+/// back out through enclosing statement lists, and that arm is declined to
+/// `Instantiated` — upstream's own "couldn't locate, assume could refer to a
+/// value" fallback (`utilities.go:2436`). The depth cap stands in for it.
+///
+/// See `docs/architecture/checker-notes-diag2.md` §89 and §95.
+#[must_use]
+pub fn module_instance_state(node: Node<'_>) -> ModuleInstanceState {
+    module_instance_state_at(node, 0)
+}
+
+fn module_instance_state_at(node: Node<'_>, depth: u32) -> ModuleInstanceState {
+    if depth > 64 {
+        return ModuleInstanceState::Instantiated;
+    }
+    match node {
+        Node::InterfaceDeclaration(_) | Node::TypeAliasDeclaration(_) => {
+            ModuleInstanceState::NonInstantiated
+        }
+        Node::EnumDeclaration(declaration)
+            if has_syntactic_modifier(declaration.modifiers, SyntaxKind::ConstKeyword) =>
+        {
+            ModuleInstanceState::ConstEnumOnly
+        }
+        // A non-exported import declares nothing in the emitted module.
+        Node::ImportDeclaration(declaration)
+            if !has_syntactic_modifier(declaration.modifiers, SyntaxKind::ExportKeyword) =>
+        {
+            ModuleInstanceState::NonInstantiated
+        }
+        Node::ImportEqualsDeclaration(declaration)
+            if !has_syntactic_modifier(declaration.modifiers, SyntaxKind::ExportKeyword) =>
+        {
+            ModuleInstanceState::NonInstantiated
+        }
+        Node::ModuleDeclaration(declaration) => match declaration.body {
+            Some(body) => module_instance_state_at(Node::from(body), depth + 1),
+            // `declare module "x";` with no body is instantiated upstream.
+            None => ModuleInstanceState::Instantiated,
+        },
+        Node::ModuleBlock(_) => {
+            let mut children = Vec::new();
+            push_children(node, &mut children);
+            let mut state = ModuleInstanceState::NonInstantiated;
+            for child in children {
+                match module_instance_state_at(child, depth + 1) {
+                    ModuleInstanceState::Instantiated => return ModuleInstanceState::Instantiated,
+                    ModuleInstanceState::ConstEnumOnly => {
+                        state = ModuleInstanceState::ConstEnumOnly;
+                    }
+                    ModuleInstanceState::NonInstantiated => {}
+                }
+            }
+            state
+        }
+        _ => ModuleInstanceState::Instantiated,
+    }
+}
+
+/// `HasSyntacticModifier` for a modifier list — the shared spelling of the test
+/// both crates were writing inline.
+#[must_use]
+pub fn has_syntactic_modifier(modifiers: &[ModifierLike<'_>], keyword: SyntaxKind) -> bool {
+    modifiers.iter().any(|modifier| match modifier {
+        ModifierLike::Token(token) => token.kind == keyword,
+        ModifierLike::Decorator(_) => false,
+    })
+}

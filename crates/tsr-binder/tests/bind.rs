@@ -63,14 +63,20 @@ fn top_level_declarations_get_the_flags_they_should() {
     let arena = Arena::new();
     let bound = bind(
         &arena,
-        "var v = 1;\nfunction f() {}\nclass C {}\ninterface I {}\ntype T = number;\nenum E { A }\nnamespace N {}",
+        "var v = 1;\nfunction f() {}\nclass C {}\ninterface I {}\ntype T = number;\nenum E { A }\nnamespace N { export var x = 1; }\nnamespace Types { interface X {} }",
     );
     assert_eq!(bound.top_level("f"), Some(SymbolFlags::FUNCTION));
     assert_eq!(bound.top_level("C"), Some(SymbolFlags::CLASS));
     assert_eq!(bound.top_level("I"), Some(SymbolFlags::INTERFACE));
     assert_eq!(bound.top_level("T"), Some(SymbolFlags::TYPE_ALIAS));
     assert_eq!(bound.top_level("E"), Some(SymbolFlags::REGULAR_ENUM));
+    // `bindModuleDeclaration` (`binder.go:1268`) picks the module flag from
+    // `GetModuleInstanceState`: a namespace that emits JavaScript is a
+    // `ValueModule` and one that emits nothing is a `NamespaceModule`. The two
+    // get different excludes, which is the whole point of the distinction —
+    // `checker-notes-diag2.md` §95.
     assert_eq!(bound.top_level("N"), Some(SymbolFlags::VALUE_MODULE));
+    assert_eq!(bound.top_level("Types"), Some(SymbolFlags::NAMESPACE_MODULE));
 }
 
 #[test]
@@ -175,7 +181,10 @@ fn declarations_that_typescript_merges_produce_one_symbol() {
     for (source, expected) in [
         ("interface I { a: number }\ninterface I { b: number }", SymbolFlags::INTERFACE),
         ("class C {}\ninterface C {}", SymbolFlags::CLASS | SymbolFlags::INTERFACE),
-        ("function f() {}\nnamespace f {}", SymbolFlags::FUNCTION | SymbolFlags::VALUE_MODULE),
+        (
+            "function f() {}\nnamespace f { export var x = 1; }",
+            SymbolFlags::FUNCTION | SymbolFlags::VALUE_MODULE,
+        ),
         ("function f(): void;\nfunction f() {}", SymbolFlags::FUNCTION),
     ] {
         let bound = bind(&arena, source);

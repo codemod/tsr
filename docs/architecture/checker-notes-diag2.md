@@ -7456,3 +7456,81 @@ its zero. And it sharpens §93's rule: *excludes is not a function of includes*,
 but the deeper problem here is that **includes was not a function of the
 declaration either.** A derived excludes can only be as right as the flag it is
 derived from.
+
+## §95 — §94's refusal, reversed by fixing the owner it named
+
+§94 measured `ValueModuleExcludes` at **+2 cases for +14 wrong lines** and
+refused it, naming the owner: *the fix is to choose the flag, not to change what
+the flag excludes.* This is that fix, and the refusal reverses.
+
+`bindModuleDeclaration` (`binder.go:1268`) picks the module flag from
+`GetModuleInstanceState` — a namespace that emits JavaScript is a `ValueModule`,
+one that emits nothing is a `NamespaceModule` — and the two carry different
+excludes. This port mapped **every** `ModuleDeclaration` to `VALUE_MODULE`, so
+§94's stricter mask landed on the ambient and augmentation declarations upstream
+would have flagged `NamespaceModule`, and they collided where upstream lets them
+merge.
+
+### The move that made it possible
+
+`GetModuleInstanceState` was ported in §89 **into `crate::check`**, where the
+binder cannot reach it. It now lives in `tsr-ast` beside the other
+`ast/utilities.go` ports, rewritten against the **typed** tree via
+`push_children` rather than against node ids — which is what makes it shareable:
+no side tables, no `&Checker`, no `&Binder`. Both consumers call the same
+function, which is also what upstream does.
+
+That rewrite is the load-bearing part. A port that reaches for `self.node_map`
+is a port that belongs to whichever crate owns the map, and this one had to
+belong to neither.
+
+### Measured
+
+`diag2307` with `RULE_CODES = [2300, 2451, 2567, 2528]`:
+
+| | CONVERTS | LOST | RIGHT | WRONG |
+|---|---:|---:|---:|---:|
+| §93, before | 50 | 0 | 490 | 79 |
+| §94, mask alone — **refused** | 52 | 0 | 500 | 93 |
+| **§95, flag + mask** | **52** | **0** | **500** | **64** |
+
+**+2 cases, +10 right lines, and the wrong column down 15** — the same two
+conversions §94 bought, with **29 fewer wrong lines** than the mask alone and
+**15 fewer than doing nothing.** Those 15 are part of the 61 false positives
+§88 found and §89 corrected the pricing of; a third of that row was this one
+divergence.
+
+Coverage `1,381 → 1,383 / 5,488` (25.16% → **25.20%**).
+`binder_symbols` **did not move**: 8,311/8,475 · 98.06% with and without.
+
+### `checker_types` is NOT byte-identical here, and that is worth stating plainly
+
+**3,843 → 3,846 (+3 cases).** Every other build this session left it untouched;
+this one did not, and the standing instruction is that it must stay identical.
+
+The change is an **improvement**, not damage — a non-instantiated namespace now
+carries the flag upstream gives it, so the other workstream's type resolution
+sees the same symbol shape upstream does. But "it went up" is not the same as
+"it did not change", and a binder flag change is exactly the kind that can move
+a gradient either way. **Recorded, not glossed.** If the `.types` workstream
+wants it reverted they need only the one line in `classify`.
+
+### A test asserted the divergence
+
+Three tests failed, and all three had encoded the bug:
+
+- `declaration_merging_pairs_are_permitted` asserted
+  `VALUE_MODULE.excludes().is_empty()` under the comment *"A namespace merges
+  with anything"*. True of a `NamespaceModule` and false of a `ValueModule`.
+- `top_level_declarations_get_the_flags_they_should` and
+  `declarations_that_typescript_merges_produce_one_symbol` both used **empty**
+  namespaces (`namespace N {}`) as their fixture, which upstream classifies as
+  non-instantiated — so they were asserting `VALUE_MODULE` for the one shape
+  that never was one.
+
+All three now test the distinction rather than its absence, with an
+instantiated and a non-instantiated fixture each. **A green test suite is not
+evidence that the port is faithful; it is evidence that the port agrees with
+whatever the tests were written against.** The fixtures were chosen for
+brevity — `namespace N {}` is the shortest namespace you can write — and
+brevity picked the degenerate case three times.
