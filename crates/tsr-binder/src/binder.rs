@@ -4482,12 +4482,15 @@ fn computed_name<'a>(
             if matches!(unary.operator.kind, SyntaxKind::MinusToken | SyntaxKind::PlusToken) =>
         {
             let Some(Expression::NumericLiteral(literal)) = unary.operand else { return None };
+            // The generated-Go oracle keeps BOTH signs: `[+1]` binds as
+            // `"+1"` and merges with the string member of that spelling
+            // (`duplicateObjectLiteralProperty_computedName1`:
+            // `Symbol("+1", Decl(15,12), Decl(16,12))`). A plain reading of
+            // `GetPropertyNameForPropertyNameNode` suggested plus is dropped;
+            // per ADR-0006 the baseline wins.
             let operand = canonical_numeric(arena, literal.text);
-            if unary.operator.kind == SyntaxKind::MinusToken {
-                Some(arena.alloc_str(&format!("-{operand}")))
-            } else {
-                Some(operand)
-            }
+            let sign = if unary.operator.kind == SyntaxKind::MinusToken { "-" } else { "+" };
+            Some(arena.alloc_str(&format!("{sign}{operand}")))
         }
         _ => None,
     }
