@@ -1278,6 +1278,20 @@ its whole deliverable and accept that it converts nothing until finished.
 
 ### New, thirteenth session, `diagnostics`
 
+- **TS2303 is UNREACHABLE, not unported** (§136), and the pricing was already in
+  the tree: `resolve_alias`'s rustdoc records that upstream's circularity frame
+  **was written here, measured, and removed for cause** — this port's
+  `resolve_alias` is not self-recursive, so the frame could not fire. Reaching
+  TS2303 needs `resolve_alias` to become **transitive**, a `checker_types`-shaped
+  change. Ten cases, off this workstream's critical path.
+- **Refusals recorded in a doc comment never reach the board** (§136). `STATUS`
+  §5 carries refusals with numbers; nothing carries the ones made at the point
+  of code, and `resolve_alias`'s note is a full refusal — measurement, reason,
+  falsifier. This workstream carried TS2303 as open for five sessions because of
+  it. **Third item this session whose answer was already in the repo** (§134 and
+  §135 were both in §81). **When a row will not move, grep the crate for the
+  function upstream reports from, before pricing it.**
+
 - **TS1361/TS1362 — LANDED, §121, +5 cases and +22 right lines** by walking the
   alias **chain** with the existing `resolve_alias`; the chain is worth 3 of the
   5 cases over §120's single hop for one extra wrong line. **BAR MISSED at +8
