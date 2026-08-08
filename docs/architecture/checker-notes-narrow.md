@@ -3142,3 +3142,21 @@ Residues, owned: instanceof-through-alias (`controlFlowAliasing2`'s
 union-ORDER rows the §77.2 refusal already prices.
 
 **§82 score — LANDED.** right 404,219 → **404,262 (84.41%)**.
+
+## §83 — instanceof narrows, TRUE branch only
+
+`narrowTypeByInstanceof`'s class-identity slice: RHS resolves to a
+CLASS, constituents keep by identity or by the `extends` chain
+(identifier heritage only, depth-capped 16); a non-union reference
+narrows TO the derived instance when the chain relates them; nothing
+decided declines whole. **The FALSE branch is disabled by evidence
+the corpus splits on**: `typeGuardOfFormInstanceOf`'s else prints the
+WHOLE union (matching the old-semantics comment in its header) while
+`instanceofWithStructurallyIdenticalTypes`' else-if chain narrows by
+derived-from — global `var` references vs parameters is the visible
+difference, and whatever upstream's actual key is needs a trace
+before the false arm can land; filtering it cost 21 adverse, true-only
+costs 7 (the four derived-from else positions in the structural case,
+now priced). **+126 net (67 G→R, 59 W→R against 7 R→W, 18:1).**
+
+**§83 score — LANDED.** right 404,262 → **404,381 (84.44%)**.

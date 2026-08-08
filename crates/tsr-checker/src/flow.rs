@@ -807,6 +807,51 @@ impl Checker<'_, '_> {
     /// body killed f15's narrowing upstream and must here — the §82 gate's
     /// firing falsifier); a property access needs a READONLY property on a
     /// constant receiver.
+    /// §83: whether `derived`'s `extends` chain (identifier heritage
+    /// expressions only, depth-capped) contains `base`.
+    fn class_extends_chain_contains(&mut self, derived: SymbolId, base: SymbolId) -> bool {
+        let mut current = derived;
+        for _ in 0..16 {
+            if current == base {
+                return true;
+            }
+            let Some(declaration) =
+                self.binder.symbols().get(current).declarations.first().copied()
+            else {
+                return false;
+            };
+            let heritage = match self.node_map.get(declaration) {
+                Some(Node::ClassDeclaration(class)) => class.heritage_clauses,
+                Some(Node::ClassExpression(class)) => class.heritage_clauses,
+                _ => return false,
+            };
+            let mut next = None;
+            for clause in heritage {
+                if clause.token.kind != SyntaxKind::ExtendsKeyword {
+                    continue;
+                }
+                for expression in clause.types {
+                    if let Some(tsr_ast::Expression::Identifier(identifier)) = expression.expression
+                        && let Some(id) = identifier.node_id
+                    {
+                        next = self.binder.resolve_name(
+                            self.nodes,
+                            self.node_map,
+                            id,
+                            identifier.text,
+                            SymbolFlags::VALUE,
+                        );
+                    }
+                }
+            }
+            match next {
+                Some(symbol) => current = symbol,
+                None => return false,
+            }
+        }
+        false
+    }
+
     fn is_constant_reference(&mut self, reference: NodeId) -> bool {
         match self.node_map.get(reference) {
             Some(Node::Identifier(identifier)) => {
@@ -2443,6 +2488,81 @@ impl Checker<'_, '_> {
                         return self.narrow_type_by_in_keyword(t, literal.text, assume_true);
                     }
                     return t;
+                }
+                // §83 (`checker-notes-narrow.md`): `x instanceof A` —
+                // `narrowTypeByInstanceof` (`flow.go`), the class-identity
+                // slice: constituents matching by IDENTITY or by the extends
+                // CHAIN keep (true) or drop (false); an undecidable shape
+                // declines whole rather than guessing.
+                if operator.kind == SyntaxKind::InstanceOfKeyword {
+                    // The FALSE branch has NO effect — the baseline is
+                    // unambiguous (`typeGuardOfFormInstanceOf`'s else prints
+                    // the WHOLE union, matching the old-semantics comment in
+                    // the test header); filtering it measured 21 adverse.
+                    if !assume_true {
+                        return t;
+                    }
+                    let Some(left_id) = left.node_id() else { return t };
+                    if !self.is_matching_reference(state, left_id) {
+                        return t;
+                    }
+                    let callee_type = self.check_expression(right);
+                    let TypeData::Anonymous { symbol: class_symbol, .. } =
+                        self.store.get(callee_type).data
+                    else {
+                        return t;
+                    };
+                    if !self.binder.symbols().get(class_symbol).flags.intersects(SymbolFlags::CLASS)
+                    {
+                        return t;
+                    }
+                    let instance = self.get_declared_type_of_symbol(class_symbol);
+                    if instance == self.intrinsics.error {
+                        return t;
+                    }
+                    let TypeData::Union { types: members, .. } = &self.store.get(t).data else {
+                        {
+                            // Non-union: `x: Base` with `x instanceof Derived`
+                            // narrows TO the derived instance when the chain
+                            // relates them; anything else declines.
+                            if assume_true {
+                                if t == instance {
+                                    return t;
+                                }
+                                if self
+                                    .class_instance_symbol(instance)
+                                    .zip(self.class_instance_symbol(t))
+                                    .is_some_and(|(derived, base)| {
+                                        self.class_extends_chain_contains(derived, base)
+                                    })
+                                {
+                                    return instance;
+                                }
+                            }
+                            return t;
+                        }
+                    };
+                    let members = members.clone();
+                    let matches: Vec<bool> = members
+                        .iter()
+                        .map(|&member| {
+                            member == instance
+                                || self.class_instance_symbol(member).is_some_and(|derived| {
+                                    self.class_extends_chain_contains(derived, class_symbol)
+                                })
+                        })
+                        .collect();
+                    let kept: Vec<TypeId> = members
+                        .iter()
+                        .zip(&matches)
+                        .filter_map(|(&member, &is_match)| is_match.then_some(member))
+                        .collect();
+                    if kept.is_empty() || kept.len() == members.len() {
+                        // Nothing decided (or everything kept): upstream's
+                        // fallback logic here needs assignability — decline.
+                        return t;
+                    }
+                    return self.rebuild_union_subset(t, &kept);
                 }
                 // §82.1: `&&`/`||` INSIDE an inlined aliased condition —
                 // there are no flow branch nodes inside a const initializer,
