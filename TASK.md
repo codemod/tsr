@@ -348,3 +348,25 @@ contextual tuple-rest parameters (f50/f51), generic alias unions
 (AB<T>), Iterator.next destructuring, f22's
 parent-flow-at-declaration, f23's exhaustive-never. Each is its own
 machine; none is a narrowing arm.
+
+
+ADDENDUM AFTER BUILD 143 (84.45%):
+
+Builds 142-143: §85 T&{}-family adjusted facts for type variables
+(+42 at 22:1 over three measured iterations: truthy dropped, the
+refinement lattice, and the JOIN reduction — a mint beside its own
+base is subsumed in get_union_type) and §85.1 truthy NonNullable<T>
+spelling (+12 at 5.3:1).
+
+PROCESS — THE TRAP'S WORST FIRING YET: §85.1 was REFUSED for one
+commit on an "unexplained 8 R→G in exportNestedNamespaces2" that was
+actually the parallel session's arrivals measured against a
+pre-rebase baseline. The refusal was reversed and the record
+corrected loudly. NEW RULE (in checker-notes-narrow §85.1): before
+pricing ANY adverse, re-run scorepair on the clean tree — a
+transition that survives the revert is not yours. This is the
+stash-and-remeasure rule extended to REFUSAL evidence.
+
+§85 residue: NonNullable-in-annotation positions (the conditional-
+type utility, different head), row-113 condition-position leak, one
+JSDoc-generic disturbance.

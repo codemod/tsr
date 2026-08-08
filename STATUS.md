@@ -279,7 +279,14 @@ to ZERO adverse) + 126 (§83 instanceof TRUE-branch at 18:1 — the
 false branch is evidence-split between two baselines and awaits an
 upstream trace) + 6 (§84 sibling truthiness; a redundant §84 equality
 arm measured zero against §50's existing road and was REMOVED) =
-**404,377 — builds 25–141 (84.44%)**. §81 (blunt
+**404,377 — builds 25–141 (84.44%)**; then + 42 (§85: the `T & {}`
+family — adjusted facts for type variables, three measured
+iterations ending in the union JOIN reduction) + 12 (§85.1: truthy
+spells `NonNullable<T>` — LANDED AFTER A FALSE REFUSAL: the pricing
+adverse was the parallel session's rows against a pre-rebase
+baseline, the §88 trap's first WRONG-REFUSAL firing; rule sharpened
+to re-run scorepair on the clean tree before pricing any adverse) =
+**404,423 — builds 25–143 (84.45%)**. §81 (blunt
 qualified names) REFUSED at 114:6,769 — the qualifier is decided by
 the VIEWER's position; per-site printing context now owns THREE heads
 (import-spelling, qualified names, `temporal`'s 400). §77.2 (union written order) refused TWICE — 35:249, then
