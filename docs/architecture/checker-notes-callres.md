@@ -1661,3 +1661,28 @@ expansion where annotation positions want the alias NAME
 (`templateLiteralIntersection2` wants `(p: JoinedPath) => void`) — the
 site-sensitive §41-class alias-name question, queued; and
 `discriminatedUnionTypes4`'s narrowing through pattern literals.
+
+### §36.1 Template-bodied aliases keep their NAME in annotations
+
+§36's named residue: `type JoinedPath = `-template — its OWN line wants
+the template (the §36 mint answers it), but ANNOTATION positions want the
+alias NAME (`(p: JoinedPath) => void`, `templateLiteralIntersection2`) —
+the same annotation-reuse rule §36 discovered, applied to the alias
+reference itself. Narrow: non-generic alias, body is a
+TemplateLiteralTypeNode, position is NOT alias-declared → mint
+Named(alias name), `unresolved_types`-registered (opaque, gap-preserving,
+print-only). Everything else untouched.
+
+**Falsifier.** Annotation positions where upstream expands anyway
+(exported declarations under `@declaration`?) — W on those.
+
+**§36.1 v1 REVERTED, v2 LANDED.** The type-level mint (v1) measured
++18 W→R against 52 R→W: the split is FINER than type identity — the
+parameter's OWN assertion line wants the EXPANSION while the enclosing
+signature print wants the written name, two spellings of one node's type.
+That is `Parameter::written_text`'s seam exactly, so v2 is a PRINTER
+rule: `written_annotation_text` gains a leg for a bare alias name whose
+target is a template-bodied alias (exactly the §36-created divergence,
+nothing wider — the union leg's measured negative stands). **v2 score:
++12 (W→R), ZERO adverse.** `checker_types` right 397,592 → **397,604
+(83.01%)**.

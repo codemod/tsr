@@ -1442,6 +1442,31 @@ impl<'a> Checker<'a, '_> {
         if let Some(text) = Self::type_query_written_text(annotation) {
             return Some(text);
         }
+        // §36.1 (`checker-notes-callres.md`): a bare alias name whose target
+        // is a TEMPLATE-bodied alias — §36 made those expand, and node reuse
+        // keeps the written name in signature prints
+        // (`(p: JoinedPath) => void`). Exactly the template shape, nothing
+        // wider: the union leg above this function's doc records why width
+        // here loses.
+        if let TypeNode::TypeReferenceNode(reference) = annotation
+            && reference.type_arguments.is_empty()
+            && let Some(tsr_ast::EntityName::Identifier(identifier)) = reference.type_name
+            && let Some(id) = identifier.node_id
+            && let Some(symbol) = self.binder.resolve_name(
+                self.nodes,
+                self.node_map,
+                id,
+                identifier.text,
+                tsr_binder::SymbolFlags::TYPE,
+            )
+            && self.binder.symbols().get(symbol).flags.contains(tsr_binder::SymbolFlags::TYPE_ALIAS)
+            && let Some(declaration) =
+                self.binder.symbols().get(symbol).declarations.first().copied()
+            && let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
+            && matches!(alias.r#type, Some(TypeNode::TemplateLiteralTypeNode(_)))
+        {
+            return Some(identifier.text.to_string());
+        }
         // **The single-member literal carriage** (`bd tsr-d4li`,
         // `checker-notes-modobj.md` §10.15): a parameter *written*
         // `{ (n: number): string; }` keeps that braces text through node reuse
