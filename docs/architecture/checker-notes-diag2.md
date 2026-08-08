@@ -9808,3 +9808,53 @@ instead puts every misclassification into the wrong column"* — and this is the
 same shape arriving from the other direction: a decline that is too broad is as
 expensive as one that is too narrow, and only the measurement distinguishes
 them.
+
+## §140 — TS2428: identical type parameter lists, compared syntactically
+
+The fourth row `diaggap` has produced after a run of builds, and the second that
+is not grammar. `checkTypeParameterListsIdentical` (`checker.go:4416`): a symbol
+with more than one class-or-interface declaration whose type parameter lists
+disagree is reported **on every one of them**.
+
+That "every one" is why the rule fires at each declaration the walk visits
+rather than once at the symbol — the walk already provides the iteration
+upstream writes by hand.
+
+`areTypeParametersIdentical` compares count, names, constraints and defaults.
+**Only count and name are ported.** A constraint comparison needs the declared
+types, and `nonIdenticalTypeConstraints` is the case that wants it — a miss,
+never a wrong line.
+
+| | CONVERTS | LOST | RIGHT | WRONG |
+|---|---:|---:|---:|---:|
+| before | 0 | 0 | 0 | 0 |
+| **after** | **7** | **0** | **52** | **8** |
+
+**+7 cases and 52 right lines.** Coverage `1,443 → 1,450 / 5,488` (26.29% →
+**26.42%**). `checker_types` reads 3,934 **with and without** by
+stash-and-remeasure — the 3,935 → 3,934 move was the `.types` workstream's, the
+sixth time that trap has been checked this session and the sixth time it was
+theirs.
+
+### A shadowed match arm, caught by a warning and not by a test
+
+The first cut added `Node::InterfaceDeclaration(_) | Node::ClassDeclaration(_)`
+as a **new** arm — ahead of §112's `Node::InterfaceDeclaration(n) =>
+check_illegal_decorator`, which it silently swallowed. `rustc` said
+`unreachable pattern`; **the conformance numbers did not move**, because
+TS1206's interface case has no corpus fixture.
+
+**A rule can be deleted by a match arm and the suite will not notice.** The
+compiler noticed. The two arms are merged now, and the general form is: in a
+`match` over `Node`, a new arm for a kind that already has one is a *silent
+deletion* unless the warning is read. `check_node`'s dispatch is 40-odd arms and
+this will happen again.
+
+### The bar was missed, and the eight have a known owner
+
+Eight wrong lines against a rule that emitted none — §104's shape again,
+recorded as a debt. They are the constraint half: this rule says "identical"
+when the *names* match and upstream says "different" because the *constraints*
+do. **Owner: `getDeclaredTypeOfSymbol`'s local type parameters**, which is
+`checker_types`' road, and the target for the next measurement is 7 conversions
+with the wrong column under 3.

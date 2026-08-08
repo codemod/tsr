@@ -401,8 +401,12 @@ impl Checker<'_, '_> {
             Node::YieldExpression(_) => self.check_yield_grammar(node),
             // `NodeCanBeDecorated` rejects every one of these outright.
             Node::EnumDeclaration(n) => self.check_illegal_decorator(n.modifiers),
+            Node::ClassDeclaration(_) => self.check_type_parameter_lists_identical(node),
             Node::FunctionDeclaration(n) => self.check_illegal_decorator(n.modifiers),
-            Node::InterfaceDeclaration(n) => self.check_illegal_decorator(n.modifiers),
+            Node::InterfaceDeclaration(n) => {
+                self.check_illegal_decorator(n.modifiers);
+                self.check_type_parameter_lists_identical(node);
+            }
             Node::TypeAliasDeclaration(n) => self.check_illegal_decorator(n.modifiers),
             Node::VariableStatement(n) => self.check_illegal_decorator(n.modifiers),
             Node::ImportEqualsDeclaration(n) => self.check_illegal_decorator(n.modifiers),
@@ -2088,6 +2092,62 @@ impl Checker<'_, '_> {
         let mut children = Vec::new();
         tsr_ast::for_each_child_id(typed, |child| children.push(child));
         children.into_iter().any(|child| self.subtree_mentions(child, text, depth + 1))
+    }
+
+    /// TS2428 — `All declarations of '{0}' must have identical type
+    /// parameters.`
+    ///
+    /// `checkTypeParameterListsIdentical` (`checker.go:4416`): a symbol with
+    /// more than one class-or-interface declaration whose type parameter lists
+    /// disagree is reported **on every one of them**, which is why this fires
+    /// at each declaration the walk visits rather than once at the symbol.
+    ///
+    /// `areTypeParametersIdentical` compares count, names, constraints and
+    /// defaults. **Only count and name are ported**: a constraint comparison
+    /// needs the declared types, and `nonIdenticalTypeConstraints` is the case
+    /// that wants it — a miss, never a wrong line. §140.
+    fn check_type_parameter_lists_identical(&mut self, node: NodeId) {
+        let Some(symbol) = self.binder.symbol_of(node) else { return };
+        let entry = self.binder.symbols().get(self.binder.merged_symbol(symbol));
+        let declarations: Vec<NodeId> = entry
+            .declarations
+            .iter()
+            .copied()
+            .filter(|&declaration| {
+                matches!(
+                    self.nodes.kind(declaration),
+                    SyntaxKind::InterfaceDeclaration | SyntaxKind::ClassDeclaration
+                )
+            })
+            .collect();
+        if declarations.len() <= 1 {
+            return;
+        }
+        let names = |declaration: NodeId| -> Vec<String> {
+            self.node_map.get(declaration).map_or_else(Vec::new, |typed| {
+                type_parameters_of(typed)
+                    .iter()
+                    .map(|parameter| {
+                        parameter.name.map_or_else(String::new, |name| name.text.to_string())
+                    })
+                    .collect()
+            })
+        };
+        let first = names(declarations[0]);
+        if declarations[1..].iter().all(|&other| names(other) == first) {
+            return;
+        }
+        let Some(name_id) = self.declaration_name_of(node) else { return };
+        let Some(file) = self.source_file_of_for_diagnostics(name_id) else { return };
+        let span = self.error_span(name_id);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::ALL_DECLARATIONS_OF_0_MUST_HAVE_IDENTICAL_TYPE_PARAMETERS,
+                span,
+                [String::new()],
+            ),
+        );
     }
 
     /// TS2300 — `Duplicate identifier '{0}'.`, for a type parameter list.
