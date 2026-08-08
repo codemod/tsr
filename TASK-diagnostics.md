@@ -8,11 +8,11 @@ byte-identical**.
 FIRST: git pull. Then read, in this order:
   STATUS.md §1's `diagnostics` block and §5's `diagnostics` refusals, then
   docs/architecture/checker-notes-diag2.md **§75 and §79 first** (the board and
-  the metric), then §76–§82 — the twelfth session, seven sections, six builds
+  the metric), then §76–§83 — the twelfth session, eight sections, seven builds
   and one refusal.
 
 STATE AT HANDOFF (verify with a fresh coverage run):
-  diagnostics    1,340/5,488 = 24.42%   (was 1,302; +38 over 6 builds,
+  diagnostics    1,346/5,488 = 24.53%   (was 1,302; +44 over 7 builds,
                  **zero cases lost in any of them**)
   checker_types  3,742/9,538 · 83.41% — the other workstream's. Do not touch it;
                  re-check it is byte-identical after every build.
@@ -29,7 +29,8 @@ count.** The twelfth session ran the experiment six times without meaning to:
 | §79 | **cases** | +9 | **+13** ✓ |
 | §80 | lines | +8 | **+5** |
 | §81 | **cases** | +9 | **+10** ✓ |
-| §82 | cases | +9 | **+3** |
+| §82 | cases | +9 | **+3** (see the limit below) |
+| §83 | **cases** | +7 | **+6 for ZERO wrong** |
 
 The three line-barred builds all came in at roughly a **15:1** concentration —
 `diagmissing` counts lines and the board counts cases, and a bar taken off the
@@ -97,14 +98,17 @@ TS2540      12         9
      three wrong lines today and it gates `isInstantiatedModule`, which several
      rules will need.
 
-2. **TS2449 / TS2448 / TS2450 — `used before its declaration`.** 11 sole-obstacle
-   cases and unbuilt. `checkResolvedBlockScopedVariable` (`checker.go:1888`) and
-   `isBlockScopedNameDeclaredBeforeUse` (`:1922`). The full predicate is 80
-   lines; **the bounded version is `class A extends B` where `B`'s declaration
-   starts after the use** — a heritage clause is never a deferred position, so
-   the whole `isUsedInFunctionOrInstanceProperty` half is excluded by
-   construction. `classOrder2` is the one-line example. `is_value_reference`
-   already has the `extends`-clause arm.
+2. ~~TS2449, the `extends` slice~~ **DONE, §83, +6 for ZERO wrong.** What is
+   left is **`isBlockScopedNameDeclaredBeforeUse` (`checker.go:1922`) proper** —
+   the eighty lines of *deferral* arms §83 bounded its way around: a use inside
+   a function body, an instance property initialiser, an export specifier, a
+   binding element, a decorator, a computed property name. Its five
+   non-converters (`classDeclarationShouldBeOutOfScopeInComputedNames`, the tail
+   of `resolvingClassDeclarationWhenInBaseTypeResolution`) are exactly those
+   arms. **Build it once for three codes**: `checkResolvedBlockScopedVariable`
+   picks between TS2449, TS2448 (block-scoped variable) and TS2450 (enum) off
+   the symbol's flags and shares everything else, and TS2448's own row has not
+   been sized yet.
 
 3. **The rest of `diaggap`'s relation-free single-code column**: TS2693 9,
    TS2364 7, TS2703 7, TS2558 6.
