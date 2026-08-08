@@ -597,12 +597,10 @@ impl Checker<'_, '_> {
         }
         // `ast.FindConstructorDeclaration` (`ast/utilities.go:2498`) — a
         // constructor **with a body**; an overload signature does not count.
-        let has_constructor = members.iter().any(|member| {
-            matches!(member, ClassElement::ConstructorDeclaration(ctor) if ctor.body.is_some())
+        let constructor_body = members.iter().find_map(|member| match member {
+            ClassElement::ConstructorDeclaration(ctor) => ctor.body.and_then(|body| body.node_id()),
+            _ => None,
         });
-        if has_constructor {
-            return;
-        }
         for member in members {
             let ClassElement::PropertyDeclaration(property) = member else { continue };
             if has_modifier(property.modifiers, SyntaxKind::DeclareKeyword)
@@ -647,6 +645,17 @@ impl Checker<'_, '_> {
                 || self.contains_undefined_type(declared)
             {
                 continue;
+            }
+            // `!isPropertyInitializedInConstructor(...)` (`checker.go:4947`),
+            // as much of it as is decidable without synthesising a node. See
+            // `checker-notes-diag2.md` §87: a constructor body that never
+            // mentions `this.<name>` cannot assign it on any path, so the flow
+            // query upstream runs would answer "declared type survives" and
+            // report. Any other constructor declines.
+            if let Some(body) = constructor_body {
+                if self.subtree_accesses_this_member(body, &name, 0) {
+                    continue;
+                }
             }
             let Some(name_id) = property.name.node_id() else { continue };
             let Some(file) = self.source_file_of_for_diagnostics(name_id) else { continue };
@@ -1684,6 +1693,60 @@ impl Checker<'_, '_> {
         let mut children = Vec::new();
         tsr_ast::for_each_child_id(typed, |child| children.push(child));
         children.into_iter().any(|child| self.subtree_mentions(child, text, depth + 1))
+    }
+
+    /// Does the subtree rooted at `node` reach `this.<text>` in any position?
+    ///
+    /// The decidable part of `isPropertyInitializedInConstructor`
+    /// (`checker.go:4947`), as `checker-notes-diag2.md` §87 sets out: a
+    /// constructor body that never names the property cannot assign it on any
+    /// path, and that is the one answer the un-runnable flow query has that can
+    /// be read straight off the tree.
+    ///
+    /// **Every uncertain answer is `true`.** `true` means "declines", so the
+    /// depth cap, an unmapped node and `this["x"]` — whose argument this does
+    /// not evaluate — all take that branch. A `false` returned wrongly is a
+    /// diagnostic reported where upstream reports none; a `true` returned
+    /// wrongly is silence. Only the first is a wrong line.
+    pub(crate) fn subtree_accesses_this_member(
+        &self,
+        node: NodeId,
+        text: &str,
+        depth: u32,
+    ) -> bool {
+        if depth > 64 {
+            return true;
+        }
+        let Some(typed) = self.node_map.get(node) else { return true };
+        match typed {
+            Node::PropertyAccessExpression(access) => {
+                let named = match access.name {
+                    Some(tsr_ast::MemberName::Identifier(name)) => name.text == text,
+                    Some(tsr_ast::MemberName::PrivateIdentifier(name)) => name.text == text,
+                    None => true,
+                };
+                if named && Self::expression_is_this(access.expression) {
+                    return true;
+                }
+            }
+            // `this[…]` is not evaluated here, so any element access on `this`
+            // is treated as reaching every member.
+            Node::ElementAccessExpression(access)
+                if Self::expression_is_this(access.expression) =>
+            {
+                return true;
+            }
+            _ => {}
+        }
+        let mut children = Vec::new();
+        tsr_ast::for_each_child_id(typed, |child| children.push(child));
+        children.into_iter().any(|child| self.subtree_accesses_this_member(child, text, depth + 1))
+    }
+
+    /// Is this expression the `this` keyword itself?
+    fn expression_is_this(expression: Option<tsr_ast::Expression<'_>>) -> bool {
+        matches!(expression, Some(tsr_ast::Expression::KeywordExpression(keyword))
+            if keyword.kind == SyntaxKind::ThisKeyword)
     }
 
     /// `getControlFlowContainer` (`checker.go:11438`): the innermost enclosing

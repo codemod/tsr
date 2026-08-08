@@ -6804,3 +6804,108 @@ be banned outright — the second is cheaper and is the recommendation. Falsifie
 `grep -rn "\.end - \|end - .*\.start" crates/tsr-checker/src/` returns **nothing**
 after this fix, so the site repaired here was the only one and the ban costs
 nothing today. Re-run that grep before adding span arithmetic.
+
+## §87 — TS2564's constructor decline, narrowed to the half that is decidable
+
+### The bar, before the code
+
+**+9 cases**, at most 3 new wrong lines. Taken off `diaggap`'s **case** column
+(27 sole-obstacle cases at `82eab5f`), never off `diagmissing`'s 122 lines, per
+the twelfth session's six-build experiment.
+
+Falsifiers, in the order they would fire:
+
+1. **If the constructors in this family do assign the reported properties**, the
+   family is not what it looks like and the build converts near zero. Checked by
+   hand on five cases first — `lift`, `genericCloneReturnTypes`,
+   `externalModuleQualification`, `thisExpressionOfGenericObject`,
+   `specializedInheritedConstructors1` — and in every one the reported property
+   is the one the constructor never mentions. `genericCloneReturnTypes` is the
+   discriminating case: its constructor assigns `this.size` and not `this.t`,
+   and the baseline reports **`t` alone**. A rule that reported both would be
+   wrong on a line that exists today.
+2. **If the subtree scan answers "not mentioned" for a body that does assign**,
+   every such property becomes a wrong line. The depth cap is the way that
+   happens, so the cap answers **`true`** (mentioned → decline), not `false`.
+3. **If the other half of the row is this half**, the bar is double-counted. It
+   is not: of the 27, roughly 11 are constructor-declined and the rest are the
+   `errorType` family below.
+
+### What §6 declined, and why only half of it was undecidable
+
+`checkPropertyInitialization` (`checker.go:4933`) reports when
+`constructor == nil || !isPropertyInitializedInConstructor(...)`
+(`checker.go:4947`). §6 ported the first disjunct and declined the second
+outright, because the second synthesises a `this.x` property access, hangs it
+off the constructor's `ReturnFlowNode` and asks `getFlowTypeOfReference` whether
+`undefined` survives — and this port cannot synthesise a node
+([ADR-0012](../../adr/0012-ast-is-sync.md)): the tree is arena-allocated and
+immutable after parsing, and a flow query needs a *registered* node with a
+parent and a flow node.
+
+That reasoning is correct and it is still correct. What it over-declined is the
+**sub-case where the flow query's answer is knowable without running it**: if
+the constructor body contains no `this.<name>` anywhere at all, then no
+assignment to it exists on any path, so the reference's flow type is the
+declared type — which by this point in the rule is known not to contain
+`undefined` — and upstream reports. **A flow analysis you cannot run still has
+inputs you can read.**
+
+The scan is deliberately coarser than "is there an assignment": *any* occurrence
+of `this.<name>` in the constructor body declines. A constructor that reads the
+property without assigning it is one upstream reports on and this port will not,
+which is silence and never a wrong answer — the same shape of trade §6 made, one
+level in. Classifying occurrences instead (assignment vs read, `=` vs `+=`,
+destructuring targets, `delete`) buys those few lines and puts every
+misclassification into the *wrong* column, which is the wrong side of this
+rule's risk.
+
+### What it does not touch
+
+The row's other half is **§77's family** and belongs to `checker_types`:
+`missingTypeArguments1` (8 lines), `returnTypeTypeArguments` (8),
+`privacyVarDeclFile` (6). The property's annotation there is a generic reference
+written without its arguments, which upstream resolves to an object type and
+this port answers `errorType` for — so the rule's `is_error` skip
+(`checker.go:4946`'s `TypeFlagsAnyOrUnknown` disjunct, §43) fires and the
+property is never considered. **Owner: `checker_types`**, and it converts with
+no diagnostics work when `errorType` stops propagating outward through type
+constructors. Three cases, 22 lines, and they are the largest single block in
+the row — which is exactly why the bar was taken off cases.
+
+### Measured
+
+`diag2307` with `RULE_CODES = [2564]`, the same instrument on both sides:
+
+| | CONVERTS | LOST | RIGHT | WRONG |
+|---|---:|---:|---:|---:|
+| before | 235 | 0 | 1,241 | 4 |
+| after | **250** | **0** | 1,322 | **4** |
+
+**+15 cases and +81 right lines for zero new wrong lines.** Coverage moved
+`1,346 → 1,362 / 5,488` (24.53% → **24.82%**), a case better than the
+counterfactual, and `checker_types` read **3,784/9,538 · 83.83%** — the
+`.types` workstream's committed number to the case.
+
+The bar was **+9 cases, at most 3 new wrong**. Met, and by a wide enough margin
+to be worth naming why: the bar was sized off TS2564's 27 *sole-obstacle* cases,
+and the rule converted 15 because it also finished cases whose blocking set held
+TS2564 **plus** codes this port already emits. `diaggap`'s single-code column is
+a floor on a deepening, not an estimate of it — the twelfth session's rule
+("take the bar off the case count") gets a corollary: **that count is the subset
+of the answer that is easy to verify, not the answer.**
+
+### The wrong column, read
+
+Unchanged at 4, all four pre-existing and none of them this build's:
+
+- `indexSignatureWithAccessibilityModifier(6,13)` — `[public x: string]: string`
+  is a malformed index signature, and the parser recovers it as a *computed
+  property declaration* named `x`. The rule is right about what it was handed.
+  **Owner: `tsr_parser`'s index-signature recovery**, and the sibling interface
+  on line 3 shows the same shape one declaration up.
+- `classExtendsEveryObjectType`, `classExtendsEveryObjectType2`,
+  `privateNamesNotAllowedAsParameters` — the remaining three, carried from §43.
+
+None is a reason to tighten this rule, and tightening it to silence them would
+cost the properties it just converted.
