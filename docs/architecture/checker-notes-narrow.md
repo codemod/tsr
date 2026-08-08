@@ -2237,3 +2237,27 @@ already decides those; R→W would say otherwise.
 (`narrowByClauseExpressionInSwitchTrue3` — the case-expression road, not
 this arm's) and a `this`-member loop-antecedent pair. `checker_types`
 right 399,212 → **399,406 (83.39%)**.
+
+## §51.2 — optional-chain containment at an equality
+
+`controlFlowOptionalChain` (59+ WRONG `Thing | undefined`):
+`if (o?.foo === value)` where `value`'s type excludes `undefined` —
+upstream's `narrowTypeByOptionalChainContainment`: the comparison holding
+implies every chain link evaluated, so the BASE narrows non-undefined.
+The slice: strict `===`/`!==` only, assume side = the equality holding;
+the other operand's CHECKED type must contain no UNDEFINED, ANY, or
+UNKNOWN constituent; the chain operand must contain the reference as a
+receiver behind at least one `?.`. Facts: `NE_UNDEFINED`. Loose `==` is
+NOT taken (its null/undefined equivalence needs both facts and the
+corpus's `// Error` comments sit exactly there).
+
+**Falsifiers.** (a) If upstream also narrows on the FALSE branch of
+`!==` — G/R→W on else-branches (this slice narrows only the holding
+side). (b) Call links (`o?.bar() === x`) — receivers walk through call
+expressions; a mis-walk fires here.
+
+**§51.2 score — LANDED.** **+12 (W→R), ZERO adverse.** Neither falsifier
+fired. `checker_types` right 399,406 → **399,418 (83.39%)**. The
+remaining `controlFlowOptionalChain` wrongs are the truthiness/`in`
+halves of chain containment and the chain-link marker mechanics — TASK
+item 6's standing residue.

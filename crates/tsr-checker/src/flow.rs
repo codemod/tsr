@@ -2329,6 +2329,37 @@ impl Checker<'_, '_> {
                         }
                     }
                 }
+                // §51.2 (`checker-notes-narrow.md`): `o?.foo === value` —
+                // the comparison holding implies every chain link evaluated
+                // (`narrowTypeByOptionalChainContainment`); the BASE narrows
+                // NE_UNDEFINED. Strict operators only; the value's type must
+                // exclude undefined/any/unknown.
+                if matches!(
+                    operator.kind,
+                    SyntaxKind::EqualsEqualsEqualsToken | SyntaxKind::ExclamationEqualsEqualsToken
+                ) {
+                    let holds = assume_true
+                        != matches!(operator.kind, SyntaxKind::ExclamationEqualsEqualsToken);
+                    if holds {
+                        let chain_pair =
+                            [(left, right), (right, left)].into_iter().find(|&(candidate, _)| {
+                                self.optional_chain_contains_reference(state, candidate)
+                            });
+                        if let Some((_, value_node)) = chain_pair {
+                            let value_type = self
+                                .node_map
+                                .get(value_node)
+                                .and_then(|node| tsr_ast::Expression::try_from(node).ok())
+                                .map(|expression| self.check_expression(expression));
+                            if let Some(value_type) = value_type
+                                && value_type != self.intrinsics.error
+                                && !self.type_mentions_undefined_or_top(value_type)
+                            {
+                                return self.get_type_with_facts(t, TypeFacts::NE_UNDEFINED);
+                            }
+                        }
+                    }
+                }
                 // §51.1 (`checker-notes-narrow.md`): `s.kind === 0` — a
                 // property access whose RECEIVER is the reference
                 // discriminates by the member, the §50 filter with the
@@ -2391,6 +2422,64 @@ impl Checker<'_, '_> {
             }
             _ => t,
         }
+    }
+
+    /// §51.2: does `node` spell an optional chain whose BASE (behind at
+    /// least one `?.`) is the matching reference? Walks receivers through
+    /// property/element accesses and call expressions.
+    fn optional_chain_contains_reference(&mut self, state: &FlowState, node: NodeId) -> bool {
+        let mut current = node;
+        let mut saw_question = false;
+        loop {
+            match self.node_map.get(current) {
+                Some(Node::PropertyAccessExpression(access)) => {
+                    saw_question |= access.question_dot_token.is_some();
+                    let Some(receiver) = access.expression.and_then(|e| e.node_id()) else {
+                        return false;
+                    };
+                    if saw_question && self.is_matching_reference(state, receiver) {
+                        return true;
+                    }
+                    current = receiver;
+                }
+                Some(Node::ElementAccessExpression(access)) => {
+                    saw_question |= access.question_dot_token.is_some();
+                    let Some(receiver) = access.expression.and_then(|e| e.node_id()) else {
+                        return false;
+                    };
+                    if saw_question && self.is_matching_reference(state, receiver) {
+                        return true;
+                    }
+                    current = receiver;
+                }
+                Some(Node::CallExpression(call)) => {
+                    let Some(callee) = call.expression.and_then(|e| e.node_id()) else {
+                        return false;
+                    };
+                    current = callee;
+                }
+                _ => return false,
+            }
+        }
+    }
+
+    /// §51.2's value gate: the compared value's type must contain no
+    /// `undefined`, `any`, or `unknown` — those admit an undefined chain
+    /// result and the containment argument collapses.
+    fn type_mentions_undefined_or_top(&self, t: TypeId) -> bool {
+        let flags = self.store.get(t).flags;
+        if flags.intersects(TypeFlags::UNDEFINED | TypeFlags::ANY_OR_UNKNOWN) {
+            return true;
+        }
+        if let TypeData::Union { types, .. } = &self.store.get(t).data {
+            return types.iter().any(|&constituent| {
+                self.store
+                    .get(constituent)
+                    .flags
+                    .intersects(TypeFlags::UNDEFINED | TypeFlags::ANY_OR_UNKNOWN)
+            });
+        }
+        false
     }
 
     /// The §50/§51.1 shared discriminant filter: keep constituents whose
