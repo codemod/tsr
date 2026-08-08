@@ -1989,14 +1989,22 @@ impl Checker<'_, '_> {
         if yielded.asterisk_token.is_some() {
             return;
         }
-        let in_generator = self
-            .nodes
-            .ancestors(node)
-            .find_map(|ancestor| match self.node_map.get(ancestor) {
+        // A **computed property name is evaluated in the ENCLOSING context**,
+        // where the member it names is not — so in
+        // `async function* t() { class C { [yield 1] = yield 2; } }` the name is
+        // inside the generator and the initialiser is not. The walk therefore
+        // passes *through* a class member it reached via a
+        // `ComputedPropertyName`, and stops at it otherwise. §107 measured the
+        // four wrong lines this fixes, all in `awaitAndYieldInProperty`.
+        let mut came_from = node;
+        let mut in_generator = false;
+        for ancestor in self.nodes.ancestors(node) {
+            let verdict = match self.node_map.get(ancestor) {
                 Some(Node::FunctionDeclaration(n)) => Some(n.asterisk_token.is_some()),
                 Some(Node::FunctionExpression(n)) => Some(n.asterisk_token.is_some()),
                 Some(Node::MethodDeclaration(n)) => Some(n.asterisk_token.is_some()),
-                // Cannot be generators; they still bound the context.
+                // Cannot be generators; they still bound the context — unless
+                // this is their computed name rather than their body.
                 Some(
                     Node::ArrowFunction(_)
                     | Node::GetAccessorDeclaration(_)
@@ -2004,10 +2012,15 @@ impl Checker<'_, '_> {
                     | Node::ConstructorDeclaration(_)
                     | Node::PropertyDeclaration(_)
                     | Node::ClassStaticBlockDeclaration(_),
-                ) => Some(false),
+                ) if self.nodes.kind(came_from) != SyntaxKind::ComputedPropertyName => Some(false),
                 _ => None,
-            })
-            .unwrap_or(false);
+            };
+            if let Some(verdict) = verdict {
+                in_generator = verdict;
+                break;
+            }
+            came_from = ancestor;
+        }
         if in_generator {
             return;
         }

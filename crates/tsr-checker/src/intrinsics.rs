@@ -45,6 +45,8 @@ pub struct Intrinsics {
     pub unknown: TypeId,
     /// `undefinedType` — `checker.go:984`.
     pub undefined: TypeId,
+    /// `missingType` — `checker.go:986`; see `exactOptionalPropertyTypes`.
+    pub missing: TypeId,
     /// `nullType` — `checker.go:989`.
     pub null: TypeId,
     /// `stringType` — `checker.go:991`.
@@ -106,6 +108,10 @@ impl Intrinsics {
         let error = store.new_intrinsic(TypeFlags::ANY, "error");
         let unknown = store.new_intrinsic(TypeFlags::UNKNOWN, "unknown");
         let undefined = store.new_intrinsic(TypeFlags::UNDEFINED, "undefined");
+        // `missingType` (`checker.go:986`): a DISTINCT undefined used for the
+        // optionality a `?` adds under `exactOptionalPropertyTypes`; prints
+        // `undefined`, removed at write positions.
+        let missing = store.new_intrinsic(TypeFlags::UNDEFINED, "undefined");
         let null = store.new_intrinsic(TypeFlags::NULL, "null");
         let string = store.new_intrinsic(TypeFlags::STRING, "string");
         let number = store.new_intrinsic(TypeFlags::NUMBER, "number");
@@ -121,6 +127,7 @@ impl Intrinsics {
             error,
             unknown,
             undefined,
+            missing,
             null,
             string,
             number,

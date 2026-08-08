@@ -438,6 +438,10 @@ pub fn apply_test_directives(
             "nouncheckedindexedaccess",
             base.no_unchecked_indexed_access,
         ),
+        exact_optional_property_types: tristate(
+            "exactoptionalpropertytypes",
+            base.exact_optional_property_types,
+        ),
         no_unused_locals: tristate("nounusedlocals", base.no_unused_locals),
         no_unused_parameters: tristate("nounusedparameters", base.no_unused_parameters),
         allow_unreachable_code: tristate("allowunreachablecode", base.allow_unreachable_code),

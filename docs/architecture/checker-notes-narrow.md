@@ -3047,3 +3047,21 @@ while the path the retry did reach (const-context literal unions) is
 one upstream genuinely sorts. The head's owner is the optionality
 union builder and the §52.1 site-sensitivity class, not the
 annotation mint. Refusal stands.
+
+## §78 — exactOptionalPropertyTypes: missingType lands
+
+The option plumbed end-to-end (tsr-core `Tristate` →
+`apply_compiler_options` → checker flag), `missingType` minted as a
+DISTINCT undefined-flagged intrinsic printing `undefined`
+(`checker.go:986`), `getOptionalType`'s `isProperty` choice now live
+(the parameter sat deliberately unread since the module was written,
+waiting for exactly this), and `removeMissingType` at the
+property-access WRITE position (`getWriteTypeOfSymbol`): `obj.a =
+'hello'` prints `string`, the read keeps `string | undefined`. The
+first-constituent early return is what stops `b?: string | undefined`
+carrying both spellings — it was kept "currently unobservable" for
+this moment, and both prior claims about it held. **+14, zero
+adverse** (`strictOptionalProperties1`). Residue in the same case:
+`in`/hasOwnProperty narrowing legs, element-access writes.
+
+**§78 score — LANDED.** right 403,865 → **403,879 (84.33%)**.
