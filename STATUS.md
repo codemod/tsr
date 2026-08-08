@@ -40,7 +40,7 @@ Measured at the §42-v2 landing, 2026-08-07 (ninth session, continued: builds 25
 | `dts_emit` | 161/339 | 47.49% | |
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
-| **`checker_types`** | **3,760/9,538** | **39.42%** | **gradient 83.51%** — the target (builds 25–102) |
+| **`checker_types`** | **3,774/9,538** | **39.57%** | **gradient 83.55%** — the target (builds 25–103) |
 | `diagnostics` | **1,346/5,488** | **24.53%** | **measured at HEAD, twelfth session (§76–§84), +44 over 8 builds, 0 lost.** The running total is 80 → 1,322, **16.5×**. One build ever shipped with a named loss (§33); every other is 0 lost. `checker_types` byte-identical across every `diagnostics` build of the eleventh and twelfth sessions |
 
 ### `checker_types`, the number the project is steered by
@@ -205,7 +205,10 @@ built and landed with four falsifier-driven refinements, superseding the
 92 pre-existing wrongs converted, ZERO adverse) = 399,899; then + 64 (§55: ENUM MEMBER VALUES — the bd tsr-8pz constant
 folder's first slice, value-keyed literal interning, three model
 corrections each priced by one counterexample, ZERO adverse, +13 cases)
-= 399,963 exactly — builds 25–102.
+= 399,963; then + 210 (§55.1: the single-member enum SPELLING SPLIT —
+divergent fresh/regular twins plus the access-road swap, 2 adverse at
+106:1, +14 cases, the right count crosses 400,000) = 400,173 exactly —
+builds 25–103.
 Build 96 (scorepair) and the probefile tool are the loop's new
 instruments; the full run is 21s since the §52 memo. §35 records a FINDING: tsgo prints
 ` : error` in JS chains across 123 baseline files — ADR-0038's premise
