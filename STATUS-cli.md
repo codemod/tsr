@@ -382,14 +382,16 @@ too, because phase 0 exists.
 
 | # | item | worth | why here |
 |---|---|---|---|
-| 1 | **`extends`** | ~3 baselines | not supported at all: `extends-config-with-non-string-*` and `configDir-template-showConfig` all need it |
+| 1 | ~~`extends`~~ | **done** | resolution, recursive parse, base-first merge, and `${configDir}` |
+| 1b | **`extends` diagnostics** | 2 baselines | a non-string `files`/`include` element must report TS5024 **positioned in the base file**, which needs per-element spans carried across the `extends` hop |
 | 2 | **`--help --all`** | 1 baseline | needs all 135 options with descriptions, plus watch and build tables |
 | 3 | ~~the wide `--help` layout~~ | **ported**; 1 baseline still differs, §7.8 | `getPrettyOutput`'s hard wrap and the header icon |
 | 4 | ~~`--lib` value validation~~ | **done**, +2 | `TS6046` over `LIB_MAP`'s 107 names, in upstream's order |
 | 5 | option table 76 → 135 | all | a missing option is an unknown-option error, not a default |
 | 6 | `commandlineparser_test.go`'s table (572 LOC) | — | a stronger oracle for phase 1 than the 31 hand-written tests |
 | 7 | watch option table | 0 today | `--watchFile` reports as unknown; upstream accepts it |
-| 8 | `${configDir}` templates | 1 baseline | needs `extends` first |
+| 8 | ~~`${configDir}` templates~~ | **done** | the value is left un-anchored at read time and substituted after, so it is not joined to the base file's directory |
+| 8b | `paths` in `--showConfig` | 1 baseline | `configDir-template-showConfig` now differs only in the options after `declarationDir` |
 | 9 | ~~the baseline runner's `env` section~~ | **done**, +2 | parsed out of `tsc_test.go` |
 | 10 | emit (`tsr-transformers`) | **151 baselines** | not a CLI item; the ceiling above everything |
 

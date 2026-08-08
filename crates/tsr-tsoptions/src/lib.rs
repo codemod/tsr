@@ -98,6 +98,32 @@ pub fn parse_config_file(
     base_path: &str,
     fs: &dyn FileSystem,
 ) -> ParsedCommandLine {
+    let config_dir = if config_file_name.is_empty() {
+        normalize_slashes(base_path)
+    } else {
+        get_directory_path(config_file_name).to_string()
+    };
+    parse_config_file_at_depth(config_file_name, text, base_path, fs, 0, &config_dir)
+}
+
+/// How deep `extends` may nest.
+///
+/// **No upstream counterpart**: upstream tracks a set of already-visited config
+/// paths and reports a circularity diagnostic. A depth cap is the cheaper guard
+/// with the same safety property — a config that extends itself terminates —
+/// and it is set far above any real configuration. The cost is that a genuine
+/// cycle reports "file not found" nothing rather than upstream's circularity
+/// error; recorded in STATUS-cli.md rather than hidden.
+const MAX_EXTENDS_DEPTH: u32 = 32;
+
+fn parse_config_file_at_depth(
+    config_file_name: &str,
+    text: &str,
+    base_path: &str,
+    fs: &dyn FileSystem,
+    depth: u32,
+    config_dir: &str,
+) -> ParsedCommandLine {
     let arena = tsr_core::Arena::new();
     // The *parser* reads it, not a JSON library: a `tsconfig.json` may carry
     // comments and trailing commas, and every option error points at a span.
@@ -154,6 +180,35 @@ pub fn parse_config_file(
             ["tsconfig.json".to_string()],
         ));
     }
+    // `extends` — resolve, parse the base, and layer this config over it.
+    //
+    // Ported from `getExtendsConfigPathOrArray` (`tsconfigparsing.go:509`) and
+    // `getExtendsConfigPath` (`:558`). The merge is base-first: the extended
+    // config supplies defaults and anything written here overrides them, and
+    // `files`/`include`/`exclude` are inherited **only** when this config
+    // declares none of its own, because those three select the program and a
+    // partial merge would silently compile the wrong tree.
+    // `${configDir}` names the directory of the config the user *invoked*, not
+    // of the file the value was written in — that is the point of it: a shared
+    // base can say `"outDir": "${configDir}/build"` and each extending project
+    // gets its own. So `config_dir` is threaded down unchanged through every
+    // `extends` hop rather than recomputed per file.
+    expand_config_dir(&mut compiler_options, config_dir);
+
+    let (extended, mut extend_errors) =
+        extended_configs(&raw, config_file_name, &base_path_for_file_names, fs, depth, config_dir);
+    errors.append(&mut extend_errors);
+    let mut raw = raw;
+    for base in extended {
+        for (key, value) in base.raw.entries() {
+            if !raw.contains_key(key) {
+                raw.set(key.to_string(), value.clone());
+            }
+        }
+        compiler_options = merge_options(base.compiler_options, compiler_options);
+        errors.splice(0..0, base.errors);
+    }
+
     if !config_file_name.is_empty() {
         compiler_options.config_file_path = normalize_slashes(config_file_name);
     }
@@ -176,6 +231,223 @@ pub fn parse_config_file(
     }
 
     ParsedCommandLine { compiler_options, file_names, literal_file_count, raw, errors }
+}
+
+/// Substitute `${configDir}` in every path-valued option.
+///
+/// A `tsconfig.json` template variable rather than a shell one: it expands to
+/// the directory of the config that was invoked, which is what lets a base
+/// config shared through `extends` name per-project output directories.
+///
+/// Applied to the options this port stores as paths. `paths` itself is not
+/// substituted — its values are module specifiers resolved against
+/// `pathsBasePath`, not filesystem paths.
+fn expand_config_dir(options: &mut CompilerOptions, config_dir: &str) {
+    const TEMPLATE: &str = "${configDir}";
+    let expand = |value: &mut String| {
+        if value.contains(TEMPLATE) {
+            *value = normalize_slashes(&value.replace(TEMPLATE, config_dir));
+        }
+    };
+    expand(&mut options.out_dir);
+    expand(&mut options.declaration_dir);
+    expand(&mut options.root_dir);
+    expand(&mut options.base_url);
+    expand(&mut options.out_file);
+    for root in &mut options.root_dirs {
+        expand(root);
+    }
+    if let Some(roots) = options.type_roots.as_mut() {
+        for root in roots {
+            expand(root);
+        }
+    }
+}
+
+/// Resolve and parse every config this one extends.
+///
+/// Returns them in declaration order, so a later `extends` entry overrides an
+/// earlier one — which is what upstream's left-to-right merge does.
+fn extended_configs(
+    raw: &OrderedMap<ConfigValue>,
+    config_file_name: &str,
+    base_path: &str,
+    fs: &dyn FileSystem,
+    depth: u32,
+    config_dir: &str,
+) -> (Vec<ParsedCommandLine>, Vec<Diagnostic>) {
+    let mut errors = Vec::new();
+    let Some(value) = raw.get("extends") else { return (Vec::new(), errors) };
+    if depth >= MAX_EXTENDS_DEPTH {
+        return (Vec::new(), errors);
+    }
+
+    let names: Vec<&str> = match value {
+        ConfigValue::String(name) => vec![name.as_str()],
+        ConfigValue::List(entries) => entries.iter().filter_map(ConfigValue::as_str).collect(),
+        _ => return (Vec::new(), errors),
+    };
+
+    let new_base = if config_file_name.is_empty() {
+        base_path.to_string()
+    } else {
+        get_directory_path(config_file_name).to_string()
+    };
+
+    let mut parsed = Vec::new();
+    for name in names {
+        match resolve_extends_path(name, &new_base, fs) {
+            Some(path) => {
+                if let Some(text) = fs.read_file(&path) {
+                    let directory = get_directory_path(&path).to_string();
+                    parsed.push(parse_config_file_at_depth(
+                        &path,
+                        &text,
+                        &directory,
+                        fs,
+                        depth + 1,
+                        config_dir,
+                    ));
+                }
+            }
+            None => errors.push(Diagnostic::with_args(
+                &messages::FILE_0_NOT_FOUND,
+                tsr_core::Span::default(),
+                [name.to_string()],
+            )),
+        }
+    }
+    (parsed, errors)
+}
+
+/// `getExtendsConfigPath` — the file an `extends` value names.
+///
+/// Only the rooted and explicitly-relative forms are resolved. A bare name is
+/// a *module* upstream (`module.ResolveConfig` against `node_modules`), which
+/// this port declines rather than approximates: resolving it wrongly would load
+/// the wrong configuration silently, where declining reports `File '0' not
+/// found`.
+fn resolve_extends_path(name: &str, base_path: &str, fs: &dyn FileSystem) -> Option<String> {
+    let name = normalize_slashes(name);
+    if !(tsr_path::is_rooted_disk_path(&name) || name.starts_with("./") || name.starts_with("../"))
+    {
+        return None;
+    }
+    let path = get_normalized_absolute_path(&name, base_path);
+    if fs.file_exists(&path) {
+        return Some(path);
+    }
+    // A name without `.json` is retried with it, so `"extends": "./base"` works.
+    //
+    // Case-sensitive, deliberately: upstream compares against
+    // `tspath.ExtensionJson` with `strings.HasSuffix`, so `./base.JSON` is
+    // retried as `./base.JSON.json`. Matching a compiler's path handling to its
+    // upstream matters more here than being lenient.
+    if !std::path::Path::new(path.as_str()).extension().is_some_and(|ext| ext == "json") {
+        let with_extension = format!("{path}.json");
+        if fs.file_exists(&with_extension) {
+            return Some(with_extension);
+        }
+    }
+    None
+}
+
+/// Layer `own` over `base`, field by field.
+///
+/// Only the options a config can set are merged; the driver's own
+/// (`--help`, `--showConfig`) cannot appear in a `tsconfig.json` and are left
+/// alone. An option `own` did not set keeps `base`'s value, which for a
+/// `Tristate` is exactly "unset means inherit".
+fn merge_options(base: CompilerOptions, own: CompilerOptions) -> CompilerOptions {
+    let mut merged = base;
+    macro_rules! tristate {
+        ($($field:ident),* $(,)?) => {
+            $(if !own.$field.is_unknown() { merged.$field = own.$field; })*
+        };
+    }
+    macro_rules! text {
+        ($($field:ident),* $(,)?) => {
+            $(if !own.$field.is_empty() { merged.$field.clone_from(&own.$field); })*
+        };
+    }
+    macro_rules! list {
+        ($($field:ident),* $(,)?) => {
+            $(if !own.$field.is_empty() { merged.$field.clone_from(&own.$field); })*
+        };
+    }
+
+    tristate!(
+        no_lib,
+        allow_js,
+        check_js,
+        strict,
+        declaration,
+        es_module_interop,
+        isolated_modules,
+        allow_arbitrary_extensions,
+        trace_resolution,
+        no_resolve,
+        resolve_json_module,
+        no_dts_resolution,
+        resolve_package_json_exports,
+        resolve_package_json_imports,
+        preserve_symlinks,
+        no_implicit_any,
+        allow_non_ts_extensions,
+        lib_replacement,
+        allow_synthetic_default_imports,
+        always_strict,
+        strict_null_checks,
+        strict_property_initialization,
+        use_unknown_in_catch_variables,
+        no_unchecked_indexed_access,
+        no_unused_locals,
+        no_unused_parameters,
+        allow_unreachable_code,
+        preserve_const_enums,
+        verbatim_module_syntax,
+        no_unchecked_side_effect_imports,
+        no_emit,
+        no_emit_on_error,
+        no_check,
+        composite,
+        incremental,
+        skip_lib_check,
+        skip_default_lib_check,
+        source_map,
+        declaration_map,
+        emit_declaration_only,
+        remove_comments,
+    );
+    text!(base_url, out_dir, declaration_dir, root_dir, out_file, jsx_import_source);
+    list!(lib, root_dirs, module_suffixes, custom_conditions);
+
+    if own.target != tsr_core::ScriptTarget::None {
+        merged.target = own.target;
+    }
+    if own.module != tsr_core::ModuleKind::None {
+        merged.module = own.module;
+    }
+    if own.module_resolution != tsr_core::ModuleResolutionKind::Unknown {
+        merged.module_resolution = own.module_resolution;
+    }
+    if own.jsx != tsr_core::JsxEmit::None {
+        merged.jsx = own.jsx;
+    }
+    if own.types.is_some() {
+        merged.types = own.types;
+    }
+    if own.type_roots.is_some() {
+        merged.type_roots = own.type_roots;
+    }
+    if !own.paths.is_empty() {
+        merged.paths = own.paths;
+        merged.paths_base_path = own.paths_base_path;
+    }
+    if own.max_node_module_js_depth.is_some() {
+        merged.max_node_module_js_depth = own.max_node_module_js_depth;
+    }
+    merged
 }
 
 /// What reading the config's own properties produced
@@ -267,6 +539,14 @@ fn normalize_option_value(
 /// An empty path means the config's own directory, which upstream spells `"."`
 /// before making it absolute.
 fn absolute(path: &str, base_path: &str) -> String {
+    // A `${configDir}` value is left verbatim. It is already anchored — to the
+    // invoked config's directory — so joining it to *this* file's directory
+    // would produce `../configs/second/${configDir}/decls`, which is what this
+    // function did before the template existed. `expand_config_dir` substitutes
+    // it afterwards, and the result is absolute by construction.
+    if path.contains("${configDir}") {
+        return normalize_slashes(path);
+    }
     let normalized = normalize_slashes(path);
     let normalized = if normalized.is_empty() { "." } else { &normalized };
     get_normalized_absolute_path(normalized, base_path)
