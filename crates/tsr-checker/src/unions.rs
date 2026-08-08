@@ -351,6 +351,28 @@ impl Checker<'_, '_> {
         if types.len() == 1 {
             return types[0];
         }
+        // §85's join reduction: a `T & {}`-family mint beside its own BASE is
+        // subsumed by it (upstream's subtype reduction over the real
+        // intersection; the mint is opaque to the general reducer). Without
+        // this every flow join after a type-variable narrowing prints
+        // `T | T & {}` (`unknownControlFlow`, 16 R→W).
+        if !self.non_null_mint_bases.is_empty()
+            && types.iter().any(|member| {
+                self.non_null_mint_bases.get(member).is_some_and(|(base, _)| types.contains(base))
+            })
+        {
+            let reduced: Vec<TypeId> = types
+                .iter()
+                .copied()
+                .filter(|member| {
+                    !self
+                        .non_null_mint_bases
+                        .get(member)
+                        .is_some_and(|(base, _)| types.contains(base))
+                })
+                .collect();
+            return self.get_union_type(&reduced);
+        }
         // `T | T` is `T` by identity for ANY `T` — including a named union,
         // which the worker below would otherwise expand and then decline for
         // want of upstream's `origin` denormalisation

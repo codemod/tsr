@@ -68,6 +68,14 @@ pub struct FlowType {
 
 /// One `getFlowTypeOfReference` invocation's working state
 /// (upstream's `FlowState`, `flow.go`).
+/// §85's refinement lattice for the `T & {}` family.
+#[derive(Clone, Copy, PartialEq)]
+pub(crate) enum NonNullKind {
+    Both,
+    NoUndefined,
+    NoNull,
+}
+
 struct FlowState {
     /// The reference node the question is about.
     reference: NodeId,
@@ -3492,6 +3500,69 @@ impl Checker<'_, '_> {
     /// Keep only the constituents of `t` for which every bit of `facts` holds
     /// (`getTypeWithFacts`, `checker.go:31245`).
     pub(crate) fn get_type_with_facts(&mut self, t: TypeId, facts: TypeFacts) -> TypeId {
+        // §85 (`checker-notes-narrow.md`): `getAdjustedTypeWithFacts`' type-
+        // variable arm — a TYPE PARAMETER (or `unknown`) under a non-null
+        // fact narrows by INTERSECTION, not by filtering: `t != null` gives
+        // `T & {}`, `!== undefined` gives `T & ({} | null)`, `!== null`
+        // gives `T & ({} | undefined)`; `unknown` drops the `T &`
+        // (`unknownControlFlow`). Minted as named prints with a per-(t,
+        // spelling) cache — the intersection machinery refuses `{}`.
+        // The base is either a raw type variable or a §85 mint being
+        // REFINED (`T & ({} | null)` then `!== null` gives `T & {}`).
+        let (base, prior) = match self.non_null_mint_bases.get(&t) {
+            Some(&(base, prior)) => (base, Some(prior)),
+            None => (t, None),
+        };
+        let flags = self.store.get(base).flags;
+        if self.strict_null_checks
+            && flags.intersects(TypeFlags::TYPE_PARAMETER | TypeFlags::UNKNOWN)
+        {
+            let asked = if facts.contains(TypeFacts::NE_UNDEFINED_OR_NULL) {
+                Some(NonNullKind::Both)
+            } else if facts.contains(TypeFacts::NE_UNDEFINED) {
+                Some(NonNullKind::NoUndefined)
+            } else if facts.contains(TypeFacts::NE_NULL) {
+                Some(NonNullKind::NoNull)
+            } else {
+                None
+            };
+            if let Some(asked) = asked {
+                let combined = match (prior, asked) {
+                    (None, kind) => kind,
+                    (Some(NonNullKind::Both), _)
+                    | (_, NonNullKind::Both)
+                    | (Some(NonNullKind::NoUndefined), NonNullKind::NoNull)
+                    | (Some(NonNullKind::NoNull), NonNullKind::NoUndefined) => NonNullKind::Both,
+                    (Some(prior), _) => prior,
+                };
+                if Some(combined) == prior {
+                    return t;
+                }
+                let tail = match combined {
+                    NonNullKind::Both => "{}",
+                    NonNullKind::NoUndefined => "{} | null",
+                    NonNullKind::NoNull => "{} | undefined",
+                };
+                let text = if flags.intersects(TypeFlags::UNKNOWN) {
+                    if tail == "{}" { "{}".to_string() } else { tail.to_string() }
+                } else {
+                    let name = crate::printing::type_to_string(self.store.get(base));
+                    if tail == "{}" {
+                        format!("{name} & {{}}")
+                    } else {
+                        format!("{name} & ({tail})")
+                    }
+                };
+                let key = (base, text.clone());
+                if let Some(&cached) = self.non_null_type_variables.get(&key) {
+                    return cached;
+                }
+                let minted = self.store.new_named(TypeFlags::OBJECT, text, None);
+                self.non_null_type_variables.insert(key, minted);
+                self.non_null_mint_bases.insert(minted, (base, combined));
+                return minted;
+            }
+        }
         self.filter_type(t, |checker, constituent| {
             checker.get_type_facts(constituent).contains(facts)
         })

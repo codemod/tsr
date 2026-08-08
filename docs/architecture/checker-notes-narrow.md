@@ -3181,3 +3181,29 @@ reads the declared type, not the flow type at the declaration), f23
 parameter switch forms.
 
 **§84 score — LANDED.** right 404,371 → **404,377 (84.44%)**.
+
+## §85 — the `T & {}` family: adjusted facts for type variables
+
+`getAdjustedTypeWithFacts`' type-variable arm: under strict, a TYPE
+PARAMETER (or `unknown`) narrowed by a non-null fact answers an
+INTERSECTION mint, not a filter — `!= null` → `T & {}`, `!==
+undefined` → `T & ({} | null)`, `!== null` → `T & ({} | undefined)`,
+`unknown` drops the `T & `. Three iterations, each measured:
+
+1. First cut (+27 net) had a TRUTHY arm and no refinement —
+   `narrowingTruthyObject` 15 R→G said upstream's truthy does NOT
+   mint; dropped.
+2. Second cut added the refinement lattice (`T & ({} | null)` then
+   `!== null` combines to `T & {}` via a mint→(base, kind) reverse
+   map) — and exposed the JOIN problem: 16 R→W of `T | T & {}` at
+   every post-narrowing merge, because the mint is opaque to the
+   union reducer.
+3. `get_union_type` gained the §85 reduction (a mint beside its own
+   base is subsumed): **+42 net (44 W→R against 1 R→W + 1 R→G,
+   22:1)**.
+
+Residue: `NonNullable<T>` spellings (some positions want the utility
+name — 28 W→G now honest gaps), one condition-position leak (row
+113), one JSDoc-generic disturbance (`typedefMultipleTypeParameters`).
+
+**§85 score — LANDED.** right 404,377 → **404,419 (84.45%)**.

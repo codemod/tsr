@@ -364,6 +364,10 @@ pub struct Checker<'a, 'n> {
     /// §82: depth cap for aliased-condition inlining — upstream's
     /// `inlineLevel` (`flow.go`), capped at 5.
     pub(crate) alias_inline_level: u8,
+    /// §85: `T & {}`-family mints, keyed (type variable, spelling).
+    pub(crate) non_null_type_variables: FxHashMap<(TypeId, String), TypeId>,
+    /// §85's reverse map: mint → (base type variable, refinement kind).
+    pub(crate) non_null_mint_bases: FxHashMap<TypeId, (TypeId, crate::flow::NonNullKind)>,
     pub(crate) no_unused_locals: bool,
     /// `compilerOptions.noUnusedParameters` (`checker.go:7109`).
     pub(crate) no_unused_parameters: bool,
@@ -652,6 +656,8 @@ impl<'a, 'n> Checker<'a, 'n> {
             no_implicit_any: false,
             exact_optional_property_types: false,
             alias_inline_level: 0,
+            non_null_type_variables: FxHashMap::default(),
+            non_null_mint_bases: FxHashMap::default(),
             no_unused_locals: false,
             no_unused_parameters: false,
             symbol_reference_kinds: FxHashMap::default(),
