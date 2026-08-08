@@ -290,3 +290,34 @@ NEXT HEADS on the shape census: true|boolean 97 (best-common-type
 freshness retention — subsystem), T|any residue, temporal 400 (§53
 residue + namespace types), generic-alias body instantiation
 (longObjectInstantiationChain3 166 + Omit/merge).
+
+
+ADDENDUM AFTER BUILD 138 (84.40%):
+
+Builds 136-138: §78 exactOptionalPropertyTypes (+14, option plumbed
+end-to-end, missingType minted, write-position removal; §78.1
+element-write leg a kept measured zero), §79/§79.1 optional-element
+tuples + tuple alias names (+184 net at 4.7:1, three measured gates),
+§80 labeled tuple members (+71 net at 3.2:1; residues: label-losing
+splices, rest-parameter expansion positions).
+
+REFUSED: §81 blunt qualified names at 114:6,769 — per-site printing
+context now owns THREE heads (import-spelling 128, qualified names,
+temporal 400). Do not retry with narrower gates; the inside-view half
+is structural.
+
+PROCESS: two more §88-trap firings (parallel session moved the
+gradient AND the population 470,619 → 470,657 under rebases); one
+inherited red-gate pile (bind_source_files signature change left 11
+needless_borrow sites + an anchor cite with a doubled prefix) cleared
+in the §80 landing.
+
+FRONTIER: shape-level census is mined out — every remaining head ≥50
+lines is subsystem-scale: contextual typing through generic overload
+resolution (temporal's literal-retention rows), aliased-condition
+discriminant narrowing (controlFlowAliasing 77), type predicate
+inference (158), JSDoc generics (127), dependent destructured
+variables (131), generic-alias body instantiation (166+142),
+best-common-type freshness (true|boolean 97), per-site printing
+(3 heads). Next session should pick ONE subsystem and build its
+prerequisite seam rather than continue shape-mining.
