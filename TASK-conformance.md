@@ -6,7 +6,7 @@ CURRENT PROGRESS (2026-08-08, thirteenth session on main — the binder-symbols 
   printer_round_trip   11,776/11,776 = 100.00% (was 11,755/11,778 — COMPLETE;
                                                 two error-recovery cases became
                                                 faithful parse-diagnostic skips)
-  binder_symbols          8,439/8,461 = 99.74% (a fourteenth-session push: @this missing-param declarations, bare `exports =` CommonJS indicator, d.ts namespace-local parents — the last with a stated -1 checker_types ride) (the tsr-2 JSDoc-into-binder slice landed: typedef/callback/template/overload/property tags declare, type expressions and template constraints bind their members) (was 8,310/8,473; the thirteenth
+  binder_symbols          8,446/8,461 = 99.82% (the tsr-3 bridges landed: export-star and augmentation union in the alias frontier, relative require resolving sibling units, export= member hop — moduleAugmentation* and augmentExportEquals families converted) (the tsr-2 JSDoc-into-binder slice landed: typedef/callback/template/overload/property tags declare, type expressions and template constraints bind their members) (was 8,310/8,473; the thirteenth
                                                 session added late-bound bracket
                                                 spellings, const-propagated
                                                 computed names, export-default
