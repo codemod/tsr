@@ -8526,3 +8526,51 @@ it is why the bar for a row like this must come off the case column.
 code lands**, because `diaggap`'s single-code column is computed against the
 *current* output — a case missing five TS1344 lines counts once, and emitting
 four of them converts nothing.
+
+## §114 — TS2302 attempted, measured at +137 wrong lines and a LOST, REFUSED
+
+`resolveNameEx`'s type-parameter arm (`binder/nameresolver.go:178`): a name that
+resolves to a type parameter declared in this container, reached through a
+`lastLocation` that `IsStatic`, is out of scope — *"the scope of a type
+parameter extends over the entire declaration … with the exception of static
+member declarations in classes"* (TS 1.0 spec 3.4.1, quoted upstream).
+
+`lastLocation` is the child the resolver walked up from, so this looked like
+§108's edge-not-node idea a third time, ported as an ancestor walk carrying the
+child: at the class, is the member we came through `static`, and does the class
+declare a type parameter of this name?
+
+| | CONVERTS | LOST | RIGHT | WRONG |
+|---|---:|---:|---:|---:|
+| before | 219 | **2** | 2,409 | **414** |
+| after | 227 | **3** | 2,437 | **551** |
+
+**+8 cases, but LOST 2 → 3 and WRONG +137.** Refused and reverted on the LOST.
+
+### The diagnosis, for whoever takes it next
+
+**The rule was put in the wrong place, and the shape of the miss says so.** It
+was added to `check_type_reference_name` *before* the resolution loop, so it
+fires on a name whose static-member reference is an error **and on every name
+that merely spells the same as a type parameter while resolving to something
+else** — a global type, an import, an outer alias. Upstream cannot make that
+mistake because the test lives **inside** the resolver, on the branch where the
+name has already resolved *to the type parameter symbol*: `result != nil &&
+isTypeParameterSymbolDeclaredInContainer(result, location)`.
+
+So this is not a checker rule at all. **Owner: `tsr_binder`'s `resolve_name`**,
+which must grow the `lastLocation` parameter upstream's resolver carries and
+report from the branch that already knows the answer. Ported anywhere else it is
+a name-matching heuristic wearing a resolver's clothes, and 137 wrong lines is
+what that costs.
+
+**Do not re-attempt this in the checker.** This is its number. The 9 cases and
+23 lines stay on the board with the resolver named.
+
+### The pattern, third instance, and the first time it misled
+
+§108, §109 and this section all reduce to *the boundary test is a property of
+the edge*. The first two were right. This one had the right idea and the wrong
+**host**: knowing which child you came through is useless if you are asking the
+question somewhere the answer is not yet known. **An idea that generalises is
+not an idea that transplants.**
