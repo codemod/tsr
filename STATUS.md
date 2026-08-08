@@ -1273,6 +1273,19 @@ its whole deliverable and accept that it converts nothing until finished.
 
 ### New, thirteenth session, `diagnostics`
 
+- **TS1361/TS1362 — REFUSED at +2 cases for +7 wrong** (§120), and §119's
+  hypothesis is now **confirmed with a number**: this port's alias symbols
+  answer `VALUE`, so `check_value_identifier` returned at its VALUE early return
+  before any type-only test; moving the test there makes the rule fire. The 7
+  wrong lines are the missing **alias chain** —
+  `getTypeOnlyAliasDeclarationEx` (`checker.go:1861`) follows re-exports to find
+  *which* declaration carried the `type`. **Owner: that function.** The 18 cases
+  stay on the board, now at a measured price rather than an asserted one.
+- **§115's "resolver-owned" pricing survives §116**, and the distinction is
+  sharp: **TS2302 needed only that resolution had been ATTEMPTED** (so moving
+  the test two lines down was enough, §116); **TS1361 needs what resolution
+  FOUND, one hop out** (so no ordering trick helps, §120).
+
 - **§118's conclusion was WRONG and §119 corrects it.** There is **no traversal
   coverage gap**: no unit is skipped and `component.ts` is checked with
   `parse_errors=false`. §118's probe sat at `check_value_identifier`'s meaning
