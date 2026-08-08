@@ -427,6 +427,13 @@ pub struct Checker<'a, 'n> {
     /// The `type_reference_targets` precedent: record the data where it is
     /// already in hand rather than reshape the type.
     pub(crate) tuple_element_lists: FxHashMap<TypeId, (Vec<TypeId>, bool)>,
+    /// §79: interning for optional-element tuples, keyed on (member,
+    /// optional) pairs so `[number, string?]` and `[number, string]` stay
+    /// distinct types.
+    pub(crate) optional_tuple_types: FxHashMap<(Vec<(TypeId, bool)>, bool), TypeId>,
+    /// §79: which positions of an optional-element tuple carry `?` — read at
+    /// the index roads, where an optional element answers `| undefined`.
+    pub(crate) tuple_optional_masks: FxHashMap<TypeId, Vec<bool>>,
     /// `a type-parameter type -> the symbol it was minted from`.
     ///
     /// The third instance of the `type_reference_targets` precedent, and it
@@ -649,6 +656,8 @@ impl<'a, 'n> Checker<'a, 'n> {
             function_symbol_checked: rustc_hash::FxHashSet::default(),
             tuple_types: FxHashMap::default(),
             tuple_element_lists: FxHashMap::default(),
+            optional_tuple_types: FxHashMap::default(),
+            tuple_optional_masks: FxHashMap::default(),
             type_parameter_symbols: FxHashMap::default(),
             signature_types: FxHashMap::default(),
             instantiated_signatures: FxHashMap::default(),

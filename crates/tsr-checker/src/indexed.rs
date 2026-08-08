@@ -87,6 +87,14 @@ impl Checker<'_, '_> {
         // since §12.7 and this road lacked (`x['o'] = true`'s LHS narrowed
         // by a preceding guard, `controlFlowElementAccess`).
         if self.assignment_target_kind(id) == crate::expressions::AssignmentTargetKind::Definite {
+            // §78.1: the element-access half of `getWriteTypeOfSymbol` —
+            // `obj['a'] = x` under `exactOptionalPropertyTypes` removes
+            // `missingType`, as the property-access road does.
+            let computed = if self.exact_optional_property_types {
+                self.remove_missing_type(computed)
+            } else {
+                computed
+            };
             return self.propagate_optional_type_marker(computed, was_optional);
         }
         let narrowed = self.get_flow_type_of_reference(id, None, computed);

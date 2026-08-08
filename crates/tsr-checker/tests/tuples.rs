@@ -73,8 +73,13 @@ fn an_element_modifier_gaps_the_whole_tuple() {
     // The model this arm deliberately does not port. Each must be a *gap*, not
     // an approximation: `[string, ...number[]]` rendered as
     // `[string, number[]]` would be a wrong line where there is a missing one.
+    // §79 retired the OPTIONAL half of this pin: `[string, number?]` now
+    // mints with the `?` in the print and the mask read at index positions.
     assert_eq!(type_of_declaration("declare const t: [string, ...number[]];", "t"), "error");
-    assert_eq!(type_of_declaration("declare const t: [string, number?];", "t"), "error");
+    assert_eq!(
+        type_of_declaration("declare const t: [string, number?];", "t"),
+        "[string, number?]"
+    );
     assert_eq!(
         type_of_declaration("declare const t: [first: string, second: number];", "t"),
         "error"

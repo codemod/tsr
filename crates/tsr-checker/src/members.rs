@@ -642,7 +642,23 @@ impl Checker<'_, '_> {
             && let Ok(index) = name.parse::<usize>()
             && index.to_string() == name
         {
-            return Some(elements.get(index).copied().unwrap_or(self.intrinsics.undefined));
+            let element = elements.get(index).copied();
+            // §79: an OPTIONAL element reads `| undefined` — the mint's
+            // "exact by construction" claim predates optional tuples, and
+            // the first measurement without this arm priced it at 100 G→W
+            // (`optionalTupleElements1`).
+            let optional = self
+                .tuple_optional_masks
+                .get(&id)
+                .is_some_and(|mask| mask.get(index).copied().unwrap_or(false));
+            return Some(match element {
+                None => self.intrinsics.undefined,
+                Some(element) if optional => {
+                    let undefined = self.intrinsics.undefined;
+                    self.get_union_type(&[element, undefined])
+                }
+                Some(element) => element,
+            });
         }
         let property = self.get_property_of_type(id, name)?;
         let declared = self.get_type_of_symbol(property);

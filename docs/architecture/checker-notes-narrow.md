@@ -3065,3 +3065,26 @@ adverse** (`strictOptionalProperties1`). Residue in the same case:
 `in`/hasOwnProperty narrowing legs, element-access writes.
 
 **§78 score — LANDED.** right 403,865 → **403,879 (84.33%)**.
+
+## §79/§79.1 — optional-element tuples land, and aliases name them
+
+`[number, string?, boolean?]` was a whole-tuple decline; it now mints
+with the `?` in the print, the plain members in `tuple_element_lists`,
+and the optional mask in a side map read by the index road (`t[1]` is
+`string | undefined`). The first measurement priced the missing alias
+rule at **99 G→W** — every structural print replaced an `error` at an
+alias-wanting position — so §79.1 adds §72's three-arm rule at the
+tuple mint, with THREE measured gates: GENERIC aliases fall to the
+structural road (3 R→W under the gap rule), REST-bearing bodies keep
+the §40 variadic road (13 R→W when intercepted — the depth-guarded
+giant of `excessivelyLargeTupleSpread` prints `any` through it), and
+the EMPTY tuple prints `[]` even under an alias (3 R→W,
+`typeAliasDeclarationEmit3`). Final: **+184 net (105 G→R, 79 W→R
+against 38 G→W + 1 R→W, 4.7:1)** — residue owned by the
+default-against-optional destructuring legs and the
+exactOptional×optional-tuple interplay
+(`optionalTupleElementsAndUndefined`).
+
+**§79 score — LANDED.** right 403,879 → **404,063 (84.37%)**. §78.1
+(element-access write removal) rode along as a measured zero — kept,
+faithful arm on the reachable set.

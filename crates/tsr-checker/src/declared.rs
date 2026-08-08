@@ -871,6 +871,45 @@ impl<'a> Checker<'a, '_> {
     /// element list itself — see [`Checker::tuple_types`](crate::checker).
     fn get_type_from_tuple_type_node(&mut self, node: &tsr_ast::TupleTypeNode<'a>) -> TypeId {
         let error = self.intrinsics.error;
+        // §79.1: `getAliasForTypeNode`'s three arms, the §72 rule at the
+        // tuple mint — `type T2 = [number, string, boolean?]` prints `T2`
+        // (`optionalTupleElements1` priced this at 99 G→W without it: the
+        // §79 structural prints replaced prior `error` gaps at every
+        // alias-wanting position). The named copy carries the element list
+        // and optional mask so contexts and index reads work through it.
+        if let Some(alias) = node.node_id.and_then(|id| self.alias_symbol_for_type_node(id))
+            && self.local_type_parameters_of(alias).is_empty()
+            && !node.elements.is_empty()
+            && !node.elements.iter().any(|e| matches!(e, TypeNode::RestTypeNode(_)))
+        {
+            // (`type foo = []` prints `[]`, not `foo` —
+            // `typeAliasDeclarationEmit3`'s 3 R→W named the empty gate.)
+            // A GENERIC alias falls to the structural road (its instantiated
+            // positions print structurally — `destructureTupleWithVariableElement`
+            // measured 3 R→W under §72's gap rule here), and a REST-bearing
+            // body keeps the §40 variadic road untouched (the depth-guarded
+            // giant of `excessivelyLargeTupleSpread` printed `any` through
+            // it, 13 R→W when the alias arm intercepted).
+            let structural = self.tuple_type_node_structural(node);
+            if structural == error {
+                return error;
+            }
+            let name = self.binder.symbols().get(alias).name.to_string();
+            let named = self.store.new_named(TypeFlags::OBJECT, name, None);
+            if let Some(entry) = self.tuple_element_lists.get(&structural).cloned() {
+                self.tuple_element_lists.insert(named, entry);
+            }
+            if let Some(mask) = self.tuple_optional_masks.get(&structural).cloned() {
+                self.tuple_optional_masks.insert(named, mask);
+            }
+            return named;
+        }
+        self.tuple_type_node_structural(node)
+    }
+
+    /// The structural mint behind [`Checker::get_type_from_tuple_type_node`].
+    fn tuple_type_node_structural(&mut self, node: &tsr_ast::TupleTypeNode<'a>) -> TypeId {
+        let error = self.intrinsics.error;
         let mut elements = Vec::with_capacity(node.elements.len());
         // §40 (`checker-notes-narrow.md`): REST elements make the tuple a
         // PRINT-ONLY variadic — the text composed from resolved element
@@ -926,27 +965,39 @@ impl<'a> Checker<'a, '_> {
                 format!("{}[{}]", if readonly { "readonly " } else { "" }, pieces.join(", "));
             return self.store.new_named(TypeFlags::OBJECT, text, None);
         }
+        let mut any_optional = false;
         for element in node.elements {
-            // The modifier forms, refused whole. `NamedTupleMember` carries the
-            // label *and* may carry `?`/`...` itself, so it is refused here
-            // rather than unwrapped to its type — the label is part of what
-            // upstream prints (`[first: number, second: string]`).
-            if matches!(
-                element,
-                TypeNode::NamedTupleMember(_)
-                    | TypeNode::OptionalTypeNode(_)
-                    | TypeNode::RestTypeNode(_)
-            ) {
-                return error;
-            }
-            let resolved = self.get_type_from_type_node(*element);
+            // `NamedTupleMember` and rests stay refused whole. §79
+            // (`checker-notes-narrow.md`): an OPTIONAL element resolves its
+            // inner type and marks the position — the print carries the `?`
+            // (`[number, string?, boolean?]`), the element list carries the
+            // members, and index reads answering the plain member where
+            // upstream adds `| undefined` is the arm's priced residue.
+            let (inner, optional) = match element {
+                TypeNode::NamedTupleMember(_) | TypeNode::RestTypeNode(_) => return error,
+                TypeNode::OptionalTypeNode(optional) => {
+                    let Some(inner) = optional.r#type else { return error };
+                    any_optional = true;
+                    (inner, true)
+                }
+                other => (*other, false),
+            };
+            let resolved = self.get_type_from_type_node(inner);
             // A gap in an element is a gap in the tuple, the rule the array arm
             // and `get_instantiated_type_reference` both use.
             if resolved == error {
                 return error;
             }
-            elements.push(resolved);
+            elements.push((resolved, optional));
         }
+        if any_optional {
+            let readonly = node
+                .node_id
+                .and_then(|id| self.nodes.parent(id))
+                .is_some_and(|parent| self.is_readonly_type_operator(parent));
+            return self.create_optional_tuple_type(elements, readonly);
+        }
+        let elements: Vec<TypeId> = elements.into_iter().map(|(t, _)| t).collect();
         let readonly = node
             .node_id
             .and_then(|id| self.nodes.parent(id))
@@ -965,6 +1016,37 @@ impl<'a> Checker<'a, '_> {
     /// once as an annotation, once inferred from `[1, "x"]` — **one** type.
     /// Two minting sites would produce two ids that print alike and compare
     /// unequal.
+    /// §79: a tuple with OPTIONAL elements — printed with `?` markers,
+    /// registered in `tuple_element_lists` on the PLAIN member list so
+    /// context tests and access see the members. Interned separately from
+    /// the all-required spelling.
+    fn create_optional_tuple_type(
+        &mut self,
+        elements: Vec<(TypeId, bool)>,
+        readonly: bool,
+    ) -> TypeId {
+        if let Some(&cached) = self.optional_tuple_types.get(&(elements.clone(), readonly)) {
+            return cached;
+        }
+        let printed = elements
+            .iter()
+            .map(|&(element, optional)| {
+                let text = self.type_to_string(element);
+                if optional { format!("{text}?") } else { text }
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        let printed =
+            if readonly { format!("readonly [{printed}]") } else { format!("[{printed}]") };
+        let id = self.store.new_named(TypeFlags::OBJECT, printed, None);
+        let plain: Vec<TypeId> = elements.iter().map(|&(t, _)| t).collect();
+        let mask: Vec<bool> = elements.iter().map(|&(_, optional)| optional).collect();
+        self.tuple_element_lists.insert(id, (plain, readonly));
+        self.tuple_optional_masks.insert(id, mask);
+        self.optional_tuple_types.insert((elements, readonly), id);
+        id
+    }
+
     pub(crate) fn create_tuple_type(&mut self, elements: Vec<TypeId>, readonly: bool) -> TypeId {
         if let Some(&cached) = self.tuple_types.get(&(elements.clone(), readonly)) {
             return cached;
