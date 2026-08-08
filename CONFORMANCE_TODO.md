@@ -25,6 +25,29 @@ This document tracks the remaining work for improving conformance in non-checker
 
 *isolated_declarations failures are diagnostic-related, skip per non-diagnostics directive
 
+### Investigation Results (Session 11)
+
+**printer_round_trip (23 failures)**
+- Detailed investigation shows QuestionToken/DotDotDotToken/AsteriskToken disappearing during print/reparse
+- Root cause: Specific JSDoc patterns lose tokens during round-trip
+- Tests added to verify basic JSDoc handling works (pass), suggesting issue is pattern-specific
+- The printer correctly emits tokens via `emit_token_node()`, but tokens aren't present in reparsed AST
+- Likely either: (a) parser doesn't create token nodes for certain JSDoc patterns, or (b) printed output loses `?` in specific contexts
+- Needs deeper investigation into JSDoc parser/printer interaction
+
+**dts_reachable_target (670 failures)**  
+- All failures are "needs inference: TS9xxx" - these are structural limitations
+- Cases where @isolatedDeclarations would require type inference
+- Not actually failures - these represent the ceiling of checker-free emitters
+- Should be considered "expected" rather than bugs to fix
+
+**dts_emit path reference bug (commonSourceDirectory)**
+- Input has `/// <reference path="../types/bar.d.ts" />` at `/app/index.ts`
+- Output should be `/// <reference path="../../types/bar.d.ts" />` at `/app/bin/index.d.ts`
+- We emit `/// <reference path="../types/bar.d.ts" />` (incorrect for new location)
+- Root cause: Reference paths not being re-relativized for output location
+- Requires understanding declarations module path calculation logic
+
 ### Priority Fixes (by impact/effort)
 
 #### High Impact, Medium Effort
