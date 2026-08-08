@@ -3104,3 +3104,17 @@ the alias rule and the expansion rule disagree at exactly these
 positions and the expansion machinery is unported.
 
 **§80 score — LANDED.** right 404,116 → **404,219 (84.40%)**.
+
+## §81 — blunt qualified names: REFUSED at 114:6,769
+
+Qualifying every namespace-declared class/interface print
+(`Temporal.Duration`) measured **114 W→R (74 in `temporal` — the
+mechanism is real for OUTSIDE views) against 6,768 R→W**: every
+reference from INSIDE a namespace wants the BARE name
+(`parserRealSource11/12` alone lost 1,907). The qualifier is
+decided by the VIEWER's position, not the declaration's, and a global
+print text cannot express both. This is the same architectural head
+as the `import("...").Name` spelling
+(`privacyFunctionCannotNameParameterTypeDeclFile`): PER-SITE printing
+context. `tsr-93f` stays refused until that exists; no narrower gate
+(lib-file, ambient-only) changes the inside-view half.
