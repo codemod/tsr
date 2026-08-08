@@ -202,9 +202,9 @@ pub fn dump_case(case: &CaseEntry) -> Option<Vec<(String, String, String)>> {
             &references,
             options,
         );
-        if !result.diagnostics.is_empty() {
-            return None;
-        }
+        // Inference diagnostics skip the case in the suite, but the dump is for
+        // reading failures — shape failures included — so the text is shown
+        // regardless.
         out.push((unit.name.clone(), result.text, expected.content.clone()));
     }
     Some(out)

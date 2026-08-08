@@ -2358,7 +2358,11 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             ClassElement::SetAccessorDeclaration(node) => {
                 let span = self.span_of(node.node_id);
                 let modifiers = self.ensure_modifiers(node.modifiers, node.node_id, false, false);
+                // In JavaScript, `@param {T} name` types the setter's value
+                // parameter, same as any other signature.
+                let saved = self.begin_jsdoc_params(node.node_id);
                 let parameters = self.update_accessor_param_list(node.parameters, private, span);
+                self.jsdoc_param_types = saved;
                 Some(ClassElement::SetAccessorDeclaration(self.factory.alloc(
                     tsr_ast::SetAccessorDeclaration::new(
                         modifiers,
@@ -2782,6 +2786,22 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         {
             let span = self.span_of(node_id);
             return Some(self.factory.keyword_type(SyntaxKind::VoidKeyword, span));
+        }
+        // In JavaScript, `@returns {T}` is the written return type
+        // (`declarationEmitClassAccessorsJs1`: `@returns {string}` on a getter
+        // emits `get path(): string`).
+        if let Some(comment) = self.leading_jsdoc(node_id) {
+            if let Some(range) = jsdoc_braced_range(comment, "returns")
+                .or_else(|| jsdoc_braced_range(comment, "return"))
+            {
+                let span = self.span_of(node_id);
+                if let Some(node) = self
+                    .simple_jsdoc_type(&comment[range.0..range.1], span)
+                    .or_else(|| self.graft_jsdoc_range(comment, range))
+                {
+                    return Some(node);
+                }
+            }
         }
         if let Some(built) =
             self.resolver.create_return_type_of_signature_declaration(&mut self.factory)

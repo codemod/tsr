@@ -1147,3 +1147,14 @@ fn a_typeof_annotation_is_not_copied_into_a_return() {
         "export declare let $: number;\nexport declare let x: typeof $;\nexport declare let y: any;",
     );
 }
+
+#[test]
+fn jsdoc_types_javascript_accessors() {
+    // `declarationEmitClassAccessorsJs1`: `@returns {T}` is a getter's written
+    // return type and `@param {T} name` the setter's value parameter type.
+    let text = emit_javascript(
+        "export class V {\n    /** @returns {string} */\n    get path() { return ''; }\n    /** @param {URL | string} path */\n    set path(path) { }\n}",
+    );
+    assert!(text.contains("get path(): string;"), "{text}");
+    assert!(text.contains("set path(path: URL | string);"), "{text}");
+}
