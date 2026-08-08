@@ -10222,3 +10222,43 @@ lookup and a report call — from a starting point of *"TS2540 is a
 attributed by reasoning (§117–§130) cost three reverts and two no-op fixes.**
 That is the whole argument for the practice, measured on two rows of the same
 board in one session.
+
+## §150 — seventeen distinct spans are reported and the suite sees sixteen
+
+§149's span-collision hypothesis, probed at the report call:
+
+```
+17 × 2540-span   — all seventeen distinct, no repeated offset
+```
+
+**Not a collision.** Seventeen distinct spans reach `self.report`, and the
+suite's actual column for this case is one short with nothing extra (§146).
+
+So the loss is **downstream of the rule entirely** — between `self.report` and
+what `diagnostics_suite::reported_for` returns. Two mechanisms fit and neither
+has been looked at:
+
+- **`self.report` deduplicates.** If it drops a diagnostic already recorded for
+  the same file at a nearby position, or the same code, one of seventeen
+  vanishes silently.
+- **The suite filters.** `reported_for` restricts to the case's own files and
+  applies the same skip rules the harness uses; a line just outside them is
+  dropped without trace.
+
+**This is no longer a TS2540 finding.** If `report` deduplicates, it does so for
+every rule in `crate::check`, and every row this workstream has ever measured
+carries an unknown number of silently dropped lines. That is the first
+hypothesis on this board that would invalidate other measurements rather than
+explain one.
+
+**Next action, and it is not on TS2540: read `Checker::report`.** Ten lines will
+say whether it drops anything. If it does, §16's 988, §24's 6, §13's 47 and
+every wrong-column figure in this file were measured through a filter nobody
+documented.
+
+### Nine attributions, nine corrections, and the last one changed the question
+
+The row began as *"TS2540 needs `checker_types`"* (§143) and ends pointing at
+the reporting infrastructure shared by every rule. **Zero builds, zero reverts,
+nine commands.** Each section named a candidate and wrote the probe that would
+disprove it; the ninth disproved the row itself.
