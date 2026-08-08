@@ -1290,8 +1290,15 @@ its whole deliverable and accept that it converts nothing until finished.
   fire at 32 and 36, so they are sites the abstract/`TypeLiteral` clause excuses
   and §123's port does not reach; `mergeSymbolRexportFunction`'s baseline has
   **no TS1362 anywhere**, making ours a pure false positive — suspect the
-  merged-symbol hazard §97 declined for. **All three lines now have a baseline
-  read and a named predicate; none is inferred.**
+  merged-symbol hazard §97 declined for. **§127 implemented both named predicates and
+  neither removed a line** — six inferences on these three lines, two right.
+  **Reading the baseline improved the DESCRIPTION of the residual without
+  improving the hit rate on its CAUSE**, because the baseline says what upstream
+  reports and these lines are about why *this port* reports something extra,
+  which no upstream artefact answers. **Standing instruction: stop inferring on
+  these three. Instrument at the ENTRY of
+  `report_type_only_alias_used_as_value` and print the symbol's declaration
+  kinds and the use site's parent chain.**
 - **FOUR instrument failures this session, all one shape — the artefact decides,
   not the description of it.** §118 a probe below an early return; §122 a `grep`
   over a `head`-truncated listing; §124 **a fixture's `// Error` comment read as
