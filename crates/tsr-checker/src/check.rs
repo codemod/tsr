@@ -789,6 +789,18 @@ impl Checker<'_, '_> {
         {
             return;
         }
+        // A **named function expression** binds its own name inside its body
+        // (`bindFunctionExpression`), and this binder does not — so a recursive
+        // `(function f() { … f() … })` reaches here and fails.
+        // `recursiveNamedLambdaCall`, and declined rather than repaired because
+        // `tsr_binder` is shared with the query road
+        // (`checker-notes-diag2.md` §60).
+        if self.nodes.ancestors(node).any(|ancestor| {
+            matches!(self.node_map.get(ancestor), Some(Node::FunctionExpression(function))
+                if function.name.is_some_and(|name| name.text == text))
+        }) {
+            return;
+        }
         // `checkAndReportErrorForUsingTypeAsValue` / `…NamespaceAsTypeOrValue`
         // (`checker.go:1681`, `:1643`): a name that resolves under another
         // meaning gets a *different* code, so silence is the only sound answer

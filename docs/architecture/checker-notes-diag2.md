@@ -4469,3 +4469,55 @@ not grow**, and a rule with a standing loss needs its number carried.
 convert: removing the second TS2345 leaves it exact on this code and short
 elsewhere. `extraonly.rs` counts cases blocked by an extra **alone**, and a case
 can carry two extras of the same code — which is what this one did.
+
+---
+
+## 60. A function expression's own name is in scope inside it
+
+`extraonly.rs`'s TS2304 rows include `recursiveNamedLambdaCall`:
+
+```js
+(function doScrollCheck() {
+    …
+    setTimeout( doScrollCheck, 50 );   // <- reported; the name IS in scope
+})();
+```
+
+A **named function expression** binds its own name inside its body — upstream's
+binder gives the expression a symbol whose name is visible to the function's
+own locals (`bindFunctionExpression` → `bindAnonymousDeclaration` with the
+function's name). This binder does not, so the recursive reference reaches
+`resolve_name` and fails.
+
+Declined in the rule rather than repaired in the binder: `tsr_binder` is shared
+with the query road and adding a scope entry there moves `checker_types`, which
+is the other workstream's. The decline names its owner and costs nothing — an
+identifier that matches an enclosing function expression's own name is never a
+`Cannot find name` upstream.
+
+### The bar
+
+| leg | registered |
+|---|---|
+| 1 | `diagnostics` passes ≥ **1,243**. Forecast **+1** — `extraonly.rs` names one case |
+| 2 | `checker_types` pass count unchanged at **3,683** |
+| 3 | LOST must not grow |
+| 4 | TS2304's WRONG falls |
+| 5 | every other snapshot unchanged |
+
+### Scored — **+1**, the forecast again exact
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| 1 | passes ≥ 1,243, forecast +1 | **1,244 / 5,488 = 22.67%** | pass, exactly |
+| 2 | `checker_types` pass count 3,683 | **3,683**, snapshot unchanged | pass |
+| 3 | LOST must not grow | **2 → 2** | pass |
+| 4 | TS2304's WRONG falls | **456 → 451**, RIGHT **2,406** unchanged | pass |
+| 5 | every other snapshot unchanged | only `diagnostics.snap` differs | pass |
+
+**Three consecutive builds forecast off `extraonly.rs` and three consecutive
+exact numbers** (§58 +2, §59 +2 of 3, §60 +1). No other instrument in this file
+has been right twice running. The reason is structural and is worth stating
+plainly: a case blocked by an extra **alone** has exactly one thing wrong with
+it, so counting those cases *is* the forecast. Every other column counts cases
+that need an unknown amount of work and can only bound it.
