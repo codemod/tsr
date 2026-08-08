@@ -1273,6 +1273,18 @@ its whole deliverable and accept that it converts nothing until finished.
 
 ### New, thirteenth session, `diagnostics`
 
+- **TS1361/TS1362 — a byte-identical ZERO** (§117). §116's pattern (the site is
+  already there, occupied by a silence) pointed at
+  `check_value_identifier`'s `ALIAS` arm; reporting there changed **nothing** —
+  the rule never fires. Not a wrong predicate: something upstream of it. Three
+  candidates recorded, and the first to check is whether the parser sets
+  `is_type_only` / `ImportClause::phase_modifier` at all — **a field that exists,
+  compiles and is set by nobody is now a known failure mode of this port**
+  (`NodeFlags::YIELD_CONTEXT`, §104, was the same).
+- **The attempt skipped the workstream's own rule** — *print whether the rule
+  runs before asking what it decided* — and paid a build to learn it the
+  expensive way. That rule has now paid six times and been skipped once.
+
 - **Every remaining relation-free row on the `diagnostics` board is
   RESOLVER-owned** (§115). TS2302 (9 cases), TS1361/TS1362 (18) and TS2303 (10)
   are three codes in one subsystem — each needs a name to have been *resolved*,
