@@ -7879,3 +7879,64 @@ exercised: the JSDoc arm, the instance-property `isStatic` split, the
 binding-element recursion, and the decorator arms behind `legacyDecorators`.
 None has a case behind it today; each is one `STILL SHORT` row away from
 mattering.
+
+## §102 — the `classify` collapse audit, completed: no further divergence
+
+§100 named two unaudited collapse candidates and this closes them. **This is a
+reading audit, not a measurement** — it changes no code, so there is no
+counterfactual to run, and it is recorded with that limitation stated rather
+than dressed as a verified zero the way §84's was.
+
+### The excludes masks — all eleven verified
+
+Every branch of `SymbolFlags::excludes()` was read against
+`ast/symbolflags.go:52-74`:
+
+| flag | this port | upstream |
+|---|---|---|
+| function-scoped variable | `Value & ^FunctionScopedVariable` | ✓ |
+| block-scoped variable | `Value` | ✓ |
+| property | `Value & ^(Property\|Accessor)` | ✓ |
+| enum member | `Value \| Type` | ✓ |
+| function | `Value & ^(Function\|ValueModule\|Class)` | ✓ |
+| class | `(Value\|Type) & ^(ValueModule\|Interface\|Function)` | ✓ |
+| interface | `Type & ^(Interface\|Class)` | ✓ |
+| const enum / regular enum | split, §100 | ✓ |
+| value / namespace module | split, §95 | ✓ |
+| method, accessors | `Value & ^Method`, `Value & ^(other\|Property)` | ✓ |
+| type parameter, type alias, alias | `Type & ^TypeParameter`, `Type`, `Alias` | ✓ |
+
+### The flag choices — the two candidates are not collapses
+
+- **`S::ALIAS` over five import/export forms.** Upstream declares every one of
+  them with `SymbolFlagsAlias` / `SymbolFlagsAliasExcludes`
+  (`binder.go:704`, `:832`, `:838`, `:851`, `:1169`). Not a collapse — upstream
+  makes no distinction either. `ExportAssignment` is the one that *does* split,
+  on `ExpressionIsAlias` (`binder.go:863`), and this port already splits it the
+  same way.
+- **`S::PROPERTY` over five node kinds.** `PropertyDeclaration`,
+  `PropertySignature`, `PropertyAssignment`, `ShorthandPropertyAssignment` and
+  `JsxAttribute` are all `Property` upstream. Not a collapse.
+
+So the §93/§95/§100 pattern has **two instances, not four**, and both are fixed.
+
+### The one divergence that remains, already tracked
+
+`Node::EnumMember(_) => (S::ENUM_MEMBER, D::Members)`. Upstream files an enum
+member in the **enum symbol's EXPORTS** — `case ast.KindEnumDeclaration: return
+b.declareSymbol(ast.GetExports(b.container.Symbol()), …)` (`binder.go:436-437`)
+— and the container-aware remap in this binder covers only the class
+static/instance split. This is a *destination* divergence rather than a flag
+one, it is already recorded in the project's `bd` memory with a test pinning it,
+and it is not this workstream's to fix: it is a `binder_symbols` change with
+`checker_types` consequences.
+
+### Why a reading audit was the right depth here
+
+§84 measured its option audit because an option that nothing reads is
+indistinguishable from an option read wrongly — the code path had to be proven
+live. Excludes masks are different: every one of them is exercised by
+`declare_into` on every declaration in the corpus, so a wrong mask cannot hide.
+The reading is sufficient evidence for the masks and is **not** sufficient
+evidence for anything about behaviour, which is why nothing here is claimed as
+converted or refused.
