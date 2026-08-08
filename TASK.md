@@ -11,10 +11,28 @@ session's spine: the fixpoint landed by exonerating it, the too-large bail
 ~600 lines of docs/conventions.md still pay.
 
 STATE AT HANDOFF (verify with a fresh coverage run):
-  checker_types 3,645/9,538 (38.22%) · 394,836/478,954 = 82.44% · gap 50,074
-  · wrong 24,005. The continuation (builds 25–72): +38,183 right lines,
-  +602 cases, +7.98 points, FORTY-NINE bar-scored builds and SIX measured
-  refusals, every fired leg honoured in writing. Chain in STATUS §1.
+  checker_types 3,691/9,538 (38.70%) · 397,604/478,954 = 83.02% · gap
+  47,280 · wrong 24,031. The continuation (builds 25–88): +40,951 right
+  lines, +648 cases, +8.56 points, SIXTY-FOUR bar-scored builds and NINE
+  measured refusals, every fired leg honoured in writing. Chain in
+  STATUS §1. Builds 73–88 (the latest window): §48 pattern renders, §49
+  union property projection, §50/§50.1/§50.2/§50.3 dependent
+  destructuring WHOLE (equality, switch, walk-composition, tuple
+  parameters — checker.go:13751/13806), §30 new-through-untyped-gate
+  (+279), §31-callres unresolvable require() aliases (+390 — findability
+  alone decides, TS1147 is not a resolution bar), §32 non-union index-
+  signature keys, §33 const type-parameter prints (three contained legs),
+  §6.3 tuple-spread minting (context-split), §34 deferred indexed-access
+  prints, §35 deferred keyof (+324; §35.1 concrete keyof REFUSED +3/32 —
+  consumer-unlock class), §36 template-literal types (+453 right, −219
+  wrong — THE ANNOTATION-REUSE vs ALIAS-EVALUATION SPLIT, the window's
+  biggest discovery: upstream reuses written annotation nodes but
+  evaluates alias-declared positions), §36.1 v2 written-name reuse via
+  the written_text seam (v1's type-level mint refused +18/52). New
+  refusals priced: §6.2 union spread contribution (+2/11, wrong premise —
+  upstream mints tuples), §14.1 kept at zero (the parsingDeep 324-line
+  owner is the auto-var container walk, a largeControlFlowGraph-class
+  mountain, queued not refused).
   The late run's spine: the §41–§46 members-carrying-reference design
   (qualified names, generic qualifieds, alias bodies — three standing rows
   converted at once, including 264 of the double-refused underscoreTest1),
