@@ -55,7 +55,7 @@ Measured at the driver-seam landing, 2026-08-08 (fourteenth session), by
 | `dts_shape` | 859/1,007 | 85.30% | |
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 492/1,162 | 42.34% | |
-| **`checker_types`** | **3,914/9,538** | **41.04%** | **gradient 84.30%** — the target (builds 25–127, now including §77). **+21 of these are [ADR-0042](docs/adr/0042-checker-options-come-from-compiler-options.md) with no checker change**, counterfactualled twice from different bases (3,842 → 3,863 and 3,864 → 3,885) for the same delta; the §77 base underneath was not separately counterfactualled, so 3,914 is a measurement and the +21 inside it is an attribution |
+| **`checker_types`** | **3,914/9,538** | **41.04%** | **gradient 84.30%** — the target (builds 25–127, now including §77; `diagnostics` 1,395 at §103). **+21 of these are [ADR-0042](docs/adr/0042-checker-options-come-from-compiler-options.md) with no checker change**, counterfactualled twice from different bases (3,842 → 3,863 and 3,864 → 3,885) for the same delta; the §77 base underneath was not separately counterfactualled, so 3,914 is a measurement and the +21 inside it is an attribution |
 | `diagnostics` | **1,395/5,488** | **25.42%** | **measured at HEAD, thirteenth session (§86–§103), +49 over 12 builds, 0 lost, and the wrong column fell in two of them.** The running total is 80 → 1,395, **17.4×**. One build ever shipped with a named loss (§33); every other is 0 lost. `checker_types` byte-identical across every `diagnostics` build of the eleventh, twelfth and thirteenth sessions — verified by stash-and-remeasure, never against a number written down before the last push (§88) |
 
 ### `checker_types`, the number the project is steered by
