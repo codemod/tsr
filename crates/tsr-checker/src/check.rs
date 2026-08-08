@@ -942,6 +942,34 @@ impl Checker<'_, '_> {
     /// TS2749, and as a namespace TS2709 — three wrong codes at a right
     /// position, which is the failure §7 and §33 each spent a build removing.
     /// `docs/architecture/checker-notes-diag2.md` §55.
+    /// TS2302 — `Static members cannot reference class type parameters.`
+    ///
+    /// `resolveNameEx`'s type-parameter arm (`binder/nameresolver.go:178`) and
+    /// TypeScript 1.0 spec 3.4.1: a type parameter's scope covers the whole
+    /// declaration **except static members**. `resolve_name` already ports the
+    /// decision — it returns `None` rather than the symbol when `lastLocation`
+    /// is static (`lib.rs`, the `is_static_member` arm) — and left the
+    /// diagnostic unported because the binder had none at the time. It has had
+    /// them since §113, but `resolve_name` takes `&self`, so the *report* stays
+    /// with the checker while the *decision* stays with the resolver.
+    ///
+    /// `lastLocation` is the child the walk came up from — §108's edge-not-node
+    /// idea, here in its original home.
+    fn static_member_references_class_type_parameter(&self, node: NodeId, text: &str) -> bool {
+        let mut came_from = node;
+        for ancestor in self.nodes.ancestors(node) {
+            let Some(typed) = self.node_map.get(ancestor) else { return false };
+            if matches!(typed, Node::ClassDeclaration(_) | Node::ClassExpression(_)) {
+                return class_element_is_static(self.node_map.get(came_from))
+                    && type_parameters_of(typed)
+                        .iter()
+                        .any(|parameter| parameter.name.is_some_and(|name| name.text == text));
+            }
+            came_from = ancestor;
+        }
+        false
+    }
+
     fn check_type_reference_name(&mut self, node: NodeId, text: &str) {
         if self.file_has_parse_errors || is_specially_diagnosed_name(text) {
             return;
@@ -971,6 +999,24 @@ impl Checker<'_, '_> {
         // `typeParametersInStatic*` and `conditionalTypes1` were the first
         // measurement's largest new family.
         if self.an_enclosing_declaration_has_type_parameter(node, text) {
+            // …and when the enclosing declaration is a **class** and the member
+            // the walk came up through is **static**, upstream does not merely
+            // decline — it reports. §114 tried this *before* resolution and
+            // measured +137 wrong lines, because a name that merely spells the
+            // same as a type parameter while resolving to something else took
+            // the branch. Asking here, on the path where resolution has
+            // **already failed**, is the same question upstream asks and cannot
+            // catch a name that resolved. See §116.
+            if self.static_member_references_class_type_parameter(node, text) {
+                let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+                self.report(
+                    file,
+                    Diagnostic::new(
+                        &messages::STATIC_MEMBERS_CANNOT_REFERENCE_CLASS_TYPE_PARAMETERS,
+                        span,
+                    ),
+                );
+            }
             return;
         }
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
@@ -3487,6 +3533,20 @@ fn is_numeric_binary_operator(kind: SyntaxKind) -> bool {
 ///
 /// A decorator in the modifier list is not a modifier; the enum keeps them
 /// together because the parser does (`ModifierLike`).
+/// Is this class element declared `static`?
+///
+/// Upstream's `ast.IsStatic(lastLocation)` (`nameresolver.go:178`).
+fn class_element_is_static(node: Option<Node<'_>>) -> bool {
+    let modifiers = match node {
+        Some(Node::PropertyDeclaration(n)) => n.modifiers,
+        Some(Node::MethodDeclaration(n)) => n.modifiers,
+        Some(Node::GetAccessorDeclaration(n)) => n.modifiers,
+        Some(Node::SetAccessorDeclaration(n)) => n.modifiers,
+        _ => return false,
+    };
+    has_modifier(modifiers, SyntaxKind::StaticKeyword)
+}
+
 /// The `<T, U>` list this node declares, empty for a node that declares none.
 ///
 /// The union of the node kinds upstream's four `checkTypeParameters` call sites

@@ -8632,3 +8632,61 @@ was premature (§105 said the grammar seam was exhausted and §112 found TS1206;
 §112's own note said so). The difference now is that the three top remaining
 rows were each read against upstream rather than inferred from a code number —
 but the corpus moves, and one `diagmissing` run is the cost of checking.
+
+## §116 — TS2302 lands: §114's rule, moved two lines down
+
+§114 measured this exact rule at **+137 wrong lines and a grown LOST** and
+refused it, with a diagnosis: *the rule was put in the wrong place — upstream's
+test lives on the branch where the name has already resolved to the type
+parameter symbol.* §115 then priced the row as resolver-owned.
+
+Both were right about the cause and **over-priced the fix**. The rule does not
+need `resolve_name` to change. It needs to be asked **after resolution has
+failed** instead of before it — and `check_type_reference_name` already had that
+site, occupied by a *silence*:
+
+```rust
+if self.an_enclosing_declaration_has_type_parameter(node, text) {
+    return;                       // <- TS2302's cases were dying here
+}
+```
+
+That decline exists because a name introduced as a type parameter resolves
+upstream and fails here, and the difference *"is never TS2304"*. True — and for
+a **class** type parameter reached through a **static** member it is never
+silence either. It is TS2302.
+
+| | CONVERTS | LOST | RIGHT | WRONG |
+|---|---:|---:|---:|---:|
+| before | 219 | 2 | 2,409 | 414 |
+| §114, before resolution — **refused** | 227 | **3** | 2,437 | **551** |
+| **§116, after resolution** | **227** | **2** | **2,437** | **414** |
+
+**+8 cases and +28 right lines for ZERO new wrong lines and no change in LOST**
+— the same eight cases §114 bought, with **137 fewer wrong lines**. Coverage
+`1,417 → 1,425 / 5,488` (25.82% → **25.97%**). `checker_types` identical.
+
+### What the two measurements together say
+
+The identical predicate, two lines apart, is +8/+137-wrong or +8/+0-wrong. It is
+not the predicate that was wrong and it was never the crate that was wrong:
+**resolution had to have been attempted first, and the only thing that changed
+is that it had been.** A name that resolves cannot reach the second site.
+
+That corrects §115's conclusion, and the correction matters because §115 used
+this row as its evidence: *"every remaining relation-free row is
+resolver-owned"* was inferred partly from TS2302 needing the resolver, and
+TS2302 did not. **TS1361/TS1362 and TS2303 still do** — they need the alias
+chain and a cycle guard, which no ordering trick supplies — so §115's
+conclusion survives on its other two rows, with one fewer case behind it (28,
+not 37).
+
+**The transferable rule: before concluding a diagnostic needs a subsystem, check
+whether it needs that subsystem's ANSWER or merely its having run.** §114 needed
+the answer "did this name resolve, and to what"; it turned out only the *first
+half* was required, and the checker already had it.
+
+`resolve_name`'s own comment — *"There are no checker diagnostics yet
+(`bd tsr-5e7.6`), so only the `nil` is ported"* — has been stale since §113 and
+is now doubly so: the decision stays in the resolver, the report is the
+checker's, and neither had to move.
