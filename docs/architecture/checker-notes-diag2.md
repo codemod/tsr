@@ -5449,3 +5449,60 @@ corpus, and the guard is there for the shape rather than for a number.
 port-shaped defect rather than a bound in the wrong place: upstream has *one*
 reporting function and this port has two walks, so the fix is an ordering, not a
 decline.
+
+---
+
+## 74. §55's type-position arm in `.js` files
+
+§55 added TS2304 for a name in a **type** position and inherited §7's guards —
+parse errors, specially-diagnosed names, the `with` block — but not the one
+`STATUS.md` §5 records for every other option-gated rule: **a `.js` file's types
+come from JSDoc**, which this port does not parse into types. `@param {Foo} x`
+and `@type {Bar}` name types upstream resolves and this port cannot see.
+
+The value arm keeps JS deliberately — §7 measured it there and the asymmetry is
+recorded. This is the type arm only, and `extraonly.rs` shows the shape:
+`parserUnparsedTokenCrash1`'s `a.js` and `parserArrowFunctionExpression8`'s
+`fileJs.js` each carry one.
+
+### The bar
+
+| leg | registered |
+|---|---|
+| 1 | `diagnostics` passes ≥ **1,301**. Forecast **0 to +2** |
+| 2 | `checker_types` pass count unchanged at **3,683** |
+| 3 | LOST must not grow (**1** on `RULE_CODES = [2304, 2552, 2583]`) |
+| 4 | TS2304's WRONG falls; its RIGHT falls by at most a quarter as much |
+| 5 | every other snapshot unchanged |
+
+**Falsifier.** If RIGHT falls sharply, `.ts` and `.js` are not the split — the
+corpus's `.js` type references resolve as often as they fail — and the decline
+belongs on JSDoc-sourced annotations rather than on the file.
+
+### Scored — **REFUSED at one right line for one wrong**, and the falsifier fired
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| 1 | passes ≥ 1,301, forecast 0 to +2 | **1,301** — no change | fired |
+| 2 | `checker_types` pass count 3,683 | **3,683** | pass |
+| 3 | LOST must not grow | **1 → 1** | pass |
+| 4 | WRONG falls, RIGHT falls by at most a quarter as much | **WRONG 444 → 443, RIGHT 2,406 → 2,405** | **fired** |
+| 5 | every other snapshot unchanged | — | pass |
+
+**One right line for one wrong line, and no case moved either way.** The
+falsifier said it plainly: if `RIGHT` falls with `WRONG`, `.ts` versus `.js` is
+not the split. It is not — the corpus's `.js` **type-position** references
+resolve about as often as they fail, because a `.js` file that names a type at
+all is usually one with a `.d.ts` beside it or a triple-slash reference, not one
+relying on JSDoc.
+
+Reverted. **This is the third time this file has assumed a JS decline transfers
+between arms**: §18 measured it for `noImplicitAny` (28 wrong lines, kept), §16
+for TS2322's declaration anchors (5 wrong, kept) and TS2322's assignment anchor
+(4 conversions for 5 wrong, *not* kept), and now §55's type arm at a wash. The
+rule is not "JS files are unreliable"; it is **"a JSDoc-sourced *annotation* is
+unreliable"**, and only the arms that read an annotation pay for it. A type
+*reference* in a `.js` file is written in the source like any other.
+
+The decline returns if JSDoc types land: the population it would then protect is
+real, and it is the same one §5's row names.

@@ -1135,6 +1135,13 @@ its whole deliverable and accept that it converts nothing until finished.
   anonymous types, so a variable redeclared with the *same* annotation read as a
   different type on six cases that pass. ~70 cases (TS2403 30, TS2320 14, TS2717,
   TS2394 13) sit behind that one relation mode.
+- **§55's type-position TS2304 arm in `.js` files — REFUSED at one right line
+  for one wrong** (`checker-notes-diag2.md` §74), no case moved either way.
+  **Third time this file has assumed a JS decline transfers between arms.** The
+  rule is not *"JS files are unreliable"*, it is *"a JSDoc-sourced **annotation**
+  is unreliable"* — only the arms that read an annotation pay for it, and a type
+  *reference* in a `.js` file is written in the source like any other. Returns
+  if JSDoc types land.
 - **`SymbolFlags::OPTIONAL` is declared in `tsr-binder` and set by nothing** —
   the third writerless flag this project has stepped on, after
   `NodeFlags::AMBIENT` (eighth session) and `NodeFlags::JAVASCRIPT_FILE` (ninth).
