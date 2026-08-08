@@ -3322,6 +3322,17 @@ impl<'a, 'n> Binder<'a, 'n> {
             }
             return symbol;
         }
+        // A bare `exports = …` in a JavaScript file is a CommonJS indicator
+        // even though it declares no member — `exports = require('./mod')`
+        // makes the file a module with `exports` as a local
+        // (`exportNestedNamespaces2`: `Symbol(exports, Decl(first.js, 0, 0))`).
+        if self.in_js_file
+            && let Node::BinaryExpression(binary) = node
+            && binary.operator_token.map(|token| token.kind) == Some(SyntaxKind::EqualsToken)
+            && binary.left.is_some_and(is_exports_identifier)
+        {
+            self.set_commonjs_module_indicator();
+        }
 
         // An object literal, a type literal, or an unnamed class expression has
         // members but no name to file them under. Upstream gives each an

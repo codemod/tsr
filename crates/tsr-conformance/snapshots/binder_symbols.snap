@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 binder_symbols Summary:
 What a pass means: every symbol in the .symbols baseline exists with the same declaration lines
-Passed         : 8436/8461 (99.70%)
-Failed         : 25
+Passed         : 8437/8461 (99.72%)
+Failed         : 24
 Skipped        : 3983 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -44,8 +44,6 @@ compiler/staticFieldWithInterfaceContext
   3 symbol(s): c.x: declared on {3}, expected to include {3, 15, 17}; c10.x: no symbol; c11.x: no symbol
 conformance/autoAccessorNoUseDefineForClassFields
   2 symbol(s): file3.ts: C3.x: no symbol; file3.ts: C3.x: no symbol
-conformance/exportNestedNamespaces2
-  2 symbol(s): first.js: exports: no symbol; second.js: exports: no symbol
 conformance/inlineJsxFactoryDeclarationsLocalTypes
   3 symbol(s): renderer.d.ts: dom.JSX: no symbol; renderer.d.ts: dom.JSX.Element: no symbol; renderer2.d.ts: predom.JSX: no symbol
 conformance/inlineJsxFactoryLocalTypeGlobalFallback
