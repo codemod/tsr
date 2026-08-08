@@ -113,6 +113,11 @@ impl Suite for DtsShape {
             }
             let references = crate::dts_emit_suite::declaration_references(&parsed.file_references);
             let mut nodes = parsed.nodes;
+            crate::dts_emit_suite::stamp_javascript_root(
+                &unit.name,
+                parsed.source_file,
+                &mut nodes,
+            );
             let result = tsr_declarations::emit_with_references_and_options(
                 &arena,
                 &mut nodes,

@@ -105,6 +105,9 @@ pub(crate) struct Transformer<'a, 't, R> {
     type_aliases: HashMap<String, TypeNode<'a>>,
     /// Syntax-only compiler options and the source trivia they inspect.
     options: DeclarationEmitOptions<'a>,
+    /// Whether the file being transformed is a JavaScript file, where JSDoc
+    /// `@protected`/`@private` tags act as accessibility modifiers.
+    javascript_file: bool,
     /// Where the resolver was asked for a type and had none.
     ///
     /// No upstream counterpart: upstream's resolver always answers. This is what
@@ -131,6 +134,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             expando_members: HashMap::new(),
             type_aliases: HashMap::new(),
             options,
+            javascript_file: false,
             inference_required: Vec::new(),
         }
     }
@@ -151,6 +155,8 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
     /// resolver it stays empty, and the loop runs zero times. That is stated here
     /// rather than deleted, because the shape is what Phase 4 will fill.
     pub(crate) fn transform_source_file(&mut self, file: &SourceFile<'a>) -> &'a SourceFile<'a> {
+        self.javascript_file =
+            self.factory.flags_of(file.node_id).contains(NodeFlags::JAVASCRIPT_FILE);
         let is_module = is_external_module(file.statements) || self.options.force_module;
         reserve_statement_names(file.statements, &mut self.used_names);
         self.expando_members = collect_expando_members(file.statements, self.factory.nodes());
@@ -1405,6 +1411,52 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         r#type
     }
 
+    /// The accessibility a JS member's JSDoc declares, when its modifiers
+    /// don't already spell one. Upstream reads `@public`/`@protected`/`@private`
+    /// tags as modifiers in JavaScript files only
+    /// (`lateBoundAssignmentCandidateJS3` emits `protected prop: string;`).
+    fn jsdoc_accessibility(
+        &self,
+        node_id: Option<tsr_ast::NodeId>,
+        modifiers: &[ModifierLike<'a>],
+    ) -> Option<SyntaxKind> {
+        if !self.javascript_file {
+            return None;
+        }
+        let written = modifiers::modifier_flags(modifiers);
+        if written
+            .intersects(ModifierFlags::PUBLIC | ModifierFlags::PROTECTED | ModifierFlags::PRIVATE)
+        {
+            return None;
+        }
+        let source = self.options.source_text?;
+        let start = self.span_of(node_id).start as usize;
+        let comment = nearest_leading_comment(&source[..start.min(source.len())])?;
+        if !comment.starts_with("/**") {
+            return None;
+        }
+        if comment.contains("@private") {
+            Some(SyntaxKind::PrivateKeyword)
+        } else if comment.contains("@protected") {
+            Some(SyntaxKind::ProtectedKeyword)
+        } else {
+            None
+        }
+    }
+
+    /// Prepend a JSDoc-declared accessibility modifier, if any.
+    fn with_jsdoc_accessibility(
+        &mut self,
+        modifiers: &'a [ModifierLike<'a>],
+        accessibility: Option<SyntaxKind>,
+        span: Span,
+    ) -> &'a [ModifierLike<'a>] {
+        let Some(kind) = accessibility else { return modifiers };
+        let mut all = vec![self.factory.modifier(kind, span)];
+        all.extend_from_slice(modifiers);
+        self.factory.slice(&all)
+    }
+
     /// Ported from the class-member arms of `visitDeclarationSubtree`
     /// (`transform.go:573`) and the `transformX` functions they call.
     fn visit_class_element(&mut self, member: &ClassElement<'a>) -> Option<ClassElement<'a>> {
@@ -1430,7 +1482,10 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             // `transformPropertyDeclaration` (`:979`).
             ClassElement::PropertyDeclaration(node) => {
                 let span = self.span_of(node.node_id);
+                let accessibility = self.jsdoc_accessibility(node.node_id, node.modifiers);
+                let private = private || accessibility == Some(SyntaxKind::PrivateKeyword);
                 let modifiers = self.ensure_modifiers(node.modifiers, node.node_id, false, false);
+                let modifiers = self.with_jsdoc_accessibility(modifiers, accessibility, span);
                 // A definite-assignment `!` is not legal in a `.d.ts`; a `?` is.
                 let postfix =
                     node.postfix_token.filter(|token| token.kind != SyntaxKind::ExclamationToken);
@@ -1465,7 +1520,10 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             // class's public shape.
             ClassElement::MethodDeclaration(node) => {
                 let span = self.span_of(node.node_id);
+                let accessibility = self.jsdoc_accessibility(node.node_id, node.modifiers);
+                let private = private || accessibility == Some(SyntaxKind::PrivateKeyword);
                 let modifiers = self.ensure_modifiers(node.modifiers, node.node_id, false, false);
+                let modifiers = self.with_jsdoc_accessibility(modifiers, accessibility, span);
                 if private {
                     return Some(ClassElement::PropertyDeclaration(self.factory.alloc(
                         tsr_ast::PropertyDeclaration::new(modifiers, node.name, None, None, None),

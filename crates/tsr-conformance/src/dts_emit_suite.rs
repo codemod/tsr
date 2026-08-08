@@ -111,6 +111,7 @@ impl Suite for DtsEmit {
             }
             let references = declaration_references(&parsed.file_references);
             let mut nodes = parsed.nodes;
+            stamp_javascript_root(&unit.name, parsed.source_file, &mut nodes);
             // The URL is relative to the declaration file, so only the final
             // path component is named.
             let declaration_file = declaration_name(&unit.name);
@@ -264,6 +265,22 @@ fn matching_section<'a>(
     Some(section.to_owned())
 }
 
+/// Stamp the JavaScript-file root flag upstream's parser derives from its
+/// `ScriptKind`. This parser never sees the file name (ADR-0016), so the
+/// harness supplies the fact; JSDoc accessibility tags act as modifiers only
+/// under it.
+pub(crate) fn stamp_javascript_root(
+    unit_name: &str,
+    source_file: &tsr_ast::SourceFile<'_>,
+    nodes: &mut tsr_ast::NodeTable,
+) {
+    let lower = unit_name.to_ascii_lowercase();
+    let is_js = [".js", ".jsx", ".mjs", ".cjs"].iter().any(|suffix| lower.ends_with(suffix));
+    if is_js && let Some(root) = source_file.node_id {
+        nodes.add_flags(root, tsr_ast::NodeFlags::JAVASCRIPT_FILE);
+    }
+}
+
 /// The declaration file name for a source unit.
 ///
 /// `.mts` and `.cts` emit `.d.mts` and `.d.cts`; the corpus has 495 such sections
@@ -375,6 +392,7 @@ pub(crate) fn emits_anything(unit: &crate::TestFile) -> bool {
     }
     let references = declaration_references(&parsed.file_references);
     let mut nodes = parsed.nodes;
+    stamp_javascript_root(&unit.name, parsed.source_file, &mut nodes);
     let result =
         tsr_declarations::emit_with_references(&arena, &mut nodes, parsed.source_file, &references);
     result.diagnostics.is_empty() && result.unsupported.is_empty() && !result.text.trim().is_empty()

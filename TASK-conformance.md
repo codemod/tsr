@@ -5,7 +5,7 @@ CURRENT PROGRESS (2026-08-08)
   parser_typescript      5,031/5,031 = 100.00% (up from 5,001)
   dts_reachable_target     496/1,162 = 42.69%  (up from 495; corrected visibility
                                                 exposed one inference case)
-  dts_emit                  308/376  = 81.91%  (denominator moved twice: grew
+  dts_emit                  309/376  = 82.18%  (denominator moved twice: grew
                                                 341 -> 395 pairing outDir-
                                                 remapped baselines, then shrank
                                                 to 376 removing mispairings
@@ -213,6 +213,10 @@ synthesized const's initializer (`declare const _default = 0;`) instead of
 widening (`modulePreserve4` progressed, `nodeNextCjsNamespaceImportDefault2`
 closed), and node_modules units are excluded from output pairing — they are
 program inputs upstream never emits (`compositeWithNodeModulesSourceFile`).
+JSDoc `@protected`/`@private` tags now act as accessibility modifiers on
+JavaScript class members, keyed off the root `JAVASCRIPT_FILE` node flag the
+harness stamps because the parser never sees file names
+(`lateBoundAssignmentCandidateJS3`).
 
 `TASK.md` belongs to the checker-types gradient and `TASK-diagnostics.md` belongs
 to diagnostics. Do not put work from either stream here. This file owns the

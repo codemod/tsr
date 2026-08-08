@@ -146,6 +146,43 @@ fn a_forced_module_drops_unexported_declarations() {
     assert_eq!(result.text, "export {};");
 }
 
+#[test]
+fn jsdoc_accessibility_tags_become_modifiers_in_javascript_files() {
+    // `lateBoundAssignmentCandidateJS3`: `@protected`/`@private` JSDoc acts as
+    // a modifier in a JavaScript file; a TypeScript file ignores it.
+    let source = "export class C {\n    /** @protected @type {string} */\n    a = 'x';\n    /** @private */\n    b = 1;\n}";
+    let emit_as = |javascript: bool| {
+        let arena = Arena::new();
+        let parsed = tsr_parser::parse(&arena, source);
+        assert!(parsed.diagnostics.is_empty());
+        let mut nodes = parsed.nodes;
+        if javascript && let Some(root) = parsed.source_file.node_id {
+            nodes.add_flags(root, tsr_ast::NodeFlags::JAVASCRIPT_FILE);
+        }
+        tsr_declarations::emit_with_options(
+            &arena,
+            &mut nodes,
+            parsed.source_file,
+            tsr_declarations::DeclarationEmitOptions {
+                source_text: Some(source),
+                strip_internal: false,
+                remove_comments: false,
+                strict_null_checks: true,
+                force_module: false,
+                source_map_url: None,
+            },
+        )
+        .text
+    };
+    let javascript = emit_as(true);
+    assert!(javascript.contains("protected a: string;"), "{javascript}");
+    assert!(javascript.contains("private b;"), "{javascript}");
+    let typescript = emit_as(false);
+    // The tag stays comment text in TypeScript: no `protected` modifier.
+    assert!(typescript.contains("\n    a: string;"), "{typescript}");
+    assert!(typescript.contains("\n    b: number;"), "{typescript}");
+}
+
 /// Assert the emitted text exactly, so spacing and ordering are covered too.
 #[track_caller]
 fn assert_emits(source: &str, expected: &str) {

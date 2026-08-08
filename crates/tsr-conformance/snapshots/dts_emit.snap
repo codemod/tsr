@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 dts_emit Summary:
 What a pass means: the .d.ts text this port emits is byte-identical to upstream's, for every unit of a case that needs no inference — the emitter's own rate, over the population dts_reachable_target measures
-Passed         : 308/376 (81.91%)
-Failed         : 68
+Passed         : 309/376 (82.18%)
+Failed         : 67
 Skipped        : 12068 (excluded from the denominator)
 
   632  skipped: a declaration in this case needs inference (see dts_reachable_target)
@@ -78,8 +78,6 @@ compiler/jsDeclarationEmitExportAssignedArray
   line 1: missing `declare const _exports: {`
 compiler/jsDeclarationEmitExportAssignedFunctionWithExtraTypedefsMembers
   line 1: missing `/**`
-compiler/lateBoundAssignmentCandidateJS3
-  line 7: want `    protected prop: string;`, got `    prop: string;`
 compiler/mappedTypeGenericInstantiationPreservesHomomorphism
   line 1: want `export declare const mappedUnionWithPrivateType: <T extends unknown[]>(...args: T) => T[any] extends infer T_1 ? { [K in keyof T_1]: T_1[K]; } : never;`, got `export declare const mappedUnionWithPrivateType: any;`
 compiler/mappedTypeWithAsClauseAndLateBoundProperty2
