@@ -1275,7 +1275,7 @@ impl Checker<'_, '_> {
     /// subject — `checker-notes-diag2.md` §83. TS2448 (block-scoped variable)
     /// and TS2450 (enum) are its siblings and wait on the same thing.
     fn check_used_before_its_declaration(&mut self, node: NodeId, text: &str) {
-        if self.file_has_parse_errors || !self.is_in_extends_clause(node) {
+        if self.file_has_parse_errors {
             return;
         }
         let Some(symbol) =
@@ -1285,21 +1285,53 @@ impl Checker<'_, '_> {
         };
         let symbol = self.binder.merged_symbol(symbol);
         let entry = self.binder.symbols().get(symbol);
-        if !entry.flags.intersects(SymbolFlags::CLASS) {
+        // `checkResolvedBlockScopedVariable` (`checker.go:1888`) picks the
+        // message off the symbol's flags and shares everything below.
+        let is_class = entry.flags.intersects(SymbolFlags::CLASS);
+        let (message, kinds): (_, &[SyntaxKind]) =
+            if entry.flags.intersects(SymbolFlags::BLOCK_SCOPED_VARIABLE) {
+                (
+                    &messages::BLOCK_SCOPED_VARIABLE_0_USED_BEFORE_ITS_DECLARATION,
+                    &[SyntaxKind::VariableDeclaration],
+                )
+            } else if entry.flags.intersects(SymbolFlags::ENUM) {
+                (&messages::ENUM_0_USED_BEFORE_ITS_DECLARATION, &[SyntaxKind::EnumDeclaration])
+            } else if is_class {
+                (
+                    &messages::CLASS_0_USED_BEFORE_ITS_DECLARATION,
+                    &[SyntaxKind::ClassDeclaration, SyntaxKind::ClassExpression],
+                )
+            } else {
+                return;
+            };
+        // A symbol with more than one declaration is a MERGE: the arm below
+        // picks one declaration by kind and compares *its* position, which for
+        // a merge is arbitrary among its members. §96 measured six LOST and this
+        // decline removed five of them (§97).
+        if !is_class && entry.declarations.len() != 1 {
             return;
         }
         // `core.Find(result.Declarations, IsBlockOrCatchScoped || IsClassLike ||
         // IsEnumDeclaration)` — **not** `first()`. A class merged with a
         // namespace or an interface has several declarations and only the
         // class-like one carries the position upstream compares.
-        let Some(declaration) = entry.declarations.iter().copied().find(|&declaration| {
-            matches!(
-                self.nodes.kind(declaration),
-                SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
-            )
-        }) else {
+        let Some(declaration) = entry
+            .declarations
+            .iter()
+            .copied()
+            .find(|&declaration| kinds.contains(&self.nodes.kind(declaration)))
+        else {
             return;
         };
+        // §83's class arm keeps its `extends` bound exactly as measured; the
+        // arms §96-§99 added carry the deferral predicate instead.
+        if is_class {
+            if !self.is_in_extends_clause(node) {
+                return;
+            }
+        } else if !self.use_is_not_deferred(node, declaration) {
+            return;
+        }
         // `declarationFile != useFile` returns `true` outright upstream —
         // *"nodes are in different files and order cannot be determined"*.
         if self.source_file_of_for_diagnostics(declaration)
@@ -1322,14 +1354,103 @@ impl Checker<'_, '_> {
         }
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
         let span = self.error_span(node);
-        self.report(
-            file,
-            Diagnostic::with_args(
-                &messages::CLASS_0_USED_BEFORE_ITS_DECLARATION,
-                span,
-                [text.to_string()],
-            ),
-        );
+        self.report(file, Diagnostic::with_args(message, span, [text.to_string()]));
+    }
+
+    /// `isBlockScopedNameDeclaredBeforeUse`'s deferral arms (`checker.go:1922`),
+    /// which §96 measured are the *majority* of that function rather than its
+    /// edge cases — 176 wrong lines when they were approximated.
+    ///
+    /// 1. **A use in a type context is deferred regardless of position**
+    ///    (`checker.go:1932`, `isInAmbientOrTypeNode` at `:11238`) — the arm
+    ///    whose absence was most of §96's 176 wrong lines.
+    /// 2. **An export specifier or `export =`** makes the name available
+    ///    without using it (`checker.go:1993`).
+    /// 3. **`isUsedInFunctionOrInstanceProperty`** (`checker.go:2011`): a
+    ///    function-like ancestor defers, but the walk **quits at the
+    ///    declaration's own block-scope container**, so a use and a declaration
+    ///    inside one function are still compared by position.
+    fn use_is_not_deferred(&self, node: NodeId, declaration: NodeId) -> bool {
+        if !self.is_value_reference(node) || self.entity_name_root_is_a_type_query(node) {
+            return false;
+        }
+        if let Some(parent) = self.nodes.parent(node)
+            && matches!(
+                self.nodes.kind(parent),
+                SyntaxKind::ExportSpecifier | SyntaxKind::ExportAssignment
+            )
+        {
+            return false;
+        }
+        let container = self.enclosing_block_scope_container(declaration);
+        for ancestor in self.nodes.ancestors(node) {
+            if Some(ancestor) == container {
+                return true;
+            }
+            if matches!(
+                self.nodes.kind(ancestor),
+                SyntaxKind::FunctionDeclaration
+                    | SyntaxKind::FunctionExpression
+                    | SyntaxKind::ArrowFunction
+                    | SyntaxKind::MethodDeclaration
+                    | SyntaxKind::GetAccessor
+                    | SyntaxKind::SetAccessor
+                    | SyntaxKind::Constructor
+                    | SyntaxKind::ClassStaticBlockDeclaration
+                    | SyntaxKind::PropertyDeclaration
+                    | SyntaxKind::InterfaceDeclaration
+                    | SyntaxKind::TypeAliasDeclaration
+                    | SyntaxKind::TypeLiteral
+                    | SyntaxKind::ComputedPropertyName
+                    | SyntaxKind::Decorator
+            ) {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// `GetEnclosingBlockScopeContainer` (`ast/utilities.go:2171`) over
+    /// `IsBlockScope` (`:2177`). A `Block` is a block scope **unless** its
+    /// parent is function-like — a function body is the function's own scope.
+    fn enclosing_block_scope_container(&self, node: NodeId) -> Option<NodeId> {
+        self.nodes.ancestors(node).find(|&ancestor| {
+            let kind = self.nodes.kind(ancestor);
+            if kind == SyntaxKind::Block {
+                return !self.nodes.parent(ancestor).is_some_and(|parent| {
+                    matches!(
+                        self.nodes.kind(parent),
+                        SyntaxKind::FunctionDeclaration
+                            | SyntaxKind::FunctionExpression
+                            | SyntaxKind::ArrowFunction
+                            | SyntaxKind::MethodDeclaration
+                            | SyntaxKind::GetAccessor
+                            | SyntaxKind::SetAccessor
+                            | SyntaxKind::Constructor
+                            | SyntaxKind::ClassStaticBlockDeclaration
+                    )
+                });
+            }
+            matches!(
+                kind,
+                SyntaxKind::SourceFile
+                    | SyntaxKind::CaseBlock
+                    | SyntaxKind::CatchClause
+                    | SyntaxKind::ModuleDeclaration
+                    | SyntaxKind::ForStatement
+                    | SyntaxKind::ForInStatement
+                    | SyntaxKind::ForOfStatement
+                    | SyntaxKind::Constructor
+                    | SyntaxKind::MethodDeclaration
+                    | SyntaxKind::GetAccessor
+                    | SyntaxKind::SetAccessor
+                    | SyntaxKind::FunctionDeclaration
+                    | SyntaxKind::FunctionExpression
+                    | SyntaxKind::ArrowFunction
+                    | SyntaxKind::PropertyDeclaration
+                    | SyntaxKind::ClassStaticBlockDeclaration
+            )
+        })
     }
 
     /// Is this node the expression of an `extends` heritage clause?
@@ -1365,11 +1486,27 @@ impl Checker<'_, '_> {
     /// declaration rather than of a use has to walk.
     fn declaration_is_in_an_ambient_context(&self, declaration: NodeId) -> bool {
         std::iter::once(declaration).chain(self.nodes.ancestors(declaration)).any(|at| {
+            // Every kind that can carry `declare`, not just the two §83 needed.
+            // A `declare const o` puts the modifier on the enclosing
+            // **VariableStatement**, so a rule handed the `VariableDeclaration`
+            // sees no modifier at all — which is the whole of why
+            // `controlFlowNullishCoalesce` broke under §96-§98 (`checker-notes-diag2.md`
+            // §99). `NodeFlags::AMBIENT` would answer this in one read and is
+            // one of the three flags this parser never sets.
             match self.node_map.get(at) {
                 Some(Node::ClassDeclaration(n)) => {
                     has_modifier(n.modifiers, SyntaxKind::DeclareKeyword)
                 }
                 Some(Node::ModuleDeclaration(n)) => {
+                    has_modifier(n.modifiers, SyntaxKind::DeclareKeyword)
+                }
+                Some(Node::VariableStatement(n)) => {
+                    has_modifier(n.modifiers, SyntaxKind::DeclareKeyword)
+                }
+                Some(Node::FunctionDeclaration(n)) => {
+                    has_modifier(n.modifiers, SyntaxKind::DeclareKeyword)
+                }
+                Some(Node::EnumDeclaration(n)) => {
                     has_modifier(n.modifiers, SyntaxKind::DeclareKeyword)
                 }
                 _ => false,

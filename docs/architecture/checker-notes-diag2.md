@@ -7698,3 +7698,67 @@ different and much smaller job than the one this section started with.
 Thirteen sole-obstacle cases remain behind it (TS2448 7, TS2449 5, TS2450 1),
 all relation-free. **Next session: reproduce `controlFlowNullishCoalesce` with
 `diagcase`, find the arm, and this lands.**
+
+## §99 — one missing ambient kind was 20 of the 21 wrong lines AND the LOST
+
+§98 left the refusal resting on one named fixture. It is
+`conformance/controlFlowNullishCoalesce`, and it is three lines:
+
+```ts
+let a: number;
+o ?? (a = 1);              // <- use of `o`, line 6
+a.toString();
+declare const o: { x: number } | undefined;   // <- declaration, line 10
+```
+
+`o` is a block-scoped const used before its declaration, and upstream reports
+nothing because `checkResolvedBlockScopedVariable` (`checker.go:1888`) gates on
+`declaration.Flags&NodeFlagsAmbient == 0` — **the declaration is ambient.**
+
+§83 wrote `declaration_is_in_an_ambient_context` for exactly this gate and gave
+it two kinds, `ClassDeclaration` and `ModuleDeclaration`, because those are the
+two its `extends`-clause bound could ever see. `declare const o` puts the
+`declare` on the enclosing **`VariableStatement`**, and the node this rule holds
+is the `VariableDeclaration` inside it — so the helper looked at a node with no
+modifiers and answered "not ambient".
+
+Adding `VariableStatement`, `FunctionDeclaration` and `EnumDeclaration` to that
+list:
+
+| | CONVERTS | LOST | RIGHT | WRONG |
+|---|---:|---:|---:|---:|
+| before | 6 | 0 | 14 | 0 |
+| §96 approximated deferrals | 7 | 6 | 23 | 176 |
+| §97 deferrals ported | 7 | 1 | 21 | 21 |
+| §98 container ported | 8 | 1 | 31 | 21 |
+| **§99 ambient kinds** | **8** | **0** | **31** | **1** |
+
+**+2 cases and +17 right lines for one wrong line, and it lands.** Coverage
+`1,383 → 1,385 / 5,488` (25.20% → **25.24%**). `checker_types` identical at
+3,860/9,538 · 84.19% and `binder_symbols` unmoved at 8,311/8,475, both by
+stash-and-remeasure.
+
+### What the four measurements actually found
+
+The wrong column went 176 → 21 → 21 → **1**, and each step was a different
+missing arm. But the last step is the one worth remembering: **one under-scoped
+helper accounted for the LOST *and* twenty of the twenty-one remaining wrong
+lines.** The three ported deferral arms were all necessary and none of them was
+the biggest single defect.
+
+§83's helper was not wrong when it was written — it was *sufficient for its
+caller*, and its doc comment said so. It became wrong the moment a second caller
+arrived, silently, with no compiler error and no test to catch it. **A predicate
+written to be sufficient for one caller is a landmine for the second**, and this
+port has three declared-but-never-set flags (`NodeFlags::AMBIENT`,
+`NodeFlags::JAVASCRIPT_FILE`, `SymbolFlags::OPTIONAL`) whose absence is exactly
+what forces helpers like this one to exist. `NodeFlags::AMBIENT` would have
+answered this in one read.
+
+### The one remaining wrong line, declined with its owner
+
+`enumUsedBeforeDeclaration.ts(2,24)` — the case's **first** line converts and its
+second is a false positive, so the enum arm has the shape right and a position
+wrong. It is one line in one case and the rule now reports 31 right lines
+against it. **Owner: `getEnclosingBlockScopeContainer` for an enum**, whose
+container differs from a variable's; not worth a fifth measurement today.
