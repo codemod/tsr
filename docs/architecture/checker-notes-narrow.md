@@ -2740,3 +2740,19 @@ and any other counting basis fitted to one case is a knob, not a port.
 The 333-line mountain stays; its honest road is either (a) the full
 assigned-union computation with upstream's recursive walk shape behind
 a flag, or (b) accepting the divergence permanently. Reverted whole.
+
+## §62 — unique symbols are per-declaration
+
+87 uniform lines: a unique symbol belongs to its OWN declaration — only
+a direct `Symbol()`/`Symbol.for()` call initializer keeps uniqueness; a
+COPY (`const x = C.readonlyStaticCall`) widens to `symbol` even under
+const (`getWidenedLiteralLikeTypeForInitializer`'s ES-symbol arm).
+Gates from the pair: TS files only (`uniqueSymbolJs2`'s JS declaration
+roads differ) and binding-pattern holders excluded (their members keep
+the member's uniqueness). A parameter-exclusion variant measured 48/0
+against this config's 60/2 — parameter defaults split site-sensitively
+(`method5(p = s)` keeps, others widen) and the 2 are that split's
+recorded residue at 30:1.
+
+**§62 score — LANDED.** **+60 W→R / 2 R→W (30:1).** `checker_types`
+right 401,783 → **401,841 (83.90%)**.

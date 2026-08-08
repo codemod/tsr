@@ -1513,6 +1513,7 @@ impl<'a> Checker<'a, '_> {
                     if !signature.type_parameters.is_empty() {
                         return None;
                     }
+
                     let index = call
                         .arguments
                         .iter()
@@ -1989,6 +1990,40 @@ impl<'a> Checker<'a, '_> {
         declaration: NodeId,
         id: TypeId,
     ) -> TypeId {
+        // §62 (`checker-notes-narrow.md`): a UNIQUE symbol belongs to its
+        // OWN declaration — only a direct `Symbol()`/`Symbol.for()` call
+        // initializer keeps uniqueness; a COPY widens to `symbol` even
+        // under const (`uniqueSymbols`' constInitToC* family, 87 lines).
+        if self.store.get(id).flags.contains(crate::flags::TypeFlags::UNIQUE_ES_SYMBOL)
+            // TS only (`uniqueSymbolJs2`'s JS declaration roads differ), and
+            // a BINDING-PATTERN holder keeps its member's uniqueness
+            // (`uniqueSymbols` pos 508).
+            && !self.in_js_file(declaration)
+            && !matches!(
+                self.node_map.get(declaration),
+                Some(Node::VariableDeclaration(v))
+                    if matches!(v.name, Some(tsr_ast::BindingName::BindingPattern(_)))
+            )
+        {
+            let direct_symbol_call = self
+                .initializer_of(declaration)
+                .and_then(|initializer| match initializer {
+                    tsr_ast::Expression::CallExpression(call) => call.expression,
+                    _ => None,
+                })
+                .is_some_and(|callee| match callee {
+                    tsr_ast::Expression::Identifier(name) => name.text == "Symbol",
+                    tsr_ast::Expression::PropertyAccessExpression(access) => matches!(
+                        access.expression,
+                        Some(tsr_ast::Expression::Identifier(receiver))
+                            if receiver.text == "Symbol"
+                    ),
+                    _ => false,
+                });
+            if !direct_symbol_call {
+                return self.intrinsics.es_symbol;
+            }
+        }
         if self.combined_node_flags(declaration).intersects(NodeFlags::CONSTANT) {
             return id;
         }
