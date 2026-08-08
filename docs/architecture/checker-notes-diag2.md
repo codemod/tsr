@@ -8020,3 +8020,76 @@ single-code column and only once the rows above it have been worked.
 and the cheap grammar codes live exclusively in the second.** `TS1100` (12
 cases), `TS1109` (11), `TS1163` (10) and `TS1183` are the same shape and are the
 first things the next session should price — none of them needs a type either.
+
+## §104 — TS1163, `yield` outside a generator: the fourth never-set flag
+
+### The bar, before the code
+
+**+8 cases**, at most 2 new wrong lines. TS1163 is **10 missing lines across 10
+cases** — a concentration of exactly **1.0**, the best shape the board has ever
+offered and the opposite of §82's eleven-variants-of-one-file trap.
+
+Falsifiers:
+
+1. **If the yield context is not structurally derivable**, the rule reports
+   inside generators. It is: `NodeFlagsYieldContext` is set by the parser at a
+   function boundary and reset at each nested one, which is the same thing as
+   "the nearest enclosing function-like is a generator".
+2. **If the report position is the expression rather than its first token**,
+   every line is off by however wide the operand is.
+   `grammarErrorOnFirstToken` reports the `yield` keyword, which for a
+   `YieldExpression` is the node's own start — so `self.nodes.span(node)`, not
+   `error_span`, the same exception §82 found for `errorOnEachUnreachableRange`.
+
+### `NodeFlags::YIELD_CONTEXT` is declared and set by nothing
+
+Upstream's check is one line: `node.Flags&ast.NodeFlagsYieldContext == 0`
+(`grammarchecks.go:1779`). This port declares the flag at `flags.rs:40` and
+**never sets it** — so the standing note that three flags are declared-and-unset
+(`NodeFlags::AMBIENT`, `NodeFlags::JAVASCRIPT_FILE`, `SymbolFlags::OPTIONAL`) is
+**wrong, and this corrects it: there are at least four.**
+
+That is the same shape as §99, one level down. §99 found a *helper* that was
+sufficient for its only caller; this is a *flag* that is sufficient for its only
+consumer, which is nobody. Each new consumer has to rediscover the absence and
+re-derive the value structurally, and each derivation is a chance to derive it
+differently. **Grep this list before porting any rule that reads a NodeFlag.**
+
+Derived here as: the nearest enclosing function-like is a generator. An arrow
+function and an accessor can never be one, so a `yield` inside either is
+reported — `() => yield s` is `YieldExpression2_es6`'s second line.
+
+### Measured
+
+`diag2307` with `RULE_CODES = [1163]`:
+
+| | CONVERTS | LOST | RIGHT | WRONG |
+|---|---:|---:|---:|---:|
+| before | 0 | 0 | 0 | 0 |
+| first cut | 10 | 0 | 18 | 11 |
+| **after the operand bound** | **10** | **0** | **18** | **7** |
+
+**+10 cases for zero LOST.** Coverage `1,395 → 1,405 / 5,488` (25.42% →
+**25.60%**), the session's largest build after §87. `checker_types` identical at
+3,893/9,538 · 84.29% by stash-and-remeasure.
+
+**The bar was +8 cases and at most 2 wrong lines. Met on cases, MISSED on wrong
+lines** — 7, not 2 — and that is recorded as a miss rather than rounded off. All
+seven fall in cases that remain failing for other reasons, so nothing regressed,
+but the rule is noisier than the bar allowed for.
+
+### The wrong column, read — and it is the parser's
+
+**A bare `yield` is an IDENTIFIER outside a generator**, in non-strict code.
+`function f(yield = yield) {}` and `var v = { [yield]: foo }` are both legal, and
+upstream's parser builds an `Identifier` for them because it tracks the yield
+context while parsing. This parser builds a `YieldExpression` regardless, so the
+rule was reporting on a *name*. Requiring an operand — `yield x`, never bare
+`yield` — took the wrong column from 11 to 7 and cost no conversion.
+
+The remaining 7 are the same divergence in shapes the operand bound does not
+separate: `YieldExpression8_es6`, `YieldStarExpression1_es6` and
+`awaitAndYieldInProperty` (4 lines). **Owner: `tsr_parser`'s yield-context
+tracking**, which is the same information `NodeFlags::YIELD_CONTEXT` would carry
+if anything set it — so the flag and the wrong column have one owner between
+them, and fixing the parser closes both.

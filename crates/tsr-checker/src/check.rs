@@ -398,6 +398,7 @@ impl Checker<'_, '_> {
         // list. Bounded to class elements and parameters — `defaultKeywordWithoutExport1`
         // is the statement-level shape and is declined, §103.
         match typed {
+            Node::YieldExpression(_) => self.check_yield_grammar(node),
             Node::PropertyDeclaration(n) => self.check_modifier_order(n.modifiers),
             Node::MethodDeclaration(n) => self.check_modifier_order(n.modifiers),
             Node::GetAccessorDeclaration(n) => self.check_modifier_order(n.modifiers),
@@ -1939,6 +1940,67 @@ impl Checker<'_, '_> {
             }
             seen.push(kind);
         }
+    }
+
+    /// TS1163 — `A 'yield' expression is only allowed in a generator body.`
+    ///
+    /// `checkGrammarYieldExpression` (`grammarchecks.go:1777`), whose test is
+    /// `node.Flags&ast.NodeFlagsYieldContext == 0`. This port declares
+    /// [`tsr_ast::NodeFlags::YIELD_CONTEXT`] and never sets it, so the context
+    /// is derived from the tree instead: **the nearest enclosing function-like
+    /// must be a generator.** An arrow function and an accessor can never be
+    /// one, and a class property initialiser or static block starts a fresh
+    /// context. See `checker-notes-diag2.md` §104.
+    ///
+    /// `grammarErrorOnFirstToken` reports the `yield` keyword, which is the
+    /// expression's own start — so the span is `nodes.span`, not `error_span`.
+    fn check_yield_grammar(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        // **A bare `yield` is an IDENTIFIER outside a generator**, in
+        // non-strict code — `function f(yield = yield) {}` and
+        // `{ [yield]: foo }` are legal and upstream's parser builds an
+        // identifier there. This parser builds a `YieldExpression`, so the rule
+        // would report on a name. Requiring an operand bounds it to the
+        // unambiguous form. **Owner: `tsr_parser`'s yield-context tracking** —
+        // 11 wrong lines measured, `FunctionDeclaration3_es6` and
+        // `FunctionDeclaration8_es6` at the head of them (§104).
+        let Some(Node::YieldExpression(yielded)) = self.node_map.get(node) else { return };
+        if yielded.expression.is_none() {
+            return;
+        }
+        let in_generator = self
+            .nodes
+            .ancestors(node)
+            .find_map(|ancestor| match self.node_map.get(ancestor) {
+                Some(Node::FunctionDeclaration(n)) => Some(n.asterisk_token.is_some()),
+                Some(Node::FunctionExpression(n)) => Some(n.asterisk_token.is_some()),
+                Some(Node::MethodDeclaration(n)) => Some(n.asterisk_token.is_some()),
+                // Cannot be generators; they still bound the context.
+                Some(
+                    Node::ArrowFunction(_)
+                    | Node::GetAccessorDeclaration(_)
+                    | Node::SetAccessorDeclaration(_)
+                    | Node::ConstructorDeclaration(_)
+                    | Node::PropertyDeclaration(_)
+                    | Node::ClassStaticBlockDeclaration(_),
+                ) => Some(false),
+                _ => None,
+            })
+            .unwrap_or(false);
+        if in_generator {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let span = self.nodes.span(node);
+        self.report(
+            file,
+            Diagnostic::new(
+                &messages::A_YIELD_EXPRESSION_IS_ONLY_ALLOWED_IN_A_GENERATOR_BODY,
+                span,
+            ),
+        );
     }
 
     /// Does the subtree rooted at `node` reach `this.<text>` in any position?
