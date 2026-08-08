@@ -158,11 +158,18 @@ TS2540      12         9
    corpus case behind them today: JSDoc, the instance-property `isStatic` split,
    the binding-element recursion, the `legacyDecorators` arms.
 
-   **Next place to look for the same defect §93/§95/§100 all were:** `classify`
-   still collapses `S::PROPERTY` over five node kinds and `S::ALIAS` over five
-   import/export forms. **When a consumer's faithful test gives an unfaithful
-   answer, suspect the flag before the test** — that rule cost two wasted first
-   attempts to learn.
+   **The `classify` collapse audit is DONE, §102, and found nothing further.**
+   All eleven excludes masks match `ast/symbolflags.go:52-74`; `S::ALIAS` over
+   five import/export forms and `S::PROPERTY` over five node kinds are *not*
+   collapses, because upstream makes no distinction there either. The
+   §93/§95/§100 pattern had two instances, not four, and both are fixed. One
+   divergence remains and is **not this workstream's**: enum members are filed
+   in `Members` here and in the enum symbol's `Exports` upstream
+   (`binder.go:436`) — already tracked with a pinning test.
+
+   **Keep the rule the pattern produced:** *when a consumer's faithful test
+   gives an unfaithful answer, suspect the flag before the test.* It cost two
+   wasted first attempts (§94's mask, §100's checker-side test) to learn.
 
 5. **The rest of `diaggap`'s relation-free single-code column** — re-run it;
    TS2693, TS2364, TS2703, TS2558 were 9/7/7/6 before this session's builds.
