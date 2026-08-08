@@ -2,15 +2,15 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 dts_reachable_target Summary:
 What a pass means: upstream emitted .d.ts for this case and no declaration in it needs inference, so a checker-free emitter could be aimed at it — an UPPER BOUND on what is achievable, not a pass rate, and not a claim that we emit anything
-Passed         : 496/1162 (42.69%)
-Failed         : 666
+Passed         : 492/1162 (42.34%)
+Failed         : 670
 Skipped        : 11282 (excluded from the denominator)
 
   8188  skipped: the emit baseline contains no .d.ts section
   2477  skipped: upstream recorded no .js emit baseline
   617  skipped: upstream recorded no output for this case
 
-First 100 of 666 failures:
+First 100 of 670 failures:
 compiler/accessorDeclarationEmitJs
   needs inference: TS9009
 compiler/allowSyntheticDefaultImportsCanPaintCrossModuleDeclaration

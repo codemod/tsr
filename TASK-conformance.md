@@ -3,9 +3,12 @@ THIS FILE IS THE NON-CHECKER, NON-DIAGNOSTICS CONFORMANCE WORKSTREAM'S HANDOFF.
 CURRENT PROGRESS (2026-08-08)
 
   parser_typescript      5,031/5,031 = 100.00% (up from 5,001)
-  dts_reachable_target     496/1,162 = 42.69%  (up from 495; corrected visibility
-                                                exposed one inference case)
-  dts_emit                  328/375  = 87.47%  (denominator moved three times:
+  dts_reachable_target     492/1,162 = 42.34%  (corrected twice: visibility
+                                                fixes exposed inference cases —
+                                                pattern statements upstream
+                                                analyzes were invisible until
+                                                bound names joined reachability)
+  dts_emit                  327/374  = 87.43%  (denominator moved three times:
                                                 grew 341 -> 395 pairing outDir-
                                                 remapped baselines, shrank to
                                                 376 removing input-echo
@@ -196,7 +199,13 @@ reachability and the source phase retaining the entity's import
 other entity honestly moved to the needs-inference bucket
 (`declarationEmitNonExportedBindingPattern`, `destructuredDeclarationEmit` —
 their wants restate checker member types), shrinking the emit denominator
-378 -> 375.
+378 -> 374. The reachable-target population corrected 496 -> 492: pattern
+statements upstream analyzes were invisible to the reachability-filtered
+analysis until pattern bound names joined `declared_names`, and an initially
+committed analysis exemption for namespace-import destructuring was reverted
+as diverging from upstream's isolatedDeclarations verdicts
+(`declarationEmitExpressionInExtends6` emits correctly but sits in the
+inference bucket, exactly as upstream classifies it).
 
 Baseline declaration sections name the *output* location while units name the
 *source* one, so exact-name matching silently excluded every
@@ -270,7 +279,13 @@ reachability and the source phase retaining the entity's import
 other entity honestly moved to the needs-inference bucket
 (`declarationEmitNonExportedBindingPattern`, `destructuredDeclarationEmit` —
 their wants restate checker member types), shrinking the emit denominator
-378 -> 375. JSDoc-only type
+378 -> 374. The reachable-target population corrected 496 -> 492: pattern
+statements upstream analyzes were invisible to the reachability-filtered
+analysis until pattern bound names joined `declared_names`, and an initially
+committed analysis exemption for namespace-import destructuring was reverted
+as diverging from upstream's isolatedDeclarations verdicts
+(`declarationEmitExpressionInExtends6` emits correctly but sits in the
+inference bucket, exactly as upstream classifies it). JSDoc-only type
 spellings rewrite to TypeScript before grafting: bare `?` is `any | null`,
 postfix `?`/`=`/`!` are null/undefined unions or plain, `function(...)`
 collapses to `Function`, and `X.<...>` generics lose the dot with `Object.<`
@@ -285,7 +300,13 @@ reachability and the source phase retaining the entity's import
 other entity honestly moved to the needs-inference bucket
 (`declarationEmitNonExportedBindingPattern`, `destructuredDeclarationEmit` —
 their wants restate checker member types), shrinking the emit denominator
-378 -> 375.
+378 -> 374. The reachable-target population corrected 496 -> 492: pattern
+statements upstream analyzes were invisible to the reachability-filtered
+analysis until pattern bound names joined `declared_names`, and an initially
+committed analysis exemption for namespace-import destructuring was reverted
+as diverging from upstream's isolatedDeclarations verdicts
+(`declarationEmitExpressionInExtends6` emits correctly but sits in the
+inference bucket, exactly as upstream classifies it).
 
 `TASK.md` belongs to the checker-types gradient and `TASK-diagnostics.md` belongs
 to diagnostics. Do not put work from either stream here. This file owns the
