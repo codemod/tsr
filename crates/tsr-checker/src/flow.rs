@@ -1759,6 +1759,14 @@ impl Checker<'_, '_> {
                 expr = next;
             }
         }
+        // §59 (`checker-notes-narrow.md`): `switch (true)` — the clause
+        // expressions are conditions (`narrowTypeBySwitchOnTrue`).
+        if let tsr_ast::Expression::KeywordExpression(keyword) = expr
+            && keyword.kind == SyntaxKind::TrueKeyword
+        {
+            let narrowed = self.narrow_type_by_switch_on_true(state, incoming.t, switch, &clause);
+            return FlowType { t: narrowed, incomplete: incoming.incomplete };
+        }
         // §50.1: the switch expression is a SIBLING element of the
         // pseudo-reference pattern — the clause narrows the walked union
         // by that member.
@@ -1895,6 +1903,74 @@ impl Checker<'_, '_> {
             return t;
         }
         self.rebuild_union_subset(t, &kept)
+    }
+
+    /// `narrowTypeBySwitchOnTrue` (`flow.go:1129` region): prior clauses
+    /// refute, the current set asserts per clause and unions, a default in
+    /// the set skips the assert half but still refutes later clauses
+    /// (`checker-notes-narrow.md` §59).
+    fn narrow_type_by_switch_on_true(
+        &mut self,
+        state: &mut FlowState,
+        t: TypeId,
+        switch: &tsr_ast::SwitchStatement<'_>,
+        clause: &tsr_binder::SwitchClause,
+    ) -> TypeId {
+        let Some(block) = switch.case_block else { return t };
+        let clauses = block.clauses;
+        let clause_start = clause.clause_start as usize;
+        let clause_end = clause.clause_end as usize;
+        // The side-table node kind, NOT the token field — the §16
+        // CaseKeyword trap's third application.
+        let is_case = |checker: &Self, c: &tsr_ast::CaseOrDefaultClause<'_>| {
+            c.node_id.is_some_and(|id| checker.nodes.kind(id) == SyntaxKind::CaseClause)
+        };
+        let default_index = clauses.iter().position(|c| !is_case(self, c));
+        let has_default = clause_start == clause_end
+            || default_index.is_some_and(|d| d >= clause_start && d < clause_end);
+        let mut narrowed = t;
+        for c in clauses.iter().take(clause_start.min(clauses.len())) {
+            if is_case(self, c)
+                && let Some(expression) = c.expression
+                && let Some(id) = expression.node_id()
+            {
+                narrowed = self.narrow_type(state, narrowed, id, false);
+            }
+        }
+        if has_default {
+            for c in clauses.iter().skip(clause_end) {
+                if is_case(self, c)
+                    && let Some(expression) = c.expression
+                    && let Some(id) = expression.node_id()
+                {
+                    narrowed = self.narrow_type(state, narrowed, id, false);
+                }
+            }
+            return narrowed;
+        }
+        let range: Vec<TypeId> = clauses
+            .iter()
+            .skip(clause_start)
+            .take(clause_end.saturating_sub(clause_start))
+            .map(|c| {
+                if is_case(self, c)
+                    && let Some(id) = c.expression.and_then(|e| e.node_id())
+                {
+                    self.narrow_type(state, narrowed, id, true)
+                } else {
+                    narrowed
+                }
+            })
+            .collect();
+        if range.is_empty() {
+            return narrowed;
+        }
+        // The §51 kept-all lesson at the clause union: identical branches
+        // keep the original spelling.
+        if range.iter().all(|&r| r == range[0]) {
+            return range[0];
+        }
+        self.get_union_type(&range)
     }
 
     /// `narrowTypeBySwitchOnDiscriminant` (`flow.go:1092`), the

@@ -2640,3 +2640,29 @@ un-narrowed full sets now spelling their alias name where upstream's
 switch(true)-clause narrowing (unported) answers the subset: a
 want-narrower class owned by that road, not this consult.
 `checker_types` right 401,541 → **401,574 (83.84%)**.
+## §59 — switch (true), the clause-expression road
+
+Twice-named by adverse rows (§51.1's 2, §58.1's 6): `switch (true)` —
+every case EXPRESSION is a condition (`narrowTypeBySwitchOnTrue`,
+`flow.go` beside the typeof arm): prior clauses narrow assume-FALSE, the
+current clause set narrows assume-TRUE per clause and unions, and a
+default in the set skips the true-half but still refutes the clauses
+after it. The dispatch: the switch expression is the `true` literal.
+`narrow_type` is the §5x family's shared entry, so the whole family
+(discriminant property equality/truthiness, chain containment, typeof)
+composes here for free.
+
+**Falsifiers.** (a) Fallthrough clause ranges (clause_start/end spans)
+mis-read → over-narrowing R→W; (b) conditions the family declines leave
+`t` unchanged per branch — a union of unchanged branches must not
+rebuild-and-lose spellings (the §51 kept-all lesson at the clause
+union).
+
+**§59 score — LANDED.** **+67 (49 W→R, 18 G→R) / 2 R→G + 2 W→G
+(33:1).** Neither falsifier fired as named; the 4 →G are
+`narrowByClauseExpressionInSwitchTrue3` clause-join corners (honest
+declines where the joined branches disagree undecidably). §58.1's 6
+adverse convert. The §16 CaseKeyword trap fired a THIRD time en route —
+`CaseOrDefaultClause` is one struct whose `kind` token reads CaseKeyword
+everywhere; the side-table node kind decides, now noted at the type.
+`checker_types` right 401,574 → **401,639 (83.86%)**.
