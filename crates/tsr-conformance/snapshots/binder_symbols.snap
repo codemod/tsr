@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 binder_symbols Summary:
 What a pass means: every symbol in the .symbols baseline exists with the same declaration lines
-Passed         : 8424/8461 (99.56%)
-Failed         : 37
+Passed         : 8427/8461 (99.60%)
+Failed         : 34
 Skipped        : 3983 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -26,8 +26,6 @@ compiler/declarationEmitLateBoundAssignments2
   3 symbol(s): arrow.B: no symbol; arrow3.77: no symbol; arrow5.101: no symbol
 compiler/duplicateObjectLiteralProperty_computedName1
   1 symbol(s): +1: declared on {15, 20, 21}, expected to include {15, 16, 20, 21}
-compiler/expandoFunctionContextualTypesJs
-  1 symbol(s): defaultProps: declared on {9, 15}, expected to include {4}
 compiler/invalidUnicodeEscapeSequance4
   1 symbol(s): u0031a: no symbol
 compiler/jsDeclarationEmitDoesNotRenameImport
@@ -50,8 +48,6 @@ compiler/staticFieldWithInterfaceContext
   3 symbol(s): c.x: declared on {3}, expected to include {3, 15, 17}; c10.x: no symbol; c11.x: no symbol
 compiler/strictOptionalProperties4
   1 symbol(s): foo: no symbol
-conformance/assertionTypePredicates2
-  1 symbol(s): y: no symbol
 conformance/autoAccessorNoUseDefineForClassFields
   2 symbol(s): file3.ts: C3.x: no symbol; file3.ts: C3.x: no symbol
 conformance/checkJsdocTypedefInParamTag1
@@ -80,8 +76,6 @@ conformance/thisTag1
   2 symbol(s): (Missing): no symbol; n: declared on {9}, expected to include {0, 9}
 conformance/thisTypeInFunctionsNegative
   2 symbol(s): (Missing): no symbol; C: declared on {0}, expected to include {0, 171}
-conformance/typedefOnStatements
-  3 symbol(s): a: declared on {70}, expected to include {0, 70}; b: declared on {70}, expected to include {2, 70}; c: declared on {70}, expected to include {4, 70}
 conformance/typedefTagNested
   3 symbol(s): name: declared on {9, 35}, expected to include {9, 29, 35}; nested: declared on {35}, expected to include {31, 35}; not: declared on {35}, expected to include {30, 35}
 conformance/unicodeEscapesInJsxtags

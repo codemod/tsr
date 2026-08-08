@@ -2693,6 +2693,12 @@ impl<'a, 'n> Binder<'a, 'n> {
                             };
                             let Some(id) = typedef.node_id else { continue };
                             self.declare_jsdoc_symbol(root, name, SymbolFlags::TYPE_ALIAS, id);
+                            // The tag's type expression is parsed syntax — a
+                            // `{{a: string}}` object carries members upstream
+                            // binds like any written type literal.
+                            if let Some(expression) = typedef.type_expression {
+                                self.bind(expression);
+                            }
                         }
                         JSDocTag::JSDocCallbackTag(callback) => {
                             let name = match callback.name {
@@ -2703,6 +2709,9 @@ impl<'a, 'n> Binder<'a, 'n> {
                             };
                             let Some(id) = callback.node_id else { continue };
                             self.declare_jsdoc_symbol(root, name, SymbolFlags::TYPE_ALIAS, id);
+                            if let Some(expression) = callback.type_expression {
+                                self.bind(tsr_ast::Node::from(expression));
+                            }
                         }
                         JSDocTag::JSDocTemplateTag(template) => {
                             for parameter in template.type_parameters {
