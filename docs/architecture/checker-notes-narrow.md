@@ -2497,3 +2497,22 @@ members are opaque upstream, so the collision never folds. Final:
 folding, cross-enum references, and the entry-order class
 (`(E7 | E8 | E3 | E4)[]` — type-creation order, the §53 order
 question's sibling).
+
+## §55.1 — the single-member spelling split
+
+The §55 residue's head, decoded from 261 lines and two probes: a
+SINGLE-member enum's one literal prints as the ENUM in access positions
+(`Enum.A : Enum`) while the DECLARATION line keeps the per-name spelling
+(`>A : Enum.A`) — two spellings of one member, which this port models as
+DIVERGENT fresh/regular twins (regular spelled as the enum, fresh
+per-name, `enum_member_regular`-linked) plus an access-road swap
+(`enum_access_spelling`, consulted at `check_property_access_expression`'s
+single exit). A first cut spelled BOTH forms as the enum and measured
++218/197 — the 197 were every declaration line, which is what proved the
+split runs on the fresh/regular axis.
+
+**§55.1 score — LANDED.** **+212 W→R / 2 R→W (106:1)** — the 2 are
+module-merged/imported single-member enums wanting qualified spellings
+(`constEnumOnlyModuleMerging`, `enumFromExternalModule`), accepted.
+`checker_types` right 399,963 → **400,173 (83.55%)** — the right count
+crosses 400,000.

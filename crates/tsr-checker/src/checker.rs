@@ -273,6 +273,12 @@ pub struct Checker<'a, 'n> {
     /// string). `enum E { A, B = A }` gives both members ONE type.
     pub(crate) enum_value_types:
         rustc_hash::FxHashMap<(tsr_binder::SymbolId, String), crate::types::TypeId>,
+    /// §55.1's spelling split, single-member enums only: the member's FRESH
+    /// form prints per-name (`E.A`, declaration lines) while ACCESS
+    /// expressions print the enum (`Enum.A : Enum`). Fresh id → the
+    /// enum-spelled regular the access road answers instead.
+    pub(crate) enum_access_spelling:
+        rustc_hash::FxHashMap<crate::types::TypeId, crate::types::TypeId>,
 
     /// Upstream's `c.strictNullChecks` (`checker.go:604`, set from the
     /// compiler options at `:919` via `GetStrictOptionValue`).
@@ -604,6 +610,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             narrow_value_types: rustc_hash::FxHashMap::default(),
             union_origin: rustc_hash::FxHashMap::default(),
             enum_value_types: rustc_hash::FxHashMap::default(),
+            enum_access_spelling: rustc_hash::FxHashMap::default(),
             instantiation_depth: 0,
             instantiation_count: 0,
             strict_null_checks: true,

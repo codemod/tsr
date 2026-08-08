@@ -1664,6 +1664,25 @@ impl<'a> Checker<'a, '_> {
             self.binder.symbols().get(symbol).declarations.iter().copied().collect::<Vec<_>>();
         let name = self.binder.symbols().get(symbol).name.to_string();
         let mut members = Vec::new();
+        // §55.1: a single-MEMBER enum's one literal prints as the ENUM
+        // itself (`Enum.A : Enum`, `classStaticInitializersUseProperties…`,
+        // `enumAssignabilityInInheritance` — 261 corpus lines); multi-member
+        // enums keep per-value names (`E9.A`). Counted across merged
+        // declarations, bindable members only.
+        let total_members: usize = declarations
+            .iter()
+            .filter_map(|&declaration| match self.node_map.get(declaration) {
+                Some(Node::EnumDeclaration(node)) => Some(
+                    node.members
+                        .iter()
+                        .filter(|member| {
+                            member.node_id.and_then(|id| self.binder.symbol_of(id)).is_some()
+                        })
+                        .count(),
+                ),
+                _ => None,
+            })
+            .sum();
         let canonical = |value: &MemberValue| match value {
             MemberValue::Num(n) => format!("n:{n}"),
             MemberValue::Str(s) => format!("s:{s}"),
@@ -1725,6 +1744,29 @@ impl<'a> Checker<'a, '_> {
                                 c.is_alphanumeric() || c == '_' || c == '$'
                             }
                         }));
+                // §55.1: the single-member split mints DIVERGENT twins —
+                // regular spelled as the enum, fresh spelled per-name — and
+                // registers the access-road swap.
+                if total_members == 1 {
+                    let regular = self.store.new_named(TypeFlags::ENUM, name.clone(), None);
+                    let per_name = if identifier_like {
+                        format!("{name}.{member_name}")
+                    } else {
+                        format!("(typeof {name})[{}]", crate::printing::quote(&member_name))
+                    };
+                    let fresh = self.store.intern_literal(
+                        TypeFlags::ENUM,
+                        crate::types::TypeData::Named { text: per_name, members: None },
+                        true,
+                    );
+                    self.enum_member_owners.insert(regular, symbol);
+                    self.enum_member_owners.insert(fresh, symbol);
+                    self.enum_member_regular.insert(fresh, regular);
+                    self.enum_access_spelling.insert(fresh, regular);
+                    self.declared_types.insert(member_symbol, fresh);
+                    members.push(regular);
+                    continue;
+                }
                 let member_text = if identifier_like {
                     format!("{name}.{member_name}")
                 } else {
