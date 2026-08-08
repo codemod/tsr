@@ -1264,6 +1264,22 @@ its whole deliverable and accept that it converts nothing until finished.
 
 ### New, thirteenth session, `diagnostics`
 
+- **A class-expression contextual decline for TS7006 — REFUSED at −4 right
+  lines** (§111). `return class { static m = (arg) => … }` from a function
+  annotated `: Foo` **is** contextually typed and §80's allow-list admits it
+  because the property carries no annotation — but narrowing that arm on
+  **syntax** removes four correct TS7006 along with the four wrong ones, at
+  **+0 cases** (1,406 on both sides of a stash). **Owner: the contextual type**,
+  because the decline must key on whether a signature actually reaches the
+  parameter, not on the class expression's position. Do not re-attempt on syntax
+  alone; this is its number.
+- **`diagcase` matching a case exactly is NOT evidence a rule is finished**
+  (§111). After that change the case matched upstream line-for-line, which is
+  what a finished build looks like; the **whole-suite counterfactual** is what
+  showed the same predicate silencing four correct lines in *other* cases.
+  **A per-case diff cannot see a rule's cost outside the case you are looking
+  at** — §88's lesson arriving from the other direction.
+
 - ~~TS2448 / TS2450 — refused three times (§96 176 wrong/6 LOST, §97 21/1,
   §98 21/1)~~ **LANDED, §99, at 1 wrong and 0 LOST.** The four measurements are
   kept below because each isolated a different arm and the sequence is the
