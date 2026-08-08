@@ -8154,3 +8154,61 @@ TS1109 to the parser, and turned TS1100 from "cheap grammar code" into "binder
 build with a three-way message split and a rail to watch". **None of the three
 was the build the previous section advertised**, and the cheapest way to find
 that out was not to start any of them.
+
+## §106 — the yield/await context, priced as a parser build
+
+Three separate findings now resolve to one missing mechanism, so it is priced
+here as one item rather than three.
+
+| finding | what it is |
+|---|---|
+| §104's residual **7 wrong lines** | a bare `yield` reported as an expression where it is a name |
+| `NodeFlags::YIELD_CONTEXT` | declared at `flags.rs:40`, **set by nothing** |
+| **TS1109, 11 sole-obstacle cases** | every line a `yield`/`await` recovery position |
+
+### What upstream does that this parser does not
+
+`parse_assignment_expression` (`expression.rs:144`) parses `yield` as a
+`YieldExpression` **unconditionally**. Upstream asks `isYieldExpression`
+(`parser.go:4150`) first:
+
+```go
+if p.inYieldContext() { return true }
+// outside a generator, `yield` is an IDENTIFIER unless the next token
+// on the same line proves otherwise
+return p.lookAhead(p.nextTokenIsIdentifierOrKeywordOrLiteralOnSameLine)
+```
+
+`yield = yield` and `{ [yield]: foo }` both fail that lookahead — `=`, `)` and
+`]` are none of identifier, keyword or literal — so upstream builds an
+`Identifier` and this port builds a `YieldExpression`. That is §104's wrong
+column exactly, and `await` has the identical structure
+(`isAwaitExpression`/`inAwaitContext`), which is TS1109's other half.
+
+### Why the lookahead alone is NOT the fix, and this is the trap
+
+Applying the lookahead unconditionally would be a regression: inside a generator
+`yield` is *always* an expression, so `function* f() { yield; }` would start
+parsing `yield` as a name. **The lookahead is only correct outside the context,
+and the context is precisely what this parser does not track.** Anyone reaching
+for the cheap half of this build will break bare `yield` in generators, and the
+`diagnostics` suite may not be what catches it.
+
+### The shape of the real build
+
+Parser state carrying `in_yield_context` / `in_await_context`, set on entering a
+generator or `async` body and **cleared** on entering a nested non-generator or
+non-async one — upstream's `doInsideOfContext`/`doOutsideOfContext`. Then
+`isYieldExpression`'s two-step, and the flags stamped onto nodes so
+`NodeFlags::YIELD_CONTEXT` stops being decoration and §104 can read it instead
+of re-deriving it from ancestors.
+
+**This is a `tsr_parser` build and it changes parse trees**, so it must be
+measured against `printer_round_trip` (11,682/11,738) and `binder_symbols`
+(8,311/8,475) as well as `diagnostics` and `checker_types` — four rails, not the
+usual two. That is why it is priced rather than started at the end of a session:
+a parse-tree change measured against only two of its four rails is exactly the
+kind of build that looks clean and is not.
+
+**Expected yield: 11 cases (TS1109) plus 7 of §104's wrong lines, and it
+retires a never-set flag.**
