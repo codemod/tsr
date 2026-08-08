@@ -2,20 +2,37 @@ THE `diagnostics` WORKSTREAM'S HANDOFF.
 
 `TASK.md` is the `.types` gradient workstream's. They are separate files because
 they were overwriting each other. Nothing below touches `checker_types`, and
-**every `diagnostics` build of the eleventh and twelfth sessions left it
-byte-identical**.
+**every `diagnostics` build of the eleventh, twelfth and thirteenth sessions
+left it byte-identical**.
 
 FIRST: git pull. Then read, in this order:
   STATUS.md §1's `diagnostics` block and §5's `diagnostics` refusals, then
   docs/architecture/checker-notes-diag2.md **§75 and §79 first** (the board and
-  the metric), then §76–§84 — the twelfth session, nine sections, eight builds
-  and one refusal.
+  the metric), then **§86–§90** — the thirteenth session, five sections, four
+  builds.
 
 STATE AT HANDOFF (verify with a fresh coverage run):
-  diagnostics    1,346/5,488 = 24.53%   (was 1,302; +44 over 8 builds,
-                 **zero cases lost in any of them**)
-  checker_types  3,742/9,538 · 83.41% — the other workstream's. Do not touch it;
-                 re-check it is byte-identical after every build.
+  diagnostics    1,373/5,488 = 25.02%   (was 1,346; +27 over 4 builds,
+                 **zero cases lost, and the wrong column FELL in two of them**)
+  checker_types  3,786/9,538 · 83.84% — the other workstream's, and it moves
+                 hourly. Do not touch it.
+
+## CHECK BYTE-IDENTITY THE ONLY WAY THAT WORKS
+
+**`git stash push <your files>` → coverage → `git stash pop`.** That compares two
+states of the *same checkout*, which is the only comparison that means anything
+while another workstream lands builds between your measurement and your push.
+
+Two sessions in a row have misread a `.types` build arriving through their own
+`git pull --rebase` as their own drift (83.40 → 83.41 in the twelfth, 3,784 →
+3,786 in the thirteenth). Both times the number written down before the last
+push was simply stale. **Never compare against it.**
+
+Related, and it cost this session its first hour: **`coverage` is run in DEBUG in
+`CLAUDE.md` and the examples are run `--release`.** Release has `overflow-checks`
+off. The `.types` workstream landed a `span.end - span.start` that wrapped
+harmlessly in release and aborted every debug run (§86). If coverage exits 101,
+suspect this before suspecting your own change.
 
 ## THE ONE THING THAT DECIDES WHETHER YOUR BUILD LANDS
 
@@ -80,55 +97,60 @@ TS2540      12         9
 
 ## RANKED NEXT ITEMS
 
-0. **Run `diagreach.rs` and `diaggap.rs` and pick from them.** Everything below
-   is that list read at this commit.
+0. **Run `diagreach.rs`, `diaggap.rs` and `extraonly.rs` and pick from them.**
+   Everything below is that list read at §90's commit, and four builds have
+   moved it.
 
-1. ~~Plumb the compiler options in one build~~ **AUDITED, §84.** Five of the
-   seven were already right; the one wrong was `useUnknownInCatchVariables`,
-   a strict option (`checker.go:926`) the harness **never set at all**, and it
-   landed at a *verified* zero. The audit table is in §84 and is the durable
-   part. **What is still missing is `preserveConstEnums`** — §82's three wrong
-   lines want it, and it gates `isInstantiatedModule`, which more rules will.
-   The general rule the audit produced: `GetStrictOptionValue`
-   (`core/compileroptions.go:294`) answers `Strict != TSFalse` for an unset
-   option, so **unset is TRUE for a strict option and FALSE for everything
-   else** — and `allowUnreachableCode` is neither, it is a Tristate whose unset
-   state is a *suggestion* that never reaches a `.errors.txt`. Check which of
-   the three shapes an option is before writing its default.
+1. **TS2554's remaining families — the row is ALREADY DIAGNOSED in §90.** It was
+   18 sole-obstacle cases over 29 missing lines, a **concentration of 1.6**,
+   which is the best shape on the board. §90 took the `new` half; what is left
+   is the same overload question on the **call** arm
+   (`functionOverloads29`/`34`/`37`), rest-parameter and initialiser ordering
+   (`genericRestArity`, `requiredInitializedParameter1`,
+   `spreadOfParamsFromGeneratorMakesRequiredParams` — all declined by
+   `sole_signature_arity`'s `take_while(dot_dot_dot_token.is_none())`), and the
+   JS arm, where **§74's rule applies: a JS decline does not transfer between
+   arms.** Measure it, do not assume it.
 
-2. ~~TS2449, the `extends` slice~~ **DONE, §83, +6 for ZERO wrong.** What is
-   left is **`isBlockScopedNameDeclaredBeforeUse` (`checker.go:1922`) proper** —
-   the eighty lines of *deferral* arms §83 bounded its way around: a use inside
-   a function body, an instance property initialiser, an export specifier, a
-   binding element, a decorator, a computed property name. Its five
-   non-converters (`classDeclarationShouldBeOutOfScopeInComputedNames`, the tail
-   of `resolvingClassDeclarationWhenInBaseTypeResolution`) are exactly those
-   arms. **Build it once for three codes**: `checkResolvedBlockScopedVariable`
-   picks between TS2449, TS2448 (block-scoped variable) and TS2450 (enum) off
-   the symbol's flags and shares everything else, and TS2448's own row has not
-   been sized yet.
+2. **Duplicate PARAMETERS — TS2300's other big family, and it is a real
+   structural finding** (§88). `callSignaturesWithDuplicateParameters` alone is
+   44 of 120 missing lines, plus `functionCall15` and
+   `declarationEmitDestructuring2`. Upstream's `declareSymbol` takes `excludes`
+   as a **parameter**, and `bindParameter` passes `ParameterExcludes`
+   (`binder.go:1200`) while declaring with `FunctionScopedVariable` flags. This
+   port derives excludes from the flags, so a parameter gets
+   `FunctionScopedVariableExcludes`, which deliberately does not collide —
+   because `var x; var x;` is legal. **Excludes is not a function of includes.**
+   Upstream's own comment at `binder.go:1176` says so. This is a binder change
+   against the `binder_symbols` rail (8,293/8,460) — **measure that rail, not
+   just `checker_types`.**
 
-3. **The rest of `diaggap`'s relation-free single-code column**: TS2693 9,
-   TS2364 7, TS2703 7, TS2558 6.
+3. **TS2300's 61 false positives** — the largest wrong column this workstream
+   owns, and `augmentedTypesModules` / `duplicateExportAssignments` /
+   `es6ImportNamedImport*` name the family: declaration merging upstream permits
+   and this binder rejects. **But see §89's correction to §88**: `extraonly`
+   lists none of them, so none is a *sole* obstacle and they are not 61
+   conversions. Price them with `extraonly`, not with `diag2307`'s wrong column.
 
-4. **TS7026 — still refused, and its constituency has GROWN.** 28 sole-obstacle
-   cases of its own, **plus ~13 of TS2454's** (§85): both want the same thing.
-   28 sole-obstacle cases,
-   the largest relation-free row on the board. §13's number (12 conversions for
-   47 wrong) stands and the blocker is unchanged: the corpus's JSX cases declare
-   `namespace JSX` inside `declare global { … }` and **global augmentation is
-   unported in this binder**. This is worth a session on its own the moment
-   `declare global` merging lands.
+4. **`isBlockScopedNameDeclaredBeforeUse` (`checker.go:1922`) proper** — the
+   eighty lines of *deferral* arms §83 bounded its way around. **Build it once
+   for three codes**: `checkResolvedBlockScopedVariable` picks between TS2449,
+   TS2448 and TS2450 off the symbol's flags and shares everything else.
 
-5. **TS1212 (104 lines)** needs `alwaysStrict` inside `tsr_binder::bind`, which
-   nothing plumbs. **But check §82 first**: the same sentence was carried for
-   TS7027 across three handoffs and turned out to be false there — the binder
-   already recorded the answer per node and the checker could just read it.
-   **Ask what the binder already knows before accepting a binder blocker.**
+5. **The rest of `diaggap`'s relation-free single-code column** — re-run it;
+   TS2693, TS2364, TS2703, TS2558 were 9/7/7/6 before this session's builds.
 
-6. **The assignability family** is §5's standing refusal and `diagreach` prices
-   it at 939 cases — more than the suite currently passes. A `checker_types`
-   build, not a diagnostics one.
+6. **TS7026 — still refused**, 28 sole-obstacle cases plus ~13 of TS2454's
+   (§85). Both want binder-level `declare global` / module-augmentation merging.
+   Worth a session on its own the moment that lands.
+
+7. **TS1212 (104 lines)** needs `alwaysStrict` inside `tsr_binder::bind`. **But
+   check §82 and §89 first**: the same "binder blocker" sentence was carried for
+   TS7027 across three handoffs and was false — the binder already recorded the
+   answer per node. **Ask what the binder already knows.**
+
+8. **The assignability family** is §5's standing refusal, priced at 947 cases —
+   more than half of what the suite passes. A `checker_types` build.
 
 ## THE INSTRUMENTS — use them, do not rebuild them
 
@@ -228,3 +250,40 @@ commit → STATUS → push.
 LOST must not grow in any measurement. `checker_types` must stay byte-identical.
 
 Push before you stop. A build that is not pushed did not happen.
+
+
+## FINDINGS THE THIRTEENTH SESSION PAID FOR — do not repay
+
+- **A DECLINE CAN CONCEAL A BUG RATHER THAN PREVENT ONE.** §90 lifted one
+  decline (a generic base class) and immediately measured **five new wrong
+  lines** — which turned out to be a *pre-existing* defect the decline had been
+  hiding: the base-class hop advanced while no class had a constructor **with a
+  body**, so it walked past `declare class`'s ambient overloads into its base.
+  Fixing it removed the five and **four more that predated the build**. Lifting
+  a decline is the only way to find out which kind it was.
+- **A flow analysis you cannot run still has inputs you can read.** §6 declined
+  TS2564 for every class with a constructor because ADR-0012 forbids
+  synthesising the node upstream's flow query needs. §87 took +16 by asking the
+  one sub-question that needs no query: a constructor that never *mentions*
+  `this.<name>` cannot assign it on any path. Look for this shape in every
+  "cannot synthesise / cannot instantiate" decline.
+- **Arity is independent of generics** (§90), and more generally: when a rule
+  computes two answers at one gate, check whether the gate is really required by
+  both. TS2564, TS2554 and TS2345 all shared one, and only one of the three
+  needed it.
+- **The binder is not where you think.** TS2300 on a duplicate type parameter is
+  a **checker** rule comparing *symbol identity* (`checker.go:7002`), and it
+  works precisely *because* the binder merged the duplicates silently. Before
+  filing something as a binder gap, ask whether the binder's silence is the
+  input to somebody else's test.
+- **Unreachable code comes in RUNS, not statements and not lists** (§89), and
+  `isSourceElementUnreachable` asks a **different question per kind**: a
+  namespace that emits no JavaScript is not unreachable *code*.
+- **A second message can hide behind one code.** `Expected 1-2 arguments, but
+  got 0.` is TS2554, the same `Message` as `Expected 1 arguments`; upstream
+  composes the range into `{0}`. There is no `Expected_0_1_arguments_but_got_2`
+  to reach for in `messages.rs`.
+- **Price a false positive with `extraonly`, never with `diag2307`'s wrong
+  column.** The wrong column counts *lines*; only `extraonly` says whether a
+  case is one false positive from passing. §88 got this wrong about TS2300's 61
+  lines and §89 corrects it.
