@@ -108,6 +108,7 @@ pub mod calls;
 pub mod check;
 pub mod checker;
 pub mod comparison_overlap;
+pub mod computed_name;
 pub mod contextual;
 pub mod declared;
 pub mod destructure;

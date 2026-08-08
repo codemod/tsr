@@ -3874,3 +3874,80 @@ the rows were 7 + 3 + 3 = 13 cases and the twelve that did not convert are
 `STILL SHORT` — they need the *other* call sites, not a better facts test. That
 is the item this build hands on: `checkNonNullType` at property access, element
 access and call targets, where the same six messages already work.
+
+---
+
+## 52. TS2464 — the computed property name's type
+
+`checkComputedPropertyName` (`checker.go:26802`), **16 cases blocked on it
+alone**:
+
+```go
+if links.resolvedType.flags&TypeFlagsNullable != 0 ||
+    !c.isTypeAssignableToKind(links.resolvedType, TypeFlagsStringLike|TypeFlagsNumberLike|TypeFlagsESSymbolLike) &&
+        !c.isTypeAssignableTo(links.resolvedType, c.stringNumberSymbolType) {
+    c.error(node, diagnostics.A_computed_property_name_must_be_of_type_string_number_symbol_or_any)
+}
+```
+
+The comment above it is the specification: *"This will allow types number,
+string, symbol or any. It will also allow enums, the unknown type, and any union
+of these types (like `string | number`)."* The second disjunct — assignability to
+`string | number | symbol` — is what admits the union case that a flag test
+cannot see through, which is §45's `either_is_composite` population arriving as
+an upstream *feature* rather than a port limitation.
+
+The error node is the `ComputedPropertyName` itself, brackets included.
+
+`isInvalidComputedPropertyName` (`checker.go:26796`) short-circuits to
+`errorType` — and therefore to silence — for `[a in b]` inside a type literal,
+class or interface that is not an accessor: a mapped-type head the parser
+recovered as a computed name.
+
+### Direction, for the fourth time in this file
+
+The rule reports on a **negative**, so §25's collapse applies: both tests must be
+a *confident* negative before it fires, and `Ternary::Unknown` on either is
+silence. That is the opposite of §49's and §50.2's readings, and the reason each
+one is stated where it is used rather than in a shared helper.
+
+### The bar
+
+| leg | registered |
+|---|---|
+| 1 | `diagnostics` passes > **1,184**. Forecast **+4 to +14** of the 16 |
+| 2 | `checker_types` pass count unchanged at **3,682** |
+| 3 | LOST == **0** on `diag2307.rs` with `RULE_CODES = [2464]` |
+| 4 | own WRONG ≤ **15** |
+| 5 | every other snapshot unchanged |
+
+**Falsifier.** If the wrong column fills with `unique symbol` and enum-member
+computed names, the flag set is short a `UNIQUE_ES_SYMBOL` or an `ENUM_LITERAL`
+that upstream's `…Like` aliases carry and this port's do not — a table
+transcription error rather than a decline.
+
+### Scored — **+3 for zero wrong**, and a decomposition that was sound and worse
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| 1 | passes > 1,184, forecast +4 to +14 | **1,187 / 5,488 = 21.63%** | **fired, marginally** |
+| 2 | `checker_types` pass count 3,682 | **3,682 / 82.80%**, snapshot unchanged | pass |
+| 3 | LOST == 0 | **0** | pass |
+| 4 | own WRONG ≤ 15 | **0** | pass |
+| 5 | every other snapshot unchanged | only `diagnostics.snap` differs | pass |
+
+`diag2307.rs` isolated to 2464: **CONVERTS 3 · RIGHT 18 · WRONG 0 · LOST 0.**
+
+**A measured negative worth the line it takes.** The union target
+(`string | number | symbol`) is one the relater often answers `Unknown` for, and
+the obvious repair is to decompose it: a non-union source is assignable to a
+union exactly when it is assignable to **some** constituent, so asking the three
+separately is *sound*. Measured, it added **two wrong lines and no right ones**
+and was reverted. Whatever the relater cannot decide about the union it cannot
+decide about the constituents either, and the decomposition only widened the set
+of pairs it was willing to call a confident negative.
+
+The thirteen cases still blocked are `computedPropertyNames5–9_ES6` and
+`symbolProperty3/54/59` — `[b]` with `b: boolean`, `[[]]`, `[{}]`, `[s]` with
+`s = Symbol`. Every one is a **confident negative upstream and an `Unknown`
+here**, which puts them behind the relation rather than behind this rule.

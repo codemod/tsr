@@ -350,6 +350,10 @@ impl Checker<'_, '_> {
                 self.check_operator_operands(node, ambient);
                 ambient
             }
+            Node::ComputedPropertyName(_) => {
+                self.check_computed_property_name(node, ambient);
+                ambient
+            }
             Node::CallExpression(_) => {
                 self.check_call_arity(node);
                 ambient
