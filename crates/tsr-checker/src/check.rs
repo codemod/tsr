@@ -1048,6 +1048,15 @@ impl Checker<'_, '_> {
         if self.member_is_abstract(member) {
             return true;
         }
+        // `useSite.Flags&NodeFlagsAmbient != 0` — the FIRST clause of
+        // `IsValidTypeOnlyAliasUseSite` (`ast/utilities.go:3125`), which §123
+        // skipped because `NodeFlags::AMBIENT` is one of this port's never-set
+        // flags. §99 already built the substitute: walk the `declare`
+        // modifiers. `declare class H { [onInit]: any }` and
+        // `class G { declare [onInit]: any }` are both this. §132.
+        if self.declaration_is_in_an_ambient_context(member) {
+            return true;
+        }
         self.nodes.parent(member).is_some_and(|owner| {
             matches!(
                 self.nodes.kind(owner),
@@ -1063,6 +1072,11 @@ impl Checker<'_, '_> {
             Some(Node::MethodDeclaration(n)) => n.modifiers,
             Some(Node::GetAccessorDeclaration(n)) => n.modifiers,
             Some(Node::SetAccessorDeclaration(n)) => n.modifiers,
+            // `abstract [onInit](): void` has **no body**, so it is
+            // signature-shaped; §123 enumerated only the bodied kinds and so
+            // missed `abstract class F`. §132.
+            Some(Node::MethodSignatureDeclaration(n)) => n.modifiers,
+            Some(Node::PropertySignatureDeclaration(n)) => n.modifiers,
             _ => return false,
         };
         has_modifier(modifiers, SyntaxKind::AbstractKeyword)

@@ -440,6 +440,9 @@ fn report_located(
 }
 
 /// As [`report_located`], but without the `Found N errors` block.
+// Unused since the caller was refactored; kept because the sibling
+// `report_located` reads against it. Not this workstream's to delete.
+#[allow(dead_code)]
 fn report_located_without_summary(
     sys: &mut dyn System,
     files: &[DiagnosticFile],

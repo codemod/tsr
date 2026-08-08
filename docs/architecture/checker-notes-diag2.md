@@ -9450,3 +9450,46 @@ prints columns. **None of them prints the code**, and for nine sections nobody
 looked at it. That is the instrument gap this row actually exposed.
 
 **Standing addition to the loop: read the fixture before the fourth hypothesis.**
+
+## §132 — §131's two fixes built: one lands, one does not
+
+§131 read the fixture and named two clauses. Both were implemented; **only one
+was right**, and the split is informative.
+
+| | CONVERTS | LOST | RIGHT | WRONG |
+|---|---:|---:|---:|---:|
+| §125 | 5 | 0 | 22 | 3 |
+| **§132** | **5** | **0** | **22** | **2** |
+
+**The ambient clause landed.** Routing `declare class H { [onInit]: any }`
+through §99's `declaration_is_in_an_ambient_context` — the substitute for the
+never-set `NodeFlags::AMBIENT` — removed `component.ts(36,4)`.
+
+**The abstract clause did not.** Adding `MethodSignatureDeclaration` and
+`PropertySignatureDeclaration` to `member_is_abstract` changed nothing;
+`component.ts(32,12)` survives. `abstract [onInit](): void` is therefore neither
+of those kinds in this parser, or the walk does not reach its member. **That is
+the tenth thing about this row that measurement contradicted, and it stays
+unattributed** — §131's fixture read explained *which upstream clause applies*,
+which is not the same as knowing *what this parser produced*.
+
+The two residual lines and their state:
+
+- `mergeSymbolRexportFunction main.ts(2,1)` — **`tsr_binder`'s missing merge**
+  (§130), not this rule's.
+- `computedPropertyName component.ts(32,12)` — the abstract member.
+  **Next step is a probe of the node kind, not another clause**: print
+  `self.nodes.kind(member)` for that site. §128 and §130 both ended this way and
+  both times the probe was one line.
+
+### Two gates failed on code from the pull again
+
+`useless_conversion` in `binder.rs:2789` and a dead `report_located_without_summary`
+in `tsr-execute`. Both fixed rather than left; the second with `#[allow]` and a
+note, because deleting another workstream's function is not this one's call.
+
+**A `python` `str.replace(…, 1)` took the wrong one of two identical lines** and
+turned a lint into a type error. Line-indexed replacement, with an assertion on
+the line's content, is the form to use when the string is not unique — the same
+class of defect as §122's truncated `grep`: **an operation that can silently
+apply to the wrong target is an operation that will.**

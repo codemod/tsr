@@ -2786,7 +2786,7 @@ impl<'a, 'n> Binder<'a, 'n> {
                         }
                         JSDocTag::JSDocTypeTag(type_tag) => {
                             if let Some(expression) = type_tag.type_expression {
-                                self.bind(tsr_ast::Node::from(expression));
+                                self.bind(expression);
                             }
                         }
                         JSDocTag::JSDocOverloadTag(overload) => {
