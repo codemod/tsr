@@ -6750,3 +6750,57 @@ measurement of TS2304's parse-error gate): **a blanket decline that predates the
 flow walk is worth re-measuring once the flow walk covers its cases.** `for-of22`,
 `for-of57` and `nestedLoopTypeGuards` are in the same row and may or may not be
 the same shape.
+
+## §86 — the debug/release split that hid a panic for a whole build cycle
+
+**Not a diagnostics build.** The thirteenth session opened with `git pull`, and
+the first `cargo run -p tsr-conformance --bin coverage` died:
+
+```
+thread '<unnamed>' panicked at crates/tsr-checker/src/expressions.rs:84:17:
+attempt to subtract with overflow
+```
+
+exit 101, no table, nothing measurable. The code is the `.types` workstream's —
+`check_template_expression`'s escape-detection decline, `checker-notes-narrow.md`
+§24 — landed in build 101/102, which had been measured and committed at 83.51%
+by a session that never saw the crash.
+
+### Why they did not see it
+
+`cargo run --release` has `overflow-checks` **off**. The same subtraction that
+aborts a debug run wraps silently in release to a value near `u32::MAX`, which
+of course `!= text.len() + delimiters`, so the closure answers `true` and the
+template declines. **The release measurement was correct and the debug binary
+was unrunnable, at the same commit.** The examples in this workstream's loop are
+run `--release`; `coverage` in `CLAUDE.md` is not. That is the whole of it.
+
+Evidence it is not a `diagnostics` defect: a `catch_unwind` sweep of
+`reported_for` over all 12,444 cases in **release** named zero panicking cases.
+The reachable sites are on the types-suite path.
+
+### The fix, and why it is behaviour-preserving
+
+`span.end.saturating_sub(span.start)`. A degenerate span saturates to `0`, and
+`0 != text.len() + delimiters` for every template part, because `delimiters` is
+2 or 3 and never 0 — so the closure answers `true` and declines, which is
+exactly what the wrapped value did. Release behaviour is unchanged by
+construction, and the measurement confirms it: `checker_types` read
+**3,760/9,538 · 83.51%** after the fix, the other workstream's committed number
+to the case, and **no snapshot file changed at all**.
+
+### The transferable part
+
+**A span is not guaranteed monotonic.** Error recovery can hand a node an end
+that precedes its start, so any arithmetic on `span.end - span.start` in this
+port is a debug-build abort waiting for the right corpus case. There are other
+such subtractions; none of them are protected by a type.
+
+**And the profile split is a real hazard, not a curiosity.** A workstream that
+measures only in release can land code that no debug build can run, and the next
+session pays for it before it does any work of its own. `coverage` should be run
+in **both** profiles at least once per session, or the subtraction pattern should
+be banned outright — the second is cheaper and is the recommendation. Falsifier, and it was run:
+`grep -rn "\.end - \|end - .*\.start" crates/tsr-checker/src/` returns **nothing**
+after this fix, so the site repaired here was the only one and the ban costs
+nothing today. Re-run that grep before adding span arithmetic.

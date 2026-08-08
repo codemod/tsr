@@ -81,7 +81,15 @@ impl Checker<'_, '_> {
         let escaped = |id: Option<tsr_ast::NodeId>, text: &str, delimiters: usize| {
             id.is_some_and(|id| {
                 let span = self.nodes.span(id);
-                (span.end - span.start) as usize != text.len() + delimiters
+                // `saturating_sub`, not `-`: an error-recovered template part
+                // can carry a span whose end precedes its start, and a plain
+                // subtraction there panics under `overflow-checks` (debug) while
+                // wrapping to a huge value under release. Both profiles must
+                // reach the same verdict, and a span that cannot be measured is
+                // exactly the case this decline exists for — so saturate to 0,
+                // which never equals `text.len() + delimiters` (delimiters >= 2)
+                // and therefore declines, matching what release already did.
+                (span.end.saturating_sub(span.start)) as usize != text.len() + delimiters
             })
         };
         let head_escaped = node.head.is_some_and(|head| escaped(head.node_id, head.text, 3));
