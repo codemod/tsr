@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 dts_emit Summary:
 What a pass means: the .d.ts text this port emits is byte-identical to upstream's, for every unit of a case that needs no inference — the emitter's own rate, over the population dts_reachable_target measures
-Passed         : 274/341 (80.35%)
-Failed         : 67
+Passed         : 277/341 (81.23%)
+Failed         : 64
 Skipped        : 12103 (excluded from the denominator)
 
   580  skipped: a declaration in this case needs inference (see dts_reachable_target)
@@ -24,12 +24,8 @@ compiler/declarationEmitClassAccessorsJs1
   line 5: want `    get path(): string;`, got `    get path(): any;`
 compiler/declarationEmitDuplicateParameterDestructuring
   line 1: want `export declare const fn1: ({ prop: a, prop: b }: {`, got `export declare const fn1: any;`
-compiler/declarationEmitExpandoPropertyPrivateName
-  emitted b.d.ts, upstream emitted no declaration file
 compiler/declarationEmitExportAliasVisibiilityMarking
   line 1: want `import { Suit, Rank } from './Types';`, got `declare const _default: any;`
-compiler/declarationEmitExpressionWithNonlocalPrivateUniqueSymbol
-  emitted b.d.ts, upstream emitted no declaration file
 compiler/declarationEmitInlinedDistributiveConditional
   line 1: want `export declare const dropPrivateProps1: <Obj>(obj: Obj) => { [K in import("./internal").PublicKeys1<keyof Obj>]: Obj[K]; };`, got `export declare const dropPrivateProps1: any;`
 compiler/declarationEmitNameConflicts2
@@ -60,8 +56,6 @@ compiler/functionExpressionReturningItself
   line 1: want `declare var x: () => () => /*elided*/ any;`, got `declare var x: any;`
 compiler/importedAliasedConditionalTypeInstantiation
   line 1: want `export type Handler<TEvent = any, TResult = any> = (`, got `export {};`
-compiler/isolatedDeclarationErrorsDefault
-  emitted a.d.ts, upstream emitted no declaration file
 compiler/isolatedDeclarationsAddUndefined
   line 3: want `    c?: readonly [1] | undefined;`, got `    c?: readonly [N];`
 compiler/jsDeclarationEmitExportAssignedArray

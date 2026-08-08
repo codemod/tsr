@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 dts_shape Summary:
 What a pass means: the declarations this port emits into a .d.ts — their kind, name and order, recursing into namespaces — match upstream's, ignoring types and formatting; judged on every case with declaration output, including the ones dts_emit cannot reach because they need inference
-Passed         : 744/918 (81.05%)
-Failed         : 174
+Passed         : 752/918 (81.92%)
+Failed         : 166
 Skipped        : 11526 (excluded from the denominator)
 
   6  skipped: a unit of this case does not parse cleanly
@@ -12,7 +12,7 @@ Skipped        : 11526 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   8  skipped: upstream's .d.ts baseline does not reparse
 
-First 100 of 174 failures:
+First 100 of 166 failures:
 compiler/amdLikeInputDeclarationEmit
   #0: missing `var ExtendedClass`
 compiler/classReferencedInContextualParameterWithinItsOwnBaseExpression
@@ -29,10 +29,6 @@ compiler/declarationEmitAliasInlineing
   #0: want `import`, got `var f`
 compiler/declarationEmitClassMemberWithComputedPropertyName
   #0: want `var k1`, got `var t1`
-compiler/declarationEmitComputedPropertyNameSymbol1
-  emitted index.d.ts, upstream emitted no declaration file
-compiler/declarationEmitComputedPropertyNameSymbol2
-  emitted index.d.ts, upstream emitted no declaration file
 compiler/declarationEmitDefaultExport7
   #0: want `class A`, got `var _default`
 compiler/declarationEmitDefaultExportWithStaticAssignment
@@ -41,14 +37,10 @@ compiler/declarationEmitDestructuringPrivacyError
   #1: want `  class c`, got `  var <pattern>`
 compiler/declarationEmitEnumReferenceViaImportEquals
   #0: want `import`, got `class Test`
-compiler/declarationEmitExpandoPropertyPrivateName
-  emitted b.d.ts, upstream emitted no declaration file
 compiler/declarationEmitExportAliasVisibiilityMarking
   #0: want `import`, got `var _default`
 compiler/declarationEmitExpressionInExtends3
   #1: want `class LocalClass`, got `interface ExportedInterface`
-compiler/declarationEmitExpressionWithNonlocalPrivateUniqueSymbol
-  emitted b.d.ts, upstream emitted no declaration file
 compiler/declarationEmitForDefaultExportClassExtendingExpression01
   #0: want `interface Greeter`, got `class <anonymous>`
 compiler/declarationEmitForModuleImportingModuleAugmentationRetainsImport
@@ -93,8 +85,6 @@ compiler/declarationEmitPrivateSymbolCausesVarDeclarationToBeEmitted
   #0: want `var _data`, got `class User`
 compiler/declarationEmitQualifiedAliasTypeArgument
   #0: want `import`, got `var fun`
-compiler/declarationEmitReadonlyComputedProperty
-  emitted index.d.ts, upstream emitted no declaration file
 compiler/declarationEmitRetainedAnnotationRetainsImportInOutput
   #0: want `type Whatever`, got `var run`
 compiler/declarationEmitReusesLambdaParameterNodes
@@ -137,8 +127,6 @@ compiler/expandoFunctionNestedAssigments
   #1: want `namespace Foo`, got `var d`
 compiler/exportClassExtendingIntersection
   #0: want `import`, got `var MyExtendedClass_base`
-compiler/globalThisDeclarationEmit
-  emitted index.d.ts, upstream emitted no declaration file
 compiler/importDecl
   #0: want `import= m4`, got `var x4`
 compiler/importTypeGenericArrowTypeParenthesized
@@ -157,8 +145,6 @@ compiler/internalAliasFunctionInsideLocalModuleWithoutExport
   #3: want `  import= b`, got `  var bVal2`
 compiler/internalAliasFunctionInsideTopLevelModuleWithoutExport
   #2: want `import= b`, got `var bVal`
-compiler/isolatedDeclarationErrorsDefault
-  emitted a.d.ts, upstream emitted no declaration file
 compiler/isolatedDeclarationsAddUndefined
   emitted file2.d.ts, upstream emitted no declaration file
 compiler/jsDeclarationEmitDoesNotRenameImport
@@ -199,8 +185,6 @@ compiler/moduleDetectionIsolatedModulesCjsFileScope
   #0: want `export{}`, got `var a`
 compiler/moduleLocalImportNotIncorrectlyRedirected
   #0: want `import`, got `export{}`
-compiler/multiImportExport
-  emitted Math/Math.d.ts, upstream emitted no declaration file
 compiler/nodeNextEsmImportsOfPackagesWithExtensionlessMains
   #0: want `function address`, got `function getAddress`
 compiler/nodeNextImportModeImplicitIndexResolution
@@ -213,3 +197,19 @@ compiler/objectLiteralComputedNameNoDeclarationError
   #0: want `var Baa`, got `var Foo`
 compiler/privacyCannotNameVarTypeDeclFile
   #0: want `import= Widgets`, got `function createExportedWidget1`
+compiler/privacyFunctionCannotNameParameterTypeDeclFile
+  #0: want `import= Widgets`, got `function createExportedWidget1`
+compiler/privacyFunctionCannotNameReturnTypeDeclFile
+  #0: want `import= Widgets`, got `function createExportedWidget1`
+compiler/privacyGloImport
+  #11: want `  import= m1_im1_private`, got `  var m1_im1_private_v1_public`
+compiler/privacyGloImportParseErrors
+  #16: want `  import= m1_im1_private`, got `  module "m1_M4_private"`
+compiler/privacyImport
+  #11: want `  import= m1_im1_private`, got `  var m1_im1_private_v1_public`
+compiler/privacyTopLevelAmbientExternalModuleImportWithoutExport
+  #0: want `import= im_private_mi_private`, got `var publicUse_im_private_mi_private`
+compiler/reactTransitiveImportHasValidDeclaration
+  #0: want `namespace React`, got `var Form`
+compiler/stackDepthLimitCastingType
+  #0: want `namespace global`, got `export{}`

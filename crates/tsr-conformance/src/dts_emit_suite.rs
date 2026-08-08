@@ -299,7 +299,12 @@ pub(crate) fn unemitted_units<'a>(
 ///
 /// Used only to decide whether an over-emission has happened, so parse failures
 /// and unsupported nodes answer "no": neither is evidence of over-emission, and
-/// both are already reported by the caller's own checks.
+/// both are already reported by the caller's own checks. Analysis diagnostics
+/// answer "no" for the same reason: a unit that needs inference is outside the
+/// population this suite judges — and when upstream emitted nothing for such a
+/// unit, its own errors suppressed the file (`isolatedDeclarationErrorsDefault`
+/// emits `f.d.ts` and nothing for the five erroring units), so producing text
+/// there is not evidence of over-emission either.
 pub(crate) fn emits_anything(unit: &crate::TestFile) -> bool {
     let kind = ScriptKind::from_file_name(&unit.name);
     let arena = Arena::new();
@@ -311,7 +316,7 @@ pub(crate) fn emits_anything(unit: &crate::TestFile) -> bool {
     let mut nodes = parsed.nodes;
     let result =
         tsr_declarations::emit_with_references(&arena, &mut nodes, parsed.source_file, &references);
-    result.unsupported.is_empty() && !result.text.trim().is_empty()
+    result.diagnostics.is_empty() && result.unsupported.is_empty() && !result.text.trim().is_empty()
 }
 
 pub(crate) fn declaration_references(
