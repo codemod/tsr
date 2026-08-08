@@ -7595,3 +7595,58 @@ have:
 thirteen cases are still there and still relation-free; what is refused is
 reaching them by extending §83 rather than by building the predicate. Do not
 re-attempt the cheap version — this is its number.
+
+## §97 — the retry: 176 wrong → 21, 6 LOST → 1, still refused
+
+§96 said *port the predicate whole and first*. This is that retry, and it moves
+the number by a factor of eight without reaching the bar.
+
+| | CONVERTS | LOST | RIGHT | WRONG |
+|---|---:|---:|---:|---:|
+| before | 6 | **0** | 14 | **0** |
+| §96, approximated deferrals | 7 | 6 | 23 | 176 |
+| **§97, deferrals ported** | 7 | **1** | 21 | **21** |
+
+**Reverted.** LOST may not grow, and one is growth.
+
+### What the factor of eight was
+
+**A use in a type context is deferred regardless of its position** —
+`usage.Flags&NodeFlagsJSDoc != 0 || IsInTypeQuery(usage) ||
+c.isInAmbientOrTypeNode(usage)` (`checker.go:1932`, `:11238`), the *first* thing
+upstream asks after the same-file test and the arm §96 did not have at all. A
+type annotation naming a class declared later in the file is legal and
+everywhere; reporting on it accounts for most of 176.
+
+Two more that were also missing and are cheap once seen: the walk quits at the
+declaration's own **container** rather than at the source file
+(`isUsedInFunctionOrInstanceProperty`, `checker.go:2011`), and an
+`ExportSpecifier` / `export =` parent defers.
+
+### The merge decline, which was right
+
+§96's six LOST were diagnosed as suspected merges and the fix confirmed it: a
+symbol with more than one declaration is a merge, the arm picks one declaration
+by kind and compares *its* position, and for a merge that position is arbitrary
+among the members. Declining a multi-declaration symbol took the LOST from six
+to one — `augmentedTypesInterface`, `enumWithExport` and `importTypeAmbient` all
+stopped breaking. **That decline should be kept by whoever finishes this.**
+
+### What is left, precisely
+
+- **One LOST: `conformance/controlFlowNullishCoalesce`.** Undiagnosed. It is a
+  *flow* fixture, so the likely shape is a use that upstream defers for a reason
+  none of the three ported arms covers.
+- **21 wrong lines**, of which `enumUsedBeforeDeclaration.ts(2,24)` is one and is
+  instructive: the case's *first* line is a genuine conversion and its second is
+  a false positive, so the enum arm is right about the shape and wrong about a
+  position — likely `declContainer` again, since an enum's container and a
+  variable's differ.
+
+**Refused, and this is the second number on it.** The remaining gap is not
+another arm of `isBlockScopedNameDeclaredBeforeUse`; it is
+`GetEnclosingBlockScopeContainer` (`ast/utilities.go`) ported properly so the
+walk can quit where upstream quits. That is a small, well-defined function and
+is the whole of what stands between this and thirteen cases. **Next attempt
+should port it first and re-run this exact measurement** — the two numbers above
+are the baseline to beat, and beating them means LOST 0 and WRONG well under 10.
