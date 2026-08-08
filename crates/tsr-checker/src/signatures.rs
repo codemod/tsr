@@ -1375,7 +1375,11 @@ impl<'a> Checker<'a, '_> {
             Some(tsr_ast::BindingName::BindingPattern(pattern)) => {
                 let mut names = Vec::with_capacity(pattern.elements.len());
                 for element in pattern.elements {
-                    if element.dot_dot_dot_token.is_some() || element.initializer.is_some() {
+                    // §71.1: an element INITIALIZER is dropped from the print
+                    // — `{x: z = 'y'}` renders `{ x: z }`
+                    // (`declarationEmitBindingPatterns.types`). Only rests
+                    // keep the decline.
+                    if element.dot_dot_dot_token.is_some() {
                         return None;
                     }
                     let Some(tsr_ast::BindingName::Identifier(inner)) = element.name else {
@@ -1400,10 +1404,11 @@ impl<'a> Checker<'a, '_> {
                 let is_object = pattern.node_id.is_some_and(|id| {
                     self.nodes.kind(id) == tsr_ast::SyntaxKind::ObjectBindingPattern
                 });
-                if is_object {
-                    format!("{{ {} }}", names.join(", "))
-                } else {
-                    format!("[{}]", names.join(", "))
+                match (is_object, names.is_empty()) {
+                    (true, true) => "{}".to_string(),
+                    (true, false) => format!("{{ {} }}", names.join(", ")),
+                    (false, true) => "[]".to_string(),
+                    (false, false) => format!("[{}]", names.join(", ")),
                 }
             }
             None => return None,

@@ -2879,3 +2879,13 @@ alias-preservation head owns them
 (`renamingDestructuredPropertyInFunctionType{,2}`).
 
 **§71 score — LANDED.** right 402,802 → **402,863 (84.11%)**.
+
+## §71.1 — element initializers drop from the print; empty patterns spell `{}`
+
+`{x: z = 'y'}` renders `{ x: z }` and `{} = a` renders `{}?: any`
+(`declarationEmitBindingPatterns.types`) — the initializer is never
+part of the printed pattern, and an empty pattern has no inner spaces.
+Rests keep the decline. **+52 (38 G→R, 14 W→R), 1 G→W** — the 1 is the
+alias-preservation head again (want `Foo`, structure correct).
+
+**§71.1 score — LANDED.** right 402,863 → **402,915 (84.12%)**.
