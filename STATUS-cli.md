@@ -380,20 +380,17 @@ decision PLAN.md Phase 8 already owns.
 Re-ranked after the scaffold. Ceilings are measured; conversions now mostly are
 too, because phase 0 exists.
 
-| # | item | worth | why here |
+| # | item | worth | state |
 |---|---|---|---|
-| 1 | ~~`extends`~~ | **done** | resolution, recursive parse, base-first merge, and `${configDir}` |
-| 1b | **`extends` diagnostics** | 2 baselines | a non-string `files`/`include` element must report TS5024 **positioned in the base file**, which needs per-element spans carried across the `extends` hop |
-| 2 | **`--help --all`** | 1 baseline | needs all 135 options with descriptions, plus watch and build tables |
-| 3 | ~~the wide `--help` layout~~ | **ported**; 1 baseline still differs, §7.8 | `getPrettyOutput`'s hard wrap and the header icon |
-| 4 | ~~`--lib` value validation~~ | **done**, +2 | `TS6046` over `LIB_MAP`'s 107 names, in upstream's order |
-| 5 | ~~option table 76 → 135~~ | **done**: 124 of upstream's 121 declared | **+2 `checker_types` cases**, because the config parser now applies options it used to drop |
-| 6 | `commandlineparser_test.go`'s table (572 LOC) | — | a stronger oracle for phase 1 than the 31 hand-written tests |
-| 7 | ~~watch option table~~ | **done** | `--watchFile` is accepted and discarded rather than reported unknown |
-| 8 | ~~`${configDir}` templates~~ | **done** | the value is left un-anchored at read time and substituted after, so it is not joined to the base file's directory |
-| 8b | `paths` in `--showConfig` | 1 baseline | `configDir-template-showConfig` now differs only in the options after `declarationDir` |
-| 9 | ~~the baseline runner's `env` section~~ | **done**, +2 | parsed out of `tsc_test.go` |
-| 10 | emit (`tsr-transformers`) | **151 baselines** | not a CLI item; the ceiling above everything |
+| 1 | `--help --all` | 1 baseline | **the largest item left.** 138 options across 13 categories, plus watch and build sections, each needing a description and a category. Pure transcription; ~600 lines of table data |
+| 2 | `--showConfig` implied options | 3 baselines | the *rule* is implemented ([`IMPLIED_OPTIONS`]); `useDefineForClassFields` and `moduleDetection` still differ, and `paths` is not rendered |
+| 3 | `extends` diagnostics | 2 baselines | a non-string `files`/`include` element must report TS5024 **positioned in the base file**, which needs per-element spans carried across the `extends` hop |
+| 4 | `--locale` | 2 baselines | one locale shipped; upstream has a message catalogue per language. **Refused** |
+| 5 | `commandlineparser_test.go`'s table (572 LOC) | — | a stronger oracle for phase 1 than the 33 hand-written tests |
+| 6 | the wide `--help` header | 1 baseline | §7.8: four columns unexplained |
+| 7 | `non-object-config-root`'s trailing line | 1 baseline | §7.9 |
+| 8 | `references` in the program | 1 baseline | `Config-with-references-…` |
+| 9 | emit (`tsr-transformers`) | **151 baselines** | **not a CLI item**; the ceiling above everything |
 
 **Refused, with the reason:** `--locale` (`commandLine/locale.js` wants
 `Verze FakeTSVersion`). This port ships one locale, upstream ships a message
