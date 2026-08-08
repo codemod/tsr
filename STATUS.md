@@ -1292,7 +1292,16 @@ its whole deliverable and accept that it converts nothing until finished.
   thirteen sessions on §13's 12-conversions-for-47-wrong — measured against
   TS7026 ALONE.** That is the price of one row inside the subsystem, not of the
   subsystem. **Re-measure it as one build across all four rows before quoting
-  the refusal again.**
+  the refusal again — and §142 captured the before-state so there is something
+  to beat**: `RULE_CODES = [7026, 2451, 2454, 1362, 2300, 2567]` gives
+  **CONVERTS 320, LOST 0, STILL SHORT 118, RIGHT 4,354, WRONG 98**. `STILL
+  SHORT` 118 says even a perfect merge leaves most of that population needing
+  something else, so ~52 is the honest ceiling; `WRONG` 98 says the next attempt
+  must report the **delta**, not the total.
+- **A refusal is only as good as the state it was measured against, and this
+  repo records the refusal without the state** (§142). §13's number was taken
+  once, against a corpus 104 cases further back, and quoted for thirteen
+  sessions as current. **Capture a baseline beside every refusal.**
 
 - **A RULE CAN BE DELETED BY A MATCH ARM AND THE SUITE WILL NOT NOTICE** (§140).
   A new `Node::InterfaceDeclaration` arm landed ahead of §112's decorator arm
