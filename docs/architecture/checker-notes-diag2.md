@@ -10147,3 +10147,40 @@ gate; none confirmed the call.
 One missing line, no extras, five gates cleared, one unchecked assumption. Zero
 builds and zero reverts spent. The row is genuinely one probe from an answer,
 and this session does not have the budget to run it well.
+
+## §148 — the entry probe: the rule IS called, and exactly one instance declines
+
+§147 said probe the entry, not another gate. Done:
+
+```
+17 × 2540-entry kind=PropertyAccessExpression none=false
+ 9 × 2540-entry kind=PropertyAccessExpression none=true
+```
+
+**The rule is called on every access, and 17 pass the assignment-target gate.**
+This port emits 16 TS2540 lines for the case and upstream expects 17. So the
+call happens, the gate passes for all 17, and **exactly one of them is declined
+somewhere between that gate and the report.**
+
+That is the narrowest the row has been, and it is a *counting* result rather
+than an attribution: 17 in, 16 out, one lost, and the losing test is one of the
+four between them — the optional-chain check, the three receiver-type gates, the
+readonly pair, or `assignment_is_inside_the_declaring_constructor`.
+
+**The probe that finishes it is the same one without `sort -u`.** §145's
+readonly probe was deduplicated, which is why it showed only `ro=true` and hid
+whichever instance answers `false`. **A deduplicated probe over a rule that runs
+17 times cannot show the one that differs** — the same class of instrument
+failure as §122's truncated `grep` and §118's misplaced `eprintln!`, and the
+third distinct way this session has made a probe lie.
+
+### Where this row stands, finally
+
+Zero builds, zero reverts, seven attributions each corrected by the next
+measurement, and a defect localised to one of four tests on one of seventeen
+instances. **The row is one un-deduplicated probe from an answer.**
+
+Recorded rather than run because this session's remaining budget cannot both run
+it and land the fix to the standard the other twenty-eight builds were held to.
+Starting a build that cannot be measured, gated and pushed would trade the one
+property that made those builds compound.
