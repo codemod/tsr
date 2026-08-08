@@ -2828,3 +2828,10 @@ Array-reference and tuple halves. **+4 (W→R), ZERO adverse** — the
 contextual functions inside array literals are fewer than the old
 33-function measurement suggested once §63's tuple minting took the
 tuple half's population. right → **402,369 (84.02%)**.
+
+## §68.3 — the concise-arrow-body arm
+
+`getContextualReturnType`'s concise half: an expression-bodied arrow's
+body takes the arrow's own contextual signature's return. **+1 (W→R),
+ZERO adverse** — the family's population is mostly block-bodied, already
+covered by §68. right → **402,370 (84.02%)**.

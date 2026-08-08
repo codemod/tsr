@@ -333,6 +333,16 @@ impl<'a> Checker<'a, '_> {
                 }
                 None
             }
+            // §68.3: a CONCISE arrow body's contextual type is the arrow's
+            // own contextual signature's return
+            // (`getContextualReturnType`, `checker.go:29648` region).
+            Node::ArrowFunction(arrow)
+                if arrow.body.and_then(|b| tsr_ast::Node::from(b).node_id()) == Some(node)
+                    && self.nodes.kind(node) != tsr_ast::SyntaxKind::Block =>
+            {
+                let signature = self.contextual_signature(parent)?;
+                (signature.r#type != self.intrinsics.error).then_some(signature.r#type)
+            }
             Node::ReturnStatement(_) => {
                 let mut function = self.nodes.parent(parent)?;
                 loop {
