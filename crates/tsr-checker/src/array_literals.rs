@@ -81,6 +81,51 @@ impl Checker<'_, '_> {
             }
             false
         });
+        // §63 (`checker-notes-arrays.md`): a PLAIN literal under a TUPLE
+        // context mints the tuple too — `const y: [number, number] = [0, 0]`
+        // prints the literal as `[number, number]` (~170 corpus lines);
+        // the §6.3 context test extends to all literals.
+        let tuple_context = 'context: {
+            let Some(id) = node.node_id else { break 'context false };
+            let Some(parent) = self.nodes.parent(id) else { break 'context false };
+            match self.node_map.get(parent) {
+                Some(tsr_ast::Node::VariableDeclaration(declaration))
+                    if declaration.initializer.and_then(|i| i.node_id()) == Some(id) =>
+                {
+                    match declaration.r#type {
+                        Some(annotation) => {
+                            let t = self.get_type_from_type_node(annotation);
+                            self.tuple_element_lists.contains_key(&t)
+                        }
+                        None => false,
+                    }
+                }
+                _ => false,
+            }
+        };
+        if tuple_context && !has_tuple_spread {
+            let mut elements = Vec::with_capacity(node.elements.len());
+            let mut clean = true;
+            for element in node.elements {
+                match element {
+                    Expression::SpreadElement(_) | Expression::OmittedExpression(_) => {
+                        clean = false;
+                        break;
+                    }
+                    _ => {
+                        let element_type = self.check_expression_for_mutable_location(*element);
+                        if element_type == error {
+                            clean = false;
+                            break;
+                        }
+                        elements.push(self.get_widened_literal_type(element_type));
+                    }
+                }
+            }
+            if clean && !elements.is_empty() {
+                return self.create_tuple_type(elements, false);
+            }
+        }
         if has_tuple_spread {
             // §6.3's narrowing, twice-fired: the context DECIDES the shape.
             // A TUPLE context (annotated initializer or assignment target

@@ -847,3 +847,15 @@ RELATER arm (unrelated nominal classes are NotRelated under
 strictSubtype), not more admission. The 16 R→G head
 (`lambdaParamTypes`) interacts with the §35 want-`error` population and
 is recorded against it.
+
+## §63 — plain literals under tuple contexts
+
+The §6.3 context test extends to spread-free literals: an array literal
+initializing a TUPLE-annotated variable mints the tuple (elements
+widened member-wise) — `const y: [number, number] = [0, 0]` prints the
+literal as the tuple, ~170 corpus lines in the census.
+
+**§63 score — LANDED.** **+55 (47 W→R, 8 G→R), ZERO adverse.**
+`checker_types` right 401,841 → **401,896 (83.91%)**. Residue: the
+assignment-target and nested-position tuple contexts (the §6.3 arms not
+extended here), and readonly tuple contexts.
