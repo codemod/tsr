@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; scanner, parser and binder only, with no checker (bd tsr-4sc)
-Passed         : 1327/5488 (24.18%)
-Failed         : 4161
+Passed         : 1337/5488 (24.36%)
+Failed         : 4151
 Skipped        : 6956 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -11,7 +11,7 @@ Skipped        : 6956 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 4161 failures:
+First 100 of 4151 failures:
 compiler/ClassDeclaration24
   1 missing (first TS2414 at ClassDeclaration24.ts(1,7))
 compiler/ClassDeclaration26
@@ -22,14 +22,6 @@ compiler/ExportAssignment7
   1 missing (first TS2309 at ExportAssignment7.ts(4,1))
 compiler/ExportAssignment8
   1 missing (first TS2309 at ExportAssignment8.ts(1,1))
-compiler/FunctionDeclaration3
-  1 missing (first TS7010 at FunctionDeclaration3.ts(1,10))
-compiler/FunctionDeclaration4
-  1 missing (first TS7010 at FunctionDeclaration4.ts(1,10))
-compiler/FunctionDeclaration6
-  1 missing (first TS7010 at FunctionDeclaration6.ts(2,14))
-compiler/FunctionDeclaration7
-  1 missing (first TS7010 at FunctionDeclaration7.ts(2,13))
 compiler/InterfaceDeclaration8
   1 missing (first TS2427 at InterfaceDeclaration8.ts(1,11))
 compiler/ParameterList13
@@ -178,8 +170,6 @@ compiler/arrowFunctionsMissingTokens
   72 unexpected (first TS1109 at arrowFunctionsMissingTokens.ts(2,14)), 14 missing
 compiler/asiAbstract
   1 missing (first TS1244 at asiAbstract.ts(3,3))
-compiler/asiAmbientFunctionDeclaration
-  1 missing (first TS7010 at asiAmbientFunctionDeclaration.ts(1,18))
 compiler/asiReturn
   1 missing (first TS1108 at asiReturn.ts(2,1))
 compiler/assignLambdaToNominalSubtypeOfFunction
@@ -212,3 +202,13 @@ compiler/assignmentCompatWithOverloads
   4 missing (first TS2322 at assignmentCompatWithOverloads.ts(17,1))
 compiler/assignmentCompatability16
   1 missing (first TS2322 at assignmentCompatability16.ts(9,1))
+compiler/assignmentCompatability18
+  1 missing (first TS2322 at assignmentCompatability18.ts(9,1))
+compiler/assignmentCompatability20
+  1 missing (first TS2322 at assignmentCompatability20.ts(9,1))
+compiler/assignmentCompatability22
+  1 missing (first TS2322 at assignmentCompatability22.ts(9,1))
+compiler/assignmentCompatability24
+  1 missing (first TS2322 at assignmentCompatability24.ts(9,1))
+compiler/assignmentCompatability29
+  1 missing (first TS2322 at assignmentCompatability29.ts(9,1))

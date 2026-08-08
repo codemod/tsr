@@ -44,7 +44,7 @@
 use tsr_ast::{Node, NodeId, SyntaxKind};
 use tsr_diagnostics::{Diagnostic, messages};
 
-use crate::checker::Checker;
+use crate::{check::has_modifier, checker::Checker};
 
 impl Checker<'_, '_> {
     /// Every parameter of one function-like declaration that is an implicit
@@ -162,6 +162,126 @@ impl Checker<'_, '_> {
             }
             _ => false,
         }
+    }
+
+    /// TS7010 — `'{0}', which lacks return-type annotation, implicitly has an
+    /// '{1}' return type.`
+    ///
+    /// `checkFunctionOrMethodDeclaration` (`checker.go:3446`), the arm the
+    /// parameter loop above already quotes:
+    ///
+    /// ```go
+    /// if node.Type() == nil {
+    ///     // Report an implicit any error if there is no body, no explicit return
+    ///     // type, and node is not a private method in an ambient context
+    ///     if ast.NodeIsMissing(body) && !isPrivateWithinAmbient(node) {
+    ///         c.reportImplicitAny(node, c.anyType, WideningKindNormal)
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// `reportImplicitAny`'s function arm (`checker.go:18320`) then picks
+    /// `X_0_which_lacks_return_type_annotation_implicitly_has_an_1_return_type`
+    /// when `noImplicitAny` holds and the declaration has a name.
+    ///
+    /// # No contextual-typing question, unlike the arm beside it
+    ///
+    /// [`Checker::parameters_cannot_be_contextually_typed`] is a fenced
+    /// allow-list because a contextual signature can supply a *parameter's*
+    /// type. A **bodiless** declaration has no inferred return type for anything
+    /// to supply: upstream reaches `reportImplicitAny` at this site with no
+    /// `shouldReportErrorsFromWideningWithContextualSignature` in the path. This
+    /// arm is simpler than its neighbour, which is worth saying because the
+    /// neighbouring code looks like it should be copied.
+    ///
+    /// # The ambient gate is the OPPOSITE way round
+    ///
+    /// The parameter loop skips everything ambient. This skips only
+    /// `isPrivateWithinAmbient` — a **private** member in an ambient context —
+    /// so `declare function f();` in a `.d.ts` does report. Both are upstream's
+    /// and conflating them is the obvious mistake here
+    /// (`checker-notes-diag2.md` §81).
+    pub(crate) fn check_implicit_any_return(&mut self, node: NodeId, ambient: bool) {
+        if !self.no_implicit_any || self.file_has_parse_errors || self.in_js_file(node) {
+            return;
+        }
+        let private_name = |name: tsr_ast::PropertyName<'_>| {
+            matches!(name, tsr_ast::PropertyName::PrivateIdentifier(_))
+        };
+        let (annotation, body_is_missing, modifiers, name, name_is_private_identifier) =
+            match self.node_map.get(node) {
+                Some(Node::FunctionDeclaration(n)) => (
+                    n.r#type,
+                    n.body.is_none(),
+                    n.modifiers,
+                    n.name.map(|name| name.text.to_string()),
+                    false,
+                ),
+                Some(Node::MethodDeclaration(n)) => (
+                    n.r#type,
+                    n.body.is_none(),
+                    n.modifiers,
+                    crate::check::declaration_name_to_string(n.name),
+                    private_name(n.name),
+                ),
+                // A `MethodSignatureDeclaration` has no body by construction, which
+                // is why it has no `body` field to read. Upstream reaches this site
+                // for it through `checkMethodDeclaration` (`checker.go:2806`), whose
+                // own body guards the declaration-only arms with
+                // `ast.IsMethodDeclaration(node)` and lets this one through.
+                Some(Node::MethodSignatureDeclaration(n)) => (
+                    n.r#type,
+                    true,
+                    n.modifiers,
+                    crate::check::declaration_name_to_string(n.name),
+                    private_name(n.name),
+                ),
+                _ => return,
+            };
+        if annotation.is_some() || !body_is_missing {
+            return;
+        }
+        // `isPrivateWithinAmbient` (`utilities.go:343`) is
+        // `(HasModifier(Private) || IsPrivateIdentifierClassElementDeclaration)
+        //  && node.Flags&NodeFlagsAmbient != 0`, and **both halves are wider
+        // than they first read**:
+        //
+        // - a `#name` class element is private without the keyword. `declare
+        //   #whatMethod()` was this rule's only wrong line (§81,
+        //   `privateNamesIncompatibleModifiers`);
+        // - `NodeFlagsAmbient` is set by the parser for anything under a
+        //   `declare`, including the member's own. This port's parser never sets
+        //   that flag (it is one of the three declared-and-unset ones), so the
+        //   walk threads an `ambient` bool — which the `MethodDeclaration` arm
+        //   does not widen for a member-level `declare`. Reading the modifier
+        //   here is what closes that gap.
+        //
+        // `declare function f();` is not private and does report, which is the
+        // whole reason this gate is not the parameter loop's blanket
+        // `if ambient { continue }`.
+        let is_ambient = ambient || has_modifier(modifiers, SyntaxKind::DeclareKeyword);
+        let is_private =
+            has_modifier(modifiers, SyntaxKind::PrivateKeyword) || name_is_private_identifier;
+        if is_ambient && is_private {
+            return;
+        }
+        // `declaration.Name() == nil` takes a different message entirely
+        // (TS7011, the function-expression form), which is not this rule.
+        let Some(name) = name else { return };
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        // `errorOrSuggestion(c.noImplicitAny, declaration, …)` errors on the
+        // **declaration**, and `GetErrorRangeForNode` narrows a named
+        // function-like to its name: `FunctionDeclaration3.ts(1,10)` for
+        // `function foo();` is the `foo`.
+        let span = self.error_span(node);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::_0_WHICH_LACKS_RETURN_TYPE_ANNOTATION_IMPLICITLY_HAS_AN_1_RETURN_TYPE,
+                span,
+                [name, "any".to_string()],
+            ),
+        );
     }
 
     /// Does the function-like enclosing this node write a return-type

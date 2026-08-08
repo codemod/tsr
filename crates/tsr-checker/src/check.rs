@@ -236,6 +236,7 @@ impl Checker<'_, '_> {
                 let ambient =
                     ambient || has_modifier(declaration.modifiers, SyntaxKind::DeclareKeyword);
                 self.check_implicit_any_parameters(node, ambient);
+                self.check_implicit_any_return(node, ambient);
                 ambient
             }
             Node::InterfaceDeclaration(_) => {
@@ -334,6 +335,13 @@ impl Checker<'_, '_> {
             Node::MethodDeclaration(_) | Node::ConstructorDeclaration(_) => {
                 self.check_function_or_constructor_symbol(node, ambient);
                 self.check_implicit_any_parameters(node, ambient);
+                self.check_implicit_any_return(node, ambient);
+                ambient
+            }
+            // §81. No walk arm claimed this kind before, which is what §49's
+            // trap says to check before pricing a rule that measures zero.
+            Node::MethodSignatureDeclaration(_) => {
+                self.check_implicit_any_return(node, ambient);
                 ambient
             }
             Node::FunctionExpression(_) | Node::ArrowFunction(_) => {
@@ -2737,7 +2745,7 @@ fn is_numeric_binary_operator(kind: SyntaxKind) -> bool {
 ///
 /// A decorator in the modifier list is not a modifier; the enum keeps them
 /// together because the parser does (`ModifierLike`).
-fn has_modifier(modifiers: &[ModifierLike<'_>], keyword: SyntaxKind) -> bool {
+pub(crate) fn has_modifier(modifiers: &[ModifierLike<'_>], keyword: SyntaxKind) -> bool {
     modifiers
         .iter()
         .any(|modifier| matches!(modifier, ModifierLike::Token(token) if token.kind == keyword))
@@ -2941,7 +2949,7 @@ fn entity_text_of(expression: tsr_ast::Expression<'_>) -> Option<String> {
 ///
 /// A free function: spelling a name back out reads only the tree.
 /// See `docs/architecture/checker-notes-diag2.md` §43.
-fn declaration_name_to_string(name: tsr_ast::PropertyName<'_>) -> Option<String> {
+pub(crate) fn declaration_name_to_string(name: tsr_ast::PropertyName<'_>) -> Option<String> {
     match name {
         tsr_ast::PropertyName::Identifier(identifier) => Some(identifier.text.to_string()),
         // The parser keeps the `#` in the text, as upstream's scanner does.

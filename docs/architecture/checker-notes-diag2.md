@@ -6194,3 +6194,162 @@ and `set_strict_property_initialization`, `set_allow_unreachable_code` and
 (`unusedIsError` reads them as `IsTrue()`) and are correct as they stand; the
 other two are worth one reading of `core/compileroptions.go` before the next
 build that depends on them.
+
+---
+
+## 81. TS7010 — the return-type sibling §80 made reachable
+
+`diaggap.rs` re-run at `2df5954`, single-code column, relation-free rows:
+
+```
+TS7026  50 cases contain it   28 would convert alone    <- §5's refusal (JSX namespace)
+TS7010  48 cases contain it   11 would convert alone
+TS7027  12 sole   TS2449 11   TS2693 9   TS2364 7   TS2703 7   TS2558 6
+```
+
+TS7010 is the largest unrefused row, and **it is the same `checker.go` site this
+rule already quotes**. `implicit_any.rs`'s parameter loop carries the comment
+*"Report an implicit any error if there is no body … and node is not a private
+method in an ambient context is the **return type** arm"* — the port read
+`checker.go:3446` when it built the parameter half and left the return half
+where it found it:
+
+```go
+if node.Type() == nil {
+    // Report an implicit any error if there is no body, no explicit return type,
+    // and node is not a private method in an ambient context
+    if ast.NodeIsMissing(body) && !isPrivateWithinAmbient(node) {
+        c.reportImplicitAny(node, c.anyType, WideningKindNormal)
+    }
+}
+```
+
+and `reportImplicitAny`'s function arm (`checker.go:18320`) chooses
+`X_0_which_lacks_return_type_annotation_implicitly_has_an_1_return_type` —
+TS7010, args `(name, "any")` — whenever `noImplicitAny` holds and the
+declaration has a name. **§80 is what makes that condition true across the
+corpus**; before it, this rule could only have fired in the opt-in cases.
+
+The eleven sole-obstacle cases are all one shape:
+
+```ts
+function foo();                 // FunctionDeclaration3: TS7010 at (1,10), the NAME
+function foo();                 // FunctionDeclaration4
+function bar() { }
+```
+
+### Two things this arm needs that the parameter arm did not
+
+**No contextual-typing question at all.** The whole reason the parameter arm is
+a fenced allow-list is that a contextual signature can supply a parameter's
+type. A **bodiless** declaration has no inferred return type to be contextually
+supplied — upstream reaches `reportImplicitAny` unconditionally at that site,
+with no `shouldReportErrorsFromWideningWithContextualSignature` in the path.
+This arm is therefore *simpler* than the one beside it, which is worth saying
+out loud because the neighbouring code looks like it should be copied.
+
+**`isPrivateWithinAmbient`, and the ambient gate is the opposite way round.**
+The parameter loop skips everything ambient (`if ambient { continue }`). The
+return arm skips only a **private** member in an ambient context — upstream's
+own words — so `declare function f();` in a `.d.ts` *does* report. The two arms
+disagree about `ambient` and both are upstream's; conflating them is the
+obvious mistake here.
+
+### The arm set, and the one that is a live question
+
+Upstream's dispatch reaches this site from `checkFunctionDeclaration` and
+`checkMethodDeclaration` (`checker.go:2806`, `:3405`), and
+`checkMethodDeclaration` serves **`MethodSignature` as well as
+`MethodDeclaration`** — its own body says *"method signatures already report
+'implementation not allowed in ambient context' elsewhere"* and guards the arms
+that are declaration-only with `ast.IsMethodDeclaration(node)`.
+
+So `interface I { foo(); }` should report TS7010. **That is a claim this build
+does not yet have evidence for**, and it is the difference between +11 and a
+large net negative: a bodiless interface method with no return annotation is a
+shape the corpus writes far more often than a bodiless overload. It is included
+rather than pre-excluded, because the wrong column answers it in one run and a
+pre-exclusion would answer it never. `diagemit` prices the whole row at **82
+lines**, which is *evidence for* including it — if every bodiless interface
+method reported, that figure would be in the thousands.
+
+### The bar
+
+**+9 cases**, against eleven sole-obstacle ones.
+
+**Falsifier (a):** the wrong column fills with `MethodSignature` lines. Then the
+paragraph above is wrong, the arm comes out, and the 82-line figure gets its
+real explanation.
+
+**Falsifier (b):** a wrong line in a `.d.ts`. That would mean
+`isPrivateWithinAmbient` is not what separates this arm's ambient handling from
+the parameter arm's, and the `ambient` flag is doing something else.
+
+**Falsifier (c):** the reported column is not the name. `reportImplicitAny`
+errors on the *declaration* and `GetErrorRangeForNode` narrows a named
+function-like to its name; §48 ported that centrally but left four arms
+unported, and if a function-like is a fifth, every line of this rule is
+displaced.
+
+**Falsifier (d):** `checker_types` byte-identical.
+
+### Measured: **+10, bar of +9 MET, and the wrong column is ZERO**
+
+```
+diagnostics   1,327 -> 1,337    (+10 cases)
+checker_types 3,742 -> 3,742    byte-identical, falsifier (d) did not fire
+diag2307, RULE_CODES = [7010] alone
+  CONVERTS     0 -> 10
+  RIGHT        0 -> 54
+  WRONG        0 ->  0          after one in-build correction worth the only line
+  LOST         0 ->  0
+```
+
+Converted: `FunctionDeclaration3`, `4`, `6`, `7`, `asiAmbientFunctionDeclaration`,
+`implicitAnyFunctionOverloadWithImplicitAnyReturnType`, `noImplicitAnyFunctions`,
+`parserFunctionDeclaration1.d`, `parserFunctionDeclaration3`,
+`thisTypeInFunctions2`.
+
+**Falsifier (a) did NOT fire, and that settles the live question.** No
+`MethodSignature` line appears in the wrong column. `interface I { foo(); }`
+really does report TS7010 upstream, and `diagemit`'s 82-line figure was the
+evidence for it rather than against — a bodiless interface method with **no
+return annotation at all** is rarer in this corpus than it looks, because the
+idiom is `foo(): void`.
+
+**Falsifier (b) did not fire**, and falsifier (c) did not: every one of the 54
+lines is at the name, so `Checker::error_span` narrows a named function-like
+correctly and §48's four unported arms are not five.
+
+### The one wrong line, and both halves of `isPrivateWithinAmbient`
+
+`conformance/privateNamesIncompatibleModifiers`, at `declare #whatMethod()`.
+The first cut read the gate as *"a `private` member in an ambient context"*.
+Upstream (`utilities.go:343`) is
+
+```go
+(ast.HasModifier(node, ast.ModifierFlagsPrivate) || ast.IsPrivateIdentifierClassElementDeclaration(node))
+  && node.Flags&ast.NodeFlagsAmbient != 0
+```
+
+and **both halves are wider than they read**:
+
+- a **`#name`** class element is private without the keyword;
+- **`NodeFlagsAmbient`** is set by the parser for anything under a `declare`,
+  *including the member's own*. This port's parser never sets that flag — it is
+  one of the three declared-and-unset ones the handoff names — so the walk
+  threads an `ambient` bool, and the `MethodDeclaration` arm does not widen it
+  for a member-level `declare`. Reading the modifier in the rule closes that
+  gap without touching the walk.
+
+Correcting both took the wrong column to **zero**. This is the third time this
+session that a decline's *cause* rather than its conclusion was the fix (§76,
+§80, §81), and the second where the one wrong line named a mis-read upstream
+predicate rather than a missing gate.
+
+**A note the next reader needs:** `ambient` as threaded by `crate::check`'s walk
+is **not** `NodeFlagsAmbient`. It is widened at `VariableStatement` and
+`FunctionDeclaration` and nowhere else, so any rule asking "is this ambient" of
+a *class member* must read the member's own `declare` modifier as well. Nothing
+else in `crate::check` does this today, and every rule that takes `ambient` for
+a member is one `declare` away from the same bug.
