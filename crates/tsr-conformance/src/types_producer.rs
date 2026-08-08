@@ -704,20 +704,21 @@ pub fn type_id_at_location<'a>(
     // Distributed rather than concentrated: 428 lines over 92 cases, top ten
     // 40.9%, the largest single case 29 lines.
     //
-    // The `IsTypeAny` precondition is carried across for the same port-specific
-    // reason as the label arm below: given `const a = 1; const { a: b } = x;`,
-    // *this* producer reaches the expression fall-through and answers `1`, which
-    // upstream never does. Those lines were not in the 428 and converting them
-    // would ship an unmeasured change under a measured one.
+    // The `IsTypeAny` precondition was originally carried across (convert only
+    // when this port also computed `error`), on the theory that a non-error
+    // answer of ours was information. Build 123 falsified that: as the checker
+    // grew value resolution, the property name began resolving to a *sibling
+    // value binding* (`duplicateIndetifiers2`'s parameter `name: string`) and
+    // printing IT — a path upstream never takes, since `getTypeOfNode` falls
+    // to `errorType` here **by construction** (the trace above). Dropping the
+    // precondition and printing `any` unconditionally measured **+85 with zero
+    // adverse** — the position's answer is decided by the trace, not by what
+    // this port happens to compute.
     if let Some(parent) = nodes.parent(id)
         && let Some(Node::BindingElement(element)) = map.get(parent)
         && element.property_name.and_then(|name| name.node_id()) == Some(id)
     {
-        let name = tsr_ast::Expression::try_from(node)
-            .map_or(error, |expression| checker.check_expression(expression));
-        if name == error {
-            return checker.intrinsics().any;
-        }
+        return checker.intrinsics().any;
     }
 
     // **A label name prints `any`, and the writer is what decides it** — the
@@ -1631,21 +1632,19 @@ mod tests {
     }
 
     #[test]
-    fn a_binding_element_property_name_shadowing_a_value_keeps_the_type_we_computed() {
-        // Upstream's `IsTypeAny` precondition, and the case that separates a port
-        // of the sub-position from "a binding element's property name prints
-        // `any`". Upstream's `getTypeOfNode` falls through to `errorType` for `a`
-        // whatever else `a` means in the file; *this* producer reaches the
-        // expression fall-through and resolves the identifier to the outer
-        // `const a`, answering `1`.
-        //
-        // The plausible wrong implementation — convert the position
-        // unconditionally — prints `any` on the second `a` below. Those lines
-        // were never in the 428 the measurement claimed.
+    fn a_binding_element_property_name_shadowing_a_value_still_prints_any() {
+        // This test used to pin the OPPOSITE: that shadowing kept the type we
+        // computed (`1`), guarding the `IsTypeAny` precondition. Build 123
+        // reversed the arm on measurement (+85/0 unconditional): upstream's
+        // `getTypeOfNode` falls to `errorType` for the property-name `a`
+        // whatever else `a` means in the file, so the position's answer is
+        // `any` by construction — resolving the identifier to the outer
+        // `const a` was this port's own divergence, not upstream's behaviour.
+        // The declaration's own `a` (first line) still answers `1`.
         let out = typed("const a = 1;\ndeclare const x: any;\nconst { a: b } = x;");
         let names: Vec<_> =
             out.iter().filter(|(text, _)| text == "a").map(|(_, ty)| ty.as_str()).collect();
-        assert_eq!(names, ["1", "1"], "in {out:?}");
+        assert_eq!(names, ["1", "any"], "in {out:?}");
     }
 
     /// Assertion texts for a source, with types stubbed out.
