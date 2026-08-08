@@ -234,6 +234,120 @@ impl Checker<'_, '_> {
     }
 }
 
+impl Checker<'_, '_> {
+    /// TS2362 / TS2363 — `checkArithmeticOperandType` (`checker.go:12799`),
+    /// called once per operand of an arithmetic or bitwise operator with
+    /// `!isTypeAssignableTo(t, numberOrBigIntType)` as its whole predicate.
+    ///
+    /// Error node the **operand**. `docs/architecture/checker-notes-diag2.md`
+    /// §65.
+    pub(crate) fn check_arithmetic_operand_types(&mut self, node: NodeId, ambient: bool) {
+        if ambient || self.file_has_parse_errors || self.in_js_file(node) {
+            return;
+        }
+        let Some(Node::BinaryExpression(binary)) = self.node_map.get(node) else { return };
+        if !binary.operator_token.is_some_and(|token| is_arithmetic_operator(token.kind)) {
+            return;
+        }
+        let (Some(left), Some(right)) = (binary.left, binary.right) else { return };
+        let left_type = self.check_expression(left);
+        let right_type = self.check_expression(right);
+        // `checkNonNullType` runs first at this site and reports TS18050 /
+        // TS18048 in place of these (§50.3).
+        if self.operand_is_nullish(left_type) || self.operand_is_nullish(right_type) {
+            return;
+        }
+        // Two boolean operands are **TS2447** on the operator token, reported
+        // before the operand check and returning (`checker.go:12372`).
+        if self.type_of(left_type).flags.intersects(TypeFlags::BOOLEAN_LIKE)
+            && self.type_of(right_type).flags.intersects(TypeFlags::BOOLEAN_LIKE)
+        {
+            return;
+        }
+        for (operand, operand_type, message) in [
+            (
+                left,
+                left_type,
+                &messages::THE_LEFT_HAND_SIDE_OF_AN_ARITHMETIC_OPERATION_MUST_BE_OF_TYPE_ANY_NUMBER_BIGINT_OR_AN_ENUM_TYPE,
+            ),
+            (
+                right,
+                right_type,
+                &messages::THE_RIGHT_HAND_SIDE_OF_AN_ARITHMETIC_OPERATION_MUST_BE_OF_TYPE_ANY_NUMBER_BIGINT_OR_AN_ENUM_TYPE,
+            ),
+        ] {
+            let Some(at) = operand.node_id() else { continue };
+            if !self.operand_is_definitely_not_numeric(operand_type) {
+                continue;
+            }
+            let Some(file) = self.source_file_of_for_diagnostics(at) else { continue };
+            let span = self.error_span(at);
+            self.report(file, Diagnostic::new(message, span));
+        }
+    }
+
+    /// `!isTypeAssignableTo(t, numberOrBigIntType)`, read as a **confident**
+    /// negative (§52's direction): the rule reports because a relation failed,
+    /// so `Unknown` is silence. An enum answers `Unknown` here and is
+    /// assignable upstream, which is the safe direction — the message itself
+    /// names enums.
+    fn operand_is_definitely_not_numeric(&mut self, operand: TypeId) -> bool {
+        if self
+            .type_of(operand)
+            .flags
+            .intersects(TypeFlags::NUMBER_LIKE.union(TypeFlags::BIG_INT_LIKE))
+        {
+            return false;
+        }
+        if !self.pair_is_reportable(operand, self.intrinsics.number) {
+            return false;
+        }
+        if self.either_is_composite(operand, operand) {
+            return false;
+        }
+        let number = self.intrinsics.number;
+        let bigint = self.intrinsics.bigint;
+        // §29's definite negative first: nothing structured is assignable to
+        // `number` whatever its shape turns out to be.
+        if self.object_against_primitive(operand, number) {
+            return true;
+        }
+        self.relate_ternary(operand, number, Relation::Assignable) == Ternary::NotRelated
+            && self.relate_ternary(operand, bigint, Relation::Assignable) == Ternary::NotRelated
+    }
+}
+
+/// The operators whose operands `checkArithmeticOperandType` guards —
+/// arithmetic, shift and bitwise, with their compound forms. `+` is excluded:
+/// it is overloaded with concatenation and has its own arm (§49).
+fn is_arithmetic_operator(kind: SyntaxKind) -> bool {
+    matches!(
+        kind,
+        SyntaxKind::MinusToken
+            | SyntaxKind::AsteriskToken
+            | SyntaxKind::AsteriskAsteriskToken
+            | SyntaxKind::SlashToken
+            | SyntaxKind::PercentToken
+            | SyntaxKind::LessThanLessThanToken
+            | SyntaxKind::GreaterThanGreaterThanToken
+            | SyntaxKind::GreaterThanGreaterThanGreaterThanToken
+            | SyntaxKind::AmpersandToken
+            | SyntaxKind::BarToken
+            | SyntaxKind::CaretToken
+            | SyntaxKind::MinusEqualsToken
+            | SyntaxKind::AsteriskEqualsToken
+            | SyntaxKind::AsteriskAsteriskEqualsToken
+            | SyntaxKind::SlashEqualsToken
+            | SyntaxKind::PercentEqualsToken
+            | SyntaxKind::LessThanLessThanEqualsToken
+            | SyntaxKind::GreaterThanGreaterThanEqualsToken
+            | SyntaxKind::GreaterThanGreaterThanGreaterThanEqualsToken
+            | SyntaxKind::AmpersandEqualsToken
+            | SyntaxKind::BarEqualsToken
+            | SyntaxKind::CaretEqualsToken
+    )
+}
+
 /// `scanner.TokenToString` for the six operators this rule reports on.
 fn operator_text(operator: SyntaxKind) -> &'static str {
     match operator {

@@ -314,6 +314,7 @@ impl Checker<'_, '_> {
             {
                 self.check_nullable_operand(node, ambient);
                 self.check_operator_operands(node, ambient);
+                self.check_arithmetic_operand_types(node, ambient);
                 ambient
             }
             Node::BinaryExpression(binary)

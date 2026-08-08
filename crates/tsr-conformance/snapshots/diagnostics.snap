@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; scanner, parser and binder only, with no checker (bd tsr-4sc)
-Passed         : 1271/5488 (23.16%)
-Failed         : 4217
+Passed         : 1284/5488 (23.40%)
+Failed         : 4204
 Skipped        : 6956 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -11,7 +11,7 @@ Skipped        : 6956 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 4217 failures:
+First 100 of 4204 failures:
 compiler/ClassDeclaration24
   1 missing (first TS2414 at ClassDeclaration24.ts(1,7))
 compiler/ClassDeclaration26
@@ -131,9 +131,7 @@ compiler/argumentsReferenceInMethod4_Js
 compiler/argumentsUsedInClassFieldInitializerOrStaticInitializationBlock
   11 missing (first TS2815 at argumentsUsedInClassFieldInitializerOrStaticInitializationBlock.ts(3,10))
 compiler/arithAssignTyping
-  12 missing (first TS2629 at arithAssignTyping.ts(3,1))
-compiler/arithmeticOnInvalidTypes
-  6 missing (first TS2362 at arithmeticOnInvalidTypes.ts(4,10))
+  4 unexpected (first TS2362 at arithAssignTyping.ts(5,1)), 12 missing
 compiler/arithmeticOnInvalidTypes2
   7 missing (first TS2365 at arithmeticOnInvalidTypes2.ts(2,14))
 compiler/arrayAssignmentTest1
@@ -212,3 +210,5 @@ compiler/assignmentCompatBug2
   3 missing (first TS2741 at assignmentCompatBug2.ts(15,1))
 compiler/assignmentCompatBug5
   4 missing (first TS2322 at assignmentCompatBug5.ts(5,7))
+compiler/assignmentCompatFunctionsWithOptionalArgs
+  2 missing (first TS2322 at assignmentCompatFunctionsWithOptionalArgs.ts(4,17))

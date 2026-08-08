@@ -4846,3 +4846,96 @@ the code you noticed is a lower bound on what it was costing.
 > converts less than its row, print whether it runs. `symbol_of` returning
 > `None` for a `Constructor` is not visible in any decline, because it is not a
 > decline.
+
+---
+
+## 65. `diagemit.rs`, and TS2362 / TS2363 — the arithmetic operand types
+
+§64's lesson asked for an instrument, and `examples/diagemit.rs` (new) is it:
+how many diagnostics of each code this port **emits**, beside how many the
+baselines record. A large `want` against a zero `have` is a rule that is not
+*running*; a small `have` is one that is declining.
+
+```
+code           want     have   rule
+TS2454         4015     3799
+TS2322         2888      546   quiet
+TS2304         2735     2549
+TS2564         1392     1245
+TS2362          863        0   unported     <-
+TS18050         771      718
+TS2363          768        0   unported     <-
+TS2339          701      232
+```
+
+**No ported rule reads SILENT**, which is the first thing worth knowing. The
+two largest *unported* rows are one function: `checkArithmeticOperandType`
+(`checker.go:12799`), the operand check that sits beside TS18050 and TS2365 at
+the very site `crate::operator_operands` and `crate::nullable_operand` already
+visit.
+
+```go
+leftOk  := c.checkArithmeticOperandType(left,  leftType,  The_left_hand_side_of_an_arithmetic_operation_must_be_of_type_any_number_bigint_or_an_enum_type,  true)
+rightOk := c.checkArithmeticOperandType(right, rightType, The_right_hand_side_of_an_arithmetic_operation_must_be_of_type_any_number_bigint_or_an_enum_type, true)
+```
+
+and the predicate is one line: `!isTypeAssignableTo(t, numberOrBigIntType)`.
+
+### Two declines the neighbouring rules already name
+
+- **A nullish operand** is `checkNonNullType`'s (TS18050 / TS18048), which runs
+  first at the same site — §50.3's split.
+- **Both operands boolean-like** is TS2447, *"The '{0}' operator is not allowed
+  for boolean types, consider using '{1}' instead"*, reported on the **operator
+  token** and returning before the operand check (`checker.go:12372`).
+
+And the direction is §52's: the rule reports **because** a relation failed, so
+only a confident `NotRelated` fires and `Unknown` is silence. An enum operand
+answers `Unknown` for `enum → number` here and is assignable upstream, which is
+the safe direction — the message itself lists "an enum type".
+
+### The bar
+
+| leg | registered |
+|---|---|
+| 1 | `diagnostics` passes > **1,271**. Forecast **+5 to +20** — `diaggap.rs` gives the two codes 1 and 4 sole-obstacle cases, so almost all of the value is in cases needing them **beside** codes this port already emits, which is `diagreach.rs`'s population and not forecastable per code |
+| 2 | `checker_types` pass count unchanged at **3,683** |
+| 3 | LOST == **0** on `diag2307.rs` with `RULE_CODES = [2362, 2363]` |
+| 4 | own WRONG ≤ **60**. Higher than §49's bar: 1,631 baseline lines is the largest population this workstream has opened since TS2322 |
+| 5 | every other snapshot unchanged |
+
+**Falsifier.** If the wrong column is dominated by enum operands, the relater's
+`enum → number` answer is `NotRelated` rather than `Unknown` and the decline is
+an explicit enum arm rather than the ternary reading.
+
+### Scored — **+13**, and **866 right lines for four wrong**
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| 1 | passes > 1,271, forecast +5 to +20 | **1,284 / 5,488 = 23.40%** | pass |
+| 2 | `checker_types` pass count 3,683 | **3,683**, snapshot unchanged | pass |
+| 3 | LOST == 0 | **0** | pass |
+| 4 | own WRONG ≤ 60 | **4** | pass, by a factor of fifteen |
+| 5 | every other snapshot unchanged | only `diagnostics.snap` differs | pass |
+
+`diag2307.rs` over `[2362, 2363]`: **CONVERTS 13 · RIGHT 866 · WRONG 4 ·
+LOST 0.**
+
+**The best right-to-wrong ratio in this file — 216 to 1 — and the reason is that
+the predicate is one relation call with no bound drawn around it.** Every wrong
+column this session that needed declines needed them because the rule was
+*substituting* for something upstream does differently: comparability for
+assignability, a members table for a resolved one, a syntactic guard for a
+narrowing. `isTypeAssignableTo(t, number | bigint)` is not a substitution. It is
+the same question upstream asks, and the three-valued reading (§52's direction:
+fire only on a confident `NotRelated`) turns this port's incompleteness into
+silence rather than into error.
+
+**`diagemit.rs` is what found it**, and it found it by the column no other
+instrument has: `want` against `have` per code. TS2362's 863 baseline lines and
+TS2363's 768 were the two largest **unported** rows in the corpus, and neither
+appears anywhere near the top of `diaggap.rs`'s single-code column — 1 and 4
+sole-obstacle cases — because those lines almost always arrive beside a code
+this port already emits. **A code with a huge `want`, a zero `have` and a tiny
+sole-obstacle row is the signature of a rule worth building**, and it is exactly
+the signature the old board hid.
