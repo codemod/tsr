@@ -179,8 +179,7 @@ pub(crate) fn output_units<'a>(
     baseline: &'a JsBaseline,
     case: &'a crate::TestCase,
 ) -> Vec<(&'a crate::TestFile, &'a crate::js_baseline::Section)> {
-    let inputs: std::collections::HashSet<&str> =
-        case.files.iter().map(|file| file.name.as_str()).collect();
+    let emitted = emitted_sections(baseline, case);
     case.files
         .iter()
         .filter(|unit| {
@@ -188,10 +187,40 @@ pub(crate) fn output_units<'a>(
                 && !is_declaration_file_name(&unit.name)
         })
         .filter_map(|unit| {
-            let section = matching_section(baseline, case, &inputs, &unit.name)?;
+            let section = matching_section(&emitted, case, &unit.name)?;
             Some((unit, section))
         })
         .collect()
+}
+
+/// The baseline's emitted sections: everything after the input echoes.
+///
+/// A baseline echoes every input unit — in case order, flattened to its final
+/// path component — before any emitted file, so the echo region is the longest
+/// prefix of sections whose basename *and content* match an input unit. Name
+/// equality alone cannot discriminate: an input at
+/// `node_modules/lib/index.d.ts` echoes as `index.d.ts`, which is exactly the
+/// name unit `index.ts` emits to, and matching by name paired emitted output
+/// with a stub input (`moduleLocalImportNotIncorrectlyRedirected`).
+fn emitted_sections<'a>(
+    baseline: &'a JsBaseline,
+    case: &crate::TestCase,
+) -> Vec<&'a crate::js_baseline::Section> {
+    fn base(path: &str) -> &str {
+        path.rsplit('/').next().unwrap_or(path)
+    }
+    let is_echo = |section: &crate::js_baseline::Section| {
+        case.files.iter().any(|unit| {
+            base(&unit.name) == base(&section.name)
+                && normalise(&unit.content) == normalise(&section.content)
+        })
+    };
+    let boundary = baseline
+        .sections
+        .iter()
+        .position(|section| !is_echo(section))
+        .unwrap_or(baseline.sections.len());
+    baseline.sections[boundary..].iter().collect()
 }
 
 /// The baseline declaration section a source unit was emitted into.
@@ -203,17 +232,13 @@ pub(crate) fn output_units<'a>(
 /// units and the baseline's declaration sections, because an ambiguous basename
 /// would silently pair the wrong files.
 fn matching_section<'a>(
-    baseline: &'a JsBaseline,
+    emitted: &[&'a crate::js_baseline::Section],
     case: &crate::TestCase,
-    inputs: &std::collections::HashSet<&str>,
     unit_name: &str,
 ) -> Option<&'a crate::js_baseline::Section> {
     let name = declaration_name(unit_name);
-    let is_output = |section: &&crate::js_baseline::Section| {
-        section.is_declaration() && !inputs.contains(section.name.as_str())
-    };
     if let Some(section) =
-        baseline.sections.iter().find(|section| section.name == name && is_output(section))
+        emitted.iter().find(|section| section.name == name && section.is_declaration())
     {
         return Some(section);
     }
@@ -224,13 +249,15 @@ fn matching_section<'a>(
     {
         return None;
     }
-    let mut candidates =
-        baseline.sections.iter().filter(is_output).filter(|section| base(&section.name) == wanted);
+    let mut candidates = emitted
+        .iter()
+        .filter(|section| section.is_declaration())
+        .filter(|section| base(&section.name) == wanted);
     let section = candidates.next()?;
     if candidates.next().is_some() {
         return None;
     }
-    Some(section)
+    Some(section.to_owned())
 }
 
 /// The declaration file name for a source unit.
@@ -310,15 +337,14 @@ pub(crate) fn unemitted_units<'a>(
     baseline: &'a JsBaseline,
     case: &'a crate::TestCase,
 ) -> Vec<&'a crate::TestFile> {
-    let inputs: std::collections::HashSet<&str> =
-        case.files.iter().map(|file| file.name.as_str()).collect();
+    let emitted = emitted_sections(baseline, case);
     case.files
         .iter()
         .filter(|unit| {
             ScriptKind::from_file_name(&unit.name) != ScriptKind::Json
                 && !is_declaration_file_name(&unit.name)
         })
-        .filter(|unit| matching_section(baseline, case, &inputs, &unit.name).is_none())
+        .filter(|unit| matching_section(&emitted, case, &unit.name).is_none())
         .collect()
 }
 

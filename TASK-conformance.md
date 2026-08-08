@@ -5,12 +5,13 @@ CURRENT PROGRESS (2026-08-08)
   parser_typescript      5,031/5,031 = 100.00% (up from 5,001)
   dts_reachable_target     496/1,162 = 42.69%  (up from 495; corrected visibility
                                                 exposed one inference case)
-  dts_emit                  303/395  = 76.71%  (denominator grew 341 -> 395:
-                                                outDir-remapped baselines now
-                                                pair; 25 of the 54 new cases
-                                                pass, was 278/341 = 81.52%)
-  dts_shape                820/1,016 = 80.71%  (denominator grew 918 -> 1,016
-                                                the same way; was 753/918)
+  dts_emit                  306/376  = 81.38%  (denominator moved twice: grew
+                                                341 -> 395 pairing outDir-
+                                                remapped baselines, then shrank
+                                                to 376 removing mispairings
+                                                against flattened input echoes)
+  dts_shape                836/1,005 = 83.18%  (same two corrections; was
+                                                753/918 before them)
   printer_round_trip    11,755/11,778 = 99.80%
 
 The parser clean-file milestone is complete. Its harness now prepares virtual
@@ -197,6 +198,15 @@ emit denominator 341 -> 395 and shape 918 -> 1,016; 25 emit and 67 shape of the
 new population pass at once, and the newly visible failures are genuine
 JS-declaration JSDoc and program-level import gaps, not mispairings. Scores
 before and after this change are not directly comparable.
+
+The complementary correction: input echoes are also flattened to basenames, so
+exact-name exclusion failed for pathed inputs and paired emitted units against
+node_modules stubs and lib-override inputs
+(`moduleLocalImportNotIncorrectlyRedirected`, `libTypeScriptOverride*`,
+`duplicatePackage_subModule` were mispairings, not import-retention bugs). The
+echo region is now the longest prefix of sections whose basename and content
+match an input unit; only sections after it are outputs. Nineteen emit and
+eleven shape bogus comparisons left the population.
 
 `TASK.md` belongs to the checker-types gradient and `TASK-diagnostics.md` belongs
 to diagnostics. Do not put work from either stream here. This file owns the

@@ -2,13 +2,13 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 dts_emit Summary:
 What a pass means: the .d.ts text this port emits is byte-identical to upstream's, for every unit of a case that needs no inference — the emitter's own rate, over the population dts_reachable_target measures
-Passed         : 303/395 (76.71%)
-Failed         : 92
-Skipped        : 12049 (excluded from the denominator)
+Passed         : 306/376 (81.38%)
+Failed         : 70
+Skipped        : 12068 (excluded from the denominator)
 
-  624  skipped: a declaration in this case needs inference (see dts_reachable_target)
-  16  skipped: a unit of this case does not parse cleanly
-  8315  skipped: the emit baseline has no emitted .d.ts section
+  632  skipped: a declaration in this case needs inference (see dts_reachable_target)
+  15  skipped: a unit of this case does not parse cleanly
+  8327  skipped: the emit baseline has no emitted .d.ts section
   2477  skipped: upstream recorded no .js emit baseline
   617  skipped: upstream recorded no output for this case
 
@@ -28,10 +28,6 @@ compiler/argumentsReferenceInConstructor7_Js
   line 2: want `    /**`, got `    constructor();`
 compiler/compositeWithNodeModulesSourceFile
   emitted /foo/node_modules/myModule/index.d.ts, upstream emitted no declaration file
-compiler/conflictingDeclarationsImportFromNamespace1
-  line 1: want `/// <reference path="./object.d.ts" />`, got `export declare const pick: any;`
-compiler/conflictingDeclarationsImportFromNamespace2
-  line 1: want `/// <reference path="./object.d.ts" />`, got `export declare const pick: any;`
 compiler/declarationEmitClassAccessorsJs1
   line 5: want `    get path(): string;`, got `    get path(): any;`
 compiler/declarationEmitDuplicateParameterDestructuring
@@ -54,10 +50,8 @@ compiler/declarationEmitPrivatePromiseLikeInterface
   emitted Api.d.ts, upstream emitted no declaration file
 compiler/declarationEmitPrivateSymbolCausesVarDeclarationToBeEmitted
   line 1: want `declare const _data: unique symbol;`, got `export declare class User {`
-compiler/declarationEmitRedundantTripleSlashModuleAugmentation
-  emitted /index.d.ts, upstream emitted no declaration file
 compiler/declarationEmitRetainedAnnotationRetainsImportInOutput
-  line 1: want `export type Whatever<T> = {x: T};`, got `export declare const run: <E>(i: () => E.Whatever<E>) => E.Whatever<E>;`
+  line 1: want `import * as E from 'whatever';`, got `export declare const run: <E>(i: () => E.Whatever<E>) => E.Whatever<E>;`
 compiler/declarationEmitScopeConsistency3
   line 1: want `export declare const g: (v: "outer") => () => "inner";`, got `export declare const g: any;`
 compiler/declarationEmitTypeParameterNameShadowedInternally
@@ -66,24 +60,18 @@ compiler/declarationEmitUsingAlternativeContainingModules1
   line 1: want `interface IEntry {`, got `export declare const useEntries: any;`
 compiler/declarationEmitUsingAlternativeContainingModules2
   line 1: want `interface IEntry {`, got `export declare const useEntries: any;`
-compiler/declarationEmitUsingTypeAlias1
-  line 1: want `export type OtherType = import('./inner').Other;`, got `export declare const foo: any;`
+compiler/declarationEmitWithInvalidPackageJsonTypings
+  line 5: want `export declare const useCsvParser: () => MutableRefObject<typeof import("csv-parse")>;`, got `export declare const useCsvParser: any;`
 compiler/declarationsForFileShadowingGlobalNoError
   line 1: want `import { DOMNode } from './dom';`, got `export declare const mixin: any;`
 compiler/declarationsWithRecursiveInternalTypesProduceUniqueTypeParams
   line 3: want `export declare const updateIfChanged: <T>(t: T) => (<K extends Key<T>>(key: K) => (<K_1 extends Key<Value<K, T>>>(key: K_1) => (<K_2 extends Key<Value<K_1, Value<K, T>>>>(key: K_2) => (<K_3 extends Key<Value<K_2, Value<K_1, Value<K, T>>>>>(key: K_3) => (<K_4 extends Key<Value<K_3, Value<K_2, Value<K_1, Value<K, T>>>>>>(key: K_4) => (<K_5 extends Key<Value<K_4, Value<K_3, Value<K_2, Value<K_1, Value<K, T>>>>>>>(key: K_5) => (<K_6 extends Key<Value<K_5, Value<K_4, Value<K_3, Value<K_2, Value<K_1, Value<K, T>>>>>>>>(key: K_6) => (<K_7 extends Key<Value<K_6, Value<K_5, Value<K_4, Value<K_3, Value<K_2, Value<K_1, Value<K, T>>>>>>>>>(key: K_7) => (<K_8 extends Key<Value<K_7, Value<K_6, Value<K_5, Value<K_4, Value<K_3, Value<K_2, Value<K_1, Value<K, T>>>>>>>>>>(key: K_8) => (<K_9 extends Key<Value<K_8, Value<K_7, Value<K_6, Value<K_5, Value<K_4, Value<K_3, Value<K_2, Value<K_1, Value<K, T>>>>>>>>>>>(key: K_9) => (<K_10 extends Key<Value<K_9, Value<K_8, Value<K_7, Value<K_6, Value<K_5, Value<K_4, Value<K_3, Value<K_2, Value<K_1, Value<K, T>>>>>>>>>>>>(key: K_10) => /*elided*/ any & {`, got `export declare const updateIfChanged: any;`
 compiler/destructuredDeclarationEmit
   line 3: want `declare const { bar: baz, bat, bam: { bork: { bar: ibar, baz: ibaz } } }: {`, got `export { baz, ibaz };`
-compiler/duplicatePackage_subModule
-  line 1: want `import Foo from "foo/Foo";`, got `export {};`
 compiler/exportAssignmentMembersVisibleInAugmentation
   emitted /a.d.ts, upstream emitted no declaration file
 compiler/functionExpressionReturningItself
   line 1: want `declare var x: () => () => /*elided*/ any;`, got `declare var x: any;`
-compiler/impliedNodeFormatInterop1
-  line 1: want `declare module "highlight.js" {`, got `export {};`
-compiler/importedAliasedConditionalTypeInstantiation
-  line 1: want `export type Handler<TEvent = any, TResult = any> = (`, got `export {};`
 compiler/isolatedDeclarationsAddUndefined
   line 3: want `    c?: readonly [1] | undefined;`, got `    c?: readonly [N];`
 compiler/javascriptThisAssignmentInStaticBlock
@@ -92,52 +80,24 @@ compiler/jsDeclarationEmitExportAssignedArray
   line 1: missing `declare const _exports: {`
 compiler/jsDeclarationEmitExportAssignedFunctionWithExtraTypedefsMembers
   line 1: missing `/**`
-compiler/jsDeclarationEmitExportedClassWithExtends
-  line 1: want `export * from "lit-element/lit-element.js";`, got `import { LitElement, LitElement as LitElement2 } from "lit";`
 compiler/lateBoundAssignmentCandidateJS3
   line 7: want `    protected prop: string;`, got `    prop: string;`
-compiler/libTypeScriptOverrideSimple
-  line 1: want `interface ABC { abc: string }`, got `declare const a: ABC;`
-compiler/libTypeScriptOverrideSimpleConfig
-  line 1: want `interface ABC { abc: string }`, got `declare const a: ABC;`
-compiler/libTypeScriptSubfileResolving
-  line 1: want `// NOOP`, got `declare const a: DOMIterable;`
-compiler/libTypeScriptSubfileResolvingConfig
-  line 1: want `// NOOP`, got `declare const a: DOMIterable;`
 compiler/mappedTypeGenericInstantiationPreservesHomomorphism
   line 1: want `export declare const mappedUnionWithPrivateType: <T extends unknown[]>(...args: T) => T[any] extends infer T_1 ? { [K in keyof T_1]: T_1[K]; } : never;`, got `export declare const mappedUnionWithPrivateType: any;`
 compiler/mappedTypeWithAsClauseAndLateBoundProperty2
   line 2: want `    [x: number]: number;`, got `    [K in keyof number[] as Exclude<K, "length">]: (number[])[K];`
 compiler/moduleDeclarationExportStarShadowingGlobalIsNameable
   line 1: want `export * from "./account";`, got `declare global {`
-compiler/moduleLocalImportNotIncorrectlyRedirected
-  line 1: want `import { Position } from './utilities/positioning';`, got `export {};`
 compiler/modulePreserve4
   line 1: want `declare const _default = 0;`, got `declare const _default: number;`
-compiler/moduleResolution_packageJson_yesAtPackageRoot_mainFieldInSubDirectory
-  line 1: want `export const x: number;`, got `export {};`
 compiler/noEmitOnError
   line 2: missing ``
 compiler/nodeNextCjsNamespaceImportDefault2
   line 2: want `declare const _default = "string";`, got `declare const _default: string;`
-compiler/nodeNextEsmImportsOfPackagesWithExtensionlessMains
-  line 1: want `export function address(): string;`, got `export declare function getAddress(): string;`
-compiler/nodeNextImportModeImplicitIndexResolution
-  line 1: want `export const item = 4;`, got `export {};`
 compiler/paramterDestrcuturingDeclaration
   line 2: want `    ({ p: name }: {`, got `    ({ p: name }: any): any;`
 compiler/referenceTypesPreferedToPathIfPossible
   line 1: want `export declare const thing: () => import("url").Url;`, got `export declare const thing: any;`
-compiler/stackDepthLimitCastingType
-  line 1: want `declare global {`, got `export {};`
-compiler/tslibMissingHelper
-  line 1: missing `export const notAHelper: any;`
-compiler/tslibNotFoundDifferentModules
-  line 1: missing `/**`
-compiler/tslibReExportHelpers
-  line 1: want `export * from "./index.js";`, got `export declare class Foo {`
-compiler/tslibReExportHelpers2
-  line 1: want `export { __classPrivateFieldGet } from "./index.js";`, got `export declare class Foo {`
 compiler/typeReferenceDirectives13
   line 1: want `export interface A {`, got `import { $ } from "./ref";`
 compiler/typeReferenceDirectives4
@@ -162,8 +122,6 @@ conformance/declarationEmitThisPredicatesWithPrivateName02
   line 1: want `interface Foo {`, got `export declare const obj: {`
 conformance/declarationEmitWorkWithInlineComments
   line 5: want `    constructor(`, got `    constructor(isInternal1: string, isInternal2: string, isInternal3: string, isInternal4: string, isInternal5: string, isInternal6: string, isInternal7: string, notInternal1: string, notInternal2: string, notInternal3: string);`
-conformance/declarationNotFoundPackageBundlesTypes
-  line 1: want `declare const foo: any;`, got `export {};`
 conformance/genericContextualTypes1
   line 22: want `declare const arrayMap: <T, U>(f: (x: T) => U) => (a: T[]) => U[];`, got `declare const arrayMap: any;`
 conformance/importDeferJsdoc
@@ -184,8 +142,6 @@ conformance/jsdocImplements_signatures
   line 2: want `declare class B implements Sig {`, got `declare class B {`
 conformance/jsdocTemplateTagNameResolution
   line 6: want `type Foo<T, K extends keyof T> = T[K];`, got `declare const x: {`
-conformance/legacyNodeModulesExportsSpecifierGenerationConditions
-  line 1: want `export { x } from "./other.js";`, got `export declare const a: any;`
 conformance/recursiveTypeReferences2
   line 1: want `/** @typedef {ReadonlyArray<Json>} JsonArray */`, got `/** @type {XMLObject<{foo:string}>} */`
 conformance/typeFromPropertyAssignment39
