@@ -33,6 +33,7 @@ pub mod type_shape;
 pub mod types_baseline;
 pub mod types_producer;
 pub mod types_suite;
+pub mod verdict;
 
 use std::path::{Path, PathBuf};
 
