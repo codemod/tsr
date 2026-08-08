@@ -1278,6 +1278,13 @@ its whole deliverable and accept that it converts nothing until finished.
 
 ### New, thirteenth session, `diagnostics`
 
+- **TS1100 and TS7026 are CHECKED unbuilt, not believed unbuilt** (§137).
+  §136's grep rule run on both: no strict-mode tracking exists anywhere in
+  `tsr-binder`, and `GlobalExports` covers only a UMD `export as namespace`
+  claim, never `declare global`. §105's and §5's pricings stand. **The rule hit
+  three times this session and missed twice — worth the two greps either way,
+  since a miss upgrades an inference into a verified negative.**
+
 - **TS2303 is UNREACHABLE, not unported** (§136), and the pricing was already in
   the tree: `resolve_alias`'s rustdoc records that upstream's circularity frame
   **was written here, measured, and removed for cause** — this port's
