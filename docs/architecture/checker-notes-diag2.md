@@ -9155,3 +9155,54 @@ Three wrong lines: two uncaught computed property names in
 `conformance/computedPropertyName` (§124's second family, still unread) and
 `mergeSymbolRexportFunction`'s single TS1362 (still unread). Both want their
 `.errors.txt` opened first — which is the whole of what this section learned.
+
+## §126 — the last three lines, read against their baselines
+
+§125's rule applied to the two families §124 left unread. Both baselines are
+decisive and neither matches what the sections around them assumed.
+
+### `mergeSymbolRexportFunction` — upstream has NO TS1362 at all
+
+```
+a.d.ts(3,9):    error TS2451: Cannot redeclare block-scoped variable 'Row'.
+index.d.ts(1,14): error TS2451: Cannot redeclare block-scoped variable 'Row'.
+```
+
+Two TS2451 and nothing else. Our `main.ts(2,1) TS1362` is a **pure false
+positive with no upstream counterpart anywhere in the file** — not a wrong
+position, not a wrong code, simply a diagnostic upstream does not write. It is
+also the row's only TS1362, so whatever produces it is the export-side branch of
+`type_only_alias_declaration` firing where the alias is not type-only, or firing
+on a merged symbol whose first declaration is not the one that matters
+(§97's multi-declaration hazard, in a rule that does not have that decline).
+
+### `conformance/computedPropertyName` — upstream reports FOUR, all at column 4
+
+```
+component.ts(12,4)  (16,4)  (20,4)  (24,4)   — all TS1361
+```
+
+Our two residual lines are at **(32,12)** and **(36,4)**. Upstream writes
+nothing past line 24. So the file has more computed-name sites than upstream
+errors on, and lines 28–36 are the ones
+`isPartOfPossiblyValidTypeOrAbstractComputedPropertyName` excuses — §123's port
+caught line 28 and misses 32 and 36.
+
+**Two shapes it does not reach**, and both are in upstream's own predicate:
+`HasSyntacticModifier(node.Parent, ModifierFlagsAbstract)` over member kinds
+`member_is_abstract` does not enumerate, and a `node.Parent.Parent` that is a
+`TypeLiteral` where this port's walk exits earlier. Column 12 versus column 4
+suggests the two differ from each other as well — one is a bare name and one is
+a property access.
+
+### The state this leaves, and it is a good one to hand over
+
+Three wrong lines, **each with its baseline read and its cause narrowed to one
+named predicate**. No attribution in this section is a guess: the merge line has
+no upstream counterpart at all, and the computed-name lines sit past the last
+line upstream reports on.
+
+That is the first time this row has been in that state. §121 handed over eight
+lines with a wrong owner, §122 handed over "unknown", §124 handed over three
+families with one of them wrongly declared untouchable. **Reading four baselines
+cost four `grep`s and undid three sections of inference.**
