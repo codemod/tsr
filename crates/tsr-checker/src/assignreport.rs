@@ -211,6 +211,15 @@ impl<'a> Checker<'a, '_> {
         // handful; the ordinary `obj.field = value` it was also refusing is
         // sixteen. `getWriteTypeOfSymbol` would recover the handful.
         if self.nodes.kind(node) == SyntaxKind::PropertyAccessExpression {
+            // An **inaccessible** property's access answers `errorType`
+            // upstream — `checkPropertyAccessExpression` returns after
+            // reporting TS2341/TS2445 — so no assignment check follows it.
+            // `c.y = 1` on a private accessor is TS2341 alone, and this port
+            // was adding a TS2322 beside it
+            // (`checker-notes-diag2.md` §70).
+            if self.inaccessible_property(node).is_some() {
+                return None;
+            }
             let ty = self.check_expression_at_node(node);
             return (ty != self.intrinsics().error).then_some(ty);
         }

@@ -143,19 +143,41 @@ impl Checker<'_, '_> {
         if ambient || self.file_has_parse_errors || self.in_js_file(node) {
             return;
         }
-        let Some(Node::PropertyAccessExpression(access)) = self.node_map.get(node) else { return };
-        let (Some(receiver), Some(member)) = (access.expression, access.name) else { return };
+        let Some((message, name, class_name, at)) = self.inaccessible_property(node) else {
+            return;
+        };
+        let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
+        let span = self.error_span(at);
+        self.report(file, Diagnostic::with_args(message, span, [name, class_name]));
+    }
+
+    /// Is this property access inaccessible, and with which message?
+    ///
+    /// Split out because an inaccessible property's access answers `errorType`
+    /// upstream (`checkPropertyAccessExpression` returns after reporting), so
+    /// **no assignment check follows it**: `c.y = 1` on a private accessor is
+    /// TS2341 alone and this port was adding a TS2322 beside it
+    /// (`classPropertyAsPrivate`, `classPropertyAsProtected` —
+    /// `checker-notes-diag2.md` §70).
+    pub(crate) fn inaccessible_property(
+        &mut self,
+        node: NodeId,
+    ) -> Option<(&'static tsr_diagnostics::Message, String, String, NodeId)> {
+        let Some(Node::PropertyAccessExpression(access)) = self.node_map.get(node) else {
+            return None;
+        };
+        let (Some(receiver), Some(member)) = (access.expression, access.name) else { return None };
         // `#x` is TS18013, a different code with its own row.
-        let tsr_ast::MemberName::Identifier(name) = member else { return };
-        let Some(name_id) = name.node_id else { return };
+        let tsr_ast::MemberName::Identifier(name) = member else { return None };
+        let name_id = name.node_id?;
         let receiver_type = self.check_expression(receiver);
         if self.is_error(receiver_type)
             || self.type_of(receiver_type).flags.intersects(TypeFlags::ANY_OR_UNKNOWN)
             || !self.declared_members_are_complete(receiver_type)
         {
-            return;
+            return None;
         }
-        let Some(property) = self.get_property_of_type(receiver_type, name.text) else { return };
+        let property = self.get_property_of_type(receiver_type, name.text)?;
         // **Every** declaration must carry the modifier, not just the value one.
         // A `get`/`set` pair may diverge — `get PublicPrivate()` beside
         // `private set PublicPrivate(v)` — and upstream decides accessibility
@@ -166,7 +188,7 @@ impl Checker<'_, '_> {
         // `accessorDeclarationOrder` was this rule's only loss (§67).
         let declarations = self.binder.symbols().get(property).declarations.clone();
         if declarations.is_empty() {
-            return;
+            return None;
         }
         let all_carry = |checker: &Self, keyword: SyntaxKind| {
             declarations
@@ -179,9 +201,9 @@ impl Checker<'_, '_> {
         } else if all_carry(self, SyntaxKind::ProtectedKeyword) {
             &messages::PROPERTY_0_IS_PROTECTED_AND_ONLY_ACCESSIBLE_WITHIN_CLASS_1_AND_ITS_SUBCLASSES
         } else {
-            return;
+            return None;
         };
-        let Some(declaring) = self.nodes.parent(declarations[0]) else { return };
+        let declaring = self.nodes.parent(declarations[0])?;
         // **Every** enclosing class, not the nearest one. `isNodeWithinClass`
         // and `forEachEnclosingClass` walk the whole chain, so a reference in a
         // class nested inside a subclass is still inside it —
@@ -194,7 +216,7 @@ impl Checker<'_, '_> {
         // `protectedMembersThisParameter`, `thisTypeAccessibility` and
         // `protectedAccessThroughContextualThis` (§68).
         if self.reference_is_inside_a_this_parameter_function(node) {
-            return;
+            return None;
         }
         let enclosing: Vec<NodeId> = self.enclosing_classes_of(node);
         let permitted = if is_private {
@@ -207,15 +229,10 @@ impl Checker<'_, '_> {
             enclosing.iter().any(|&class| self.class_derives_from(class, declaring))
         };
         if permitted {
-            return;
+            return None;
         }
-        let Some(class_name) = self.declaration_name_of_class(declaring) else { return };
-        let Some(file) = self.source_file_of_for_diagnostics(name_id) else { return };
-        let span = self.error_span(name_id);
-        self.report(
-            file,
-            Diagnostic::with_args(message, span, [name.text.to_string(), class_name]),
-        );
+        let class_name = self.declaration_name_of_class(declaring)?;
+        Some((message, name.text.to_string(), class_name, name_id))
     }
 
     /// Does `class` reach `base` through its `extends` chain, or **is** it

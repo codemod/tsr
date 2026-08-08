@@ -5228,3 +5228,55 @@ rather than staying put.
 
 Kept on the same grounds as §68: zero conversions, zero wrong lines, and five
 cases moved from *needs a new rule* to *needs an existing one to finish*.
+
+---
+
+## 70. An inaccessible property's access answers `errorType`, so nothing follows it
+
+`extraonly.rs` after §67: `classPropertyAsPrivate` and `classPropertyAsProtected`
+carry two extras each, and both are the same line —
+
+```ts
+class C { private get y() { … } private set y(x) { } }
+declare var c: C;
+c.y = 1;      // upstream: TS2341 alone. This port: TS2341 AND TS2322.
+```
+
+`checkPropertyAccessExpression` **returns `errorType`** after reporting an
+accessibility error, so the assignment check never runs on that target. This
+port's rules are independent walks, so `crate::assignreport`'s assignment anchor
+computed the setter's parameter type and compared against it.
+
+The repair is the split §67 should have had: `inaccessible_property` answers
+*whether and with which message*, the reporter uses it, and
+`assignment_target_type` declines a target it answers for.
+
+### The bar
+
+| leg | registered |
+|---|---|
+| 1 | `diagnostics` passes > **1,296**. Forecast **+2** — `extraonly.rs` names two cases and has been exact three times of four |
+| 2 | `checker_types` pass count unchanged at **3,683** |
+| 3 | LOST must not grow |
+| 4 | TS2322's WRONG falls; its RIGHT does not |
+| 5 | every other snapshot unchanged |
+
+### Scored — **+2, the forecast to the case**
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| 1 | passes > 1,296, forecast +2 | **1,298 / 5,488 = 23.65%** | pass, exactly |
+| 2 | `checker_types` pass count 3,683 | **3,683**, snapshot unchanged | pass |
+| 3 | LOST must not grow | **0 → 0** | pass |
+| 4 | TS2322's WRONG falls, RIGHT does not | **WRONG 104 → 100, RIGHT 533 → 533** | pass |
+| 5 | every other snapshot unchanged | only `diagnostics.snap` differs | pass |
+
+`diag2307.rs` over `[2322, 2341, 2445]`: **CONVERTS 85 → 87 · RIGHT 533 → 533 ·
+WRONG 104 → 100 · LOST 0.**
+
+**`extraonly.rs` is four for five now**, and the one it missed (§61.1) missed for
+the reason recorded there: it says a case is one removal from passing, not that
+the removal is expressible. This one was expressible in six lines because §67
+had already computed the answer — the split into `inaccessible_property` is the
+same shape §63 got thirteen cases from. **A rule that decides something another
+rule needs should answer the question, not just act on it.**
