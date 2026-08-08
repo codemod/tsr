@@ -3017,3 +3017,20 @@ prints) need DISCRIMINANT NARROWING to fire on aliased conditions,
 which no print change supplies. Union order at annotation sites stays
 priced; re-open only with an origin path that cannot gap an
 already-working union. Reverted.
+
+## §77.3 — single-quoted member names keep their quote
+
+Two halves, one gate: `written_type_text`'s type-literal arm accepts
+string-literal member names (single quote sets the gate, double
+renders `"…"`), and `check_object_literal`'s RE-QUOTE arm — the only
+name path that bakes a quote character — keeps a written single quote
+(`{ '1.0': "" }` prints `{ '1.0': string; }`). Identifier-valid names
+stay unquoted whichever quote wrote them. **+54, zero adverse**
+(`assignmentCompatWithObjectMembersStringNumericNames` 33,
+`propertyAccess` 11).
+
+**§77.3 score — LANDED.** right 403,811 → **403,865 (84.33%)** —
+measured against a RE-TAKEN baseline (the §88 trap fired a second
+time this window: another workstream's §103 builds arrived through
+build 134's own rebase; stash-and-remeasure caught it, right 403,754
+→ 403,811 was theirs).

@@ -1663,17 +1663,25 @@ impl<'a> Checker<'a, '_> {
                     if !property.modifiers.is_empty() {
                         return None;
                     }
-                    let tsr_ast::PropertyName::Identifier(name) = property.name else {
-                        return None;
+                    // §77.3: string-literal member NAMES keep their written
+                    // quote too — `{ '1.0': string; }`
+                    // (`assignmentCompatWithObjectMembersStringNumericNames`).
+                    let name = match property.name {
+                        tsr_ast::PropertyName::Identifier(name) => name.text.to_string(),
+                        tsr_ast::PropertyName::StringLiteral(name) => {
+                            if name.token_flags.contains(tsr_ast::TokenFlags::SINGLE_QUOTE) {
+                                *single_quoted = true;
+                                format!("'{}'", name.text)
+                            } else {
+                                format!("\"{}\"", name.text)
+                            }
+                        }
+                        _ => return None,
                     };
                     let optional =
                         property.postfix_token.is_some_and(|t| t.kind == SyntaxKind::QuestionToken);
                     let inner = Self::written_type_text(property.r#type?, single_quoted)?;
-                    parts.push(format!(
-                        "{}{}: {inner};",
-                        name.text,
-                        if optional { "?" } else { "" }
-                    ));
+                    parts.push(format!("{name}{}: {inner};", if optional { "?" } else { "" }));
                 }
                 if parts.is_empty() {
                     Some("{}".to_string())

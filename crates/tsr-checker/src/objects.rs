@@ -427,6 +427,17 @@ impl Checker<'_, '_> {
                 // when that lands, and nothing would fail if only one were — the
                 // incompleteness that makes one copy safe is exactly what would
                 // make a divergence between two copies invisible.
+                // §77.3 (`checker-notes-narrow.md`): a SINGLE-quoted written
+                // name keeps its quote — `{ '1.0': "" }` prints
+                // `{ '1.0': string; }`
+                // (`assignmentCompatWithObjectMembersStringNumericNames`).
+                // Only the re-quoted arm: an identifier-valid name still
+                // prints unquoted whichever quote wrote it.
+                tsr_ast::PropertyName::StringLiteral(literal)
+                    if literal.token_flags.contains(tsr_ast::TokenFlags::SINGLE_QUOTE) =>
+                {
+                    format!("'{}'", literal.text)
+                }
                 tsr_ast::PropertyName::StringLiteral(literal) => printing::quote(literal.text),
                 // A **numeric** name prints as its normalised value with no
                 // quotes: `{ 0: number; }`, and `{ 1.0: x }` prints `1`. The
