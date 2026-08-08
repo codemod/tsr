@@ -2613,4 +2613,11 @@ against that annotation — the §56 walk gains a ReturnStatement arm
 construction since the walk requires a return statement).
 
 **§56.1 score — LANDED.** **+10 (W→R), ZERO adverse.** `checker_types`
-right 401,531 → **401,541 (83.84%)**.
+right 401,531 → **401,541 (83.84%)**. A §56.2 (parameter-default
+position) was built and measured ZERO — the corpus holds no
+object-literal parameter defaults under unit-membered annotations — and
+reverted as unproven breadth. The remaining want-`true`-got-`boolean`
+population (148) is scattered across intersections, JSX attributes, and
+inference contexts — no single provable position remains; the residue
+belongs to the argument road (needs resolved-signature contexts) and the
+general contextual machinery.
