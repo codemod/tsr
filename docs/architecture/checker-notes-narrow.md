@@ -2284,4 +2284,8 @@ declaration-position anomaly again.
 falsifier fired. `checker_types` right 399,418 → **399,431 (83.40%)**.
 The discriminant family now has four members sharing two filters:
 property switch (§51), property equality (§51.1), chain containment
-(§51.2), property truthiness (§51.3).
+(§51.2), property truthiness (§51.3). An object-member extension
+(objects always truthy — the `{ value: T } | { value: undefined }`
+idiom) measured ZERO and was reverted: the corpus's instances pair the
+object member with an opaque sibling, so the whole-decline holds either
+way.
