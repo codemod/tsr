@@ -757,6 +757,15 @@ impl<'a, 'n> Binder<'a, 'n> {
             return;
         };
 
+        // Every declare path needs the expando-initializer record, and an
+        // exported variable's does not pass through the one declare site that
+        // used to make it (`propertyAssignmentUseParentType1`'s
+        // `export const ignoreJsdoc = () => …`); the walk sees every
+        // declaration exactly once, so the record lives here.
+        if matches!(node, Node::VariableDeclaration(_)) {
+            self.record_expando_initializer(node, id);
+        }
+
         self.record_flow(node, id);
         // Declare first, then descend: a class's own name is visible inside its
         // body, and its members go in the symbol this call creates.
@@ -3219,7 +3228,15 @@ impl<'a, 'n> Binder<'a, 'n> {
     /// answer; a `const f = function () {}` is not — the properties belong to the
     /// function expression's symbol, not to the variable's.
     fn initializer_symbol(&self, symbol: Option<SymbolId>) -> Option<SymbolId> {
-        let symbol = symbol?;
+        let mut symbol = symbol?;
+        // An exported const's lookup lands on its export MARKER, which carries
+        // no value declaration; the real symbol is behind the link
+        // (`propertyAssignmentUseParentType1`'s `export const ignoreJsdoc`).
+        if self.symbols.get(symbol).value_declaration.is_none()
+            && let Some(real) = self.symbols.get(symbol).export_symbol
+        {
+            symbol = real;
+        }
         let declaration = self.symbols.get(symbol).value_declaration?;
         match self.nodes.kind(declaration) {
             SyntaxKind::FunctionDeclaration => Some(symbol),

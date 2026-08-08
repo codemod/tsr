@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 binder_symbols Summary:
 What a pass means: every symbol in the .symbols baseline exists with the same declaration lines
-Passed         : 8447/8461 (99.83%)
-Failed         : 14
+Passed         : 8449/8461 (99.86%)
+Failed         : 12
 Skipped        : 3983 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -14,10 +14,8 @@ Skipped        : 3983 (excluded from the denominator)
 
 compiler/ambientExternalModuleWithRelativeModuleName
   1 symbol(s): .\\relativeModule: no symbol
-compiler/declarationEmitExpandoWithGenericConstraint
-  1 symbol(s): Point.zero: no symbol
 compiler/declarationEmitLateBoundAssignments2
-  3 symbol(s): arrow.B: no symbol; arrow3.77: no symbol; arrow5.101: no symbol
+  2 symbol(s): arrow9.\uD83E\uDD2A: no symbol; decl9.\uD83E\uDD2A: no symbol
 compiler/invalidUnicodeEscapeSequance4
   1 symbol(s): u0031a: no symbol
 compiler/moduleElementsInWrongContext
@@ -36,7 +34,5 @@ conformance/noUncheckedIndexedAccessDestructuring
   2 symbol(s): q.__index: no symbol; t2.__index: no symbol
 conformance/parserComputedPropertyName1
   1 symbol(s): [e]: no symbol
-conformance/propertyAssignmentUseParentType1
-  1 symbol(s): ignoreJsdoc.extra: no symbol
 conformance/thisTypeInFunctionsNegative
   2 symbol(s): (Missing): no symbol; C: declared on {0}, expected to include {0, 171}
