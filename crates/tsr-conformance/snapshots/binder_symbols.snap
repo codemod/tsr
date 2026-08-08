@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 binder_symbols Summary:
 What a pass means: every symbol in the .symbols baseline exists with the same declaration lines
-Passed         : 8415/8473 (99.32%)
-Failed         : 58
+Passed         : 8417/8473 (99.34%)
+Failed         : 56
 Skipped        : 3971 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -34,8 +34,6 @@ compiler/esModuleInteropDefaultImports
   2 symbol(s): b.ts: self.def: no symbol; b.ts: self.default: no symbol
 compiler/esModuleInteropImportTSLibHasImport
   2 symbol(s): index.ts: sayHello: no symbol; index.ts: username: no symbol
-compiler/escapedIdentifiers
-  2 symbol(s): constructorTestClass[arg2]: no symbol; constructorTestClass[arg3]: no symbol
 compiler/expandoFunctionContextualTypesJs
   1 symbol(s): defaultProps: declared on {9, 15}, expected to include {4}
 compiler/exportDefaultClassAndValue
@@ -46,8 +44,6 @@ compiler/exportDefaultTypeClassAndValue
   1 symbol(s): foo: declared on {0}, expected to include {0, 1}
 compiler/expressionsForbiddenInParameterInitializers
   1 symbol(s): ./bar: no symbol
-compiler/indexTypeNoSubstitutionTemplateLiteral
-  1 symbol(s): Foo[`b`]: no symbol
 compiler/invalidUnicodeEscapeSequance4
   1 symbol(s): u0031a: no symbol
 compiler/jsDeclarationEmitDoesNotRenameImport

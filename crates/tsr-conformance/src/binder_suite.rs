@@ -267,22 +267,62 @@ impl Suite for BinderSymbols {
                             else {
                                 continue;
                             };
-                            let Some(bracket) = computed_display(text) else { continue };
-                            let mut spelled = vec![bracket.clone()];
-                            if let Some(parent) = symbol.parent {
-                                for container in display_names(
+                            let containers: Vec<String> = match symbol.parent {
+                                Some(parent) => display_names(
                                     bound,
                                     nodes,
                                     parent,
                                     &names_by_declaration,
                                     &unit.content,
-                                ) {
+                                ),
+                                None => Vec::new(),
+                            };
+                            let mut spelled = Vec::new();
+                            if let Some(bracket) = computed_display(text) {
+                                spelled.push(bracket.clone());
+                                for container in &containers {
                                     spelled.push(format!("{container}{bracket}"));
+                                }
+                            }
+                            // `interface T { [c0]: number }` with
+                            // `const c0 = "1"` late-binds to the member `1`
+                            // upstream and merges with a static `1` — the
+                            // checker's late binding, offered here when the
+                            // expression is an identifier naming a `const`
+                            // with a literal initializer (`dynamicNamesErrors`).
+                            if let Some(value) =
+                                const_literal_value(&program, bound, nodes, computed)
+                            {
+                                spelled.push(value.clone());
+                                for container in &containers {
+                                    spelled.push(format!("{container}.{value}"));
                                 }
                             }
                             for name in spelled {
                                 ours.entry(name).or_default().extend(&declared);
                             }
+                        }
+                    }
+                    // An identifier written with a unicode escape prints as the
+                    // element-access spelling — `arg2` is not identifier
+                    // text, so `symbolToString` writes
+                    // `constructorTestClass[arg2]` (`escapedIdentifiers`);
+                    // the expected side decodes the escape, leaving
+                    // `container[arg2]`.
+                    for declaration in &symbol.declarations {
+                        if !file.contains(*declaration) {
+                            continue;
+                        }
+                        if !declared_with_an_escape(&program, nodes, *declaration, &unit.content) {
+                            continue;
+                        }
+                        let Some(parent) = symbol.parent else { continue };
+                        for container in
+                            display_names(bound, nodes, parent, &names_by_declaration, &unit.content)
+                        {
+                            ours.entry(format!("{container}[{}]", symbol.name))
+                                .or_default()
+                                .extend(&declared);
                         }
                     }
                 }
@@ -761,14 +801,17 @@ fn decode_unicode_escapes(name: &str) -> String {
 /// spelling that would silently match something else. Measured 2026-08-04:
 /// requiring the whole text is worth 18 conformance cases.
 fn static_bracket_name(inside: &str) -> Option<&str> {
-    // Either quote: the baseline reproduces the source spelling, and `C['a']`
-    // and `C["a"]` name the same member. The quote must not recur inside, or
-    // `"a" + "b"` would read as the string `a" + "b`.
-    for quote in ['"', '\''] {
+    // Any quote, backtick included: the baseline reproduces the source
+    // spelling, and `C['a']`, `C["a"]` and ``C[`a`]`` name the same member — a
+    // substitution-free template is its cooked text. The quote must not recur
+    // inside, or `"a" + "b"` would read as the string `a" + "b`.
+    for quote in ['"', '\'', '`'] {
         if inside.len() >= 2
             && inside.starts_with(quote)
             && inside.ends_with(quote)
             && !inside[1..inside.len() - 1].contains(quote)
+            // A template with a substitution is genuinely computed.
+            && !(quote == '`' && inside.contains("${"))
         {
             return Some(&inside[1..inside.len() - 1]);
         }
@@ -794,6 +837,73 @@ fn is_numeric_literal(text: &str) -> bool {
             || *byte == b'_'
             || (matches!(byte, b'+' | b'-') && index > 0 && matches!(bytes[index - 1], b'e' | b'E'))
     })
+}
+
+/// The literal value of a computed name's identifier, when it names a `const`
+/// with a string or numeric literal initializer in scope.
+///
+/// The checker late-binds such a member to the value (`CheckFlagsLate`), and
+/// the baseline lists it under the value's name merged with any static member
+/// of the same value (`dynamicNamesErrors`: `[c0]` with `const c0 = "1"` is
+/// the member `1`).
+fn const_literal_value(
+    program: &tsr_compiler::Program<'_>,
+    bound: &BindResult<'_>,
+    nodes: &NodeTable,
+    computed: tsr_ast::NodeId,
+) -> Option<String> {
+    let Some(tsr_ast::Node::ComputedPropertyName(name)) = program.node_map().get(computed) else {
+        return None;
+    };
+    let Some(tsr_ast::Expression::Identifier(identifier)) = name.expression else { return None };
+    let symbol = bound.resolve_name(
+        nodes,
+        program.node_map(),
+        computed,
+        identifier.text,
+        tsr_binder::SymbolFlags::VARIABLE,
+    )?;
+    let declaration = *bound.symbols().get(symbol).declarations.first()?;
+    let Some(tsr_ast::Node::VariableDeclaration(variable)) = program.node_map().get(declaration)
+    else {
+        return None;
+    };
+    if !nodes.flags(declaration).contains(tsr_ast::NodeFlags::CONST) {
+        return None;
+    }
+    match variable.initializer? {
+        tsr_ast::Expression::StringLiteral(literal) => Some(literal.text.to_string()),
+        tsr_ast::Expression::NumericLiteral(literal) => {
+            Some(tsr_core::jsnum::canonical_numeric_text(literal.text))
+        }
+        _ => None,
+    }
+}
+
+/// Whether the declaration's own name was written with a backslash escape, so
+/// the baseline prints it in element-access brackets.
+fn declared_with_an_escape(
+    program: &tsr_compiler::Program<'_>,
+    nodes: &NodeTable,
+    declaration: tsr_ast::NodeId,
+    source: &str,
+) -> bool {
+    let Some(node) = program.node_map().get(declaration) else { return false };
+    let name_id = match node {
+        tsr_ast::Node::ParameterDeclaration(n) => match n.name {
+            Some(tsr_ast::BindingName::Identifier(identifier)) => identifier.node_id,
+            _ => None,
+        },
+        _ => declared_property_name(node).and_then(|name| match name {
+            tsr_ast::PropertyName::Identifier(identifier) => identifier.node_id,
+            _ => None,
+        }),
+    };
+    let Some(name_id) = name_id else { return false };
+    let span = nodes.span(name_id);
+    source
+        .get(span.start as usize..span.end as usize)
+        .is_some_and(|text| text.contains('\\'))
 }
 
 /// The baseline's spelling of a computed member name, from its written text.
