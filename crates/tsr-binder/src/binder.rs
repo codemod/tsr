@@ -1627,8 +1627,45 @@ impl<'a, 'n> Binder<'a, 'n> {
         }
     }
 
+    /// TS1344 — `A label is not allowed here.`
+    ///
+    /// `checkStrictModeLabeledStatement` (`binder.go:1433`). The name is a
+    /// misnomer inherited from TypeScript: `bindWorker`'s dispatch
+    /// (`binder.go:639`) is **unconditional**, so this runs whether or not the
+    /// file is strict — which is why `sourceMapValidationLabeled`, a script with
+    /// no prologue, reports it. The rule reads only the labelled statement's own
+    /// child and needs no binder state at all; it lives here because that is
+    /// where upstream puts it, not because it needs anything from here.
+    ///
+    /// `errorOnFirstToken(data.Label, …)` — the report is on the **label**.
+    fn check_labeled_statement_grammar(&mut self, statement: &tsr_ast::LabeledStatement<'a>) {
+        let Some(label) = statement.label else { return };
+        let Some(inner) = statement.statement.and_then(|inner| inner.node_id()) else { return };
+        // `IsDeclarationStatement(data.Statement) || IsVariableStatement(...)`.
+        if !matches!(
+            self.nodes.kind(inner),
+            SyntaxKind::VariableStatement
+                | SyntaxKind::FunctionDeclaration
+                | SyntaxKind::ClassDeclaration
+                | SyntaxKind::InterfaceDeclaration
+                | SyntaxKind::TypeAliasDeclaration
+                | SyntaxKind::EnumDeclaration
+                | SyntaxKind::ModuleDeclaration
+                | SyntaxKind::ImportDeclaration
+                | SyntaxKind::ImportEqualsDeclaration
+                | SyntaxKind::ExportDeclaration
+                | SyntaxKind::ExportAssignment
+        ) {
+            return;
+        }
+        let Some(id) = label.node_id else { return };
+        let span = self.nodes.span(id);
+        self.diagnostics.push(Diagnostic::new(&messages::A_LABEL_IS_NOT_ALLOWED_HERE, span));
+    }
+
     fn bind_labeled_statement(&mut self, node: Node<'a>) {
         let Node::LabeledStatement(statement) = node else { return };
+        self.check_labeled_statement_grammar(statement);
         let post_statement = self.flow.new_branch_label();
         let Some(label) = statement.label else {
             self.bind_statement(statement.statement);

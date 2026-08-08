@@ -8479,3 +8479,50 @@ here:
   file exists; the path was doubly rooted. **An anchor that names a real file
   can still fail, and the failure message says "no such file", which points at
   upstream rather than at the prefix.**
+
+## §113 — TS1344, a label on a declaration, ported where upstream keeps it
+
+The fourth row the "re-take `diaggap`" move has produced, and the first of them
+that belongs in the **binder**.
+
+`checkStrictModeLabeledStatement` (`binder.go:1433`): a `LabeledStatement` whose
+statement is a declaration or a variable statement reports on the **label**.
+
+**Its name is a misnomer inherited from TypeScript.** `bindWorker`'s dispatch
+(`binder.go:639`) is unconditional — the function is called for every labelled
+statement whether or not the file is strict — which is why
+`sourceMapValidationLabeled`, a script with no prologue and no module indicator,
+reports it. Reading the name and gating on strictness would have produced a rule
+that fires on none of its nine cases.
+
+That distinction is what separates this from §105's TS1100. TS1100 is genuinely
+`b.inStrictMode`-gated and stays refused; this one reads only the labelled
+statement's own child and needs no binder state at all. **It lives in the binder
+because that is where upstream puts it, not because it needs anything from
+there** — and putting it in the checker would have been the structural dodge
+§105 declined to make.
+
+| | CONVERTS | LOST | RIGHT | WRONG |
+|---|---:|---:|---:|---:|
+| before | 0 | 0 | 0 | 0 |
+| **after** | **3** | **0** | **45** | **0** |
+
+**+3 cases and 45 right lines for zero wrong.** Coverage
+`1,414 → 1,417 / 5,488` (**25.82%**). **`binder_symbols` identical at
+8,411/8,473 · 99.27%** by stash-and-remeasure — a binder change that adds a
+diagnostic and touches no symbol table cannot move that rail, and the
+measurement confirms it rather than assuming it.
+
+### 45 right lines for 3 cases, and why the row did not convert
+
+`diaggap` priced TS1344 at **9** sole-obstacle cases; three converted.
+`STILL SHORT` is 6, so the other six need something else as well — the same
+reading §112's `STILL SHORT` of 0 gave from the other end. The 15:1 line-to-case
+ratio is the concentration the twelfth session's rule warns about
+(`invalidDoWhileBreakStatements` and its siblings each carry many labels), and
+it is why the bar for a row like this must come off the case column.
+
+**A row can be "blocked on exactly one code" and still not convert when that
+code lands**, because `diaggap`'s single-code column is computed against the
+*current* output — a case missing five TS1344 lines counts once, and emitting
+four of them converts nothing.
