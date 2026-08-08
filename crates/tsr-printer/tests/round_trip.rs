@@ -101,46 +101,31 @@ fn declare_global_does_not_repeat_its_name() {
 
 #[test]
 fn jsdoc_function_parameter_with_type_cast() {
-    // Test JSDoc type casts on function parameters
-    let source = r#"export function fn(p = /** @type {string} */(null)) {}"#;
+    // A JSDoc type cast inside a default value must not disturb the tree.
+    let source = "export function fn(p = /** @type {string} */(null)) {}";
     assert!(round_trips(source));
 }
 
 #[test]
 fn jsdoc_typedef_with_optional_property() {
-    // Test from declarationEmitCastReusesTypeNode4
-    let source = r#"/**
+    // From declarationEmitCastReusesTypeNode4: the `?` lives inside the JSDoc
+    // block, which the round-trip print drops by design.
+    let source = "/**
  * @typedef {{ } & { name?: string }} P
  */
 const something = /** @type {*} */(null);
-export function fn(p = /** @type {P} */(something)) {}"#;
-    let output = printed(source);
-    println!("=== Input ===");
-    println!("{}", source);
-    println!("=== Output ===");
-    println!("{}", output);
+export function fn(p = /** @type {P} */(something)) {}";
     assert!(round_trips(source));
 }
 
 #[test]
 fn jsdoc_typedef_stateless_component() {
-    // Test from expandoFunctionContextualTypesJs - the failing case
-    let source = r#"/**
+    // From expandoFunctionContextualTypesJs: same shape, `?` inside `@typedef`.
+    let source = "/**
  * @template P
  * @typedef {{ (): any; defaultProps?: Partial<P> }} StatelessComponent */
 
-const MyComponent = () => null;"#;
-    let output = printed(source);
-    println!("=== Input ===");
-    println!("{}", source);
-    println!("=== Output ===");
-    println!("{}", output);
-    // Check if the ? is in the output
-    if output.contains("defaultProps?") {
-        println!("✓ Question mark preserved in output");
-    } else {
-        println!("✗ Question mark MISSING in output!");
-    }
+const MyComponent = () => null;";
     assert!(round_trips(source));
 }
 

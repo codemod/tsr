@@ -749,11 +749,17 @@ impl Printer<'_> {
                 self.function_body(node.body.as_ref());
             }
             // Ported from `Printer.emitSetAccessorDeclaration` (`internal/printer/printer.go`).
+            // Upstream reaches `emitSignature`, which writes a return type even on a
+            // setter — a grammar error the checker reports, not the printer's to drop.
             ClassElement::SetAccessorDeclaration(node) => {
                 self.emit_modifier_list(node.modifiers);
                 self.write("set ");
                 self.emit_property_name(&node.name);
                 self.emit_parameters(node.parameters);
+                if let Some(r#type) = &node.r#type {
+                    self.write(": ");
+                    self.emit_type_node(r#type);
+                }
                 self.function_body(node.body.as_ref());
             }
             // Ported from `Printer.emitIndexSignature` (`internal/printer/printer.go`).

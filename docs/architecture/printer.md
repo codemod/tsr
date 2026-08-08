@@ -101,6 +101,15 @@ deliberately *not* a histogram of every kind: the table also holds JSDoc, which 
 trivia, and counting it failed 455 cases for dropping identifiers that existed only
 inside comments.
 
+Narrowing to token kinds turned out to be an approximation of that exclusion
+rather than the exclusion itself. A `?` in `@typedef {{ x?: number }}` is a
+`QuestionToken` node like any other, and 18 cases failed for exactly the tokens
+their JSDoc blocks held — trivia the comment-free print can never reproduce, the
+same phenomenon as the 455, one node kind narrower. The histogram now excludes
+any tracked token whose span falls inside a JSDoc node's span; the JSDoc side
+table makes that positional rather than heuristic. What the gate measures is
+unchanged: tree structure survives printing, comments do not have to.
+
 What still escapes both is a change preserving the kind sequence, every payload,
 *and* the token counts — a reordering of same-kind siblings, say. Nothing in a
 printer that walks children in order produces that. A generated structural
@@ -173,9 +182,28 @@ see, and it was found by mutating rather than by reasoning about the fingerprint
 
 ## What is left
 
-56 failures, no bucket larger than eight, plus seven cases reporting an unsupported
+~~56 failures, no bucket larger than eight, plus seven cases reporting an unsupported
 `NoSubstitutionTemplateLiteral` reached through a path the expression printer does
-not cover. The residue is filed under `bd tsr-49v.4`.
+not cover. The residue is filed under `bd tsr-49v.4`.~~
+
+**Zero failures — the suite reads 100.00%** (11,776/11,776, twelfth session). The
+final 23 split three ways, and only one third was the printer's:
+
+- **16 were JSDoc trivia leaking into the histogram** (the correction above) —
+  no printer defect at all.
+- **5 were the parser diverging from upstream's class-element grammar**, fixed
+  in `tsr-parser` rather than here: `tryParseConstructorDeclaration` commits on
+  the `constructor` keyword alone and parses type parameters and a return type
+  (`parser.go:1917`), and an asterisk commits to a method before any name is
+  seen (`parser.go:1944`). `*constructor() {}` is a *method* upstream; ours
+  parsed it as a constructor and dropped the asterisk.
+- **2 were the printer's**: a setter's return type annotation — a grammar error
+  the checker reports, which upstream's `emitSignature` still prints — was
+  dropped at both the class and the type-element site.
+
+Two cases moved to the skip bucket (666 → 668) because the faithful parser now
+diagnoses `class C { *foo }` the way upstream does, and a tree built by error
+recovery owes no round trip.
 
 Separately, the emit gate (`dts_emit`) now constrains formatting that the round
 trip leaves free, and its residue includes two printer choices that were correct

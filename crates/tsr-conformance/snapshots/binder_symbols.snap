@@ -2,17 +2,17 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 binder_symbols Summary:
 What a pass means: every symbol in the .symbols baseline exists with the same declaration lines
-Passed         : 8311/8475 (98.06%)
-Failed         : 164
-Skipped        : 3969 (excluded from the denominator)
+Passed         : 8310/8473 (98.08%)
+Failed         : 163
+Skipped        : 3971 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
   673  skipped: the baseline names no symbols in any unit we bind
-  525  skipped: the parser reports errors for this file
+  527  skipped: the parser reports errors for this file
   924  skipped: upstream recorded no .symbols baseline
   450  skipped: upstream records a known divergence from TypeScript (.diff baseline)
 
-First 100 of 164 failures:
+First 100 of 163 failures:
 compiler/aliasBug
   3 symbol(s): booz: declared on {7}, expected to include {4, 7}; provide.Provide: no symbol; provide.bar: no symbol
 compiler/aliasDoesNotDuplicateSignatures
