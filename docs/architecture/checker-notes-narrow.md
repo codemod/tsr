@@ -2315,3 +2315,19 @@ say the value-type `every` test is mis-ported.
 fired. `checker_types` right 399,431 → **399,503 (83.42%)**. First build
 scored through `scorepair` (the sub-second filtered iterate showed +70 in
 the target before the full run confirmed +72/0).
+
+## §51.5 — containment composes with the discriminant
+
+Upstream ASSIGNS the containment result and keeps narrowing
+(`flow.go:491`: `t = narrowTypeByOptionalChainContainment(...)` then the
+discriminant/equality arms run on the updated `t`); §51.4 returned
+early, so `o?.kind === 'a'` removed the nullish forms but never filtered
+the constituents. The fix is the control shape only — the containment
+result feeds §51.1's filter and the direct-equality arm.
+
+**Falsifier.** Double-narrowing order: if the discriminant filter on the
+already-non-nullish union disagrees with upstream's on any line, R→W.
+
+**§51.5 score — LANDED.** **+15 (13 W→R, 2 G→R), ZERO adverse.** The
+falsifier did not fire. `checker_types` right 399,503 → **399,518
+(83.42%)**.

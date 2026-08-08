@@ -2358,6 +2358,7 @@ impl Checker<'_, '_> {
                 // §51.4 (`checker-notes-narrow.md`): the WHOLE containment
                 // table (`flow.go:1032`), replacing §51.2's one quadrant —
                 // facts NE_UNDEFINED_OR_NULL, loose operators included.
+                let mut containment_narrowed: Option<TypeId> = None;
                 {
                     let equals_operator = matches!(
                         operator.kind,
@@ -2402,13 +2403,21 @@ impl Checker<'_, '_> {
                                             !flags.intersects(TypeFlags::ANY_OR_UNKNOWN | nullable)
                                         }));
                                 if remove {
-                                    return self
-                                        .get_type_with_facts(t, TypeFacts::NE_UNDEFINED_OR_NULL);
+                                    containment_narrowed =
+                                        Some(self.get_type_with_facts(
+                                            t,
+                                            TypeFacts::NE_UNDEFINED_OR_NULL,
+                                        ));
                                 }
                             }
                         }
                     }
                 }
+                // §51.5 (`checker-notes-narrow.md`): upstream ASSIGNS the
+                // containment result and falls through (`flow.go:491`), so
+                // `o?.kind === 'a'` composes nullish removal WITH the
+                // discriminant filter below.
+                let t = containment_narrowed.unwrap_or(t);
                 // §51.1 (`checker-notes-narrow.md`): `s.kind === 0` — a
                 // property access whose RECEIVER is the reference
                 // discriminates by the member, the §50 filter with the
