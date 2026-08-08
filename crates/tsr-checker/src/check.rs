@@ -394,6 +394,7 @@ impl Checker<'_, '_> {
             _ => ambient,
         };
         self.check_unreachable(node, ambient);
+        self.check_type_parameter_list(type_parameters_of(typed));
         self.check_truthiness_sites(node, ambient);
         self.note_member_name_at(node);
         self.register_for_unused_check(node);
@@ -1000,23 +1001,7 @@ impl Checker<'_, '_> {
     fn an_enclosing_declaration_has_type_parameter(&self, node: NodeId, text: &str) -> bool {
         for ancestor in self.nodes.ancestors(node) {
             let Some(typed) = self.node_map.get(ancestor) else { continue };
-            let parameters: &[&tsr_ast::TypeParameterDeclaration<'_>] = match typed {
-                Node::ClassDeclaration(declaration) => declaration.type_parameters,
-                Node::ClassExpression(declaration) => declaration.type_parameters,
-                Node::InterfaceDeclaration(declaration) => declaration.type_parameters,
-                Node::TypeAliasDeclaration(declaration) => declaration.type_parameters,
-                Node::FunctionDeclaration(declaration) => declaration.type_parameters,
-                Node::FunctionExpression(declaration) => declaration.type_parameters,
-                Node::ArrowFunction(declaration) => declaration.type_parameters,
-                Node::MethodDeclaration(declaration) => declaration.type_parameters,
-                Node::MethodSignatureDeclaration(signature) => signature.type_parameters,
-                Node::ConstructorDeclaration(declaration) => declaration.type_parameters,
-                Node::CallSignatureDeclaration(signature) => signature.type_parameters,
-                Node::ConstructSignatureDeclaration(signature) => signature.type_parameters,
-                Node::FunctionTypeNode(node) => node.type_parameters,
-                Node::ConstructorTypeNode(node) => node.type_parameters,
-                _ => &[],
-            };
+            let parameters = type_parameters_of(typed);
             if parameters
                 .iter()
                 .any(|parameter| parameter.name.is_some_and(|name| name.text == text))
@@ -1693,6 +1678,50 @@ impl Checker<'_, '_> {
         let mut children = Vec::new();
         tsr_ast::for_each_child_id(typed, |child| children.push(child));
         children.into_iter().any(|child| self.subtree_mentions(child, text, depth + 1))
+    }
+
+    /// TS2300 — `Duplicate identifier '{0}'.`, for a type parameter list.
+    ///
+    /// `checkTypeParameters` (`checker.go:7002`), reduced to its duplicate scan.
+    /// Upstream calls it from `checkSignatureDeclaration` (`checker.go:2742`),
+    /// `checkClassLikeDeclaration` (`:4297`), `checkInterfaceDeclaration`
+    /// (`:4998`) and `checkTypeAliasDeclaration` (`:6887`); this port reaches
+    /// the same set through [`type_parameters_of`], which is every node kind
+    /// that carries such a list.
+    ///
+    /// The test is **symbol identity**, not name equality — the binder has
+    /// already merged two same-named parameters of one list into one symbol, so
+    /// identity is what distinguishes a genuine duplicate from two lists that
+    /// happen to spell a parameter the same way. See
+    /// `checker-notes-diag2.md` §88.
+    ///
+    /// The report lands on the **later** declaration only (`for j := range i`).
+    fn check_type_parameter_list(&mut self, parameters: &[&tsr_ast::TypeParameterDeclaration<'_>]) {
+        for (index, parameter) in parameters.iter().enumerate() {
+            let Some(id) = parameter.node_id else { continue };
+            let Some(symbol) = self.binder.symbol_of(id) else { continue };
+            let duplicate = parameters[..index].iter().any(|earlier| {
+                earlier
+                    .node_id
+                    .and_then(|earlier| self.binder.symbol_of(earlier))
+                    .is_some_and(|earlier| earlier == symbol)
+            });
+            if !duplicate {
+                continue;
+            }
+            let Some(name) = parameter.name else { continue };
+            let Some(name_id) = name.node_id else { continue };
+            let Some(file) = self.source_file_of_for_diagnostics(name_id) else { continue };
+            let span = self.error_span(name_id);
+            self.report(
+                file,
+                Diagnostic::with_args(
+                    &messages::DUPLICATE_IDENTIFIER_0,
+                    span,
+                    [name.text.to_string()],
+                ),
+            );
+        }
     }
 
     /// Does the subtree rooted at `node` reach `this.<text>` in any position?
@@ -3053,6 +3082,32 @@ fn is_numeric_binary_operator(kind: SyntaxKind) -> bool {
 ///
 /// A decorator in the modifier list is not a modifier; the enum keeps them
 /// together because the parser does (`ModifierLike`).
+/// The `<T, U>` list this node declares, empty for a node that declares none.
+///
+/// The union of the node kinds upstream's four `checkTypeParameters` call sites
+/// cover (`checker.go:2742`, `:4297`, `:4998`, `:6887`). Written once because
+/// two rules read it and a short list silently drops kinds — `FunctionTypeNode`
+/// is the one `duplicateTypeParameters3` needs.
+fn type_parameters_of(node: Node<'_>) -> &[&tsr_ast::TypeParameterDeclaration<'_>] {
+    match node {
+        Node::ClassDeclaration(declaration) => declaration.type_parameters,
+        Node::ClassExpression(declaration) => declaration.type_parameters,
+        Node::InterfaceDeclaration(declaration) => declaration.type_parameters,
+        Node::TypeAliasDeclaration(declaration) => declaration.type_parameters,
+        Node::FunctionDeclaration(declaration) => declaration.type_parameters,
+        Node::FunctionExpression(declaration) => declaration.type_parameters,
+        Node::ArrowFunction(declaration) => declaration.type_parameters,
+        Node::MethodDeclaration(declaration) => declaration.type_parameters,
+        Node::MethodSignatureDeclaration(signature) => signature.type_parameters,
+        Node::ConstructorDeclaration(declaration) => declaration.type_parameters,
+        Node::CallSignatureDeclaration(signature) => signature.type_parameters,
+        Node::ConstructSignatureDeclaration(signature) => signature.type_parameters,
+        Node::FunctionTypeNode(node) => node.type_parameters,
+        Node::ConstructorTypeNode(node) => node.type_parameters,
+        _ => &[],
+    }
+}
+
 pub(crate) fn has_modifier(modifiers: &[ModifierLike<'_>], keyword: SyntaxKind) -> bool {
     modifiers
         .iter()

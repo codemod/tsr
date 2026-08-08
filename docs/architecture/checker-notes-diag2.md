@@ -6909,3 +6909,126 @@ Unchanged at 4, all four pre-existing and none of them this build's:
 
 None is a reason to tighten this rule, and tightening it to silence them would
 cost the properties it just converted.
+
+## §88 — TS2300 on a duplicate type parameter is a CHECKER rule, not the binder
+
+### The bar, before the code
+
+**+4 cases**, at most 2 new wrong lines. Off `diaggap`'s case column: TS2300 has
+**29** sole-obstacle cases at `82eab5f`, and this build takes only the
+type-parameter slice of them.
+
+Falsifiers:
+
+1. **If the binder does not merge two same-named type parameters into one
+   symbol**, the rule's test can never fire and the build measures zero. It
+   does merge them — that is `declare_into`'s ordinary behaviour, and the
+   §2315 fix that stopped `class A<T>` and `class B<T>` sharing a symbol is
+   what makes the merge mean "same list" rather than "same file".
+2. **If the report belongs on both declarations**, every case gains a wrong
+   line and loses a right one. It does not: upstream reports on the *later* one
+   only (`for j := range i`), and `duplicateTypeParameters1`'s baseline is a
+   single line at column 15 — the second `X` of `function A<X, X>() { }` — not
+   two.
+
+### Where it actually lives
+
+The binder was the obvious suspect and it is the wrong one. Upstream reports
+this from `checkTypeParameters` (`checker.go:7002`):
+
+```go
+for j := range i {
+    if typeParameterDeclarations[j].Symbol() == node.Symbol() {
+        c.error(node.Name(), diagnostics.Duplicate_identifier_0, ...)
+    }
+}
+```
+
+— an O(n²) scan over one declaration's own list, comparing **symbol identity**,
+called from exactly four places: `checkSignatureDeclaration` (`checker.go:2742`),
+`checkClassLikeDeclaration` (`:4297`), `checkInterfaceDeclaration` (`:4998`) and
+`checkTypeAliasDeclaration` (`:6887`).
+
+That it is symbol identity and not name equality is the whole design: the binder
+has already merged the duplicates into one symbol, so the checker's test is
+"did two entries in this list end up the same symbol" — which is exactly the
+question the binder's own merge answers, without the binder having to report
+anything. **A duplicate that merges silently is not a binder that missed the
+error; it is a binder that left the error to the consumer that can position it.**
+
+The port's four call sites are the same four, reached through the union of node
+kinds that carry a `type_parameters` list. `check.rs:1003` already enumerated
+that union exactly for `an_enclosing_declaration_has_type_parameter`, so the
+list is factored out rather than written twice — `duplicateTypeParameters3` is
+`x: () => <A, A>() => void`, a `FunctionTypeNode`, and would have been missed by
+any shorter list.
+
+### What this build does NOT take, and why it is a separate one
+
+The row's other big family is **duplicate parameters** —
+`callSignaturesWithDuplicateParameters` alone is 44 of the 120 missing lines,
+plus `functionCall15` (`function foo(a?, b?, ...b)`) and
+`declarationEmitDestructuring2`. That one **is** the binder, and it is a
+structural divergence rather than a missing arm:
+
+upstream's `declareSymbol` takes `excludes` as a **parameter**, and `bindParameter`
+passes `SymbolFlagsParameterExcludes` (`binder.go:1200`) while the flags it
+declares with are `FunctionScopedVariable`. This port derives excludes from the
+flags — `flags.excludes()` in `declare_into` — so a parameter gets
+`FunctionScopedVariableExcludes`, which deliberately does **not** collide with
+another function-scoped variable, because `var x; var x;` is legal. Upstream's
+own comment at `binder.go:1176` says so outright:
+
+> Using ParameterExcludes flag allows the compiler to report an error on
+> duplicate identifiers in Parameter Declaration
+> `function foo([a,a]) {}` // Duplicate Identifier error
+
+**Excludes is not a function of includes.** Wherever this port derives it, it is
+right only for the sites where upstream happens to pass the matching constant.
+That is a binder change against the `binder_symbols` rail (8,293/8,460) and gets
+its own build and its own measurement.
+
+### Measured
+
+`diag2307` with `RULE_CODES = [2300]`:
+
+| | CONVERTS | LOST | RIGHT | WRONG |
+|---|---:|---:|---:|---:|
+| before | 29 | 0 | 299 | 61 |
+| after | **34** | **0** | 320 | **61** |
+
+**+5 cases and +21 right lines for zero new wrong lines.** Coverage
+`1,362 → 1,367 / 5,488` (24.82% → **24.91%**). Bar was +4 / at most 2 wrong: met.
+
+### The wrong column, read — and it is 61 lines deep
+
+TS2300's false positives are **the largest of any rule this workstream owns**,
+and none of them is this build's: the number is 61 before and 61 after. They are
+the binder's, and `augmentedTypesModules` (4 lines), `duplicateExportAssignments`
+(4) and `es6ImportNamedImport*` name the family — **declaration merging that
+upstream permits and this binder rejects**. Every one of them costs a case
+today, and `extraonly.rs` is the instrument that prices them.
+
+**This is a bigger row than the missing side.** 61 wrong lines against 120
+missing ones, and a removed false positive needs no new machinery. It is the
+first thing the next session should price. **Owner: `tsr_binder`'s merge rules**
+— the same subsystem §85 and §5 name for TS7026 and TS2454, arriving from the
+opposite direction.
+
+### A trap that has now fired twice, in two different sessions
+
+`checker_types` read 3,784 before this build and 3,786 after, and the obvious
+reading — "the diagnostics build moved the other workstream's number" — was
+wrong both times. The cause is the **`git pull --rebase` inside the previous
+build's own push step**: it brought in `9a0409d` (`.types` build 106, "+10
+assertion lines"), and 401,521 → 401,531 is that commit's own measurement,
+arriving in this workstream's next run.
+
+Stashing the build's code and re-measuring answered it in one run: **3,786 with
+and without §88.** The twelfth session hit the identical trap at 83.40% → 83.41%.
+
+**The byte-identity check must be taken against the commit you are actually on,
+not against the number written down before your last push.** Cheapest reliable
+form: `git stash push <your files>`, run coverage, `git stash pop` — it compares
+the two states of the *same* checkout, which is the only comparison that means
+anything while another workstream is landing builds hourly.
