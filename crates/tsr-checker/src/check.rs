@@ -1970,6 +1970,25 @@ impl Checker<'_, '_> {
         if yielded.expression.is_none() {
             return;
         }
+        // The other two shapes `nextTokenIsIdentifierOrKeywordOrLiteralOnSameLine`
+        // (`parser.go:4171`) rejects, both decidable from the finished tree:
+        //
+        // - **`yield(foo)` is a CALL.** `(` is not an identifier, keyword or
+        //   literal, so upstream reads `yield` as the callee. This parser builds
+        //   a yield whose operand is a parenthesized expression.
+        // - **`yield * []` is a MULTIPLICATION.** `*` fails the lookahead too,
+        //   so outside a generator the asterisk is the operator. Inside one it
+        //   is `yield*`, which is why this is guarded by the context below
+        //   rather than declined outright.
+        //
+        // Both are §104's wrong column and both belong to `tsr_parser` (§106);
+        // these bounds keep the rule quiet until it is fixed there.
+        if matches!(yielded.expression, Some(tsr_ast::Expression::ParenthesizedExpression(_))) {
+            return;
+        }
+        if yielded.asterisk_token.is_some() {
+            return;
+        }
         let in_generator = self
             .nodes
             .ancestors(node)

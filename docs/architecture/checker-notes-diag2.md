@@ -8221,3 +8221,57 @@ retires a never-set flag.**
 > workstream, and rewriting shared history to fix prose is not a trade worth
 > making — **prefer a quoted heredoc (`<<'EOF'`) for every commit message
 > containing backticks.**
+
+## §107 — §106's reachable half: two of upstream's lookahead rejections, decided post-parse
+
+§106 priced the yield/await context as a four-rail parser build and it still is.
+But two of the three shapes `nextTokenIsIdentifierOrKeywordOrLiteralOnSameLine`
+(`parser.go:4171`) rejects are decidable **from the finished tree**, with no
+parse-tree change and no rails beyond the usual two:
+
+- **`yield(foo)` is a CALL.** `(` is not an identifier, keyword or literal, so
+  upstream reads `yield` as the callee. This parser builds a yield whose operand
+  is a `ParenthesizedExpression` — a shape that survives into the tree, so the
+  rule can decline on it. `YieldExpression8_es6` and `YieldExpression18_es6`.
+- **`yield * []` is a MULTIPLICATION.** `*` fails the lookahead too, so outside
+  a generator the asterisk is the operator, not `yield*`. Inside a generator it
+  really is `yield*`, which is why this is guarded by the context test rather
+  than declined outright. `YieldStarExpression1_es6`.
+
+| | CONVERTS | LOST | RIGHT | WRONG |
+|---|---:|---:|---:|---:|
+| §104 | 10 | 0 | 18 | 7 |
+| **§107** | **10** | **0** | **18** | **4** |
+
+**+0 cases, wrong 7 → 4, LOST 0.** Coverage unchanged at `1,405 / 5,488`;
+`checker_types` identical at 3,921/9,538 · 84.32%.
+
+Landed at zero cases for §101's reason: it removes wrong output that this
+workstream owns, and the four it leaves are one case with a diagnosed cause.
+
+### The four that remain, and what they actually are
+
+All four are `awaitAndYieldInProperty`, and all four are a **computed property
+name**:
+
+```ts
+async function* test(x: Promise<string>) {
+    class C {
+        [yield 1] = yield 2;      // the NAME is in the generator's context
+    }
+}
+```
+
+A class body is not a yield context, but a **computed property name is evaluated
+in the enclosing one** — so `[yield 1]` is upstream's context and `= yield 2` is
+not. §104's ancestor walk stops at `PropertyDeclaration` and therefore answers
+"not a generator" for both halves.
+
+The fix is to let the walk pass *through* a `PropertyDeclaration` when it
+arrived via a `ComputedPropertyName`, which is a five-line change to
+`check_yield_grammar` and is left with its cause written down rather than
+attempted at the end of a session — it is the third distinct boundary rule in
+that walk and deserves its own measurement.
+
+**§106's remaining value is now 11 cases (TS1109) and the never-set flag**, not
+11 cases plus 7 wrong lines. The wrong-line half is mostly paid.
