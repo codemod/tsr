@@ -99,6 +99,13 @@ TS2540      12         9
 
 ## RANKED NEXT ITEMS
 
+0aa. **READ THE FIXTURE BEFORE THE FOURTH HYPOTHESIS.** Nine sections
+   (§122–§130) attributed three wrong lines from the wrong column, the baseline,
+   upstream's source, two probes and twice from the case's *name*. §131
+   explained them by opening the 19-line test file, which none of the nine had
+   done. **`diagmissing` prints case names, `diagcase` prints line numbers,
+   `diag2307` prints columns — none of them prints the code.**
+
 0a. **THE CHEAP GRAMMAR CODES — start here.** §103 took TS1029 (modifier order)
    for **+9 cases and zero wrong lines**, and it needed *no types, no symbols,
    no flow, no relation* — a `Vec` of seen keywords and a left-to-right walk.

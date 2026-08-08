@@ -1320,8 +1320,15 @@ its whole deliverable and accept that it converts nothing until finished.
 - **The probe that works prints every step of the thing you are guessing about**
   (§118/§128/§130): §118 probed below an early return and learned nothing, §128
   probed the symbol and found a missing argument, §130 probed the **loop** and
-  found the loop was never the problem. Eight attempts on three lines, two
-  conversions, and the answer came from a two-line probe rather than any fix. **Six inferences, two right,
+  found the loop was never the problem. **§131 then explained the last two by READING THE FIXTURE** — they are extras,
+  not misplacements, and they are the `abstract` and ambient clauses §123
+  skipped (`member_is_abstract` lacks the signature member kinds;
+  `NodeFlags::AMBIENT` is never set, so §99's
+  `declaration_is_in_an_ambient_context` is the substitute). **Nine sections
+  attributed these lines from every artefact except the 19-line test file.
+  `diagmissing` prints case names, `diagcase` prints line numbers, `diag2307`
+  prints columns — none of them prints the code. Read the fixture before the
+  fourth hypothesis.** **Six inferences, two right,
   then one probe that cost less than any of them — every wrong guess reasoned
   from artefacts describing *upstream*, while the defect was in what this port
   did with an argument it never had.**
