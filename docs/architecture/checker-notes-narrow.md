@@ -3207,3 +3207,16 @@ name — 28 W→G now honest gaps), one condition-position leak (row
 113), one JSDoc-generic disturbance (`typedefMultipleTypeParameters`).
 
 **§85 score — LANDED.** right 404,377 → **404,419 (84.45%)**.
+
+## §85.1 — the truthy `NonNullable<T>` spelling: REFUSED at 16:11
+
+TRUTHY on a type parameter spells `NonNullable<T>` upstream
+(`logicalAndOperatorWithTypeParameters`'s nine second-operand rows),
+and a truthy arm minting it converts exactly those — but every
+variant tried (with/without the `unknown` receiver, with/without the
+reverse-map entry) also fired **8 R→G in `exportNestedNamespaces2`**,
+a JS-namespace case whose `typeof import("./mod")` prints turn to
+`error` through a path no variant isolated. Net +5 at 16:11 with an
+UNEXPLAINED adverse is a no: the arm waits until someone traces how a
+truthy mint on a type parameter reaches the JS module-object road.
+Reverted; §85's NE-family arms stand as landed.
