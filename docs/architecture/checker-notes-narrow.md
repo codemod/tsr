@@ -2835,3 +2835,18 @@ tuple half's population. right → **402,369 (84.02%)**.
 body takes the arrow's own contextual signature's return. **+1 (W→R),
 ZERO adverse** — the family's population is mostly block-bodied, already
 covered by §68. right → **402,370 (84.02%)**.
+
+## §69 — `this` in static members is the static side
+
+`tryGetThisTypeAtEx`'s static-container arm: `this` inside a static
+method, accessor, property initializer, or static block answers
+`getTypeOfSymbol(classSymbol)` — `typeof C` — not the instance `this`
+mint. The member walk stops at the DIRECT class child so nested
+instance-side functions keep their own rules.
+
+**§69 score — LANDED.** **+285 (179 W→R, 106 G→R) / 16 G→W + 6 R→G
+(13:1).** The adverse: static-block use-before-def member reads and
+auto-accessor flows (the member-typing order inside static blocks), and
+three scopeCheck cases where `getTypeOfSymbol(class)` gaps (the static
+side's own resolution holes) — each a named residue, none this arm's
+rule. `checker_types` right 402,370 → **402,649 (84.07%)**.

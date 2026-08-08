@@ -939,6 +939,52 @@ impl Checker<'_, '_> {
                     let Some(symbol) = self.binder.symbol_of(id) else {
                         return self.intrinsics.error;
                     };
+                    // §69 (`checker-notes-narrow.md`): `this` in a STATIC
+                    // member is the class's STATIC side — `typeof C`
+                    // (`tryGetThisTypeAtEx`'s `getTypeOfSymbol(classSymbol)`
+                    // arm for static containers; 58 corpus lines).
+                    let mut member = self.nodes.parent(node);
+                    let static_container = loop {
+                        let Some(m) = member else { break false };
+                        if m == id {
+                            break false;
+                        }
+                        let is_member = matches!(
+                            self.nodes.kind(m),
+                            SyntaxKind::MethodDeclaration
+                                | SyntaxKind::PropertyDeclaration
+                                | SyntaxKind::GetAccessor
+                                | SyntaxKind::SetAccessor
+                        );
+                        if is_member && self.nodes.parent(m) == Some(id) {
+                            let has_static = self
+                                .node_map
+                                .get(m)
+                                .and_then(|n| match n {
+                                    Node::MethodDeclaration(d) => Some(&d.modifiers),
+                                    Node::PropertyDeclaration(d) => Some(&d.modifiers),
+                                    Node::GetAccessorDeclaration(d) => Some(&d.modifiers),
+                                    Node::SetAccessorDeclaration(d) => Some(&d.modifiers),
+                                    _ => None,
+                                })
+                                .is_some_and(|modifiers| {
+                                    modifiers.iter().any(|modifier| {
+                                        matches!(modifier, tsr_ast::ModifierLike::Token(token)
+                                            if token.kind == SyntaxKind::StaticKeyword)
+                                    })
+                                });
+                            break has_static;
+                        }
+                        if matches!(self.nodes.kind(m), SyntaxKind::ClassStaticBlockDeclaration)
+                            && self.nodes.parent(m) == Some(id)
+                        {
+                            break true;
+                        }
+                        member = self.nodes.parent(m);
+                    };
+                    if static_container {
+                        return self.get_type_of_symbol(symbol);
+                    }
                     if let Some(&cached) = self.this_types.get(&symbol) {
                         return cached;
                     }
