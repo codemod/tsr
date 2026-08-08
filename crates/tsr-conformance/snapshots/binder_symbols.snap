@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 binder_symbols Summary:
 What a pass means: every symbol in the .symbols baseline exists with the same declaration lines
-Passed         : 8419/8461 (99.50%)
-Failed         : 42
+Passed         : 8422/8461 (99.54%)
+Failed         : 39
 Skipped        : 3983 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -26,10 +26,6 @@ compiler/declarationEmitLateBoundAssignments2
   3 symbol(s): arrow.B: no symbol; arrow3.77: no symbol; arrow5.101: no symbol
 compiler/duplicateObjectLiteralProperty_computedName1
   1 symbol(s): +1: declared on {15, 20, 21}, expected to include {15, 16, 20, 21}
-compiler/esModuleInteropDefaultImports
-  2 symbol(s): b.ts: self.def: no symbol; b.ts: self.default: no symbol
-compiler/esModuleInteropImportTSLibHasImport
-  2 symbol(s): index.ts: sayHello: no symbol; index.ts: username: no symbol
 compiler/expandoFunctionContextualTypesJs
   1 symbol(s): defaultProps: declared on {9, 15}, expected to include {4}
 compiler/invalidUnicodeEscapeSequance4
@@ -46,8 +42,6 @@ compiler/moduleAugmentationDoesNamespaceMergeOfReexport
   1 symbol(s): augment.ts: ns.Root.Foo.self: no symbol
 compiler/moduleAugmentationEnumClassMergeOfReexportIsError
   1 symbol(s): augment.ts: ns.Foo: no symbol
-compiler/moduleDeclarationExportStarShadowingGlobalIsNameable
-  3 symbol(s): index.ts: Acc: no symbol; index.ts: Acc.someProp: no symbol; index.ts: Account: no symbol
 compiler/moduleElementsInWrongContext
   1 symbol(s): Foo: declared on {24}, expected to include {6, 24}
 compiler/module_augmentUninstantiatedModule

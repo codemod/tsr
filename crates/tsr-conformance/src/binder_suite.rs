@@ -147,8 +147,13 @@ impl Suite for BinderSymbols {
         );
 
         for expected_file in &expected_files {
+            // Exact name first: a case can hold both `utils/index.ts` and
+            // `index.ts`, and the suffix rule would pair the section with
+            // whichever comes first (`esModuleInteropImportTSLibHasImport`).
             let Some(unit) =
-                parsed.files.iter().find(|unit| same_unit(&unit.name, &expected_file.file))
+                parsed.files.iter().find(|unit| unit.name == expected_file.file).or_else(|| {
+                    parsed.files.iter().find(|unit| same_unit(&unit.name, &expected_file.file))
+                })
             else {
                 continue;
             };
@@ -418,11 +423,21 @@ impl Suite for BinderSymbols {
                 // failed to create, or a target it cannot resolve, adds
                 // nothing, which keeps the gate honest.
                 for (id, symbol) in bound.symbols().iter() {
-                    let Some(target) =
+                    let target =
                         resolve_import_equals_target(&program, bound, nodes, symbol, |d| {
                             file.contains(d)
                         })
-                    else {
+                        .or_else(|| {
+                            namespace_import_target(
+                                &program,
+                                bound,
+                                nodes,
+                                symbol,
+                                &unit.name,
+                                |d| file.contains(d),
+                            )
+                        });
+                    let Some(target) = target else {
                         continue;
                     };
                     let lines_of = |symbol: &tsr_binder::Symbol<'_>| {
@@ -1086,6 +1101,54 @@ fn declared_property_name(node: tsr_ast::Node<'_>) -> Option<tsr_ast::PropertyNa
         Node::PropertyAssignment(n) => Some(n.name),
         _ => None,
     }
+}
+
+/// Resolve `import * as ns from "./x"` to the target file's module symbol,
+/// when the specifier names a unit of this program.
+///
+/// The checker prints members reached through the namespace under `ns.member`
+/// (`esModuleInteropDefaultImports`: `self.default`, `self.def` for a
+/// self-import); the harness resolves the relative specifier against the
+/// case's own unit names — no module-resolution host exists here, so anything
+/// fancier declines.
+fn namespace_import_target(
+    program: &tsr_compiler::Program<'_>,
+    bound: &BindResult<'_>,
+    nodes: &NodeTable,
+    symbol: &tsr_binder::Symbol<'_>,
+    importing_unit: &str,
+    in_file: impl Fn(tsr_ast::NodeId) -> bool,
+) -> Option<tsr_binder::SymbolId> {
+    let declaration = symbol
+        .declarations
+        .iter()
+        .copied()
+        .find(|d| in_file(*d) && nodes.kind(*d) == SyntaxKind::NamespaceImport)?;
+    // NamespaceImport -> NamedImportBindings slot -> ImportClause -> ImportDeclaration.
+    let mut import = declaration;
+    for _ in 0..4 {
+        if nodes.kind(import) == SyntaxKind::ImportDeclaration {
+            break;
+        }
+        import = nodes.parent(import)?;
+    }
+    let Some(tsr_ast::Node::ImportDeclaration(node)) = program.node_map().get(import) else {
+        return None;
+    };
+    let Some(tsr_ast::Expression::StringLiteral(specifier)) = node.module_specifier else {
+        return None;
+    };
+    let base = specifier.text.strip_prefix("./").unwrap_or(specifier.text);
+    let directory = importing_unit.rsplit_once('/').map_or("", |(dir, _)| dir);
+    let target_file = program.source_files().iter().find(|candidate| {
+        let name = candidate.file_name();
+        ["ts", "tsx", "d.ts", "js"].iter().any(|ext| {
+            let want = format!("{base}.{ext}");
+            name == want || (!directory.is_empty() && *name == format!("{directory}/{want}"))
+        })
+    })?;
+    let root = target_file.source_file().node_id?;
+    bound.symbol_of(root)
 }
 
 /// Resolve an `import x = a.b.c` alias's target through the binder's tables.
