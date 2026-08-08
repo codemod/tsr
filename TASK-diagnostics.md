@@ -141,25 +141,27 @@ TS2540      12         9
    lists none of them, so none is a *sole* obstacle and they are not 61
    conversions. Price them with `extraonly`, not with `diag2307`'s wrong column.
 
-4. **`isBlockScopedNameDeclaredBeforeUse` — TWO measurements on it now, and the
-   remaining gap is ONE small function.** §96 approximated the deferrals: 176
-   wrong, 6 LOST. §97 ported them: **21 wrong, 1 LOST** — an eightfold move from
-   a single arm, *a use in a type context is deferred regardless of position*
-   (`checker.go:1932`). Both refused, because LOST may not grow.
+4. **`isBlockScopedNameDeclaredBeforeUse` — THREE measurements, and it is now
+   down to DEBUGGING ONE FIXTURE.** §96 approximated the deferrals (176 wrong,
+   6 LOST); §97 ported them (21 wrong, 1 LOST); §98 ported
+   `GetEnclosingBlockScopeContainer` too (**CONVERTS 6 → 8, RIGHT 14 → 31**,
+   21 wrong, 1 LOST). All three reverted, the last **on the LOST alone**.
 
-   **What the next attempt must do, and it is small.** Port
-   `GetEnclosingBlockScopeContainer` (`ast/utilities.go`) so
-   `isUsedInFunctionOrInstanceProperty`'s walk quits at the **declaration's
-   container** instead of at the source file (`checker.go:2011`). Keep §97's two
-   findings: the type-context deferral, and **the multi-declaration decline** — a
-   merged symbol's declaration position is arbitrary among its members, and
-   declining it is what took LOST from six to one.
+   **The remaining blocker is one named case: `conformance/controlFlowNullishCoalesce`,
+   in the block-scoped-variable arm** — §98 confirmed the arm by removing the
+   enum arm and watching LOST stay at 1. Reproduce it with `diagcase`, find the
+   deferral it needs, and this lands.
 
-   **Re-run the exact same measurement and beat it: LOST 0 and WRONG under 10.**
-   Thirteen sole-obstacle cases are behind it (TS2448 7, TS2449 5, TS2450 1),
-   all relation-free. `enumUsedBeforeDeclaration` is the case to debug first —
-   its first line converts and its second is a false positive, so the arm has
-   the shape right and a position wrong.
+   **Keep all three findings; each cost a measurement.** (a) A use in a type
+   context is deferred regardless of position (`checker.go:1932`) — 155 of the
+   original 176 wrong lines. (b) Decline a symbol with more than one declaration
+   — a merge's declaration position is arbitrary among its members, and this
+   took LOST from 6 to 1. (c) The ancestor walk must quit at the declaration's
+   **block-scope container** (`checker.go:2011`, `utilities.go:2171`), worth +1
+   conversion and +10 right lines.
+
+   Thirteen sole-obstacle cases behind it (TS2448 7, TS2449 5, TS2450 1), all
+   relation-free.
 
 5. **The rest of `diaggap`'s relation-free single-code column** — re-run it;
    TS2693, TS2364, TS2703, TS2558 were 9/7/7/6 before this session's builds.

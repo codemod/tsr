@@ -1194,6 +1194,13 @@ its whole deliverable and accept that it converts nothing until finished.
   remains is `GetEnclosingBlockScopeContainer` ported so the walk quits where
   upstream quits**; the baseline for the next attempt is recorded as LOST 0 and
   WRONG under 10.
+- **§98 ported the container too — CONVERTS 6 → 8, RIGHT 14 → 31, WRONG 21,
+  LOST 1 — and reverted on the LOST alone.** The refusal now rests on **one
+  named case**, `conformance/controlFlowNullishCoalesce`, in the
+  block-scoped-variable arm (confirmed by removing the enum arm and watching
+  LOST stay at 1). Three measurements, three isolated arms: *the sequence is the
+  diagnosis*, and what remains is debugging one fixture rather than porting a
+  predicate.
 
 - ~~**`ValueModuleExcludes` — REFUSED at +2 cases for +14 wrong lines** (§94)~~
   **REVERSED by §95** at +2 cases and **wrong 79 → 64**, by fixing the owner
