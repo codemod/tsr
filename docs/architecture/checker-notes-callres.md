@@ -1748,4 +1748,7 @@ unconditionally (`checker.go:16698`): **+565 W→R + 1 G→R / 3 R→W + 3 R→G
 (94:1)** — the adverse are self-referential declarations (`for (const v
 in v)` errors to `any` upstream, `recursiveLetConst`) and a parse-error
 corner (`parserForOfStatement19`), accepted. `checker_types` right
-398,464 → **399,030 (83.31%)**.
+398,464 → **399,030 (83.31%)**. A §38.2 variant (Iterable/
+IterableIterator RHS) measured ZERO — no decidable population reaches
+for-of through those references today — and was reverted rather than
+kept as unproven breadth.
