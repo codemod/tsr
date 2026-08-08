@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 dts_shape Summary:
 What a pass means: the declarations this port emits into a .d.ts — their kind, name and order, recursing into namespaces — match upstream's, ignoring types and formatting; judged on every case with declaration output, including the ones dts_emit cannot reach because they need inference
-Passed         : 856/1007 (85.00%)
-Failed         : 151
+Passed         : 857/1007 (85.10%)
+Failed         : 150
 Skipped        : 11437 (excluded from the denominator)
 
   9  skipped: a unit of this case does not parse cleanly
@@ -12,7 +12,7 @@ Skipped        : 11437 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   9  skipped: upstream's .d.ts baseline does not reparse
 
-First 100 of 151 failures:
+First 100 of 150 failures:
 compiler/amdLikeInputDeclarationEmit
   #0: missing `var ExtendedClass`
 compiler/caseInsensitiveFileSystemWithCapsImportTypeDeclarations
@@ -91,8 +91,6 @@ compiler/declarationEmitReexportedSymlinkReference
   #0: want `import`, got `var ADMIN`
 compiler/declarationEmitReexportedSymlinkReference2
   #0: want `import`, got `var ADMIN`
-compiler/declarationEmitRetainedAnnotationRetainsImportInOutput
-  #0: want `import`, got `var run`
 compiler/declarationEmitScopeConsistency
   #0: want `import`, got `interface A`
 compiler/declarationEmitSpreadStringlyKeyedEnum
@@ -213,3 +211,5 @@ compiler/uniqueSymbolPropertyDeclarationEmit
   #0: want `import`, got `function foo`
 compiler/variableDeclarationDeclarationEmitUniqueSymbolPartialStatement
   #0: want `var key`, got `class Foo`
+conformance/assignmentToVoidZero1
+  #0: missing `var y`

@@ -295,6 +295,16 @@ fn jsdoc_only_type_spellings_map_to_typescript() {
 }
 
 #[test]
+fn a_qualified_name_root_is_not_shadowed_by_a_type_parameter() {
+    // `declarationEmitRetainedAnnotationRetainsImportInOutput`: `E.Whatever`
+    // resolves `E` in namespace space, so `<E>` must not drop the import.
+    let output = emit_with_source(
+        "import * as E from 'whatever';\nexport const run = <E,>(i: () => E.Whatever<E>): E.Whatever<E> => i();",
+    );
+    assert!(output.contains("import * as E from 'whatever';"), "{output}");
+}
+
+#[test]
 fn a_jsdoc_implements_tag_becomes_a_heritage_clause() {
     // `jsdocImplements_properties`: braced, bare, and comment-closing forms.
     let output = emit_javascript("class A {}\n/** @implements A*/\nclass B {}");

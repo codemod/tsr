@@ -340,7 +340,24 @@ impl<'a> ReferenceCollector<'a> {
             EntityName::Identifier(identifier) => self.record_name(identifier.text),
             EntityName::QualifiedName(qualified) => {
                 if let Some(left) = &qualified.left {
-                    self.record_entity_name(left);
+                    self.record_qualified_root(left);
+                }
+            }
+        }
+    }
+
+    /// The leftmost identifier of a qualified name, recorded unconditionally.
+    ///
+    /// `E.Whatever` resolves `E` in *namespace* space, where type parameters
+    /// never participate — so a signature's `<E>` must not shadow the
+    /// namespace import the annotation actually names
+    /// (`declarationEmitRetainedAnnotationRetainsImportInOutput`).
+    fn record_qualified_root(&mut self, name: &EntityName<'a>) {
+        match name {
+            EntityName::Identifier(identifier) => self.names.push(identifier.text),
+            EntityName::QualifiedName(qualified) => {
+                if let Some(left) = &qualified.left {
+                    self.record_qualified_root(left);
                 }
             }
         }

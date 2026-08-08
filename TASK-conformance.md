@@ -5,13 +5,13 @@ CURRENT PROGRESS (2026-08-08)
   parser_typescript      5,031/5,031 = 100.00% (up from 5,001)
   dts_reachable_target     496/1,162 = 42.69%  (up from 495; corrected visibility
                                                 exposed one inference case)
-  dts_emit                  327/378  = 86.51%  (denominator moved three times:
+  dts_emit                  328/378  = 86.77%  (denominator moved three times:
                                                 grew 341 -> 395 pairing outDir-
                                                 remapped baselines, shrank to
                                                 376 removing input-echo
                                                 mispairings, grew to 378 with
                                                 positional duplicate pairing)
-  dts_shape                856/1,007 = 85.00%  (same corrections; was 753/918
+  dts_shape                857/1,007 = 85.10%  (same corrections; was 753/918
                                                 before them)
   printer_round_trip    11,755/11,778 = 99.80%
 
@@ -261,7 +261,10 @@ spellings rewrite to TypeScript before grafting: bare `?` is `any | null`,
 postfix `?`/`=`/`!` are null/undefined unions or plain, `function(...)`
 collapses to `Function`, and `X.<...>` generics lose the dot with `Object.<`
 becoming `Record<` (`jsDeclarationsReusesExistingNodesMappingJSDocTypes`, +1
-emit).
+emit). A qualified name's root resolves in namespace space, where type
+parameters never shadow, so a signature's `<E>` cannot drop the `import * as
+E` its annotation names (`declarationEmitRetainedAnnotationRetainsImportInOutput`,
++1 emit and +1 shape).
 
 `TASK.md` belongs to the checker-types gradient and `TASK-diagnostics.md` belongs
 to diagnostics. Do not put work from either stream here. This file owns the
