@@ -65,7 +65,12 @@ is the one that predicts:
 
 ```
 code      cases   one line short
-TS2454      45        25          <- the biggest, and §76 only took its enum-union half
+TS2454      45        25          <- the biggest, but §85 DIAGNOSED the rest: 13 of the
+                                    24 one-line cases are `declared == errorType`
+                                    because MODULE AUGMENTATION is unported (the same
+                                    blocker as TS7026), and the for-of ones are a
+                                    blanket decline worth re-measuring. Not a
+                                    diagnostics build — read §85 before picking it
 TS7006      20        17          <- §80 turned the option on; re-measure the row
 TS2554      19        12          <- §78 took the callee kinds; the rest is `new`
 TS2464      14        10
@@ -106,7 +111,9 @@ TS2540      12         9
 3. **The rest of `diaggap`'s relation-free single-code column**: TS2693 9,
    TS2364 7, TS2703 7, TS2558 6.
 
-4. **TS7026 — still refused, and its row is GROWING.** 28 sole-obstacle cases,
+4. **TS7026 — still refused, and its constituency has GROWN.** 28 sole-obstacle
+   cases of its own, **plus ~13 of TS2454's** (§85): both want the same thing.
+   28 sole-obstacle cases,
    the largest relation-free row on the board. §13's number (12 conversions for
    47 wrong) stands and the blocker is unchanged: the corpus's JSX cases declare
    `namespace JSX` inside `declare global { … }` and **global augmentation is

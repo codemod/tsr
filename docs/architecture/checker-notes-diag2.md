@@ -6693,3 +6693,60 @@ audit table above is the durable part — **five of the seven options were alrea
 right, and the wrong one was the only one no rule had reached for yet**, which
 is the general shape: an option nobody consumes is an option nobody has
 checked.
+
+---
+
+## 85. TS2454's remaining row, diagnosed and split — no build
+
+TS2454 is still the largest relation-free row: **45 cases, 25 one line short**.
+§76 took its enum-union half. `TSR_DEBUG_2454` at the declared-type read splits
+what is left into two families with different owners, and **neither is a
+diagnostics build**, which is why this section is a diagnosis rather than a
+measurement.
+
+### Family one — `declared == errorType`, 13 of the 24 one-line cases
+
+`moduleAugmentation*` (7 cases, 4 stems), `umd1`/`3`/`4`,
+`correctlyMarkAliasAsReferences2`/`4`, `augmentExportEquals5`.
+
+```ts
+// main.ts
+import { Observable } from "./observable"
+import "./map";                       // map.ts writes `declare module "./observable" { … }`
+let x: Observable<number>;
+let y = x.map(x => x + 1);            // main.ts(5,9): TS2454 on `x`
+```
+
+```
+2454 x: txt=error err=true …
+```
+
+`Observable<number>` declares `errorType` because **module augmentation is
+unported in this binder** — the same blocker §5 records against TS7026, arriving
+at a different rule. Not §77's signature road and not §76's union guard: the
+type reference itself does not resolve. **Owner: `tsr_binder`'s module
+augmentation and `declare module "…"` merging**, and its constituency is now
+TS7026's 28 cases plus roughly 13 of TS2454's.
+
+### Family two — the rule does not run, and the decline is a candidate
+
+`for-of8` is three lines whole:
+
+```ts
+v;
+for (var v of [0]) { }     // for-of8.ts(1,1): TS2454 on the `v` ABOVE the loop
+```
+
+`check_used_before_assigned` declines every variable declared in a `for-in` or
+`for-of` head, with the comment *"`for (x of …)` and `for (x in …)` assign on
+entry"*. That is true of a reference **inside or after** the loop and false of
+one **before** it, and the flow walk already distinguishes the two — the decline
+is doing work the flow analysis would do correctly.
+
+**A candidate, not a finding.** The decline is presumably load-bearing for
+references in the loop body, and nothing here has measured what deleting it
+costs. It belongs to the per-rule-gate family (§40.3 / §50.1 / §79's third
+measurement of TS2304's parse-error gate): **a blanket decline that predates the
+flow walk is worth re-measuring once the flow walk covers its cases.** `for-of22`,
+`for-of57` and `nestedLoopTypeGuards` are in the same row and may or may not be
+the same shape.
