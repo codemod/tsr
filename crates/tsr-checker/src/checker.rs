@@ -263,6 +263,11 @@ pub struct Checker<'a, 'n> {
     /// showing the `narrow_type_by_equality` ↔ `get_type_at_flow_node`
     /// spin).
     pub(crate) narrow_value_types: rustc_hash::FxHashMap<tsr_ast::NodeId, crate::types::TypeId>,
+    /// §53 (`checker-notes-narrow.md`): a union's ORIGIN entry list — the
+    /// unexpanded inputs it was built from (named unions kept whole). The
+    /// union's text renders from these; its constituent list stays the
+    /// flattened members; narrowing filters PROJECT them.
+    pub(crate) union_origin: rustc_hash::FxHashMap<crate::types::TypeId, Vec<crate::types::TypeId>>,
 
     /// Upstream's `c.strictNullChecks` (`checker.go:604`, set from the
     /// compiler options at `:919` via `GetStrictOptionValue`).
@@ -592,6 +597,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             shared_flows: Vec::new(),
             narrow_value_stack: std::collections::HashSet::new(),
             narrow_value_types: rustc_hash::FxHashMap::default(),
+            union_origin: rustc_hash::FxHashMap::default(),
             instantiation_depth: 0,
             instantiation_count: 0,
             strict_null_checks: true,

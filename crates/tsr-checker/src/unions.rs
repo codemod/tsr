@@ -119,6 +119,18 @@ fn create_union(
     types: Vec<TypeId>,
     symbol: Option<(SymbolId, String)>,
 ) -> TypeId {
+    create_union_with_text(store, extra_flags, types, symbol, None)
+}
+
+/// [`create_union`] with §53's origin text: the spelling renders from the
+/// unexpanded origin entries while the constituent list stays flattened.
+fn create_union_with_text(
+    store: &mut TypeStore,
+    extra_flags: TypeFlags,
+    types: Vec<TypeId>,
+    symbol: Option<(SymbolId, String)>,
+    origin_text: Option<String>,
+) -> TypeId {
     let mut flags = TypeFlags::UNION | extra_flags;
     // `getUnionTypeFromSortedList` (`checker.go:25749`): a union of exactly the
     // two boolean literal types *is* `boolean`, and carries the flag to say so.
@@ -129,13 +141,14 @@ fn create_union(
     {
         flags |= TypeFlags::BOOLEAN;
     }
-    let text = match &symbol {
+    let text = match (&symbol, origin_text) {
         // The node builder reaches a named union through its enum-like branch
         // (`nodebuilderimpl.go:3260`) or its alias branch (`:3362`), and both
         // print the symbol's name rather than the constituents. That is why an
         // enum's declared type — a union of its members — prints `E`.
-        Some((_, name)) => name.clone(),
-        None => format_union_types(store, &types).join(" | "),
+        (Some((_, name)), _) => name.clone(),
+        (None, Some(origin)) => origin,
+        (None, None) => format_union_types(store, &types).join(" | "),
     };
     let symbol = symbol.map(|(id, _)| id);
     store.intern_union(flags, TypeData::Union { text, types, symbol })
@@ -423,13 +436,52 @@ impl Checker<'_, '_> {
     ) -> TypeId {
         let (mut set, includes) = self.add_types_to_union(types);
 
-        // Upstream would build a denormalised `origin` here so the named union
-        // prints unexpanded (`checker.go:25705`). Without it the constituents
-        // would be printed instead — `E.A | E.B | string` where upstream writes
-        // `E | string` — which is a wrong line rather than a missing one.
-        if includes.named_union && !unprinted {
+        // §53 (`checker-notes-narrow.md`): upstream's denormalised `origin`
+        // (`checker.go:25705`) — a union with a NAMED constituent keeps the
+        // unexpanded entries for its SPELLING while the set stays the
+        // flattened members. Entries: each deduped input contributes itself,
+        // or its own origin entries if it carries them; sorted by the
+        // comparator (`numberAssignableToEnumInsideUnion` wants
+        // `boolean | E` for the written `E | boolean`).
+        let origin_entries: Option<Vec<TypeId>> = if includes.named_union
+            && !unprinted
+            && symbol.is_none()
+        {
+            let mut entries: Vec<TypeId> = Vec::new();
+            for &id in types {
+                let contributed: Vec<TypeId> =
+                    if let Some(own) = self.union_origin.get(&id) { own.clone() } else { vec![id] };
+                for entry in contributed {
+                    if !entries.contains(&entry) {
+                        entries.push(entry);
+                    }
+                }
+            }
+            // Entry order, from the baselines: nullable entries LAST
+            // (`MyEnum | undefined`), everything else by its first
+            // MEMBER's sort bits (`boolean | E` for the written
+            // `E | boolean`).
+            let key = |checker: &Self, id: TypeId| -> (bool, u32) {
+                let flags = checker.store.get(id).flags;
+                if flags.intersects(TypeFlags::NULLABLE) {
+                    return (true, 0);
+                }
+                let first = match &checker.store.get(id).data {
+                    TypeData::Union { types, .. } => types.first().copied().unwrap_or(id),
+                    _ => id,
+                };
+                (false, sort_order_flags(checker.store.get(first).flags))
+            };
+            entries.sort_by(|&a, &b| {
+                let (ka, kb) = (key(self, a), key(self, b));
+                ka.cmp(&kb).then_with(|| self.compare_types(a, b))
+            });
+            Some(entries)
+        } else if includes.named_union && !unprinted {
             return self.intrinsics.error;
-        }
+        } else {
+            None
+        };
 
         if includes.flags.intersects(TypeFlags::ANY_OR_UNKNOWN) {
             if includes.flags.contains(TypeFlags::ANY) {
@@ -464,6 +516,9 @@ impl Checker<'_, '_> {
             return self.intrinsics.never;
         }
 
+        if let Some(entries) = origin_entries {
+            return self.build_origin_union(set, extra_flags, entries);
+        }
         self.get_union_type_from_sorted_list(set, extra_flags, symbol)
     }
 
@@ -479,6 +534,193 @@ impl Checker<'_, '_> {
         }
         let named = symbol.map(|id| (id, self.binder.symbols().get(id).name.to_string()));
         create_union(&mut self.store, extra_flags, types, named)
+    }
+
+    /// §53: mint a union whose SPELLING comes from `entries` (unexpanded)
+    /// while `set` is the flattened member list; registers the origin for
+    /// later projection. An entry whose print is `error` declines whole.
+    fn build_origin_union(
+        &mut self,
+        set: Vec<TypeId>,
+        extra_flags: TypeFlags,
+        entries: Vec<TypeId>,
+    ) -> TypeId {
+        // §53's entry reduction: an entry whose member set is CONTAINED in
+        // another entry's collapses into it (`x || y` where `x`'s written
+        // expansion equals alias `y`'s set answers `T`); on EQUAL sets the
+        // NAMED entry wins over an anonymous spelling.
+        let member_sets: Vec<Vec<TypeId>> = entries
+            .iter()
+            .map(|&entry| match &self.store.get(entry).data {
+                TypeData::Union { types, .. } => types.clone(),
+                _ => vec![entry],
+            })
+            .collect();
+        let is_named = |checker: &Self, id: TypeId| {
+            matches!(&checker.store.get(id).data, TypeData::Union { symbol: Some(_), .. })
+        };
+        let mut keep = vec![true; entries.len()];
+        for i in 0..entries.len() {
+            if !keep[i] {
+                continue;
+            }
+            for j in 0..entries.len() {
+                if i == j || !keep[j] || !keep[i] {
+                    continue;
+                }
+                let i_in_j = member_sets[i].iter().all(|m| member_sets[j].contains(m));
+                let j_in_i = member_sets[j].iter().all(|m| member_sets[i].contains(m));
+                if i_in_j && j_in_i {
+                    // Equal sets: the named spelling wins; ties keep the first.
+                    if is_named(self, entries[j]) && !is_named(self, entries[i]) {
+                        keep[i] = false;
+                    } else {
+                        keep[j] = false;
+                    }
+                } else if i_in_j {
+                    keep[i] = false;
+                } else if j_in_i {
+                    keep[j] = false;
+                }
+            }
+        }
+        let entries: Vec<TypeId> =
+            entries.into_iter().zip(keep).filter_map(|(e, k)| k.then_some(e)).collect();
+        // §53's reduction against a base primitive: an ENUM entry beside
+        // the primitive its members widen to is REMOVED by upstream's
+        // subtype reduction (`number | e` answers `number`,
+        // `unionSubtypeIfEveryConstituentTypeIsSubtype`); origin must not
+        // resurrect it.
+        {
+            let has_number =
+                entries.iter().any(|&e| self.store.get(e).flags.contains(TypeFlags::NUMBER));
+            let has_string =
+                entries.iter().any(|&e| self.store.get(e).flags.contains(TypeFlags::STRING));
+            if has_number || has_string {
+                let dropped: Vec<TypeId> = entries
+                    .iter()
+                    .copied()
+                    .filter(|&e| {
+                        let flags = self.store.get(e).flags;
+                        let enum_union = flags.contains(TypeFlags::UNION)
+                            && flags.intersects(TypeFlags::ENUM_LITERAL | TypeFlags::ENUM);
+                        if !enum_union {
+                            return true;
+                        }
+                        // This port's enum-member types carry only ENUM
+                        // (`declared.rs`'s member mint), so numeric-ness is
+                        // read off the DECLARATION: a member with a string
+                        // initializer makes the enum a string enum.
+                        let symbol = match &self.store.get(e).data {
+                            TypeData::Union { symbol: Some(symbol), .. } => *symbol,
+                            _ => return true,
+                        };
+                        let mut any_string = false;
+                        let mut saw_members = false;
+                        let declarations = self.binder.symbols().get(symbol).declarations.clone();
+                        for declaration in declarations {
+                            if let Some(tsr_ast::Node::EnumDeclaration(declaration)) =
+                                self.node_map.get(declaration)
+                            {
+                                for member in declaration.members {
+                                    saw_members = true;
+                                    if matches!(
+                                        member.initializer,
+                                        Some(tsr_ast::Expression::StringLiteral(_))
+                                    ) {
+                                        any_string = true;
+                                    }
+                                }
+                            }
+                        }
+                        let all_numeric = saw_members && !any_string;
+                        let all_string = saw_members && any_string;
+                        !(all_numeric && has_number || all_string && has_string)
+                    })
+                    .collect();
+                if dropped.len() != entries.len() {
+                    // Members of the dropped enums leave the SET as well.
+                    let mut reduced_set: Vec<TypeId> = Vec::new();
+                    for entry in &dropped {
+                        match &self.store.get(*entry).data {
+                            TypeData::Union { types, .. } => {
+                                reduced_set.extend(types.iter().copied());
+                            }
+                            _ => reduced_set.push(*entry),
+                        }
+                    }
+                    reduced_set.sort_by(|&a, &b| self.compare_types(a, b));
+                    reduced_set.dedup();
+                    return self.build_origin_union(reduced_set, extra_flags, dropped);
+                }
+            }
+        }
+        // §53's slice gate (falsifier (a) recurred at scale without it —
+        // `temporal`'s 82 site-sensitive alias spellings, the object-bearing
+        // `string[] | Color` order class): an origin spelling is claimed
+        // ONLY when every entry is an ENUM-named union or a non-object
+        // plain type. Everything else keeps the pre-§53 GAP.
+        for &entry in &entries {
+            let flags = self.store.get(entry).flags;
+            let enum_union = flags.contains(TypeFlags::UNION)
+                && flags.intersects(TypeFlags::ENUM_LITERAL | TypeFlags::ENUM)
+                && matches!(&self.store.get(entry).data, TypeData::Union { symbol: Some(_), .. });
+            let plain = !flags.intersects(TypeFlags::OBJECT | TypeFlags::UNION);
+            if !(enum_union || plain) {
+                return self.intrinsics.error;
+            }
+        }
+        let mut parts = Vec::with_capacity(entries.len());
+        for &entry in &entries {
+            let printed = crate::printing::type_to_string(self.store.get(entry));
+            if printed == "error" {
+                return self.intrinsics.error;
+            }
+            parts.push(printed);
+        }
+        if set.is_empty() {
+            return self.intrinsics.never;
+        }
+        if entries.len() == 1 {
+            return entries[0];
+        }
+        let text = parts.join(" | ");
+        let built = create_union_with_text(&mut self.store, extra_flags, set, None, Some(text));
+        self.union_origin.entry(built).or_insert(entries);
+        built
+    }
+
+    /// §53's projection: rebuild `original`'s union keeping only `kept`
+    /// members. An origin entry survives WHOLE when all its members
+    /// survive; a partially-surviving entry decomposes to its surviving
+    /// members; no origin means a plain rebuild.
+    pub(crate) fn rebuild_union_subset(&mut self, original: TypeId, kept: &[TypeId]) -> TypeId {
+        let Some(entries) = self.union_origin.get(&original).cloned() else {
+            return self.get_union_type(kept);
+        };
+        let mut projected: Vec<TypeId> = Vec::new();
+        for entry in entries {
+            let members: Vec<TypeId> = match &self.store.get(entry).data {
+                TypeData::Union { types, .. } => types.clone(),
+                _ => vec![entry],
+            };
+            if members.iter().all(|member| kept.contains(member)) {
+                projected.push(entry);
+            } else {
+                for member in members {
+                    if kept.contains(&member) {
+                        projected.push(member);
+                    }
+                }
+            }
+        }
+        if projected.is_empty() {
+            return self.intrinsics.never;
+        }
+        if let [single] = projected.as_slice() {
+            return *single;
+        }
+        self.build_origin_union(kept.to_vec(), TypeFlags::empty(), projected)
     }
 
     /// `Checker.addTypesToUnion` (`checker.go:25761`).

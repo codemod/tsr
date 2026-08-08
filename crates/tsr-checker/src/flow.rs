@@ -1882,7 +1882,7 @@ impl Checker<'_, '_> {
         if kept.len() == constituents_len {
             return t;
         }
-        self.get_union_type(&kept)
+        self.rebuild_union_subset(t, &kept)
     }
 
     /// `narrowTypeBySwitchOnDiscriminant` (`flow.go:1092`), the
@@ -2560,7 +2560,7 @@ impl Checker<'_, '_> {
         if kept.is_empty() || kept.len() == total {
             return t;
         }
-        self.get_union_type(&kept)
+        self.rebuild_union_subset(t, &kept)
     }
 
     /// The §50/§51.1 shared discriminant filter: keep constituents whose
@@ -2597,7 +2597,7 @@ impl Checker<'_, '_> {
         if kept.is_empty() || kept.len() == total {
             return t;
         }
-        self.get_union_type(&kept)
+        self.rebuild_union_subset(t, &kept)
     }
 
     /// `Checker.narrowTypeByEquality` (`flow.go:556`), **nullable-operand half
@@ -2734,7 +2734,7 @@ impl Checker<'_, '_> {
         if kept == original {
             return t;
         }
-        self.get_union_type(&kept)
+        self.rebuild_union_subset(t, &kept)
     }
 
     /// One rung of `getNarrowedTypeWorker`'s ladder: `Some(Some(image))`
@@ -3193,7 +3193,8 @@ impl Checker<'_, '_> {
             if kept.len() == constituents.len() {
                 return t;
             }
-            return self.get_union_type(&kept);
+            // §53: an origin-carrying union projects its entries.
+            return self.rebuild_union_subset(t, &kept);
         }
         if predicate(self, t) { t } else { self.intrinsics.never }
     }

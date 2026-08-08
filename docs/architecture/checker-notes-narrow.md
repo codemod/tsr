@@ -2390,3 +2390,49 @@ wins in the index where upstream's alias-symbol choice may differ; W on
 the second alias's lines. (b) Positions where upstream prints the
 EXPANDED form despite the name existing (the §39 study's evaluated
 positions) — W there says the index needs the §39 position split.
+
+## §53 — origin-carrying unions (the §39 reshape, first slice)
+
+The §39 refusal's named mechanism, built at the checker rather than the
+store: `union_origin: FxHashMap<TypeId, Vec<TypeId>>` — a union built
+from NAMED constituents records its ORIGIN entry list (the unexpanded
+inputs), the union's text renders from the entries, and the constituent
+list stays the flattened members for every consumer. The part the §39
+text hack could not do: NARROWING FILTERS PROJECT THE ORIGIN — a filter
+that keeps a subset of members keeps the origin entries whose members
+ALL survive, decomposes partially-surviving entries to their surviving
+members, and the result re-registers its own projected origin
+(upstream's `filterType` on the origin, `checker.go:25705`'s consumers).
+
+Scope of slice one: creation in the union worker (computed roads only —
+the WRITTEN-expansion rule from §52.1's study stands, via the origin
+entries being the written inputs there too, sorted per
+`numberAssignableToEnumInsideUnion`), projection in the four §5x filters
+and `get_type_with_facts`' union rebuilds.
+
+**Falsifiers.** (a) The §39 stable adverse core — `temporal`'s
+site-sensitive alias spellings inside signature prints — is NOT origin's
+to fix and will recur if origin routes those prints; count them
+separately before judging. (b) Projected-origin text vs upstream's on
+partial survival (`E` minus one member decomposes — upstream may spell
+`Exclude<E, E.A>`-style or the member list; the baselines decide).
+
+**§53 score — LANDED (four refinements, every falsifier honoured).**
+(1) Falsifier (a) recurred at scale exactly as priced (174 G→W raw, 82
+of them temporal) — the ENTRY GATE contains it: an origin spelling is
+claimed only when every entry is an enum-named union or a non-object
+plain type; everything else keeps the pre-§53 gap. (2) Entry
+SUBSUMPTION: an entry whose member set is contained in another's
+collapses into it, named beating anonymous on equal sets (`x || y` of an
+expanded-written operand and its alias answers `T`). (3) Entry ORDER,
+from the baselines: nullable entries last, others by first-member sort
+bits (`boolean | E`, `MyEnum | undefined`). (4) Reduction against a base
+primitive read off the DECLARATION (this port's enum-member types carry
+only ENUM): a numeric enum beside `number` drops entirely
+(`unionSubtypeIfEveryConstituentTypeIsSubtype` +19). Final: **+237 G→R /
+19 G→W + 1 W→G (12.5:1)** — the 19 are `&&`'s NON-STRICT arm
+(`extractDefinitelyFalsyTypes(getBaseTypeOfLiteralType(rightType))`,
+`logicalAndOperatorWithEveryType` 14), its own port, queued.
+`checker_types` right 399,558 → **399,795 (83.47%)**. The §39 refusal is
+SUPERSEDED by this slice; the un-gated entry shapes (object-bearing,
+generic-alias) remain its residue.

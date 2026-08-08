@@ -265,13 +265,22 @@ fn an_enum_declares_a_real_union_that_prints_as_the_enum_name() {
 }
 
 #[test]
-fn a_union_containing_a_named_union_is_a_gap_rather_than_an_expansion() {
-    // Upstream keeps `E` unexpanded through a denormalised `origin`
-    // (`checker.go:25705`), which this port does not build. Expanding it would
-    // print `E.A | E.B | string` where upstream prints `E | string` — a wrong
-    // line rather than a missing one.
+fn a_union_containing_a_named_union_keeps_the_origin_spelling() {
+    // RE-POINTED by §53 (`checker-notes-narrow.md`): the port now builds
+    // upstream's denormalised `origin` (`checker.go:25705`) for the
+    // enum/plain entry shapes — the SPELLING keeps `E` unexpanded while the
+    // constituent list is the flattened members, which is what lets the
+    // narrowing filters project subsets.
     with_checker("enum E { A, B } var x: E | string;", |checker, _bound, statements| {
         let id = annotation_type(checker, statements, 1);
-        assert_eq!(id, checker.intrinsics().error);
+        // Primitive-first, per the corpus census (`string | Color`,
+        // `boolean | E`); nullable entries sort last instead
+        // (`MyEnum | undefined`).
+        assert_eq!(checker.type_to_string(id), "string | E");
+        let ty = checker.type_of(id);
+        let TypeData::Union { types, .. } = &ty.data else {
+            panic!("the origin union still IS a union of the flattened members");
+        };
+        assert_eq!(types.len(), 3, "E.A, E.B, string — members stay flattened");
     });
 }
