@@ -9684,3 +9684,39 @@ board, so this workstream carried TS2303 as an open row for five sessions.
 **Actionable: when a rule's row will not move, grep the crate for the
 function upstream reports from before pricing it.** The answer is written at the
 call site more often than the board suggests.
+
+## §137 — §136's rule applied to the next two rows: nothing hidden, both genuinely unbuilt
+
+§136 produced a rule — *when a row will not move, grep the crate for the
+function upstream reports from, before pricing it* — after three items in one
+session turned out to be already answered in the tree. It is worth knowing how
+often that is true, so it was run on the two largest remaining rows.
+
+**TS1100** (12 cases, `checkStrictModeEvalOrArguments`, `binder.go:1449`):
+
+```
+grep -rn "in_strict_mode\|strict_mode\|use strict" crates/tsr-binder/src/*.rs
+→ nothing
+```
+
+**No strict-mode tracking exists in this binder at all** — not a disabled frame,
+not a documented refusal, not a partial. §105's pricing stands unchanged: it is
+`b.inStrictMode` plus a three-way message split, and it is genuinely unbuilt.
+
+**TS7026** (28 cases plus ~13 of TS2454's, `declare global` merging):
+`GlobalExports` exists in `binder.rs` but only for a UMD module's
+`export as namespace` claim (`:78`, `:242`, `:526`). Nothing touches `declare
+global`. §5's standing refusal stands unchanged.
+
+### The rule's hit rate, which is the point of running it
+
+Three hits in one session (§134, §135, §136) and **two clean misses here**. So
+the pattern is real but not universal: roughly half the rows this workstream
+priced by reasoning had their answer written somewhere in the crate, and half
+did not.
+
+**That is still worth the two `grep`s every time.** A hit saves a session — §136
+saved five — and a miss costs one command and *upgrades an inference into a
+verified negative*: TS1100 and TS7026 are no longer "believed unbuilt", they are
+**checked unbuilt**, which is what makes their case counts trustworthy in the
+handoff.
