@@ -300,6 +300,32 @@ impl<'a> Checker<'a, '_> {
             Node::PropertyAssignment(element) => {
                 self.contextual_type_for_object_literal_element(parent, element)
             }
+            // §68 (`checker-notes-narrow.md`): `getContextualTypeForReturnExpression`
+            // (`checker.go:29621`), the WRITTEN-annotation half — a returned
+            // expression's contextual type is the enclosing function's
+            // declared return type. Rejected once at 26 functions;
+            // `generatedContextualTyping` alone holds 62 aligned lines now.
+            Node::ReturnStatement(_) => {
+                let mut function = self.nodes.parent(parent)?;
+                loop {
+                    match self.nodes.kind(function) {
+                        tsr_ast::SyntaxKind::FunctionDeclaration
+                        | tsr_ast::SyntaxKind::FunctionExpression
+                        | tsr_ast::SyntaxKind::ArrowFunction
+                        | tsr_ast::SyntaxKind::MethodDeclaration => break,
+                        tsr_ast::SyntaxKind::SourceFile => return None,
+                        _ => function = self.nodes.parent(function)?,
+                    }
+                }
+                let annotation = match self.node_map.get(function)? {
+                    Node::FunctionDeclaration(f) => f.r#type,
+                    Node::FunctionExpression(f) => f.r#type,
+                    Node::ArrowFunction(f) => f.r#type,
+                    Node::MethodDeclaration(f) => f.r#type,
+                    _ => None,
+                }?;
+                Some(self.get_type_from_type_node(annotation))
+            }
             _ => None,
         }
     }

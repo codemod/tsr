@@ -2798,3 +2798,19 @@ case's pairs never route through the pre-structural verdicts (they
 decline earlier, likely at the signature-bearing gate or arrive as
 instantiated references). The 62 need the pair's ACTUAL decline point
 traced with an instrument, not another speculative arm.
+
+## §68 — the return-statement contextual arm
+
+`getContextualTypeForReturnExpression`'s written-annotation half
+(`checker.go:29621`): a returned expression's contextual type is the
+enclosing function's declared return type — the fourth arm of this
+port's `getContextualType` dispatch. Rejected once at 26 functions
+(`checker-notes-ctx.md`'s concentration argument); the §67 trace showed
+`generatedContextualTyping` alone now holds 62 aligned lines behind it.
+
+**§68 score — LANDED.** **+24 (W→R), ZERO adverse** — contextually-typed
+object-literal METHODS (16) and the first 6 of generatedContextualTyping's
+arrow parameters. The case's remaining 56 need the returned arrow's
+parameters to see the contextual signature through MORE hops (the
+concise-body and nested-return positions). `checker_types` right
+402,325 → **402,349 (84.01%)**.
