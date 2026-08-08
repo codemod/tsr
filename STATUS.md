@@ -1264,6 +1264,15 @@ its whole deliverable and accept that it converts nothing until finished.
 
 ### New, thirteenth session, `diagnostics`
 
+- **Every remaining relation-free row on the `diagnostics` board is
+  RESOLVER-owned** (§115). TS2302 (9 cases), TS1361/TS1362 (18) and TS2303 (10)
+  are three codes in one subsystem — each needs a name to have been *resolved*,
+  where everything this workstream built cheaply needed only the tree. **The next
+  build is a `tsr_binder` `resolve_name` build and it pays for 37 cases at
+  once**, plus TS1100's 12 behind the same crate's strict-mode state. Falsifier
+  recorded: two "seam is closed" claims this session were premature, so re-take
+  `diaggap` after the next `.types` landing before believing this one.
+
 - **TS2302 in the checker — REFUSED at +137 wrong lines and a grown LOST**
   (§114). The rule belongs **inside the resolver**: upstream tests
   `lastLocation.IsStatic` on the branch where the name has *already resolved to
