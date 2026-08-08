@@ -865,3 +865,17 @@ ZERO adverse.** The target's declared type (not the flowed one) decides,
 as §6.3 learned. `checker_types` right 401,896 → **401,928 (83.92%)**.
 **§63.2 — the empty tuple.** `const t: [] = []` prints the empty TUPLE:
 the non-empty guard dropped, **+5/0**, right → **401,933**.
+
+## §67 — the contextual array claim REFUSED at −64
+
+The §66 trace mandate executed: `generatedContextualTyping`'s `Base[]`
+decline point is NOT the reduction and NOT the literal — the literal's
+own line WANTS the un-reduced union (`[d1, d2] : (Derived1 |
+Derived2)[]`, both-private classes staying nominal, already RIGHT at
+HEAD), and the `Base[]`-want lines are the ANNOTATION-REUSE positions
+(the arrow/function-expression prints under `var x: () => Base[]`),
+whose current `any` comes from the function-expression road, not the
+array. A contextual claim rewriting the literal broke 62 standing
+rights. The case's residue belongs to the §56-family's
+function-expression positions and the §36 node-reuse rule — traced,
+recorded, reverted.

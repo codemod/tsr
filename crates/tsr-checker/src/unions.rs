@@ -1153,7 +1153,10 @@ impl crate::checker::Checker<'_, '_> {
     }
 
     /// `is_class_instance` with the symbol kept.
-    fn class_instance_symbol(&self, id: crate::types::TypeId) -> Option<tsr_binder::SymbolId> {
+    pub(crate) fn class_instance_symbol(
+        &self,
+        id: crate::types::TypeId,
+    ) -> Option<tsr_binder::SymbolId> {
         let symbol = match &self.store.get(id).data {
             crate::types::TypeData::Named { members: Some(symbol), .. }
             | crate::types::TypeData::Anonymous { symbol, .. } => Some(*symbol),
