@@ -339,6 +339,7 @@ impl Checker<'_, '_> {
             }
             Node::PropertyAccessExpression(_) => {
                 self.check_nonexistent_property(node, ambient);
+                self.check_readonly_assignment_target(node, ambient);
                 ambient
             }
             Node::AsExpression(_) | Node::TypeAssertion(_) => {

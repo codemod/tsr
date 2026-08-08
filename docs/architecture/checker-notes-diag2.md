@@ -3951,3 +3951,95 @@ The thirteen cases still blocked are `computedPropertyNames5–9_ES6` and
 `symbolProperty3/54/59` — `[b]` with `b: boolean`, `[[]]`, `[{}]`, `[s]` with
 `s = Symbol`. Every one is a **confident negative upstream and an `Unknown`
 here**, which puts them behind the relation rather than behind this rule.
+
+---
+
+## 53. TS2540 — the read-only assignment target
+
+`checkPropertyAccessExpressionOrQualifiedName` (`checker.go:11376`):
+
+```go
+if c.isAssignmentToReadonlyEntity(node, prop, assignmentKind) {
+    c.error(right, diagnostics.Cannot_assign_to_0_because_it_is_a_read_only_property, right.Text())
+```
+
+**12 cases blocked on it alone**, and `diagmissing.rs` shows what they are:
+`constDeclarations-access3/4/5` (54 lines — `namespace M { export const x }` then
+`M.x = 1` in eleven spellings), `externalModuleImmutableBindings` (16),
+`readonlyPropertySubtypeRelationDirected` (8),
+`intersectionTypeReadonly` (4), `incrementOperatorWithEnumType` (4),
+`privateNameAccessors`, `privateNameStaticAccessors`,
+`readonlyAssignmentInSubclassOfClassExpression`.
+
+`isReadonlySymbol` (`checker.go:13849`) is a list of five facts about a symbol
+and its declarations, and this port can read four of them off the declaration
+directly:
+
+| upstream | here |
+|---|---|
+| `CheckFlagsReadonly` | **not ported** — a computed flag on synthesised union/intersection properties |
+| `Property` with a `readonly` modifier | the declaration's modifier list |
+| `Variable` with `NodeFlagsConstant` | the declaration list's `CONST` flag |
+| `Accessor` with no set accessor | the symbol's declarations |
+| `EnumMember` | the declaration's kind |
+| `isReadonlyAssignmentDeclaration` | **not ported** — `Object.defineProperty` |
+
+The two unported rows are both *narrowing* omissions: they can only cost a
+missing diagnostic. `intersectionTypeReadonly` is the first one's population and
+is expected to stay short.
+
+### The constructor exception is the rule's only real decision
+
+`isAssignmentToReadonlyEntity` (`checker.go:27294`) permits `this.x = …` inside
+the constructor of the class that declares `x`. Getting it wrong is a wrong line
+on ordinary, correct code — the most expensive kind — so the port reproduces the
+whole disjunction: the control-flow container must be a constructor, and the
+property's declaration must be a member of that constructor's class or one of
+its parameters.
+
+`module.exports` is exempted before anything else (`checker.go:27289`), which
+this port reaches as "the receiver resolves to nothing".
+
+### The bar
+
+| leg | registered |
+|---|---|
+| 1 | `diagnostics` passes > **1,187**. Forecast **+4 to +12** |
+| 2 | `checker_types` pass count unchanged at **3,682** |
+| 3 | LOST == **0** on `diag2307.rs` with `RULE_CODES = [2540]` |
+| 4 | own WRONG ≤ **20** |
+| 5 | every other snapshot unchanged |
+
+**Falsifier.** If the wrong column is `this.x = …` lines inside constructors, the
+exception is mis-ported and the rule is reporting on correct code; that is a
+revert rather than a decline, because the population it would break is every
+class in the corpus with a `readonly` field.
+
+### Scored — **+1 for zero wrong**, 71 right lines, and the falsifier stayed quiet
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| 1 | passes > 1,187, forecast +4 to +12 | **1,188 / 5,488 = 21.65%** | **fired** |
+| 2 | `checker_types` pass count 3,682 | **3,682**, snapshot unchanged | pass |
+| 3 | LOST == 0 | **0** | pass |
+| 4 | own WRONG ≤ 20 | **0** | pass |
+| 5 | every other snapshot unchanged | only `diagnostics.snap` differs | pass |
+
+`diag2307.rs` isolated to 2540: **CONVERTS 1 · RIGHT 71 · WRONG 0 · LOST 0.**
+
+**The constructor exception held: zero wrong lines against a corpus full of
+`readonly` fields.** That was the falsifier the section was most worried about
+and it did not fire once.
+
+**71 right lines for one case is §2's ratio at its sharpest so far**, and
+`diagmissing.rs` shows why directly: the three `constDeclarations-access` cases
+(54 of the 71) now emit every TS2540 the baseline records and **still fail** —
+they are `STILL SHORT` on other codes. A row of 12 cases produced one because
+eleven of them wanted this code *and something else*.
+
+The remainder is three named families, and two were predicted in the bar:
+`externalModuleImmutableBindings` (16 lines — an **imported binding** is
+read-only through its alias symbol, which this rule does not follow),
+`intersectionTypeReadonly` and `intersectionsAndReadonlyProperties` (the
+`CheckFlagsReadonly` row, named as expected to stay short), and
+`incrementOperatorWithEnumType` (`E.a++` on an enum member).
