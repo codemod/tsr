@@ -81,6 +81,14 @@ impl Checker<'_, '_> {
             return computed;
         }
         let Some(id) = node.node_id else { return computed };
+        // §12.7's element-access half (the §52 scorecard's recorded residue):
+        // a WRITE-position read takes the declared type — upstream's
+        // assignment-target dispatch, which the identifier road has had
+        // since §12.7 and this road lacked (`x['o'] = true`'s LHS narrowed
+        // by a preceding guard, `controlFlowElementAccess`).
+        if self.assignment_target_kind(id) == crate::expressions::AssignmentTargetKind::Definite {
+            return self.propagate_optional_type_marker(computed, was_optional);
+        }
         let narrowed = self.get_flow_type_of_reference(id, None, computed);
         // `checkElementAccessChain` wraps the whole access — flow narrowing
         // included — in `propagateOptionalTypeMarker` (`checker.go:8140`),

@@ -2552,3 +2552,19 @@ holders, costing ~30 let-shaped wins. Final: **+52 (W→R), ZERO
 adverse.** `checker_types` right 400,173 → **400,225 (83.57%)**. The
 arc's next slices: let-holders behind `getAssignmentReducedType`,
 parameter defaults, return positions, and the argument road.
+
+## §57 — the element-access write seam
+
+The §52 scorecard's recorded residue, one line of code: a WRITE-position
+element access takes the declared type (upstream's assignment-target
+dispatch, on the identifier road since §12.7, absent on this one).
+
+**§57 score — LANDED.** The covered matrix moved **+1 W→R, ZERO
+adverse** — and the un-erroring of LHS reads ALIGNED 1,704 lines the
+walker had never reproduced (the aligned denominator grows 468,915 →
+470,619; right +1,296 gross, gap +310, wrong +98 among the newly
+aligned). `checker_types` right 400,225 → **401,521; the GRADIENT
+denominator itself moved**, so the percentage (85.31% → 85.32% on the
+new base... measured: 401,521/470,619 = 85.32% aligned-right share;
+the coverage bin's fraction against 478,954 reads 83.83%). Numbers from
+the landing run; the newly-aligned wrong/gap rows join the board.
