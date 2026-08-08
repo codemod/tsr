@@ -3160,3 +3160,24 @@ costs 7 (the four derived-from else positions in the structural case,
 now priced). **+126 net (67 G→R, 59 W→R against 7 R→W, 18:1).**
 
 **§83 score — LANDED.** right 404,262 → **404,381 (84.44%)**.
+
+## §84 — the sibling-truthiness discriminant; a redundancy caught by measurement
+
+The dependent-destructured seam turned out ALREADY BUILT (§50's
+pseudo-reference road: `dependent_destructured_type` →
+`narrow_destructured_parent`, with sibling equality and switch arms)
+— a hand-rolled §84 equality arm measured ZERO transitions once its
+composition bug was fixed, proving every position it reached was
+already §50's, and was REMOVED rather than landed. What was missing
+was one form: the sibling as a TRUTHINESS condition (`const { kind,
+isA } = foo; if (isA) kind` wants `'A'` — f30). One
+`filter_union_by_member_truthiness` arm behind
+`state.discriminant_pattern`. **+6, zero adverse.**
+
+Remaining in the case, owned: f22 (the pattern's PARENT narrowed by a
+test BEFORE the destructuring — `get_type_for_binding_element_parent`
+reads the declared type, not the flow type at the declaration), f23
+(`never` collapse in an exhaustive else), and the f10-family
+parameter switch forms.
+
+**§84 score — LANDED.** right 404,371 → **404,377 (84.44%)**.

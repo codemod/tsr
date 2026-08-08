@@ -2419,6 +2419,17 @@ impl Checker<'_, '_> {
                     let member = name.text.to_string();
                     return self.filter_union_by_member_truthiness(t, &member, assume_true);
                 }
+                // §84 (`checker-notes-narrow.md`): a SIBLING element as the
+                // truthiness condition — `const { kind, isA } = foo; if
+                // (isA) kind` discriminates the pseudo-reference union by
+                // the sibling's member truthiness (`dependentDestructured
+                // Variables`' f30), the §50 equality/switch arms' third
+                // form.
+                if let Some(pattern) = state.discriminant_pattern
+                    && let Some(member) = self.sibling_member_of_pattern(pattern, condition)
+                {
+                    return self.filter_union_by_member_truthiness(t, &member, assume_true);
+                }
                 // §82 (`checker-notes-narrow.md`): the ALIASED CONDITION —
                 // `const isFoo = obj.kind === 'foo'; if (isFoo)` narrows as
                 // the condition itself would (`narrowType`'s identifier arm,
