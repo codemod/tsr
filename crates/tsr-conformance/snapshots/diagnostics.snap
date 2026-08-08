@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; scanner, parser and binder only, with no checker (bd tsr-4sc)
-Passed         : 1188/5488 (21.65%)
-Failed         : 4300
+Passed         : 1231/5488 (22.43%)
+Failed         : 4257
 Skipped        : 6956 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -11,7 +11,7 @@ Skipped        : 6956 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 4300 failures:
+First 100 of 4257 failures:
 compiler/ClassDeclaration10
   1 missing (first TS2390 at ClassDeclaration10.ts(2,4))
 compiler/ClassDeclaration11
@@ -51,7 +51,7 @@ compiler/ParameterList13
 compiler/ParameterList4
   1 missing (first TS7006 at ParameterList4.ts(1,12))
 compiler/ParameterList5
-  3 missing (first TS2355 at ParameterList5.ts(1,15))
+  2 missing (first TS2355 at ParameterList5.ts(1,15))
 compiler/ParameterList6
   1 missing (first TS7006 at ParameterList6.ts(2,19))
 compiler/TransportStream
@@ -66,8 +66,6 @@ compiler/accessInstanceMemberFromStaticMethod01
   1 unexpected (first TS2304 at accessInstanceMemberFromStaticMethod01.ts(5,17)), 1 missing
 compiler/accessorBodyInTypeContext
   8 unexpected (first TS1131 at accessorBodyInTypeContext.ts(2,15)), 4 missing
-compiler/accessorDeclarationEmitVisibilityErrors
-  1 missing (first TS2304 at accessorDeclarationEmitVisibilityErrors.ts(2,18))
 compiler/accessorInferredReturnTypeErrorInReturnStatement
   1 missing (first TS2339 at accessorInferredReturnTypeErrorInReturnStatement.ts(4,18))
 compiler/accessors_spec_section-4.5_error-cases
@@ -212,3 +210,5 @@ compiler/assignToEnum
   2 missing (first TS2628 at assignToEnum.ts(2,1))
 compiler/assignToExistingClass
   1 missing (first TS2629 at assignToExistingClass.ts(8,13))
+compiler/assignToFn
+  1 missing (first TS2322 at assignToFn.ts(8,5))

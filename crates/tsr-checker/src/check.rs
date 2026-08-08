@@ -369,6 +369,7 @@ impl Checker<'_, '_> {
             }
             Node::Identifier(identifier) => {
                 self.check_value_identifier(node, identifier.text);
+                self.check_type_reference_name(node, identifier.text);
                 self.check_used_before_assigned(node, identifier.text);
                 self.mark_identifier_reference(node, identifier.text);
                 ambient
@@ -839,6 +840,140 @@ impl Checker<'_, '_> {
             file,
             Diagnostic::with_args(&messages::CANNOT_FIND_NAME_0, span, [text.to_string()]),
         );
+    }
+
+    /// TS2304 / TS2552 / TS2583 for a name in a **type** position.
+    ///
+    /// `getTypeFromTypeReference` → `resolveTypeReferenceName` →
+    /// `resolveEntityName`, whose failure arm is the same
+    /// `onFailedToResolveSymbol` (`checker.go:1584`)
+    /// [`Checker::check_value_identifier`] already ports — missing lib first,
+    /// then a spelling suggestion, then `Cannot find name`.
+    ///
+    /// The two arms are **disjoint by construction**: this one fires only on
+    /// the `type_name` slot of a `TypeReferenceNode`, and
+    /// [`Checker::is_value_reference`] never looks at that slot.
+    ///
+    /// Bounded to a bare identifier that resolves under **no** meaning:
+    /// a qualified `A.B` fails as TS2694, a name that resolves as a value is
+    /// TS2749, and as a namespace TS2709 — three wrong codes at a right
+    /// position, which is the failure §7 and §33 each spent a build removing.
+    /// `docs/architecture/checker-notes-diag2.md` §55.
+    fn check_type_reference_name(&mut self, node: NodeId, text: &str) {
+        if self.file_has_parse_errors || is_specially_diagnosed_name(text) {
+            return;
+        }
+        let Some(parent) = self.nodes.parent(node) else { return };
+        let Some(Node::TypeReferenceNode(reference)) = self.node_map.get(parent) else { return };
+        if reference.type_name.and_then(|name| name.node_id()) != Some(node) {
+            return;
+        }
+        let span = self.error_span(node);
+        if text.is_empty() || span.start == span.end {
+            return;
+        }
+        for meaning in [SymbolFlags::TYPE, SymbolFlags::VALUE, SymbolFlags::NAMESPACE] {
+            if self.binder.resolve_name(self.nodes, self.node_map, node, text, meaning).is_some() {
+                return;
+            }
+        }
+        // A name an enclosing declaration introduces as a **type parameter**
+        // resolves upstream and fails here, and the difference is never
+        // TS2304. `class C<T> { static m(): T }` is upstream's TS2302,
+        // *"Static members cannot reference class type parameters"* — the
+        // resolver finds `T` and the *position* is the error — and an
+        // `infer T` name is in scope for the whole conditional type.
+        // `genericClassWithStaticsUsingTypeArguments`,
+        // `classTypeParametersInStatics`, `staticMethodReferencingTypeArgument1`,
+        // `typeParametersInStatic*` and `conditionalTypes1` were the first
+        // measurement's largest new family.
+        if self.an_enclosing_declaration_has_type_parameter(node, text) {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        if let Some(lib) = suggested_lib_for(text) {
+            self.report(
+                file,
+                Diagnostic::with_args(
+                    &messages::CANNOT_FIND_NAME_0_DO_YOU_NEED_TO_CHANGE_YOUR_TARGET_LIBRARY_TRY_CHANGING_THE_LIB_COMPILER_OPTION_TO_1_OR_LATER,
+                    span,
+                    [text.to_string(), lib.to_string()],
+                ),
+            );
+            return;
+        }
+        // **No suggestion arm here**, and that is a decline with an owner.
+        // `getSuggestedSymbolForNonexistentSymbol` searches the names in scope
+        // *with the requested meaning*, and `names_in_scope` is
+        // meaning-blind — which is harmless in a value position, where almost
+        // every name in scope is a value, and wrong in a type position, where
+        // it offers a nearby *variable* for a missing *type*.
+        // `parserRealSource13` alone was **105 wrong TS2552 lines** for
+        // `AST` — every one a TS2304 upstream. Returns when
+        // `Binder::names_in_scope` takes a meaning.
+        self.report(
+            file,
+            Diagnostic::with_args(&messages::CANNOT_FIND_NAME_0, span, [text.to_string()]),
+        );
+    }
+
+    /// Does any ancestor introduce `text` as a type parameter — a declaration's
+    /// `<T>` list, or an `infer T` inside a conditional type?
+    ///
+    /// A scoping question this port's `resolve_name` answers differently from
+    /// upstream's, and the difference is always a *different code* rather than
+    /// a missing one. See [`Checker::check_type_reference_name`].
+    fn an_enclosing_declaration_has_type_parameter(&self, node: NodeId, text: &str) -> bool {
+        for ancestor in self.nodes.ancestors(node) {
+            let Some(typed) = self.node_map.get(ancestor) else { continue };
+            let parameters: &[&tsr_ast::TypeParameterDeclaration<'_>] = match typed {
+                Node::ClassDeclaration(declaration) => declaration.type_parameters,
+                Node::ClassExpression(declaration) => declaration.type_parameters,
+                Node::InterfaceDeclaration(declaration) => declaration.type_parameters,
+                Node::TypeAliasDeclaration(declaration) => declaration.type_parameters,
+                Node::FunctionDeclaration(declaration) => declaration.type_parameters,
+                Node::FunctionExpression(declaration) => declaration.type_parameters,
+                Node::ArrowFunction(declaration) => declaration.type_parameters,
+                Node::MethodDeclaration(declaration) => declaration.type_parameters,
+                Node::MethodSignatureDeclaration(signature) => signature.type_parameters,
+                Node::ConstructorDeclaration(declaration) => declaration.type_parameters,
+                Node::CallSignatureDeclaration(signature) => signature.type_parameters,
+                Node::ConstructSignatureDeclaration(signature) => signature.type_parameters,
+                Node::FunctionTypeNode(node) => node.type_parameters,
+                Node::ConstructorTypeNode(node) => node.type_parameters,
+                _ => &[],
+            };
+            if parameters
+                .iter()
+                .any(|parameter| parameter.name.is_some_and(|name| name.text == text))
+            {
+                return true;
+            }
+            if self.nodes.kind(ancestor) == SyntaxKind::ConditionalType
+                && self.subtree_declares_infer(ancestor, text, 0)
+            {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Is there an `infer <text>` anywhere under this node?
+    fn subtree_declares_infer(&self, node: NodeId, text: &str, depth: u32) -> bool {
+        if depth > 32 {
+            return false;
+        }
+        let Some(typed) = self.node_map.get(node) else { return false };
+        if let Node::InferTypeNode(infer) = typed
+            && infer
+                .type_parameter
+                .is_some_and(|parameter| parameter.name.is_some_and(|name| name.text == text))
+        {
+            return true;
+        }
+        let mut children = Vec::new();
+        tsr_ast::for_each_child_id(typed, |child| children.push(child));
+        children.into_iter().any(|child| self.subtree_declares_infer(child, text, depth + 1))
     }
 
     /// Is this identifier inside an **instance** property's initialiser, naming

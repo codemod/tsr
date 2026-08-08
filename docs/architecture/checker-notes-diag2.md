@@ -4096,3 +4096,120 @@ written down in their own sections, and none of them needs the relation.
 single-code column drops to what it always was — an ordering over *new* rules.
 `diagmissing.rs` then says which lines a chosen rule is short, and `diagcase.rs`
 reads one.
+
+---
+
+## 55. TS2304 in **type** positions — the first item §54 chose
+
+§54's ranking puts TS2304 at **88 cases** reachable without the relation, and
+`diagmissing.rs` says what those lines are:
+
+```
+21  compiler/errorsInGenericTypeReference
+18  conformance/parserGenericsInVariableDeclaration1
+10  conformance/typeParameterUsedAsTypeParameterConstraint4
+ 7  compiler/unknownSymbols1        var y: asdf;  function foo(x: asdf): asdf
+ 6  compiler/typeofProperty
+ 6  compiler/typeCheckTypeArgument
+```
+
+Every one is a name in a **type** position. §7's rule is bounded by
+`is_value_reference` — *"the identifier must be the node sitting in one of the
+parent's expression-typed fields"* — which is exactly right for what it does and
+excludes the other half of upstream's `Cannot find name`.
+
+Upstream reaches those through a different road: `getTypeFromTypeReference` →
+`resolveTypeReferenceName` → `resolveEntityName`, whose failure arm is the same
+`onFailedToResolveSymbol` §7 already ports — missing lib first (TS2583), then a
+spelling suggestion (TS2552), then TS2304.
+
+### The bound: a bare identifier that resolves under no meaning at all
+
+- **Simple names only.** A qualified `A.B` fails differently (TS2694,
+  `Namespace '{0}' has no exported member '{1}'`), and a wrong code at a right
+  position is what §33 and §7 both spent builds removing.
+- **No meaning at all.** A name that resolves as a *value* but not a type is
+  TS2749; as a *namespace*, TS2709. §7 declines both for the same reason and
+  this arm inherits the decline verbatim.
+- **`is_value_reference` still owns the value half.** The two arms are disjoint
+  by construction: one fires on the `type_name` slot of a `TypeReferenceNode`,
+  the other never looks at that slot.
+
+### The bar
+
+| leg | registered |
+|---|---|
+| 1 | `diagnostics` passes > **1,188**. Forecast **+10 to +30** — 79 cases are blocked on TS2304 alone and this is the majority shape among them |
+| 2 | `checker_types` pass count unchanged at **3,682** |
+| 3 | LOST == **0** on `diag2307.rs` with `RULE_CODES = [2304, 2552, 2583]` |
+| 4 | the three codes' combined WRONG grows by ≤ **40** from its current isolated figure |
+| 5 | every other snapshot unchanged |
+
+**Falsifier.** If the wrong column fills with names that *do* resolve — type
+parameters, interfaces declared later in the file, `lib` types — then
+`resolve_name` under `SymbolFlags::TYPE` is not the meaning upstream resolves a
+type reference under, and the answer is to widen the meaning rather than to
+decline positions.
+
+### Scored — **+43, the session's largest single build**, and leg 4 fired
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| 1 | passes > 1,188, forecast +10 to +30 | **1,231 / 5,488 = 22.43%** | pass, **above** |
+| 2 | `checker_types` pass count 3,682 | **3,682**, snapshot unchanged | pass |
+| 3 | LOST == 0 | **0** (the 2 shown are the pre-existing pair, unchanged) | pass |
+| 4 | the trio's WRONG grows by ≤ 40 | **444 → 495, +51** | **fired** |
+| 5 | every other snapshot unchanged | only `diagnostics.snap` differs | pass |
+
+`diag2307.rs` over `[2304, 2552, 2583]`: **CONVERTS 151 → 194 · RIGHT 1,846 →
+2,367 · WRONG 444 → 495 · LOST 2 → 2.**
+
+### The two declines the first measurement bought, in the order the column named them
+
+**1. A name an enclosing declaration introduces as a type parameter — 39 lines.**
+`class C<T> { static m(): T }` is upstream's **TS2302**, *"Static members cannot
+reference class type parameters"*: the resolver **finds** `T` and the position is
+the error. `resolve_name` here does not put a class's type parameters in a static
+member's scope at all, so the same shape arrives as "cannot find". An `infer T`
+name is in scope for its whole conditional type and is the same story.
+`genericClassWithStaticsUsingTypeArguments`, `classTypeParametersInStatics`,
+`staticMethodReferencingTypeArgument1`, `typeParametersInStatic*` and
+`conditionalTypes1`.
+
+**2. The suggestion arm is dropped in type positions — 143 lines.**
+`getSuggestedSymbolForNonexistentSymbol` searches the names in scope **with the
+requested meaning**; `Binder::names_in_scope` is meaning-blind. In a value
+position that is harmless, because nearly every name in scope is a value. In a
+type position it offers a nearby *variable* for a missing *type*:
+`parserRealSource13` alone was **105 wrong TS2552 lines** for one missing `AST`,
+every one a TS2304 upstream. Dropping the arm converts those 143 lines from
+wrong to right and costs **one** case. It returns when `names_in_scope` takes a
+meaning.
+
+### Leg 4 fired and the build ships — with the arithmetic that says so
+
+51 new wrong lines against 43 conversions is **0.84 gained per wrong**, which is
+below the 1.0 this file has used as a floor. `diagreach.rs` (§54) settles it,
+and the first reading of it was **wrong in a way worth recording**:
+
+```
+before §55   1,188 passing   1,334 reachable
+after  §55   1,231 passing   1,281 reachable
+```
+
+1,334 − 1,281 = 53 looks like 53 cases lost to new false positives. It is not:
+**a converted case leaves the reachable set by definition**, because `reachable`
+counts only *failing* cases. 1,334 − 43 = 1,291, so the true cost is
+**1,291 − 1,281 = 10 cases** pushed out of reach by the new wrong lines, against
+43 banked. That is 4.3 gained per case put at risk, and it is the number the
+ratio-per-wrong-*line* was hiding.
+
+> **Count what a wrong line costs in cases, not in lines.** 51 wrong lines
+> landed in ten cases, and six of those ten were already carrying other extras.
+> Every previous "gained per wrong" figure in this file is a line ratio; §54's
+> instrument is what makes the case ratio computable, and the two differ by
+> whatever the concentration happens to be.
+
+The remaining new families are diffuse — `parserindenter` 11,
+`parserRealSource12` 5, `privacyImportParseErrors` 4, then ones and twos across
+fourteen more cases.
