@@ -1276,10 +1276,16 @@ its whole deliverable and accept that it converts nothing until finished.
 - **TS1361/TS1362 — LANDED, §121, +5 cases and +22 right lines** by walking the
   alias **chain** with the existing `resolve_alias`; the chain is worth 3 of the
   5 cases over §120's single hop for one extra wrong line. **BAR MISSED at +8
-  wrong**, recorded as a debt in §104's shape. **Residual owner:
-  `IsValidTypeOnlyAliasUseSite`** (`checker.go:1860`'s unported third conjunct) —
-  a type-only alias is legal in `typeof X` and `export { X }`, and the target to
-  beat is 224 conversions with the wrong column back at 414.
+  wrong**, recorded as a debt in §104's shape. **Residual owner: UNKNOWN — §122 disproved
+  §121's attribution.** Porting `IsValidTypeOnlyAliasUseSite`'s two relevant
+  clauses removed **zero** wrong lines, and filtering the wrong column for
+  `TS1361`/`TS1362` returns **nothing**: the eight lines are not this rule's
+  output. Isolate `RULE_CODES = [1361, 1362]` alone before attributing them.
+- **An attribution is a hypothesis** — three were disproved by measurement this
+  session (§118 by §119, §115 partly by §116, §121 by §122). Each was plausible,
+  each was cheap to overturn **because it was written down with a number
+  attached**. **Isolate the code alone before believing which rule owns a
+  line.**
 - **(superseded by §121)** TS1361/TS1362 — refused at +2 cases for +7 wrong (§120), and §119's
   hypothesis is now **confirmed with a number**: this port's alias symbols
   answer `VALUE`, so `check_value_identifier` returned at its VALUE early return
