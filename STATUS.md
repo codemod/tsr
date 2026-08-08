@@ -40,7 +40,7 @@ Measured at the §42-v2 landing, 2026-08-07 (ninth session, continued: builds 25
 | `dts_emit` | 161/339 | 47.49% | |
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
-| **`checker_types`** | **3,741/9,538** | **39.22%** | **gradient 83.39%** — the target (builds 25–94) |
+| **`checker_types`** | **3,742/9,538** | **39.23%** | **gradient 83.40%** — the target (builds 25–95) |
 | `diagnostics` | **1,078/5,488** | **19.64%** | **tenth session, +361** — 717 → 1,078 across forty-one builds and nine measured refusals; the running total is 80 → 1,078, 13.5×. One build shipped with a named loss (§33); every other is 0 lost |
 
 ### `checker_types`, the number the project is steered by
@@ -190,8 +190,9 @@ discriminant property through §50.1's filter, 5 adverse at 48:1; §39's
 union-origin text hack REFUSED at ~2:1 after three variants en route) =
 399,212; then + 194 (§51.1: equality on a discriminant property through
 the shared filter, 4 adverse at 49:1) = 399,406; then + 12 (§51.2: optional-chain
-containment at strict equality, ZERO adverse) = 399,418 exactly — builds
-25–94. §35 records a FINDING: tsgo prints
+containment at strict equality, ZERO adverse) = 399,418; then + 13 (§51.3: truthiness on a discriminant
+property — the discriminant family's fourth member, ZERO adverse) =
+399,431 exactly — builds 25–95. §35 records a FINDING: tsgo prints
 ` : error` in JS chains across 123 baseline files — ADR-0038's premise
 refined, the §31 JS trade re-grounded, and any future gate stays
 source-side (no oracle peeking).
