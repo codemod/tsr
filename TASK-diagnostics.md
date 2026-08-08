@@ -11,7 +11,7 @@ FIRST: git pull. Then read, in this order:
   refusal with its number.
 
 STATE AT HANDOFF (verify with a fresh coverage run):
-  diagnostics    1,239/5,488 = 22.58%   (was 1,118 = 20.37%; +121 over 17 builds,
+  diagnostics    1,244/5,488 = 22.67%   (was 1,118 = 20.37%; +126 over 20 builds,
                  **zero cases lost in any of them**)
   checker_types  3,683/9,538 · 82.85% — the other workstream's. Do not touch it;
                  re-check it is byte-identical after every build.
@@ -50,6 +50,7 @@ ratio, and the two differ by whatever the concentration happens to be.
 | `examples/diagreach.rs` | **NEW, run first.** Cases reachable by deepening the rules that already exist, ranked by which rule |
 | `examples/diagmissing.rs` | **NEW.** `diagmissing -- 2454` prints every baseline line of that code the port does not emit, restricted to cases that code alone blocks. Four of this session's builds were steered by reading it |
 | `examples/diagcase.rs` | **NEW.** One case's expected and actual diagnostics side by side |
+| `examples/extraonly.rs` | **NEW, and the only exact forecast in the workstream.** The cases blocked by an **extra** diagnostic alone — each is one false positive from passing, so the count IS the conversion count. 54 at `b78c4d7`; §58, §59 and §60 were forecast off it and all three came in exact. TS1005 38 and TS1012 15 of the original 58 are the **parser's**, not this workstream's |
 | `examples/diag2307.rs` | the per-rule counterfactual. Put the rule's codes in `RULE_CODES` **alone**, measure, then **restore the full list** (one commit shipped it pinned and needed a follow-up). CONVERTS / LOST / RIGHT / WRONG |
 | `examples/extragap.rs` | splits the *extra* column into `displaced` and `invented` |
 | `examples/diaggap.rs` | the old board. Now an ordering over **new** rules only |
@@ -115,6 +116,13 @@ wrong is worth tens of lines each way:
    does not resolve (`missingTypeArguments1`, `privacyVarDeclFile`) and are a
    `checker_types` question; TS2554's are `callWithMissingVoid`'s `void`
    parameter, which §56 left to its own measurement.
+2b. **Work `extraonly.rs`'s list.** It is the only forecast here that has been
+   exact, three times running. What is left that is ours: TS2322 11
+   (`narrowByClauseExpressionInSwitchTrue7` is `switch (true)` narrowing,
+   `distributiveConditionalTypeConstraints` is conditional-type constraints —
+   both `checker_types` gaps arriving as false positives), TS2304 9 (parser
+   divergences: `validRegexp`'s ambiguous `/`, `exportDefaultAbstractClass`),
+   TS7006 4, TS2345 1, TS2307 3, TS2552 2, TS6133 2.
 3. **`checkNonNullType` at the OTHER call sites** — property access, element
    access, call targets. §51 built the six messages and restricted them to
    binary operands, and its twelve non-converting cases are all `STILL SHORT`

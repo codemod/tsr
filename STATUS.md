@@ -379,7 +379,7 @@ and the long tail is what this session spent itself on.
 
 ### `diagnostics`, the eleventh session — **+113 to 22.43%**, and the instrument that reframed the board
 
-Measured at `ccf2b25`. **1,118 → 1,239 of 5,488 = 22.58%.** Seventeen builds,
+Measured at `b78c4d7`. **1,118 → 1,244 of 5,488 = 22.67%.** Twenty builds,
 **zero cases lost in any of them**, `checker_types` unmoved by every one (the
 parallel `.types` workstream took it 3,645 → 3,683 over the same hours; those are
 theirs).
@@ -427,6 +427,9 @@ conversions. §55's real cost was 10 cases pushed out of reach against 43 banked
 | §55 | **TS2304 in *type* positions** | **+43** | +51 |
 | §56 | TS2554 for constructors — optional parameters and the base's | +1 | 31 → **6** |
 | §57 | **`names_in_scope` takes a meaning** — §55's refusal retired | **+7** | 495 → **456** |
+| §58 | `x.constructor === C` joins the unported-narrowing list | +2 | 30 → **15** |
+| §59 | TS2345 reports the **first** failing argument, not every one | +2 | 12 → **10** |
+| §60 | a named function expression's own name is in scope inside it | +1 | 456 → **451** |
 
 **The session's finding, and it recurred five times in seven builds: the thing
 between a rule at +2 and the same rule at +15 was a sentence about *why*, not a
@@ -1205,6 +1208,7 @@ Built and maintained; **use them, do not rebuild them.**
 | `examples/diagreach.rs` | **`diagnostics`, run this first.** Cases reachable by deepening the rules that already exist — nothing extra reported, every missing code one this port already emits. **1,334** at `2b0f9ab`, ranked by which rule to deepen (`checker-notes-diag2.md` §54) |
 | `examples/diagmissing.rs` | the **missing** half of one code, restricted to the cases that code alone blocks, so each case printed is exactly one conversion |
 | `examples/diagcase.rs` | one case's expected and actual diagnostics side by side, through the suite's own `reported_for` |
+| `examples/extraonly.rs` | **the cases blocked by an extra diagnostic ALONE** — each is one false positive from passing, so the count *is* a forecast rather than a ceiling. **54** at `b78c4d7`; TS1005 38 and TS1012 15 of the original 58 are the parser's. Three builds forecast off it and three came in exact (`checker-notes-diag2.md` §58–§60) |
 | `examples/gaproot.rs` | root/cause split — ranks **causes**, not symptoms |
 | `examples/casedelta.rs` | **per-case joinable TSV.** A net hides a change that helps and harms at once |
 | `examples/reconcile.rs` | a probe's denominator against the suite's |
@@ -1242,7 +1246,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
-| 2026-08-08 | §57 landing (`ccf2b25`) | — | **`diagnostics` 1,239 / 5,488 = 22.58%** | **+121, 0 lost, 17 builds** | **The eleventh session, `diagnostics`.** §42–§48 (+57, in the row below), then §49 TS2365 (+3, four declines took its wrong column 58 → 0), §50 TS18050 is chosen by the NODE not the type (+5, wrong 96 → 0), §51 the other five `checkNonNullType` messages (+1), §52 TS2464 (+3), §53 TS2540 (+1 for 71 right lines), **§54 `diagreach.rs`** — 1,334 cases reachable by deepening existing rules, the largest number this workstream has taken — §55 TS2304 in **type** positions (**+43**, the session's largest single build), §56 TS2554 for constructors (+1, wrong 31 → 6), and §57 **`names_in_scope` takes a meaning** (+7 — §55's refusal retired by the condition it named, and the *value* arm wanted the filter too) |
+| 2026-08-08 | §60 landing (`b78c4d7`) | — | **`diagnostics` 1,244 / 5,488 = 22.67%** | **+126, 0 lost, 20 builds** | **The eleventh session, `diagnostics`.** §42–§48 (+57, in the row below), then §49 TS2365 (+3, four declines took its wrong column 58 → 0), §50 TS18050 is chosen by the NODE not the type (+5, wrong 96 → 0), §51 the other five `checkNonNullType` messages (+1), §52 TS2464 (+3), §53 TS2540 (+1 for 71 right lines), **§54 `diagreach.rs`** — 1,334 cases reachable by deepening existing rules, the largest number this workstream has taken — §55 TS2304 in **type** positions (**+43**, the session's largest single build), §56 TS2554 for constructors (+1, wrong 31 → 6), §57 **`names_in_scope` takes a meaning** (+7 — §55's refusal retired by the condition it named, and the *value* arm wanted the filter too), and **§58–§60 off `extraonly.rs`** (+5 — the cases blocked by an extra diagnostic ALONE, the only instrument here that has ever forecast a conversion count exactly, three times running) |
 | 2026-08-08 | §48 landing (`adfd789`) | — | **`diagnostics` 1,175 / 5,488 = 21.41%** | **+57, 0 lost, 7 builds** | **The eleventh session, `diagnostics`.** §42 the outer-variable disjunct (+1 — `markNodeAssignments` was already ported and the handoff still named it as missing), §42.1 the named-union PRINTING guard silencing a non-printing consumer (+7), §43 TS2564's private and computed name kinds plus `is_error` for `== errorType` (+14), §44 the same correction at `pair_is_reportable` (a measured zero, kept), §45 TS2367 (+15 — §31's inherited decline was a stand-in for `getBaseTypeOfLiteralType`, not for the relation), §46 TS2352 ported to the real widening (zero, kept), §47 `checkTruthinessOfType` (+21, the top of its forecast), §48 `GetErrorRangeForNode` centrally (0 converted, 4 wrong lines removed, **0 lost across 36 report sites**). New instruments: `diagmissing.rs`, `diagcase.rs` |
 | 2026-08-07 | §49 landing | **82.62%** | **3,659** | **+734/268** | **Builds 71–74: the reference/member block.** Alias bodies carry members (§46, +46), `this` results answer receivers (§29-callres, +66), plain binding patterns render (§48, +149 — the token-kind trap's second firing caught by the pair), union property projection (§49, +734 — the dependent-flow family's prerequisite laid). The shipped-red protocol now reads: FULL suite before the landing commit |
 | 2026-08-07 | build-70 landing | **82.41%** | **3,645** | **+891/147** | **Builds 67–70: the typed-array chase.** Three probes walked the row's decline inward — class defaults (§43, +4), all-defaulted construct signatures (§44, +4), and the real gate: the candidates loop's `?` letting ONE unbuildable overload kill the interface. Skip-with-agreement converted typed arrays and every uniform-return constructor interface; §45's `Record<string, V>` (+274) and its measured-and-reverted option refinement (−6) round out the block |
