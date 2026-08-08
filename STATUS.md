@@ -40,7 +40,7 @@ Measured at the §42-v2 landing, 2026-08-07 (ninth session, continued: builds 25
 | `dts_emit` | 161/339 | 47.49% | |
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
-| **`checker_types`** | **3,742/9,538** | **39.23%** | **gradient 83.41%** — the target (builds 25–97) |
+| **`checker_types`** | **3,743/9,538** | **39.24%** | **gradient 83.42%** — the target (builds 25–98) |
 | `diagnostics` | **1,322/5,488** | **24.09%** | **measured at `77e2866`, twelfth session (§76–§79), +20 over 3 builds, 0 lost.** The running total is 80 → 1,322, **16.5×**. One build ever shipped with a named loss (§33); every other is 0 lost. `checker_types` byte-identical across every `diagnostics` build of the eleventh and twelfth sessions |
 
 ### `checker_types`, the number the project is steered by
@@ -194,7 +194,9 @@ containment at strict equality, ZERO adverse) = 399,418; then + 13 (§51.3: trut
 property — the discriminant family's fourth member, ZERO adverse) =
 399,431; then + 72 (§51.4: chain containment's whole table replacing
 §51.2's quadrant, ZERO adverse — build 96 was the scorepair/TSR_FILTER
-tooling, 41s→0.36s inner loop) = 399,503 exactly — builds 25–97. §35 records a FINDING: tsgo prints
+tooling, 41s→0.36s inner loop) = 399,503; then + 15 (§51.5: containment composes with the discriminant —
+the fallthrough control shape, ZERO adverse) = 399,518 exactly — builds
+25–98. §35 records a FINDING: tsgo prints
 ` : error` in JS chains across 123 baseline files — ADR-0038's premise
 refined, the §31 JS trade re-grounded, and any future gate stays
 source-side (no oracle peeking).
