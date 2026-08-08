@@ -19,10 +19,33 @@ session's spine: the fixpoint landed by exonerating it, the too-large bail
 ~600 lines of docs/conventions.md still pay.
 
 STATE AT HANDOFF (verify with a fresh coverage run):
-  checker_types 3,691/9,538 (38.70%) · 397,604/478,954 = 83.02% · gap
-  47,280 · wrong 24,031. The continuation (builds 25–88): +40,951 right
-  lines, +648 cases, +8.56 points, SIXTY-FOUR bar-scored builds and NINE
-  measured refusals, every fired leg honoured in writing. Chain in
+  checker_types 3,774/9,538 (39.57%) · 400,173/478,954 = 83.55% · gap
+  46,181 · wrong 22,561. The continuation (builds 25–103): +43,520 right
+  lines, +731 cases, +9.09 points, SEVENTY-NINE bar-scored builds and
+  ELEVEN measured refusals, every fired leg honoured in writing.
+
+  BUILDS 89–103 (the newest window): §37 arguments->IArguments (+637),
+  §38/§38.1 for-of/for-in bindings (+790), §51–§51.5 the DISCRIMINANT
+  FAMILY whole (property switch/equality/truthiness + chain containment's
+  full table and composition, ~+500), §52 equality's comparable-filter
+  half (+40; the operand MEMO is load-bearing — condition chains are
+  exponential without it and compiler/con* hung the corpus; full run 21s
+  since), §53 ORIGIN-CARRYING UNIONS (+237 — the §39 reshape landed with
+  four falsifier-driven refinements; filters PROJECT origins via
+  rebuild_union_subset), §54 &&'s non-strict falsy source (+104/0, one
+  line), §55/§55.1 ENUM MEMBER VALUES (+274 net — the bd tsr-8pz folder's
+  first slice: value-keyed literal interning, ambient-no-auto, and the
+  single-member SPELLING SPLIT as divergent fresh/regular twins with an
+  access-road swap; right crossed 400,000 here).
+
+  NEXT HEADS, each with its section: the enum residue (string-length
+  folding, cross-enum refs, §53's entry-order class), the || early-return
+  divergence (7 lines, blocked on non-strict per-constituent facts), the
+  §53 object/generic-alias entry shapes (temporal's 82), the §12.7
+  element-access write seam (1 line, recorded), the auto-var container
+  walk (parsingDeep 333), and the CONTEXTUAL-INFERENCE ARC — still the
+  largest single owner (~8-12k lines; see the 100%-decomposition answer
+  in the session log). Chain in
   STATUS §1. Builds 73–88 (the latest window): §48 pattern renders, §49
   union property projection, §50/§50.1/§50.2/§50.3 dependent
   destructuring WHOLE (equality, switch, walk-composition, tuple
