@@ -5002,3 +5002,87 @@ fifteen were the same shape at a `.js` or strict-mode site.
 > list being read rather than inferred, which is why the wrong column contained
 > no `-x` at all and the one family it did contain was diagnosable in a single
 > `diagcase` run.
+
+---
+
+## 67. TS2341 — a private property outside its class
+
+`diagemit.rs`: **111 baseline lines, zero emitted.**
+`checkPropertyAccessibility` (`checker.go`), reached from the property-access
+check §35 and §53 already run.
+
+The predicate for the `private` half is entirely syntactic once the property
+symbol is in hand: the declaration carries a `private` modifier, and the
+reference is **not inside the class that declares it**. No relation, no
+members-table completeness beyond the lookup itself.
+
+`protected` (TS2445, 102 more lines) is **not** built here: its rule is *"the
+enclosing class must derive from the declaring class"*, which needs the
+`extends` chain and the `this`-type rules upstream applies on top
+(`isClassDerivedFromDeclaringClasses`). Building the two together would put a
+heritage question inside a modifier check, and the `private` half is exact
+without it.
+
+### The bound
+
+- the receiver's members must be complete — `crate::nonexistent_property`'s
+  gate, reused, because a property this port did not finish resolving cannot be
+  asked about its modifiers either;
+- **a private-identifier** member (`#x`) is TS18013, a different code with its
+  own row, and is declined;
+- the declaring class is the property declaration's parent, and the reference's
+  enclosing class is an ancestor walk — a reference in a **nested** class inside
+  the declaring one is still outside it, which is upstream's
+  `getContainingClass` chain and is reproduced by taking the *nearest* class.
+
+### The bar
+
+| leg | registered |
+|---|---|
+| 1 | `diagnostics` passes > **1,289**. Forecast **+4 to +12** |
+| 2 | `checker_types` pass count unchanged at **3,683** |
+| 3 | LOST == **0** on `diag2307.rs` with `RULE_CODES = [2341]` |
+| 4 | own WRONG ≤ **25** |
+| 5 | every other snapshot unchanged |
+
+**Falsifier.** If the wrong column carries references *inside* the declaring
+class, the enclosing-class walk is stopping at the wrong node — a class
+expression, an object literal method, or a parameter default, all of which are
+still lexically inside the class body.
+
+### Scored — **+7 for zero wrong**, after the divergent-accessor decline
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| 1 | passes > 1,289, forecast +4 to +12 | **1,296 / 5,488 = 23.62%** | pass |
+| 2 | `checker_types` pass count 3,683 | **3,683**, snapshot unchanged | pass |
+| 3 | LOST == 0 | **1 → 0** after the decline | pass |
+| 4 | own WRONG ≤ 25 | **13 → 0** | pass |
+| 5 | every other snapshot unchanged | only `diagnostics.snap` differs | pass |
+
+`diag2307.rs` isolated to 2341: **CONVERTS 7 · RIGHT 47 · WRONG 0 · LOST 0.**
+
+**One decline, and the loss and the wrong column were the same defect.** The
+first measurement read 7 conversions, 13 wrong lines and **one lost case**, and
+both belonged to a shape the bar had not considered: a `get`/`set` pair whose
+two halves carry **different** accessibility.
+
+```ts
+get PublicPrivate() { return 0; }
+private set PublicPrivate(v) { return; }
+```
+
+Upstream decides accessibility from the accessor the *access kind* selects — a
+read from the getter, a write from the setter. This port has no
+access-kind-selected declaration and `value_declaration` picks one arbitrarily,
+so reading the modifier off it answers the wrong accessor half the time.
+Requiring **every** declaration of the symbol to carry `private` declines the
+divergent pair whole: `divergentAccessorsVisibility1`'s 12 wrong lines and
+`accessorDeclarationOrder`'s loss went together, and eight right lines went with
+them.
+
+> **A loss and a wrong column that appear in the same measurement are worth
+> diffing against each other before either is diagnosed.** Here they were one
+> predicate. The bar's own falsifier — "references *inside* the declaring
+> class" — was about the walk and the walk was right; what was wrong was which
+> declaration the modifier was read from.
