@@ -8932,3 +8932,50 @@ Five sections for five cases is a poor rate and the record should say so. What
 makes it not merely waste is that **each section's output was the next one's
 input**, and the two that produced no code — §119's retraction and §120's
 refusal — are the two the build could not have happened without.
+
+## §122 — the debt is NOT what §121 said it was
+
+§121 landed TS1361/TS1362 at +5 cases and **+8 wrong lines**, recorded the miss
+as a debt, and named the payer: `IsValidTypeOnlyAliasUseSite`
+(`ast/utilities.go:3124`), on the reasoning that a type-only alias is legal in
+`typeof X` and in an erased heritage clause, so the residual must be those.
+
+**It is not.** Porting the two clauses that matter —
+`IsPartOfTypeQuery` and `isIdentifierInNonEmittingHeritageClause` — measured:
+
+| | CONVERTS | LOST | RIGHT | WRONG |
+|---|---:|---:|---:|---:|
+| §121 | 224 | 2 | 2,431 | **422** |
+| §122, use-site test added | 224 | 2 | 2,433 | **422** |
+
+**Not one wrong line removed.** Reverted: a predicate that does not do the thing
+it was written for is churn, however faithful it reads.
+
+And the composition is not what the section assumed either — filtering the wrong
+column for `TS1361`/`TS1362` returns **nothing**. The eight lines are not this
+rule's own output.
+
+### What that leaves the next session
+
+**Read the residual before attributing it.** §121's +8 was measured against
+`RULE_CODES = [1361, 1362, 2304, 2552]`, four codes isolated together because
+they share `check_value_identifier`. The delta is real and it is **not TS1361's
+lines** — the likeliest reading is that the new early return changes which of
+TS2304/TS2552 some names reach, which is a *different* defect wearing this
+row's number.
+
+**Do not port more of `IsValidTypeOnlyAliasUseSite` on the strength of §121's
+attribution.** Isolate `RULE_CODES = [1361, 1362]` alone first, confirm the row
+emits zero wrong lines of its own, and then take the 8 to whichever of
+TS2304/TS2552 owns them.
+
+### The pattern this session keeps producing
+
+Three times now a residual has been attributed by reasoning and disproved by
+measurement: §118 (traversal gap, disproved by §119), §121's debt (disproved
+here), and §115's "resolver-owned" (partly disproved by §116). Each attribution
+was plausible, each was written down, and each was cheap to overturn **because
+it was written down with a number attached**.
+
+**An attribution is a hypothesis. Isolate the code alone before believing which
+rule owns a line.**
