@@ -167,6 +167,9 @@ pub(crate) struct Binder<'a, 'n> {
     /// Read only where a name is a *range* of the source that no single node
     /// holds; see [`FileInfo`].
     source: &'a str,
+    /// Whether the file being bound is a `.d.ts`, where an unexported
+    /// namespace local still prints qualified.
+    in_declaration_file: bool,
     /// Whether the file being bound is a JavaScript file.
     ///
     /// Upstream reads `node.Flags & NodeFlagsJavaScriptFile`, which the parser
@@ -390,6 +393,7 @@ impl<'a, 'n> Binder<'a, 'n> {
             block: NodeId::ZERO,
             owner: None,
             source: "",
+            in_declaration_file: false,
             in_js_file: false,
             file_node: NodeId::ZERO,
             file_symbol_name: "",
@@ -456,7 +460,8 @@ impl<'a, 'n> Binder<'a, 'n> {
         // Upstream's `bindSourceFileIfExternalModule`. A file's own symbol exists
         // only for a *module*; a script's top-level declarations are globals and
         // belong in the file's locals, with nothing to export them from.
-        self.export_context = is_declaration_file(file_name) && !file_has_export_declarations(file);
+        self.in_declaration_file = is_declaration_file(file_name);
+        self.export_context = self.in_declaration_file && !file_has_export_declarations(file);
         self.in_js_file = is_javascript_file(file_name);
         self.is_module = is_external_module(file);
         self.file_node = root_id;
@@ -3709,6 +3714,21 @@ impl<'a, 'n> Binder<'a, 'n> {
             match destination {
                 Destination::Locals => {
                     self.locals.entry(table_owner).or_default().insert(name, created);
+                    // Upstream's `Symbol.Parent` is the container symbol even
+                    // for an unexported local of a namespace body — it is what
+                    // lets `symbolToString` print `dom.JSX` for a `namespace
+                    // JSX` without `export` inside `export namespace dom`
+                    // (`inlineJsxFactoryDeclarationsLocalTypes`). Only a
+                    // namespace-owned locals table qualifies; a function's
+                    // locals have no printable container.
+                    if self.in_declaration_file
+                        && let Some(owner) = self.owner
+                        && self.symbols.get(owner).flags.intersects(SymbolFlags::MODULE)
+                        && self.locals_owner(flags) == table_owner
+                        && table_owner != self.file_node
+                    {
+                        self.symbols.get_mut(created).parent = Some(owner);
+                    }
                 }
                 Destination::Members => {
                     if let Some(owner) = symbol_owner {
