@@ -343,7 +343,7 @@ fn resolve_extends_path(name: &str, base_path: &str, fs: &dyn FileSystem) -> Opt
     // `tspath.ExtensionJson` with `strings.HasSuffix`, so `./base.JSON` is
     // retried as `./base.JSON.json`. Matching a compiler's path handling to its
     // upstream matters more here than being lenient.
-    if !std::path::Path::new(path.as_str()).extension().is_some_and(|ext| ext == "json") {
+    if std::path::Path::new(path.as_str()).extension().is_none_or(|extension| extension != "json") {
         let with_extension = format!("{path}.json");
         if fs.file_exists(&with_extension) {
             return Some(with_extension);
