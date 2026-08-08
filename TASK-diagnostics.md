@@ -12,7 +12,7 @@ FIRST: git pull. Then read, in this order:
   builds.
 
 STATE AT HANDOFF (verify with a fresh coverage run):
-  diagnostics    1,385/5,488 = 25.24%   (was 1,346; +39 over 9 builds and
+  diagnostics    1,386/5,488 = 25.26%   (was 1,346; +40 over 10 builds and
                  THREE priced refusals — §94, §96, §97 —
                  **zero cases lost, and the wrong column FELL in two of them**)
   checker_types  3,842/9,538 · 84.13% — the other workstream's, and it moves
@@ -145,11 +145,16 @@ TS2540      12         9
    (§96, §97, §98) and landed on the fourth at **+2 cases, wrong 21 → 1, LOST
    0**. The last blocker was §83's `declaration_is_in_an_ambient_context`
    holding only two node kinds; a `declare const` puts the modifier on the
-   enclosing `VariableStatement`. **One wrong line is left**:
-   `enumUsedBeforeDeclaration(2,24)`, owner `getEnclosingBlockScopeContainer`
-   for an enum, whose container differs from a variable's. TS2449's remaining
+   enclosing `VariableStatement`. **§100 then closed it at ZERO wrong**: the last
+   line was a `const enum` used early, which upstream ignores because a const
+   enum is inlined, and `classify` had collapsed `const enum` into
+   `REGULAR_ENUM`. Final: **9 converts, 0 LOST, 0 wrong.** TS2449's remaining
    rows still want the deferral arms this build did not port (JSDoc, the
    instance-property `isStatic` split).
+
+   **Next place to look for the same defect:** `classify` still collapses
+   `S::PROPERTY` over five node kinds and `S::ALIAS` over five import/export
+   forms. §93/§95/§100 were all this shape.
 
 5. **The rest of `diaggap`'s relation-free single-code column** — re-run it;
    TS2693, TS2364, TS2703, TS2558 were 9/7/7/6 before this session's builds.
