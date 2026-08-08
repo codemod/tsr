@@ -1264,6 +1264,19 @@ its whole deliverable and accept that it converts nothing until finished.
 
 ### New, thirteenth session, `diagnostics`
 
+- **TS2302 in the checker — REFUSED at +137 wrong lines and a grown LOST**
+  (§114). The rule belongs **inside the resolver**: upstream tests
+  `lastLocation.IsStatic` on the branch where the name has *already resolved to
+  the type parameter symbol* (`binder/nameresolver.go:178`), so a checker-side
+  version fires on every name that merely spells the same as a type parameter
+  while resolving to something else. **Owner: `tsr_binder`'s `resolve_name`**,
+  which needs the `lastLocation` parameter upstream's resolver carries. Do not
+  re-attempt in the checker; this is its number. 9 cases stay on the board.
+- **An idea that generalises is not an idea that transplants** (§114). §108 and
+  §109 established that a scope boundary is a property of the **edge**; §114 had
+  that same idea right and its **host** wrong — knowing which child you came
+  through is useless where the answer is not yet known.
+
 - **A row can be "blocked on exactly one code" and still not convert when that
   code lands** (§113). `diaggap` priced TS1344 at 9 sole-obstacle cases and 3
   converted, with `STILL SHORT` at 6 — because that column is computed against
