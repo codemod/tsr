@@ -9902,3 +9902,49 @@ subsystem now has four rows.
 rows before quoting §13's refusal again.** A build worth ~52 cases is priced
 differently from one worth 28, and nothing has re-taken that number since the
 constituency doubled.
+
+## §142 — the binder-merge item's before-state, captured
+
+§141 said *re-measure the binder-merge item as one build across all four rows
+before quoting §13's refusal again*. The build itself is `tsr_binder`'s and not
+this session's, but the **before-state** is one run and is what the next attempt
+needs to beat. Captured with all six codes the merge touches isolated together —
+the four rows plus `declare_into`'s other two outputs, since a merge change
+moves all of them:
+
+```
+RULE_CODES = [7026, 2451, 2454, 1362, 2300, 2567]
+
+judged cases          5488
+CONVERTS              320
+LOST                    0
+STILL SHORT           118
+diagnostics RIGHT    4354
+diagnostics WRONG      98
+```
+
+**That is the number to beat, and it is the first time this family has had
+one.** §13's *"12 conversions for 47 wrong"* was TS7026 alone, in isolation,
+against a corpus 104 cases further back. It is not comparable to this and should
+not be quoted as though it were.
+
+Two things the capture already settles:
+
+- **`STILL SHORT` is 118.** Even a perfect merge does not convert 118 of the
+  cases these codes appear in — they need something else as well. The ~52
+  sole-obstacle figure §141 computed is the honest ceiling for the *build*, and
+  118 is the reminder that the row's total population is not.
+- **`WRONG` is 98 already**, before any merge work. A merge that fixes
+  redeclaration will move that column in both directions at once, so the next
+  attempt must report the *delta*, not the total — the trap §16 recorded for
+  TS2322 and §24 for TS2403.
+
+### Why capture a before-state you are not going to use
+
+Because the alternative is what happened to §13's number: a measurement taken
+once, in a different world, quoted for thirteen sessions as though it were
+current. **A refusal is only as good as the state it was measured against, and
+nothing in this repo records that state alongside the refusal.**
+
+This section is the smallest possible fix for that: the four rows now have a
+timestamped baseline in the same file as the refusal they justify.
