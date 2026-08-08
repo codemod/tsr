@@ -8212,3 +8212,12 @@ kind of build that looks clean and is not.
 
 **Expected yield: 11 cases (TS1109) plus 7 of §104's wrong lines, and it
 retires a never-set flag.**
+
+> **Note on this section's commit message.** `0bb61f3` was written through an
+> unquoted shell heredoc and lost three backticked phrases to command
+> substitution, so its body reads "parse_assignment_expression parses
+> unconditionally". The section above is the authoritative text. The message was
+> not amended because the commit had already been built on by another
+> workstream, and rewriting shared history to fix prose is not a trade worth
+> making — **prefer a quoted heredoc (`<<'EOF'`) for every commit message
+> containing backticks.**
