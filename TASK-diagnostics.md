@@ -12,7 +12,8 @@ FIRST: git pull. Then read, in this order:
   builds.
 
 STATE AT HANDOFF (verify with a fresh coverage run):
-  diagnostics    1,383/5,488 = 25.20%   (was 1,346; +37 over 8 builds,
+  diagnostics    1,383/5,488 = 25.20%   (was 1,346; +37 over 8 builds and
+                 THREE priced refusals — §94, §96, §97 —
                  **zero cases lost, and the wrong column FELL in two of them**)
   checker_types  3,842/9,538 · 84.13% — the other workstream's, and it moves
                  HOURLY: it changed three times inside this one session. Do not
@@ -140,18 +141,25 @@ TS2540      12         9
    lists none of them, so none is a *sole* obstacle and they are not 61
    conversions. Price them with `extraonly`, not with `diag2307`'s wrong column.
 
-4. **`isBlockScopedNameDeclaredBeforeUse` (`checker.go:1922`) — PORT IT WHOLE
-   AND FIRST.** §96 tried attaching the TS2448/TS2450 reports to §83's class arm
-   with an approximation of the deferrals and measured **176 wrong lines and 6
-   LOST**. Thirteen sole-obstacle cases are still there (TS2448 7, TS2449 5,
-   TS2450 1) and still relation-free, but the only order that works is: build
-   the predicate completely — `isUsedInFunctionOrInstanceProperty`
-   (`checker.go:1975`) walking up **to the declaration's own container**, the
-   JSDoc arm, the instance-property arm with its `isStatic` split, the
-   `isExportEquals` condition — *then* attach the report. Also diagnose the six
-   LOST first: three of the four named involve declaration merging, so
-   `merged_symbol` returning a multi-declaration symbol whose position the arm
-   picks arbitrarily is the first suspect.
+4. **`isBlockScopedNameDeclaredBeforeUse` — TWO measurements on it now, and the
+   remaining gap is ONE small function.** §96 approximated the deferrals: 176
+   wrong, 6 LOST. §97 ported them: **21 wrong, 1 LOST** — an eightfold move from
+   a single arm, *a use in a type context is deferred regardless of position*
+   (`checker.go:1932`). Both refused, because LOST may not grow.
+
+   **What the next attempt must do, and it is small.** Port
+   `GetEnclosingBlockScopeContainer` (`ast/utilities.go`) so
+   `isUsedInFunctionOrInstanceProperty`'s walk quits at the **declaration's
+   container** instead of at the source file (`checker.go:2011`). Keep §97's two
+   findings: the type-context deferral, and **the multi-declaration decline** — a
+   merged symbol's declaration position is arbitrary among its members, and
+   declining it is what took LOST from six to one.
+
+   **Re-run the exact same measurement and beat it: LOST 0 and WRONG under 10.**
+   Thirteen sole-obstacle cases are behind it (TS2448 7, TS2449 5, TS2450 1),
+   all relation-free. `enumUsedBeforeDeclaration` is the case to debug first —
+   its first line converts and its second is a false positive, so the arm has
+   the shape right and a position wrong.
 
 5. **The rest of `diaggap`'s relation-free single-code column** — re-run it;
    TS2693, TS2364, TS2703, TS2558 were 9/7/7/6 before this session's builds.

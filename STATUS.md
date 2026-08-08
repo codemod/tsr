@@ -1187,6 +1187,13 @@ its whole deliverable and accept that it converts nothing until finished.
   `isBlockScopedNameDeclaredBeforeUse` (`checker.go:1922`), **ported whole and
   first, with the report attached afterwards.** Do not re-attempt the cheap
   version; this is its number.
+- **The §96 retry, §97 — refused again at 21 wrong and 1 LOST**, but the number
+  moved by a factor of eight from one arm: *a use in a type context is deferred
+  regardless of position* (`checker.go:1932`). The multi-declaration decline
+  §96's diagnosis predicted was confirmed — it took LOST from 6 to 1. **What
+  remains is `GetEnclosingBlockScopeContainer` ported so the walk quits where
+  upstream quits**; the baseline for the next attempt is recorded as LOST 0 and
+  WRONG under 10.
 
 - ~~**`ValueModuleExcludes` — REFUSED at +2 cases for +14 wrong lines** (§94)~~
   **REVERSED by §95** at +2 cases and **wrong 79 → 64**, by fixing the owner
