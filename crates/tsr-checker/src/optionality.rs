@@ -136,15 +136,18 @@ impl Checker<'_, '_> {
     /// `undefinedType` — that is, when `exactOptionalPropertyTypes` is ported —
     /// since `missingType` is a distinct type that would then need this test to
     /// avoid being unioned with itself under a different identity.
-    pub(crate) fn get_optional_type(&mut self, ty: TypeId, _is_property: bool) -> TypeId {
+    pub(crate) fn get_optional_type(&mut self, ty: TypeId, is_property: bool) -> TypeId {
         // `undefinedOrMissingType` is `exactOptionalPropertyTypes ? missingType
-        // : undefinedType` (`checker.go:987`). That option is unported and
-        // defaults off, so **both branches of upstream's `isProperty` choice are
-        // `undefinedType` here** — written as one expression with the parameter
-        // deliberately unread, rather than as an `if` whose arms are identical.
-        // The parameter is kept so the signature stays upstream's and so the
-        // choice has somewhere to go when `missingType` exists.
-        let missing_or_undefined = self.intrinsics.undefined;
+        // : undefinedType` (`checker.go:987`) — §78: the option is now
+        // plumbed and `missingType` exists, so upstream's `isProperty`
+        // choice is live. `missing` prints `undefined`, and the
+        // first-constituent early return below is what keeps `b?: string |
+        // undefined` from carrying both spellings.
+        let missing_or_undefined = if is_property && self.exact_optional_property_types {
+            self.intrinsics.missing
+        } else {
+            self.intrinsics.undefined
+        };
         if ty == missing_or_undefined {
             return ty;
         }
@@ -152,7 +155,9 @@ impl Checker<'_, '_> {
         // constituents are ordered and `undefined` sorts to the front, so a type
         // that already carries it carries it there.
         if let crate::types::TypeData::Union { types, .. } = &self.store.get(ty).data
-            && types.first() == Some(&missing_or_undefined)
+            && types
+                .first()
+                .is_some_and(|&t| t == missing_or_undefined || t == self.intrinsics.undefined)
         {
             return ty;
         }
@@ -177,6 +182,23 @@ impl Checker<'_, '_> {
             return ty;
         }
         self.get_union_type_unprinted(&[ty, missing_or_undefined])
+    }
+
+    /// `removeMissingType` (`checker.go:14650`): drop `missingType` from a
+    /// union — the write-position half of `exactOptionalPropertyTypes`.
+    pub(crate) fn remove_missing_type(&mut self, ty: TypeId) -> TypeId {
+        let missing = self.intrinsics.missing;
+        if ty == missing {
+            return self.intrinsics.never;
+        }
+        let crate::types::TypeData::Union { types, .. } = &self.store.get(ty).data else {
+            return ty;
+        };
+        if !types.contains(&missing) {
+            return ty;
+        }
+        let kept: Vec<TypeId> = types.iter().copied().filter(|&t| t != missing).collect();
+        self.get_union_type(&kept)
     }
 
     /// Ported from `isOptionalDeclaration` (`utilities.go:299`), which is

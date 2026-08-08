@@ -145,6 +145,19 @@ impl Checker<'_, '_> {
         if result == error {
             return error;
         }
+        // §78 (`checker-notes-narrow.md`): `getWriteTypeOfSymbol` under
+        // `exactOptionalPropertyTypes` — a WRITE position removes
+        // `missingType`, so `obj.a = 'hello'` prints `string` while the read
+        // keeps `string | undefined` (`strictOptionalProperties1`).
+        let result = if self.exact_optional_property_types
+            && node.node_id.is_some_and(|id| {
+                self.assignment_target_kind(id)
+                    == crate::expressions::AssignmentTargetKind::Definite
+            }) {
+            self.remove_missing_type(result)
+        } else {
+            result
+        };
         self.propagate_optional_type_marker(result, non_optional != receiver_type)
     }
 

@@ -481,6 +481,9 @@ pub struct CompilerOptions {
     /// Read as `== TSTrue` upstream (`checker.go:6115`), **not** as a
     /// strict-family option — `strict` does not turn it on.
     pub no_unchecked_indexed_access: Tristate,
+    /// `?:` properties take `missingType` instead of `| undefined`
+    /// (`checker.go:987`). Plain `IsTrue` — not part of the strict family.
+    pub exact_optional_property_types: Tristate,
     /// Report a local that is never read.
     pub no_unused_locals: Tristate,
     /// Report a parameter that is never read.

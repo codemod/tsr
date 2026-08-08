@@ -355,6 +355,9 @@ pub struct Checker<'a, 'n> {
     /// (`checker.go:922`) — it follows `strict` when unset, like
     /// `strictNullChecks`.
     pub(crate) no_implicit_any: bool,
+    /// `exactOptionalPropertyTypes` (`checker.go:987`): a `?:` property's
+    /// optionality is `missingType`, removed at write positions.
+    pub(crate) exact_optional_property_types: bool,
     pub(crate) no_unused_locals: bool,
     /// `compilerOptions.noUnusedParameters` (`checker.go:7109`).
     pub(crate) no_unused_parameters: bool,
@@ -634,6 +637,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             unreachable_code_is_error: false,
             preserve_const_enums: false,
             no_implicit_any: false,
+            exact_optional_property_types: false,
             no_unused_locals: false,
             no_unused_parameters: false,
             symbol_reference_kinds: FxHashMap::default(),
@@ -715,6 +719,7 @@ impl<'a, 'n> Checker<'a, 'n> {
 
         // `== TSTrue` (`checker.go:6115`) — `strict` does not reach it.
         self.no_unchecked_indexed_access = options.no_unchecked_indexed_access.is_true();
+        self.exact_optional_property_types = options.exact_optional_property_types.is_true();
 
         // `unusedIsError` (`checker.go:7104`), both `IsTrue()`. An unset option
         // reports nothing at all, which is what confines the unused family to the
