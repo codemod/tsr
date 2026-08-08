@@ -223,3 +223,36 @@ THE BOARD AFTER BUILD 40 (all remaining heads are subsystem-scale):
 DO NOT RE-DERIVE: STATUS §5's refusals all stand. The fixpoint patch doc
 (fixpoint-patch-§12.md) is now HISTORY — the mechanism landed in §12.6/§12.8;
 read it only for the investigation record.
+
+
+---
+
+ADDENDUM AFTER BUILD 126 (session continues, 84.13%):
+
+Builds 122-126 this window, +305 right lines, zero net adverse:
+  - §70 overload-agreement contextual argument (+68) — id-walk mention
+    test; a TEXT test collided rebound `<T>` names and killed the wins.
+  - producer: binding-element property name prints any UNCONDITIONALLY
+    (+85) — the IsTypeAny precondition REVERSED on measurement; its
+    pinned test flipped. The position's answer is decided by upstream's
+    getTypeOfNode trace, not by what this port computes.
+  - §71/§71.1 pattern printing (+113) — renamed elements verbatim,
+    initializers dropped, `{}` spelling.
+  - §72 function-type aliases print their name (+39) — the three-arm
+    getAliasForTypeNode rule was missing ONLY on signature-bearing
+    nodes.
+
+NEW PRICED REFUSAL: §73 JS-wide unresolved-prints-error, 199:1,743 —
+upstream prints BOTH any and error for unresolved names in ONE file;
+file kind is not the key. (checker-notes-narrow.md §73.)
+
+NEW DEFERRED HEAD: import("...").Name spelling
+(privacyFunctionCannotNameParameterTypeDeclFile, 128 lines, single
+case) — needs PER-FILE printing context; type texts are minted
+globally at creation. Architectural; do not attempt as a patch.
+
+BOARD UNCHANGED otherwise: remaining concentrated wrongs are
+subsystem-scale (temporal 400 = §53 residue + namespace types;
+longObjectInstantiationChain3 166 = generic-alias body instantiation;
+inferTypePredicates 158; jsdocTemplateTag6 127; dependent
+destructuring 127; instanceof-hasInstance 96 = narrowing legs).
