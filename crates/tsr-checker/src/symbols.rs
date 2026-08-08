@@ -2032,17 +2032,23 @@ impl<'a> Checker<'a, '_> {
         // `undefined`-identifier initializer widens to `any`
         // (`controlFlowNoImplicitAny`); without the flag it keeps
         // `undefined` (`implicitAnyCastedValue`).
-        if self.no_implicit_any
-            && widened == self.intrinsics.undefined
+        if self.no_implicit_any && self.nodes.kind(declaration) == SyntaxKind::VariableDeclaration {
             // VARIABLES only — a class PROPERTY `foo = undefined` keeps
             // `undefined` (`implicitAnyCastedValue`, itself @noImplicitAny).
-            && self.nodes.kind(declaration) == SyntaxKind::VariableDeclaration
-            && matches!(
-                self.initializer_of(declaration),
-                Some(tsr_ast::Expression::Identifier(name)) if name.text == "undefined"
-            )
-        {
-            return self.intrinsics.any;
+            let undefined_identifier = widened == self.intrinsics.undefined
+                && matches!(
+                    self.initializer_of(declaration),
+                    Some(tsr_ast::Expression::Identifier(name)) if name.text == "undefined"
+                );
+            // §65.1's null twin REFUSED at 2.4:1: `var arg0 = null` keeps
+            // `null` (`implicitAnyFunctionInvocationWithAnyArguements`)
+            // beside null-wants-any lines in `controlFlowNoImplicitAny`,
+            // and the any-typed null broke the evolving-array detection
+            // (`controlFlowArrays` 3 G→W) — a fourth key exists and is not
+            // yet decoded.
+            if undefined_identifier {
+                return self.intrinsics.any;
+            }
         }
         // `getWidenedTypeWithContext`'s nullable arm (`checker.go:18368`):
         // a purely nullable WIDENING type is `any`. The widening twins exist
