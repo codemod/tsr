@@ -40,7 +40,7 @@ Measured at the §42-v2 landing, 2026-08-07 (ninth session, continued: builds 25
 | `dts_emit` | 161/339 | 47.49% | |
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
-| **`checker_types`** | **3,822/9,538** | **40.07%** | **gradient 84.02%** — the target (builds 25–119) |
+| **`checker_types`** | **3,822/9,538** | **40.07%** | **gradient 84.02%** — the target (builds 25–120) |
 | `diagnostics` | **1,373/5,488** | **25.02%** | **measured at HEAD, thirteenth session (§86–§90), +27 over 4 builds, 0 lost, and the wrong column fell in two of them.** The running total is 80 → 1,373, **17.2×**. One build ever shipped with a named loss (§33); every other is 0 lost. `checker_types` byte-identical across every `diagnostics` build of the eleventh, twelfth and thirteenth sessions — verified by stash-and-remeasure, never against a number written down before the last push (§88) |
 
 ### `checker_types`, the number the project is steered by
@@ -238,8 +238,9 @@ identifier-not-derived) = 402,325; then + 24 (§68: the return-statement context
 dispatch's fourth, ZERO adverse; §65.1/§66/§67 refused en route with the
 decline point finally traced to annotation-reuse and contextual-return
 positions) = 402,349; then + 16 (§68.1: the parenthesized recursion) and + 4
-(§68.2: the array-element arm) — both ZERO adverse = 402,369 exactly —
-builds 25–119. THE GRADIENT
+(§68.2: the array-element arm) and + 1 (§68.3: the concise-arrow-body
+arm) — all ZERO adverse = 402,370 exactly — builds 25–120. The
+contextual dispatch holds SEVEN arms. THE GRADIENT
 CROSSED 84% and the CASE COUNT crossed 40% at build 115. The
 right+gap+wrong identity now sums against 470,619.
 Build 96 (scorepair) and the probefile tool are the loop's new
