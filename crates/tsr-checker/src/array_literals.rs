@@ -100,6 +100,31 @@ impl Checker<'_, '_> {
                         None => false,
                     }
                 }
+                // §63.1: the assignment-target arm — the target's DECLARED
+                // type (the §6.3 rule, extended to spread-free literals).
+                Some(tsr_ast::Node::BinaryExpression(binary))
+                    if binary
+                        .operator_token
+                        .is_some_and(|t| t.kind == tsr_ast::SyntaxKind::EqualsToken)
+                        && binary.right.and_then(|r| r.node_id()) == Some(id) =>
+                {
+                    match binary.left {
+                        Some(tsr_ast::Expression::Identifier(identifier)) => identifier
+                            .node_id
+                            .and_then(|left_id| {
+                                self.binder.resolve_name(
+                                    self.nodes,
+                                    self.node_map,
+                                    left_id,
+                                    identifier.text,
+                                    tsr_binder::SymbolFlags::VALUE,
+                                )
+                            })
+                            .map(|symbol| self.get_type_of_symbol(symbol))
+                            .is_some_and(|t| self.tuple_element_lists.contains_key(&t)),
+                        _ => false,
+                    }
+                }
                 _ => false,
             }
         };

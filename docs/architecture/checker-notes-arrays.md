@@ -859,3 +859,7 @@ literal as the tuple, ~170 corpus lines in the census.
 `checker_types` right 401,841 → **401,896 (83.91%)**. Residue: the
 assignment-target and nested-position tuple contexts (the §6.3 arms not
 extended here), and readonly tuple contexts.
+
+**§63.1 — the assignment-target arm, LANDED.** **+32 (30 W→R, 2 G→R),
+ZERO adverse.** The target's declared type (not the flowed one) decides,
+as §6.3 learned. `checker_types` right 401,896 → **401,928 (83.92%)**.
