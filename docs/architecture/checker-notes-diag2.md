@@ -9099,3 +9099,59 @@ inheriting a single number with a guess attached.
 **Standing instruction for this row: read the upstream baseline before writing
 any decline.** Two of these five are cases where upstream reports *something* —
 declining there converts a wrong line into a missing one and gains nothing.
+
+## §125 — §124 read the fixture's comment instead of the baseline
+
+§124 named `export = types` / `export default types` over a type-only import as
+the first residual family and wrote a standing instruction against touching it:
+
+> Upstream reports here — `importEquals1`'s own comment says `// Error` — but
+> not TS1361 at this position. **Do not decline these blind.**
+
+**The comment is not the oracle.** `baselines/reference/importEquals1.errors.txt`:
+
+```
+/d.ts(2,5): error TS1361: 'types' cannot be used as a value …
+/e.ts(2,5): error TS1361: …
+/f.ts(2,5): error TS1361: …
+/g.ts(2,5): error TS1361: …
+```
+
+**Nothing at `/b.ts`.** Upstream reports in the four *consumer* files, not in
+the file that re-exports — the fixture's `// Error` marks the case, not the
+line. So this port's two lines at `/b.ts` are plain false positives and
+declining costs nothing.
+
+| | CONVERTS | LOST | RIGHT | WRONG |
+|---|---:|---:|---:|---:|
+| §123 | 5 | 0 | 22 | 5 |
+| **§125** | **5** | **0** | **22** | **3** |
+
+**Wrong 5 → 3 at no cost.** Coverage holds at `1,430 / 5,488`; `checker_types`
+identical at 3,933/9,538 · 84.40%; all five gates green.
+
+### The rule, and it is the fourth instrument failure of this session
+
+`ADR-0006` already says conformance is asserted against **generated Go**, not
+`ast.json` — *the artefact, not the description.* §124 broke the same rule in a
+new place: it read a **comment in a test fixture** as evidence of what upstream
+reports, when the `.errors.txt` beside it is the only thing that decides.
+
+That is now four in one session, all the same shape:
+
+| § | the instrument | why it lied |
+|---|---|---|
+| 118 | `eprintln!` probe | placed below an early return |
+| 122 | `grep` over `head` | filtered a truncated listing |
+| 124 | a fixture `// Error` comment | describes the case, not the line |
+| — | (§88's) `diag2307` wrong column | prices lines where `extraonly` prices cases |
+
+**Read the baseline. Not the comment, not the fixture name, not the code's own
+description of itself.**
+
+### Where the row now stands
+
+Three wrong lines: two uncaught computed property names in
+`conformance/computedPropertyName` (§124's second family, still unread) and
+`mergeSymbolRexportFunction`'s single TS1362 (still unread). Both want their
+`.errors.txt` opened first — which is the whole of what this section learned.

@@ -1018,6 +1018,20 @@ impl Checker<'_, '_> {
         if self.entity_name_root_is_a_type_query(node) {
             return true;
         }
+        // `export = types` and `export default types` over a type-only import
+        // are **not** reported at the re-exporting file. Upstream's
+        // `importEquals1` baseline puts TS1361 on `/d.ts`–`/g.ts`, the
+        // *consumers*, and writes nothing at `/b.ts` where the re-export lives
+        // — the fixture's own `// Error` comment refers to those, and §124 read
+        // the comment instead of the baseline and drew the opposite conclusion.
+        // §125.
+        if self
+            .nodes
+            .parent(node)
+            .is_some_and(|parent| self.nodes.kind(parent) == SyntaxKind::ExportAssignment)
+        {
+            return true;
+        }
         // Walk out through the entity name, exactly as upstream's loop does.
         let mut at = node;
         while matches!(
