@@ -58,7 +58,11 @@ impl<'a> Checker<'a, '_> {
         // arity and only for a candidate that survived it, so the ordering here
         // is upstream's too.
         self.check_argument_types(call, callee);
-        let Some((minimum, maximum)) = self.sole_signature_arity(callee) else { return };
+        let Some((minimum, maximum)) =
+            self.sole_signature_arity(callee).or_else(|| self.overload_set_arity(callee))
+        else {
+            return;
+        };
         let unbounded = maximum.is_none();
         if arguments >= minimum && maximum.is_none_or(|maximum| arguments <= maximum) {
             return;
@@ -509,6 +513,56 @@ impl<'a> Checker<'a, '_> {
             _ => return None,
         };
         Some((parameters, type_parameters.is_empty()))
+    }
+
+    /// `(min, max)` for a callee naming an **overload set**.
+    ///
+    /// `getArgumentArityError` (`checker.go:9715`) computes its range across
+    /// *all* candidate signatures, so the arity question has an answer even
+    /// though "which signature does this call resolve to" does not — the same
+    /// split §90 made for `new`, transplanted. `sole_signature_arity` declines
+    /// this shape and always will: it is about one signature.
+    ///
+    /// The signatures are the **bodiless** declarations; the implementation is
+    /// not a call signature (`getSignaturesOfSymbol`). Declines a set with any
+    /// rest parameter, and a set whose declarations are not all function-like
+    /// with the same shape — the argument-TYPE half is not attempted at all,
+    /// because there is no single parameter list to attempt it against.
+    fn overload_set_arity(&mut self, callee: NodeId) -> Option<(usize, Option<usize>)> {
+        let symbol = self.callee_symbol(callee)?;
+        let entry = self.binder.symbols().get(symbol);
+        if !entry.flags.intersects(SymbolFlags::FUNCTION | SymbolFlags::METHOD)
+            || entry.declarations.len() < 2
+        {
+            return None;
+        }
+        let declarations = entry.declarations.clone();
+        let mut ranges = Vec::new();
+        for declaration in declarations {
+            let parameters = match self.node_map.get(declaration)? {
+                Node::FunctionDeclaration(node) if node.body.is_none() => node.parameters,
+                Node::MethodDeclaration(node) if node.body.is_none() => node.parameters,
+                // The implementation signature, or a merged declaration of some
+                // other kind — neither is a call signature.
+                Node::FunctionDeclaration(_) | Node::MethodDeclaration(_) => continue,
+                _ => return None,
+            };
+            let parameters: Vec<&tsr_ast::ParameterDeclaration<'_>> = parameters
+                .iter()
+                .copied()
+                .filter(|parameter| !Self::is_this_parameter_declaration(parameter))
+                .collect();
+            if parameters.iter().any(|parameter| parameter.dot_dot_dot_token.is_some()) {
+                return None;
+            }
+            ranges.push((Self::minimum_argument_count(&parameters), parameters.len()));
+        }
+        if ranges.len() < 2 {
+            return None;
+        }
+        let minimum = ranges.iter().map(|(minimum, _)| *minimum).min()?;
+        let maximum = ranges.iter().map(|(_, length)| *length).max()?;
+        Some((minimum, Some(maximum)))
     }
 
     /// `(getMinArgumentCount, getParameterCount)` where the callee names exactly

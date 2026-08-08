@@ -7301,3 +7301,36 @@ the fix for free.
 3,838/9,538 · 84.10% by stash-and-remeasure — the snapshot moved in this commit
 because the `.types` workstream's build arrived through the same pull, which is
 §88's trap firing a third time and being caught by the rule §88 wrote.
+
+## §92 — the call arm's overload sets, §90 transplanted
+
+`sole_signature_arity` declines a callee whose symbol has more than one
+declaration, and always should: it is about *one* signature, and which signature
+a call resolves to is `resolveCall`'s question. But `getArgumentArityError`
+(`checker.go:9715`) computes its range across **all** candidates, so the arity
+question has an answer even where the resolution question does not — exactly the
+split §90 made for `new`, and this is that change transplanted to the call arm.
+
+The signatures are the **bodiless** declarations; the implementation is not a
+call signature (`getSignaturesOfSymbol`). `min` is the minimum over their
+minimums and `max` the maximum over their lengths, and a set with any rest
+parameter declines rather than guessing a bound. The argument-**type** half is
+not attempted at all, because there is no single parameter list to attempt it
+against — the flag §90 introduced is not even needed here, the path simply never
+reaches `check_argument_types`.
+
+Added as a fallback (`sole_signature_arity(callee).or_else(overload_set_arity)`)
+rather than folded into the existing function, so the single-signature path — 129
+right lines and every one of this rule's existing conversions — is bit-for-bit
+untouched and the counterfactual measures only the new arm.
+
+**Measured**, `diag2307` with `RULE_CODES = [2554, 2555, 2345]`: CONVERTS
+31 → **34**, RIGHT 131 → 141, WRONG 10 → **10**, LOST 0. Coverage
+`1,375 → 1,378 / 5,488` (25.05% → **25.11%**). `checker_types` identical at
+3,841/9,538 · 84.11% by stash-and-remeasure — the fourth time this session the
+snapshot moved under a build and the fourth time it was the other workstream's.
+
+The wrong column is unchanged and both entries are pre-existing and owned:
+`callWithMissingVoid` (§78, owner `parameter_annotation_is_void`) and
+`objectCreationOfElementAccessExpression` (the callee is not an identifier;
+owner `callee_symbol`).
