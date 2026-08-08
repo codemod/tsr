@@ -2621,3 +2621,22 @@ population (148) is scattered across intersections, JSX attributes, and
 inference contexts — no single provable position remains; the residue
 belongs to the argument road (needs resolved-signature contexts) and the
 general contextual machinery.
+
+## §58.1 — the anonymous-object union-print seam, closed
+
+The TSR_JOIN_DEBUG instrument caught it in one line:
+`get_union_type([State, c1])` — a join of a named union with its own
+constituent — ERRORED in §53's entry gate (State is a non-enum named
+entry) before §58's join consult could see the flattened set equals
+State's members. The fix: the gate-decline consults
+`named_union_by_members` first, for OBJECT-membered sets only —
+literal-membered sets are the §52.1 site-sensitive class and measured
++5/13 without the object gate. With the seam closed, §56's let-holder
+gate LIFTS (the deferred ~30 wins).
+
+**§58.1 score — LANDED (with let retention).** **+33 W→R / 6 G→W
+(5.5:1)** — the 6 are `narrowByClauseExpressionInSwitchTrue5`'s
+un-narrowed full sets now spelling their alias name where upstream's
+switch(true)-clause narrowing (unported) answers the subset: a
+want-narrower class owned by that road, not this consult.
+`checker_types` right 401,541 → **401,574 (83.84%)**.

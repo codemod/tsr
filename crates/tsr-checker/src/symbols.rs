@@ -1532,9 +1532,10 @@ impl<'a> Checker<'a, '_> {
                     // reproduced minimally: a catch-join of
                     // `{ tag: "one" }`-typed branches), which is that road's
                     // seam, not this gate's. Re-deferred with the diagnosis.
-                    if !self.combined_node_flags(holder).intersects(tsr_ast::NodeFlags::CONSTANT) {
-                        return None;
-                    }
+                    // §58.1 removed the const gate: the join-of-retained-
+                    // anonymous-objects seam is fixed at the union worker's
+                    // gate-decline (the member-set consult, object-membered
+                    // sets only), so LET holders retain like const.
                     let annotation = variable.r#type?;
                     let mut t = self.get_type_from_type_node(annotation);
                     for name in path.iter().rev() {

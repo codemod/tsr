@@ -673,6 +673,27 @@ impl Checker<'_, '_> {
                 && matches!(&self.store.get(entry).data, TypeData::Union { symbol: Some(_), .. });
             let plain = !flags.intersects(TypeFlags::OBJECT | TypeFlags::UNION);
             if !(enum_union || plain) {
+                // §58.1 (`checker-notes-narrow.md`): before declining, a set
+                // that IS a named union's member set answers the named type —
+                // the join of `State`'s constituent with `State` itself
+                // (`get_union_type([State, c1])`) re-forms State's set and
+                // must not error (the anonymous-object union-print seam,
+                // diagnosed by the TSR_JOIN_DEBUG instrument).
+                // OBJECT-membered sets only: the seam's signature is the
+                // retained object literal joining its alias's constituents;
+                // literal-membered sets are the §52.1 site-sensitive class
+                // and stay declined (+5/13 measured without this gate).
+                if set.iter().any(|&member| {
+                    self.store.get(member).flags.contains(TypeFlags::OBJECT)
+                        && !self.store.get(member).flags.contains(TypeFlags::UNION)
+                }) {
+                    let mut sorted = set.clone();
+                    sorted.sort_by(|&a, &b| self.compare_types(a, b));
+                    sorted.dedup();
+                    if let Some(&named) = self.named_union_by_members.get(&sorted) {
+                        return named;
+                    }
+                }
                 return self.intrinsics.error;
             }
         }
