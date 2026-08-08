@@ -2768,3 +2768,12 @@ gated out.
 non-strict corpus's null-returning functions had been mis-printing since
 return inference landed. `checker_types` right 401,933 → **402,316
 (84.00%)** — the gradient crosses 84%.
+## §65 — `let x = undefined` REFUSED at 2:1
+
+`controlFlowNoImplicitAny` (@strict) wants `any` for `let x = undefined`
+while `implicitAnyCastedValue` wants `undefined` for the same syntax —
+two variants measured (type-keyed −43 net; syntax-keyed +20/10) and the
+per-case contradiction defies both keys. The discriminator is likely
+`noImplicitAny` (the case names say so) — a THIRD option axis this
+port's producer already parses; a future slice keys on it. Refused with
+both matrices.
