@@ -21,11 +21,25 @@
 //! each declined by construction, not by measurement — every one of them has a
 //! route by which upstream supplies the type and this port does not.
 //!
-//! # The blast radius is the option
+//! # The blast radius is the corpus — CORRECTED
 //!
-//! Like [`crate::unused`], nothing here fires unless the case writes
-//! `@noImplicitAny` (or `@strict`), so a wrong answer can only reach the cases
-//! that opted in.
+//! This section read *"like [`crate::unused`], nothing here fires unless the
+//! case writes `@noImplicitAny` (or `@strict`), so a wrong answer can only reach
+//! the cases that opted in."* **That was true of the harness and false of
+//! upstream, and the harness was wrong.** `c.noImplicitAny =
+//! GetStrictOptionValue(c.compilerOptions.NoImplicitAny)` (`checker.go:924`),
+//! and `GetStrictOptionValue` (`core/compileroptions.go:294`) answers
+//! `options.Strict != TSFalse` for an unset option — so **an unset
+//! `noImplicitAny` is ON**. `checker-notes-diag2.md` §80.
+//!
+//! `noUnusedLocals` genuinely is opt-in (`unusedIsError` reads it as
+//! `IsTrue()`), so the comparison to [`crate::unused`] does not transfer; the
+//! two options are read by different upstream functions.
+//!
+//! The allow-list below was therefore tuned while nothing outside the opt-in
+//! cases could reach it. It held when the option was turned on across the
+//! corpus — 40 right lines for 3 wrong — with **one** arm wrong, the
+//! `ReturnStatement` one, corrected in the same build.
 
 use tsr_ast::{Node, NodeId, SyntaxKind};
 use tsr_diagnostics::{Diagnostic, messages};
@@ -130,13 +144,46 @@ impl Checker<'_, '_> {
             Some(Node::FunctionExpression(_) | Node::ArrowFunction(_)) => {
                 match self.nodes.parent(node).and_then(|parent| self.node_map.get(parent)) {
                     Some(Node::VariableDeclaration(declaration)) => declaration.r#type.is_none(),
-                    Some(Node::ExpressionStatement(_) | Node::ReturnStatement(_)) => true,
+                    Some(Node::ExpressionStatement(_)) => true,
+                    // A `return` was admitted unconditionally on the theory
+                    // that nothing there supplies a signature. **The enclosing
+                    // function's written return-type annotation does** —
+                    // `function <T>(…): React.StatelessComponent<T> { return
+                    // (props) => … }` contextually types `props`, and
+                    // `tsxGenericAttributesType1` was 3 of §80's wrong lines.
+                    // Only a return inside a function with no return annotation
+                    // is uncontextual.
+                    Some(Node::ReturnStatement(_)) => {
+                        !self.enclosing_function_has_a_return_annotation(node)
+                    }
                     Some(Node::PropertyDeclaration(property)) => property.r#type.is_none(),
                     _ => false,
                 }
             }
             _ => false,
         }
+    }
+
+    /// Does the function-like enclosing this node write a return-type
+    /// annotation?
+    ///
+    /// `getContextualReturnType` (`checker.go:20315`) reads exactly that
+    /// annotation, so its presence is what makes a `return`'s expression a
+    /// contextually typed position — see
+    /// [`Checker::parameters_cannot_be_contextually_typed`]'s `ReturnStatement`
+    /// arm.
+    fn enclosing_function_has_a_return_annotation(&self, node: NodeId) -> bool {
+        self.nodes
+            .ancestors(node)
+            .find_map(|ancestor| match self.node_map.get(ancestor) {
+                Some(Node::FunctionDeclaration(n)) => Some(n.r#type.is_some()),
+                Some(Node::FunctionExpression(n)) => Some(n.r#type.is_some()),
+                Some(Node::ArrowFunction(n)) => Some(n.r#type.is_some()),
+                Some(Node::MethodDeclaration(n)) => Some(n.r#type.is_some()),
+                Some(Node::GetAccessorDeclaration(n)) => Some(n.r#type.is_some()),
+                _ => None,
+            })
+            .unwrap_or(false)
     }
 
     /// The parameter nodes of a declaration this rule admits.

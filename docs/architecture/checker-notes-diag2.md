@@ -6031,3 +6031,166 @@ entries — each is **one false positive from passing**:
   there and offered `MODULE` as the near-miss. **Owner: `file_loader`** — the
   triple-slash type reference and the conditional-`exports` resolution mode, not
   a diagnostics rule. Three cases sit behind it.
+
+---
+
+## 80. `noImplicitAny` defaults ON in this corpus, and the harness had it OFF
+
+Ranking the relation-free head by **cases one line short** — §79's metric, now
+the board's — puts TS7006 at the top by ratio:
+
+```
+code      cases   one line short
+TS2454      45        25
+TS7006      20        17     <- the best ratio on the board
+TS2554      19        12
+TS2464      14        10
+TS2365      12         9
+TS2540      12         9
+```
+
+`diagmissing -- 7006` reads like a rule that is declining: 24 lines across 20
+cases, all of them arrows and contextually-typed positions. It is not declining.
+**It is not running.**
+
+```
+// arrowFunctionWithObjectLiteralBody1.ts — the WHOLE file
+var v = a => <any>{}
+// baseline: arrowFunctionWithObjectLiteralBody1.ts(1,9): error TS7006
+```
+
+The case writes no `@noImplicitAny` and no `@strict`, and
+`diagnostics_suite.rs:275` reads
+
+```rust
+explicit("noimplicitany").or_else(|| explicit("strict")).unwrap_or(false)
+```
+
+so the rule is off. The parent arm — a variable declaration with no annotation —
+already admits this exact shape, and has since the rule was written.
+
+### Upstream's default is TRUE, and the port already knew that for its sibling
+
+`c.noImplicitAny = c.compilerOptions.GetStrictOptionValue(c.compilerOptions.NoImplicitAny)`
+(`checker.go:924`), and `GetStrictOptionValue` (`core/compileroptions.go:294`)
+is:
+
+```go
+if value != TSUnknown { return value == TSTrue }
+return options.Strict != TSFalse
+```
+
+An unset option with an unset `strict` is `TSUnknown != TSFalse` — **true**.
+That is the same rule the harness *already applies two lines above* for
+`strictNullChecks`, which reads `unwrap_or(true)`. The two lines disagree about
+the same question, and the `strictNullChecks` one is right. **A figure that
+appears twice in one file will disagree with itself unless something re-derives
+both** — `STATUS.md` §1's own warning, here as a pair of option defaults ten
+lines apart.
+
+`noUnusedLocals` and `noUnusedParameters` are **not** strict options
+(`unusedIsError` reads them as `IsTrue()`), so those stay `false` and
+`crate::unused` stays confined to the cases that opt in. Only this one line
+changes.
+
+### What it gives up, said before measuring
+
+`implicit_any.rs`'s module doc closes with *"the blast radius is the option —
+nothing here fires unless the case writes `@noImplicitAny`"*. **That sentence
+stops being true with this build**, and it is the whole of the risk: TS7006 and
+TS7019 go from firing in the opt-in cases to firing across the corpus, against a
+`parameters_cannot_be_contextually_typed` allow-list that was tuned while the
+blast radius was small. `diagemit` prices the row at **want 385 / have 140**.
+
+### The bar
+
+**+8 cases.** Nineteen cases are blocked on TS7006 alone and seventeen want one
+line, but the option also turns on TS7019 and reaches every case in the corpus,
+so some of the seventeen will be paid for elsewhere. **A net negative is a live
+outcome here** and would be the honest result to record.
+
+**Falsifier (a):** the wrong column grows on **arrows in argument position** or
+any position `parameters_cannot_be_contextually_typed` admits by a route other
+than the unannotated-variable and expression-statement arms. Those arms were
+chosen when nothing outside the opt-in cases could reach them.
+
+**Falsifier (b):** the wrong column grows on `.d.ts` or library files. The
+`ambient` gate and `set_checked_files` were likewise never exercised at corpus
+scale for this rule.
+
+**Falsifier (c):** LOST grows anywhere. This is the first build of the session
+that can break a passing case in a family it is not touching, because the option
+is read by two rules and neither is confined any more.
+
+**Falsifier (d):** `checker_types` byte-identical — the option is set on the
+diagnostics harness only.
+
+### Measured: **+5, bar of +8 MISSED, and no net negative**
+
+```
+diagnostics   1,322 -> 1,327    (+5 cases)
+checker_types 3,742 -> 3,742    byte-identical, falsifier (d) did not fire
+diag2307, RULE_CODES = [7006, 7019] alone
+  CONVERTS     9 -> 14
+  RIGHT      151 -> 191          (+40)
+  WRONG        6 -> 9            (+3, after one in-build decline worth 5)
+  LOST         0 -> 0            falsifier (c) did not fire
+```
+
+The stated live outcome — a net negative — did not happen. The
+`parameters_cannot_be_contextually_typed` allow-list held at corpus scale, which
+is the substantive result: **it was tuned against opt-in cases and it survives
+the whole corpus**, one arm excepted.
+
+**Falsifier (a) fired, precisely as written, and was honoured in-build.**
+The `ReturnStatement` arm was admitted *unconditionally* on the theory that
+nothing there supplies a signature:
+
+```tsx
+const decorator = function <T>(C: React.StatelessComponent<T>): React.StatelessComponent<T> {
+    return (props) => <C {...props}></C>       // props IS contextually typed
+};
+```
+
+The enclosing function's **written return-type annotation** is the contextual
+type — `getContextualReturnType` (`checker.go:20315`) reads exactly it. A
+`return` is now uncontextual only inside a function that writes no return
+annotation. `tsxGenericAttributesType1` was the 3 lines that found it and the
+decline removed **5**, the extra two being `generatorTypeCheck62` and `63`,
+pre-existing wrong lines nobody had attributed. RIGHT and CONVERTS were
+unchanged across the decline.
+
+**Falsifier (b) did not fire.** No `.d.ts` or library line appears; the
+`ambient` gate and `set_checked_files` hold at corpus scale.
+
+### The residual, named and NOT declined
+
+All three remaining new wrong lines are `compiler/reservedWords3`:
+
+```ts
+function f1(enum) {}    // upstream: TS1390 'enum' is not allowed as a parameter
+function f2(class) {}   //           name, plus TS1003 Identifier expected
+```
+
+Upstream's parser produces a **missing** identifier here and reports TS1390 and
+TS1003; this parser accepts the keyword as a parameter name and reports neither,
+so `file_has_parse_errors` — the gate at this rule's first line, written for
+exactly this situation — is false on a file upstream recovered differently.
+
+**Not declined**, on §78's precedent. A reserved-word test would be a stand-in
+for the parser's TS1390, and this file already has none of the machinery to ask
+the question (`tsr_scanner` exposes no `IdentifierToKeywordKind`). The case
+cannot pass either way: it wants TS7010, which `diagemit` lists as unported at
+82 lines. **Owner: `tsr_parser`'s reserved-word parameter names, and TS1390.**
+
+### A note for the next option
+
+The `strictNullChecks` / `noImplicitAny` disagreement sat ten lines apart in one
+function for eleven sessions. **The other option defaults in
+`diagnostics_suite.rs` have not been checked against `GetStrictOptionValue`**,
+and `set_strict_property_initialization`, `set_allow_unreachable_code` and
+`set_no_unused` are each one `unwrap_or` away from the same bug.
+`noUnusedLocals` and `noUnusedParameters` are genuinely **not** strict options
+(`unusedIsError` reads them as `IsTrue()`) and are correct as they stand; the
+other two are worth one reading of `core/compileroptions.go` before the next
+build that depends on them.

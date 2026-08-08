@@ -272,8 +272,15 @@ fn from_check_traversal(test: &crate::TestCase) -> Vec<BaselineDiagnostic> {
     // `unusedIsError` (`checker.go:7104`) reads both as `IsTrue()`, so an unset
     // option is off and `crate::unused` reports nothing at all — which is what
     // confines that family to the cases that write the directive.
+    // `c.noImplicitAny = GetStrictOptionValue(NoImplicitAny)` (`checker.go:924`),
+    // and `GetStrictOptionValue` (`core/compileroptions.go:294`) answers
+    // `options.Strict != TSFalse` for an unset option — so an unset
+    // `noImplicitAny` with an unset `strict` is **true**. That is the same rule
+    // `strictNullChecks` above already applies; these two lines disagreed about
+    // one question for eleven sessions, and `strictNullChecks` was the right
+    // one (`checker-notes-diag2.md` §80).
     checker.set_no_implicit_any(
-        explicit("noimplicitany").or_else(|| explicit("strict")).unwrap_or(false),
+        explicit("noimplicitany").or_else(|| explicit("strict")).unwrap_or(true),
     );
     checker.set_no_unused(
         test.options.get("nounusedlocals").is_some_and(|v| v.eq_ignore_ascii_case("true")),
