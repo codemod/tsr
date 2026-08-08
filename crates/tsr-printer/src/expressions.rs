@@ -88,7 +88,7 @@ impl Printer<'_> {
             }
             // Ported from `Printer.emitStringLiteral` (`internal/printer/printer.go`).
             Expression::StringLiteral(node) => {
-                let text = quote_string(node.text);
+                let text = quote_string(node.text, node.token_flags);
                 self.write(&text);
             }
             // Ported from `Printer.emitRegularExpressionLiteral` (`internal/printer/printer.go`).
@@ -136,9 +136,12 @@ impl Printer<'_> {
             }
             // Ported from `Printer.emitArrayLiteralExpression` (`internal/printer/printer.go`).
             Expression::ArrayLiteralExpression(node) => {
-                self.emit_list(
+                let ends_in_elision =
+                    matches!(node.elements.last(), Some(Expression::OmittedExpression(_)));
+                self.emit_list_with_trailing_delimiter(
                     node.elements,
                     ListFormat::ARRAY_LITERAL_EXPRESSION_ELEMENTS,
+                    ends_in_elision,
                     |printer, element| printer.emit_expression(element),
                 );
             }
@@ -198,7 +201,15 @@ impl Printer<'_> {
                 // optional and its absence is recorded, so it must not be invented.
                 // `new C` and `new C()` parse to the same tree — both carry an
                 // empty argument list — so always emitting `()` loses nothing.
-                self.arguments(node.arguments);
+                let callee_already_carries_recovered_call = node.arguments.is_empty()
+                    && matches!(
+                        node.expression,
+                        Some(Expression::TypeAssertion(assertion))
+                            if matches!(assertion.expression, Some(Expression::CallExpression(_)))
+                    );
+                if !callee_already_carries_recovered_call {
+                    self.arguments(node.arguments);
+                }
             }
             // Ported from `Printer.emitBinaryExpression` (`internal/printer/printer.go`).
             Expression::BinaryExpression(node) => self.emit_binary_expression(node),

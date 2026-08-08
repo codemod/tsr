@@ -111,8 +111,24 @@ impl Suite for DtsShape {
                     reason: "a unit of this case does not parse cleanly".into(),
                 };
             }
+            let references = crate::dts_emit_suite::declaration_references(&parsed.file_references);
             let mut nodes = parsed.nodes;
-            let result = tsr_declarations::emit(&arena, &mut nodes, parsed.source_file);
+            crate::dts_emit_suite::stamp_javascript_root(
+                &unit.name,
+                parsed.source_file,
+                &mut nodes,
+            );
+            let result = tsr_declarations::emit_with_references_and_options(
+                &arena,
+                &mut nodes,
+                parsed.source_file,
+                &references,
+                crate::dts_emit_suite::declaration_emit_options(
+                    &parsed_case,
+                    &unit.name,
+                    &unit.content,
+                ),
+            );
             if let Some(kind) = result.unsupported.first() {
                 return Outcome::Unsupported { reason: format!("printer: {kind}") };
             }

@@ -550,10 +550,17 @@ impl<'host, 'a> FileLoader<'host, 'a> {
         let text: &'a str = arena.alloc_str(&text);
         let name: &'a str = arena.alloc_str(&file_name);
 
-        let options = tsr_parser::ParseOptions {
-            script_kind: tsr_parser::ScriptKind::from_file_name(name),
-            ..Default::default()
+        let inferred_script_kind = tsr_parser::ScriptKind::from_file_name(name);
+        let lowered = name.to_ascii_lowercase();
+        let script_kind = if inferred_script_kind == tsr_parser::ScriptKind::TypeScript
+            && self.options.jsx != tsr_core::JsxEmit::None
+            && [".js", ".cjs", ".mjs"].iter().any(|ext| lowered.ends_with(ext))
+        {
+            tsr_parser::ScriptKind::Tsx
+        } else {
+            inferred_script_kind
         };
+        let options = tsr_parser::ParseOptions { script_kind, ..Default::default() };
         // Into the program's shared tables, not fresh ones: this is the parser
         // half of the identity widening, and parsing into fresh tables here
         // would give two files the same `NodeId`s.
@@ -565,7 +572,6 @@ impl<'host, 'a> FileLoader<'host, 'a> {
         // root. The second of the two parse sites; `Program::new` is the
         // other, and `checker-notes-assign.md` §11.1 is the consumer that
         // found the flag declared and set by nothing.
-        let lowered = name.to_ascii_lowercase();
         if [".js", ".jsx", ".cjs", ".mjs"].iter().any(|ext| lowered.ends_with(ext))
             && let Some(root) = tsr_ast::Node::SourceFile(parsed.source_file).node_id()
         {
@@ -1267,6 +1273,7 @@ mod tests {
         /// How many files came back parsed, which is the claim that the loader
         /// hands over what it already parsed rather than only naming it.
         file_count: usize,
+        diagnostic_count: usize,
         requests: Vec<ResolutionRequest>,
         traces: Vec<Trace>,
     }
@@ -1299,6 +1306,7 @@ mod tests {
             },
         );
         Loaded {
+            diagnostic_count: loaded.files.iter().map(|file| file.diagnostics().len()).sum(),
             file_names: loaded.file_names,
             lib_file_count: loaded.lib_file_count,
             file_count: loaded.files.len(),
@@ -1317,6 +1325,20 @@ mod tests {
 
     fn traced() -> CompilerOptions {
         CompilerOptions { trace_resolution: Tristate::True, ..CompilerOptions::default() }
+    }
+
+    #[test]
+    fn jsx_option_selects_tsx_parsing_for_javascript_roots() {
+        let options = CompilerOptions {
+            allow_js: Tristate::True,
+            jsx: tsr_core::JsxEmit::Preserve,
+            no_lib: Tristate::True,
+            ..CompilerOptions::default()
+        };
+        let loaded =
+            load(&[("/index.js", "export const view = <div />;")], &["/index.js"], options);
+        assert_eq!(loaded.file_count, 1);
+        assert_eq!(loaded.diagnostic_count, 0);
     }
 
     fn names(loaded: &Loaded) -> Vec<(&str, &str)> {

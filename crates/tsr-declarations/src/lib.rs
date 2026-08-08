@@ -113,6 +113,72 @@ pub struct DeclarationEmit {
     pub inference_required: Vec<Span>,
 }
 
+/// Syntax-only declaration emit options.
+///
+/// These are deliberately limited to facts that do not require a checker. The
+/// source text is optional so existing AST-only callers retain their behavior;
+/// options whose semantics depend on comments are inert without it.
+#[derive(Debug, Clone, Copy, Default)]
+// Each bool mirrors an independent upstream boolean compiler option; folding
+// them into enums would invent states upstream does not have.
+#[allow(clippy::struct_excessive_bools)]
+pub struct DeclarationEmitOptions<'a> {
+    /// Original source text used to inspect comment trivia around declarations.
+    pub source_text: Option<&'a str>,
+    /// Remove declarations whose nearest leading comment contains `@internal`.
+    pub strip_internal: bool,
+    /// Suppress comments in declaration output.
+    pub remove_comments: bool,
+    /// Preserve `null` as a literal type instead of widening it to `any`.
+    pub strict_null_checks: bool,
+    /// Treat the file as a module even without import/export syntax.
+    ///
+    /// Module detection is not purely syntactic: a `.mts`/`.cts` extension (and
+    /// `moduleDetection: force`) makes upstream set the external-module
+    /// indicator, so an extensionless-module file's unexported declarations
+    /// drop and the `.d.ts` keeps an `export {}` marker.
+    pub force_module: bool,
+    /// Append a `//# sourceMappingURL=` directive naming this file's
+    /// declaration map. The map itself is not produced — only the reference
+    /// `declarationMap` makes upstream write at the end of the `.d.ts`.
+    pub source_map_url: Option<&'a str>,
+}
+
+/// The kind of a preserved triple-slash declaration reference.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeclarationReferenceKind {
+    /// `/// <reference path="…" />`.
+    Path,
+    /// `/// <reference types="…" />`.
+    Types,
+    /// `/// <reference lib="…" />`.
+    Lib,
+}
+
+/// A `types` reference's optional module-resolution phase.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeclarationResolutionMode {
+    /// No `resolution-mode` attribute.
+    None,
+    /// `resolution-mode="require"`.
+    Require,
+    /// `resolution-mode="import"`.
+    Import,
+}
+
+/// A triple-slash reference to preserve in declaration output.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeclarationReference {
+    /// Reference kind and attribute name.
+    pub kind: DeclarationReferenceKind,
+    /// Referenced path, package, or library.
+    pub file_name: String,
+    /// Optional resolution phase for `types` references.
+    pub resolution_mode: DeclarationResolutionMode,
+    /// Byte position in the source preamble, used to restore mixed-kind order.
+    pub position: u32,
+}
+
 /// Emit the `.d.ts` text for one parsed file.
 ///
 /// `nodes` is taken by `&mut` because the transform synthesizes nodes — a
@@ -125,21 +191,134 @@ pub fn emit<'a>(
     nodes: &mut NodeTable,
     file: &'a SourceFile<'a>,
 ) -> DeclarationEmit {
+    emit_with_references_and_options(arena, nodes, file, &[], DeclarationEmitOptions::default())
+}
+
+/// Emit declarations with syntax-only compiler options.
+#[must_use]
+pub fn emit_with_options<'a>(
+    arena: &'a Arena,
+    nodes: &mut NodeTable,
+    file: &'a SourceFile<'a>,
+    options: DeclarationEmitOptions<'a>,
+) -> DeclarationEmit {
+    emit_with_references_and_options(arena, nodes, file, &[], options)
+}
+
+/// Emit declarations and prepend explicitly preserved triple-slash references.
+#[must_use]
+pub fn emit_with_references<'a>(
+    arena: &'a Arena,
+    nodes: &mut NodeTable,
+    file: &'a SourceFile<'a>,
+    references: &[DeclarationReference],
+) -> DeclarationEmit {
+    emit_with_references_and_options(
+        arena,
+        nodes,
+        file,
+        references,
+        DeclarationEmitOptions::default(),
+    )
+}
+
+/// Emit declarations with preserved references and syntax-only compiler options.
+#[must_use]
+pub fn emit_with_references_and_options<'a>(
+    arena: &'a Arena,
+    nodes: &mut NodeTable,
+    file: &'a SourceFile<'a>,
+    references: &[DeclarationReference],
+    options: DeclarationEmitOptions<'a>,
+) -> DeclarationEmit {
     let diagnostics = tsr_dts::analyze(file, nodes);
-    let resolver = SyntacticResolver::new(file);
+    let resolver = SyntacticResolver::new(file, options.strict_null_checks);
 
     let (declaration_file, inference_required) = {
         let factory = Factory::new(arena, nodes);
-        let mut transformer = transform::Transformer::new(factory, resolver);
+        let mut transformer = transform::Transformer::new(factory, resolver, options);
         let result = transformer.transform_source_file(file);
         (result, std::mem::take(&mut transformer.inference_required))
     };
 
-    let printed = tsr_printer::print(declaration_file, nodes);
-    DeclarationEmit {
-        text: printed.text,
-        diagnostics,
-        unsupported: printed.unsupported,
-        inference_required,
+    let printed = match options.source_text.filter(|_| !options.remove_comments) {
+        Some(source_text) => tsr_printer::print_with_source(declaration_file, nodes, source_text),
+        None => tsr_printer::print(declaration_file, nodes),
+    };
+    let mut text = render_references(references);
+    text.push_str(&printed.text);
+    if let Some(url) = options.source_map_url {
+        if !text.is_empty() && !text.ends_with('\n') {
+            text.push('\n');
+        }
+        text.push_str("//# sourceMappingURL=");
+        text.push_str(url);
     }
+    DeclarationEmit { text, diagnostics, unsupported: printed.unsupported, inference_required }
+}
+
+fn render_references(references: &[DeclarationReference]) -> String {
+    let mut references = references.to_vec();
+    references.sort_by_key(|reference| reference.position);
+    let mut output = String::new();
+    for reference in references {
+        let attribute = match reference.kind {
+            DeclarationReferenceKind::Path => "path",
+            DeclarationReferenceKind::Types => "types",
+            DeclarationReferenceKind::Lib => "lib",
+        };
+        let file_name = if reference.kind == DeclarationReferenceKind::Path {
+            declaration_reference_name(&reference.file_name)
+        } else {
+            reference.file_name
+        };
+        output.push_str("/// <reference ");
+        output.push_str(attribute);
+        output.push_str("=\"");
+        output.push_str(&escape_reference_attribute(&file_name));
+        output.push('"');
+        match reference.resolution_mode {
+            DeclarationResolutionMode::None => {}
+            DeclarationResolutionMode::Require => {
+                output.push_str(" resolution-mode=\"require\"");
+            }
+            DeclarationResolutionMode::Import => {
+                output.push_str(" resolution-mode=\"import\"");
+            }
+        }
+        output.push_str(" preserve=\"true\" />\n");
+    }
+    output
+}
+
+fn declaration_reference_name(name: &str) -> String {
+    // Declaration references are written relative to the emitted file's
+    // directory. typescript-go normalizes an explicit same-directory `./`
+    // prefix away before replacing the source extension.
+    let name = name.strip_prefix("./").unwrap_or(name);
+    // A reference to a declaration file keeps its name: rewriting `.ts` off
+    // `bar.d.ts` would produce `bar.d.d.ts` (`commonSourceDirectory`).
+    let lower = name.to_ascii_lowercase();
+    if lower.ends_with(".d.ts") || lower.ends_with(".d.mts") || lower.ends_with(".d.cts") {
+        return name.to_string();
+    }
+    for (source, declaration) in [
+        (".mts", ".d.mts"),
+        (".cts", ".d.cts"),
+        (".mjs", ".d.mts"),
+        (".cjs", ".d.cts"),
+        (".tsx", ".d.ts"),
+        (".jsx", ".d.ts"),
+        (".ts", ".d.ts"),
+        (".js", ".d.ts"),
+    ] {
+        if let Some(stem) = name.strip_suffix(source) {
+            return format!("{stem}{declaration}");
+        }
+    }
+    name.to_string()
+}
+
+fn escape_reference_attribute(value: &str) -> String {
+    value.replace('&', "&amp;").replace('"', "&quot;").replace('<', "&lt;").replace('>', "&gt;")
 }

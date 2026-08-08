@@ -14,6 +14,9 @@ tsr-ast = { workspace = true }
 tsr-core = { workspace = true }
 tsr-diagnostics = { workspace = true }
 tsr-dts = { workspace = true }
+# For grafting JSDoc `{type}` texts into the declaration tree
+# (`Factory::parse_grafted_type`); the transform is otherwise parser-free.
+tsr-parser = { workspace = true }
 tsr-printer = { workspace = true }
 rustc-hash = { workspace = true }
 

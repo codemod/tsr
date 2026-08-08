@@ -2,72 +2,10 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 parser_typescript Summary:
 What a pass means: a file TypeScript reports no errors for parses with no diagnostics
-Passed         : 5001/5031 (99.40%)
-Failed         : 30
+Passed         : 5031/5031 (100.00%)
 Skipped        : 7413 (excluded from the denominator)
 
   757  skipped: configuration-varied baselines; needs per-configuration runs
   5539  skipped: expects diagnostics; the parser cannot tell which are its own
   617  skipped: upstream recorded no output for this case, so there is nothing to judge against
   500  skipped: upstream records a known divergence from TypeScript (.diff baseline)
-
-compiler/conditionalTypesASI
-  conditionalTypesASI.ts: 2 diagnostic(s), first is TS1110 at 68..69: Type expected.
-compiler/declarationEmitExactOptionalPropertyTypesNodeNotReused
-  declarationEmitExactOptionalPropertyTypesNodeNotReused.ts: 5 diagnostic(s), first is TS1005 at 338..339: '>' expected.
-compiler/declarationEmitHigherOrderRetainedGenerics
-  declarationEmitHigherOrderRetainedGenerics.ts: 8 diagnostic(s), first is TS1005 at 2405..2406: '?' expected.
-compiler/intersectionSatisfiesConstraint
-  intersectionSatisfiesConstraint.ts: 10 diagnostic(s), first is TS1005 at 415..416: '?' expected.
-compiler/jsxPreserveWithJsInput
-  c.js: 1 diagnostic(s), first is TS1161 at 20..24: Unterminated regular expression literal.
-compiler/moduleResolution_packageJson_yesAtPackageRoot
-  /node_modules/foo/bar/index.js: 1 diagnostic(s), first is TS1005 at 4..8: ';' expected.
-compiler/moduleResolution_packageJson_yesAtPackageRoot_fakeScopedPackage
-  /node_modules/foo/@bar/index.js: 1 diagnostic(s), first is TS1005 at 4..8: ';' expected.
-compiler/parseGenericArrowRatherThanLeftShift
-  parseGenericArrowRatherThanLeftShift.ts: 6 diagnostic(s), first is TS1005 at 112..113: ')' expected.
-compiler/reactImportDropped
-  src/modules/navigation/NavigationView.js: 4 diagnostic(s), first is TS1005 at 136..142: '>' expected.
-conformance/autoAccessor10
-  autoAccessor10.ts: 2 diagnostic(s), first is TS1012 at 252..272: Unexpected token.
-conformance/esDecorators-decoratorExpression.2
-  esDecorators-decoratorExpression.2.ts: 14 diagnostic(s), first is TS1109 at 156..157: Expression expected.
-conformance/importDefaultNamedType2
-  /b.ts: 3 diagnostic(s), first is TS1141 at 17..21: String literal expected.
-conformance/importDefaultNamedType3
-  /b.ts: 3 diagnostic(s), first is TS1141 at 17..18: String literal expected.
-conformance/importDeferDeclaration
-  b.ts: 7 diagnostic(s), first is TS1005 at 13..14: 'from' expected.
-conformance/inferTypesWithExtends1
-  inferTypesWithExtends1.ts: 26 diagnostic(s), first is TS1005 at 3605..3606: ')' expected.
-conformance/nodeModulesImportAttributesTypeModeDeclarationEmit
-  /index.ts: 18 diagnostic(s), first is TS1005 at 47..48: ')' expected.
-conformance/nodeModulesImportTypeModeDeclarationEmit1
-  /index.ts: 18 diagnostic(s), first is TS1005 at 47..48: ')' expected.
-conformance/privateNameAccessorsCallExpression
-  privateNameAccessorsCallExpression.ts: 14 diagnostic(s), first is TS1003 at 249..259: Identifier expected.
-conformance/privateNameFieldCallExpression
-  privateNameFieldCallExpression.ts: 14 diagnostic(s), first is TS1003 at 247..257: Identifier expected.
-conformance/privateNameMethodCallExpression
-  privateNameMethodCallExpression.ts: 14 diagnostic(s), first is TS1003 at 185..192: Identifier expected.
-conformance/privateNameStaticAccessorsCallExpression
-  privateNameStaticAccessorsCallExpression.ts: 14 diagnostic(s), first is TS1003 at 276..286: Identifier expected.
-conformance/privateNameStaticFieldCallExpression
-  privateNameStaticFieldCallExpression.ts: 14 diagnostic(s), first is TS1003 at 251..261: Identifier expected.
-conformance/privateNameStaticFieldClassExpression
-  privateNameStaticFieldClassExpression.ts: 8 diagnostic(s), first is TS1003 at 112..117: Identifier expected.
-conformance/privateNameStaticMethodCallExpression
-  privateNameStaticMethodCallExpression.ts: 14 diagnostic(s), first is TS1003 at 200..207: Identifier expected.
-conformance/resolutionModeImportType1
-  /app.ts: 48 diagnostic(s), first is TS1005 at 72..73: ')' expected.
-conformance/tsxDynamicTagName5
-  app.tsx: 2 diagnostic(s), first is TS1003 at 151..152: Identifier expected.
-conformance/tsxDynamicTagName8
-  app.tsx: 4 diagnostic(s), first is TS1003 at 151..152: Identifier expected.
-conformance/tsxDynamicTagName9
-  app.tsx: 4 diagnostic(s), first is TS1003 at 150..151: Identifier expected.
-conformance/untypedModuleImport
-  /node_modules/foo/index.js: 5 diagnostic(s), first is TS1005 at 5..9: ';' expected.
-conformance/untypedModuleImport_vsAmbient
-  /node_modules/foo/index.js: 5 diagnostic(s), first is TS1005 at 5..9: ';' expected.

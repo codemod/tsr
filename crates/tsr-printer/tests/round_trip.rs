@@ -35,6 +35,7 @@ fn a_private_name_is_not_prefixed_twice() {
     assert!(printed("class C { #a = 1; }").contains("#a"));
     assert!(!printed("class C { #a = 1; }").contains("##"));
     assert!(round_trips("class C { #a = 1; m() { return this.#a; } }"));
+    assert!(round_trips(r"class Escaped { #\u0078 = 1; m() { return this.#x; } }"));
 }
 
 #[test]
@@ -42,6 +43,45 @@ fn a_template_keeps_its_own_delimiters() {
     // `raw_text` is the whole token, backtick and `${` included.
     assert!(round_trips("const a = `x${1}y${2}z`;"));
     assert!(round_trips("type T = `x${string}y`;"));
+}
+
+#[test]
+fn a_no_substitution_template_prints_in_an_expression() {
+    assert!(round_trips("const value = `plain`;"));
+}
+
+#[test]
+fn a_no_substitution_template_prints_in_a_literal_type() {
+    assert!(round_trips("type Plain = `plain`;"));
+}
+
+#[test]
+fn nested_type_arguments_close_without_inserted_spaces() {
+    let output = printed("type T = Outer<Middle<Inner<string>>>;");
+    assert!(output.contains("Outer<Middle<Inner<string>>>"), "{output}");
+}
+
+#[test]
+fn mapped_types_use_the_upstream_multiline_default() {
+    let output = printed("type T<U> = { readonly [K in keyof U]?: U[K] };");
+    assert_eq!(output.trim_end(), "type T<U> = {\n    readonly [K in keyof U]?: U[K];\n};");
+    assert!(round_trips("type T<U> = { readonly [K in keyof U]?: U[K] };"));
+}
+
+#[test]
+fn mapped_type_modifier_signs_survive() {
+    let source = "type R<T> = { -readonly [K in keyof T]-?: T[K] };\n\
+                  type A<T> = { +readonly [K in keyof T]+?: T[K] };";
+    let output = printed(source);
+    assert!(output.contains("-readonly [K in keyof T]-?: T[K]"), "{output}");
+    assert!(output.contains("+readonly [K in keyof T]+?: T[K]"), "{output}");
+    assert!(round_trips(source));
+}
+
+#[test]
+fn a_negative_numeric_literal_type_keeps_its_sign() {
+    let output = printed("type T = -1e999;");
+    assert!(output.contains("-1e999"), "{output}");
 }
 
 #[test]
@@ -69,6 +109,14 @@ fn import_attributes_survive() {
 }
 
 #[test]
+fn import_type_attributes_survive() {
+    let source = r#"type T = import("m", { with: { "resolution-mode": "import" } }).Value;"#;
+    assert!(round_trips(source));
+    let output = printed(source);
+    assert!(output.contains(r#", { with: { "resolution-mode": "import" } })"#));
+}
+
+#[test]
 fn an_object_binding_pattern_stays_an_object() {
     // `BindingPattern.kind` is the opening bracket, not the pattern's kind.
     assert!(printed("const { a } = o;").contains('{'));
@@ -76,9 +124,60 @@ fn an_object_binding_pattern_stays_an_object() {
 }
 
 #[test]
+fn binding_pattern_trailing_commas_are_preserved() {
+    let output = printed("const { a, } = object; const [b,] = array;");
+    assert!(output.contains("{ a, }"), "{output}");
+    assert!(output.contains("[b,]"), "{output}");
+    assert!(round_trips("const { a, } = object; const [b,] = array;"));
+}
+
+#[test]
 fn tokens_that_would_merge_are_separated() {
     assert!(round_trips("const a = 1 + +2;"));
     assert!(round_trips("const a = 1 - -2;"));
+}
+
+#[test]
+fn a_trailing_array_elision_remains_an_element() {
+    assert!(round_trips("const a = [,]; const b = [1,,]; const c = [1,,,];"));
+    assert!(printed("const a = [1,,];").contains("[1, ,]"));
+}
+
+#[test]
+fn recovered_constructor_syntax_keeps_its_tokens() {
+    assert!(round_trips("class C { constructor<>() {} }"));
+    assert!(round_trips("class D { *constructor() {} }"));
+}
+
+#[test]
+fn recovered_new_type_assertion_does_not_gain_a_second_call() {
+    let output = printed("const value = new <any>Factory();");
+    assert!(output.contains("new <any>Factory()"));
+    assert!(!output.contains("Factory()()"));
+}
+
+#[test]
+fn recovered_digit_starting_identifier_is_escaped() {
+    let output = printed(r"var \u0031a;");
+    assert!(output.contains(r"var \u0031a;"));
+    assert!(round_trips(r"var \u0031a;"));
+}
+
+#[test]
+fn jsx_attribute_text_remains_raw() {
+    let source = "const view = <div title=\"line one\nline two\\\\raw &quot;\" />;";
+    assert!(round_trips_as(source, ScriptKind::Tsx));
+    let parsed = ParsedFile::parse_with_script_kind(source.to_string(), ScriptKind::Tsx);
+    let output = parsed.with_ast(|file| tsr_printer::print(file, parsed.nodes())).text;
+    assert!(output.contains("line one\nline two\\\\raw"));
+    assert!(!output.contains("line one\\nline two"));
+
+    let quoted = ParsedFile::parse_with_script_kind(
+        "const quoted = <div title='\"' />;".to_string(),
+        ScriptKind::Tsx,
+    );
+    let output = quoted.with_ast(|file| tsr_printer::print(file, quoted.nodes())).text;
+    assert!(output.contains("title='\"'"));
 }
 
 #[test]

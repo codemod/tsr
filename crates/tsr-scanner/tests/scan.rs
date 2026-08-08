@@ -123,7 +123,8 @@ fn strings_decode_escapes() {
 #[test]
 fn plain_strings_need_no_decoding() {
     let mut scanner = Scanner::new(r"'hello'");
-    scanner.scan();
+    let token = scanner.scan();
+    assert!(token.flags.contains(TokenFlags::SINGLE_QUOTE));
     assert_eq!(scanner.token_value(), "hello");
     assert_eq!(scanner.token_text(), "'hello'", "text keeps the quotes; value does not");
 }

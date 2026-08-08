@@ -2,216 +2,107 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 dts_emit Summary:
 What a pass means: the .d.ts text this port emits is byte-identical to upstream's, for every unit of a case that needs no inference — the emitter's own rate, over the population dts_reachable_target measures
-Passed         : 161/339 (47.49%)
-Failed         : 177
-Unsupported    : 1
-Skipped        : 12105 (excluded from the denominator)
+Passed         : 327/374 (87.43%)
+Failed         : 47
+Skipped        : 12070 (excluded from the denominator)
 
-  1  printer: NoSubstitutionTemplateLiteral
-  577  skipped: a declaration in this case needs inference (see dts_reachable_target)
-  16  skipped: a unit of this case does not parse cleanly
-  8418  skipped: the emit baseline has no emitted .d.ts section
+  636  skipped: a declaration in this case needs inference (see dts_reachable_target)
+  15  skipped: a unit of this case does not parse cleanly
+  8325  skipped: the emit baseline has no emitted .d.ts section
   2477  skipped: upstream recorded no .js emit baseline
   617  skipped: upstream recorded no output for this case
 
-First 100 of 177 failures:
 compiler/accessorInferredReturnTypeErrorInReturnStatement
   line 1: want `export declare var basePrototype: {`, got `export declare var basePrototype: any;`
-compiler/aliasInaccessibleModule2
-  line 3: want `    }`, got `        class C {`
 compiler/amdLikeInputDeclarationEmit
   line 1: missing `declare const ExtendedClass: new () => {`
-compiler/bindingPatternOmittedExpressionNesting
-  line 1: want `export {};`, got `export declare let [, , [, [], , []]]: any;`
-compiler/commentsVariableStatement1
-  line 1: want `/** Comment */`, got `declare var v: number;`
-compiler/conflictingDeclarationsImportFromNamespace1
-  line 1: want `/// <reference path="./object.d.ts" />`, got `export declare const pick: any;`
-compiler/conflictingDeclarationsImportFromNamespace2
-  line 1: want `/// <reference path="./object.d.ts" />`, got `export declare const pick: any;`
-compiler/cyclicModuleImport
-  line 2: want `    import MainModule = require('MainModule');`, got `    import MainModule = require("MainModule");`
-compiler/declFileAliasUseBeforeDeclaration2
-  line 5: want `    }`, got `        export {};`
-compiler/declFileAmbientExternalModuleWithSingleExportedModule
-  line 6: want `        }`, got `            export {};`
-compiler/declFileExportAssignmentImportInternalModule
-  line 4: want `            (res: any, req: any, next: any): void;`, got `            (res, req, next): void;`
-compiler/declFileForClassWithPrivateOverloadedFunction
-  line 3: want `}`, got `    private foo;`
-compiler/declFileForExportedImport
-  line 1: want `export import a = require('./declFileForExportedImport_0');`, got `export import a = require("./declFileForExportedImport_0");`
-compiler/declFileGenericType2
-  line 4: want `}`, got `    export {};`
-compiler/declFileImportedTypeUseInTypeArgPosition
-  line 3: want `declare module 'mod1' {`, got `declare module "mod1" {`
-compiler/declFileRegressionTests
-  line 1: want `declare var n: {`, got `declare var n: any;`
-compiler/declFileWithExtendsClauseThatHasItsContainerNameConflict
-  line 4: want `}`, got `    export {};`
-compiler/declFileWithInternalModuleNameConflictsInExtendsClause1
-  line 6: want `    class W implements X.A.C.Z {`, got `    namespace A {`
-compiler/declFileWithInternalModuleNameConflictsInExtendsClause2
-  line 10: want `}`, got `    namespace A {`
-compiler/declarationEmitAliasExportStar
-  line 1: want `import * as things from "./things";`, got `export declare const thing2: any;`
-compiler/declarationEmitArrowFunctionNoRenaming
-  line 1: want `export type Brand<Base, Branding, ReservedName extends string = "__type__"> = Base & {`, got `export type Brand<Base, Branding, ReservedName extends string = "__type__"> = Base & { [K in ReservedName]: Branding; } & {`
-compiler/declarationEmitBindingPatternWithReservedWord
-  line 3: want `type LocaleConfig<T extends LocaleData = LocaleData> = Record<string, Partial<T>>;`, got `type LocaleConfig<T extends LocaleData = LocaleData> = Record<string, Partial<T> >;`
-compiler/declarationEmitBindingPatternsFunctionExpr
-  line 4: want `declare let notReferenced: ({ name: alias }: Named) => void;`, got `declare let notReferenced: any;`
+compiler/commonSourceDirectory
+  line 1: want `/// <reference path="../../types/bar.d.ts" preserve="true" />`, got `/// <reference path="../types/bar.d.ts" preserve="true" />`
 compiler/declarationEmitClassAccessorsJs1
-  line 2: want `    /**`, got `    get path(): any;`
-compiler/declarationEmitDestructuringObjectLiteralPattern1
-  line 1: want `declare var { x4 }: {`, got `declare var {}: {`
-compiler/declarationEmitDestructuringParameterProperties
-  line 2: want `    x: string;`, got `    constructor([x, y, z]: string[]);`
-compiler/declarationEmitDestructuringParameterProperties2
-  line 2: want `    x: string;`, got `    constructor([x, y, z]: string[]);`
-compiler/declarationEmitDistributiveConditionalWithInfer
-  line 1: want `export declare const fun: (subFun: <Collection, Field extends keyof Collection>() => FlatArray<Collection[Field], 0>[]) => void;`, got `export declare const fun: any;`
+  line 5: want `    get path(): string;`, got `    get path(): any;`
 compiler/declarationEmitDuplicateParameterDestructuring
   line 1: want `export declare const fn1: ({ prop: a, prop: b }: {`, got `export declare const fn1: any;`
-compiler/declarationEmitExpandoPropertyPrivateName
-  emitted b.d.ts, upstream emitted no declaration file
-compiler/declarationEmitExpandoWithGenericConstraint
-  line 9: want `export declare function Point(x: number, y: number): Point;`, got `export declare const Point: (x: number, y: number) => Point;`
 compiler/declarationEmitExportAliasVisibiilityMarking
-  line 1: want `type Suit = 'Hearts' | 'Spades' | 'Clubs' | 'Diamonds';`, got `type Suit = "Hearts" | "Spades" | "Clubs" | "Diamonds";`
-compiler/declarationEmitExpressionWithNonlocalPrivateUniqueSymbol
-  emitted b.d.ts, upstream emitted no declaration file
+  line 1: want `import { Suit, Rank } from './Types';`, got `declare const _default: any;`
 compiler/declarationEmitInlinedDistributiveConditional
   line 1: want `export declare const dropPrivateProps1: <Obj>(obj: Obj) => { [K in import("./internal").PublicKeys1<keyof Obj>]: Obj[K]; };`, got `export declare const dropPrivateProps1: any;`
-compiler/declarationEmitMappedTypePreservesTypeParameterConstraint
-  line 1: want `declare type requiredKeys<T extends object> = {`, got `declare type requiredKeys<T extends object> = { [k in keyof T]: undefined extends T[k] ? never : k; }[keyof T];`
 compiler/declarationEmitNameConflicts2
-  line 2: want `    function f(): void;`, got `    function f(): any;`
-compiler/declarationEmitNestedBindingPattern
-  line 2: want `    x: any;`, got `    constructor([[x]]: any[]);`
+  line 12: want `    var f: typeof base.f;`, got `    var f: any;`
 compiler/declarationEmitNoNonRequiredParens
   line 7: want `export declare const bar: Test[];`, got `export declare const bar: TestType[Extract<keyof TestType, string>][];`
-compiler/declarationEmitNonExportedBindingPattern
-  line 1: want `declare const { foo }: {`, got `export type AliasType = typeof foo;`
 compiler/declarationEmitObjectLiteralAccessors1
   line 1: want `export declare const obj1: {`, got `export declare const obj1: any;`
-compiler/declarationEmitParameterProperty
-  line 2: want `    bar?: string | undefined;`, got `    bar?: string;`
 compiler/declarationEmitPrivatePromiseLikeInterface
-  line 1: want `type TPromise<ResolveType, RejectType = any> = Omit<Promise<ResolveType>, "then" | "catch"> & {`, got `export interface HttpResponse<D extends unknown, E extends unknown = unknown> extends Response {`
+  emitted Api.d.ts, upstream emitted no declaration file
 compiler/declarationEmitPrivateSymbolCausesVarDeclarationToBeEmitted
   line 1: want `declare const _data: unique symbol;`, got `export declare class User {`
-compiler/declarationEmitRecursiveConditionalAliasPreserved
-  line 1: want `import { Power } from "./input";`, got `export declare const power: <Num extends number, PowerOf extends number>(num: Num, powerOf: PowerOf) => Power<Num, PowerOf>;`
-compiler/declarationEmitRetainedAnnotationRetainsImportInOutput
-  line 1: want `export type Whatever<T> = {x: T};`, got `export declare const run: <E>(i: () => E.Whatever<E>) => E.Whatever<E>;`
 compiler/declarationEmitScopeConsistency3
   line 1: want `export declare const g: (v: "outer") => () => "inner";`, got `export declare const g: any;`
-compiler/declarationEmitShadowingInferNotRenamed
-  line 1: want `type Client = string;`, got `export declare const createClient: <D extends (new (...args: any[]) => Client) | Record<string, new (...args: any[]) => Client> >(clientDef: D) => D extends new (...args: any[]) => infer C ? UpdatedClient<C> : { [K in keyof D]: D[K] extends new (...args: any[]) => infer C ? UpdatedClient<C> : never; };`
-compiler/declarationEmitTypeAliasWithTypeParameters1
-  line 3: want `export declare const y: (x: Foo<string>) => number;`, got `export declare const y: any;`
-compiler/declarationEmitTypeAliasWithTypeParameters2
-  line 4: want `export declare const y: (x: Baa<number>) => number;`, got `export declare const y: any;`
 compiler/declarationEmitTypeParameterNameShadowedInternally
   line 1: want `export declare const foo: <T>(x: T) => <T_1>(y: T_1) => readonly [T, T_1];`, got `export declare const foo: any;`
-compiler/declarationEmitTypeofRest
-  line 2: want `    /** r rest param */`, got `    a: typeof a;`
-compiler/declarationMaps
-  line 1: want `declare namespace m2 {`, got `declare var m2: {`
+compiler/declarationEmitUsingAlternativeContainingModules1
+  line 1: want `interface IEntry {`, got `export declare const useEntries: any;`
+compiler/declarationEmitUsingAlternativeContainingModules2
+  line 1: want `interface IEntry {`, got `export declare const useEntries: any;`
+compiler/declarationEmitWithInvalidPackageJsonTypings
+  line 5: want `export declare const useCsvParser: () => MutableRefObject<typeof import("csv-parse")>;`, got `export declare const useCsvParser: any;`
 compiler/declarationsForFileShadowingGlobalNoError
   line 1: want `import { DOMNode } from './dom';`, got `export declare const mixin: any;`
 compiler/declarationsWithRecursiveInternalTypesProduceUniqueTypeParams
   line 3: want `export declare const updateIfChanged: <T>(t: T) => (<K extends Key<T>>(key: K) => (<K_1 extends Key<Value<K, T>>>(key: K_1) => (<K_2 extends Key<Value<K_1, Value<K, T>>>>(key: K_2) => (<K_3 extends Key<Value<K_2, Value<K_1, Value<K, T>>>>>(key: K_3) => (<K_4 extends Key<Value<K_3, Value<K_2, Value<K_1, Value<K, T>>>>>>(key: K_4) => (<K_5 extends Key<Value<K_4, Value<K_3, Value<K_2, Value<K_1, Value<K, T>>>>>>>(key: K_5) => (<K_6 extends Key<Value<K_5, Value<K_4, Value<K_3, Value<K_2, Value<K_1, Value<K, T>>>>>>>>(key: K_6) => (<K_7 extends Key<Value<K_6, Value<K_5, Value<K_4, Value<K_3, Value<K_2, Value<K_1, Value<K, T>>>>>>>>>(key: K_7) => (<K_8 extends Key<Value<K_7, Value<K_6, Value<K_5, Value<K_4, Value<K_3, Value<K_2, Value<K_1, Value<K, T>>>>>>>>>>(key: K_8) => (<K_9 extends Key<Value<K_8, Value<K_7, Value<K_6, Value<K_5, Value<K_4, Value<K_3, Value<K_2, Value<K_1, Value<K, T>>>>>>>>>>>(key: K_9) => (<K_10 extends Key<Value<K_9, Value<K_8, Value<K_7, Value<K_6, Value<K_5, Value<K_4, Value<K_3, Value<K_2, Value<K_1, Value<K, T>>>>>>>>>>>>(key: K_10) => /*elided*/ any & {`, got `export declare const updateIfChanged: any;`
-compiler/declareDottedModuleName
-  line 2: want `}`, got `    namespace P.Q {`
-compiler/declareFileExportAssignment
-  line 1: want `declare namespace m2 {`, got `declare var m2: {`
-compiler/declareFileExportAssignmentWithVarFromVariableStatement
-  line 1: want `declare namespace m2 {`, got `declare var x: number, m2: {`
-compiler/deeplyNestedConditionalTypes
-  line 1: want `type Foo<T> = T extends 0 ? '0' : T extends 1 ? '1' : T extends 2 ? '2' : T extends 3 ? '3' : T extends 4 ? '4' : T extends 5 ? '5' : T extends 6 ? '6' : T extends 7 ? '7' : T extends 8 ? '8' : T extends 9 ? '9' : T extends 10 ? '10' : T extends 11 ? '11' : T extends 12 ? '12' : T extends 13 ? '13' : T extends 14 ? '14' : T extends 15 ? '15' : T extends 16 ? '16' : T extends 17 ? '17' : T extends 18 ? '18' : T extends 19 ? '19' : T extends 20 ? '20' : T extends 21 ? '21' : T extends 22 ? '22' : T extends 23 ? '23' : T extends 24 ? '24' : T extends 25 ? '25' : T extends 26 ? '26' : T extends 27 ? '27' : T extends 28 ? '28' : T extends 29 ? '29' : T extends 30 ? '30' : T extends 31 ? '31' : T extends 32 ? '32' : T extends 33 ? '33' : T extends 34 ? '34' : T extends 35 ? '35' : T extends 36 ? '36' : T extends 37 ? '37' : T extends 38 ? '38' : T extends 39 ? '39' : T extends 40 ? '40' : T extends 41 ? '41' : T extends 42 ? '42' : T extends 43 ? '43' : T extends 44 ? '44' : T extends 45 ? '45' : T extends 46 ? '46' : T extends 47 ? '47' : T extends 48 ? '48' : T extends 49 ? '49' : T extends 50 ? '50' : T extends 51 ? '51' : T extends 52 ? '52' : T extends 53 ? '53' : T extends 54 ? '54' : T extends 55 ? '55' : T extends 56 ? '56' : T extends 57 ? '57' : T extends 58 ? '58' : T extends 59 ? '59' : T extends 60 ? '60' : T extends 61 ? '61' : T extends 62 ? '62' : T extends 63 ? '63' : T extends 64 ? '64' : T extends 65 ? '65' : T extends 66 ? '66' : T extends 67 ? '67' : T extends 68 ? '68' : T extends 69 ? '69' : T extends 70 ? '70' : T extends 71 ? '71' : T extends 72 ? '72' : T extends 73 ? '73' : T extends 74 ? '74' : T extends 75 ? '75' : T extends 76 ? '76' : T extends 77 ? '77' : T extends 78 ? '78' : T extends 79 ? '79' : T extends 80 ? '80' : T extends 81 ? '81' : T extends 82 ? '82' : T extends 83 ? '83' : T extends 84 ? '84' : T extends 85 ? '85' : T extends 86 ? '86' : T extends 87 ? '87' : T extends 88 ? '88' : T extends 89 ? '89' : T extends 90 ? '90' : T extends 91 ? '91' : T extends 92 ? '92' : T extends 93 ? '93' : T extends 94 ? '94' : T extends 95 ? '95' : T extends 96 ? '96' : T extends 97 ? '97' : T extends 98 ? '98' : T extends 99 ? '99' : never;`, got `type Foo<T> = T extends 0 ? "0" : T extends 1 ? "1" : T extends 2 ? "2" : T extends 3 ? "3" : T extends 4 ? "4" : T extends 5 ? "5" : T extends 6 ? "6" : T extends 7 ? "7" : T extends 8 ? "8" : T extends 9 ? "9" : T extends 10 ? "10" : T extends 11 ? "11" : T extends 12 ? "12" : T extends 13 ? "13" : T extends 14 ? "14" : T extends 15 ? "15" : T extends 16 ? "16" : T extends 17 ? "17" : T extends 18 ? "18" : T extends 19 ? "19" : T extends 20 ? "20" : T extends 21 ? "21" : T extends 22 ? "22" : T extends 23 ? "23" : T extends 24 ? "24" : T extends 25 ? "25" : T extends 26 ? "26" : T extends 27 ? "27" : T extends 28 ? "28" : T extends 29 ? "29" : T extends 30 ? "30" : T extends 31 ? "31" : T extends 32 ? "32" : T extends 33 ? "33" : T extends 34 ? "34" : T extends 35 ? "35" : T extends 36 ? "36" : T extends 37 ? "37" : T extends 38 ? "38" : T extends 39 ? "39" : T extends 40 ? "40" : T extends 41 ? "41" : T extends 42 ? "42" : T extends 43 ? "43" : T extends 44 ? "44" : T extends 45 ? "45" : T extends 46 ? "46" : T extends 47 ? "47" : T extends 48 ? "48" : T extends 49 ? "49" : T extends 50 ? "50" : T extends 51 ? "51" : T extends 52 ? "52" : T extends 53 ? "53" : T extends 54 ? "54" : T extends 55 ? "55" : T extends 56 ? "56" : T extends 57 ? "57" : T extends 58 ? "58" : T extends 59 ? "59" : T extends 60 ? "60" : T extends 61 ? "61" : T extends 62 ? "62" : T extends 63 ? "63" : T extends 64 ? "64" : T extends 65 ? "65" : T extends 66 ? "66" : T extends 67 ? "67" : T extends 68 ? "68" : T extends 69 ? "69" : T extends 70 ? "70" : T extends 71 ? "71" : T extends 72 ? "72" : T extends 73 ? "73" : T extends 74 ? "74" : T extends 75 ? "75" : T extends 76 ? "76" : T extends 77 ? "77" : T extends 78 ? "78" : T extends 79 ? "79" : T extends 80 ? "80" : T extends 81 ? "81" : T extends 82 ? "82" : T extends 83 ? "83" : T extends 84 ? "84" : T extends 85 ? "85" : T extends 86 ? "86" : T extends 87 ? "87" : T extends 88 ? "88" : T extends 89 ? "89" : T extends 90 ? "90" : T extends 91 ? "91" : T extends 92 ? "92" : T extends 93 ? "93" : T extends 94 ? "94" : T extends 95 ? "95" : T extends 96 ? "96" : T extends 97 ? "97" : T extends 98 ? "98" : T extends 99 ? "99" : never;`
-compiler/deferredLookupTypeResolution2
-  line 1: want `type StringContains<S extends string, L extends string> = ({`, got `type StringContains<S extends string, L extends string> = ({ [K in S]: "true"; } & {`
-compiler/destructuredDeclarationEmit
-  line 11: want `declare const arr: [0, 1, 2, ['a', 'b', 'c', [{`, got `declare const arr: [0, 1, 2, ["a", "b", "c", [{`
-compiler/enumDecl1
-  line 3: want `        x,`, got `        x = 0,`
-compiler/expandoFunctionExpressionsWithDynamicNames
-  line 1: want `export declare function expr(): void;`, got `export declare const expr: any;`
-compiler/exportNamespaceDeclarationRetainsVisibility
-  line 3: want `        kind: 'a';`, got `        kind: "a";`
-compiler/fakeInfinity1
-  line 2: want `export type NegativeInfinity = -1e999;`, got `export type NegativeInfinity = 1e999;`
+compiler/exportAssignmentMembersVisibleInAugmentation
+  emitted /a.d.ts, upstream emitted no declaration file
 compiler/functionExpressionReturningItself
   line 1: want `declare var x: () => () => /*elided*/ any;`, got `declare var x: any;`
-compiler/importAliasFromNamespace
-  line 1: want `/// <reference path="internal.d.ts" preserve="true" />`, got `declare namespace SomeOther.Thing {`
-compiler/importDeclarationUsedAsTypeQuery
-  line 1: want `import a = require('./importDeclarationUsedAsTypeQuery_require');`, got `import a = require("./importDeclarationUsedAsTypeQuery_require");`
-compiler/importedAliasedConditionalTypeInstantiation
-  line 1: want `export type Handler<TEvent = any, TResult = any> = (`, got `export {};`
-compiler/internalAliasWithDottedNameEmit
-  line 5: want `}`, got `    import g = b.c;`
-compiler/isolatedDeclarationErrorTypes1
-  line 1: want `import { Unresolved } from "foo";`, got `export declare const foo1: (type?: Unresolved) => void;`
-compiler/isolatedDeclarationErrorsDefault
-  emitted a.d.ts, upstream emitted no declaration file
 compiler/isolatedDeclarationsAddUndefined
-  line 1: want `type N = 1;`, got `export declare class Bar {`
-compiler/isolatedDeclarationsLiterals
-  line 2: want `    /** Value Of 1 */`, got `    readonly one: 1;`
+  line 3: want `    c?: readonly [1] | undefined;`, got `    c?: readonly [N];`
+compiler/javascriptThisAssignmentInStaticBlock
+  line 2: want `    static doSomething: () => void;`, got `}`
 compiler/jsDeclarationEmitExportAssignedArray
   line 1: missing `declare const _exports: {`
 compiler/jsDeclarationEmitExportAssignedFunctionWithExtraTypedefsMembers
   line 1: missing `/**`
-compiler/jsDeclarationEmitExportedClassWithExtends
-  line 1: want `export * from "lit-element/lit-element.js";`, got `import { LitElement, LitElement as LitElement2 } from "lit";`
-compiler/lateBoundAssignmentCandidateJS3
-  line 3: want `    /**`, got `    prop: string;`
-compiler/letDeclarations2
-  line 2: want `    let l2: number;`, got `    let l1: string;`
-compiler/libTypeScriptOverrideSimple
-  line 1: want `interface ABC { abc: string }`, got `declare const a: ABC;`
-compiler/libTypeScriptSubfileResolving
-  line 1: want `// NOOP`, got `declare const a: DOMIterable;`
 compiler/mappedTypeGenericInstantiationPreservesHomomorphism
-  line 2: want `type PrivateMapped<Obj> = {`, got `type PrivateMapped<Obj> = { [K in keyof Obj]: Obj[K]; };`
-compiler/mappedTypeNoTypeNoCrash
-  line 1: want `type T0<T> = ({`, got `type T0<T> = ({ [K in keyof T]; }) extends ({ [key in K]: T[K]; }) ? number : never;`
+  line 1: want `export declare const mappedUnionWithPrivateType: <T extends unknown[]>(...args: T) => T[any] extends infer T_1 ? { [K in keyof T_1]: T_1[K]; } : never;`, got `export declare const mappedUnionWithPrivateType: any;`
 compiler/mappedTypeWithAsClauseAndLateBoundProperty2
-  line 1: want `export declare const thing: {`, got `export declare const thing: { [K in keyof number[] as Exclude<K, "length">]: (number[])[K]; };`
-compiler/methodSignatureDeclarationEmit1
-  line 4: want `}`, got `    foo(a: any): void;`
-compiler/missingImportAfterModuleImport
-  line 1: want `/// <reference path="missingImportAfterModuleImport_0.d.ts" preserve="true" />`, got `import SubModule = require("SubModule");`
-compiler/moduleAugmentationDeclarationEmit1
-  line 1: want `declare module "./observable" {`, got `export {};`
-compiler/moduleAugmentationDeclarationEmit2
-  line 1: want `declare module "./observable" {`, got `export {};`
-compiler/moduleAugmentationExtendAmbientModule2
-  line 1: want `declare module "observable" {`, got `export {};`
-compiler/moduleAugmentationGlobal1
-  line 1: want `import { A } from "./f1";`, got `export {};`
-compiler/moduleAugmentationGlobal2
-  line 1: want `declare global {`, got `export {};`
-compiler/moduleAugmentationGlobal3
-  line 1: want `declare global {`, got `export {};`
-compiler/moduleAugmentationGlobal4
-  line 1: want `declare global {`, got `export {};`
-compiler/moduleAugmentationImportsAndExports1
-  line 1: want `import { B } from "./f2";`, got `export {};`
-compiler/moduleAugmentationImportsAndExports2
-  line 1: want `declare namespace N {`, got `export {};`
-compiler/moduleAugmentationImportsAndExports3
-  line 1: want `declare namespace N {`, got `export {};`
-compiler/moduleAugmentationImportsAndExports5
-  line 1: want `import { B } from "./f2";`, got `export {};`
-compiler/moduleAugmentationImportsAndExports6
-  line 1: want `import { B } from "./f2";`, got `export declare namespace N {`
-compiler/moduleDeclarationExportStarShadowingGlobalIsNameable
-  line 1: want `export * from "./account";`, got `export declare const func: any;`
-compiler/moduleDetectionIsolatedModulesCjsFileScope
-  line 1: want `export {};`, got `declare const a = 2;`
-compiler/moduleLocalImportNotIncorrectlyRedirected
-  line 1: want `import { Position } from './utilities/positioning';`, got `export {};`
+  line 2: want `    [x: number]: number;`, got `    [K in keyof number[] as Exclude<K, "length">]: (number[])[K];`
+compiler/modulePreserve4
+  line 1: want `export = _default;`, got `declare const _default: () => void;`
+compiler/noEmitOnError
+  line 2: missing ``
+compiler/paramterDestrcuturingDeclaration
+  line 2: want `    ({ p: name }: {`, got `    ({ p: name }: any): any;`
+compiler/referenceTypesPreferedToPathIfPossible
+  line 1: want `export declare const thing: () => import("url").Url;`, got `export declare const thing: any;`
+compiler/typeReferenceDirectives13
+  line 1: want `export interface A {`, got `import { $ } from "./ref";`
+compiler/typeReferenceDirectives4
+  line 3: want `declare let y: () => $;`, got `declare let y: any;`
+compiler/typeReferenceDirectives5
+  line 1: want `export interface A {`, got `import { $ } from "./ref";`
+compiler/typeReferenceDirectives6
+  line 2: want `declare let y: () => $;`, got `declare let y: any;`
+compiler/typeReferenceDirectives7
+  line 3: want `export declare let y: () => number;`, got `export declare let y: any;`
+compiler/unionTypeWithLeadingOperator
+  line 1: want `export type D = /*leading1*/ 1 | /*leading2*/ 2;`, got `export type D = 1 | 2;`
+conformance/assignmentToVoidZero1
+  line 1: missing `export declare var y: 2;`
+conformance/contextuallyTypedStringLiteralsInJsxAttributes01
+  line 9: want `declare const FooComponent: (props: {`, got `declare const FooComponent: any;`
+conformance/declarationEmitThisPredicatesWithPrivateName02
+  line 1: want `interface Foo {`, got `export declare const obj: {`
+conformance/declarationEmitWorkWithInlineComments
+  line 5: want `    constructor(`, got `    constructor(isInternal1: string, isInternal2: string, isInternal3: string, isInternal4: string, isInternal5: string, isInternal6: string, isInternal7: string, notInternal1: string, notInternal2: string, notInternal3: string);`
+conformance/genericContextualTypes1
+  line 22: want `declare const arrayMap: <T, U>(f: (x: T) => U) => (a: T[]) => U[];`, got `declare const arrayMap: any;`
+conformance/jsDeclarationsClassStatic2
+  line 6: want `export declare namespace Foo {`, got `export {};`
+conformance/jsDeclarationsTypedefDescriptionsPreserved
+  line 8: want `    /**`, got `    bar: boolean;`
+conformance/recursiveTypeReferences2
+  line 17: want `} & {`, got `} & { [K in keyof T]?: (T[K] extends string ? string : XMLObject<T[K]>); };`
+conformance/varianceAnnotationsWithCircularlyReferencesError
+  line 1: want `type T1<in , > = T1;`, got `type T1<in in> = T1;`
+conformance/weakTypesAndLiterals01
+  line 11: want `declare const f: (arg: LiteralsOrWeakTypes) => "A" | "B" | WeakTypes;`, got `declare const f: any;`

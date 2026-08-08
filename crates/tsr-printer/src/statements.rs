@@ -7,6 +7,7 @@ use crate::{ListFormat, Printer, quote_string};
 impl Printer<'_> {
     pub(crate) fn emit_statement(&mut self, statement: &Statement<'_>) {
         self.write_line();
+        self.emit_leading_jsdoc(statement.node_id());
         match statement {
             // Ported from `Printer.emitVariableStatement` (`internal/printer/printer.go`).
             Statement::VariableStatement(node) => {
@@ -297,7 +298,7 @@ impl Printer<'_> {
                 match &node.name {
                     Some(tsr_ast::ModuleName::Identifier(name)) => self.write(name.text),
                     Some(tsr_ast::ModuleName::StringLiteral(literal)) => {
-                        let quoted = quote_string(literal.text);
+                        let quoted = quote_string(literal.text, literal.token_flags);
                         self.write(&quoted);
                     }
                     None => {}
@@ -505,7 +506,14 @@ impl Printer<'_> {
         let Some(attributes) = attributes else { return };
         self.write(" ");
         self.emit_token_node(attributes.token);
-        self.write(" {");
+        self.write(" ");
+        self.import_attributes_body(attributes);
+    }
+
+    /// Emit the `{ key: value }` shared by declaration and import-type
+    /// attribute syntax.
+    pub(crate) fn import_attributes_body(&mut self, attributes: &tsr_ast::ImportAttributes<'_>) {
+        self.write("{");
         for (index, attribute) in attributes.attributes.iter().enumerate() {
             if index > 0 {
                 self.write(",");
@@ -514,7 +522,7 @@ impl Printer<'_> {
             match &attribute.name {
                 Some(tsr_ast::ImportAttributeName::Identifier(name)) => self.write(name.text),
                 Some(tsr_ast::ImportAttributeName::StringLiteral(literal)) => {
-                    let quoted = quote_string(literal.text);
+                    let quoted = quote_string(literal.text, literal.token_flags);
                     self.write(&quoted);
                 }
                 None => {}
@@ -537,6 +545,16 @@ impl Printer<'_> {
         match body {
             Some(tsr_ast::ModuleBody::ModuleBlock(block)) => {
                 self.write_space();
+                // An empty namespace body prints `{ }` only when the original
+                // source block sat on one line — even if its statements were
+                // filtered away. Bodies whose source braces span lines stay
+                // multiline; empty interface and type-literal bodies always do.
+                if block.statements.is_empty() && self.original_span_is_single_line(block.node_id) {
+                    self.write_punctuation("{");
+                    self.write(" ");
+                    self.write_punctuation("}");
+                    return;
+                }
                 self.write_punctuation("{");
                 self.emit_list(
                     block.statements,
@@ -550,7 +568,7 @@ impl Printer<'_> {
                 match &inner.name {
                     Some(tsr_ast::ModuleName::Identifier(name)) => self.write(name.text),
                     Some(tsr_ast::ModuleName::StringLiteral(literal)) => {
-                        let quoted = crate::quote_string(literal.text);
+                        let quoted = crate::quote_string(literal.text, literal.token_flags);
                         self.write(&quoted);
                     }
                     None => {}
@@ -659,13 +677,14 @@ impl Printer<'_> {
         match name {
             tsr_ast::ModuleExportName::Identifier(identifier) => self.write(identifier.text),
             tsr_ast::ModuleExportName::StringLiteral(literal) => {
-                let quoted = quote_string(literal.text);
+                let quoted = quote_string(literal.text, literal.token_flags);
                 self.write(&quoted);
             }
         }
     }
 
     pub(crate) fn emit_class_element(&mut self, member: &ClassElement<'_>) {
+        self.emit_leading_jsdoc(member.node_id());
         match member {
             // Ported from `Printer.emitPropertyDeclaration` (`internal/printer/printer.go`).
             ClassElement::PropertyDeclaration(node) => {
@@ -705,8 +724,16 @@ impl Printer<'_> {
             // Ported from `Printer.emitConstructor` (`internal/printer/printer.go`).
             ClassElement::ConstructorDeclaration(node) => {
                 self.emit_modifier_list(node.modifiers);
+                if node.asterisk_token.is_some() {
+                    self.write("*");
+                }
                 self.write("constructor");
+                self.emit_type_parameters(node.type_parameters);
                 self.emit_parameters(node.parameters);
+                if let Some(r#type) = &node.r#type {
+                    self.write(": ");
+                    self.emit_type_node(r#type);
+                }
                 self.function_body(node.body.as_ref());
             }
             // Ported from `Printer.emitGetAccessorDeclaration` (`internal/printer/printer.go`).

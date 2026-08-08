@@ -86,6 +86,7 @@ impl<'a> Parser<'a> {
             | SyntaxKind::BigIntLiteral
             | SyntaxKind::StringLiteral
             | SyntaxKind::NoSubstitutionTemplateLiteral
+            | SyntaxKind::PrivateIdentifier
             | SyntaxKind::TemplateHead
             | SyntaxKind::OpenParenToken
             | SyntaxKind::OpenBracketToken
@@ -100,8 +101,8 @@ impl<'a> Parser<'a> {
             | SyntaxKind::SlashEqualsToken
             | SyntaxKind::LessThanToken
             | SyntaxKind::DotDotDotToken => true,
-            // `@` (decorators) and `#` (private names) are not parsed yet. Claiming
-            // them here would produce a node covering no text.
+            // `@` is parsed only where decorators are legal. Claiming it as an
+            // expression start would produce a node covering no text.
             kind => kind.is_keyword(),
         }
     }
@@ -449,13 +450,21 @@ impl<'a> Parser<'a> {
                 }
                 // `f<T>(x)`. `<` is also less-than, so the type arguments are
                 // only accepted when a call follows them.
-                SyntaxKind::LessThanToken => {
+                SyntaxKind::LessThanToken | SyntaxKind::LessThanLessThanToken => {
                     // `f<T>(x)` is a generic call. `f<T>` alone is an
                     // *instantiation expression*, legal since TS 4.7 — but `a < b
                     // > c` is a comparison, so the type arguments only stand
                     // without a call when what follows cannot continue an
                     // expression.
                     let Some(type_arguments) = self.try_parse(|p| {
+                        // `f<<T>() => U>(g)` starts a generic call whose first
+                        // type argument is a generic arrow. The scanner sees
+                        // the adjacent opening brackets as `<<`; split them
+                        // only inside the speculative parse so a real shift
+                        // expression still rewinds intact.
+                        if p.at(SyntaxKind::LessThanLessThanToken) {
+                            p.rescan_less_than();
+                        }
                         let arguments = p.parse_type_arguments_for_call()?;
                         (p.at(SyntaxKind::OpenParenToken) || p.at_instantiation_terminator())
                             .then_some(arguments)
@@ -485,8 +494,20 @@ impl<'a> Parser<'a> {
                 // the tag, not a separate expression.
                 SyntaxKind::NoSubstitutionTemplateLiteral | SyntaxKind::TemplateHead => {
                     let template = self.parse_template_literal();
+                    let (tag, type_arguments) = match expression {
+                        Expression::ExpressionWithTypeArguments(instantiation) => (
+                            instantiation.expression.unwrap_or(expression),
+                            instantiation.type_arguments,
+                        ),
+                        _ => (expression, &[] as &[TypeNode<'a>]),
+                    };
                     let node = self.finish_node(
-                        TaggedTemplateExpression::new(Some(expression), None, &[], Some(template)),
+                        TaggedTemplateExpression::new(
+                            Some(tag),
+                            None,
+                            type_arguments,
+                            Some(template),
+                        ),
                         SyntaxKind::TaggedTemplateExpression,
                         start,
                     );
@@ -525,13 +546,9 @@ impl<'a> Parser<'a> {
         // parentheses belong to `new`.
         while self.at(SyntaxKind::DotToken) {
             self.next_token();
-            let name = self.parse_identifier();
+            let name = self.parse_member_name();
             let node = self.finish_node(
-                PropertyAccessExpression::new(
-                    Some(callee),
-                    None,
-                    Some(MemberName::Identifier(name)),
-                ),
+                PropertyAccessExpression::new(Some(callee), None, Some(name)),
                 SyntaxKind::PropertyAccessExpression,
                 callee_start,
             );
@@ -623,6 +640,16 @@ impl<'a> Parser<'a> {
                     start,
                 );
                 Expression::StringLiteral(node)
+            }
+            SyntaxKind::PrivateIdentifier => {
+                let text = self.private_identifier_text();
+                self.next_token();
+                let node = self.finish_node(
+                    PrivateIdentifier::new(text),
+                    SyntaxKind::PrivateIdentifier,
+                    start,
+                );
+                Expression::PrivateIdentifier(node)
             }
             SyntaxKind::NoSubstitutionTemplateLiteral => {
                 let raw = self.token_text();
@@ -1146,6 +1173,7 @@ impl<'a> Parser<'a> {
         };
 
         let mut depth = 0u32;
+        let mut brace_depth = 0u32;
         loop {
             let kind = self.token.kind;
             if kind == SyntaxKind::EndOfFile {
@@ -1162,6 +1190,13 @@ impl<'a> Parser<'a> {
 
             if kind == open {
                 depth += 1;
+            } else if open == SyntaxKind::LessThanToken && kind == SyntaxKind::OpenBraceToken {
+                brace_depth += 1;
+            } else if open == SyntaxKind::LessThanToken
+                && kind == SyntaxKind::CloseBraceToken
+                && brace_depth > 0
+            {
+                brace_depth -= 1;
             } else if closes > 0 {
                 if closes >= depth {
                     self.next_token();
@@ -1169,10 +1204,13 @@ impl<'a> Parser<'a> {
                 }
                 depth -= closes;
             } else if open == SyntaxKind::LessThanToken
-                && matches!(kind, SyntaxKind::SemicolonToken | SyntaxKind::OpenBraceToken)
+                && kind == SyntaxKind::SemicolonToken
+                && brace_depth == 0
             {
                 // `<` is also a comparison operator; a statement boundary means
-                // this was never a type-parameter list.
+                // this was never a type-parameter list. An opening brace is not
+                // such a boundary: object constraints make
+                // `<T extends { key: value }>(x: T) => x` a generic arrow.
                 return false;
             }
             self.next_token();
@@ -1333,6 +1371,64 @@ impl<'a> Parser<'a> {
                     );
                     expression = Expression::CallExpression(node);
                 }
+                SyntaxKind::ExclamationToken if !self.token.has_preceding_line_break() => {
+                    self.next_token();
+                    let node = self.finish_node(
+                        NonNullExpression::new(Some(expression)),
+                        SyntaxKind::NonNullExpression,
+                        start,
+                    );
+                    expression = Expression::NonNullExpression(node);
+                }
+                SyntaxKind::LessThanToken => {
+                    let Some(type_arguments) =
+                        self.try_parse(Parser::parse_type_arguments_for_call)
+                    else {
+                        break;
+                    };
+                    let type_arguments = self.arena.alloc_slice(&type_arguments);
+                    if self.at(SyntaxKind::OpenParenToken) {
+                        let arguments = self.parse_arguments();
+                        let arguments = self.arena.alloc_slice(&arguments);
+                        let node = self.finish_node(
+                            CallExpression::new(Some(expression), None, type_arguments, arguments),
+                            SyntaxKind::CallExpression,
+                            start,
+                        );
+                        expression = Expression::CallExpression(node);
+                    } else {
+                        let node = self.finish_node(
+                            ExpressionWithTypeArguments::new(Some(expression), type_arguments),
+                            SyntaxKind::ExpressionWithTypeArguments,
+                            start,
+                        );
+                        expression = Expression::ExpressionWithTypeArguments(node);
+                    }
+                }
+                SyntaxKind::NoSubstitutionTemplateLiteral | SyntaxKind::TemplateHead => {
+                    let template = self.parse_template_literal();
+                    // Type arguments belong to the tagged-template node, not
+                    // to an `ExpressionWithTypeArguments` wrapper around its
+                    // tag (`parseMemberExpressionRest` upstream).
+                    let (tag, type_arguments) = match expression {
+                        Expression::ExpressionWithTypeArguments(instantiation) => (
+                            instantiation.expression.unwrap_or(expression),
+                            instantiation.type_arguments,
+                        ),
+                        _ => (expression, &[] as &[TypeNode<'a>]),
+                    };
+                    let node = self.finish_node(
+                        TaggedTemplateExpression::new(
+                            Some(tag),
+                            None,
+                            type_arguments,
+                            Some(template),
+                        ),
+                        SyntaxKind::TaggedTemplateExpression,
+                        start,
+                    );
+                    expression = Expression::TaggedTemplateExpression(node);
+                }
                 // Deliberately not `[`: an unparenthesised decorator takes a
                 // dotted name with an optional call, so in `@dec ["1"]() {}` the
                 // brackets are the *member's* computed name. Use `@(a["b"])` for
@@ -1454,7 +1550,7 @@ impl<'a> Parser<'a> {
     fn parse_member_name(&mut self) -> MemberName<'a> {
         if self.at(SyntaxKind::PrivateIdentifier) {
             let start = self.pos();
-            let text = self.token_value();
+            let text = self.private_identifier_text();
             self.next_token();
             let node = self.finish_node(
                 PrivateIdentifier::new(text),
@@ -1500,7 +1596,7 @@ impl<'a> Parser<'a> {
                 PropertyName::ComputedPropertyName(node)
             }
             SyntaxKind::PrivateIdentifier => {
-                let text = self.token_value();
+                let text = self.private_identifier_text();
                 self.next_token();
                 let node = self.finish_node(
                     PrivateIdentifier::new(text),
@@ -1511,6 +1607,14 @@ impl<'a> Parser<'a> {
             }
             _ => PropertyName::Identifier(self.parse_identifier()),
         }
+    }
+
+    /// The scanner's decoded value for an escaped private name excludes the
+    /// leading `#`, while the AST invariant (and ordinary unescaped token value)
+    /// includes it.
+    fn private_identifier_text(&self) -> &'a str {
+        let text = self.token_value();
+        if text.starts_with('#') { text } else { self.arena.alloc_str(&format!("#{text}")) }
     }
 
     /// Parse a binding name: an identifier or a destructuring pattern.
@@ -1527,6 +1631,7 @@ impl<'a> Parser<'a> {
         let kind_token = self.alloc_token(SyntaxKind::OpenBracketToken, self.token.span);
         self.expect(SyntaxKind::OpenBracketToken);
         let mut elements = Vec::new();
+        let mut has_trailing_comma = false;
         while !self.at(SyntaxKind::CloseBracketToken) && !self.at(SyntaxKind::EndOfFile) {
             if self.at(SyntaxKind::CommaToken) {
                 // A hole, `[, a]`. Upstream's `parseArrayBindingElement`
@@ -1545,19 +1650,29 @@ impl<'a> Parser<'a> {
                 );
                 elements.push(hole);
                 self.next_token();
+                has_trailing_comma = self.at(SyntaxKind::CloseBracketToken);
                 continue;
             }
             elements.push(self.parse_binding_element());
             if !self.eat(SyntaxKind::CommaToken) {
                 break;
             }
+            has_trailing_comma = self.at(SyntaxKind::CloseBracketToken);
         }
         self.expect(SyntaxKind::CloseBracketToken);
         let elements = self.arena.alloc_slice(&elements);
-        let node = self.finish_node(
+        let end = self.node_end();
+        let flags = if has_trailing_comma {
+            tsr_ast::NodeFlags::HAS_TRAILING_COMMA
+        } else {
+            tsr_ast::NodeFlags::empty()
+        };
+        let node = self.finish_node_with_flags(
             BindingPattern::new(kind_token, elements),
             SyntaxKind::ArrayBindingPattern,
             start,
+            end,
+            flags,
         );
         BindingName::BindingPattern(node)
     }
@@ -1567,22 +1682,32 @@ impl<'a> Parser<'a> {
         let kind_token = self.alloc_token(SyntaxKind::OpenBraceToken, self.token.span);
         self.expect(SyntaxKind::OpenBraceToken);
         let mut elements = Vec::new();
+        let mut has_trailing_comma = false;
         while !self.at(SyntaxKind::CloseBraceToken) && !self.at(SyntaxKind::EndOfFile) {
             let before = self.pos();
             elements.push(self.parse_binding_element());
             if !self.eat(SyntaxKind::CommaToken) {
                 break;
             }
+            has_trailing_comma = self.at(SyntaxKind::CloseBraceToken);
             if self.pos() == before {
                 break;
             }
         }
         self.expect(SyntaxKind::CloseBraceToken);
         let elements = self.arena.alloc_slice(&elements);
-        let node = self.finish_node(
+        let end = self.node_end();
+        let flags = if has_trailing_comma {
+            tsr_ast::NodeFlags::HAS_TRAILING_COMMA
+        } else {
+            tsr_ast::NodeFlags::empty()
+        };
+        let node = self.finish_node_with_flags(
             BindingPattern::new(kind_token, elements),
             SyntaxKind::ObjectBindingPattern,
             start,
+            end,
+            flags,
         );
         BindingName::BindingPattern(node)
     }

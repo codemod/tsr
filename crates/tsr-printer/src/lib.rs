@@ -110,6 +110,21 @@ pub fn print(file: &SourceFile<'_>, nodes: &tsr_ast::NodeTable) -> Printed {
     Printed { text: printer.writer.into_string(), unsupported: printer.unsupported }
 }
 
+/// Print a source file while preserving declaration-relevant leading JSDoc.
+///
+/// Ordinary round-trip printing remains comment-free. Declaration emit opts in
+/// because it carries original source ranges through its synthesized nodes.
+#[must_use]
+pub fn print_with_source(
+    file: &SourceFile<'_>,
+    nodes: &tsr_ast::NodeTable,
+    source_text: &str,
+) -> Printed {
+    let mut printer = Printer::with_source(nodes, source_text);
+    printer.emit_source_file(file);
+    Printed { text: printer.writer.into_string(), unsupported: printer.unsupported }
+}
+
 /// Ported from typescript-go's `Printer` (`internal/printer/printer.go`).
 ///
 /// Upstream's `Printer` also carries an `EmitContext`, a name generator, comment
@@ -124,6 +139,14 @@ pub(crate) struct Printer<'t> {
     /// `const`/`let` live in `NodeFlags`, not in the tree, so printing a variable
     /// statement needs the side table the parser filled in.
     nodes: &'t tsr_ast::NodeTable,
+    /// Original text for declaration-only comment retention.
+    source_text: Option<&'t str>,
+    /// Source ranges already emitted. Several synthesized declaration nodes can
+    /// share one original span, and a comment must not be duplicated for each.
+    emitted_comments: std::collections::HashSet<(usize, usize)>,
+    /// Nesting depth of synthesized function-signature return types. Upstream
+    /// applies its `SingleLine` emit context while printing these copied types.
+    single_line_type_depth: usize,
 }
 
 impl<'t> Printer<'t> {
@@ -133,6 +156,60 @@ impl<'t> Printer<'t> {
             unsupported: Vec::new(),
             last_was_numeric: false,
             nodes,
+            source_text: None,
+            emitted_comments: std::collections::HashSet::new(),
+            single_line_type_depth: 0,
+        }
+    }
+
+    fn with_source(nodes: &'t tsr_ast::NodeTable, source_text: &'t str) -> Self {
+        let mut printer = Self::new(nodes);
+        printer.source_text = Some(source_text);
+        printer
+    }
+
+    /// Whether `node_id`'s original source span starts at a brace and sits on
+    /// one line. Only declaration emit carries source text, so ordinary
+    /// round-trip printing always answers `false`.
+    pub(crate) fn original_span_is_single_line(&self, node_id: Option<tsr_ast::NodeId>) -> bool {
+        let Some(source) = self.source_text else { return false };
+        let Some(node_id) = node_id else { return false };
+        let span = self.nodes.span(node_id);
+        let (start, end) = (span.start as usize, span.end as usize);
+        start < end
+            && end <= source.len()
+            && source[start..].starts_with('{')
+            && !source[start..end].contains(['\n', '\r'])
+    }
+
+    /// Emit the nearest leading JSDoc attached to `node_id`, if any.
+    pub(crate) fn emit_leading_jsdoc(&mut self, node_id: Option<tsr_ast::NodeId>) {
+        let Some(source) = self.source_text else { return };
+        let Some(node_id) = node_id else { return };
+        let start = self.nodes.span(node_id).start as usize;
+        // Every JSDoc block in the node's leading trivia, in source order —
+        // stacked `@typedef` blocks all belong to the declaration below them
+        // (`recursiveTypeReferences2` replays three in a row).
+        let mut ranges = Vec::new();
+        let mut cursor = start;
+        while let Some((comment_start, comment_end)) = leading_jsdoc_range(source, cursor) {
+            ranges.push((comment_start, comment_end));
+            cursor = comment_start;
+        }
+        for (comment_start, comment_end) in ranges.into_iter().rev() {
+            if !self.emitted_comments.insert((comment_start, comment_end)) {
+                continue;
+            }
+            let line_start =
+                source[..comment_start].rfind(['\n', '\r']).map_or(0, |index| index + 1);
+            let margin = &source[line_start..comment_start];
+            let comment = &source[comment_start..comment_end];
+            for (index, line) in comment.lines().enumerate() {
+                let line =
+                    if index == 0 { line } else { line.strip_prefix(margin).unwrap_or(line) };
+                self.write(line);
+                self.write_line();
+            }
         }
     }
 
@@ -190,6 +267,18 @@ impl<'t> Printer<'t> {
         self.write(text);
     }
 
+    /// Close a type-argument or type-parameter list without the generic token
+    /// separator guard.
+    ///
+    /// In a type context, adjacent closers are intentionally written `>>`; the
+    /// parser rescans them as two `>` tokens. Treating them like arbitrary
+    /// punctuation inserted a space and produced `Outer<Inner<T> >`, unlike
+    /// upstream's declaration printer.
+    fn write_closing_angle_bracket(&mut self) {
+        self.last_was_numeric = false;
+        self.writer.write(">");
+    }
+
     /// Ported from `Printer.writeOperator`.
     pub(crate) fn write_operator(&mut self, text: &str) {
         self.write(text);
@@ -203,6 +292,18 @@ impl<'t> Printer<'t> {
     #[allow(dead_code)]
     pub(crate) fn write_literal(&mut self, text: &str) {
         self.write(text);
+    }
+
+    /// Write a decoded identifier, retaining parser-recovery identifiers whose
+    /// first character is an ASCII digit by escaping that character. The escape
+    /// decodes to the same AST text while remaining one identifier token.
+    pub(crate) fn write_identifier(&mut self, text: &str) {
+        let Some(first) = text.as_bytes().first().copied() else { return };
+        if first.is_ascii_digit() {
+            self.write(&format!("\\u{first:04x}{}", &text[1..]));
+        } else {
+            self.write(text);
+        }
     }
 
     /// Ported from `Printer.writeSpace`.
@@ -272,6 +373,19 @@ impl<'t> Printer<'t> {
         format: ListFormat,
         mut emit: impl FnMut(&mut Self, &T),
     ) {
+        self.emit_list_with_trailing_delimiter(children, format, false, &mut emit);
+    }
+
+    /// Emit a list, optionally retaining a syntactically significant final
+    /// delimiter. Array elisions need this: `[value, ]` is only a trailing
+    /// comma, while `[value, ,]` contains an omitted element.
+    pub(crate) fn emit_list_with_trailing_delimiter<T>(
+        &mut self,
+        children: &[T],
+        format: ListFormat,
+        trailing_delimiter: bool,
+        mut emit: impl FnMut(&mut Self, &T),
+    ) {
         if children.is_empty() && format.contains(ListFormat::OPTIONAL_IF_EMPTY) {
             return;
         }
@@ -299,10 +413,14 @@ impl<'t> Printer<'t> {
                 self.write_space();
             }
         } else {
-            self.emit_list_items(children, format, &mut emit);
+            self.emit_list_items(children, format, trailing_delimiter, &mut emit);
         }
         if let Some(close) = format.closing_bracket() {
-            self.write_punctuation(close);
+            if close == ">" {
+                self.write_closing_angle_bracket();
+            } else {
+                self.write_punctuation(close);
+            }
         }
         if format.contains(ListFormat::SPACE_AFTER_LIST) && !children.is_empty() {
             self.write_space();
@@ -322,6 +440,7 @@ impl<'t> Printer<'t> {
         &mut self,
         children: &[T],
         format: ListFormat,
+        trailing_delimiter: bool,
         emit: &mut impl FnMut(&mut Self, &T),
     ) {
         if children.is_empty() {
@@ -346,6 +465,10 @@ impl<'t> Printer<'t> {
                 }
             }
             emit(self, child);
+        }
+
+        if trailing_delimiter {
+            self.write_delimiter(format);
         }
 
         if format.contains(ListFormat::INDENTED) {
@@ -497,7 +620,7 @@ impl<'t> Printer<'t> {
 
     pub(crate) fn emit_binding_name(&mut self, name: &tsr_ast::BindingName<'_>) {
         match name {
-            tsr_ast::BindingName::Identifier(identifier) => self.write(identifier.text),
+            tsr_ast::BindingName::Identifier(identifier) => self.write_identifier(identifier.text),
             tsr_ast::BindingName::BindingPattern(pattern) => self.emit_binding_pattern(pattern),
         }
     }
@@ -513,9 +636,15 @@ impl<'t> Printer<'t> {
             (ListFormat::ARRAY_BINDING_PATTERN_ELEMENTS, "[", "]")
         };
         self.write_punctuation(open);
-        self.emit_list(pattern.elements, format, |printer, element| {
-            printer.emit_binding_element(element);
+        let trailing_comma = pattern.node_id.is_some_and(|id| {
+            self.nodes.flags(id).contains(tsr_ast::NodeFlags::HAS_TRAILING_COMMA)
         });
+        self.emit_list_with_trailing_delimiter(
+            pattern.elements,
+            format,
+            trailing_comma,
+            |printer, element| printer.emit_binding_element(element),
+        );
         self.write_punctuation(close);
     }
 
@@ -546,7 +675,7 @@ impl<'t> Printer<'t> {
             // `PrivateIdentifier.text` already carries its `#`.
             tsr_ast::PropertyName::PrivateIdentifier(identifier) => self.write(identifier.text),
             tsr_ast::PropertyName::StringLiteral(literal) => {
-                let quoted = quote_string(literal.text);
+                let quoted = quote_string(literal.text, literal.token_flags);
                 self.write(&quoted);
             }
             tsr_ast::PropertyName::NumericLiteral(literal) => self.write(literal.text),
@@ -632,16 +761,26 @@ fn would_merge(last: char, next: char, last_was_numeric: bool) -> bool {
     if last_was_numeric && last.is_ascii_digit() && next == '.' {
         return true;
     }
+    // Mapped modifiers spell their add/remove marker as `+?` / `-?`. Neither
+    // pair is a JavaScript punctuator, so separating it changes valid type syntax
+    // into a parse error rather than preventing token merging.
+    if matches!(last, '+' | '-') && next == '?' {
+        return false;
+    }
     PUNCTUATION.contains(last) && PUNCTUATION.contains(next)
 }
 
 /// Re-quote a decoded string value.
-pub(crate) fn quote_string(value: &str) -> String {
+pub(crate) fn quote_string(value: &str, flags: tsr_ast::TokenFlags) -> String {
+    let quote = if flags.contains(tsr_ast::TokenFlags::SINGLE_QUOTE) { '\'' } else { '"' };
     let mut out = String::with_capacity(value.len() + 2);
-    out.push('"');
+    out.push(quote);
     for character in value.chars() {
         match character {
-            '"' => out.push_str("\\\""),
+            c if c == quote => {
+                out.push('\\');
+                out.push(c);
+            }
             '\\' => out.push_str("\\\\"),
             '\n' => out.push_str("\\n"),
             '\r' => out.push_str("\\r"),
@@ -657,7 +796,7 @@ pub(crate) fn quote_string(value: &str) -> String {
             c => out.push(c),
         }
     }
-    out.push('"');
+    out.push(quote);
     out
 }
 
@@ -845,9 +984,27 @@ fn keyword_text(kind: SyntaxKind) -> Option<&'static str> {
     })
 }
 
+/// The nearest block comment before a node when it is JSDoc and separated from
+/// the node only by whitespace. A nearer line or ordinary block comment stops
+/// attachment, matching the closest-comment rule used by `stripInternal`.
+fn leading_jsdoc_range(source: &str, node_start: usize) -> Option<(usize, usize)> {
+    let prefix = &source[..node_start.min(source.len())];
+    let trimmed = prefix.trim_end_matches(char::is_whitespace);
+    if !trimmed.ends_with("*/") {
+        return None;
+    }
+    let start = trimmed.rfind("/*")?;
+    let comment = &trimmed[start..];
+    (comment.starts_with("/**")
+        && !comment.contains("@overload")
+        && !comment.contains("@constructor"))
+    .then_some((start, trimmed.len()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tsr_ast::TokenFlags;
 
     #[test]
     fn adjacent_words_are_separated() {
@@ -874,12 +1031,13 @@ mod tests {
     #[test]
     fn a_string_is_requoted_from_its_decoded_value() {
         // The scanner hands back the decoded value, so the printer owns escaping.
-        assert_eq!(quote_string(r#"a"b"#), r#""a\"b""#);
-        assert_eq!(quote_string("a\\b"), r#""a\\b""#);
-        assert_eq!(quote_string("a\nb"), r#""a\nb""#);
+        assert_eq!(quote_string(r#"a"b"#, TokenFlags::empty()), r#""a\"b""#);
+        assert_eq!(quote_string("a\\b", TokenFlags::empty()), r#""a\\b""#);
+        assert_eq!(quote_string("a\nb", TokenFlags::empty()), r#""a\nb""#);
+        assert_eq!(quote_string("a'b", TokenFlags::SINGLE_QUOTE), r"'a\'b'");
         // U+2028 is a line terminator in JavaScript, so it cannot be left bare
         // inside a string literal even though it is printable.
-        assert_eq!(quote_string("\u{2028}"), r#""\u2028""#);
+        assert_eq!(quote_string("\u{2028}", TokenFlags::empty()), r#""\u2028""#);
     }
 
     #[test]

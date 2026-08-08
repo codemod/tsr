@@ -1,6 +1,6 @@
 //! Type nodes and type-literal members.
 
-use tsr_ast::{TypeElement, TypeNode};
+use tsr_ast::{SyntaxKind, TypeElement, TypeNode};
 
 use crate::{ListFormat, Printer};
 
@@ -190,7 +190,16 @@ impl Printer<'_> {
                 self.emit_parameters(function.parameters);
                 self.write(" => ");
                 if let Some(r#type) = &function.r#type {
+                    let synthesized = function.node_id.is_some_and(|id| {
+                        self.nodes.flags(id).contains(tsr_ast::NodeFlags::SYNTHESIZED)
+                    });
+                    if synthesized {
+                        self.single_line_type_depth += 1;
+                    }
                     self.emit_type_node(r#type);
+                    if synthesized {
+                        self.single_line_type_depth -= 1;
+                    }
                 }
             }
             // Ported from `Printer.emitConstructorType` (`internal/printer/printer.go`).
@@ -224,11 +233,28 @@ impl Printer<'_> {
             // Ported from `Printer.emitMappedType` (`internal/printer/printer.go`).
             TypeNode::MappedTypeNode(mapped) => {
                 self.write("{");
-                if let Some(token) = mapped.readonly_token {
+                // Upstream's default is multiline; only an explicit SingleLine
+                // emit flag uses the compact form. Synthesized-signature
+                // context and reparsed JSDoc trees (`NodeFlagsReparsed`,
+                // `reparser.go`) are the two places that flag is set.
+                let single_line = self.single_line_type_depth > 0
+                    || mapped.node_id.is_some_and(|id| {
+                        self.nodes.flags(id).contains(tsr_ast::NodeFlags::REPARSED)
+                    });
+                if single_line {
                     self.write(" ");
-                    self.emit_token_node(token);
+                } else {
+                    self.write_line();
+                    self.increase_indent();
                 }
-                self.write(" [");
+                if let Some(token) = mapped.readonly_token {
+                    self.emit_token_node(token);
+                    if token.kind != SyntaxKind::ReadonlyKeyword {
+                        self.write("readonly");
+                    }
+                    self.write(" ");
+                }
+                self.write("[");
                 if let Some(parameter) = mapped.type_parameter {
                     if let Some(name) = parameter.name {
                         self.write(name.text);
@@ -245,12 +271,22 @@ impl Printer<'_> {
                 self.write("]");
                 if let Some(token) = mapped.question_token {
                     self.emit_token_node(token);
+                    if token.kind != SyntaxKind::QuestionToken {
+                        self.write("?");
+                    }
                 }
                 if let Some(r#type) = &mapped.r#type {
                     self.write(": ");
                     self.emit_type_node(r#type);
                 }
-                self.write("; }");
+                self.write(";");
+                if single_line {
+                    self.write(" ");
+                } else {
+                    self.write_line();
+                    self.decrease_indent();
+                }
+                self.write("}");
             }
             // Ported from `Printer.emitTemplateType` (`internal/printer/printer.go`).
             TypeNode::TemplateLiteralTypeNode(template) => {
@@ -272,6 +308,13 @@ impl Printer<'_> {
                 self.write("import(");
                 if let Some(argument) = &import.argument {
                     self.emit_type_node(argument);
+                }
+                if let Some(attributes) = import.attributes {
+                    self.write(", { ");
+                    self.emit_token_node(attributes.token);
+                    self.write(": ");
+                    self.import_attributes_body(attributes);
+                    self.write(" }");
                 }
                 self.write(")");
                 if let Some(qualifier) = &import.qualifier {
@@ -299,6 +342,7 @@ impl Printer<'_> {
     }
 
     fn emit_type_element(&mut self, member: &TypeElement<'_>) {
+        self.emit_leading_jsdoc(member.node_id());
         match member {
             // Ported from `Printer.emitPropertySignature` (`internal/printer/printer.go`).
             TypeElement::PropertySignatureDeclaration(node) => {

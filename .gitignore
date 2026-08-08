@@ -12,3 +12,5 @@
 perf-results.json
 perf-summary.md
 
+# Local Compound Engineering optimization state.
+/.context/

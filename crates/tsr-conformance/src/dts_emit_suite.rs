@@ -109,8 +109,29 @@ impl Suite for DtsEmit {
                     reason: "a unit of this case does not parse cleanly".into(),
                 };
             }
+            let references = declaration_references(&parsed.file_references);
             let mut nodes = parsed.nodes;
-            let result = tsr_declarations::emit(&arena, &mut nodes, parsed.source_file);
+            stamp_javascript_root(&unit.name, parsed.source_file, &mut nodes);
+            // The URL is relative to the declaration file, so only the final
+            // path component is named.
+            let declaration_file = declaration_name(&unit.name);
+            let map_base = declaration_file.rsplit('/').next().unwrap_or(&declaration_file);
+            let map_url = format!("{map_base}.map");
+            let mut options = declaration_emit_options(&parsed_case, &unit.name, &unit.content);
+            if parsed_case
+                .options
+                .get("declarationmap")
+                .is_some_and(|value| value.eq_ignore_ascii_case("true"))
+            {
+                options.source_map_url = Some(&map_url);
+            }
+            let result = tsr_declarations::emit_with_references_and_options(
+                &arena,
+                &mut nodes,
+                parsed.source_file,
+                &references,
+                options,
+            );
             if !result.diagnostics.is_empty() {
                 return Outcome::Skipped {
                     reason: "a declaration in this case needs inference (see dts_reachable_target)"
@@ -159,24 +180,109 @@ pub(crate) fn output_units<'a>(
     baseline: &'a JsBaseline,
     case: &'a crate::TestCase,
 ) -> Vec<(&'a crate::TestFile, &'a crate::js_baseline::Section)> {
-    let inputs: std::collections::HashSet<&str> =
-        case.files.iter().map(|file| file.name.as_str()).collect();
-    case.files
+    pair_units(baseline, case)
+        .into_iter()
+        .filter_map(|(unit, section)| Some((unit, section?)))
+        .collect()
+}
+
+/// Every emittable unit paired with its declaration section, if upstream wrote
+/// one.
+///
+/// Pairing is positional where names collide: two `@filename` directories can
+/// flatten to the same section name (`moduleDeclarationExportStarShadowingGlobalIsNameable`
+/// has two `index.ts` units and two `index.d.ts` outputs), and upstream writes
+/// outputs in program order, so the k-th unit claiming a name pairs with the
+/// k-th section bearing it. Exact full-name matches are claimed first so a
+/// pathed output never loses its section to a basename collision.
+fn pair_units<'a>(
+    baseline: &'a JsBaseline,
+    case: &'a crate::TestCase,
+) -> Vec<(&'a crate::TestFile, Option<&'a crate::js_baseline::Section>)> {
+    fn base(path: &str) -> &str {
+        path.rsplit('/').next().unwrap_or(path)
+    }
+    let emitted = emitted_sections(baseline, case);
+    let units: Vec<&crate::TestFile> = case
+        .files
         .iter()
         .filter(|unit| {
             ScriptKind::from_file_name(&unit.name) != ScriptKind::Json
                 && !is_declaration_file_name(&unit.name)
+                // Files under node_modules are program inputs, never outputs:
+                // upstream writes no .js or .d.ts for them
+                // (compositeWithNodeModulesSourceFile).
+                && !unit.name.contains("node_modules/")
         })
-        .filter_map(|unit| {
-            let name = declaration_name(&unit.name);
-            let section = baseline.sections.iter().find(|section| {
-                section.name == name
-                    && section.is_declaration()
-                    && !inputs.contains(section.name.as_str())
-            })?;
-            Some((unit, section))
-        })
+        .collect();
+
+    // Positional within each basename group: exact-name claiming is actively
+    // wrong when two flattened outputs share a name, because a bare-named unit
+    // would grab the *first* section regardless of whose output it is
+    // (`moduleDeclarationExportStarShadowingGlobalIsNameable`).
+    let mut claimed = vec![false; emitted.len()];
+    let mut pairs: Vec<Option<usize>> = vec![None; units.len()];
+    for (index, unit) in units.iter().enumerate() {
+        let wanted = declaration_name(&unit.name);
+        if let Some(found) = emitted.iter().enumerate().position(|(position, section)| {
+            !claimed[position] && section.is_declaration() && base(&section.name) == base(&wanted)
+        }) {
+            claimed[found] = true;
+            pairs[index] = Some(found);
+        }
+    }
+
+    units
+        .into_iter()
+        .zip(pairs)
+        .map(|(unit, section)| (unit, section.map(|index| emitted[index])))
         .collect()
+}
+
+/// The baseline's emitted sections: everything after the input echoes.
+///
+/// A baseline echoes every input unit — in case order, flattened to its final
+/// path component — before any emitted file, so the echo region is the longest
+/// prefix of sections whose basename *and content* match an input unit. Name
+/// equality alone cannot discriminate: an input at
+/// `node_modules/lib/index.d.ts` echoes as `index.d.ts`, which is exactly the
+/// name unit `index.ts` emits to, and matching by name paired emitted output
+/// with a stub input (`moduleLocalImportNotIncorrectlyRedirected`).
+fn emitted_sections<'a>(
+    baseline: &'a JsBaseline,
+    case: &crate::TestCase,
+) -> Vec<&'a crate::js_baseline::Section> {
+    fn base(path: &str) -> &str {
+        path.rsplit('/').next().unwrap_or(path)
+    }
+    let is_echo = |section: &crate::js_baseline::Section| {
+        case.files.iter().any(|unit| {
+            base(&unit.name) == base(&section.name)
+                && normalise(&unit.content) == normalise(&section.content)
+        })
+    };
+    let boundary = baseline
+        .sections
+        .iter()
+        .position(|section| !is_echo(section))
+        .unwrap_or(baseline.sections.len());
+    baseline.sections[boundary..].iter().collect()
+}
+
+/// Stamp the JavaScript-file root flag upstream's parser derives from its
+/// `ScriptKind`. This parser never sees the file name (ADR-0016), so the
+/// harness supplies the fact; JSDoc accessibility tags act as modifiers only
+/// under it.
+pub(crate) fn stamp_javascript_root(
+    unit_name: &str,
+    source_file: &tsr_ast::SourceFile<'_>,
+    nodes: &mut tsr_ast::NodeTable,
+) {
+    let lower = unit_name.to_ascii_lowercase();
+    let is_js = [".js", ".jsx", ".mjs", ".cjs"].iter().any(|suffix| lower.ends_with(suffix));
+    if is_js && let Some(root) = source_file.node_id {
+        nodes.add_flags(root, tsr_ast::NodeFlags::JAVASCRIPT_FILE);
+    }
 }
 
 /// The declaration file name for a source unit.
@@ -256,22 +362,9 @@ pub(crate) fn unemitted_units<'a>(
     baseline: &'a JsBaseline,
     case: &'a crate::TestCase,
 ) -> Vec<&'a crate::TestFile> {
-    let inputs: std::collections::HashSet<&str> =
-        case.files.iter().map(|file| file.name.as_str()).collect();
-    case.files
-        .iter()
-        .filter(|unit| {
-            ScriptKind::from_file_name(&unit.name) != ScriptKind::Json
-                && !is_declaration_file_name(&unit.name)
-        })
-        .filter(|unit| {
-            let name = declaration_name(&unit.name);
-            !baseline.sections.iter().any(|section| {
-                section.name == name
-                    && section.is_declaration()
-                    && !inputs.contains(section.name.as_str())
-            })
-        })
+    pair_units(baseline, case)
+        .into_iter()
+        .filter_map(|(unit, section)| section.is_none().then_some(unit))
         .collect()
 }
 
@@ -279,7 +372,12 @@ pub(crate) fn unemitted_units<'a>(
 ///
 /// Used only to decide whether an over-emission has happened, so parse failures
 /// and unsupported nodes answer "no": neither is evidence of over-emission, and
-/// both are already reported by the caller's own checks.
+/// both are already reported by the caller's own checks. Analysis diagnostics
+/// answer "no" for the same reason: a unit that needs inference is outside the
+/// population this suite judges — and when upstream emitted nothing for such a
+/// unit, its own errors suppressed the file (`isolatedDeclarationErrorsDefault`
+/// emits `f.d.ts` and nothing for the five erroring units), so producing text
+/// there is not evidence of over-emission either.
 pub(crate) fn emits_anything(unit: &crate::TestFile) -> bool {
     let kind = ScriptKind::from_file_name(&unit.name);
     let arena = Arena::new();
@@ -287,9 +385,89 @@ pub(crate) fn emits_anything(unit: &crate::TestFile) -> bool {
     if !parsed.diagnostics.is_empty() {
         return false;
     }
+    let references = declaration_references(&parsed.file_references);
     let mut nodes = parsed.nodes;
-    let result = tsr_declarations::emit(&arena, &mut nodes, parsed.source_file);
-    result.unsupported.is_empty() && !result.text.trim().is_empty()
+    stamp_javascript_root(&unit.name, parsed.source_file, &mut nodes);
+    let result =
+        tsr_declarations::emit_with_references(&arena, &mut nodes, parsed.source_file, &references);
+    result.diagnostics.is_empty() && result.unsupported.is_empty() && !result.text.trim().is_empty()
+}
+
+pub(crate) fn declaration_references(
+    references: &tsr_parser::FileReferences,
+) -> Vec<tsr_declarations::DeclarationReference> {
+    use tsr_declarations::{
+        DeclarationReference, DeclarationReferenceKind, DeclarationResolutionMode,
+    };
+
+    let resolution_mode = |mode| match mode {
+        tsr_parser::ResolutionMode::None => DeclarationResolutionMode::None,
+        tsr_parser::ResolutionMode::CommonJS => DeclarationResolutionMode::Require,
+        tsr_parser::ResolutionMode::ESNext => DeclarationResolutionMode::Import,
+    };
+    let convert = |reference: &tsr_parser::FileReference, kind| DeclarationReference {
+        kind,
+        file_name: reference.file_name.clone(),
+        resolution_mode: resolution_mode(reference.resolution_mode),
+        position: reference.span.start,
+    };
+
+    references
+        .referenced_files
+        .iter()
+        .filter(|reference| reference.preserve)
+        .map(|reference| convert(reference, DeclarationReferenceKind::Path))
+        .chain(
+            references
+                .type_reference_directives
+                .iter()
+                .filter(|reference| reference.preserve)
+                .map(|reference| convert(reference, DeclarationReferenceKind::Types)),
+        )
+        .chain(
+            references
+                .lib_reference_directives
+                .iter()
+                .filter(|reference| reference.preserve)
+                .map(|reference| convert(reference, DeclarationReferenceKind::Lib)),
+        )
+        .collect()
+}
+
+pub(crate) fn declaration_emit_options<'a>(
+    case: &crate::TestCase,
+    unit_name: &str,
+    source_text: &'a str,
+) -> tsr_declarations::DeclarationEmitOptions<'a> {
+    // A `.mts`/`.cts` extension (or `moduleDetection: force`) marks the file a
+    // module regardless of its syntax; upstream's detection is not purely
+    // syntactic and the transform needs the fact.
+    let lower = unit_name.to_ascii_lowercase();
+    let force_module = [".mts", ".cts", ".mjs", ".cjs"]
+        .iter()
+        .any(|extension| lower.ends_with(extension) && !is_declaration_file_name(&lower))
+        || case
+            .options
+            .get("moduledetection")
+            .is_some_and(|value| value.eq_ignore_ascii_case("force"));
+    tsr_declarations::DeclarationEmitOptions {
+        source_text: Some(source_text),
+        force_module,
+        strip_internal: case
+            .options
+            .get("stripinternal")
+            .is_some_and(|value| value.eq_ignore_ascii_case("true")),
+        remove_comments: case
+            .options
+            .get("removecomments")
+            .is_some_and(|value| value.eq_ignore_ascii_case("true")),
+        strict_null_checks: case
+            .options
+            .get("strictnullchecks")
+            .or_else(|| case.options.get("strict"))
+            .is_none_or(|value| value.eq_ignore_ascii_case("true")),
+        source_map_url: None,
+    }
 }
 
 #[cfg(test)]
@@ -314,6 +492,23 @@ mod tests {
         assert!(is_declaration_file_name("lib.d.ts"));
         assert!(is_declaration_file_name("a.d.mts"));
         assert!(!is_declaration_file_name("a.ts"));
+    }
+
+    #[test]
+    fn declaration_emit_options_follow_strict_null_directives() {
+        let default_case = crate::TestCase::parse("compiler/default", "default.ts", "");
+        assert!(declaration_emit_options(&default_case, "default.ts", "").strict_null_checks);
+
+        let non_strict =
+            crate::TestCase::parse("compiler/nonStrict", "nonStrict.ts", "// @strict: false\n");
+        assert!(!declaration_emit_options(&non_strict, "nonStrict.ts", "").strict_null_checks);
+
+        let override_case = crate::TestCase::parse(
+            "compiler/override",
+            "override.ts",
+            "// @strict: false\n// @strictNullChecks: true\n",
+        );
+        assert!(declaration_emit_options(&override_case, "override.ts", "").strict_null_checks);
     }
 
     #[test]

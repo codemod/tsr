@@ -36,6 +36,293 @@ fn emit(source: &str) -> String {
     result.text
 }
 
+fn emit_stripping_internal(source: &str) -> String {
+    let arena = Arena::new();
+    let parsed = tsr_parser::parse(&arena, source);
+    assert!(parsed.diagnostics.is_empty(), "test source must parse cleanly: {source:?}");
+    let mut nodes = parsed.nodes;
+    tsr_declarations::emit_with_options(
+        &arena,
+        &mut nodes,
+        parsed.source_file,
+        tsr_declarations::DeclarationEmitOptions {
+            source_text: Some(source),
+            strip_internal: true,
+            remove_comments: false,
+            strict_null_checks: false,
+            force_module: false,
+            source_map_url: None,
+        },
+    )
+    .text
+}
+
+#[test]
+fn preserved_references_precede_declarations_in_source_order() {
+    use tsr_declarations::{
+        DeclarationReference, DeclarationReferenceKind, DeclarationResolutionMode,
+    };
+
+    let arena = Arena::new();
+    let parsed = tsr_parser::parse(&arena, "export const x: number = 1;");
+    let mut nodes = parsed.nodes;
+    let references = [
+        DeclarationReference {
+            kind: DeclarationReferenceKind::Lib,
+            file_name: "dom".into(),
+            resolution_mode: DeclarationResolutionMode::None,
+            position: 20,
+        },
+        DeclarationReference {
+            kind: DeclarationReferenceKind::Path,
+            file_name: "./a&b.ts".into(),
+            resolution_mode: DeclarationResolutionMode::None,
+            position: 10,
+        },
+        DeclarationReference {
+            kind: DeclarationReferenceKind::Types,
+            file_name: "node".into(),
+            resolution_mode: DeclarationResolutionMode::Require,
+            position: 30,
+        },
+    ];
+    let result =
+        tsr_declarations::emit_with_references(&arena, &mut nodes, parsed.source_file, &references);
+
+    assert_eq!(
+        result.text,
+        "/// <reference path=\"a&amp;b.d.ts\" preserve=\"true\" />\n\
+         /// <reference lib=\"dom\" preserve=\"true\" />\n\
+         /// <reference types=\"node\" resolution-mode=\"require\" preserve=\"true\" />\n\
+         export declare const x: number;"
+    );
+}
+
+/// Emit with the original text available, as the conformance harness does.
+fn emit_with_source(source: &str) -> String {
+    let arena = Arena::new();
+    let parsed = tsr_parser::parse(&arena, source);
+    assert!(parsed.diagnostics.is_empty(), "test source must parse cleanly: {source:?}");
+    let mut nodes = parsed.nodes;
+    tsr_declarations::emit_with_options(
+        &arena,
+        &mut nodes,
+        parsed.source_file,
+        tsr_declarations::DeclarationEmitOptions {
+            source_text: Some(source),
+            strip_internal: false,
+            remove_comments: false,
+            strict_null_checks: false,
+            force_module: false,
+            source_map_url: None,
+        },
+    )
+    .text
+}
+
+#[test]
+fn a_forced_module_drops_unexported_declarations() {
+    // moduleDetectionIsolatedModulesCjsFileScope: a `.cts`/`.mts` extension
+    // marks the file a module with no import/export syntax, so its private
+    // declarations drop and only the module marker remains.
+    let arena = Arena::new();
+    let source = "const a = 2;";
+    let parsed = tsr_parser::parse(&arena, source);
+    assert!(parsed.diagnostics.is_empty());
+    let mut nodes = parsed.nodes;
+    let result = tsr_declarations::emit_with_options(
+        &arena,
+        &mut nodes,
+        parsed.source_file,
+        tsr_declarations::DeclarationEmitOptions {
+            source_text: Some(source),
+            strip_internal: false,
+            remove_comments: false,
+            strict_null_checks: true,
+            force_module: true,
+            source_map_url: None,
+        },
+    );
+    assert_eq!(result.text, "export {};");
+}
+
+#[test]
+fn jsdoc_accessibility_tags_become_modifiers_in_javascript_files() {
+    // `lateBoundAssignmentCandidateJS3`: `@protected`/`@private` JSDoc acts as
+    // a modifier in a JavaScript file; a TypeScript file ignores it.
+    let source = "export class C {\n    /** @protected @type {string} */\n    a = 'x';\n    /** @private */\n    b = 1;\n}";
+    let emit_as = |javascript: bool| {
+        let arena = Arena::new();
+        let parsed = tsr_parser::parse(&arena, source);
+        assert!(parsed.diagnostics.is_empty());
+        let mut nodes = parsed.nodes;
+        if javascript && let Some(root) = parsed.source_file.node_id {
+            nodes.add_flags(root, tsr_ast::NodeFlags::JAVASCRIPT_FILE);
+        }
+        tsr_declarations::emit_with_options(
+            &arena,
+            &mut nodes,
+            parsed.source_file,
+            tsr_declarations::DeclarationEmitOptions {
+                source_text: Some(source),
+                strip_internal: false,
+                remove_comments: false,
+                strict_null_checks: true,
+                force_module: false,
+                source_map_url: None,
+            },
+        )
+        .text
+    };
+    let javascript = emit_as(true);
+    assert!(javascript.contains("protected a: string;"), "{javascript}");
+    assert!(javascript.contains("private b;"), "{javascript}");
+    let typescript = emit_as(false);
+    // The tag stays comment text in TypeScript: no `protected` modifier.
+    assert!(typescript.contains("\n    a: string;"), "{typescript}");
+    assert!(typescript.contains("\n    b: number;"), "{typescript}");
+}
+
+/// Emit a JavaScript file: parse, stamp the root flag, emit with source text.
+fn emit_javascript(source: &str) -> String {
+    let arena = Arena::new();
+    let parsed = tsr_parser::parse(&arena, source);
+    assert!(parsed.diagnostics.is_empty(), "test source must parse cleanly: {source:?}");
+    let mut nodes = parsed.nodes;
+    if let Some(root) = parsed.source_file.node_id {
+        nodes.add_flags(root, tsr_ast::NodeFlags::JAVASCRIPT_FILE);
+    }
+    tsr_declarations::emit_with_options(
+        &arena,
+        &mut nodes,
+        parsed.source_file,
+        tsr_declarations::DeclarationEmitOptions {
+            source_text: Some(source),
+            strip_internal: false,
+            remove_comments: false,
+            strict_null_checks: true,
+            force_module: false,
+            source_map_url: None,
+        },
+    )
+    .text
+}
+
+#[test]
+fn js_constructor_this_assignments_declare_typed_properties() {
+    // `argumentsReferenceInConstructor1_Js`: a `@type` JSDoc types the member,
+    // `@param {T} [name]` types the parameter, and the synthesized property
+    // precedes the constructor carrying the assignment's JSDoc.
+    let output = emit_javascript(
+        "class A {\n    /**\n     * @param {object} [foo={}]\n     */\n    constructor(foo = {}) {\n        /**\n         * @type object\n         */\n        this.arguments = foo;\n        this.count = 1;\n    }\n}",
+    );
+    assert!(output.contains("arguments: object;"), "{output}");
+    assert!(output.contains("count: number;"), "{output}");
+    assert!(output.contains("constructor(foo?: object);"), "{output}");
+}
+
+#[test]
+fn a_rich_jsdoc_type_is_parsed_into_the_declaration_tree() {
+    // Union, generic, and function types come from a real parse grafted into
+    // the transform's own arena and node table.
+    let output = emit_javascript(
+        "class A {\n    /** @param {Map<string, number[]>} m */\n    constructor(m) {\n        /** @type {string | number} */\n        this.x = m;\n        /** @type {(a: string) => void} */\n        this.f = m;\n    }\n}",
+    );
+    assert!(output.contains("x: string | number;"), "{output}");
+    assert!(output.contains("f: (a: string) => void;"), "{output}");
+    assert!(output.contains("constructor(m: Map<string, number[]>);"), "{output}");
+}
+
+#[test]
+fn jsdoc_typedef_and_callback_synthesize_type_aliases() {
+    // `typedefOnSemicolonClassElement` / `callbackOnConstructor`: aliases are
+    // hoisted before the statement containing their comment, exported in a
+    // module, with `@template` tags as type parameters.
+    let output = emit_javascript(
+        "export class P {\n    /** @typedef {string} A */\n    ;\n    /** @type {A} */\n    a = 'ok';\n    /**\n     * @callback Get\n     * @param {string} name\n     * @returns {boolean|number}\n     */\n    constructor() {}\n}",
+    );
+    assert!(output.starts_with("export type A = string;"), "{output}");
+    assert!(output.contains("export type Get = (name: string) => boolean | number;"), "{output}");
+    assert!(output.contains("a: A;"), "{output}");
+
+    let generic = emit_javascript(
+        "/**\n * @template T\n * @template {keyof T} K\n * @typedef {T[K]} Foo\n */\nconst x = 1;\nexport { x };",
+    );
+    assert!(generic.contains("export type Foo<T, K extends keyof T> = T[K];"), "{generic}");
+}
+
+#[test]
+fn nested_assignments_on_an_empty_object_const_build_its_type() {
+    // `typeFromPropertyAssignment39`: property and element assignments on an
+    // empty-object const spell a nested type literal in JavaScript.
+    let output =
+        emit_javascript("const foo = {};\nfoo[\"baz\"] = {};\nfoo[\"baz\"][\"blah\"] = 3;");
+    assert_eq!(
+        output.trim_end(),
+        "declare const foo: {\n    baz: {\n        blah: number;\n    };\n};"
+    );
+}
+
+#[test]
+fn a_dotted_typedef_name_declares_a_namespace_member() {
+    // `jsDeclarationsImportNamespacedType`: `@typedef {number} Dotted.Name`
+    // wraps in `export declare namespace Dotted { export type Name }`, and
+    // the declaring comment stays on its host statement.
+    let output = emit_javascript("/** @typedef {number} Dotted.Name */\nexport var dummy = 1;");
+    assert!(
+        output
+            .starts_with("export declare namespace Dotted {\n    export type Name = number;\n}\n"),
+        "{output}"
+    );
+    assert!(
+        output.contains("/** @typedef {number} Dotted.Name */\nexport declare var dummy"),
+        "{output}"
+    );
+}
+
+#[test]
+fn jsdoc_only_type_spellings_map_to_typescript() {
+    // `jsDeclarationsReusesExistingNodesMappingJSDocTypes`.
+    let output = emit_javascript(
+        "/** @type {?} */\nexport const a = null;\n/** @type {string?} */\nexport const c = null;\n/** @type {string=} */\nexport const d = null;\n/** @type {string!} */\nexport const e = null;\n/** @type {function(string): object} */\nexport const f = null;\n/** @type {Object.<string, number>} */\nexport const h = null;",
+    );
+    assert!(output.contains("a: any | null;"), "{output}");
+    assert!(output.contains("c: string | null;"), "{output}");
+    assert!(output.contains("d: string | undefined;"), "{output}");
+    assert!(output.contains("e: string;"), "{output}");
+    assert!(output.contains("f: Function;"), "{output}");
+    assert!(output.contains("h: Record<string, number>;"), "{output}");
+}
+
+#[test]
+fn a_binding_pattern_destructuring_an_entity_keeps_its_shape() {
+    // `declarationEmitExpressionInExtends6`: the pattern stays, typed by
+    // `typeof` the destructured entity, and its bound names participate in
+    // reachability.
+    let output = emit_with_source(
+        "import * as A from \"./a\";\nconst { Foo } = A;\nexport default class extends Foo {\n}",
+    );
+    assert!(output.contains("import * as A from \"./a\";"), "{output}");
+    assert!(output.contains("declare const { Foo }: typeof A;"), "{output}");
+}
+
+#[test]
+fn a_qualified_name_root_is_not_shadowed_by_a_type_parameter() {
+    // `declarationEmitRetainedAnnotationRetainsImportInOutput`: `E.Whatever`
+    // resolves `E` in namespace space, so `<E>` must not drop the import.
+    let output = emit_with_source(
+        "import * as E from 'whatever';\nexport const run = <E,>(i: () => E.Whatever<E>): E.Whatever<E> => i();",
+    );
+    assert!(output.contains("import * as E from 'whatever';"), "{output}");
+}
+
+#[test]
+fn a_jsdoc_implements_tag_becomes_a_heritage_clause() {
+    // `jsdocImplements_properties`: braced, bare, and comment-closing forms.
+    let output = emit_javascript("class A {}\n/** @implements A*/\nclass B {}");
+    assert!(output.contains("declare class B implements A {"), "{output}");
+}
+
 /// Assert the emitted text exactly, so spacing and ordering are covered too.
 #[track_caller]
 fn assert_emits(source: &str, expected: &str) {
@@ -78,6 +365,56 @@ fn export_default_keeps_its_export_and_never_gains_declare() {
     assert!(!text.contains("declare"), "declare must not appear beside default:\n{text}");
 }
 
+#[test]
+fn default_export_expression_gets_a_collision_free_binding() {
+    let plain = emit("export default 1 + 2;");
+    assert!(plain.contains("declare const _default"), "{plain}");
+    assert!(plain.contains("export default _default;"), "{plain}");
+
+    let collision = emit("const _default: number = 1; export default 2 + 3;");
+    assert!(collision.contains("declare const _default_1"), "{collision}");
+    assert!(collision.contains("export default _default_1;"), "{collision}");
+
+    // A default-exported *literal* keeps its value as the synthesized const's
+    // initializer instead of widening (`modulePreserve4`).
+    assert_emits("export default 0;", "declare const _default = 0;\nexport default _default;");
+    assert_emits(
+        "export default 'a';",
+        "declare const _default = \"a\";\nexport default _default;",
+    );
+
+    let export_equals = emit("export = { answer: 42 };");
+    assert!(export_equals.contains("declare const _default"), "{export_equals}");
+    assert!(export_equals.contains("export = _default;"), "{export_equals}");
+}
+
+#[test]
+fn strict_null_checks_controls_null_widening() {
+    let source = "export default null;";
+    let emit_with_strict_null_checks = |strict_null_checks| {
+        let arena = Arena::new();
+        let parsed = tsr_parser::parse(&arena, source);
+        let mut nodes = parsed.nodes;
+        tsr_declarations::emit_with_options(
+            &arena,
+            &mut nodes,
+            parsed.source_file,
+            tsr_declarations::DeclarationEmitOptions {
+                source_text: Some(source),
+                strip_internal: false,
+                remove_comments: false,
+                strict_null_checks,
+                force_module: false,
+                source_map_url: None,
+            },
+        )
+        .text
+    };
+
+    assert!(emit_with_strict_null_checks(true).contains("declare const _default: null;"));
+    assert!(emit_with_strict_null_checks(false).contains("declare const _default: any;"));
+}
+
 // ----- namespaces, and the three-way scope-marker choice -------------------
 
 #[test]
@@ -93,6 +430,18 @@ fn a_namespace_body_survives() {
 }
 
 #[test]
+fn source_namespace_elides_private_aliases_after_member_transformation() {
+    assert_emits(
+        "namespace N {\n    import Internal = M.Internal;\n    export class C { private value: Internal.Value; }\n}",
+        "declare namespace N {\n    class C {\n        private value;\n    }\n}",
+    );
+    assert_emits(
+        "namespace N {\n    import Internal = M.Internal;\n    export interface I { value: Internal.Value; }\n}",
+        "declare namespace N {\n    import Internal = M.Internal;\n    interface I {\n        value: Internal.Value;\n    }\n}",
+    );
+}
+
+#[test]
 fn an_ambient_namespace_needs_no_scope_marker() {
     // `transform.go:1846`. Everything in a `declare namespace` is exported already.
     // Upstream tests `NodeFlagsAmbient`, which this parser never sets
@@ -100,6 +449,14 @@ fn an_ambient_namespace_needs_no_scope_marker() {
     // the test that pins that workaround.
     let text = emit("declare namespace M {\n    interface I {\n    }\n}");
     assert!(!text.contains("export {}"), "an ambient namespace gained a scope marker:\n{text}");
+}
+
+#[test]
+fn ambient_context_is_inherited_by_nested_namespaces() {
+    assert_emits(
+        "declare module \"pkg\" {\n    namespace A {\n        class C {}\n    }\n}",
+        "declare module \"pkg\" {\n    namespace A {\n        class C {\n        }\n    }\n}\n",
+    );
 }
 
 #[test]
@@ -126,6 +483,26 @@ fn a_dotted_namespace_emits_as_one_header() {
 }
 
 // ----- the file-level scope marker -----------------------------------------
+
+#[test]
+fn external_module_elides_private_dependencies_after_member_transformation() {
+    assert_emits(
+        "class Hidden {}\nexport class Public { private value: Hidden; }",
+        "export declare class Public {\n    private value;\n}",
+    );
+    assert_emits(
+        "class Hidden {}\nexport interface Public { value: Hidden; }",
+        "declare class Hidden {\n}\nexport interface Public {\n    value: Hidden;\n}\nexport {};",
+    );
+}
+
+#[test]
+fn external_module_post_transform_visibility_preserves_side_effect_imports() {
+    assert_emits(
+        "import \"./polyfill\";\nclass Hidden {}\nexport interface Public {}",
+        "import \"./polyfill\";\nexport interface Public {\n}",
+    );
+}
 
 #[test]
 fn a_module_that_would_lose_its_moduleness_gains_an_export_marker() {
@@ -171,11 +548,149 @@ fn an_unreferenced_import_is_elided_and_a_referenced_one_is_not() {
 }
 
 #[test]
+fn an_import_used_by_a_written_arrow_signature_is_retained() {
+    assert_emits(
+        "import { T } from \"./m\";\nexport const f = (value: T): void => {};\n",
+        "import { T } from \"./m\";\nexport declare const f: (value: T) => void;\n",
+    );
+}
+
+#[test]
+fn mapped_types_in_synthesized_arrow_signatures_stay_single_line() {
+    assert_emits(
+        "export const map = <T>(value: T): { [K in keyof T]: T[K] } => ({} as any);",
+        "export declare const map: <T>(value: T) => { [K in keyof T]: T[K]; };",
+    );
+}
+
+#[test]
+fn a_missing_mapped_value_type_becomes_any_in_declaration_output() {
+    assert_emits(
+        "type T<U> = ({ [K in keyof U] }) extends ({ [P in keyof U]: U[P] }) ? 1 : 0;",
+        "type T<U> = ({\n    [K in keyof U]: any;\n}) extends ({\n    [P in keyof U]: U[P];\n}) ? 1 : 0;",
+    );
+}
+
+#[test]
+fn an_empty_namespace_body_keeps_its_source_brace_layout() {
+    // moduleSymbolMerging: a body whose braces sat on one line prints `{ }`
+    // even when its statements were filtered away; declareDottedModuleName: a
+    // body whose source braces span lines stays multiline.
+    let output = emit_with_source("namespace A { ; }\nnamespace B {\n}\nnamespace C.D { }");
+    assert_eq!(
+        output,
+        "declare namespace A { }\ndeclare namespace B {\n}\ndeclare namespace C.D { }"
+    );
+}
+
+#[test]
+fn a_source_declare_modifier_is_dropped_inside_a_namespace_body() {
+    // `ensureModifierFlags` (`transform.go:2333`): `declare` is masked out
+    // whenever the parent is not the source file — the enclosing namespace's
+    // own `declare` already covers its body.
+    assert_emits(
+        "export namespace M { export declare var v: number; export var w: string; }",
+        "export declare namespace M {\n    var v: number;\n    var w: string;\n}",
+    );
+}
+
+#[test]
+fn an_invisible_declarator_is_pruned_from_a_retained_var_statement() {
+    // `getBindingNameVisible` (`transform.go:2216`): `export = m2` reaches
+    // `m2` and not `x`, so only `m2` survives from the shared statement.
+    assert_emits("var x = 10, m2: number;\nexport = m2;", "declare var m2: number;\nexport = m2;");
+}
+
+#[test]
+fn a_declaration_map_url_is_appended_after_the_output() {
+    let arena = Arena::new();
+    let source = "export const a: number = 1;";
+    let parsed = tsr_parser::parse(&arena, source);
+    assert!(parsed.diagnostics.is_empty());
+    let mut nodes = parsed.nodes;
+    let result = tsr_declarations::emit_with_options(
+        &arena,
+        &mut nodes,
+        parsed.source_file,
+        tsr_declarations::DeclarationEmitOptions {
+            source_text: Some(source),
+            strip_internal: false,
+            remove_comments: false,
+            strict_null_checks: true,
+            force_module: false,
+            source_map_url: Some("a.d.ts.map"),
+        },
+    );
+    assert_eq!(result.text, "export declare const a: number;\n//# sourceMappingURL=a.d.ts.map");
+}
+
+#[test]
+fn a_deferred_import_becomes_an_ordinary_declaration_import() {
+    assert_emits(
+        "import defer * as ns from \"./m.js\";\nexport type T = ns.Value;\n",
+        "import * as ns from \"./m.js\";\nexport type T = ns.Value;\n",
+    );
+}
+
+#[test]
+fn an_arrow_type_parameter_does_not_retain_a_shadowed_import() {
+    assert_emits(
+        "import * as T from \"./m\";\nexport const identity = <T>(value: T): T => value;\n",
+        "export declare const identity: <T>(value: T) => T;\n",
+    );
+}
+
+#[test]
 fn a_side_effect_import_is_never_elided() {
     // It binds no name, so reachability has nothing to say about it — and dropping
     // it changes what an importer of the `.d.ts` loads. `transform.go:2474`.
     let text = emit("import \"./polyfill\";\nexport const a: number = 1;\n");
     assert!(text.contains("import \"./polyfill\";"), "a side-effect import was dropped:\n{text}");
+}
+
+#[test]
+fn a_module_augmentation_and_its_type_import_are_retained() {
+    assert_emits(
+        "import { T } from \"./m\";\ndeclare global { interface Window { value: T; } }\n",
+        "import { T } from \"./m\";\ndeclare global {\n    interface Window {\n        value: T;\n    }\n}\n",
+    );
+}
+
+#[test]
+fn an_augmentation_declaration_does_not_retain_a_shadowed_import() {
+    assert_emits(
+        "import { Observable } from \"./observable\";\n\
+         declare module \"./observable\" {\n\
+             interface Observable<T> { map<U>(value: T): Observable<U>; }\n\
+         }",
+        "declare module \"./observable\" {\n    interface Observable<T> {\n        map<U>(value: T): Observable<U>;\n    }\n}\nexport {};",
+    );
+}
+
+#[test]
+fn an_augmentation_retains_only_genuine_external_type_imports() {
+    assert_emits(
+        "import { A } from \"./f1\";\n\
+         import { B } from \"./f2\";\n\
+         declare module \"./f1\" { interface A { foo(): B; } }",
+        "import { B } from \"./f2\";\ndeclare module \"./f1\" {\n    interface A {\n        foo(): B;\n    }\n}",
+    );
+}
+
+#[test]
+fn every_declaration_in_a_merged_symbol_is_retained_in_source_order() {
+    assert_emits(
+        "function f(): void {}\nnamespace f { export const x: number = 1; }\nexport { f };\n",
+        "declare function f(): void;\ndeclare namespace f {\n    const x: number;\n}\nexport { f };\n",
+    );
+}
+
+#[test]
+fn override_is_removed_from_interface_method_signatures() {
+    assert_emits(
+        "export interface I { override method(): void; }",
+        "export interface I {\n    method(): void;\n}\n",
+    );
 }
 
 // ----- class members --------------------------------------------------------
@@ -188,6 +703,118 @@ fn a_private_member_keeps_its_name_and_loses_its_type() {
     assert_emits(
         "export class C {\n    private a: number = 1;\n    private m(x: number): void {}\n}",
         "export declare class C {\n    private a;\n    private m;\n}",
+    );
+}
+
+#[test]
+fn overload_implementations_are_omitted_and_private_methods_have_one_marker() {
+    assert_emits(
+        "class C {\n    private method(x: number): void;\n    private method(x: string): void;\n    private method(x: unknown): void {}\n    constructor(x: number);\n    constructor(x: number) {}\n}",
+        "declare class C {\n    private method;\n    constructor(x: number);\n}\n",
+    );
+}
+
+#[test]
+fn initialized_parameter_before_required_parameter_includes_undefined() {
+    assert_emits(
+        "export class C { constructor(public values: number[] = [], count: number) {} }",
+        "export declare class C {\n    values: number[];\n    constructor(values: number[] | undefined, count: number);\n}\n",
+    );
+}
+
+#[test]
+fn untyped_type_member_parameters_emit_as_any() {
+    assert_emits(
+        "interface Callable { (value): void; method(value): void; new (value): object; }",
+        "interface Callable {\n    (value: any): void;\n    method(value: any): void;\n    new (value: any): object;\n}\n",
+    );
+}
+
+#[test]
+fn apparent_arrow_and_empty_function_returns_are_reused() {
+    assert_emits(
+        "export const number = (value: string) => 1;\nexport const nothing = (value?: string) => {};\nexport const nullish = function(value: string) {};",
+        "export declare const number: (value: string) => number;\nexport declare const nothing: (value?: string) => void;\nexport declare const nullish: (value: string) => void;",
+    );
+}
+
+#[test]
+fn empty_declaration_and_method_bodies_return_void() {
+    assert_emits(
+        "export function f() {}\nexport class C { method() {} }",
+        "export declare function f(): void;\nexport declare class C {\n    method(): void;\n}\n",
+    );
+}
+
+#[test]
+fn expression_class_base_is_hoisted_to_a_named_declaration() {
+    assert_emits(
+        "const Derived_base = 1;\nexport declare function factory(): new () => object;\nexport class Derived extends factory() {}",
+        "export declare function factory(): new () => object;\ndeclare const Derived_base_1: any;\nexport declare class Derived extends Derived_base_1 {\n}\nexport {};\n",
+    );
+}
+
+#[test]
+fn empty_binding_patterns_emit_no_declaration() {
+    assert_emits(
+        "var {} = { value: 1 };\nvar [, []] = [1, []];\nvar { value } = { value: 1 };",
+        "declare var { value }: {\n    value: number;\n};\n",
+    );
+}
+
+#[test]
+fn binding_patterns_with_defaults_are_flattened_to_names() {
+    assert_emits(
+        "var [first = 0, nested = [1], { value: renamed = 2 }] = source;",
+        "declare var first: any, nested: any, renamed: any;\n",
+    );
+}
+
+#[test]
+fn function_and_method_overload_implementations_are_omitted() {
+    assert_emits(
+        "export function f(value: string): string;\nexport function f(value: number): number;\nexport function f(value: string | number) { return value; }\nexport class C { method(value: string): string; method(value: number): number; method(value: string | number) { return value; } }",
+        "export declare function f(value: string): string;\nexport declare function f(value: number): number;\nexport declare class C {\n    method(value: string): string;\n    method(value: number): number;\n}\n",
+    );
+}
+
+#[test]
+fn function_expando_assignments_become_a_function_namespace_merge() {
+    assert_emits(
+        "const key = \"X\";\nexport const fn = () => {};\nfn[key] = 0;\nfn.named = (): string => \"\";",
+        "export declare function fn(): void;\nexport declare namespace fn {\n    var X: number;\n    var named: () => string;\n}\n",
+    );
+}
+
+#[test]
+fn declared_function_expandos_emit_a_namespace_and_skip_non_identifier_keys() {
+    assert_emits(
+        "const key = \"named\";\nexport function fn() {}\nfn.direct = 1;\nfn[key] = \"ok\";\nfn[\"not-nameable\"] = true;\nfn[42] = false;",
+        "export declare function fn(): void;\nexport declare namespace fn {\n    var direct: number;\n    var named: string;\n}\n",
+    );
+}
+
+#[test]
+fn default_function_expandos_use_a_trailing_default_export() {
+    assert_emits(
+        "export default function fn(): string { return \"ok\"; }\nfn.value = 1;",
+        "declare function fn(): string;\ndeclare namespace fn {\n    var value: number;\n}\nexport default fn;\n",
+    );
+}
+
+#[test]
+fn untyped_property_signatures_emit_as_any() {
+    assert_emits(
+        "declare global { interface Box { value; } }",
+        "declare global {\n    interface Box {\n        value: any;\n    }\n}\n",
+    );
+}
+
+#[test]
+fn non_nameable_computed_members_are_omitted() {
+    assert_emits(
+        "interface I { [\"\" + \"\"](): void; kept(): void; }\nclass C { [\"\" + \"\"]() {} kept() {} }\nvar value: { [\"\" + \"\"](): void; kept: number };",
+        "interface I {\n    kept(): void;\n}\ndeclare class C {\n    kept(): void;\n}\ndeclare var value: {\n    kept: number;\n};\n",
     );
 }
 
@@ -209,6 +836,125 @@ fn a_parameter_property_becomes_a_property() {
     assert_emits(
         "export class C {\n    constructor(public a: number, private b: string) {}\n}",
         "export declare class C {\n    a: number;\n    private b;\n    constructor(a: number, b: string);\n}",
+    );
+}
+
+#[test]
+fn strip_internal_removes_annotated_members() {
+    let source = "class C {\n  kept(): void {}\n  // @internal\n  removed(): void {}\n}";
+    assert_eq!(emit_stripping_internal(source), "declare class C {\n    kept(): void;\n}");
+}
+
+#[test]
+fn strip_internal_removes_parameter_properties_but_keeps_parameters() {
+    let source = "export class C { constructor(\n/** @internal */ public removed: string,\n/** @internal */ // explanation\npublic kept: string\n) {} }";
+    assert_eq!(
+        emit_stripping_internal(source),
+        "export declare class C {\n    kept: string;\n    constructor(removed: string, kept: string);\n}"
+    );
+}
+
+#[test]
+fn declaration_emit_preserves_leading_jsdoc_unless_comments_are_removed() {
+    let source = "/** value docs */\nexport const value: number = 1;\nexport class Box {\n    /** member docs */\n    member: string = \"\";\n}";
+    let arena = Arena::new();
+    let parsed = tsr_parser::parse(&arena, source);
+    let mut nodes = parsed.nodes;
+    let result = tsr_declarations::emit_with_options(
+        &arena,
+        &mut nodes,
+        parsed.source_file,
+        tsr_declarations::DeclarationEmitOptions {
+            source_text: Some(source),
+            strip_internal: false,
+            remove_comments: false,
+            strict_null_checks: false,
+            force_module: false,
+            source_map_url: None,
+        },
+    );
+    assert_eq!(
+        result.text,
+        "/** value docs */\nexport declare const value: number;\nexport declare class Box {\n    /** member docs */\n    member: string;\n}"
+    );
+
+    let arena = Arena::new();
+    let parsed = tsr_parser::parse(&arena, source);
+    let mut nodes = parsed.nodes;
+    let result = tsr_declarations::emit_with_options(
+        &arena,
+        &mut nodes,
+        parsed.source_file,
+        tsr_declarations::DeclarationEmitOptions {
+            source_text: Some(source),
+            strip_internal: false,
+            remove_comments: true,
+            strict_null_checks: false,
+            force_module: false,
+            source_map_url: None,
+        },
+    );
+    assert!(!result.text.contains("docs"), "removeComments leaked JSDoc: {}", result.text);
+}
+
+#[test]
+fn literal_declarations_preserve_context_and_widen_negative_bigints() {
+    let source = "export const value = {\n    /** one docs */\n    one: 1,\n    /** string docs */\n    string: 'one',\n    /** template docs */\n    template: `one`,\n    /** method docs */\n    method(): void {}\n} as const;\nexport const topLevelString = 'one';\nexport const topLevelTemplate = `one`;\nexport const mutable = { negativeBigInt: -1n };";
+    let arena = Arena::new();
+    let parsed = tsr_parser::parse(&arena, source);
+    let mut nodes = parsed.nodes;
+    let result = tsr_declarations::emit_with_options(
+        &arena,
+        &mut nodes,
+        parsed.source_file,
+        tsr_declarations::DeclarationEmitOptions {
+            source_text: Some(source),
+            strip_internal: false,
+            remove_comments: false,
+            strict_null_checks: false,
+            force_module: false,
+            source_map_url: None,
+        },
+    );
+    assert_eq!(
+        result.text,
+        "export declare const value: {\n    /** one docs */\n    readonly one: 1;\n    /** string docs */\n    readonly string: 'one';\n    /** template docs */\n    readonly template: `one`;\n    /** method docs */\n    readonly method: () => void;\n};\nexport declare const topLevelString = \"one\";\nexport declare const topLevelTemplate = \"one\";\nexport declare const mutable: {\n    negativeBigInt: bigint;\n};"
+    );
+}
+
+#[test]
+fn destructured_parameter_properties_are_flattened_when_types_are_syntactic() {
+    assert_emits(
+        "export class C { constructor(public [[x], { value: [y] }, [...rest]]: any[]) {} }",
+        "export declare class C {\n    x: any;\n    y: any;\n    rest: any;\n    constructor([[x], { value: [y] }, [...rest]]: any[]);\n}\n",
+    );
+    assert_emits(
+        "export class C { constructor(public [x, y]: string[]) {} }",
+        "export declare class C {\n    x: string;\n    y: string;\n    constructor([x, y]: string[]);\n}\n",
+    );
+    assert_emits(
+        "type Tuple = [string, number]; type Object = { value: boolean }; export class C { constructor(public [text, count]: Tuple, public { value }: Object) {} }",
+        "type Tuple = [string, number];\ntype Object = {\n    value: boolean;\n};\nexport declare class C {\n    text: string;\n    count: number;\n    value: boolean;\n    constructor([text, count]: Tuple, { value }: Object);\n}\nexport {};\n",
+    );
+}
+
+#[test]
+fn an_optional_parameter_property_includes_undefined_in_its_property_type() {
+    assert_emits(
+        "export class C { constructor(public value?: string, public already?: number | undefined) {} }",
+        "export declare class C {\n    value?: string | undefined;\n    already?: number | undefined;\n    constructor(value?: string | undefined, already?: number | undefined);\n}\n",
+    );
+}
+
+#[test]
+fn destructured_parameter_defaults_are_removed_recursively() {
+    assert_emits(
+        "export function f({ default: renamed = {}, nested: [value = 1] }: Options): void {}",
+        "export declare function f({ default: renamed, nested: [value] }: Options): void;\n",
+    );
+    assert_emits(
+        "export const f = ({ default: renamed = {}, nested: [value = 1], }: Options): void => {};",
+        "export declare const f: ({ default: renamed, nested: [value], }: Options) => void;\n",
     );
 }
 
@@ -277,6 +1023,14 @@ fn enum_members_emit_their_folded_values() {
     assert_emits(
         "export enum E {\n    A,\n    B,\n    C = 10,\n    D,\n}",
         "export declare enum E {\n    A = 0,\n    B = 1,\n    C = 10,\n    D = 11\n}",
+    );
+}
+
+#[test]
+fn ambient_enum_members_without_initializers_stay_uninitialized() {
+    assert_emits(
+        "declare namespace N { enum E { A, B = 3, C } }",
+        "declare namespace N {\n    enum E {\n        A,\n        B = 3,\n        C\n    }\n}\n",
     );
 }
 

@@ -100,9 +100,8 @@ pub(crate) fn literal_const_value<'a>(
         Expression::NoSubstitutionTemplateLiteral(template) => {
             Some(string_literal(factory, template.text, span))
         }
-        Expression::StringLiteral(_)
-        | Expression::BigIntLiteral(_)
-        | Expression::KeywordExpression(_) => Some(*expression),
+        Expression::StringLiteral(literal) => Some(string_literal(factory, literal.text, span)),
+        Expression::BigIntLiteral(_) | Expression::KeywordExpression(_) => Some(*expression),
         Expression::PrefixUnaryExpression(unary) => {
             let operand = unary.operand.as_ref()?;
             if unary.operator.kind == SyntaxKind::PlusToken {
@@ -125,45 +124,48 @@ pub(crate) fn type_of_expression<'a>(
     factory: &mut Factory<'a, '_>,
     expression: &Expression<'a>,
     freshness: Freshness,
+    strict_null_checks: bool,
 ) -> Option<TypeNode<'a>> {
     let span = factory.span_of(expression.node_id());
     match expression {
         // A literal in a const context is its own type; widened, it is the base
         // primitive. This is the one place `Freshness` does real work, and every
         // other arm only threads it.
-        Expression::NumericLiteral(_) | Expression::PrefixUnaryExpression(_) => {
+        Expression::NumericLiteral(_) => {
             widen_or_literal(factory, expression, freshness, SyntaxKind::NumberKeyword, span)
+        }
+        Expression::PrefixUnaryExpression(unary) => {
+            let widened = if matches!(unary.operand.as_ref(), Some(Expression::BigIntLiteral(_))) {
+                SyntaxKind::BigIntKeyword
+            } else {
+                SyntaxKind::NumberKeyword
+            };
+            widen_or_literal(factory, expression, freshness, widened, span)
         }
         Expression::BigIntLiteral(_) => {
             widen_or_literal(factory, expression, freshness, SyntaxKind::BigIntKeyword, span)
         }
-        Expression::StringLiteral(_) => {
-            widen_or_literal(factory, expression, freshness, SyntaxKind::StringKeyword, span)
-        }
+        Expression::StringLiteral(_) => match freshness {
+            Freshness::Widening => Some(factory.keyword_type(SyntaxKind::StringKeyword, span)),
+            Freshness::Const => Some(literal_type(factory, Node::from(*expression), span)),
+        },
         Expression::NoSubstitutionTemplateLiteral(template) => {
             if freshness == Freshness::Widening {
                 return Some(factory.keyword_type(SyntaxKind::StringKeyword, span));
             }
-            // A no-substitution template's *type* is the string literal type, and
-            // upstream writes it in string form.
-            let literal = string_literal(factory, template.text, span);
-            Some(literal_type(factory, Node::from(literal), span))
+            // typescript-go reuses the source node for a template nested in a
+            // const-context type, preserving its backtick spelling. A top-level
+            // literal-const still goes through `literal_const_value` and becomes
+            // a quoted string, so the two declaration forms intentionally differ.
+            Some(literal_type(factory, Node::from(*template), span))
         }
         Expression::KeywordExpression(keyword) => match keyword.kind {
             SyntaxKind::TrueKeyword | SyntaxKind::FalseKeyword => {
                 widen_or_literal(factory, expression, freshness, SyntaxKind::BooleanKeyword, span)
             }
-            // `null` widens to `any`, in both contexts. `compiler/constDeclarations`
-            // writes `const c3 = 0, c4: string, c5 = null` and its baseline reads
-            // `declare const c3 = 0, c4: string, c5: any` — so `null` is neither a
-            // literal-const value (it is not in `IsPrimitiveLiteralValue`) nor a
-            // literal type here.
-            //
-            // This is the corpus's default, which is `strictNullChecks` off. Under
-            // `strict`, `null` stays `null`, and this port has no compiler options
-            // to consult — the option plumbing arrives with the `Program`
-            // (`bd tsr-49v.6`). Emitting `any` is the answer that matches every
-            // baseline currently in the target.
+            SyntaxKind::NullKeyword if strict_null_checks => {
+                Some(literal_type(factory, Node::from(*expression), span))
+            }
             SyntaxKind::NullKeyword => Some(factory.keyword_type(SyntaxKind::AnyKeyword, span)),
             _ => None,
         },
@@ -188,13 +190,18 @@ pub(crate) fn type_of_expression<'a>(
             Freshness::Const => None,
         },
         Expression::ParenthesizedExpression(inner) => {
-            type_of_expression(factory, inner.expression.as_ref()?, freshness)
+            type_of_expression(factory, inner.expression.as_ref()?, freshness, strict_null_checks)
         }
         // `x as const` enters a const context; `x as T` states `T` outright, and
         // the annotation is reused rather than rebuilt.
         Expression::AsExpression(as_expression) => {
             if is_const_assertion(as_expression.r#type.as_ref()) {
-                type_of_expression(factory, as_expression.expression.as_ref()?, Freshness::Const)
+                type_of_expression(
+                    factory,
+                    as_expression.expression.as_ref()?,
+                    Freshness::Const,
+                    strict_null_checks,
+                )
             } else {
                 as_expression.r#type
             }
@@ -202,11 +209,14 @@ pub(crate) fn type_of_expression<'a>(
         Expression::TypeAssertion(assertion) => assertion.r#type,
         // `satisfies` constrains without naming the type, so the operand still
         // has to produce one.
-        Expression::SatisfiesExpression(satisfies) => {
-            type_of_expression(factory, satisfies.expression.as_ref()?, freshness)
-        }
+        Expression::SatisfiesExpression(satisfies) => type_of_expression(
+            factory,
+            satisfies.expression.as_ref()?,
+            freshness,
+            strict_null_checks,
+        ),
         Expression::ObjectLiteralExpression(object) => {
-            object_literal_type(factory, object, freshness, span)
+            object_literal_type(factory, object, freshness, strict_null_checks, span)
         }
         // Only a const array is inferable — `tsr_dts` reports `TS9017` for a
         // mutable one — and a const array is a `readonly` tuple of its elements'
@@ -217,7 +227,12 @@ pub(crate) fn type_of_expression<'a>(
             }
             let mut elements = Vec::with_capacity(array.elements.len());
             for element in array.elements {
-                elements.push(type_of_expression(factory, element, Freshness::Const)?);
+                elements.push(type_of_expression(
+                    factory,
+                    element,
+                    Freshness::Const,
+                    strict_null_checks,
+                )?);
             }
             let elements = factory.slice(&elements);
             let tuple = TypeNode::TupleTypeNode(factory.alloc(
@@ -228,20 +243,27 @@ pub(crate) fn type_of_expression<'a>(
             ));
             Some(readonly_operator(factory, tuple, span))
         }
-        Expression::ArrowFunction(arrow) => function_type(
-            factory,
-            arrow.type_parameters,
-            arrow.parameters,
-            arrow.r#type.as_ref(),
-            span,
-        ),
-        Expression::FunctionExpression(function) => function_type(
-            factory,
-            function.type_parameters,
-            function.parameters,
-            function.r#type.as_ref(),
-            span,
-        ),
+        Expression::ArrowFunction(arrow) => {
+            let inferred =
+                arrow_return_type(factory, arrow.body.as_ref(), strict_null_checks, span);
+            function_type(
+                factory,
+                arrow.type_parameters,
+                arrow.parameters,
+                arrow.r#type.or(inferred),
+                span,
+            )
+        }
+        Expression::FunctionExpression(function) => {
+            let inferred = empty_function_body_return_type(factory, function.body.as_ref(), span);
+            function_type(
+                factory,
+                function.type_parameters,
+                function.parameters,
+                function.r#type.or(inferred),
+                span,
+            )
+        }
         _ => None,
     }
 }
@@ -275,6 +297,7 @@ fn object_literal_type<'a>(
     factory: &mut Factory<'a, '_>,
     object: &tsr_ast::ObjectLiteralExpression<'a>,
     freshness: Freshness,
+    strict_null_checks: bool,
     span: Span,
 ) -> Option<TypeNode<'a>> {
     use tsr_ast::ObjectLiteralElementLike as Member;
@@ -284,24 +307,32 @@ fn object_literal_type<'a>(
         let member = match property {
             Member::PropertyAssignment(assignment) => {
                 let value = assignment.initializer.as_ref()?;
-                let r#type = type_of_expression(factory, value, freshness)?;
-                property_signature(factory, assignment.name, Some(r#type), freshness, span)
+                let r#type = type_of_expression(factory, value, freshness, strict_null_checks)?;
+                let member_span = factory.span_of(assignment.node_id);
+                property_signature(factory, assignment.name, Some(r#type), freshness, member_span)
             }
             // A method's type needs its return annotation. Without one this is
             // `TS9008` and the case is not in the target; with one, a const context
             // wants `readonly m: () => T` and a widening one wants `m(): T`.
             Member::MethodDeclaration(method) => {
                 let return_type = method.r#type?;
+                let member_span = factory.span_of(method.node_id);
                 match freshness {
                     Freshness::Const => {
                         let function = function_type(
                             factory,
                             method.type_parameters,
                             method.parameters,
-                            Some(&return_type),
-                            span,
+                            Some(return_type),
+                            member_span,
                         )?;
-                        property_signature(factory, method.name, Some(function), freshness, span)
+                        property_signature(
+                            factory,
+                            method.name,
+                            Some(function),
+                            freshness,
+                            member_span,
+                        )
                     }
                     Freshness::Widening => TypeElement::MethodSignatureDeclaration(factory.alloc(
                         tsr_ast::MethodSignatureDeclaration::new(
@@ -314,7 +345,7 @@ fn object_literal_type<'a>(
                             None,
                         ),
                         SyntaxKind::MethodSignature,
-                        span,
+                        member_span,
                         NodeFlags::empty(),
                     )),
                 }
@@ -366,16 +397,112 @@ fn function_type<'a>(
     factory: &mut Factory<'a, '_>,
     type_parameters: &'a [&'a tsr_ast::TypeParameterDeclaration<'a>],
     parameters: &'a [&'a tsr_ast::ParameterDeclaration<'a>],
-    return_type: Option<&TypeNode<'a>>,
+    return_type: Option<TypeNode<'a>>,
     span: Span,
 ) -> Option<TypeNode<'a>> {
-    let return_type = *return_type?;
+    let return_type = return_type?;
+    let parameters = declaration_parameters(factory, parameters);
     Some(TypeNode::FunctionTypeNode(factory.alloc(
         tsr_ast::FunctionTypeNode::new(type_parameters, parameters, Some(return_type), &[], None),
         SyntaxKind::FunctionType,
         span,
-        NodeFlags::empty(),
+        NodeFlags::SYNTHESIZED,
     )))
+}
+
+fn declaration_parameters<'a>(
+    factory: &mut Factory<'a, '_>,
+    parameters: &'a [&'a tsr_ast::ParameterDeclaration<'a>],
+) -> &'a [&'a tsr_ast::ParameterDeclaration<'a>] {
+    let mut result = Vec::with_capacity(parameters.len());
+    for parameter in parameters {
+        let span = factory.span_of(parameter.node_id);
+        let name = parameter.name.map(|name| strip_binding_initializers(factory, name));
+        let question_token =
+            if parameter.question_token.is_some() || parameter.initializer.is_some() {
+                Some(
+                    parameter
+                        .question_token
+                        .unwrap_or_else(|| factory.token(SyntaxKind::QuestionToken, span)),
+                )
+            } else {
+                None
+            };
+        result.push(factory.alloc(
+            tsr_ast::ParameterDeclaration::new(
+                &[],
+                parameter.dot_dot_dot_token,
+                name,
+                question_token,
+                parameter.r#type,
+                None,
+            ),
+            SyntaxKind::Parameter,
+            span,
+            NodeFlags::empty(),
+        ));
+    }
+    factory.slice(&result)
+}
+
+fn strip_binding_initializers<'a>(
+    factory: &mut Factory<'a, '_>,
+    name: tsr_ast::BindingName<'a>,
+) -> tsr_ast::BindingName<'a> {
+    let tsr_ast::BindingName::BindingPattern(pattern) = name else { return name };
+    let mut elements = Vec::with_capacity(pattern.elements.len());
+    for element in pattern.elements {
+        let nested = element.name.map(|name| strip_binding_initializers(factory, name));
+        let span = factory.span_of(element.node_id);
+        elements.push(factory.alloc(
+            tsr_ast::BindingElement::new(
+                element.dot_dot_dot_token,
+                element.property_name,
+                nested,
+                None,
+            ),
+            SyntaxKind::BindingElement,
+            span,
+            NodeFlags::empty(),
+        ));
+    }
+    let elements = factory.slice(&elements);
+    let kind = pattern.node_id.map_or(pattern.kind.kind, |id| factory.nodes().kind(id));
+    let span = factory.span_of(pattern.node_id);
+    let flags = pattern.node_id.map_or(NodeFlags::empty(), |id| factory.nodes().flags(id))
+        & NodeFlags::HAS_TRAILING_COMMA;
+    tsr_ast::BindingName::BindingPattern(factory.alloc(
+        tsr_ast::BindingPattern::new(pattern.kind, elements),
+        kind,
+        span,
+        flags,
+    ))
+}
+
+fn arrow_return_type<'a>(
+    factory: &mut Factory<'a, '_>,
+    body: Option<&tsr_ast::ConciseBody<'a>>,
+    strict_null_checks: bool,
+    span: Span,
+) -> Option<TypeNode<'a>> {
+    let body = body?;
+    if let tsr_ast::ConciseBody::Block(block) = body {
+        return block
+            .statements
+            .is_empty()
+            .then(|| factory.keyword_type(SyntaxKind::VoidKeyword, span));
+    }
+    let expression = Expression::try_from(Node::from(*body)).ok()?;
+    type_of_expression(factory, &expression, Freshness::Widening, strict_null_checks)
+}
+
+fn empty_function_body_return_type<'a>(
+    factory: &mut Factory<'a, '_>,
+    body: Option<&tsr_ast::FunctionBody<'a>>,
+    span: Span,
+) -> Option<TypeNode<'a>> {
+    let tsr_ast::FunctionBody::Block(block) = body?;
+    block.statements.is_empty().then(|| factory.keyword_type(SyntaxKind::VoidKeyword, span))
 }
 
 fn literal_type<'a>(factory: &mut Factory<'a, '_>, literal: Node<'a>, span: Span) -> TypeNode<'a> {
@@ -417,12 +544,6 @@ fn string_literal<'a>(factory: &mut Factory<'a, '_>, text: &str, span: Span) -> 
 /// reused, and upstream's baselines carry the decimal value, because upstream is
 /// rebuilding the literal from a computed `jsnum.Number` rather than from text.
 ///
-/// **The known gap**, stated rather than left to be discovered: the formatting
-/// here is Rust's shortest round-trip for `f64`, which agrees with JavaScript's
-/// `Number::toString` on integers and ordinary decimals but not on the exponent
-/// forms JavaScript switches to at `1e21` and `1e-7`. No corpus baseline in the
-/// emitter's target exercises those, and a literal that large in a `.d.ts` would
-/// be a curiosity; the alternative is porting `jsnum`, which is Phase 4's.
 fn decimal_literal<'a>(factory: &mut Factory<'a, '_>, text: &str, span: Span) -> Expression<'a> {
     let value = numeric_value(text);
     let formatted = format_number(value);
@@ -473,8 +594,19 @@ pub(crate) fn format_number(value: f64) -> String {
     if value.is_infinite() {
         return if value > 0.0 { "Infinity".to_string() } else { "-Infinity".to_string() };
     }
+    let magnitude = value.abs();
+    if magnitude >= 1e21 || (magnitude != 0.0 && magnitude < 1e-6) {
+        let scientific = format!("{value:e}");
+        let (mantissa, exponent) = scientific.split_once('e').expect("Rust scientific notation");
+        let exponent: i32 = exponent.parse().expect("Rust scientific exponent");
+        return if exponent >= 0 {
+            format!("{mantissa}e+{exponent}")
+        } else {
+            format!("{mantissa}e{exponent}")
+        };
+    }
     #[allow(clippy::float_cmp, clippy::cast_possible_truncation)]
-    if value.fract() == 0.0 && value.abs() < 1e21 {
+    if value.fract() == 0.0 {
         // `{}` on an integral f64 prints a trailing `.0`; a `.d.ts` never does.
         format!("{}", value as i128)
     } else {
@@ -521,5 +653,13 @@ mod tests {
         assert_eq!(format_number(1.0), "1");
         assert_eq!(format_number(-1.0), "-1");
         assert_eq!(format_number(1.5), "1.5");
+    }
+
+    #[test]
+    fn javascript_exponent_thresholds_and_sign_are_used() {
+        assert_eq!(format_number(1e21), "1e+21");
+        assert_eq!(format_number(1e-7), "1e-7");
+        assert_eq!(format_number(1e-6), "0.000001");
+        assert_eq!(format_number(1.234_567_891_234_567_8e53), "1.2345678912345678e+53");
     }
 }

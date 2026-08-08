@@ -139,6 +139,10 @@ pub enum LiteralConstHost<'b, 'a> {
     Variable(&'b VariableDeclaration<'a>, /* is_const */ bool),
     /// A `readonly` property declaration.
     Property(&'b PropertyDeclaration<'a>),
+    /// A bare expression hosted by a synthesized `const` — the binding a
+    /// default-exported expression is rewritten into (`modulePreserve4` keeps
+    /// `declare const _default = 0;` rather than widening to `number`).
+    Expression(&'b Expression<'a>),
 }
 
 impl<'a> LiteralConstHost<'_, 'a> {
@@ -146,6 +150,7 @@ impl<'a> LiteralConstHost<'_, 'a> {
         match self {
             Self::Variable(declaration, _) => declaration.initializer.as_ref(),
             Self::Property(property) => property.initializer.as_ref(),
+            Self::Expression(expression) => Some(expression),
         }
     }
 
@@ -155,6 +160,7 @@ impl<'a> LiteralConstHost<'_, 'a> {
         match self {
             Self::Variable(declaration, _) => declaration.r#type.as_ref(),
             Self::Property(property) => property.r#type.as_ref(),
+            Self::Expression(_) => None,
         }
     }
 }
@@ -166,6 +172,7 @@ impl<'a> LiteralConstHost<'_, 'a> {
 /// front of it. It never looks at a type.
 pub struct SyntacticResolver {
     visible: tsr_dts::visibility::Visible,
+    strict_null_checks: bool,
     /// Every *top-level* statement of the file.
     ///
     /// Needed to tell "this declaration is not visible" from "this pass has
@@ -178,9 +185,10 @@ pub struct SyntacticResolver {
 impl SyntacticResolver {
     /// Build the resolver for one file.
     #[must_use]
-    pub fn new(file: &tsr_ast::SourceFile<'_>) -> Self {
+    pub fn new(file: &tsr_ast::SourceFile<'_>, strict_null_checks: bool) -> Self {
         Self {
             visible: tsr_dts::visibility::visible_declarations(file),
+            strict_null_checks,
             top_level: file.statements.iter().filter_map(Statement::node_id).collect(),
         }
     }
@@ -251,6 +259,8 @@ impl<'a> EmitResolver<'a> for SyntacticResolver {
                 has_modifier(property.modifiers, SyntaxKind::ReadonlyKeyword)
                     && !has_modifier(property.modifiers, SyntaxKind::PrivateKeyword)
             }
+            // The synthesized default-export binding is always a `const`.
+            LiteralConstHost::Expression(_) => true,
         };
         qualifies && node.initializer().is_some_and(type_builder::is_primitive_literal_value)
     }
@@ -269,7 +279,7 @@ impl<'a> EmitResolver<'a> for SyntacticResolver {
         initializer: Option<&Expression<'a>>,
         freshness: Freshness,
     ) -> Option<TypeNode<'a>> {
-        type_builder::type_of_expression(factory, initializer?, freshness)
+        type_builder::type_of_expression(factory, initializer?, freshness, self.strict_null_checks)
     }
 
     /// A return type is never recoverable from syntax: it is the type of whatever

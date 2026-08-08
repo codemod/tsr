@@ -46,6 +46,32 @@ pub struct TraceCase {
     pub expected: String,
 }
 
+/// A compiler case after virtual config files, test directives, and root-file
+/// selection have been applied.
+///
+/// This is shared by every suite that needs to judge the program TypeScript
+/// actually builds, rather than every fixture unit written in the source case.
+pub struct PreparedCompilation {
+    /// The merged compiler options.
+    pub options: CompilerOptions,
+    /// The directory relative names resolve against.
+    pub current_directory: String,
+    /// Whether the host distinguishes `A.ts` from `a.ts`.
+    pub use_case_sensitive_file_names: bool,
+    /// The file system the compiler sees.
+    pub host: TestHost,
+    /// The program's root files, in upstream order.
+    pub root_file_names: Vec<String>,
+}
+
+/// Either a compilation to run or a reason upstream does not run it.
+pub enum CompilationSetup {
+    /// Run it.
+    Ready(Box<PreparedCompilation>),
+    /// Leave it out of the denominator.
+    Skip(String),
+}
+
 /// Either a case to judge or a reason not to.
 pub enum Setup {
     /// Run it.
@@ -87,24 +113,10 @@ pub fn prepare(case: &CaseEntry) -> Setup {
         );
     }
 
-    let current_directory = parsed.current_directory.as_deref().map_or_else(
-        || SRC_FOLDER.to_string(),
-        |dir| get_normalized_absolute_path(dir, SRC_FOLDER),
-    );
-    let use_case_sensitive_file_names = parsed
-        .options
-        .get("usecasesensitivefilenames")
-        .is_none_or(|value| !value.eq_ignore_ascii_case("false"));
-
-    let Compilation { options, units, root_file_names } =
-        compilation(&parsed, &current_directory, use_case_sensitive_file_names);
-
-    // Upstream's own skip predicate, run on the *merged* options — which is why
-    // it could not be evaluated for a tsconfig-configured case until this crate
-    // existed.
-    if let Some(reason) = upstream_skip_reason(&options) {
-        return Setup::Skip(format!("upstream skips this case: {reason}"));
-    }
+    let prepared = match prepare_loaded_compilation(&parsed) {
+        CompilationSetup::Ready(prepared) => prepared,
+        CompilationSetup::Skip(reason) => return Setup::Skip(reason),
+    };
 
     let expected = if let Ok(expected) = std::fs::read_to_string(case.baseline_path("trace.json")) {
         expected
@@ -119,15 +131,51 @@ pub fn prepare(case: &CaseEntry) -> Setup {
     };
 
     Setup::Ready(Box::new(TraceCase {
+        host: prepared.host,
+        options: prepared.options,
+        current_directory: prepared.current_directory,
+        use_case_sensitive_file_names: prepared.use_case_sensitive_file_names,
+        root_file_names: prepared.root_file_names,
+        expected,
+    }))
+}
+
+/// Prepare the program roots, host, and merged options for any compiler case.
+#[must_use]
+pub fn prepare_compilation(case: &CaseEntry) -> CompilationSetup {
+    let Ok(parsed) = case.load() else {
+        return CompilationSetup::Skip("case could not be read".to_string());
+    };
+    prepare_loaded_compilation(&parsed)
+}
+
+fn prepare_loaded_compilation(parsed: &TestCase) -> CompilationSetup {
+    let current_directory = parsed.current_directory.as_deref().map_or_else(
+        || SRC_FOLDER.to_string(),
+        |dir| get_normalized_absolute_path(dir, SRC_FOLDER),
+    );
+    let use_case_sensitive_file_names = parsed
+        .options
+        .get("usecasesensitivefilenames")
+        .is_none_or(|value| !value.eq_ignore_ascii_case("false"));
+    let Compilation { options, units, root_file_names } =
+        compilation(parsed, &current_directory, use_case_sensitive_file_names);
+
+    // Upstream's own skip predicate must see config options and directives
+    // after they have been merged.
+    if let Some(reason) = upstream_skip_reason(&options) {
+        return CompilationSetup::Skip(format!("upstream skips this case: {reason}"));
+    }
+
+    CompilationSetup::Ready(Box::new(PreparedCompilation {
         host: TestHost {
-            fs: file_system(&units, &parsed, &current_directory, use_case_sensitive_file_names),
+            fs: file_system(&units, parsed, &current_directory, use_case_sensitive_file_names),
             current_directory: current_directory.clone(),
         },
         options,
         current_directory,
         use_case_sensitive_file_names,
         root_file_names,
-        expected,
     }))
 }
 
@@ -565,5 +613,36 @@ mod tests {
             vec![untouched.default_lib_file_name()],
             "a case with no lib directive is unaffected"
         );
+    }
+
+    #[test]
+    fn virtual_config_controls_javascript_roots_and_options() {
+        let case = TestCase {
+            name: "compiler/configured-js".to_string(),
+            files: vec![
+                TestFile {
+                    name: "tsconfig.json".to_string(),
+                    content: r#"{"compilerOptions":{"allowJs":true,"jsx":"preserve"},"files":["index.js"]}"#
+                        .to_string(),
+                },
+                TestFile {
+                    name: "index.js".to_string(),
+                    content: "export const view = <div />;".to_string(),
+                },
+                TestFile {
+                    name: "not-a-root.js".to_string(),
+                    content: "not read".to_string(),
+                },
+            ],
+            options: BTreeMap::new(),
+            symlinks: BTreeMap::new(),
+            current_directory: None,
+            error: None,
+        };
+
+        let compilation = compilation(&case, SRC_FOLDER, true);
+        assert_eq!(compilation.options.allow_js, Tristate::True);
+        assert_eq!(compilation.options.jsx, JsxEmit::Preserve);
+        assert_eq!(compilation.root_file_names, ["/.src/index.js"]);
     }
 }

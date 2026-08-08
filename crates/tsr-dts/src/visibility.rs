@@ -47,6 +47,11 @@ use tsr_ast::{
 #[derive(Debug, Default)]
 pub struct Visible {
     ids: FxHashSet<NodeId>,
+    /// The declared names reachability actually passed through. A statement can
+    /// be visible for one of its names only — `var x = 10, m2: T` with
+    /// `export = m2` reaches `m2` and not `x` — and declarator-level filtering
+    /// needs that distinction, which `ids` alone cannot carry.
+    names: FxHashSet<String>,
 }
 
 impl Visible {
@@ -54,6 +59,12 @@ impl Visible {
     #[must_use]
     pub fn contains(&self, id: Option<NodeId>) -> bool {
         id.is_some_and(|id| self.ids.contains(&id))
+    }
+
+    /// Whether reachability passed through this declared name.
+    #[must_use]
+    pub fn reaches_name(&self, name: &str) -> bool {
+        self.names.contains(name)
     }
 
     /// How many top-level declarations are emitted.
@@ -72,25 +83,54 @@ impl Visible {
 /// Compute the visible set for a file.
 #[must_use]
 pub fn visible_declarations<'a>(file: &'a SourceFile<'a>) -> Visible {
-    let by_name = index_by_name(file.statements);
-
     // A *script* — no imports, no exports — emits every top-level declaration,
     // because there is no export list to be reachable from. `isolatedDeclarationErrors`
     // is exactly this shape: not one `export` in the file, and upstream still
     // reports four errors in it.
     if !is_module(file.statements) {
         let ids = file.statements.iter().filter_map(Statement::node_id).collect();
-        return Visible { ids };
+        let names = file
+            .statements
+            .iter()
+            .flat_map(|statement| declared_names(statement))
+            .map(ToString::to_string)
+            .collect();
+        return Visible { ids, names };
     }
 
+    visible_module_members(file.statements)
+}
+
+/// Compute declarations reachable from the exports of a module-like statement list.
+///
+/// Unlike a source file, a namespace body is always a module scope even when it
+/// contains no import/export syntax at the outer file level. Declaration emit
+/// uses this after transforming the body so dependencies erased from private
+/// members no longer keep private aliases alive.
+#[must_use]
+pub fn visible_module_members<'a>(statements: &'a [Statement<'a>]) -> Visible {
+    let by_name = index_by_name(statements);
+
     let mut visible: FxHashSet<NodeId> = FxHashSet::default();
+    let mut names: FxHashSet<String> = FxHashSet::default();
     let mut queue: Vec<&Statement<'a>> = Vec::new();
 
-    for statement in file.statements {
-        if exports_something(statement) {
+    for statement in statements {
+        // In an external module, `declare global` and string-named ambient
+        // modules are augmentations. They contribute declarations by side effect
+        // even though they carry no `export` modifier, and their bodies can make
+        // imports visible.
+        let is_augmentation = matches!(
+            statement,
+            Statement::ModuleDeclaration(module)
+                if module.keyword.kind == SyntaxKind::GlobalKeyword
+                    || matches!(module.name, Some(tsr_ast::ModuleName::StringLiteral(_)))
+        );
+        if exports_something(statement) || is_augmentation {
             if let Some(id) = statement.node_id() {
                 visible.insert(id);
             }
+            names.extend(declared_names(statement).into_iter().map(ToString::to_string));
             queue.push(statement);
         }
         // `export { a, b }` names declarations elsewhere in the file. The
@@ -103,11 +143,16 @@ pub fn visible_declarations<'a>(file: &'a SourceFile<'a>) -> Visible {
             for specifier in named.elements {
                 let local = specifier.property_name.as_ref().or(specifier.name.as_ref());
                 if let Some(name) = local.and_then(module_export_name)
-                    && let Some(target) = by_name.get(name)
-                    && let Some(id) = target.node_id()
-                    && visible.insert(id)
+                    && let Some(targets) = by_name.get(name)
                 {
-                    queue.push(target);
+                    names.insert(name.to_string());
+                    for target in targets {
+                        if let Some(id) = target.node_id()
+                            && visible.insert(id)
+                        {
+                            queue.push(target);
+                        }
+                    }
                 }
             }
         }
@@ -118,33 +163,51 @@ pub fn visible_declarations<'a>(file: &'a SourceFile<'a>) -> Visible {
         let mut collector = ReferenceCollector::default();
         collector.visit_node(tsr_ast::Node::from(*statement));
         for name in collector.names {
-            if let Some(target) = by_name.get(name)
-                && let Some(id) = target.node_id()
-                && visible.insert(id)
-            {
-                queue.push(target);
+            if let Some(targets) = by_name.get(name) {
+                names.insert(name.to_string());
+                for target in targets {
+                    if let Some(id) = target.node_id()
+                        && visible.insert(id)
+                    {
+                        queue.push(target);
+                    }
+                }
             }
         }
     }
 
-    Visible { ids: visible }
+    Visible { ids: visible, names }
 }
 
 /// Index top-level declarations by the name they introduce.
 ///
-/// Later declarations win on collision, which is wrong for merged declarations
-/// (`interface` + `interface`, `namespace` + `function`) and right for nothing.
-/// It is tolerable only because the map is used to *reach* declarations, and a
-/// merged pair is nearly always reached together through some other edge. Merged
-/// declarations are the known gap here.
-fn index_by_name<'a, 'b>(statements: &'b [Statement<'a>]) -> FxHashMap<&'a str, &'b Statement<'a>> {
+/// Every declaration is retained for a name because TypeScript declarations can
+/// merge (`interface` + `interface`, `namespace` + `function`, and others).
+/// Replacing an earlier entry with a later one made reachability depend on source
+/// order and emitted only half of a merged symbol.
+fn index_by_name<'a, 'b>(
+    statements: &'b [Statement<'a>],
+) -> FxHashMap<&'a str, Vec<&'b Statement<'a>>> {
     let mut map = FxHashMap::default();
     for statement in statements {
         for name in declared_names(statement) {
-            map.insert(name, statement);
+            map.entry(name).or_insert_with(Vec::new).push(statement);
         }
     }
     map
+}
+
+/// Every identifier a binding name introduces, patterns included.
+fn collect_bound_names<'a>(name: Option<&tsr_ast::BindingName<'a>>, names: &mut Vec<&'a str>) {
+    match name {
+        Some(tsr_ast::BindingName::Identifier(identifier)) => names.push(identifier.text),
+        Some(tsr_ast::BindingName::BindingPattern(pattern)) => {
+            for element in pattern.elements {
+                collect_bound_names(element.name.as_ref(), names);
+            }
+        }
+        None => {}
+    }
 }
 
 /// The names a top-level statement introduces into the file's scope.
@@ -164,9 +227,11 @@ fn declared_names<'a>(statement: &Statement<'a>) -> Vec<&'a str> {
             let mut names = Vec::new();
             if let Some(list) = d.declaration_list {
                 for declaration in list.declarations {
-                    if let Some(tsr_ast::BindingName::Identifier(n)) = &declaration.name {
-                        names.push(n.text);
-                    }
+                    // Binding patterns introduce every bound identifier:
+                    // `const { Foo } = A` declares `Foo`, and a class
+                    // extending it must reach the statement
+                    // (`declarationEmitExpressionInExtends6`).
+                    collect_bound_names(declaration.name.as_ref(), &mut names);
                 }
             }
             names
@@ -275,15 +340,39 @@ fn module_export_name<'a>(name: &tsr_ast::ModuleExportName<'a>) -> Option<&'a st
 #[derive(Default)]
 struct ReferenceCollector<'a> {
     names: Vec<&'a str>,
+    bound_type_names: Vec<&'a str>,
 }
 
 impl<'a> ReferenceCollector<'a> {
+    fn record_name(&mut self, name: &'a str) {
+        if !self.bound_type_names.contains(&name) {
+            self.names.push(name);
+        }
+    }
+
     fn record_entity_name(&mut self, name: &EntityName<'a>) {
+        match name {
+            EntityName::Identifier(identifier) => self.record_name(identifier.text),
+            EntityName::QualifiedName(qualified) => {
+                if let Some(left) = &qualified.left {
+                    self.record_qualified_root(left);
+                }
+            }
+        }
+    }
+
+    /// The leftmost identifier of a qualified name, recorded unconditionally.
+    ///
+    /// `E.Whatever` resolves `E` in *namespace* space, where type parameters
+    /// never participate — so a signature's `<E>` must not shadow the
+    /// namespace import the annotation actually names
+    /// (`declarationEmitRetainedAnnotationRetainsImportInOutput`).
+    fn record_qualified_root(&mut self, name: &EntityName<'a>) {
         match name {
             EntityName::Identifier(identifier) => self.names.push(identifier.text),
             EntityName::QualifiedName(qualified) => {
                 if let Some(left) = &qualified.left {
-                    self.record_entity_name(left);
+                    self.record_qualified_root(left);
                 }
             }
         }
@@ -294,13 +383,41 @@ impl<'a> ReferenceCollector<'a> {
     /// `Base` and `a.b.Base` qualify; `id(Base)` does not.
     fn record_entity_expression(&mut self, expression: &Expression<'a>) {
         match expression {
-            Expression::Identifier(identifier) => self.names.push(identifier.text),
+            Expression::Identifier(identifier) => self.record_name(identifier.text),
             Expression::PropertyAccessExpression(access) => {
                 if let Some(inner) = &access.expression {
                     self.record_entity_expression(inner);
                 }
             }
             _ => {}
+        }
+    }
+
+    /// Names that become part of the synthesized `_default` declaration's type.
+    /// Unlike an ordinary initializer, a default-export expression is itself the
+    /// exported declaration, so `export default new A()` must retain `A`.
+    fn record_default_export_expression(&mut self, expression: &Expression<'a>) {
+        match expression {
+            Expression::NewExpression(new_expression) => {
+                if let Some(callee) = &new_expression.expression {
+                    self.record_entity_expression(callee);
+                }
+                for argument in new_expression.type_arguments {
+                    self.visit_node(tsr_ast::Node::from(*argument));
+                }
+            }
+            Expression::AsExpression(as_expression) => {
+                self.visit_type(as_expression.r#type);
+            }
+            Expression::SatisfiesExpression(satisfies) => {
+                self.visit_type(satisfies.r#type);
+            }
+            Expression::ParenthesizedExpression(parenthesized) => {
+                if let Some(inner) = &parenthesized.expression {
+                    self.record_default_export_expression(inner);
+                }
+            }
+            other => self.record_entity_expression(other),
         }
     }
 
@@ -345,6 +462,66 @@ impl<'a> ReferenceCollector<'a> {
         }
     }
 
+    /// Collect written types that the syntactic type builder copies out of an
+    /// initializer.
+    ///
+    /// Initializers are normally values and cannot make an import visible. An
+    /// arrow or function expression is the important exception: its written
+    /// parameter and return annotations become the emitted variable's function
+    /// type. Ignoring those annotations dropped imports from declarations such as
+    /// `export const f = (value: Imported): void => {}` even though no inference
+    /// is needed to know that `Imported` survives.
+    fn collect_initializer_types(&mut self, expression: &Expression<'a>) {
+        match expression {
+            Expression::ArrowFunction(function) => {
+                let bound_len = self.bound_type_names.len();
+                self.bound_type_names.extend(
+                    function
+                        .type_parameters
+                        .iter()
+                        .filter_map(|parameter| parameter.name.map(|name| name.text)),
+                );
+                for parameter in function.type_parameters {
+                    self.visit_type_parameter_declaration(parameter);
+                }
+                for parameter in function.parameters {
+                    self.visit_parameter_declaration(parameter);
+                }
+                self.visit_type(function.r#type);
+                self.bound_type_names.truncate(bound_len);
+            }
+            Expression::FunctionExpression(function) => {
+                let bound_len = self.bound_type_names.len();
+                self.bound_type_names.extend(
+                    function
+                        .type_parameters
+                        .iter()
+                        .filter_map(|parameter| parameter.name.map(|name| name.text)),
+                );
+                for parameter in function.type_parameters {
+                    self.visit_type_parameter_declaration(parameter);
+                }
+                for parameter in function.parameters {
+                    self.visit_parameter_declaration(parameter);
+                }
+                self.visit_type(function.r#type);
+                self.bound_type_names.truncate(bound_len);
+            }
+            Expression::AsExpression(as_expression) => {
+                self.visit_type(as_expression.r#type);
+            }
+            Expression::SatisfiesExpression(satisfies) => {
+                self.visit_type(satisfies.r#type);
+            }
+            Expression::ParenthesizedExpression(parenthesized) => {
+                if let Some(inner) = &parenthesized.expression {
+                    self.collect_initializer_types(inner);
+                }
+            }
+            _ => {}
+        }
+    }
+
     fn visit_type(&mut self, node: Option<tsr_ast::TypeNode<'a>>) {
         if let Some(node) = node {
             self.visit_node(tsr_ast::Node::from(node));
@@ -354,7 +531,7 @@ impl<'a> ReferenceCollector<'a> {
 
 impl<'a> Visit<'a> for ReferenceCollector<'a> {
     fn visit_identifier(&mut self, node: &'a tsr_ast::Identifier<'a>) {
-        self.names.push(node.text);
+        self.record_name(node.text);
     }
 
     fn visit_type_reference_node(&mut self, node: &'a tsr_ast::TypeReferenceNode<'a>) {
@@ -364,6 +541,30 @@ impl<'a> Visit<'a> for ReferenceCollector<'a> {
         for argument in node.type_arguments {
             self.visit_node(tsr_ast::Node::from(*argument));
         }
+    }
+
+    fn visit_module_declaration(&mut self, node: &'a tsr_ast::ModuleDeclaration<'a>) {
+        let bound_len = self.bound_type_names.len();
+        match node.body {
+            Some(tsr_ast::ModuleBody::ModuleBlock(block)) => {
+                // Declarations in an augmentation or namespace bind names in that
+                // module's scope. In `declare module "./m" { interface A {} }`,
+                // the declaration name `A` must not retain a top-level `import
+                // { A } from "./m"`; genuine external references from member
+                // types remain unbound and still retain their imports.
+                for statement in block.statements {
+                    self.bound_type_names.extend(declared_names(statement));
+                }
+                for statement in block.statements {
+                    self.visit_node(tsr_ast::Node::from(*statement));
+                }
+            }
+            Some(tsr_ast::ModuleBody::ModuleDeclaration(inner)) => {
+                self.visit_module_declaration(inner);
+            }
+            None => {}
+        }
+        self.bound_type_names.truncate(bound_len);
     }
 
     // A body emits nothing, so it can make nothing visible.
@@ -382,6 +583,13 @@ impl<'a> Visit<'a> for ReferenceCollector<'a> {
             && let Some(initializer) = &node.initializer
         {
             self.collect_computed_keys(initializer);
+            self.collect_initializer_types(initializer);
+            // A binding pattern destructuring an entity emits
+            // `typeof <entity>`, so the entity's root must stay reachable in
+            // the source phase too (`declarationEmitExpressionInExtends6`).
+            if matches!(node.name, Some(tsr_ast::BindingName::BindingPattern(_))) {
+                self.record_entity_expression(initializer);
+            }
         }
     }
 
@@ -391,11 +599,23 @@ impl<'a> Visit<'a> for ReferenceCollector<'a> {
             && let Some(initializer) = &node.initializer
         {
             self.collect_computed_keys(initializer);
+            self.collect_initializer_types(initializer);
         }
     }
 
     fn visit_parameter_declaration(&mut self, node: &'a tsr_ast::ParameterDeclaration<'a>) {
         self.visit_type(node.r#type);
+    }
+
+    fn visit_type_parameter_declaration(
+        &mut self,
+        node: &'a tsr_ast::TypeParameterDeclaration<'a>,
+    ) {
+        // The declared name is a local binding, not a reference to a top-level
+        // declaration or import with the same spelling. Its constraint and
+        // default are type positions and can contain real references.
+        self.visit_type(node.constraint);
+        self.visit_type(node.default_type);
     }
 
     fn visit_property_assignment(&mut self, node: &'a tsr_ast::PropertyAssignment<'a>) {
@@ -428,7 +648,7 @@ impl<'a> Visit<'a> for ReferenceCollector<'a> {
     /// `export default a` emits a reference to `a`, so `a` must be emitted too.
     fn visit_export_assignment(&mut self, node: &'a tsr_ast::ExportAssignment<'a>) {
         if let Some(expression) = &node.expression {
-            self.record_entity_expression(expression);
+            self.record_default_export_expression(expression);
         }
     }
 }
