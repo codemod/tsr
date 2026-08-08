@@ -11,7 +11,7 @@ FIRST: git pull. Then read, in this order:
   refusal with its number.
 
 STATE AT HANDOFF (verify with a fresh coverage run):
-  diagnostics    1,298/5,488 = 23.65%   (was 1,118 = 20.37%; +180 over 31 builds,
+  diagnostics    1,299/5,488 = 23.67%   (was 1,118 = 20.37%; +181 over 32 builds,
                  **zero cases lost in any of them**)
   checker_types  3,683/9,538 · 82.85% — the other workstream's. Do not touch it;
                  re-check it is byte-identical after every build.

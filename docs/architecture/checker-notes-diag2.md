@@ -5280,3 +5280,52 @@ the removal is expressible. This one was expressible in six lines because §67
 had already computed the answer — the split into `inaccessible_property` is the
 same shape §63 got thirteen cases from. **A rule that decides something another
 rule needs should answer the question, not just act on it.**
+
+---
+
+## 71. A class's own name is in scope inside it — §60 at a second kind
+
+`extraonly.rs`: `defaultDeclarationEmitNamedCorrectly` carries one extra,
+
+```ts
+export default class MyComponent {
+    static create = make(MyComponent);   // <- reported; the name IS in scope
+}
+```
+
+§60 declined the same shape for a **named function expression**, whose own name
+`bindFunctionExpression` puts in its body's scope. A class binds its name inside
+its body too — for a class *expression* through `bindAnonymousDeclaration`, and
+for `export default class X` through the default-export symbol, neither of which
+this binder puts where `resolve_name` looks.
+
+Declined in the rule rather than repaired in the binder, for §60's reason:
+`tsr_binder` is shared with the query road.
+
+### The bar
+
+| leg | registered |
+|---|---|
+| 1 | `diagnostics` passes ≥ **1,298**. Forecast **+1** |
+| 2 | `checker_types` pass count unchanged at **3,683** |
+| 3 | LOST must not grow |
+| 4 | TS2304's WRONG falls; its RIGHT does not |
+| 5 | every other snapshot unchanged |
+
+### Scored — **+1**, and a standing loss went with it
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| 1 | passes ≥ 1,298, forecast +1 | **1,299 / 5,488 = 23.67%** | pass, exactly |
+| 2 | `checker_types` pass count 3,683 | **3,683**, snapshot unchanged | pass |
+| 3 | LOST must not grow | **2 → 1** — it *fell* | pass |
+| 4 | TS2304's WRONG falls, RIGHT does not | **451 → 444**, RIGHT **2,406** | pass |
+| 5 | every other snapshot unchanged | only `diagnostics.snap` differs | pass |
+
+**One of the family's two standing losses was this defect.** §55 shipped with
+LOST 2 and carried the pair forward through §57, §60 and §70 as "pre-existing";
+one of them was a class naming itself. A standing loss is a *finding that has
+not been diagnosed yet*, and this file has now twice treated one as furniture —
+§59's is still there.
+
+`extraonly.rs` is **five for six**.

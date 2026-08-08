@@ -803,9 +803,17 @@ impl Checker<'_, '_> {
         // `recursiveNamedLambdaCall`, and declined rather than repaired because
         // `tsr_binder` is shared with the query road
         // (`checker-notes-diag2.md` §60).
-        if self.nodes.ancestors(node).any(|ancestor| {
-            matches!(self.node_map.get(ancestor), Some(Node::FunctionExpression(function))
-                if function.name.is_some_and(|name| name.text == text))
+        // …and a **class** binds its own name inside its body the same way —
+        // a class expression through `bindAnonymousDeclaration`, and
+        // `export default class X` through the default-export symbol. Neither
+        // is where `resolve_name` looks (`checker-notes-diag2.md` §60, §71).
+        if self.nodes.ancestors(node).any(|ancestor| match self.node_map.get(ancestor) {
+            Some(Node::FunctionExpression(function)) => {
+                function.name.is_some_and(|name| name.text == text)
+            }
+            Some(Node::ClassDeclaration(class)) => class.name.is_some_and(|name| name.text == text),
+            Some(Node::ClassExpression(class)) => class.name.is_some_and(|name| name.text == text),
+            _ => false,
         }) {
             return;
         }
