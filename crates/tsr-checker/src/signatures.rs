@@ -1410,6 +1410,46 @@ impl<'a> Checker<'a, '_> {
         )
     }
 
+    /// §48/§71/§71.1/§71.2's pattern renderer: the written shape verbatim,
+    /// renamed elements as `prop: bound`, initializers dropped, `{}`/`[]`
+    /// for empty, and — §71.2 — NESTED patterns rendered recursively
+    /// (`[[a]]: [[string]]` prints `[[a]]`,
+    /// `destructuringParameterDeclaration1ES5iterable`). Rests and
+    /// computed/string-literal keys keep the decline.
+    fn render_binding_pattern(&self, pattern: &tsr_ast::BindingPattern<'_>) -> Option<String> {
+        let mut names = Vec::with_capacity(pattern.elements.len());
+        for element in pattern.elements {
+            if element.dot_dot_dot_token.is_some() {
+                return None;
+            }
+            let bound = match element.name {
+                Some(tsr_ast::BindingName::Identifier(inner)) => inner.text.to_string(),
+                Some(tsr_ast::BindingName::BindingPattern(inner)) => {
+                    self.render_binding_pattern(inner)?
+                }
+                None => return None,
+            };
+            match element.property_name {
+                None => names.push(bound),
+                Some(tsr_ast::PropertyName::Identifier(prop)) => {
+                    names.push(format!("{}: {}", prop.text, bound));
+                }
+                Some(_) => return None,
+            }
+        }
+        // The side-table kind, not the token field — the §16 CaseKeyword
+        // lesson's second application.
+        let is_object = pattern
+            .node_id
+            .is_some_and(|id| self.nodes.kind(id) == tsr_ast::SyntaxKind::ObjectBindingPattern);
+        Some(match (is_object, names.is_empty()) {
+            (true, true) => "{}".to_string(),
+            (true, false) => format!("{{ {} }}", names.join(", ")),
+            (false, true) => "[]".to_string(),
+            (false, false) => format!("[{}]", names.join(", ")),
+        })
+    }
+
     /// One parameter, or `None` for a form whose printed name this port cannot
     /// reproduce.
     fn parameter_of(&mut self, node: &ParameterDeclaration<'a>) -> Option<Parameter> {
@@ -1420,43 +1460,7 @@ impl<'a> Checker<'a, '_> {
             // (`parameterToParameterDeclarationName`'s generated names are a
             // guess, the original rule intact for the shapes it feared).
             Some(tsr_ast::BindingName::BindingPattern(pattern)) => {
-                let mut names = Vec::with_capacity(pattern.elements.len());
-                for element in pattern.elements {
-                    // §71.1: an element INITIALIZER is dropped from the print
-                    // — `{x: z = 'y'}` renders `{ x: z }`
-                    // (`declarationEmitBindingPatterns.types`). Only rests
-                    // keep the decline.
-                    if element.dot_dot_dot_token.is_some() {
-                        return None;
-                    }
-                    let Some(tsr_ast::BindingName::Identifier(inner)) = element.name else {
-                        return None;
-                    };
-                    // §71: a RENAMED element (`{ name: alias }`) renders its
-                    // written `prop: bound` pair verbatim — the corpus prints
-                    // `({ name: alias, name: alias2 }: Named) => void` for
-                    // `declarationEmitBindingPatternsUnused`'s functions.
-                    // Only identifier property names; computed/string-literal
-                    // keys keep the decline.
-                    match element.property_name {
-                        None => names.push(inner.text.to_string()),
-                        Some(tsr_ast::PropertyName::Identifier(prop)) => {
-                            names.push(format!("{}: {}", prop.text, inner.text));
-                        }
-                        Some(_) => return None,
-                    }
-                }
-                // The side-table kind, not the token field — the §16
-                // CaseKeyword lesson's second application.
-                let is_object = pattern.node_id.is_some_and(|id| {
-                    self.nodes.kind(id) == tsr_ast::SyntaxKind::ObjectBindingPattern
-                });
-                match (is_object, names.is_empty()) {
-                    (true, true) => "{}".to_string(),
-                    (true, false) => format!("{{ {} }}", names.join(", ")),
-                    (false, true) => "[]".to_string(),
-                    (false, false) => format!("[{}]", names.join(", ")),
-                }
+                self.render_binding_pattern(pattern)?
             }
             None => return None,
         };

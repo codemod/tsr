@@ -2966,3 +2966,16 @@ through as-is; overload sets still decline.
 
 **§75 score — LANDED.** right 402,984 → **403,033 (84.15%)** — +49,
 ZERO adverse, zero new gaps.
+
+## §71.2 — nested binding patterns render recursively
+
+`[[a]]: [[string]]` printed `error` for the whole signature because
+§48's renderer declined a pattern-typed element name. Extracted to
+`render_binding_pattern`, recursive; all other declines (rests,
+computed keys) intact. **+89 (78 G→R, 11 W→R), 8 G→W** — the 8 are
+NOT this rule: quote-style (`'x'` vs `"x"`, the 57-line head) and
+written union order (`number | string` vs `string | number`,
+`tsr-5o2`'s annotation-reuse family) surfacing behind the now-correct
+structure.
+
+**§71.2 score — LANDED.** right 403,242 → **403,331 (84.22%)**.
