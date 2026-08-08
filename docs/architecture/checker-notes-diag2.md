@@ -9397,3 +9397,56 @@ on — so they are **missing lines wearing a wrong-column badge**: this port emi
 TS1361 at those positions and upstream emits it at *different* positions in the
 same file. That is a position bug, not a predicate bug, and it has not been
 looked at once.
+
+## §131 — reading the fixture: both remaining lines are the two clauses §123 skipped
+
+§130 called the two remaining lines a "position bug". **Wrong** — `diagcase`
+shows all four expected lines matching exactly and two *extra* on top:
+
+```
+expected: (12,4) (16,4) (20,4) (24,4)
+actual:   (12,4) (16,4) (20,4) (24,4) (32,12) (36,4)
+```
+
+Reading `conformance/externalModules/typeOnly/computedPropertyName.ts` — which
+no section had done — the file is a deliberate enumeration:
+
+```ts
+class D { [onInit] = 0; }          // Error
+class E { [onInit]() {} }          // Error
+abstract class F { abstract [onInit](): void; }   // no error
+class G { declare [onInit]: any; }                // no error
+declare class H { [onInit]: any; }                // no error
+```
+
+The two extras are **`abstract class F`** and **`declare class H`**, and they
+are exactly the two clauses of `IsValidTypeOnlyAliasUseSite` that §123 declined
+to port with the words *"neither has a case in the residual"*:
+
+1. **`HasSyntacticModifier(node.Parent, ModifierFlagsAbstract)`** — `abstract
+   [onInit](): void` has no body, so it is almost certainly a
+   `MethodSignature`-shaped node, and `member_is_abstract` enumerates
+   `PropertyDeclaration | MethodDeclaration | GetAccessor | SetAccessor` only.
+   **Add the signature kinds.**
+2. **`useSite.Flags&NodeFlagsAmbient != 0`** — the *first* clause of the
+   function, skipped because `NodeFlags::AMBIENT` **is one of this port's
+   never-set flags** (§104's list, which §104 already had to correct once).
+   `declare class H` and `class G { declare … }` both need it, and §99 already
+   built the replacement: `declaration_is_in_an_ambient_context`, which walks
+   the `declare` modifiers because the flag is dead. **Call that instead.**
+
+Both fixes are named, both are small, and **neither is an inference** — the
+fixture enumerates the cases and labels them.
+
+### Nine attempts, and the one that worked was reading the input
+
+§122 through §130 attributed these lines from the wrong column, the baseline,
+upstream's source, a probe of the symbol, a probe of the loop, and twice from
+the case's *name*. The thing that finally explained them was **opening the test
+file** — 19 lines, unread by any of nine sections.
+
+`diagmissing` prints case names, `diagcase` prints line numbers, `diag2307`
+prints columns. **None of them prints the code**, and for nine sections nobody
+looked at it. That is the instrument gap this row actually exposed.
+
+**Standing addition to the loop: read the fixture before the fourth hypothesis.**
