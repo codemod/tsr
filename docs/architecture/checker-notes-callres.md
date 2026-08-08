@@ -1686,3 +1686,32 @@ target is a template-bodied alias (exactly the §36-created divergence,
 nothing wider — the union leg's measured negative stands). **v2 score:
 +12 (W→R), ZERO adverse.** `checker_types` right 397,592 → **397,604
 (83.01%)**.
+
+### §37 `arguments` binds `IArguments`
+
+`capturedLetConstInLoop2` (20 direct + ~150 downstream GAP): upstream
+binds `arguments` to the global `IArguments` interface in every function
+(`checker.go`'s argumentsSymbol); this port kept it an honest gap from
+the §31 era, when no lib existed to resolve it. The conformance program
+MOUNTS the bundled libs (the §36 chain surfaced this: `Uppercase`
+resolves), so `IArguments` is resolvable now: an `arguments` read inside
+a function-like container answers the global interface's declared type —
+`.length` then projects `number` through the ordinary member road, and
+the captured closures (`() => x + a`) type downstream.
+
+**Falsifiers.** (a) Arrow functions — upstream's `arguments` in an arrow
+binds the ENCLOSING function's (or errors at top level); if the corpus
+distinguishes, W in arrow cases. (b) A local named `arguments` shadows —
+the resolve-first order already guards it (the §31 exit only runs when
+resolution missed).
+
+**§37 score — LANDED (narrowed once).** First pair +641/66: falsifier (a)
+fired exactly — arrows at top level and CLASS FIELD/STATIC BLOCK
+initializers want `any` (upstream errors there and the §31 rendering
+applies). The container walk now stops at the nearest NON-arrow function
+and declines at PropertyDeclaration/ClassStaticBlock/SourceFile. Final:
+**+637 G→R / 28 G→W + 1 R→W** (22:1) — the adverse are a PRE-EXISTING
+for-of-element inference class (`for (let x of []) … () => x + a` wants
+`string`, this port answers `any`) newly unlocked downstream, plus one
+`{ arguments }`-shorthand corner. `checker_types` right 397,604 →
+**398,240 (83.15%)**.

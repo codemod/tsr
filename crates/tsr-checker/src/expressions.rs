@@ -477,6 +477,41 @@ impl Checker<'_, '_> {
                             self.global_this_type = Some(minted);
                             return minted;
                         }
+                        // §37 (`checker-notes-callres.md`): `arguments`
+                        // inside a function-like container binds the global
+                        // `IArguments` interface — resolvable since the
+                        // bundled libs mount.
+                        // The container is the nearest NON-ARROW function
+                        // (an arrow's `arguments` is the enclosing one's,
+                        // §37's fired leg); a class field, static block, or
+                        // top level reached first declines to the old road.
+                        let arguments_container = || -> bool {
+                            let mut current = self.nodes.parent(id);
+                            while let Some(ancestor) = current {
+                                match self.nodes.kind(ancestor) {
+                                    SyntaxKind::FunctionDeclaration
+                                    | SyntaxKind::FunctionExpression
+                                    | SyntaxKind::MethodDeclaration
+                                    | SyntaxKind::Constructor
+                                    | SyntaxKind::GetAccessor
+                                    | SyntaxKind::SetAccessor => return true,
+                                    SyntaxKind::SourceFile
+                                    | SyntaxKind::PropertyDeclaration
+                                    | SyntaxKind::ClassStaticBlockDeclaration => return false,
+                                    _ => current = self.nodes.parent(ancestor),
+                                }
+                            }
+                            false
+                        };
+                        if node.text == "arguments"
+                            && arguments_container()
+                            && let Some(global) = self.binder.global("IArguments")
+                        {
+                            let declared = self.get_declared_type_of_symbol(global);
+                            if declared != self.intrinsics.error {
+                                return declared;
+                            }
+                        }
                         if anywhere.is_some()
                             || node.text == "arguments"
                             || self.file_has_import_machinery(id)
