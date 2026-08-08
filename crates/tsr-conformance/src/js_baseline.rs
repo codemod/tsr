@@ -103,6 +103,14 @@ impl JsBaseline {
                 current = Some((name.to_string(), Vec::new()));
                 continue;
             }
+            // `!!!! File x missing from original emit, but present in noCheck
+            // emit` is the baseline runner's own annotation, written *between*
+            // sections; it is metadata about which run produced the following
+            // section, never emitted text. For a checker-free emitter the
+            // noCheck emit is the right oracle anyway (`noEmitOnError`).
+            if line.starts_with("!!!!") {
+                continue;
+            }
             if let Some((_, body)) = current.as_mut() {
                 body.push(line);
             }

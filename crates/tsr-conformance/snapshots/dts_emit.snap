@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 dts_emit Summary:
 What a pass means: the .d.ts text this port emits is byte-identical to upstream's, for every unit of a case that needs no inference — the emitter's own rate, over the population dts_reachable_target measures
-Passed         : 327/374 (87.43%)
-Failed         : 47
+Passed         : 333/374 (89.04%)
+Failed         : 41
 Skipped        : 12070 (excluded from the denominator)
 
   636  skipped: a declaration in this case needs inference (see dts_reachable_target)
@@ -16,10 +16,6 @@ compiler/accessorInferredReturnTypeErrorInReturnStatement
   line 1: want `export declare var basePrototype: {`, got `export declare var basePrototype: any;`
 compiler/amdLikeInputDeclarationEmit
   line 1: missing `declare const ExtendedClass: new () => {`
-compiler/commonSourceDirectory
-  line 1: want `/// <reference path="../../types/bar.d.ts" preserve="true" />`, got `/// <reference path="../types/bar.d.ts" preserve="true" />`
-compiler/declarationEmitClassAccessorsJs1
-  line 5: want `    get path(): string;`, got `    get path(): any;`
 compiler/declarationEmitDuplicateParameterDestructuring
   line 1: want `export declare const fn1: ({ prop: a, prop: b }: {`, got `export declare const fn1: any;`
 compiler/declarationEmitExportAliasVisibiilityMarking
@@ -30,8 +26,6 @@ compiler/declarationEmitNameConflicts2
   line 12: want `    var f: typeof base.f;`, got `    var f: any;`
 compiler/declarationEmitNoNonRequiredParens
   line 7: want `export declare const bar: Test[];`, got `export declare const bar: TestType[Extract<keyof TestType, string>][];`
-compiler/declarationEmitObjectLiteralAccessors1
-  line 1: want `export declare const obj1: {`, got `export declare const obj1: any;`
 compiler/declarationEmitPrivatePromiseLikeInterface
   emitted Api.d.ts, upstream emitted no declaration file
 compiler/declarationEmitPrivateSymbolCausesVarDeclarationToBeEmitted
@@ -68,20 +62,14 @@ compiler/mappedTypeWithAsClauseAndLateBoundProperty2
   line 2: want `    [x: number]: number;`, got `    [K in keyof number[] as Exclude<K, "length">]: (number[])[K];`
 compiler/modulePreserve4
   line 1: want `export = _default;`, got `declare const _default: () => void;`
-compiler/noEmitOnError
-  line 2: missing ``
 compiler/paramterDestrcuturingDeclaration
   line 2: want `    ({ p: name }: {`, got `    ({ p: name }: any): any;`
 compiler/referenceTypesPreferedToPathIfPossible
   line 1: want `export declare const thing: () => import("url").Url;`, got `export declare const thing: any;`
 compiler/typeReferenceDirectives13
   line 1: want `export interface A {`, got `import { $ } from "./ref";`
-compiler/typeReferenceDirectives4
-  line 3: want `declare let y: () => $;`, got `declare let y: any;`
 compiler/typeReferenceDirectives5
   line 1: want `export interface A {`, got `import { $ } from "./ref";`
-compiler/typeReferenceDirectives6
-  line 2: want `declare let y: () => $;`, got `declare let y: any;`
 compiler/typeReferenceDirectives7
   line 3: want `export declare let y: () => number;`, got `export declare let y: any;`
 compiler/unionTypeWithLeadingOperator

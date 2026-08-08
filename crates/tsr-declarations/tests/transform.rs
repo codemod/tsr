@@ -1096,3 +1096,65 @@ fn runtime_statements_are_elided() {
         "export declare const a: number;",
     );
 }
+
+// ----- object-literal accessors ---------------------------------------------
+
+#[test]
+fn annotated_object_accessors_keep_their_shape() {
+    // `declarationEmitObjectLiteralAccessors1`: a get/set pair keeps both
+    // signatures in source order; a lone getter is a `readonly` property of its
+    // return type; a lone setter a mutable property of its parameter type.
+    assert_emits(
+        "export const a = {\n    get x(): string { return \"\"; },\n    set x(v: number) {},\n};",
+        "export declare const a: {\n    get x(): string;\n    set x(v: number);\n};",
+    );
+    assert_emits(
+        "export const b = { get x(): string { return \"\"; } };",
+        "export declare const b: {\n    readonly x: string;\n};",
+    );
+    assert_emits(
+        "export const c = { set x(v: number) {} };",
+        "export declare const c: {\n    x: number;\n};",
+    );
+}
+
+// ----- arrow returns that name a declaration --------------------------------
+
+#[test]
+fn an_arrow_returning_an_annotated_name_copies_the_annotation() {
+    // `typeReferenceDirectives4`: upstream resolves the reference and prints its
+    // declared type; the syntactic dual copies the written annotation when the
+    // file scope is provably the only scope in reach.
+    assert_emits(
+        "export interface $ { x: number }\nexport declare let x: $;\nexport let y = () => x;",
+        "export interface $ {\n    x: number;\n}\nexport declare let x: $;\nexport declare let y: () => $;",
+    );
+    // A parameter shadows the file scope and its annotation wins; the
+    // unreferenced outer `x` is pruned by reachability as usual.
+    assert_emits(
+        "declare let x: string;\nexport let y = (x: number) => x;",
+        "export declare let y: (x: number) => number;",
+    );
+}
+
+#[test]
+fn a_typeof_annotation_is_not_copied_into_a_return() {
+    // `typeReferenceDirectives7`: `typeof $` resolves through to the value's
+    // type in upstream's print, so copying it would restate something upstream
+    // does not write. Declining leaves the honest `any`.
+    assert_emits(
+        "export let $ = 1;\nexport let x: typeof $;\nexport let y = () => x;",
+        "export declare let $: number;\nexport declare let x: typeof $;\nexport declare let y: any;",
+    );
+}
+
+#[test]
+fn jsdoc_types_javascript_accessors() {
+    // `declarationEmitClassAccessorsJs1`: `@returns {T}` is a getter's written
+    // return type and `@param {T} name` the setter's value parameter type.
+    let text = emit_javascript(
+        "export class V {\n    /** @returns {string} */\n    get path() { return ''; }\n    /** @param {URL | string} path */\n    set path(path) { }\n}",
+    );
+    assert!(text.contains("get path(): string;"), "{text}");
+    assert!(text.contains("set path(path: URL | string);"), "{text}");
+}

@@ -429,6 +429,12 @@ impl Printer<'_> {
                 self.write("set ");
                 self.emit_property_name(&node.name);
                 self.emit_parameters(node.parameters);
+                // Upstream's `emitSignature` writes a return type even on a
+                // setter; the grammar error is the checker's to report.
+                if let Some(r#type) = &node.r#type {
+                    self.write(": ");
+                    self.emit_type_node(r#type);
+                }
                 self.write(";");
             }
             // A transform artefact that never appears in a parsed tree.

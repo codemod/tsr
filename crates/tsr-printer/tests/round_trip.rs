@@ -100,6 +100,36 @@ fn declare_global_does_not_repeat_its_name() {
 }
 
 #[test]
+fn jsdoc_function_parameter_with_type_cast() {
+    // A JSDoc type cast inside a default value must not disturb the tree.
+    let source = "export function fn(p = /** @type {string} */(null)) {}";
+    assert!(round_trips(source));
+}
+
+#[test]
+fn jsdoc_typedef_with_optional_property() {
+    // From declarationEmitCastReusesTypeNode4: the `?` lives inside the JSDoc
+    // block, which the round-trip print drops by design.
+    let source = "/**
+ * @typedef {{ } & { name?: string }} P
+ */
+const something = /** @type {*} */(null);
+export function fn(p = /** @type {P} */(something)) {}";
+    assert!(round_trips(source));
+}
+
+#[test]
+fn jsdoc_typedef_stateless_component() {
+    // From expandoFunctionContextualTypesJs: same shape, `?` inside `@typedef`.
+    let source = "/**
+ * @template P
+ * @typedef {{ (): any; defaultProps?: Partial<P> }} StatelessComponent */
+
+const MyComponent = () => null;";
+    assert!(round_trips(source));
+}
+
+#[test]
 fn import_attributes_survive() {
     // Dropping these still yields valid syntax, just a smaller tree — which is
     // exactly why only a round trip catches it.

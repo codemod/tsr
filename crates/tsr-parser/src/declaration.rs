@@ -229,8 +229,6 @@ impl<'a> Parser<'a> {
         // A class member is one of the two positions where `const` is a
         // modifier rather than a declaration keyword; see `parse_modifiers_ex`.
         let modifiers = self.parse_modifiers_ex(true);
-        let asterisk =
-            if self.at(SyntaxKind::AsteriskToken) { Some(self.take_token()) } else { None };
 
         // `[key: string]: T` — an index signature on a class.
         if self.at(SyntaxKind::OpenBracketToken) && self.bracket_holds_index_signature() {
@@ -262,16 +260,34 @@ impl<'a> Parser<'a> {
             )));
         }
 
-        // `constructor(...)` is a constructor; `constructor` alone is a property
-        // named "constructor".
-        if self.at(SyntaxKind::ConstructorKeyword) && self.next_is_open_paren() {
+        // Ported from `Parser.tryParseConstructorDeclaration` (`parser.go:1917`):
+        // the `constructor` keyword commits unconditionally, and a string literal
+        // spelling `"constructor"` commits when `(` follows. The signature parses
+        // type parameters and a return type — both grammar errors the checker
+        // reports, not the parser.
+        if self.at(SyntaxKind::ConstructorKeyword)
+            || (self.at(SyntaxKind::StringLiteral)
+                && self.token_value() == "constructor"
+                && self.next_is_open_paren())
+        {
             self.next_token();
+            let type_parameters = self.parse_type_parameters();
             let parameters = self.parse_parameter_list();
+            let return_type = self.parse_return_type_annotation();
             let body = self.parse_method_body();
             let modifiers = self.arena.alloc_slice(&modifiers);
+            let type_parameters = self.arena.alloc_slice(&type_parameters);
             let parameters = self.arena.alloc_slice(&parameters);
             let node = self.finish_node(
-                ConstructorDeclaration::new(modifiers, &[], parameters, None, None, body, None),
+                ConstructorDeclaration::new(
+                    modifiers,
+                    type_parameters,
+                    parameters,
+                    return_type,
+                    None,
+                    body,
+                    None,
+                ),
                 SyntaxKind::Constructor,
                 start,
             );
@@ -326,7 +342,13 @@ impl<'a> Parser<'a> {
             });
         }
 
-        if !self.at_property_name_start() {
+        // Ported from `Parser.parsePropertyOrMethodDeclaration` (`parser.go:1938`):
+        // the asterisk is parsed here, after the constructor and accessor arms,
+        // and its presence alone commits to a method.
+        let asterisk =
+            if self.at(SyntaxKind::AsteriskToken) { Some(self.take_token()) } else { None };
+
+        if asterisk.is_none() && !self.at_property_name_start() {
             return None;
         }
 
@@ -340,8 +362,12 @@ impl<'a> Parser<'a> {
 
         let modifiers_slice = self.arena.alloc_slice(&modifiers);
 
-        // A `(` or `<` here makes it a method rather than a property.
-        if self.at(SyntaxKind::OpenParenToken) || self.at(SyntaxKind::LessThanToken) {
+        // A `(` or `<` here makes it a method rather than a property, and an
+        // asterisk already has (`parser.go:1944`).
+        if asterisk.is_some()
+            || self.at(SyntaxKind::OpenParenToken)
+            || self.at(SyntaxKind::LessThanToken)
+        {
             let type_parameters = self.parse_type_parameters();
             let parameters = self.parse_parameter_list();
             let return_type = self.parse_return_type_annotation();

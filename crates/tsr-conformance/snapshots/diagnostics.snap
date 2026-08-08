@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; scanner, parser and binder only, with no checker (bd tsr-4sc)
-Passed         : 1405/5488 (25.60%)
-Failed         : 4083
+Passed         : 1000/5488 (18.22%)
+Failed         : 4488
 Skipped        : 6956 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -11,37 +11,65 @@ Skipped        : 6956 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 4083 failures:
+First 100 of 4488 failures:
+compiler/ClassDeclaration10
+  1 missing (first TS2390 at ClassDeclaration10.ts(2,4))
+compiler/ClassDeclaration11
+  1 missing (first TS2390 at ClassDeclaration11.ts(2,4))
+compiler/ClassDeclaration13
+  1 missing (first TS2389 at ClassDeclaration13.ts(3,4))
+compiler/ClassDeclaration14
+  1 missing (first TS2390 at ClassDeclaration14.ts(3,4))
+compiler/ClassDeclaration21
+  1 missing (first TS2389 at ClassDeclaration21.ts(3,5))
+compiler/ClassDeclaration22
+  1 missing (first TS2389 at ClassDeclaration22.ts(3,5))
 compiler/ClassDeclaration24
   1 missing (first TS2414 at ClassDeclaration24.ts(1,7))
 compiler/ClassDeclaration26
   2 unexpected (first TS1005 at ClassDeclaration26.ts(2,22)), 5 missing
+compiler/ClassDeclaration8
+  1 missing (first TS2390 at ClassDeclaration8.ts(2,3))
 compiler/ClassDeclarationWithInvalidConstOnPropertyDeclaration
   1 missing (first TS1248 at ClassDeclarationWithInvalidConstOnPropertyDeclaration.ts(2,16))
 compiler/ExportAssignment7
   1 missing (first TS2309 at ExportAssignment7.ts(4,1))
 compiler/ExportAssignment8
   1 missing (first TS2309 at ExportAssignment8.ts(1,1))
+compiler/FunctionDeclaration3
+  1 missing (first TS7010 at FunctionDeclaration3.ts(1,10))
+compiler/FunctionDeclaration4
+  2 missing (first TS7010 at FunctionDeclaration4.ts(1,10))
+compiler/FunctionDeclaration6
+  2 missing (first TS7010 at FunctionDeclaration6.ts(2,14))
+compiler/FunctionDeclaration7
+  1 missing (first TS7010 at FunctionDeclaration7.ts(2,13))
 compiler/InterfaceDeclaration8
   1 missing (first TS2427 at InterfaceDeclaration8.ts(1,11))
 compiler/ParameterList13
   2 missing (first TS7013 at ParameterList13.ts(2,5))
+compiler/ParameterList4
+  1 missing (first TS7006 at ParameterList4.ts(1,12))
 compiler/ParameterList5
-  2 missing (first TS2355 at ParameterList5.ts(1,15))
+  3 missing (first TS2355 at ParameterList5.ts(1,15))
 compiler/ParameterList6
   1 missing (first TS7006 at ParameterList6.ts(2,19))
 compiler/TransportStream
-  4 unexpected (first TS1005 at TransportStream.ts(1,2)), 2 missing
+  4 unexpected (first TS1005 at TransportStream.ts(1,2)), 3 missing
 compiler/abstractClassInLocalScopeIsAbstract
   1 missing (first TS2511 at abstractClassInLocalScopeIsAbstract.ts(4,5))
 compiler/abstractClassUnionInstantiation
   5 missing (first TS2511 at abstractClassUnionInstantiation.ts(14,1))
 compiler/abstractPropertyInConstructor
-  11 missing (first TS2715 at abstractPropertyInConstructor.ts(4,24))
+  13 missing (first TS2715 at abstractPropertyInConstructor.ts(4,24))
 compiler/accessInstanceMemberFromStaticMethod01
   1 unexpected (first TS2304 at accessInstanceMemberFromStaticMethod01.ts(5,17)), 1 missing
 compiler/accessorBodyInTypeContext
   8 unexpected (first TS1131 at accessorBodyInTypeContext.ts(2,15)), 4 missing
+compiler/accessorDeclarationEmitVisibilityErrors
+  1 missing (first TS2304 at accessorDeclarationEmitVisibilityErrors.ts(2,18))
+compiler/accessorDeclarationOrder
+  2 missing (first TS2564 at accessorDeclarationOrder.ts(2,5))
 compiler/accessorInferredReturnTypeErrorInReturnStatement
   1 missing (first TS2339 at accessorInferredReturnTypeErrorInReturnStatement.ts(4,18))
 compiler/accessors_spec_section-4.5_error-cases
@@ -65,11 +93,13 @@ compiler/aliasOnMergedModuleInterface
 compiler/aliasUsageInGenericFunction
   1 missing (first TS2352 at aliasUsageInGenericFunction_main.ts(10,19))
 compiler/aliasUsageInOrExpression
-  3 missing (first TS2352 at aliasUsageInOrExpression_main.ts(10,40))
+  5 missing (first TS2352 at aliasUsageInOrExpression_main.ts(10,40))
 compiler/allowImportClausesToMergeWithTypes
   1 missing (first TS2749 at index.ts(9,10))
 compiler/allowJscheckJsTypeParameterNoCrash
   2 unexpected (first TS2300 at app.js(6,7)), 1 missing
+compiler/allowSyntheticDefaultImports10
+  2 missing (first TS2339 at a.ts(2,5))
 compiler/alwaysStrict
   1 missing (first TS1100 at alwaysStrict.ts(2,9))
 compiler/alwaysStrictES6
@@ -93,9 +123,11 @@ compiler/ambientPropertyDeclarationInJs
 compiler/ambientStatement1
   1 missing (first TS1039 at ambientStatement1.ts(4,22))
 compiler/ambiguousGenericAssertion1
-  7 unexpected (first TS2304 at ambiguousGenericAssertion1.ts(4,12)), 1 missing
+  4 unexpected (first TS1005 at ambiguousGenericAssertion1.ts(4,16)), 2 missing
 compiler/ambiguousOverload
   2 missing (first TS2322 at ambiguousOverload.ts(5,5))
+compiler/anonymousClassExpression2
+  1 missing (first TS2551 at anonymousClassExpression2.ts(13,18))
 compiler/anonymousModules
   3 unexpected (first TS1005 at anonymousModules.ts(1,8)), 6 missing
 compiler/anyIdenticalToItself
@@ -121,13 +153,17 @@ compiler/argumentsReferenceInMethod4_Js
 compiler/argumentsUsedInClassFieldInitializerOrStaticInitializationBlock
   11 missing (first TS2815 at argumentsUsedInClassFieldInitializerOrStaticInitializationBlock.ts(3,10))
 compiler/arithAssignTyping
-  4 unexpected (first TS2362 at arithAssignTyping.ts(5,1)), 12 missing
+  12 missing (first TS2629 at arithAssignTyping.ts(3,1))
+compiler/arithmeticOnInvalidTypes
+  7 missing (first TS2365 at arithmeticOnInvalidTypes.ts(3,9))
 compiler/arithmeticOnInvalidTypes2
   7 missing (first TS2365 at arithmeticOnInvalidTypes2.ts(2,14))
 compiler/arrayAssignmentTest1
   22 missing (first TS2322 at arrayAssignmentTest1.ts(6,16))
 compiler/arrayAssignmentTest2
   10 missing (first TS2322 at arrayAssignmentTest2.ts(47,1))
+compiler/arrayAssignmentTest3
+  1 missing (first TS2345 at arrayAssignmentTest3.ts(12,16))
 compiler/arrayAssignmentTest4
   2 missing (first TS2322 at arrayAssignmentTest4.ts(22,1))
 compiler/arrayAssignmentTest5
@@ -166,49 +202,13 @@ compiler/arrowExpressionBodyJSDoc
   2 missing (first TS2322 at mytest.js(6,44))
 compiler/arrowFunctionErrorSpan
   11 missing (first TS2345 at arrowFunctionErrorSpan.ts(4,3))
+compiler/arrowFunctionWithObjectLiteralBody1
+  1 missing (first TS7006 at arrowFunctionWithObjectLiteralBody1.ts(1,9))
+compiler/arrowFunctionWithObjectLiteralBody2
+  1 missing (first TS7006 at arrowFunctionWithObjectLiteralBody2.ts(1,9))
 compiler/arrowFunctionsMissingTokens
-  72 unexpected (first TS1109 at arrowFunctionsMissingTokens.ts(2,14)), 14 missing
+  57 unexpected (first TS1109 at arrowFunctionsMissingTokens.ts(2,14)), 15 missing
 compiler/asiAbstract
   1 missing (first TS1244 at asiAbstract.ts(3,3))
-compiler/asiReturn
-  1 missing (first TS1108 at asiReturn.ts(2,1))
-compiler/assignLambdaToNominalSubtypeOfFunction
-  2 missing (first TS2345 at assignLambdaToNominalSubtypeOfFunction.ts(7,4))
-compiler/assignToEnum
-  2 missing (first TS2628 at assignToEnum.ts(2,1))
-compiler/assignToExistingClass
-  1 missing (first TS2629 at assignToExistingClass.ts(8,13))
-compiler/assignToFn
-  1 missing (first TS2322 at assignToFn.ts(8,5))
-compiler/assignToInvalidLHS
-  1 missing (first TS2364 at assignToInvalidLHS.ts(4,9))
-compiler/assignToModule
-  1 missing (first TS2708 at assignToModule.ts(2,1))
-compiler/assigningFromObjectToAnythingElse
-  4 missing (first TS2322 at assigningFromObjectToAnythingElse.ts(3,1))
-compiler/assigningFunctionToTupleIssuesError
-  1 missing (first TS2322 at assigningFunctionToTupleIssuesError.ts(2,5))
-compiler/assignmentCompat1
-  4 missing (first TS2741 at assignmentCompat1.ts(4,1))
-compiler/assignmentCompatBug2
-  3 missing (first TS2741 at assignmentCompatBug2.ts(15,1))
-compiler/assignmentCompatBug5
-  4 missing (first TS2322 at assignmentCompatBug5.ts(5,7))
-compiler/assignmentCompatFunctionsWithOptionalArgs
-  2 missing (first TS2322 at assignmentCompatFunctionsWithOptionalArgs.ts(4,17))
-compiler/assignmentCompatInterfaceWithStringIndexSignature
-  1 missing (first TS2345 at assignmentCompatInterfaceWithStringIndexSignature.ts(15,5))
-compiler/assignmentCompatWithOverloads
-  4 missing (first TS2322 at assignmentCompatWithOverloads.ts(17,1))
-compiler/assignmentCompatability16
-  1 missing (first TS2322 at assignmentCompatability16.ts(9,1))
-compiler/assignmentCompatability18
-  1 missing (first TS2322 at assignmentCompatability18.ts(9,1))
-compiler/assignmentCompatability20
-  1 missing (first TS2322 at assignmentCompatability20.ts(9,1))
-compiler/assignmentCompatability22
-  1 missing (first TS2322 at assignmentCompatability22.ts(9,1))
-compiler/assignmentCompatability24
-  1 missing (first TS2322 at assignmentCompatability24.ts(9,1))
-compiler/assignmentCompatability29
-  1 missing (first TS2322 at assignmentCompatability29.ts(9,1))
+compiler/asiAmbientFunctionDeclaration
+  1 missing (first TS7010 at asiAmbientFunctionDeclaration.ts(1,18))

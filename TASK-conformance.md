@@ -1,22 +1,74 @@
 THIS FILE IS THE NON-CHECKER, NON-DIAGNOSTICS CONFORMANCE WORKSTREAM'S HANDOFF.
 
-CURRENT PROGRESS (2026-08-08)
+CURRENT PROGRESS (2026-08-08, twelfth session, measured at `814fd4d`)
 
-  parser_typescript      5,031/5,031 = 100.00% (up from 5,001)
-  dts_reachable_target     492/1,162 = 42.34%  (corrected twice: visibility
-                                                fixes exposed inference cases —
-                                                pattern statements upstream
-                                                analyzes were invisible until
-                                                bound names joined reachability)
-  dts_emit                  327/374  = 87.43%  (denominator moved three times:
-                                                grew 341 -> 395 pairing outDir-
-                                                remapped baselines, shrank to
-                                                376 removing input-echo
-                                                mispairings, grew to 378 with
-                                                positional duplicate pairing)
-  dts_shape                859/1,007 = 85.30%  (same corrections; was 753/918
-                                                before them)
-  printer_round_trip    11,755/11,778 = 99.80%
+  parser_typescript      5,031/5,031 = 100.00%
+  printer_round_trip   11,776/11,776 = 100.00% (was 11,755/11,778 — COMPLETE;
+                                                two error-recovery cases became
+                                                faithful parse-diagnostic skips)
+  binder_symbols          8,408/8,473 = 99.23% (was 8,310/8,473 — the suite now
+                                                indexes alias-transparent
+                                                spellings, +98 cases)
+  dts_emit                  333/374  = 89.04%  (was 327/374; +6 this session)
+  dts_shape                860/1,008 = 85.32%  (was 859/1,007; the `!!!!`
+                                                marker fix moved one case in)
+  dts_reachable_target     492/1,162 = 42.34%  (population, unchanged)
+
+Twelfth session, in commit order:
+  36c5918  printer_round_trip -> 100%: the parser's constructor arm ported
+           faithfully (commits on the `constructor` keyword alone, parses type
+           parameters and a return type, string-literal "constructor" + `(`;
+           parser.go:1917), an asterisk commits to a method (parser.go:1944),
+           setters print their return type annotation, and JSDoc-owned
+           QuestionToken/DotDotDotToken/AsteriskToken left the round-trip
+           histogram (they are trivia the comment-free print can never
+           reproduce — the module doc's own exclusion, made positional).
+           Also: dts_emit path references rebase against the emitted
+           declaration file's directory (transform.go:464) — commonSourceDirectory.
+  6cbaa35  annotated object-literal accessors keep their shape: get/set pair
+           keeps both signatures, lone getter -> readonly property, lone
+           setter -> mutable property. examples/dtsdump.rs added (produced vs
+           expected text per unit).
+  feb1885  an arrow returning an annotated name copies the annotation
+           (typeReferenceDirectives4/6), gated on certain resolution: own
+           annotated parameter first, else file scope only when no scope can
+           intervene; `typeof` annotations never copy (they resolve through
+           upstream; typeReferenceDirectives7 keeps its honest any).
+  <marker> `!!!!` baseline annotations are runner metadata, not section text
+           (noEmitOnError; the noCheck emit is the right oracle for a
+           checker-free emitter).
+  790e1e8  JSDoc @returns types returns and setter @param types the value
+           parameter in JavaScript files (declarationEmitClassAccessorsJs1).
+  8dcdc71  binder suite indexes alias-transparent spellings: the .symbols
+           baseline is checker-written and prints an aliased symbol under the
+           alias's name with the target's declarations; entity
+           `import x = a.b.c` resolves through resolve_name + exports tables
+           and indexes its target (and members, three deep) under the alias
+           spelling. No binder behavior changed. +91 cases.
+
+What remains, classified (from dts_failures + the binder snapshot at 8dcdc71):
+  - dts_emit 41 failures: ~25 need the checker (inferred arrow/function types,
+    import synthesis driven by inferred types, TS7056 suppression, node-builder
+    alias resolution); ~10 are parse skips on cases whose sources deliberately
+    mix invalid syntax (they stay skips faithfully); the residue is comment
+    preservation inside types (unionTypeWithLeadingOperator,
+    declarationEmitWorkWithInlineComments) and the CommonJS `exports.x = …`
+    declaration family (assignmentToVoidZero1, jsDeclarationEmitExportAssigned*).
+  - dts_shape 148 failures: dominated by checker-driven import
+    synthesis/retention ("want import") — the emitted type names the import,
+    and the type is inferred. Not reachable per-unit without the checker.
+  Then four binder-suite follow-ups (d7d765a, c800d98, 814fd4d and the
+  compounding fix) took binder_symbols 8,401 -> 8,408: transparency compounds
+  through alias members (circularImportAlias), chains resolve through
+  intermediate aliases (importStatementsInterfaces), `import x = require("m")`
+  resolves ambient-module targets (privacyGloImport), and line counting honors
+  CR/LS/PS breaks (allowUnescapedParagraphAndLineSeparators…).
+
+  - binder_symbols 65 failures: numeric-name canonicalization (~6 cases,
+    `bd tsr-1` — needs an arena through FileInfo or a value field on
+    NumericLiteral), computed-name constant folding (checker late-binding),
+    export= augmentation targets, JSDoc @overload declaration lists, escaped/
+    unicode name decodings, and a long tail of singles.
 
 The parser clean-file milestone is complete. Its harness now prepares virtual
 tsconfig/jsconfig files and walks actual program roots and dependencies, so the
@@ -357,7 +409,8 @@ is instrumentation, not a new gate.
 
 RANKED WORK
 
-1. CLOSE THE 30 CLEAN-FILE PARSER FAILURES
+1. ~~CLOSE THE 30 CLEAN-FILE PARSER FAILURES~~ DONE — parser_typescript reads
+   5,031/5,031 and printer_round_trip 11,776/11,776 (twelfth session header).
 
 This moves `parser_typescript`, not `parser_reachable_target`. The current snapshot
 breaks down into these bounded families:

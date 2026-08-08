@@ -109,7 +109,11 @@ impl Suite for DtsEmit {
                     reason: "a unit of this case does not parse cleanly".into(),
                 };
             }
-            let references = declaration_references(&parsed.file_references);
+            let references = rebase_path_references(
+                declaration_references(&parsed.file_references),
+                &unit.name,
+                &expected.name,
+            );
             let mut nodes = parsed.nodes;
             stamp_javascript_root(&unit.name, parsed.source_file, &mut nodes);
             // The URL is relative to the declaration file, so only the final
@@ -165,6 +169,45 @@ impl Suite for DtsEmit {
         }
         Outcome::Passed
     }
+}
+
+/// Emit every unit the way [`DtsEmit::run`] does and hand back the texts, for
+/// the `dtsdump` diagnostic. `None` when the case would not be judged.
+#[must_use]
+pub fn dump_case(case: &CaseEntry) -> Option<Vec<(String, String, String)>> {
+    let text = std::fs::read_to_string(case.baseline_path("js")).ok()?;
+    let baseline = JsBaseline::parse(&text);
+    let parsed_case = case.load().ok()?;
+    let units = output_units(&baseline, &parsed_case);
+    let mut out = Vec::new();
+    for (unit, expected) in &units {
+        let kind = ScriptKind::from_file_name(&unit.name);
+        let arena = Arena::new();
+        let parsed = tsr_parser::parse_with_script_kind(&arena, &unit.content, kind);
+        if !parsed.diagnostics.is_empty() {
+            return None;
+        }
+        let references = rebase_path_references(
+            declaration_references(&parsed.file_references),
+            &unit.name,
+            &expected.name,
+        );
+        let mut nodes = parsed.nodes;
+        stamp_javascript_root(&unit.name, parsed.source_file, &mut nodes);
+        let options = declaration_emit_options(&parsed_case, &unit.name, &unit.content);
+        let result = tsr_declarations::emit_with_references_and_options(
+            &arena,
+            &mut nodes,
+            parsed.source_file,
+            &references,
+            options,
+        );
+        // Inference diagnostics skip the case in the suite, but the dump is for
+        // reading failures — shape failures included — so the text is shown
+        // regardless.
+        out.push((unit.name.clone(), result.text, expected.content.clone()));
+    }
+    Some(out)
 }
 
 /// The units this case has declaration output for, paired with it.
@@ -391,6 +434,77 @@ pub(crate) fn emits_anything(unit: &crate::TestFile) -> bool {
     let result =
         tsr_declarations::emit_with_references(&arena, &mut nodes, parsed.source_file, &references);
     result.diagnostics.is_empty() && result.unsupported.is_empty() && !result.text.trim().is_empty()
+}
+
+/// Rewrite preserved `path` references relative to where the declaration file
+/// is actually emitted.
+///
+/// Upstream re-relativizes every kept `path` reference against the output
+/// file's directory — `getReferencedFiles(outputFilePath)` with
+/// `outputFilePath = GetDirectoryPath(declarationFilePath)` and
+/// `GetRelativePathToDirectoryOrUrl` doing the math
+/// (`vendor/typescript-go/internal/transformers/declarations/transform.go:464`).
+/// The source spelling is only correct when the declaration lands beside its
+/// source; under `outDir` the reference gains a step (`commonSourceDirectory`:
+/// `../types/bar.d.ts` written in `/app/index.ts` must read
+/// `../../types/bar.d.ts` from `/app/bin/index.d.ts`). The harness knows the
+/// output location from the baseline section upstream actually wrote, so the
+/// rebasing lives here rather than behind a host abstraction the emitter does
+/// not have.
+///
+/// A target that is already a `.d.ts` keeps its own path, matching upstream's
+/// `IsDeclarationFile` arm. A `.ts` target should map through its *own* output
+/// path (`GetOutputPathsFor`); this rebase leaves its resolved source path for
+/// `declaration_reference_name`'s extension swap, which is only right when that
+/// target emits beside itself — the same approximation the pass-through made.
+fn rebase_path_references(
+    mut references: Vec<tsr_declarations::DeclarationReference>,
+    source_name: &str,
+    output_name: &str,
+) -> Vec<tsr_declarations::DeclarationReference> {
+    fn dir_of(path: &str) -> &str {
+        path.rfind('/').map_or("", |index| &path[..index])
+    }
+    let source_dir = dir_of(source_name);
+    let output_dir = dir_of(output_name);
+    if source_dir == output_dir {
+        return references;
+    }
+    for reference in &mut references {
+        if reference.kind != tsr_declarations::DeclarationReferenceKind::Path {
+            continue;
+        }
+        let target = resolve_segments(source_dir, &reference.file_name);
+        reference.file_name = relative_from(output_dir, &target);
+    }
+    references
+}
+
+/// `dir` joined with `path`, with `.` and `..` segments folded away.
+///
+/// Root anchors are dropped rather than tracked: source and output names in one
+/// case share their rooting style, so rootedness cancels in the relative math.
+fn resolve_segments(dir: &str, path: &str) -> Vec<String> {
+    let mut segments: Vec<String> = Vec::new();
+    for segment in dir.split('/').chain(path.split('/')) {
+        match segment {
+            "." | "" => {}
+            ".." if segments.last().is_some_and(|last| last != "..") => {
+                segments.pop();
+            }
+            other => segments.push(other.to_string()),
+        }
+    }
+    segments
+}
+
+/// The relative path from `dir` to `target`, one `..` per unshared segment.
+fn relative_from(dir: &str, target: &[String]) -> String {
+    let from = resolve_segments(dir, "");
+    let shared = from.iter().zip(target).take_while(|(a, b)| a == b).count();
+    let mut parts: Vec<&str> = vec![".."; from.len() - shared];
+    parts.extend(target[shared..].iter().map(String::as_str));
+    parts.join("/")
 }
 
 pub(crate) fn declaration_references(

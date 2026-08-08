@@ -118,7 +118,7 @@ impl Suite for PrinterRoundTrip {
             }
 
             let before = first.with_ast(|file| fingerprint(file, first.nodes()));
-            let before_kinds = kind_histogram(first.nodes());
+            let before_kinds = kind_histogram(first.nodes(), &jsdoc_spans(first));
             let second = ParsedFile::parse_with_script_kind(printed.text.clone(), kind);
             if !second.diagnostics().is_empty() {
                 let first_error = second.diagnostics()[0].text();
@@ -131,7 +131,7 @@ impl Suite for PrinterRoundTrip {
             if before != after {
                 return Outcome::Failed { reason: first_difference(&before, &after) };
             }
-            let after_kinds = kind_histogram(second.nodes());
+            let after_kinds = kind_histogram(second.nodes(), &jsdoc_spans(&second));
             if before_kinds != after_kinds {
                 return Outcome::Failed {
                     reason: histogram_difference(&before_kinds, &after_kinds),
@@ -192,16 +192,44 @@ fn payload(node: Node<'_>, nodes: &NodeTable) -> Option<String> {
     }
 }
 
+/// The source spans of every JSDoc block, for excluding the tokens inside them.
+///
+/// The module doc already rules JSDoc out of scope — it is trivia, and a
+/// comment-preserving printer is not what this gate is for. Narrowing the
+/// histogram to token kinds handled the identifiers that live only in comments,
+/// but a `?` in `@typedef {{ x?: number }}` is a `QuestionToken` node like any
+/// other and leaked back in. The JSDoc side table knows exactly which spans are
+/// comment-owned, so the exclusion is positional rather than heuristic.
+fn jsdoc_spans(parsed: &ParsedFile) -> Vec<(u32, u32)> {
+    parsed.with_ast_and_jsdoc(|_, jsdoc| {
+        let mut spans = Vec::new();
+        for (_, docs) in jsdoc.iter() {
+            for doc in docs {
+                if let Some(id) = doc.node_id {
+                    let span = parsed.nodes().span(id);
+                    spans.push((span.start, span.end));
+                }
+            }
+        }
+        spans
+    })
+}
+
 /// How many nodes of each kind the parser allocated, tokens included.
 ///
 /// The walk misses every `…_token` field; this does not, because a token is a
-/// registered node like any other.
-fn kind_histogram(nodes: &NodeTable) -> BTreeMap<SyntaxKind, usize> {
+/// registered node like any other. Tokens inside a JSDoc block are excluded:
+/// they are trivia, and the comment-free print can never reproduce them.
+fn kind_histogram(nodes: &NodeTable, jsdoc: &[(u32, u32)]) -> BTreeMap<SyntaxKind, usize> {
     let mut counts = BTreeMap::new();
     for index in 0..nodes.len() {
         let id = tsr_ast::NodeId::new(u32::try_from(index).unwrap_or(u32::MAX - 1));
         let kind = nodes.kind(id);
         if TRACKED_TOKENS.contains(&kind) {
+            let span = nodes.span(id);
+            if jsdoc.iter().any(|(start, end)| span.start >= *start && span.end <= *end) {
+                continue;
+            }
             *counts.entry(kind).or_insert(0) += 1;
         }
     }
