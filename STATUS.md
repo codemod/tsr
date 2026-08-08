@@ -1300,7 +1300,12 @@ its whole deliverable and accept that it converts nothing until finished.
   (`checker.go:1861`) takes a MEANING argument that this port's walk does not
   have**, so the chain follows an alias to a type-only *export* specifier and
   emits TS1362 for a symbol whose only declaration is an `ImportSpecifier`.
-  Thread the meaning through; target wrong 3 → 1. **Six inferences, two right,
+  **§129 then inferred what that meaning should DO and was wrong again** —
+  measured unchanged at 3, reverted. **Seven inferences on three lines, two
+  right, and both of those were cases where an upstream artefact stated the
+  answer outright.** Every inference about *this port's internal behaviour* has
+  failed. **Next action is a probe printing the declaration kind AT EACH HOP of
+  `type_only_alias_declaration` — not a build.** **Six inferences, two right,
   then one probe that cost less than any of them — every wrong guess reasoned
   from artefacts describing *upstream*, while the defect was in what this port
   did with an argument it never had.**
