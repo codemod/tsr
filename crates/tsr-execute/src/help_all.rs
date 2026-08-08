@@ -66,6 +66,17 @@ pub fn grouped() -> Vec<(&'static str, Vec<&'static AllHelpOption>)> {
 
 /// Every option `--help --all` lists, in declaration order.
 pub static ALL_HELP_OPTIONS: &[AllHelpOption] = &[
+    // `--build` is not a compiler option: it is a *mode*, dispatched before the
+    // option table is consulted (`execute::command_line`). Upstream keeps it out
+    // of `OptionsDeclarations` too and appends it for help only
+    // (`getOptionsForHelp`, `help.go:29`), which is why it is written here by
+    // hand where every other entry is derived.
+    AllHelpOption {
+        name: "build",
+        short: Some("b"),
+        category: &messages::COMMAND_LINE_OPTIONS,
+        description: &messages::BUILD_ONE_OR_MORE_PROJECTS_AND_THEIR_DEPENDENCIES_IF_OUT_OF_DATE,
+    },
     AllHelpOption {
         name: "help",
         short: Some("h"),
@@ -711,6 +722,9 @@ mod tests {
     #[test]
     fn every_entry_names_a_declared_option() {
         for option in ALL_HELP_OPTIONS {
+            if option.name == "build" {
+                continue;
+            }
             assert!(
                 tsr_tsoptions::command_line::find_by_command_line_name(option.name).is_some(),
                 "--{} is listed by --help --all but is not declared",
@@ -723,6 +737,9 @@ mod tests {
     fn every_short_name_matches_the_declaration() {
         for option in ALL_HELP_OPTIONS {
             let Some(short) = option.short else { continue };
+            if option.name == "build" {
+                continue;
+            }
             assert!(
                 tsr_tsoptions::declarations::COMPILER_OPTIONS.iter().any(|declaration| {
                     declaration.name == option.name && declaration.short_name == Some(short)
