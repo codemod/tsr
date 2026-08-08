@@ -287,13 +287,14 @@ impl Suite for BinderSymbols {
                     // `arrow9.\uD83E\uDD2A`), which no decode can reproduce —
                     // a lone surrogate is not a char — so the escaped spelling
                     // of the cooked name is offered instead.
-                    if symbol.name.chars().any(|c| !c.is_ascii()) {
+                    if !symbol.name.is_ascii() {
                         let mut escaped = String::new();
                         for unit in symbol.name.encode_utf16() {
                             if unit < 0x80 {
                                 escaped.push(char::from(u8::try_from(unit).expect("ascii")));
                             } else {
-                                escaped.push_str(&format!("\\u{unit:04X}"));
+                                use std::fmt::Write as _;
+                                let _ = write!(escaped, "\\u{unit:04X}");
                             }
                         }
                         written.push(escaped);
