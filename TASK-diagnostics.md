@@ -12,7 +12,7 @@ FIRST: git pull. Then read, in this order:
   builds.
 
 STATE AT HANDOFF (verify with a fresh coverage run):
-  diagnostics    1,386/5,488 = 25.26%   (was 1,346; +40 over 10 builds and
+  diagnostics    1,386/5,488 = 25.26%   (was 1,346; +40 over 11 builds and
                  THREE priced refusals — §94, §96, §97 —
                  **zero cases lost, and the wrong column FELL in two of them**)
   checker_types  3,842/9,538 · 84.13% — the other workstream's, and it moves
@@ -152,9 +152,17 @@ TS2540      12         9
    rows still want the deferral arms this build did not port (JSDoc, the
    instance-property `isStatic` split).
 
-   **Next place to look for the same defect:** `classify` still collapses
-   `S::PROPERTY` over five node kinds and `S::ALIAS` over five import/export
-   forms. §93/§95/§100 were all this shape.
+   §101 then retired §83's `extends` bound (+0 cases, +2 right lines): the class
+   arm now asks what `checker.go:1922` asks at every position. **Final state:
+   9 converts, 33 right lines, 0 wrong, 0 LOST.** Unported deferral arms with no
+   corpus case behind them today: JSDoc, the instance-property `isStatic` split,
+   the binding-element recursion, the `legacyDecorators` arms.
+
+   **Next place to look for the same defect §93/§95/§100 all were:** `classify`
+   still collapses `S::PROPERTY` over five node kinds and `S::ALIAS` over five
+   import/export forms. **When a consumer's faithful test gives an unfaithful
+   answer, suspect the flag before the test** — that rule cost two wasted first
+   attempts to learn.
 
 5. **The rest of `diaggap`'s relation-free single-code column** — re-run it;
    TS2693, TS2364, TS2703, TS2558 were 9/7/7/6 before this session's builds.
