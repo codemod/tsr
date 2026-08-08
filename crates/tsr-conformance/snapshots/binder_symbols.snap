@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 binder_symbols Summary:
 What a pass means: every symbol in the .symbols baseline exists with the same declaration lines
-Passed         : 8449/8461 (99.86%)
-Failed         : 12
+Passed         : 8450/8461 (99.87%)
+Failed         : 11
 Skipped        : 3983 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -14,8 +14,6 @@ Skipped        : 3983 (excluded from the denominator)
 
 compiler/ambientExternalModuleWithRelativeModuleName
   1 symbol(s): .\\relativeModule: no symbol
-compiler/declarationEmitLateBoundAssignments2
-  2 symbol(s): arrow9.\uD83E\uDD2A: no symbol; decl9.\uD83E\uDD2A: no symbol
 compiler/invalidUnicodeEscapeSequance4
   1 symbol(s): u0031a: no symbol
 compiler/moduleElementsInWrongContext
