@@ -81,6 +81,86 @@ impl Checker<'_, '_> {
         }
     }
 
+    /// TS2374 — `Duplicate index signature for type '{0}'.`
+    ///
+    /// `checkObjectTypeForDuplicateDeclarations` (`checker.go`): two index
+    /// signatures of the same key kind on **one declaration**, reported on the
+    /// second and every later one. Entirely syntactic — the key kind is the
+    /// index parameter's written annotation and nothing else is consulted.
+    /// `docs/architecture/checker-notes-diag2.md` §69.
+    pub(crate) fn check_duplicate_index_signatures(&mut self, node: NodeId) {
+        if self.file_has_parse_errors || self.in_js_file(node) {
+            return;
+        }
+        let signatures: Vec<(&'static str, NodeId)> = match self.node_map.get(node) {
+            Some(Node::ClassDeclaration(class)) => class
+                .members
+                .iter()
+                .filter_map(|member| match member {
+                    tsr_ast::ClassElement::IndexSignatureDeclaration(signature) => Some(*signature),
+                    _ => None,
+                })
+                .filter_map(|signature| self.index_signature_key(signature))
+                .collect(),
+            Some(Node::InterfaceDeclaration(interface)) => interface
+                .members
+                .iter()
+                .filter_map(|member| match member {
+                    tsr_ast::TypeElement::IndexSignatureDeclaration(signature) => Some(*signature),
+                    _ => None,
+                })
+                .filter_map(|signature| self.index_signature_key(signature))
+                .collect(),
+            Some(Node::TypeLiteralNode(literal)) => literal
+                .members
+                .iter()
+                .filter_map(|member| match member {
+                    tsr_ast::TypeElement::IndexSignatureDeclaration(signature) => Some(*signature),
+                    _ => None,
+                })
+                .filter_map(|signature| self.index_signature_key(signature))
+                .collect(),
+            _ => return,
+        };
+        if signatures.len() < 2 {
+            return;
+        }
+        let mut seen: Vec<&'static str> = Vec::new();
+        for (kind, at) in signatures {
+            if seen.contains(&kind) {
+                let Some(file) = self.source_file_of_for_diagnostics(at) else { continue };
+                let span = self.error_span(at);
+                self.report(
+                    file,
+                    Diagnostic::with_args(
+                        &messages::DUPLICATE_INDEX_SIGNATURE_FOR_TYPE_0,
+                        span,
+                        [kind.to_string()],
+                    ),
+                );
+            } else {
+                seen.push(kind);
+            }
+        }
+    }
+
+    /// An index signature's key kind — `"string"` or `"number"`, read off the
+    /// index parameter's written annotation — with the signature's own node.
+    fn index_signature_key(
+        &self,
+        signature: &tsr_ast::IndexSignatureDeclaration<'_>,
+    ) -> Option<(&'static str, NodeId)> {
+        let at = signature.node_id?;
+        let [parameter] = signature.parameters else { return None };
+        let annotation = parameter.r#type?.node_id()?;
+        let kind = match self.nodes.kind(annotation) {
+            SyntaxKind::StringKeyword => "string",
+            SyntaxKind::NumberKeyword => "number",
+            _ => return None,
+        };
+        Some((kind, at))
+    }
+
     /// The index-constraint check for one class or interface declaration.
     pub(crate) fn check_index_constraints(&mut self, node: NodeId) {
         if self.file_has_parse_errors || self.in_js_file(node) {

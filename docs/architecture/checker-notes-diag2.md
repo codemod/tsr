@@ -5171,3 +5171,60 @@ else is now the only thing missing.
 > that converts zero and does** (§44 was the first kind, §61.1 the second). The
 > distinction is `diagreach.rs`, and it is why the instrument is worth running
 > on a zero.
+
+---
+
+## 69. TS2374 — a duplicate index signature
+
+`checkIndexConstraints`' sibling (`checker.go`, `checkObjectTypeForDuplicateDeclarations`):
+a class, interface or type literal declaring **two index signatures of the same
+key kind** is `Duplicate index signature for type '{0}'.` on the second and
+every later one.
+
+`diaggap.rs` gives it **4 sole-obstacle cases** (`duplicateStringIndexers`,
+`duplicateNumericIndexers`, `genericClassesRedeclaration`,
+`duplicateObjectTypeMembers`) and `diagemit.rs` 66 baseline lines against zero
+emitted.
+
+**Entirely syntactic.** The key kind is the index parameter's written type
+annotation — `string` or `number` — and nothing else is consulted: no symbol, no
+relation, no members table. §14's ordering rule at its cheapest, and the fifth
+rule in this file with no type in it after TS2369, the two grammar walks, and
+§47.
+
+The member list is the *declaration's own*, not the resolved type's: an
+inherited index signature is not a duplicate, and `crate::index_constraint`
+already walks the `extends` chain for the other question.
+
+### The bar
+
+| leg | registered |
+|---|---|
+| 1 | `diagnostics` passes ≥ **1,296**. Forecast **+2 to +4** |
+| 2 | `checker_types` pass count unchanged at **3,683** |
+| 3 | LOST == **0** on `diag2307.rs` with `RULE_CODES = [2374]` |
+| 4 | own WRONG ≤ **5** — a syntactic rule has shipped at zero four times |
+| 5 | every other snapshot unchanged |
+
+### Scored — a **measured zero on the suite**, +19 right, **+5 reachable**
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| 1 | passes ≥ 1,296, forecast +2 to +4 | **1,296** — no conversion | **fired** |
+| 2 | `checker_types` pass count 3,683 | **3,683**, snapshot unchanged | pass |
+| 3 | LOST == 0 | **0** | pass |
+| 4 | own WRONG ≤ 5 | **0** | pass |
+| 5 | every other snapshot unchanged | only `diagnostics.snap` differs | pass |
+
+`diag2307.rs` isolated to 2374: **CONVERTS 0 · RIGHT 19 · WRONG 0 · LOST 0.**
+`diagreach.rs` **1,299 → 1,304**.
+
+**`diaggap.rs` said four cases would convert alone and none did**, which is the
+same over-read §2 named and this session has now watched nine times. The four
+are `STILL SHORT`: `duplicateStringIndexers` and `duplicateNumericIndexers` want
+TS2374 **and** TS2300, `genericClassesRedeclaration` wants TS2374 and TS2451.
+Their TS2374 lines are now all present, which is why `diagreach.rs` rose by five
+rather than staying put.
+
+Kept on the same grounds as §68: zero conversions, zero wrong lines, and five
+cases moved from *needs a new rule* to *needs an existing one to finish*.
