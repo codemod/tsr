@@ -907,3 +907,18 @@ Residue, owned elsewhere: pattern-element DEFAULT initializers
 
 **§76 score — LANDED.** right 403,033 → **403,229 (84.20%)** — +196
 (188 W→R, 8 G→R), ZERO adverse.
+
+## §76.1 — a pattern element's default initializer destructures too
+
+`var [a2, [b2, c2] = ["abc", …]] = …` prints the default as a tuple:
+one more `destructuring_array_pattern_slot` arm (BindingElement whose
+initializer is the literal, name an array pattern, same empty/rest
+gates). **+3, zero adverse** — measured against a RE-TAKEN baseline:
+the first measure conflated this edit with another workstream's
+checker-affecting commits arriving through build 129's own `git pull
+--rebase` (STATUS §7's §88 byte-identity trap, fired here for the
+first time in the `.types` workstream itself; the diagnostics session
+moved `checker_types` right 403,229 → 403,234 on its own). Rule
+applied: stash, re-accept at HEAD, pop, re-measure.
+
+**§76.1 score — LANDED.** right 403,234 → **403,237 (84.20%)**.

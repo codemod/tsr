@@ -118,6 +118,26 @@ impl<'a> Checker<'a, '_> {
                     _ => None,
                 }
             }
+            // §76.1: a pattern element's DEFAULT initializer is destructured
+            // by the element's own pattern — `var [a2, [b2, c2] = ["abc",
+            // …]] = …` prints the default `["abc", …]` as a tuple
+            // (`declarationEmitDestructuringArrayPattern2`'s row 25).
+            tsr_ast::Node::BindingElement(element)
+                if element.initializer.and_then(|i| i.node_id()) == Some(literal) =>
+            {
+                match element.name {
+                    Some(tsr_ast::BindingName::BindingPattern(pattern))
+                        if !pattern.elements.is_empty()
+                            && !pattern.elements.iter().any(|e| e.dot_dot_dot_token.is_some())
+                            && pattern.node_id.is_some_and(|p| {
+                                self.nodes.kind(p) == tsr_ast::SyntaxKind::ArrayBindingPattern
+                            }) =>
+                    {
+                        Some(PatternSlot::Binding(pattern))
+                    }
+                    _ => None,
+                }
+            }
             tsr_ast::Node::ArrayLiteralExpression(outer) => {
                 let index = outer.elements.iter().position(|e| e.node_id() == Some(literal))?;
                 let outer_id = outer.node_id?;
