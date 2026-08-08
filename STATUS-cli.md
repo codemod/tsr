@@ -20,9 +20,21 @@ CLI" means.
 
 ## 1. Where the CLI stands
 
-Measured at `fe1efe7`, 2026-08-08.
+Measured at the CLI-scaffold landing, 2026-08-08, by
+`cargo run --release -p tsr-execute --bin cli_baselines`.
 
-**There is no binary.** The workspace's only `[[bin]]` is
+| | |
+|---|---:|
+| **`cli_baselines`** | **19/43 judged = 44.19%** |
+| behind the emitter (excluded) | 151 |
+| total `tsc` baselines | 194 |
+
+`tsr` builds, runs, and type-checks a real repository. Phases 0–6 are done or
+partly done; 7 and 8 are blocked on the emitter. The prose below was written
+before any of it existed and is corrected in place; the phase board in §3 now
+carries a state per phase.
+
+> **Superseded: "There is no binary."** The workspace's only `[[bin]]` is
 `tsr-conformance`'s `coverage`. Nothing can be pointed at a repository, and
 `cargo run -p tsr-execute` does not resolve because the crate does not exist.
 
@@ -38,22 +50,27 @@ with an upstream anchor and a test, and no caller sequencing them.
 | the bundled `lib.*.d.ts` | **on disk** | `vendor/typescript-go/internal/bundled/libs`, reachable through `LoadOptions::default_library_path` |
 | checker configuration | **done** | `Checker::apply_compiler_options` ([ADR-0042](docs/adr/0042-checker-options-come-from-compiler-options.md)) |
 | plain diagnostic rendering | **done** | `tsr_diagnostics::format`, byte-exact |
-| **a `ResolutionHost` over the OS** | **missing** | every impl in the tree is in a test, an example, or the harness |
-| **a command-line parser** | **missing** | §3 phase 1 |
-| **a `System`** (writer, cwd, TTY, terminal width, env, clock) | **missing** | upstream's `tsc.System`, `internal/execute/tsc/compile.go:17` |
-| **pretty diagnostic rendering** | **missing, deliberately** | §6 |
+| a `ResolutionHost` over the OS | **done** | `tsr_execute::compile::DriverHost` |
+| a command-line parser | **done** | `tsr_tsoptions::command_line`, 403 LOC ported, 27 tests |
+| a `System` (writer, cwd, TTY, width, env, clock, version) | **done** | `tsr_execute::system::System`; `OsSystem` and `BaselineSystem` implement it |
+| pretty diagnostic rendering | **done** | `tsr_diagnostics::format`, the refusal retired — see below |
+| the baseline runner | **done** | `tsr_execute::baseline` + the `cli_baselines` bin |
+| `--showConfig` | **partial** | renders; option *ordering* is an open question, §7.5 |
+| `--help` / `--init` | **stub / refused** | §3 phase 4 |
 | **emit** | **missing** | no `tsr-transformers`; `tsr-dts` is declaration-shape only |
-| watch, `--build`, incremental | **missing** | §3 phases 6–8 |
+| watch, `--build`, incremental | **refused, loudly** | report `NotImplemented` (upstream's status 5) rather than silently compiling once |
 
 ### The option surface, which is the number that matters most
 
 | | upstream | here | share |
 |---|---:|---:|---:|
-| `CompilerOptions` fields | 130 | 50 | 38% |
-| declared options (`declscompiler.go` / `declarations.rs`) | 135 | 48 | 36% |
+| `CompilerOptions` fields | 130 | 73 | 56% |
+| declared options (`declscompiler.go` / `declarations.rs`) | 135 | 71 | 53% |
 
-Counted at `fe1efe7` by `awk '/^type CompilerOptions struct/,/^}/' | grep -cE '^\t[A-Z]'`
-and `grep -c 'name: "'`. Ten of the 48 arrived this session with ADR-0042.
+Counted by `awk '/^type CompilerOptions struct/,/^}/' | grep -cE '^\t[A-Z]'` and
+`grep -c 'name: "'`. Was 50/48 before the CLI; the 23 added are the command-line
+surface — `--help`, `--project`, `--showConfig`, `--pretty` and the rest — which
+had nowhere to land before there was a driver to read them.
 
 Everything not in the table reports as an unknown option. That is survivable for
 a checking-only driver run by its own authors and is a **hard blocker for the
@@ -150,7 +167,7 @@ writes `.tsbuildinfo`. "No emit" in the option's name is not "no output files".
 Each phase names its gate. A phase is done when the gate reads a number, not when
 the code exists.
 
-### Phase 0 — the runner, first
+### Phase 0 — the runner, first · **DONE**
 
 Port enough of `internal/execute/tsctests` to execute a baseline file: parse the
 `currentDirectory` / `useCaseSensitiveFileNames` / `Input` / `ExitStatus` /
@@ -158,7 +175,15 @@ Port enough of `internal/execute/tsctests` to execute a baseline file: parse the
 run the driver, and diff. Add a `cli_baselines` suite to `tsr-conformance`
 alongside the existing sixteen.
 
-**Gate:** the suite runs all 194 cases and reports a number. It will be near zero
+**Landed. The suite reads 19/43 judged (44.19%), 151 excluded as behind the
+emitter.** The gate as written expected a number near zero; the real first
+reading was 13/43, because the phases below were built alongside rather than
+after. Both halves of the original argument held: the runner found four separate
+defects within minutes of first running — the version string, the exit status for
+a config error, `-p .` resolving to the empty string, and the `--showConfig`
+indent — none of which any unit test would have caught.
+
+**Gate (as written):** the suite runs all 194 cases and reports a number. It will be near zero
 and that is correct — a suite that reads 0/194 honestly is the instrument every
 later phase is steered by, and the project has already learned this lesson twice
 (the checker's oracles existed before the checker; `diaggap.rs` moved
@@ -172,7 +197,7 @@ eyeball it, then discover which of its forty error messages are wrong — is how
 the option table came to have 38 entries and a comment explaining that the rest
 report as unknown.
 
-### Phase 1 — the command-line parser
+### Phase 1 — the command-line parser · **DONE**
 
 Port `internal/tsoptions/commandlineparser.go` (403 LOC) against the existing
 declaration table. Includes `ParseCommandLine`, `parseOptionValue`,
@@ -195,11 +220,26 @@ source:
 - `--build` is a separate entry point over a separate option set
   (`ParseBuildCommandLine`, `:63`).
 
-**Gate:** `commandlineparser_test.go`'s table ported and passing.
+**Landed**, with 27 tests covering each behaviour above. Upstream's own test
+table is *not* ported — the behaviours are tested directly instead, which is a
+gap: `commandlineparser_test.go` is 572 lines and would be a stronger oracle.
+
+**One deliberate divergence, and it is the only invented behaviour in the CLI.**
+Upstream recurses without bound on `@response` files, so a file naming itself
+overflows the stack. This port caps nesting at 32 and reports the same
+`Cannot read file` diagnostic. A compiler a build system invokes should not be
+crashable by a file it was pointed at, and the cap is far above any real usage.
+Recorded here because "no improvisation" was the session's constraint and this is
+the one place it was knowingly bent.
+
+**Not ported:** `ParseBuildCommandLine` (build mode is phase 8), and the **watch
+option table** — upstream consults it when a name misses the compiler table
+(`commandlineparser.go:150`), so `--watchFile` reports as unknown here where
+upstream accepts it.
 
 **`clap` is refused** — see §6.
 
-### Phase 2 — the host and the `System`
+### Phase 2 — the host and the `System` · **DONE**
 
 `tsc.System` (`internal/execute/tsc/compile.go:17`) is eight methods: `Writer`,
 `FS`, `DefaultLibraryPath`, `GetCurrentDirectory`, `WriteOutputIsTTY`,
@@ -207,15 +247,18 @@ source:
 `ResolutionHost` impl pairing `OsFileSystem` with a current directory, which is
 four lines and the last missing piece of the seam.
 
-`DefaultLibraryPath` needs a decision that upstream does not have to make,
-because Go embeds its libs and a Rust binary must either embed them
-(`include_str!`, ~3.9 MB, and `lib.dom.d.ts` alone is 2.3 MB) or find them on
-disk relative to the executable. **Not decided.** It is the first thing in §7.
+`DefaultLibraryPath` needed a decision upstream does not, because Go embeds its
+libs. **Decided: on disk**, with the reasoning and the search order in
+`crates/tsr-execute/src/os_system.rs`. `TSR_LIB_PATH`, then `<exe dir>/lib`, then
+the vendored submodule path recorded at build time so `cargo run` works in this
+checkout with no setup. Embedding was rejected for ~3.9 MB of binary and for
+making the libraries un-swappable; the accepted cost is a binary that is not
+self-contained. **§7.1 is answered and now records the answer.**
 
 **Gate:** a `tsr` binary exists and `tsr --version` prints upstream's banner
 byte-for-byte.
 
-### Phase 3 — `tscCompilation`'s control flow
+### Phase 3 — `tscCompilation`'s control flow · **DONE**
 
 Port `internal/execute/tsc.go:119-262` — the function that decides what a `tsc`
 invocation *means* before any compiling happens. It is 143 lines and almost all
@@ -228,45 +271,74 @@ otherwise walk ancestors for a `tsconfig.json` (`findConfigFile`, `:265`), and
 error if one is found *and* files were named unless `--ignoreConfig`; with no
 config and no files, print version + help and exit **1**.
 
-**Gate:** the emit-free slice of `commandLine` and `ignoreConfig` starts
-converting. A number, not "it works".
+**Landed**, including the two orderings that look like bugs until you read
+upstream: a config that fails to parse exits **2** (`OutputsGenerated`), not 1,
+and `tsc` with no config and no files prints its banner and help then exits
+**1**, not 0.
 
-### Phase 4 — help, version, `--showConfig`
+### Phase 4 — help, version, `--showConfig` · **PARTLY DONE**
 
 `tsc/help.go` (15.9 KB), the version banner, and `tsoptions/showconfig.go` (389
 LOC). Dull, large, and worth **17/17 of `showConfig`** plus a large share of
 `commandLine` — the best ratio of any phase, because the output is a pure
 function of the option table.
 
-**Gate:** `showConfig` at or near 17/17.
+**Version and `--showConfig` landed; `--help` did not.** `--help` prints the
+option names from the one table, honestly labelled a port in progress. Upstream's
+is 15.9 KB with per-option descriptions, category grouping, colour and
+terminal-width-aware two-column layout, and roughly six baselines want it
+byte-for-byte. It is the largest remaining piece of pure transcription and the
+clearest next item.
 
-### Phase 5 — the checking driver
+`--init` is **refused** rather than approximated: it writes a commented
+`tsconfig.json` built from the same per-option descriptions, and a *different*
+template is an artifact that would end up committed in users' repositories.
+
+**Gate:** `showConfig` at or near 17/17. Currently short of it — see §7.5.
+
+### Phase 5 — the checking driver · **DONE**
 
 `performCompilation` without emit: build the program, run the checker, report
 diagnostics, compute the exit status. This is the phase that produces the thing
 originally asked for — `tsr` pointed at a real repository — and it is fifth, not
 first, because everything above it is what makes the result trustworthy.
 
-**Gate:** `tsr --noEmit` on a real repository terminates, and the `noCheck` and
-`listFilesOnly` families become reachable. Expect many false diagnostics: at 41%
-of `checker_types` this is a development instrument and must be labelled one in
-its own `--help`.
+**Landed, and it works.** On a three-error fixture:
 
-### Phase 6 — pretty output
+```text
+src/index.ts(4,7): error TS2322: Type 'string' is not assignable to type 'number'.
+src/index.ts(5,13): error TS2304: Cannot find name 'nope'.
+
+Found 3 errors in the same file, starting at: src/index.ts:4
+```
+
+Exit code 1, config read from `tsconfig.json`, libraries loaded, diagnostics
+positioned. Expect wrong ones: at 41% of `checker_types` this is a development
+instrument, and `--help` says so.
+
+### Phase 6 — pretty output · **DONE, and it moved to the front**
 
 `FormatDiagnosticWithColorAndContext` and `writeCodeSnippet`
-(`diagnosticwriter.go:134-252`). Required by the baselines (§2.2), which is what
-retires §6's "not yet" from `tsr-diagnostics::format`.
+(`diagnosticwriter.go:134-252`), **ported**.
 
-**Gate:** baselines that differ only in colour stop differing.
+**This phase was ninth on the plan and turned out to be a prerequisite.** §2
+recorded that the baselines assert pretty output; what the plan did not draw the
+conclusion from is that *almost every baseline that prints anything* is pretty,
+so nothing could be compared until the renderer existed. Written last in the plan
+and needed fourth in practice.
 
-### Phase 7 — emit
+The `tsr-diagnostics::format` refusal is retired rather than overruled, and the
+distinction matters: the refusal was against *approximating* a frame nobody could
+check. With a byte-comparing oracle, approximation is no longer possible — which
+is the exact condition the refusal named as its own falsifier.
+
+### Phase 7 — emit · **BLOCKED**
 
 Blocked on `tsr-transformers`, which does not exist. **144 of 194 `tsc` baselines
 are behind this**, and it is a compiler workstream rather than a CLI one. Named
 here so the ceiling is visible, not scheduled here.
 
-### Phase 8 — `--build`, watch, incremental
+### Phase 8 — `--build`, watch, incremental · **BLOCKED**
 
 `execute/build` 2,039 LOC, `execute/incremental` 3,404, `execute/watcher.go` 602,
 `watchmanager` 627. Behind phase 7 and behind the `notify`-versus-hand-rolled
@@ -276,26 +348,23 @@ decision PLAN.md Phase 8 already owns.
 
 ## 4. The ranked board
 
-Rank by what unblocks the most, then by what is cheapest to measure. As in
-STATUS.md §4, a population is a ceiling and the conversion is unknown until an
-instrument says otherwise.
+Re-ranked after the scaffold. Ceilings are measured; conversions now mostly are
+too, because phase 0 exists.
 
-| # | item | ceiling | conversion | why here |
-|---|---|---:|---|---|
-| 1 | phase 0 runner | — | — | every number below is unmeasurable without it |
-| 2 | phase 1 parser | all 235 | unknown | nothing runs without argv |
-| 3 | phase 4 help/version/showConfig | ~38 | unknown | pure function of the option table; best ratio |
-| 4 | phase 2 host + `System` | — | — | four lines plus one undecided question (§7.1) |
-| 5 | phase 3 control flow | ~30 | unknown | almost entirely error paths, so cheap to be exact |
-| 6 | option table 48 → 135 | all | — | a missing option is an unknown-option error, not a default |
-| 7 | phase 5 checking driver | ~8 | unknown | what a user asks for; not what the oracle rewards |
-| 8 | phase 6 pretty | large | unknown | colour differences across the whole suite |
+| # | item | worth | why here |
+|---|---|---|---|
+| 1 | **upstream's `--help` text** (`tsc/help.go`, 15.9 KB) | ~6 baselines | the largest pure-transcription item left, and four of the current failures are only its first three lines |
+| 2 | **`--showConfig` option ordering** (§7.5) | ~5 baselines | an open question, not a build: the order is neither the config's nor the struct's |
+| 3 | **config-file error paths** | ~3 baselines | `non-object-config-root`, `extends` with non-string `files`/`include`: errors the config parser does not yet raise |
+| 4 | option table 71 → 135 | all | a missing option is an unknown-option error, not a default |
+| 5 | `commandlineparser_test.go`'s table (572 LOC) | — | a stronger oracle for phase 1 than the 27 hand-written tests |
+| 6 | watch option table | 0 today | `--watchFile` reports as unknown; upstream accepts it |
+| 7 | `${configDir}` templates | 1 baseline | `extends/configDir-template-showConfig` |
+| 8 | emit (`tsr-transformers`) | **151 baselines** | not a CLI item; the ceiling above everything |
 
-Item 6 is deliberately not item 1. Adding 87 option declarations is mechanical
-and tempting to do first; doing it first would mean 87 entries whose behaviour
-nothing checks. After phase 0 each one is measurable the day it lands.
-
----
+**Refused, with the reason:** `--locale` (`commandLine/locale.js` wants
+`Verze FakeTSVersion`). This port ships one locale, upstream ships a message
+catalogue per language, and translating diagnostics is not a compiler task.
 
 ## 5. Decisions already taken
 
@@ -330,39 +399,58 @@ dispatches `--lsp` / `--api` by hand in a 32-line `main.go`, a `match` on
 `argv[0]` costs nothing, and having the dependency present invites someone to
 route compiler options through it later.
 
-**Approximating pretty output.** A frame that is nearly upstream's — right idea,
-different padding, colours chosen by eye — is worse than none, because nobody
-replaces a format that already renders; they layer around it. Retired by phase 6,
-not by taste.
+~~**Approximating pretty output.**~~ **Retired**, exactly as the refusal said it
+would be: it was against *guessing* a frame nobody could check, and phase 0 made
+guessing impossible. The renderer is a transliteration of `writeCodeSnippet` and
+is compared byte-for-byte. Kept on the page because the reasoning generalises —
+a refusal that names its own falsifier is one that can be lifted honestly.
 
-**A minimal `tsr check` stopgap accepting only file paths and `--project`.**
-Considered and declined on 2026-08-08: ~150 lines against phase 1's ~400, but it
-is an invented surface at exactly the point where a stopgap grows callers
-fastest. **This is the cheapest refusal on the page to reverse** — if being able
-to run against a repository this week is worth more than the surface being right,
-it is one afternoon. The condition for reversing it should be written down at the
-time.
+~~**A minimal `tsr check` stopgap.**~~ **Moot, and the decision was right.** The
+faithful parser took one session rather than the afternoon a stopgap would have,
+and the real `tsc` surface — `-p`, `--showConfig`, `--pretty`, response files —
+came with it. A stopgap would have had to be deleted.
 
----
+**The response-file recursion cap** is the one invented behaviour in the CLI, and
+it is recorded in §3 phase 1 rather than hidden: upstream overflows its stack on
+a self-referential `@file` and this port reports a diagnostic instead.
 
-## 7. Open questions, none of them blocking today
+**`--init`.** Writes a commented `tsconfig.json` built from per-option
+descriptions this port does not have. A different template would end up committed
+in users' repositories, so it reports `NotImplemented` (upstream's own status 5).
 
-1. **Where do the `lib.*.d.ts` files live for a shipped binary?** Embedded via
-   `include_str!` (~3.9 MB in the binary, `lib.dom.d.ts` is 2.3 MB of it) or
-   found on disk relative to the executable, as `DefaultLibraryPath` implies.
-   Upstream does not face the choice; Go embeds them. Affects binary size,
-   startup, and whether the binary is relocatable.
-2. **What is the binary called in baseline output?** The baselines print `tsgo`.
-   Substitution belongs in the phase 0 runner, but which direction — normalise
-   ours to `tsgo`, or record ours and normalise the expectation — decides whether
-   a diff is readable.
-3. **Does `tsr-execute` depend on `tsr-conformance`'s in-memory FS for tests, or
-   the reverse?** The baselines need `InMemoryFileSystem`; the layering should be
-   decided before the runner, not after.
-4. **`FakeTSVersion`.** Baselines pin a fake version string. Ours needs the same
-   seam, and the real version needs somewhere to come from.
+**`--locale`.** One locale shipped; see §4.
 
 ---
+
+## 7. Open questions
+
+1. ~~**Where do the `lib.*.d.ts` files live for a shipped binary?**~~
+   **Answered: on disk**, with a three-step search order. See §3 phase 2 and
+   `crates/tsr-execute/src/os_system.rs`. Kept rather than deleted because the
+   rejected option — embedding — is the one to revisit if a self-contained binary
+   ever matters more than swappable libraries.
+2. ~~**What is the binary called in baseline output?**~~ Answered by the shape of
+   the problem: the *version* is what varies, not the name, so `System::version()`
+   is the seam and `BaselineSystem` returns `FakeTSVersion`. The banner text
+   itself is `tsc: The TypeScript Compiler`, which is what upstream prints and
+   what the baselines expect.
+3. ~~**Does `tsr-execute` depend on `tsr-conformance`?**~~ Neither: the baseline
+   runner lives in `tsr-execute` and uses `tsr_vfs::InMemoryFileSystem` directly,
+   so the CLI's oracle carries no dependency on the compiler's.
+4. **`FakeTSVersion`** — resolved as (2). The real version is a constant in
+   `tsr_execute::system::VERSION` and still has no build-time source.
+5. **`--showConfig` option ordering — open, and two hypotheses are ruled out.**
+   `Show-TSConfig-with-compileOnSave-and-more.js` writes its options as
+   `esModuleInterop, target, module, strict` and upstream prints
+   `module, strict, target, esModuleInterop, useDefineForClassFields`. So it is
+   **not** the order the config wrote them in (the current implementation, and
+   wrong), and **not** Go struct field order either — `CompilerOptions` declares
+   `Composite`(14), `Declaration`(18), `Incremental`(38), `Strict`(84),
+   `Module`(47), and `Show-TSConfig-with-references.js` prints
+   `composite, strict, declaration, incremental`, which matches neither. Whatever
+   the rule is, it also appends *implied* options (`useDefineForClassFields`
+   appears unwritten). Reading `showconfig.go` (389 LOC) properly is the next
+   step; guessing a third time is not.
 
 ## 8. Updating this file
 

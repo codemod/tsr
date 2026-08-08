@@ -122,6 +122,19 @@ impl Upstream {
             );
         }
         upstream.walk(&internal)?;
+
+        // **`cmd/` too, not only `internal/`.** Every ported item lived under
+        // `internal/` until the CLI arrived, and `cmd/tsgo/main.go` and
+        // `cmd/tsgo/sys.go` are the driver's counterparts — real files, correctly
+        // cited, that this gate reported as unresolved because it only ever
+        // looked in one directory. Widening the index is the fix; weakening the
+        // anchors to point at something under `internal/` would have made the
+        // gate pass by pointing the reader at the wrong file.
+        let cmd = root.join("cmd");
+        if cmd.is_dir() {
+            upstream.walk(&cmd)?;
+        }
+
         Ok(upstream)
     }
 

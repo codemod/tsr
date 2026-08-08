@@ -15,20 +15,23 @@
 //! src/a.ts(3,7): error TS2304: Cannot find name 'x'.
 //! ```
 //!
-//! The **pretty** output is not ported: no colours, no gutter, no source frame
-//! with squiggles under the offending range. That is
-//! `FormatDiagnosticWithColorAndContext` and `writeCodeSnippet`
-//! (`diagnosticwriter.go:134-252`), and it is a real feature the driver will
-//! want, tracked as a named gap in `STATUS.md` §4 rather than approximated here.
+//! …and the **pretty** output, which is what `tsc` prints to a terminal:
+//! the location in colour, the category and code, then a framed source snippet
+//! with tildes under the offending range.
 //!
-//! Approximating it is the specific thing this module refuses to do. A frame
-//! that is *nearly* upstream's — right idea, different padding, different
-//! ellipsis rule, colours chosen by eye — is worse than no frame at all,
-//! because it looks finished. Nobody re-derives a format that already renders;
-//! they layer around it, and then it cannot be replaced without breaking
-//! whatever grew on top. The plain path below is byte-exact or it is a bug, and
-//! that is a property worth having while the compiler underneath is still
-//! wrong about types.
+//! > **This module previously refused to port the pretty path**, on the grounds
+//! > that a frame which is *nearly* upstream's is worse than none. That refusal
+//! > was retired rather than overruled: `STATUS-cli.md` §2 measured what the CLI
+//! > baselines actually assert, and they assert the pretty form *by default* —
+//! > `showConfig/Default-initialized-TSConfig.js` expects
+//! > `<ESC>[91merror<ESC>[0m<ESC>[90m TS5081: <ESC>[0m…`. The refusal was
+//! > against approximating; with an oracle that compares bytes, approximation is
+//! > no longer possible, which is exactly the condition the refusal named.
+//!
+//! `writeCodeSnippet` (`diagnosticwriter.go:169`) is transliterated rather than
+//! rewritten. Its gutter arithmetic, its five-line elision rule and its
+//! tab-to-single-space substitution are all load-bearing for byte equality and
+//! none of them is guessable from looking at the output.
 //!
 //! # Message chains and related information are not represented
 //!
@@ -56,6 +59,21 @@ use crate::{Category, Diagnostic};
 const FOREGROUND_COLOR_ESCAPE_GREY: &str = "\u{1b}[90m";
 /// See [`FOREGROUND_COLOR_ESCAPE_GREY`].
 const RESET_ESCAPE_SEQUENCE: &str = "\u{1b}[0m";
+/// Errors (`foregroundColorEscapeRed`).
+const FOREGROUND_COLOR_ESCAPE_RED: &str = "\u{1b}[91m";
+/// Warnings (`foregroundColorEscapeYellow`); also the line and column of a
+/// location.
+const FOREGROUND_COLOR_ESCAPE_YELLOW: &str = "\u{1b}[93m";
+/// Informational messages (`foregroundColorEscapeBlue`); also a file name.
+const FOREGROUND_COLOR_ESCAPE_BLUE: &str = "\u{1b}[94m";
+/// File names in a location (`foregroundColorEscapeCyan`).
+const FOREGROUND_COLOR_ESCAPE_CYAN: &str = "\u{1b}[96m";
+/// The inverse-video run the gutter is drawn in (`gutterStyleSequence`).
+const GUTTER_STYLE_SEQUENCE: &str = "\u{1b}[7m";
+/// What separates the gutter from the source line.
+const GUTTER_SEPARATOR: &str = " ";
+/// What stands in for the lines an over-long span elides.
+const ELLIPSIS: &str = "...";
 
 /// How output is rendered (`diagnosticwriter.FormattingOptions`).
 #[derive(Debug, Clone)]
@@ -422,6 +440,208 @@ fn pretty_path_for_file_error(
     format!("{name}{FOREGROUND_COLOR_ESCAPE_GREY}:{}{RESET_ESCAPE_SEQUENCE}", line + 1)
 }
 
+// ---------------------------------------------------------------------------
+// The pretty path (`FormatDiagnosticWithColorAndContext`, `writeCodeSnippet`,
+// `WriteLocation`, `getCategoryFormat`). See the module docs for why this
+// exists now when it deliberately did not before.
+// ---------------------------------------------------------------------------
+
+/// The colour a category is printed in (`getCategoryFormat`).
+const fn category_format(category: Category) -> &'static str {
+    match category {
+        Category::Error => FOREGROUND_COLOR_ESCAPE_RED,
+        Category::Warning => FOREGROUND_COLOR_ESCAPE_YELLOW,
+        Category::Suggestion => FOREGROUND_COLOR_ESCAPE_GREY,
+        Category::Message => FOREGROUND_COLOR_ESCAPE_BLUE,
+    }
+}
+
+/// Write `text` wrapped in `style`, then reset (`writeWithStyleAndReset`).
+fn write_with_style_and_reset(output: &mut String, text: &str, style: &str) {
+    output.push_str(style);
+    output.push_str(text);
+    output.push_str(RESET_ESCAPE_SEQUENCE);
+}
+
+/// `file:line:col`, in colour (`WriteLocation`).
+///
+/// Note the separator: **colons**, where the plain path uses `(line,col)`.
+/// The two formats disagree deliberately, and an editor configured for one will
+/// not parse the other.
+fn write_location(
+    output: &mut String,
+    file: &DiagnosticFile,
+    position: u32,
+    options: &FormattingOptions,
+) {
+    let (line, character) = file.line_and_character(position);
+    let relative = convert_to_relative_path(file.file_name(), &options.compare_paths);
+    write_with_style_and_reset(output, &relative, FOREGROUND_COLOR_ESCAPE_CYAN);
+    output.push(':');
+    write_with_style_and_reset(output, &(line + 1).to_string(), FOREGROUND_COLOR_ESCAPE_YELLOW);
+    output.push(':');
+    write_with_style_and_reset(
+        output,
+        &(character + 1).to_string(),
+        FOREGROUND_COLOR_ESCAPE_YELLOW,
+    );
+}
+
+/// Write one diagnostic in the pretty format
+/// (`FormatDiagnosticWithColorAndContext`).
+pub fn write_format_diagnostic_with_color_and_context(
+    output: &mut String,
+    located: &LocatedDiagnostic<'_>,
+    options: &FormattingOptions,
+) {
+    if let Some(file) = located.file {
+        write_location(output, file, located.diagnostic.span.start, options);
+        output.push_str(" - ");
+    }
+
+    let category = located.diagnostic.message.category();
+    write_with_style_and_reset(output, category.name(), category_format(category));
+    let _ = write!(
+        output,
+        "{FOREGROUND_COLOR_ESCAPE_GREY} {}: {RESET_ESCAPE_SEQUENCE}",
+        located.diagnostic.code()
+    );
+    write_flattened_diagnostic_message(output, located.diagnostic, &options.newline);
+
+    if let Some(file) = located.file {
+        // Upstream also excludes `File_appears_to_be_binary`, whose "snippet"
+        // would be the binary itself. That message is not reachable here — the
+        // driver never reports it — so the guard is the `Some(file)` alone.
+        output.push_str(&options.newline);
+        write_code_snippet(
+            output,
+            file,
+            located.diagnostic.span.start,
+            located.diagnostic.span.end.saturating_sub(located.diagnostic.span.start),
+            category_format(category),
+            "",
+            options,
+        );
+        output.push_str(&options.newline);
+    }
+}
+
+/// Write every diagnostic in the pretty format, blank-line separated.
+///
+/// The separator is upstream's `FormatDiagnosticsWithColorAndContext`
+/// (`:122`) and is one of the few places the two paths differ structurally:
+/// the plain path writes nothing between diagnostics.
+pub fn write_format_diagnostics_with_color_and_context(
+    output: &mut String,
+    diagnostics: &[LocatedDiagnostic<'_>],
+    options: &FormattingOptions,
+) {
+    for (index, located) in diagnostics.iter().enumerate() {
+        if index > 0 {
+            output.push_str(&options.newline);
+        }
+        write_format_diagnostic_with_color_and_context(output, located, options);
+    }
+}
+
+/// The framed source excerpt with tildes under the span (`writeCodeSnippet`).
+///
+/// Transliterated. Four details are load-bearing and none is guessable:
+///
+/// - **A zero-length span squiggles one character**, the one after its start.
+///   Every "expected" diagnostic has a zero-length span.
+/// - **A span over five lines shows the first two and last two**, with an
+///   ellipsis row between, and the gutter widens to fit `...` when it does.
+/// - **Tabs become one space each**, not a tab stop, so the tildes line up.
+/// - **Trailing whitespace is trimmed** from each line before it is measured,
+///   which is why the squiggle can be shorter than the untrimmed line.
+#[allow(clippy::too_many_arguments)]
+fn write_code_snippet(
+    output: &mut String,
+    file: &DiagnosticFile,
+    start: u32,
+    length: u32,
+    squiggle_color: &str,
+    indent: &str,
+    options: &FormattingOptions,
+) {
+    let (first_line, first_line_char) = file.line_and_character(start);
+    let (last_line, mut last_line_char) = file.line_and_character(start + length);
+    if length == 0 {
+        last_line_char += 1;
+    }
+
+    let text_length = u32::try_from(file.text.len()).unwrap_or(u32::MAX);
+    let last_line_of_file = file.line_of_position(text_length);
+
+    let has_more_than_five_lines = last_line.saturating_sub(first_line) >= 4;
+    let mut gutter_width = (last_line + 1).to_string().len();
+    if has_more_than_five_lines {
+        gutter_width = gutter_width.max(ELLIPSIS.len());
+    }
+
+    let mut line = first_line;
+    while line <= last_line {
+        output.push_str(&options.newline);
+
+        if has_more_than_five_lines && first_line + 1 < line && line < last_line - 1 {
+            output.push_str(indent);
+            output.push_str(GUTTER_STYLE_SEQUENCE);
+            let _ = write!(output, "{ELLIPSIS:>gutter_width$}");
+            output.push_str(RESET_ESCAPE_SEQUENCE);
+            output.push_str(GUTTER_SEPARATOR);
+            output.push_str(&options.newline);
+            line = last_line - 1;
+        }
+
+        let line_start = file.line_starts.get(line as usize).copied().unwrap_or(0) as usize;
+        let line_end = if line < last_line_of_file {
+            file.line_starts.get(line as usize + 1).copied().unwrap_or(text_length) as usize
+        } else {
+            file.text.len()
+        };
+        let raw = file.text.get(line_start..line_end).unwrap_or_default();
+        let line_content = raw.trim_end().replace('\t', " ");
+
+        output.push_str(indent);
+        output.push_str(GUTTER_STYLE_SEQUENCE);
+        let _ = write!(output, "{:>gutter_width$}", line + 1);
+        output.push_str(RESET_ESCAPE_SEQUENCE);
+        output.push_str(GUTTER_SEPARATOR);
+        output.push_str(&line_content);
+        output.push_str(&options.newline);
+
+        output.push_str(indent);
+        output.push_str(GUTTER_STYLE_SEQUENCE);
+        let _ = write!(output, "{:>gutter_width$}", "");
+        output.push_str(RESET_ESCAPE_SEQUENCE);
+        output.push_str(GUTTER_SEPARATOR);
+        output.push_str(squiggle_color);
+
+        let content_width = tsr_core::utf16_len(&line_content);
+        if line == first_line {
+            let last_char_for_line = if line == last_line { last_line_char } else { content_width };
+            for _ in 0..first_line_char {
+                output.push(' ');
+            }
+            for _ in 0..last_char_for_line.saturating_sub(first_line_char) {
+                output.push('~');
+            }
+        } else if line == last_line {
+            for _ in 0..last_line_char {
+                output.push('~');
+            }
+        } else {
+            for _ in 0..content_width {
+                output.push('~');
+            }
+        }
+
+        output.push_str(RESET_ESCAPE_SEQUENCE);
+        line += 1;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -604,5 +824,112 @@ mod tests {
         let mut output = String::new();
         write_error_summary_text(&mut output, &[located], &options);
         assert_eq!(output, "\r\nFound 1 error in a.ts\u{1b}[90m:1\u{1b}[0m\r\n\r\n");
+    }
+    #[test]
+    fn a_pretty_diagnostic_has_a_location_a_category_and_a_frame() {
+        let file = DiagnosticFile::new("/home/project/a.ts", "let a = 1;\nconsole.log(x);\n");
+        let d = Diagnostic::with_args(cannot_find_name(), Span::new(23, 24), ["x".to_string()]);
+        let mut output = String::new();
+        write_format_diagnostic_with_color_and_context(
+            &mut output,
+            &LocatedDiagnostic::in_file(&file, &d),
+            &options(),
+        );
+        assert_eq!(
+            output,
+            concat!(
+                "\u{1b}[96ma.ts\u{1b}[0m:\u{1b}[93m2\u{1b}[0m:\u{1b}[93m13\u{1b}[0m - ",
+                "\u{1b}[91merror\u{1b}[0m\u{1b}[90m TS2304: \u{1b}[0m",
+                // Two newlines: one closing the message, one opening the
+                // snippet's first line. Upstream writes both.
+                "Cannot find name 'x'.\n\n",
+                "\u{1b}[7m2\u{1b}[0m console.log(x);\n",
+                "\u{1b}[7m \u{1b}[0m \u{1b}[91m            ~\u{1b}[0m\n"
+            )
+        );
+    }
+
+    #[test]
+    fn a_global_pretty_diagnostic_has_no_location_and_no_frame() {
+        // The `--showConfig` with no config baseline is exactly this shape.
+        let d = diagnostic(cannot_find_name(), 0, &["x"]);
+        let mut output = String::new();
+        write_format_diagnostic_with_color_and_context(
+            &mut output,
+            &LocatedDiagnostic::global(&d),
+            &options(),
+        );
+        assert_eq!(
+            output,
+            "\u{1b}[91merror\u{1b}[0m\u{1b}[90m TS2304: \u{1b}[0mCannot find name 'x'."
+        );
+    }
+
+    #[test]
+    fn a_zero_length_span_squiggles_one_character() {
+        // Every "expected" diagnostic has one, so this is not an edge case.
+        let file = DiagnosticFile::new("/home/project/a.ts", "let a =\n");
+        let d = Diagnostic::new(cannot_find_name(), Span::new(7, 7));
+        let mut output = String::new();
+        write_format_diagnostic_with_color_and_context(
+            &mut output,
+            &LocatedDiagnostic::in_file(&file, &d),
+            &options(),
+        );
+        assert!(output.contains("       ~\u{1b}[0m"), "{output:?}");
+    }
+
+    #[test]
+    fn a_tab_becomes_one_space_so_the_squiggle_lines_up() {
+        let file = DiagnosticFile::new("/home/project/a.ts", "\t\tlet a = 1;\n");
+        let d = Diagnostic::new(cannot_find_name(), Span::new(6, 7));
+        let mut output = String::new();
+        write_format_diagnostic_with_color_and_context(
+            &mut output,
+            &LocatedDiagnostic::in_file(&file, &d),
+            &options(),
+        );
+        // The source line renders with two spaces, not two tabs.
+        assert!(output.contains("\u{1b}[0m   let a = 1;"), "{output:?}");
+        assert!(!output.contains('\t'), "{output:?}");
+    }
+
+    #[test]
+    fn a_span_over_five_lines_elides_the_middle() {
+        let mut text = String::new();
+        for n in 1..=8 {
+            let _ = writeln!(text, "line{n};");
+        }
+        let file = DiagnosticFile::new("/home/project/a.ts", text);
+        let d = Diagnostic::new(cannot_find_name(), Span::new(0, 47));
+        let mut output = String::new();
+        write_format_diagnostic_with_color_and_context(
+            &mut output,
+            &LocatedDiagnostic::in_file(&file, &d),
+            &options(),
+        );
+        assert!(output.contains("..."), "{output:?}");
+        // First two and last two lines survive; the middle does not.
+        assert!(output.contains("line1;"), "{output:?}");
+        assert!(output.contains("line2;"), "{output:?}");
+        assert!(!output.contains("line4;"), "{output:?}");
+    }
+
+    #[test]
+    fn several_pretty_diagnostics_are_blank_line_separated() {
+        // Unlike the plain path, which writes nothing between them.
+        let file = DiagnosticFile::new("/home/project/a.ts", "x;\ny;\n");
+        let first = diagnostic(cannot_find_name(), 0, &["x"]);
+        let second = diagnostic(cannot_find_name(), 3, &["y"]);
+        let mut output = String::new();
+        write_format_diagnostics_with_color_and_context(
+            &mut output,
+            &[
+                LocatedDiagnostic::in_file(&file, &first),
+                LocatedDiagnostic::in_file(&file, &second),
+            ],
+            &options(),
+        );
+        assert!(output.contains("\u{1b}[0m\n\n\u{1b}[96m"), "{output:?}");
     }
 }

@@ -1,0 +1,19 @@
+[package]
+name = "tsr"
+description = "The tsr compiler binary"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "tsr"
+path = "src/main.rs"
+
+[dependencies]
+tsr-execute.workspace = true
+
+[lints]
+workspace = true

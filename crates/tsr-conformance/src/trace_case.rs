@@ -548,6 +548,17 @@ pub fn apply_test_directives(
         // `ShouldPreserveConstEnums` folds it in. Routing every checker option
         // through `CompilerOptions` (ADR-0042) left nowhere for that private read
         // to live, so the directive is applied above with the rest.
+        //
+        // Everything else keeps `base`'s value. That is a change of shape: this
+        // literal used to name every field, so adding one to `CompilerOptions`
+        // broke the build here and forced a decision about whether the corpus
+        // sets it. It stopped being a useful forcing function once the
+        // command-line surface arrived — the driver's twenty-odd options
+        // (`--help`, `--pretty`, `--showConfig`) are not test directives and
+        // never will be, so the build break was pure noise. `bd`-less note: the
+        // directives this harness *does* honour are the ones listed above, and
+        // `casedelta.rs` is what would show a missing one.
+        ..base
     }
 }
 

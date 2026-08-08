@@ -42,6 +42,7 @@
 //!   judges them, and the spans are the value's rather than upstream's exact
 //!   `CreateDiagnosticForNodeInSourceFile` range.
 
+pub mod command_line;
 mod generated;
 
 pub use generated::libs::{LIB_MAP, LIB_NAMES};

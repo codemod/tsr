@@ -258,6 +258,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "tsr"
+version = "0.1.0"
+dependencies = [
+ "tsr-execute",
+]
+
+[[package]]
 name = "tsr-ast"
 version = "0.1.0"
 dependencies = [
@@ -381,6 +388,21 @@ dependencies = [
  "tsr-core",
  "tsr-diagnostics",
  "tsr-parser",
+]
+
+[[package]]
+name = "tsr-execute"
+version = "0.1.0"
+dependencies = [
+ "tsr-checker",
+ "tsr-compiler",
+ "tsr-core",
+ "tsr-diagnostics",
+ "tsr-module",
+ "tsr-parser",
+ "tsr-path",
+ "tsr-tsoptions",
+ "tsr-vfs",
 ]
 
 [[package]]

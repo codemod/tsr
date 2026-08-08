@@ -500,6 +500,58 @@ pub struct CompilerOptions {
     /// Require every import to be resolvable as written, with no elision.
     /// Turns on `isolatedModules` behaviour (`GetIsolatedModules`).
     pub verbatim_module_syntax: Tristate,
+    // ---- The command line. Every field below is read by the driver rather than
+    // ---- by the compiler, and most are meaningless in a `tsconfig.json`;
+    // ---- upstream keeps them in `CompilerOptions` all the same, and so does
+    // ---- this, because the parser writes through one option table.
+    /// Print the help text and exit (`-h`, `-?`).
+    pub help: Tristate,
+    /// With `help`, print every option rather than the common ones.
+    pub all: Tristate,
+    /// Print the version banner and exit (`-v`).
+    pub version: Tristate,
+    /// Write a starter `tsconfig.json` and exit.
+    pub init: Tristate,
+    /// The project to compile: a `tsconfig.json` or a directory holding one
+    /// (`-p`).
+    pub project: String,
+    /// Recompile on change (`-w`). Not implemented; parsed so that the option is
+    /// recognised rather than reported as unknown.
+    pub watch: Tristate,
+    /// Print the fully-resolved configuration as JSON and exit.
+    pub show_config: Tristate,
+    /// List every file in the program.
+    pub list_files: Tristate,
+    /// List the files and compile nothing.
+    pub list_files_only: Tristate,
+    /// List the files written by emit.
+    pub list_emitted_files: Tristate,
+    /// Compile the named files even though a `tsconfig.json` exists.
+    pub ignore_config: Tristate,
+    /// Type-check without writing output.
+    pub no_emit: Tristate,
+    /// Colourise and frame diagnostics. Unset means "whatever the terminal is",
+    /// which is why this is a `Tristate` and not a `bool`.
+    pub pretty: Tristate,
+    /// Suppress the non-diagnostic chatter.
+    pub quiet: Tristate,
+    /// Which locale to render messages in. Parsed and otherwise unused: this
+    /// port ships one locale.
+    pub locale: String,
+    /// Suppress output when any error was reported.
+    pub no_emit_on_error: Tristate,
+    /// Do not truncate a long type in a message.
+    pub no_error_truncation: Tristate,
+    /// Skip type checking of every `.d.ts`.
+    pub skip_lib_check: Tristate,
+    /// Skip type checking of the default library only.
+    pub skip_default_lib_check: Tristate,
+    /// Reuse prior build state. Not implemented.
+    pub incremental: Tristate,
+    /// A project that can be referenced by another. Implies `incremental`.
+    pub composite: Tristate,
+    /// Parse and emit without checking.
+    pub no_check: Tristate,
     /// Check a side-effect-only `import "x"` resolves.
     ///
     /// Reads as **on when unset** (`IsTrueOrUnknown`), which is why only an

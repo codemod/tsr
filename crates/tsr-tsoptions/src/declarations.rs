@@ -64,6 +64,46 @@ pub struct OptionDeclaration {
     /// Returns `false` when the value had the wrong shape, which is upstream's
     /// `Compiler option '{0}' requires a value of type '{1}'`.
     pub apply: fn(&mut CompilerOptions, &ConfigValue) -> bool,
+
+    // ---- Below here is what the *command line* needs and a config file does
+    // ---- not. Added with the CLI; see STATUS-cli.md phase 1.
+    /// The one-letter spelling, if the option has one
+    /// (`CommandLineOption.ShortName`) — `-p` for `project`.
+    pub short_name: Option<&'static str>,
+    /// Whether the option may only be set in a `tsconfig.json`
+    /// (`CommandLineOption.IsTSConfigOnly`).
+    ///
+    /// Not "ignored on the command line": writing it there is a *diagnostic*,
+    /// and which diagnostic depends on the option's kind and on whether the
+    /// following argument was `null`, `true` or `false`.
+    pub is_tsconfig_only: bool,
+    /// The accepted spellings of an [`OptionKind::Enum`], in upstream's
+    /// declaration order.
+    ///
+    /// Only needed to *render the error*: `Argument for '--target' option must
+    /// be: 'es5', 'es2015', …` lists them in this order. Matching is done by
+    /// [`OptionDeclaration::apply`], which already knows the mapping, so this is
+    /// not a second source of truth for what a value means — only for how the
+    /// failure reads.
+    pub enum_names: &'static [&'static str],
+}
+
+impl OptionDeclaration {
+    /// The shape every entry starts from, so a declaration lists only what is
+    /// unusual about it.
+    ///
+    /// `apply` refusing everything is deliberate: an entry that forgets it
+    /// writes nothing and reports a type error, which is loud. The alternative
+    /// default — accept and discard — would silently drop the option.
+    pub const DEFAULT: Self = Self {
+        name: "",
+        kind: OptionKind::Boolean,
+        is_file_path: false,
+        apply: |_, _| false,
+        short_name: None,
+        is_tsconfig_only: false,
+        enum_names: &[],
+    };
 }
 
 /// The option this name declares, if any (`optionsForCompiler`, by name).
@@ -166,6 +206,12 @@ pub static COMPILER_OPTIONS: &[OptionDeclaration] = &[
             options.target = target;
             true
         },
+        short_name: Some("t"),
+        enum_names: &[
+            "es5", "es2015", "es2016", "es2017", "es2018", "es2019", "es2020", "es2021", "es2022",
+            "es2023", "es2024", "es2025", "esnext",
+        ],
+        ..OptionDeclaration::DEFAULT
     },
     OptionDeclaration {
         name: "module",
@@ -197,6 +243,12 @@ pub static COMPILER_OPTIONS: &[OptionDeclaration] = &[
             options.module = module;
             true
         },
+        short_name: Some("m"),
+        enum_names: &[
+            "none", "commonjs", "amd", "system", "umd", "es6", "es2015", "es2020", "es2022",
+            "esnext", "node16", "node18", "node20", "nodenext", "preserve",
+        ],
+        ..OptionDeclaration::DEFAULT
     },
     OptionDeclaration {
         name: "moduleResolution",
@@ -223,6 +275,8 @@ pub static COMPILER_OPTIONS: &[OptionDeclaration] = &[
             options.module_resolution = resolution;
             true
         },
+        enum_names: &["node10", "classic", "node16", "nodenext", "bundler"],
+        ..OptionDeclaration::DEFAULT
     },
     OptionDeclaration {
         name: "jsx",
@@ -245,6 +299,8 @@ pub static COMPILER_OPTIONS: &[OptionDeclaration] = &[
             options.jsx = jsx;
             true
         },
+        enum_names: &["preserve", "react-native", "react", "react-jsx", "react-jsxdev"],
+        ..OptionDeclaration::DEFAULT
     },
     OptionDeclaration {
         name: "lib",
@@ -255,36 +311,42 @@ pub static COMPILER_OPTIONS: &[OptionDeclaration] = &[
             options.lib = lib;
             true
         },
+        ..OptionDeclaration::DEFAULT
     },
     OptionDeclaration {
         name: "noLib",
         kind: OptionKind::Boolean,
         is_file_path: false,
         apply: |options, value| tristate(options, value, |o| &mut o.no_lib),
+        ..OptionDeclaration::DEFAULT
     },
     OptionDeclaration {
         name: "allowJs",
         kind: OptionKind::Boolean,
         is_file_path: false,
         apply: |options, value| tristate(options, value, |o| &mut o.allow_js),
+        ..OptionDeclaration::DEFAULT
     },
     OptionDeclaration {
         name: "checkJs",
         kind: OptionKind::Boolean,
         is_file_path: false,
         apply: |options, value| tristate(options, value, |o| &mut o.check_js),
+        ..OptionDeclaration::DEFAULT
     },
     OptionDeclaration {
         name: "strict",
         kind: OptionKind::Boolean,
         is_file_path: false,
         apply: |options, value| tristate(options, value, |o| &mut o.strict),
+        ..OptionDeclaration::DEFAULT
     },
     OptionDeclaration {
         name: "noImplicitAny",
         kind: OptionKind::Boolean,
         is_file_path: false,
         apply: |options, value| tristate(options, value, |o| &mut o.no_implicit_any),
+        ..OptionDeclaration::DEFAULT
     },
     // The strict family and the rest of what the checker reads. Every name here
     // is upstream's spelling from `declscompiler.go`; the lookup is
@@ -295,54 +357,63 @@ pub static COMPILER_OPTIONS: &[OptionDeclaration] = &[
         kind: OptionKind::Boolean,
         is_file_path: false,
         apply: |options, value| tristate(options, value, |o| &mut o.strict_null_checks),
+        ..OptionDeclaration::DEFAULT
     },
     OptionDeclaration {
         name: "strictPropertyInitialization",
         kind: OptionKind::Boolean,
         is_file_path: false,
         apply: |options, value| tristate(options, value, |o| &mut o.strict_property_initialization),
+        ..OptionDeclaration::DEFAULT
     },
     OptionDeclaration {
         name: "useUnknownInCatchVariables",
         kind: OptionKind::Boolean,
         is_file_path: false,
         apply: |options, value| tristate(options, value, |o| &mut o.use_unknown_in_catch_variables),
+        ..OptionDeclaration::DEFAULT
     },
     OptionDeclaration {
         name: "noUncheckedIndexedAccess",
         kind: OptionKind::Boolean,
         is_file_path: false,
         apply: |options, value| tristate(options, value, |o| &mut o.no_unchecked_indexed_access),
+        ..OptionDeclaration::DEFAULT
     },
     OptionDeclaration {
         name: "noUnusedLocals",
         kind: OptionKind::Boolean,
         is_file_path: false,
         apply: |options, value| tristate(options, value, |o| &mut o.no_unused_locals),
+        ..OptionDeclaration::DEFAULT
     },
     OptionDeclaration {
         name: "noUnusedParameters",
         kind: OptionKind::Boolean,
         is_file_path: false,
         apply: |options, value| tristate(options, value, |o| &mut o.no_unused_parameters),
+        ..OptionDeclaration::DEFAULT
     },
     OptionDeclaration {
         name: "allowUnreachableCode",
         kind: OptionKind::Boolean,
         is_file_path: false,
         apply: |options, value| tristate(options, value, |o| &mut o.allow_unreachable_code),
+        ..OptionDeclaration::DEFAULT
     },
     OptionDeclaration {
         name: "preserveConstEnums",
         kind: OptionKind::Boolean,
         is_file_path: false,
         apply: |options, value| tristate(options, value, |o| &mut o.preserve_const_enums),
+        ..OptionDeclaration::DEFAULT
     },
     OptionDeclaration {
         name: "verbatimModuleSyntax",
         kind: OptionKind::Boolean,
         is_file_path: false,
         apply: |options, value| tristate(options, value, |o| &mut o.verbatim_module_syntax),
+        ..OptionDeclaration::DEFAULT
     },
     OptionDeclaration {
         name: "noUncheckedSideEffectImports",
@@ -351,78 +422,92 @@ pub static COMPILER_OPTIONS: &[OptionDeclaration] = &[
         apply: |options, value| {
             tristate(options, value, |o| &mut o.no_unchecked_side_effect_imports)
         },
+        ..OptionDeclaration::DEFAULT
     },
     OptionDeclaration {
         name: "declaration",
         kind: OptionKind::Boolean,
         is_file_path: false,
         apply: |options, value| tristate(options, value, |o| &mut o.declaration),
+        short_name: Some("d"),
+        ..OptionDeclaration::DEFAULT
     },
     OptionDeclaration {
         name: "esModuleInterop",
         kind: OptionKind::Boolean,
         is_file_path: false,
         apply: |options, value| tristate(options, value, |o| &mut o.es_module_interop),
+        ..OptionDeclaration::DEFAULT
     },
     OptionDeclaration {
         name: "isolatedModules",
         kind: OptionKind::Boolean,
         is_file_path: false,
         apply: |options, value| tristate(options, value, |o| &mut o.isolated_modules),
+        ..OptionDeclaration::DEFAULT
     },
     OptionDeclaration {
         name: "allowArbitraryExtensions",
         kind: OptionKind::Boolean,
         is_file_path: false,
         apply: |options, value| tristate(options, value, |o| &mut o.allow_arbitrary_extensions),
+        ..OptionDeclaration::DEFAULT
     },
     OptionDeclaration {
         name: "allowNonTsExtensions",
         kind: OptionKind::Boolean,
         is_file_path: false,
         apply: |options, value| tristate(options, value, |o| &mut o.allow_non_ts_extensions),
+        ..OptionDeclaration::DEFAULT
     },
     OptionDeclaration {
         name: "traceResolution",
         kind: OptionKind::Boolean,
         is_file_path: false,
         apply: |options, value| tristate(options, value, |o| &mut o.trace_resolution),
+        ..OptionDeclaration::DEFAULT
     },
     OptionDeclaration {
         name: "noResolve",
         kind: OptionKind::Boolean,
         is_file_path: false,
         apply: |options, value| tristate(options, value, |o| &mut o.no_resolve),
+        ..OptionDeclaration::DEFAULT
     },
     OptionDeclaration {
         name: "resolveJsonModule",
         kind: OptionKind::Boolean,
         is_file_path: false,
         apply: |options, value| tristate(options, value, |o| &mut o.resolve_json_module),
+        ..OptionDeclaration::DEFAULT
     },
     OptionDeclaration {
         name: "noDtsResolution",
         kind: OptionKind::Boolean,
         is_file_path: false,
         apply: |options, value| tristate(options, value, |o| &mut o.no_dts_resolution),
+        ..OptionDeclaration::DEFAULT
     },
     OptionDeclaration {
         name: "resolvePackageJsonExports",
         kind: OptionKind::Boolean,
         is_file_path: false,
         apply: |options, value| tristate(options, value, |o| &mut o.resolve_package_json_exports),
+        ..OptionDeclaration::DEFAULT
     },
     OptionDeclaration {
         name: "resolvePackageJsonImports",
         kind: OptionKind::Boolean,
         is_file_path: false,
         apply: |options, value| tristate(options, value, |o| &mut o.resolve_package_json_imports),
+        ..OptionDeclaration::DEFAULT
     },
     OptionDeclaration {
         name: "preserveSymlinks",
         kind: OptionKind::Boolean,
         is_file_path: false,
         apply: |options, value| tristate(options, value, |o| &mut o.preserve_symlinks),
+        ..OptionDeclaration::DEFAULT
     },
     OptionDeclaration {
         name: "maxNodeModuleJsDepth",
@@ -440,12 +525,14 @@ pub static COMPILER_OPTIONS: &[OptionDeclaration] = &[
             }
             true
         },
+        ..OptionDeclaration::DEFAULT
     },
     OptionDeclaration {
         name: "libReplacement",
         kind: OptionKind::Boolean,
         is_file_path: false,
         apply: |options, value| tristate(options, value, |o| &mut o.lib_replacement),
+        ..OptionDeclaration::DEFAULT
     },
     OptionDeclaration {
         name: "allowSyntheticDefaultImports",
@@ -454,48 +541,56 @@ pub static COMPILER_OPTIONS: &[OptionDeclaration] = &[
         apply: |options, value| {
             tristate(options, value, |o| &mut o.allow_synthetic_default_imports)
         },
+        ..OptionDeclaration::DEFAULT
     },
     OptionDeclaration {
         name: "alwaysStrict",
         kind: OptionKind::Boolean,
         is_file_path: false,
         apply: |options, value| tristate(options, value, |o| &mut o.always_strict),
+        ..OptionDeclaration::DEFAULT
     },
     OptionDeclaration {
         name: "outFile",
         kind: OptionKind::String,
         is_file_path: true,
         apply: |options, value| string(options, value, |o| &mut o.out_file),
+        ..OptionDeclaration::DEFAULT
     },
     OptionDeclaration {
         name: "baseUrl",
         kind: OptionKind::String,
         is_file_path: true,
         apply: |options, value| string(options, value, |o| &mut o.base_url),
+        ..OptionDeclaration::DEFAULT
     },
     OptionDeclaration {
         name: "rootDir",
         kind: OptionKind::String,
         is_file_path: true,
         apply: |options, value| string(options, value, |o| &mut o.root_dir),
+        ..OptionDeclaration::DEFAULT
     },
     OptionDeclaration {
         name: "outDir",
         kind: OptionKind::String,
         is_file_path: true,
         apply: |options, value| string(options, value, |o| &mut o.out_dir),
+        ..OptionDeclaration::DEFAULT
     },
     OptionDeclaration {
         name: "declarationDir",
         kind: OptionKind::String,
         is_file_path: true,
         apply: |options, value| string(options, value, |o| &mut o.declaration_dir),
+        ..OptionDeclaration::DEFAULT
     },
     OptionDeclaration {
         name: "jsxImportSource",
         kind: OptionKind::String,
         is_file_path: false,
         apply: |options, value| string(options, value, |o| &mut o.jsx_import_source),
+        ..OptionDeclaration::DEFAULT
     },
     OptionDeclaration {
         name: "rootDirs",
@@ -506,6 +601,8 @@ pub static COMPILER_OPTIONS: &[OptionDeclaration] = &[
             options.root_dirs = root_dirs;
             true
         },
+        is_tsconfig_only: true,
+        ..OptionDeclaration::DEFAULT
     },
     OptionDeclaration {
         name: "typeRoots",
@@ -518,6 +615,7 @@ pub static COMPILER_OPTIONS: &[OptionDeclaration] = &[
             options.type_roots = Some(type_roots);
             true
         },
+        ..OptionDeclaration::DEFAULT
     },
     OptionDeclaration {
         name: "types",
@@ -530,6 +628,7 @@ pub static COMPILER_OPTIONS: &[OptionDeclaration] = &[
             options.types = Some(types);
             true
         },
+        ..OptionDeclaration::DEFAULT
     },
     OptionDeclaration {
         name: "moduleSuffixes",
@@ -540,6 +639,7 @@ pub static COMPILER_OPTIONS: &[OptionDeclaration] = &[
             options.module_suffixes = suffixes;
             true
         },
+        ..OptionDeclaration::DEFAULT
     },
     OptionDeclaration {
         name: "customConditions",
@@ -550,6 +650,7 @@ pub static COMPILER_OPTIONS: &[OptionDeclaration] = &[
             options.custom_conditions = conditions;
             true
         },
+        ..OptionDeclaration::DEFAULT
     },
     OptionDeclaration {
         name: "paths",
@@ -560,6 +661,159 @@ pub static COMPILER_OPTIONS: &[OptionDeclaration] = &[
             options.paths = paths;
             true
         },
+        is_tsconfig_only: true,
+        ..OptionDeclaration::DEFAULT
+    },
+    // ---- The command-line surface. Upstream declares these in the same table as
+    // ---- everything else (`declscompiler.go`), because `tsc -p .` and a
+    // ---- `"project"` key in a config go through one parser. Most are read by
+    // ---- the driver rather than by the compiler; see `tsr-execute`.
+    OptionDeclaration {
+        name: "help",
+        kind: OptionKind::Boolean,
+        apply: |options, value| tristate(options, value, |o| &mut o.help),
+        short_name: Some("h"),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "help",
+        kind: OptionKind::Boolean,
+        apply: |options, value| tristate(options, value, |o| &mut o.help),
+        short_name: Some("?"),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "all",
+        kind: OptionKind::Boolean,
+        apply: |options, value| tristate(options, value, |o| &mut o.all),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "version",
+        kind: OptionKind::Boolean,
+        apply: |options, value| tristate(options, value, |o| &mut o.version),
+        short_name: Some("v"),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "init",
+        kind: OptionKind::Boolean,
+        apply: |options, value| tristate(options, value, |o| &mut o.init),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "watch",
+        kind: OptionKind::Boolean,
+        apply: |options, value| tristate(options, value, |o| &mut o.watch),
+        short_name: Some("w"),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "showConfig",
+        kind: OptionKind::Boolean,
+        apply: |options, value| tristate(options, value, |o| &mut o.show_config),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "listFiles",
+        kind: OptionKind::Boolean,
+        apply: |options, value| tristate(options, value, |o| &mut o.list_files),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "listFilesOnly",
+        kind: OptionKind::Boolean,
+        apply: |options, value| tristate(options, value, |o| &mut o.list_files_only),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "listEmittedFiles",
+        kind: OptionKind::Boolean,
+        apply: |options, value| tristate(options, value, |o| &mut o.list_emitted_files),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "ignoreConfig",
+        kind: OptionKind::Boolean,
+        apply: |options, value| tristate(options, value, |o| &mut o.ignore_config),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "noEmit",
+        kind: OptionKind::Boolean,
+        apply: |options, value| tristate(options, value, |o| &mut o.no_emit),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "noEmitOnError",
+        kind: OptionKind::Boolean,
+        apply: |options, value| tristate(options, value, |o| &mut o.no_emit_on_error),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "pretty",
+        kind: OptionKind::Boolean,
+        apply: |options, value| tristate(options, value, |o| &mut o.pretty),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "quiet",
+        kind: OptionKind::Boolean,
+        apply: |options, value| tristate(options, value, |o| &mut o.quiet),
+        short_name: Some("q"),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "noErrorTruncation",
+        kind: OptionKind::Boolean,
+        apply: |options, value| tristate(options, value, |o| &mut o.no_error_truncation),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "skipLibCheck",
+        kind: OptionKind::Boolean,
+        apply: |options, value| tristate(options, value, |o| &mut o.skip_lib_check),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "skipDefaultLibCheck",
+        kind: OptionKind::Boolean,
+        apply: |options, value| tristate(options, value, |o| &mut o.skip_default_lib_check),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "incremental",
+        kind: OptionKind::Boolean,
+        apply: |options, value| tristate(options, value, |o| &mut o.incremental),
+        short_name: Some("i"),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "composite",
+        kind: OptionKind::Boolean,
+        apply: |options, value| tristate(options, value, |o| &mut o.composite),
+        is_tsconfig_only: true,
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "noCheck",
+        kind: OptionKind::Boolean,
+        apply: |options, value| tristate(options, value, |o| &mut o.no_check),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "project",
+        kind: OptionKind::String,
+        is_file_path: true,
+        apply: |options, value| string(options, value, |o| &mut o.project),
+        short_name: Some("p"),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "locale",
+        kind: OptionKind::String,
+        apply: |options, value| string(options, value, |o| &mut o.locale),
+        ..OptionDeclaration::DEFAULT
     },
 ];
 
@@ -568,12 +822,30 @@ mod tests {
     use super::*;
 
     #[test]
-    fn every_declaration_has_a_distinct_name() {
-        let mut names: Vec<&str> = COMPILER_OPTIONS.iter().map(|option| option.name).collect();
+    fn every_declaration_has_a_distinct_name_except_the_one_upstream_repeats() {
+        // **`help` is declared twice, and that is upstream's shape rather than a
+        // slip here.** `CommandLineOption.ShortName` is a single field, so `-h`
+        // and `-?` cannot both hang off one entry; upstream writes two
+        // declarations (`declscompiler.go:17` and `:27`) and the help printer
+        // walks the table, printing `--help, -h` and `--help, -?` as separate
+        // lines. Collapsing them would change baselined output.
+        //
+        // Any *other* duplicate shadows an option silently, which is what this
+        // still guards.
+        let mut names: Vec<&str> = COMPILER_OPTIONS
+            .iter()
+            .map(|option| option.name)
+            .filter(|name| *name != "help")
+            .collect();
         let count = names.len();
         names.sort_unstable();
         names.dedup();
         assert_eq!(names.len(), count, "a duplicate name would shadow an option silently");
+        assert_eq!(
+            COMPILER_OPTIONS.iter().filter(|option| option.name == "help").count(),
+            2,
+            "help is declared once per short name"
+        );
     }
 
     #[test]
