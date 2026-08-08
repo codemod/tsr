@@ -276,6 +276,11 @@ impl Suite for BinderSymbols {
                     // `invalidUnicodeEscapeSequance4`).
                     if symbol.name.contains('\\') {
                         written.push(symbol.name.replace('\\', ""));
+                        // A JSX attribute keeps its raw spelling here while
+                        // upstream's scanner cooks the escape
+                        // (`unicodeEscapesInJsxtags`: `data-\u0076ideo` is the
+                        // attribute `data-video`).
+                        written.push(decode_unicode_escapes(symbol.name));
                     }
                     for full in
                         display_names(bound, nodes, id, &names_by_declaration, &unit.content)

@@ -1164,9 +1164,36 @@ impl<'a> Scanner<'a> {
 
         let start = self.token.span.start;
         let mut extended = false;
+        // Upstream reuses `scanIdentifierParts` here precisely "so unicode
+        // escapes are handled" (`scanner.go:1338`): `data-\u0076ideo` is ONE
+        // attribute named `data-video`, and stopping at the backslash split it
+        // into two. The decoded value is rebuilt only when an escape appears.
+        let mut decoded: Option<String> = None;
         while let Some(ch) = self.peek() {
             if ch == '-' || is_identifier_part(ch) {
+                if let Some(value) = decoded.as_mut() {
+                    value.push(ch);
+                }
                 self.bump();
+                extended = true;
+            } else if ch == '\\' && self.peek_at(1) == Some('u') {
+                let escape_start = self.pos;
+                self.bump();
+                let Some(code_point) = self.scan_unicode_escape() else {
+                    self.pos = escape_start;
+                    break;
+                };
+                let Some(character) = char::from_u32(code_point) else {
+                    self.pos = escape_start;
+                    break;
+                };
+                if decoded.is_none() {
+                    decoded = Some(
+                        self.source[self.token.span.start as usize..escape_start as usize]
+                            .to_string(),
+                    );
+                }
+                decoded.as_mut().expect("just seeded").push(character);
                 extended = true;
             } else {
                 break;
@@ -1174,9 +1201,7 @@ impl<'a> Scanner<'a> {
         }
 
         if extended {
-            // The decoded value is the raw text: a JSX name with a dash cannot
-            // also contain escapes worth decoding separately.
-            self.value = None;
+            self.value = decoded;
             self.token =
                 Token::new(SyntaxKind::Identifier, Span::new(start, self.pos), self.token.flags);
         }

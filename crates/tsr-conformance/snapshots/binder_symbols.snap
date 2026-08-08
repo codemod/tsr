@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 binder_symbols Summary:
 What a pass means: every symbol in the .symbols baseline exists with the same declaration lines
-Passed         : 8446/8461 (99.82%)
-Failed         : 15
+Passed         : 8447/8461 (99.83%)
+Failed         : 14
 Skipped        : 3983 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -40,5 +40,3 @@ conformance/propertyAssignmentUseParentType1
   1 symbol(s): ignoreJsdoc.extra: no symbol
 conformance/thisTypeInFunctionsNegative
   2 symbol(s): (Missing): no symbol; C: declared on {0}, expected to include {0, 171}
-conformance/unicodeEscapesInJsxtags
-  1 symbol(s): data-video: no symbol
