@@ -176,6 +176,27 @@ impl<'a> Checker<'a, '_> {
         }
 
         let signature = self.contextual_signature(function)?;
+        // §86 (`checker-notes-narrow.md`): a SINGLE REST parameter over
+        // tuples expands positionally — `(...args: ['A', number] | ['B',
+        // string]) => void` types parameter 0 as `"A" | "B"` and parameter
+        // 1 as `number | string` (`getTypeAtPosition`;
+        // `restTuplesFromContextualTypes`, `dependentDestructuredVariables`'
+        // f50/f51). Every tuple must be long enough; a non-tuple
+        // constituent declines.
+        if let [rest] = signature.parameters.as_slice()
+            && rest.rest
+        {
+            let constituents: Vec<TypeId> = match &self.store.get(rest.r#type).data {
+                TypeData::Union { types, .. } => types.clone(),
+                _ => vec![rest.r#type],
+            };
+            let mut positional = Vec::with_capacity(constituents.len());
+            for constituent in constituents {
+                let (elements, _) = self.tuple_element_lists.get(&constituent)?;
+                positional.push(*elements.get(index)?);
+            }
+            return Some(self.get_union_type(&positional));
+        }
         let contextual = signature.parameters.get(index)?;
         // A contextual parameter that is itself optional or rest carries a type
         // whose relationship to the position is not the plain one — upstream

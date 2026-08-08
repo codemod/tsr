@@ -3228,3 +3228,18 @@ intersection; `unknown`'s truthiness stays on the filter road
 gate). **+16 W→R against 3 R→W, net +12 at 5.3:1.**
 
 **§85.1 score — LANDED.** right 404,411 → **404,423 (84.45%)**.
+
+## §86 — rest-tuple contextual parameters expand positionally
+
+`(...args: ['A', number] | ['B', string]) => void` as a contextual
+signature types parameter 0 as `"A" | "B"`, parameter 1 as `number |
+string` (`getTypeAtPosition`'s tuple expansion). One arm in
+`get_contextually_typed_parameter_type`: a SINGLE rest parameter
+whose type is a (union of) tuple(s) indexes each constituent at the
+position; short tuples and non-tuple constituents decline. **+33,
+zero adverse** (`dependentDestructuredVariables`' f50/f51 27,
+`restTuplesFromContextualTypes` 6) — and the destructured-discriminant
+narrowing then composes with it for free, since the §50 road keys on
+the declared shapes this arm now supplies.
+
+**§86 score — LANDED.** right 404,423 → **404,456 (84.46%)**.
