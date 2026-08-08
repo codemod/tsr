@@ -1586,6 +1586,8 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         if text.trim().is_empty() {
             return None;
         }
+        let rewritten = jsdoc_type_text_to_ts(text);
+        let text: &str = rewritten.as_deref().unwrap_or(text);
         // A multi-line braced text is real type syntax only when its
         // continuation lines carry no `*` decoration; stripping decorations
         // would break the offset the graft depends on.
@@ -3029,6 +3031,47 @@ fn statement_modifiers<'a>(statement: &Statement<'a>) -> Option<&'a [ModifierLik
 ///
 /// Returning one comment is intentional: an intervening non-internal comment
 /// prevents an older `@internal` comment from being attached to the declaration.
+/// JSDoc-only type spellings rewritten to TypeScript, per upstream's JSDoc
+/// node mapping (`jsDeclarationsReusesExistingNodesMappingJSDocTypes`):
+/// `?` → `any | null`, `T?` → `T | null`, `T=` → `T | undefined`, `T!` → `T`,
+/// `function(…)` → `Function`, and `X.<…>` generics lose the dot with
+/// `Object.<K, V>` becoming `Record<K, V>`. `None` means the text is already
+/// TypeScript.
+fn jsdoc_type_text_to_ts(text: &str) -> Option<String> {
+    let trimmed = text.trim();
+    if trimmed == "?" {
+        return Some("any | null".to_string());
+    }
+    if trimmed == "function" || trimmed.starts_with("function(") {
+        return Some("Function".to_string());
+    }
+    if let Some(rest) = trimmed.strip_prefix('?') {
+        return Some(format!("{} | null", rest.trim_start()));
+    }
+    let ends_in_name = |rest: &str| {
+        rest.chars().last().is_some_and(|c| c.is_alphanumeric() || matches!(c, '>' | ']' | ')'))
+    };
+    if let Some(rest) = trimmed.strip_suffix('?')
+        && ends_in_name(rest.trim_end())
+    {
+        return Some(format!("{} | null", rest.trim_end()));
+    }
+    if let Some(rest) = trimmed.strip_suffix('=')
+        && ends_in_name(rest.trim_end())
+    {
+        return Some(format!("{} | undefined", rest.trim_end()));
+    }
+    if let Some(rest) = trimmed.strip_suffix('!')
+        && ends_in_name(rest.trim_end())
+    {
+        return Some(rest.trim_end().to_string());
+    }
+    if trimmed.contains(".<") {
+        return Some(trimmed.replace("Object.<", "Record<").replace(".<", "<"));
+    }
+    None
+}
+
 /// The end of the consecutive typedef/callback comment run continuing at
 /// `from` (the end of a comment): each further comment must be separated by
 /// whitespace without a blank line and itself declare a typedef or callback.

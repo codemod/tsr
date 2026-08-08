@@ -5,7 +5,7 @@ CURRENT PROGRESS (2026-08-08)
   parser_typescript      5,031/5,031 = 100.00% (up from 5,001)
   dts_reachable_target     496/1,162 = 42.69%  (up from 495; corrected visibility
                                                 exposed one inference case)
-  dts_emit                  326/378  = 86.24%  (denominator moved three times:
+  dts_emit                  327/378  = 86.51%  (denominator moved three times:
                                                 grew 341 -> 395 pairing outDir-
                                                 remapped baselines, shrank to
                                                 376 removing input-echo
@@ -256,7 +256,12 @@ types print single-line, and nested property assignments on an empty-object
 const spell its type literal (`typeFromPropertyAssignment39`, +1 emit). A
 dotted `@typedef` name wraps in `export declare namespace` with the alias
 exported inside, its comment staying on the host statement
-(`jsDeclarationsImportNamespacedType`, +1 emit and +1 shape).
+(`jsDeclarationsImportNamespacedType`, +1 emit and +1 shape). JSDoc-only type
+spellings rewrite to TypeScript before grafting: bare `?` is `any | null`,
+postfix `?`/`=`/`!` are null/undefined unions or plain, `function(...)`
+collapses to `Function`, and `X.<...>` generics lose the dot with `Object.<`
+becoming `Record<` (`jsDeclarationsReusesExistingNodesMappingJSDocTypes`, +1
+emit).
 
 `TASK.md` belongs to the checker-types gradient and `TASK-diagnostics.md` belongs
 to diagnostics. Do not put work from either stream here. This file owns the

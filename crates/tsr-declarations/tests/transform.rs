@@ -281,6 +281,20 @@ fn a_dotted_typedef_name_declares_a_namespace_member() {
 }
 
 #[test]
+fn jsdoc_only_type_spellings_map_to_typescript() {
+    // `jsDeclarationsReusesExistingNodesMappingJSDocTypes`.
+    let output = emit_javascript(
+        "/** @type {?} */\nexport const a = null;\n/** @type {string?} */\nexport const c = null;\n/** @type {string=} */\nexport const d = null;\n/** @type {string!} */\nexport const e = null;\n/** @type {function(string): object} */\nexport const f = null;\n/** @type {Object.<string, number>} */\nexport const h = null;",
+    );
+    assert!(output.contains("a: any | null;"), "{output}");
+    assert!(output.contains("c: string | null;"), "{output}");
+    assert!(output.contains("d: string | undefined;"), "{output}");
+    assert!(output.contains("e: string;"), "{output}");
+    assert!(output.contains("f: Function;"), "{output}");
+    assert!(output.contains("h: Record<string, number>;"), "{output}");
+}
+
+#[test]
 fn a_jsdoc_implements_tag_becomes_a_heritage_clause() {
     // `jsdocImplements_properties`: braced, bare, and comment-closing forms.
     let output = emit_javascript("class A {}\n/** @implements A*/\nclass B {}");
