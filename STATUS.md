@@ -1334,7 +1334,19 @@ its whole deliverable and accept that it converts nothing until finished.
   member is **neither `MethodSignatureDeclaration` nor
   `PropertySignatureDeclaration`** in this parser. **Reading the fixture
   explained which upstream clause applies — not what this parser produced**, and
-  those are different questions. Next step is a probe of `nodes.kind(member)`. **Six inferences, two right,
+  those are different questions. **§133 ran that probe and it overturned §132**:
+  `MEMBER kind=MethodDeclaration abstract=true` — the clause was **already
+  working**, and "adding signature kinds changed nothing" meant "already
+  handled", not "wrong kind". The residual includes an **object-literal**
+  computed name that no ported clause covers and upstream would report too, so
+  the divergence is in the **symbol** resolved there, not the site. Left
+  unattributed: thirteen attributions on this row, same failure each time.
+- **Only a probe answers "which code path ran, with what"** — and it has been
+  right every time it was run at the correct depth (§128 the symbol, §130 the
+  loop, §133 the member). `diaggap` answers *which cases*, the baseline *what
+  upstream reports*, upstream's Go *what upstream computes*, the fixture *which
+  language rule applies* — **each of those four has produced a confident wrong
+  answer on this row.** **Six inferences, two right,
   then one probe that cost less than any of them — every wrong guess reasoned
   from artefacts describing *upstream*, while the defect was in what this port
   did with an argument it never had.**
