@@ -1074,7 +1074,7 @@ impl Checker<'_, '_> {
     /// *declaration kinds that contain members*, never on a member itself —
     /// §81 recorded exactly this gap for TS7010 and it is the same one here.
     /// `NodeFlags::AMBIENT` would answer both and is never set. §134.
-    fn member_has_declare_modifier(&self, member: NodeId) -> bool {
+    pub(crate) fn member_has_declare_modifier(&self, member: NodeId) -> bool {
         let modifiers = match self.node_map.get(member) {
             Some(Node::PropertyDeclaration(n)) => n.modifiers,
             Some(Node::MethodDeclaration(n)) => n.modifiers,

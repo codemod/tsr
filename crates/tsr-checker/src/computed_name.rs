@@ -41,7 +41,14 @@ const ALLOWED_KINDS: TypeFlags = TypeFlags::STRING_LIKE
 impl Checker<'_, '_> {
     /// The type check for one `[…]` property name.
     pub(crate) fn check_computed_property_name(&mut self, node: NodeId, ambient: bool) {
+        // §81's hazard: the walk-threaded `ambient` widens at `VariableStatement`
+        // and `FunctionDeclaration` and nowhere else, so a **member's own**
+        // `declare` is invisible to it. §134 hit this in the type-only alias
+        // rule; this is the sweep for it. §135.
         if ambient || self.file_has_parse_errors || self.in_js_file(node) {
+            return;
+        }
+        if self.nodes.parent(node).is_some_and(|member| self.member_has_declare_modifier(member)) {
             return;
         }
         let Some(Node::ComputedPropertyName(computed)) = self.node_map.get(node) else { return };

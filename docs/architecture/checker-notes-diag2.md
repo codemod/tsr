@@ -9604,3 +9604,41 @@ written the finding, in the general form, with the warning attached. Nine
 sections of investigation rediscovered it. **Before probing a fourth layer,
 grep `checker-notes-diag2.md` for the symptom** — this file is now 134 sections
 and is itself an instrument nobody has been reading.
+
+## §135 — the sweep for §81's hazard: one other rule has it, at a verified zero
+
+§134 hit §81's warning — *"any rule asking 'is this ambient' of a class member
+must read the member's own `declare` modifier"* — three sessions after §81 wrote
+it. This is the sweep §81 implied and nobody ran.
+
+**Every rule in `crate::check` that takes the walk-threaded `ambient` and looks
+at a class member was checked against upstream:**
+
+| rule | takes `ambient` for a member | reads the member's own `declare`? |
+|---|---|---|
+| TS2564 `check_property_initialization` | yes | **yes** — `has_modifier(property.modifiers, DeclareKeyword)`, already there |
+| TS7010 `check_implicit_any_return` | yes | **yes** — §81 built it, that is where the finding came from |
+| TS2464 `check_computed_property_name` | yes | **no** |
+| TS1361 use-site | yes | **no** — §134 fixed it |
+
+**One gap, and it measures zero.** `RULE_CODES = [2464]` is byte-identical with
+and without the check: CONVERTS 3, LOST 0, RIGHT 18, WRONG 0 on both sides. No
+corpus case writes a `declare` member with a computed name that reaches TS2464.
+
+**Landed anyway, on §109's precedent and not §122's.** The distinction the two
+sections drew: §109 pre-empted, in a sibling walk, a defect that had just been
+*measured* in its twin, and landed at zero; §122 implemented a predicate that
+did not do the thing it was written for, and was reverted. This is §109's case —
+§134 measured the defect one rule over, and this is the only other rule that has
+it.
+
+### The audit is the artefact, as in §84 and §102
+
+Four rules checked, two already correct, one fixed by §134, one fixed here at a
+cost of nothing. **§81's hazard is now closed rather than outstanding**, and the
+table above is what makes that checkable next time rather than a claim.
+
+`NodeFlags::AMBIENT` would collapse all four rows into one flag read. It is
+still declared and still set by nothing — the third time this session that flag
+family has been the root of a bug (§104's `YIELD_CONTEXT`, §132's ambient
+clause, §134's member `declare`).
