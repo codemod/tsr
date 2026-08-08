@@ -69,6 +69,150 @@ impl Checker<'_, '_> {
     /// because subtype reduction would not have merged those either.
     pub(crate) fn check_array_literal(&mut self, node: &ArrayLiteralExpression<'_>) -> TypeId {
         let error = self.intrinsics.error;
+        // §6.3 (`checker-notes-arrays.md`): a literal with a TUPLE spread
+        // mints a tuple — plain elements widened in place, tuple spreads
+        // spliced. Any non-tuple spread, omission, or gap declines whole.
+        let has_tuple_spread = node.elements.iter().any(|element| {
+            if let Expression::SpreadElement(spread) = element
+                && let Some(operand) = spread.expression
+            {
+                let operand_type = self.check_expression(operand);
+                return self.tuple_element_lists.contains_key(&operand_type);
+            }
+            false
+        });
+        if has_tuple_spread {
+            // §6.3's narrowing, twice-fired: the context DECIDES the shape.
+            // A TUPLE context (annotated initializer or assignment target
+            // typing as a tuple) mints the spliced tuple; an UNANNOTATED
+            // variable initializer widens — upstream answers the
+            // element-union array there (`arrayLiteralExpressionContextualTyping`'s
+            // `var spr1 = [1, 2, 3, ...tup]` wants `number[]`); every other
+            // context declines whole.
+            #[derive(PartialEq)]
+            enum Context {
+                Tuple,
+                Widening,
+                Decline,
+            }
+            let context = 'context: {
+                let Some(id) = node.node_id else { break 'context Context::Decline };
+                let Some(parent) = self.nodes.parent(id) else { break 'context Context::Decline };
+                match self.node_map.get(parent) {
+                    Some(tsr_ast::Node::VariableDeclaration(declaration))
+                        if declaration.initializer.and_then(|i| i.node_id()) == Some(id) =>
+                    {
+                        match declaration.r#type {
+                            None => Context::Widening,
+                            Some(annotation) => {
+                                let t = self.get_type_from_type_node(annotation);
+                                if self.tuple_element_lists.contains_key(&t) {
+                                    Context::Tuple
+                                } else {
+                                    Context::Decline
+                                }
+                            }
+                        }
+                    }
+                    Some(tsr_ast::Node::BinaryExpression(binary))
+                        if binary
+                            .operator_token
+                            .is_some_and(|t| t.kind == tsr_ast::SyntaxKind::EqualsToken)
+                            && binary.right.and_then(|r| r.node_id()) == Some(id) =>
+                    {
+                        // The target's DECLARED type, not the flowed one — an
+                        // assignment read through the flow walk can answer a
+                        // narrowed form the tuple table does not hold.
+                        let target = match binary.left {
+                            Some(Expression::Identifier(identifier)) => identifier
+                                .node_id
+                                .and_then(|left_id| {
+                                    self.binder.resolve_name(
+                                        self.nodes,
+                                        self.node_map,
+                                        left_id,
+                                        identifier.text,
+                                        tsr_binder::SymbolFlags::VALUE,
+                                    )
+                                })
+                                .map(|symbol| self.get_type_of_symbol(symbol)),
+                            other => other.map(|left| self.check_expression(left)),
+                        };
+                        match target {
+                            Some(t) if self.tuple_element_lists.contains_key(&t) => Context::Tuple,
+                            _ => Context::Decline,
+                        }
+                    }
+                    _ => Context::Decline,
+                }
+            };
+            if context == Context::Decline {
+                return error;
+            }
+            if context == Context::Widening {
+                // The §6.2 union contribution, alive exactly here: tuple
+                // spreads contribute their element union and the literal
+                // widens to an array like any other.
+                let mut union_elements = Vec::with_capacity(node.elements.len());
+                for element in node.elements {
+                    match element {
+                        Expression::SpreadElement(spread) => {
+                            let Some(operand) = spread.expression else { return error };
+                            let operand_type = self.check_expression(operand);
+                            if let Some((elements, _)) = self.tuple_element_lists.get(&operand_type)
+                            {
+                                let elements = elements.clone();
+                                if elements.is_empty() {
+                                    return error;
+                                }
+                                let union = self.get_union_type(&elements);
+                                union_elements.push(self.get_widened_literal_type(union));
+                            } else if let Some(element_type) =
+                                self.array_spread_element_type(operand_type)
+                            {
+                                union_elements.push(element_type);
+                            } else {
+                                return error;
+                            }
+                        }
+                        Expression::OmittedExpression(_) => return error,
+                        _ => {
+                            let element_type = self.check_expression_for_mutable_location(*element);
+                            if element_type == error {
+                                return error;
+                            }
+                            union_elements.push(self.get_widened_literal_type(element_type));
+                        }
+                    }
+                }
+                let element_type = self.get_union_type(&union_elements);
+                let Some(target) = self.global_type_symbol("Array") else { return error };
+                return self.create_type_reference(target, vec![element_type]);
+            }
+            let mut spliced = Vec::with_capacity(node.elements.len());
+            for element in node.elements {
+                match element {
+                    Expression::SpreadElement(spread) => {
+                        let Some(operand) = spread.expression else { return error };
+                        let operand_type = self.check_expression(operand);
+                        let Some((elements, _)) = self.tuple_element_lists.get(&operand_type)
+                        else {
+                            return error;
+                        };
+                        spliced.extend(elements.iter().copied());
+                    }
+                    Expression::OmittedExpression(_) => return error,
+                    _ => {
+                        let element_type = self.check_expression_for_mutable_location(*element);
+                        if element_type == error {
+                            return error;
+                        }
+                        spliced.push(self.get_widened_literal_type(element_type));
+                    }
+                }
+            }
+            return self.create_tuple_type(spliced, false);
+        }
         let mut elements = Vec::with_capacity(node.elements.len());
         for element in node.elements {
             // A spread needs the iterated type; an omission needs the tuple

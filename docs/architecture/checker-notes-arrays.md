@@ -767,6 +767,60 @@ convert (+23 were coincidental), and the 388 wrongs were its whole effect.
 Confirms TASK item 8: the consumer (spread-aware call resolution) is the
 only road into this row.
 
+## §6.2 The tuple half of the spread contribution
+
+`getSpreadElementType`'s tuple half: `[...t, x]` where `t` is a tuple
+contributes the tuple's ELEMENTS to the literal's element union — for the
+array-literal result (a union over elements) the per-element and
+union-of-elements contributions are the same set. The §6 falsifier's
+caveat stands: TUPLE-wanting positions (contextual tuple targets,
+`variadicTuples1`) want per-element TUPLE results and an array answer
+there is wrong — counted by the pair, and the §6 score already priced 22
+such lines for the Array<T> half.
+
+**Falsifier.** If tuple-position wrongs exceed the wins, the tuple half
+narrows to provably-uncontextual literals (the §13 gate is already in the
+function).
+
+**§6.2 REFUSED at +2/11.** The premise was wrong, not narrow: upstream
+mints a TUPLE for an array literal containing a tuple spread even in
+uncontextual positions (`spliceTuples` — `[...sns, x]` wants
+`[string, number, ...]`, never the element-union array), so the union
+contribution has essentially no population and manufactures wrongs.
+Reverted whole. The road into `spliceTuples`/`variadicTuples1` is tuple
+MINTING for spread literals — per-element concatenation into
+`tuple_element_lists` — not a union contribution.
+
+## §6.3 Tuple minting for tuple-spread literals
+
+The refusal's named road, built: an array literal containing at least one
+spread whose operand is a TUPLE mints a tuple — plain elements contribute
+their WIDENED types in place (`[1, ...sb]` wants `[number, string,
+boolean]`; the contextual-literal-retention corner is the falsifier's),
+tuple spreads SPLICE their element lists. Declines whole (today's error)
+when: any spread operand is not a tuple (an array spread is upstream's
+REST element `...T[]`, a modifier form this port's mint refuses), any
+omission, or any element gap.
+
+**Falsifiers.** (a) Literal-wanting contextual tuple targets (want
+`[1, string]`) — widening prints `number`; R→W/G→W there narrows the
+plain-element rule behind the §7 literal-free test. (b) Readonly-wanting
+positions (`readonly [a, b]` from const contexts) — the mint answers
+mutable; counted by the pair.
+
+**§6.3 score — LANDED (narrowed twice).** First pair +14/2: the fired leg
+was CONTEXT, not literal retention — `var spr1 = [1, 2, 3, ...tup]` with
+NO annotation wants `number[]` (upstream widens tuple spreads to the
+element-union array in unannotated initializers; the tuple mint belongs
+to TUPLE contexts only). The arm now splits three ways: tuple-annotated
+initializer or tuple-typed assignment target → spliced mint; unannotated
+initializer → the §6.2 union contribution (alive exactly there);
+everything else declines whole. Assignment targets read the DECLARED
+type, not the flowed one. Final: **+7 (G→R), ZERO adverse.**
+`checker_types` right 396,687 → **396,694 (82.83%)**. Residue: call-
+argument and return positions (decline), readonly/const contexts, and
+non-tuple spreads beside tuple ones.
+
 ## §7 Literal-free element unions are context-independent
 
 The contextual refusal's mechanism-level re-open, for one provable slice:
