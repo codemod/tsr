@@ -4213,3 +4213,86 @@ ratio-per-wrong-*line* was hiding.
 The remaining new families are diffuse — `parserindenter` 11,
 `parserRealSource12` 5, `privacyImportParseErrors` 4, then ones and twos across
 fourteen more cases.
+
+---
+
+## 56. TS2554 for constructors — optional parameters and the inherited constructor
+
+`diagreach.rs` puts TS2554 at **37 cases** and `diagmissing.rs` splits the
+21 sole-obstacle ones into two named shapes plus a tail:
+
+```
+7  conformance/callWithMissingVoid              a `void` parameter is optional
+5  conformance/classWithConstructors            `new C()` against `constructor(x: string)`
+4  conformance/classWithBaseClassButNoConstructor   the constructor is INHERITED
+```
+
+`sole_constructor_parameters` (§34) has two gaps the call arm does not:
+
+1. **It counts every non-rest parameter as required.** The call arm computes a
+   `(minimum, maximum)` pair — the minimum being the index of the first
+   parameter that is optional or has an initialiser — and the `new` arm
+   compares against `parameters.len()`. That is a *missing* diagnostic for
+   `new C()` against `constructor(x?: string)`… and a **wrong** one is impossible
+   only because the equality test happens to fail in the safe direction; the
+   pair is what makes it exact.
+2. **It stops at the class's own members.** `getSignaturesOfType` on a class
+   with no constructor of its own resolves the **base**'s
+   (`classWithBaseClassButNoConstructor`). Walking one `extends` link is the
+   whole of what those four cases want, and the walk is the same
+   `sole_plain_base_type` §27 built.
+
+`callWithMissingVoid`'s seven are a third thing and are **not** built here:
+`x.f()` where `f(t: void)` is legal because a `void` parameter is treated as
+optional (`hasEffectiveRestParameter`/`getMinArgumentCount`'s `void` arm). That
+is a *type* test in the middle of an otherwise syntactic rule, and it is left to
+its own measurement.
+
+### The bar
+
+| leg | registered |
+|---|---|
+| 1 | `diagnostics` passes > **1,231**. Forecast **+3 to +9** — the two shapes are 9 of the 21 |
+| 2 | `checker_types` pass count unchanged at **3,682** |
+| 3 | LOST == **0** on `diag2307.rs` with `RULE_CODES = [2554, 2555]` |
+| 4 | own WRONG grows by ≤ **10** |
+| 5 | every other snapshot unchanged |
+
+**Falsifier.** If the wrong column fills with `new` on a class whose base is
+generic or merged, the `extends` walk is following a link upstream resolves to a
+different signature set, and the decline is "a base with type parameters" rather
+than the walk itself.
+
+### Scored — **+1**, and the wrong column fell by 25
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| 1 | passes > 1,231, forecast +3 to +9 | **1,232 / 5,488 = 22.45%** | **fired** |
+| 2 | `checker_types` pass count 3,682 | **3,682**, snapshot unchanged | pass |
+| 3 | LOST == 0 | **0** | pass |
+| 4 | own WRONG grows by ≤ 10 | **31 → 6**, a *fall* of 25 | pass |
+| 5 | every other snapshot unchanged | only `diagnostics.snap` differs | pass |
+
+`diag2307.rs` over `[2554, 2555]`: **CONVERTS 13 → 14 · RIGHT 44 → 48 ·
+WRONG 31 → 6 · LOST 0.**
+
+**The optional-parameter pair was not a missing-diagnostic fix, it was a
+false-positive fix**, and the section got that backwards. The bar reasoned that
+counting every non-rest parameter as required could only *miss* — `new C()`
+against `constructor(x?: string)` compares `0 == 1` and reports where upstream
+does not. Twenty-five of the rule's thirty-one wrong lines were exactly that,
+and reading the minimum off the first optional parameter removed all of them.
+
+> **A count compared for equality has two failure directions and the bar only
+> reasoned about one.** `arguments == expected` is wrong for *too few* whenever
+> a parameter is optional and wrong for *too many* never — the asymmetry is why
+> the call arm has carried a `(minimum, maximum)` pair since §20 and the `new`
+> arm did not.
+
+The inherited-constructor walk landed with it and is what the single conversion
+is: one `extends` link, declining a generic base, a merged one, or a chain
+deeper than eight.
+
+`callWithMissingVoid`'s seven cases stay open by design — a `void` parameter is
+optional through `getMinArgumentCount`'s type test, which is a type question in
+the middle of an otherwise syntactic rule.

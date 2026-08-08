@@ -153,7 +153,7 @@ impl<'a> Checker<'a, '_> {
         }) {
             return;
         }
-        let Some(parameters) = self.sole_constructor_parameters(callee) else { return };
+        let Some((parameters, minimum)) = self.sole_constructor_parameters(callee) else { return };
         // Argument types first, exactly as the call arm orders them.
         for (index, argument) in call.arguments.iter().enumerate() {
             let Some(annotation) = parameters.get(index).copied().flatten() else { break };
@@ -165,9 +165,14 @@ impl<'a> Checker<'a, '_> {
         // `sole_constructor_parameters` stops at the first rest parameter and
         // keeps every position in order, so the count is exact and the unbounded
         // case cannot arise — a rest constructor is declined, not widened.
+        // The (minimum, maximum) pair, exactly as the call arm computes it:
+        // the minimum is the index of the first parameter that is optional or
+        // has an initialiser, and the maximum is the list's length.
+        // Comparing against the length alone read `constructor(x?: string)` as
+        // requiring one — §56.
         let arguments = call.arguments.len();
         let expected = parameters.len();
-        if arguments == expected {
+        if arguments >= minimum && arguments <= expected {
             return;
         }
         let message = &messages::EXPECTED_0_ARGUMENTS_BUT_GOT_1;
@@ -190,7 +195,10 @@ impl<'a> Checker<'a, '_> {
     /// overloaded constructor (more than one, or one without a body), and a class
     /// with **no** constructor at all — the last because its signature comes from
     /// the base class, which is `getBaseConstructorTypeOfClass`.
-    fn sole_constructor_parameters(&mut self, callee: NodeId) -> Option<Vec<Option<NodeId>>> {
+    fn sole_constructor_parameters(
+        &mut self,
+        callee: NodeId,
+    ) -> Option<(Vec<Option<NodeId>>, usize)> {
         let Some(Node::Identifier(identifier)) = self.node_map.get(callee) else { return None };
         let symbol = self.binder.resolve_name(
             self.nodes,
@@ -210,6 +218,23 @@ impl<'a> Checker<'a, '_> {
         if !class.type_parameters.is_empty() {
             return None;
         }
+        let mut class = class;
+        // `getSignaturesOfType` on a class with no constructor of its own
+        // resolves the **base**'s (`classWithBaseClassButNoConstructor`). One
+        // `extends` link is the whole of what that family wants; a deeper
+        // chain, a generic base, or a base this port cannot resolve declines.
+        let mut hops = 0u32;
+        while !class.members.iter().any(|member| {
+            matches!(member, tsr_ast::ClassElement::ConstructorDeclaration(constructor)
+                if constructor.body.is_some())
+        }) {
+            hops += 1;
+            if hops > 8 {
+                return None;
+            }
+            let base = self.sole_extends_class_declaration(class)?;
+            class = base;
+        }
         let mut constructors = class.members.iter().filter_map(|member| match member {
             tsr_ast::ClassElement::ConstructorDeclaration(constructor) => Some(*constructor),
             _ => None,
@@ -218,15 +243,64 @@ impl<'a> Checker<'a, '_> {
         if constructors.next().is_some() || constructor.body.is_none() {
             return None;
         }
-        Some(
-            constructor
-                .parameters
+        let parameters: Vec<&tsr_ast::ParameterDeclaration<'_>> = constructor
+            .parameters
+            .iter()
+            .filter(|parameter| !Self::is_this_parameter_declaration(parameter))
+            .take_while(|parameter| parameter.dot_dot_dot_token.is_none())
+            .copied()
+            .collect();
+        // `getMinArgumentCount`: the index of the first parameter that is
+        // optional or carries an initialiser.
+        let minimum = parameters
+            .iter()
+            .position(|parameter| {
+                parameter.question_token.is_some() || parameter.initializer.is_some()
+            })
+            .unwrap_or(parameters.len());
+        Some((
+            parameters
                 .iter()
-                .filter(|parameter| !Self::is_this_parameter_declaration(parameter))
-                .take_while(|parameter| parameter.dot_dot_dot_token.is_none())
                 .map(|parameter| parameter.r#type.and_then(|annotation| annotation.node_id()))
                 .collect(),
-        )
+            minimum,
+        ))
+    }
+
+    /// The class declaration a class `extends`, when the heritage names a
+    /// single non-generic class this port can resolve.
+    fn sole_extends_class_declaration(
+        &mut self,
+        class: &'a tsr_ast::ClassDeclaration<'a>,
+    ) -> Option<&'a tsr_ast::ClassDeclaration<'a>> {
+        let clause = class
+            .heritage_clauses
+            .iter()
+            .find(|clause| clause.token.kind == SyntaxKind::ExtendsKeyword)?;
+        let [base] = clause.types else { return None };
+        if !base.type_arguments.is_empty() {
+            return None;
+        }
+        let expression = base.expression?.node_id()?;
+        let Some(Node::Identifier(name)) = self.node_map.get(expression) else { return None };
+        let symbol = self.binder.resolve_name(
+            self.nodes,
+            self.node_map,
+            expression,
+            name.text,
+            SymbolFlags::VALUE,
+        )?;
+        let symbol = self.binder.merged_symbol(symbol);
+        let entry = self.binder.symbols().get(symbol);
+        if !entry.flags.intersects(SymbolFlags::CLASS) || entry.declarations.len() != 1 {
+            return None;
+        }
+        match self.node_map.get(entry.declarations[0])? {
+            Node::ClassDeclaration(declaration) if declaration.type_parameters.is_empty() => {
+                Some(declaration)
+            }
+            _ => None,
+        }
     }
 
     /// `get_type_from_type_node` reached from a [`NodeId`] — ADR-0013's
