@@ -1276,11 +1276,20 @@ its whole deliverable and accept that it converts nothing until finished.
 - **TS1361/TS1362 — LANDED, §121, +5 cases and +22 right lines** by walking the
   alias **chain** with the existing `resolve_alias`; the chain is worth 3 of the
   5 cases over §120's single hop for one extra wrong line. **BAR MISSED at +8
-  wrong**, recorded as a debt in §104's shape. **Residual owner: UNKNOWN — §122 disproved
-  §121's attribution.** Porting `IsValidTypeOnlyAliasUseSite`'s two relevant
-  clauses removed **zero** wrong lines, and filtering the wrong column for
-  `TS1361`/`TS1362` returns **nothing**: the eight lines are not this rule's
-  output. Isolate `RULE_CODES = [1361, 1362]` alone before attributing them.
+  wrong**, recorded as a debt in §104's shape. **Residual PAID, §123: wrong 8 → 5.** §122
+  claimed the owner was unknown and the lines were not this rule's; **both
+  claims were wrong.** The row emits eight of its own, and the clause that
+  wanted them is `isPartOfPossiblyValidTypeOrAbstractComputedPropertyName`
+  (`ast/utilities.go:3143`) — a computed property name on an `abstract` member
+  or in an interface/type literal is erased. §121's attribution was right all
+  along. Five wrong lines remain, unattributed and un-guessed.
+- **`head` and `grep` compose into a SILENT FALSE NEGATIVE** (§123). §122's
+  "the wrong column holds no TS1361" came from filtering a `head`-truncated
+  listing: the filter matched nothing because the lines were **cut off**, not
+  because they were absent, and two conclusions were written into this file on
+  that basis. Same failure as §118's probe below an early return, one layer out:
+  **a query that can return empty for two different reasons has told you
+  nothing.**
 - **An attribution is a hypothesis** — three were disproved by measurement this
   session (§118 by §119, §115 partly by §116, §121 by §122). Each was plausible,
   each was cheap to overturn **because it was written down with a number
