@@ -2778,6 +2778,17 @@ impl<'a, 'n> Binder<'a, 'n> {
                             if let Some(expression) = this_tag.type_expression {
                                 self.bind(tsr_ast::Node::from(expression));
                             }
+                            // Upstream's reparse turns `@this {T}` into a
+                            // `this` parameter whose name is missing, so the
+                            // `this` reference resolves to a symbol displayed
+                            // `(Missing)` declared at the tag (`thisTag1`:
+                            // `>this : Symbol((Missing), Decl(a.js, 0, 5))`).
+                            if let Some(id) = this_tag.node_id {
+                                let symbol =
+                                    self.symbols.create(INTERNAL_MISSING, SymbolFlags::VARIABLE);
+                                self.symbols.get_mut(symbol).declarations.push(id);
+                                self.node_symbols[id.index()] = Some(symbol);
+                            }
                         }
                         JSDocTag::JSDocReturnTag(return_tag) => {
                             if let Some(expression) = return_tag.type_expression {
