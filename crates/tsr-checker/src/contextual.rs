@@ -222,7 +222,23 @@ impl<'a> Checker<'a, '_> {
     /// building the combined one needs `createUnionSignature`.
     fn contextual_signature(&mut self, function: NodeId) -> Option<Signature> {
         let contextual = self.get_contextual_type(function)?;
-        self.single_call_signature(contextual)
+        if let Some(signature) = self.single_call_signature(contextual) {
+            return Some(signature);
+        }
+        // §75 (`checker-notes-narrow.md`): a GENERIC single contextual
+        // signature passes through UNINSTANTIATED — `const fn1: <T>(x: T) =>
+        // void = t => …` types `t : T`, the signature's OWN type parameter,
+        // because the arrow ADOPTS the contextual generics
+        // (`contextualOuterTypeParameters`). `single_call_signature`'s
+        // generic decline is for CALL positions, where printing a bare `T`
+        // would be wrong; here it is exactly upstream's answer.
+        let TypeData::Anonymous { symbol, .. } = self.store.get(contextual).data else {
+            return None;
+        };
+        match self.get_signatures_of_symbol(symbol)?.as_slice() {
+            [signature] => Some(signature.clone()),
+            _ => None,
+        }
     }
 
     /// The type `node` is expected to have, from where it is written.

@@ -2953,3 +2953,16 @@ by 2: a defaulted generic construct's default map IS upstream's
 answer at those positions. The landed order (default-map first,
 inference as fallback) is correct as measured. The Set family is
 overload SELECTION, still priced.
+
+## §75 — a generic single contextual signature passes through uninstantiated
+
+`contextual_signature` inherited `single_call_signature`'s generic
+decline, which is calibrated for CALL positions (a bare `T` print
+would be wrong there). For a function ADOPTING its context — `const
+fn1: <T>(x: T) => void = t => …` — the signature's own `T` IS
+upstream's answer (`assignContextualParameterTypes`;
+`contextualOuterTypeParameters`). Single generic candidate passes
+through as-is; overload sets still decline.
+
+**§75 score — LANDED.** right 402,984 → **403,033 (84.15%)** — +49,
+ZERO adverse, zero new gaps.
