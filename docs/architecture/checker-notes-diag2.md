@@ -10304,3 +10304,47 @@ It began at *"TS2540 is `checker_types`-adjacent"* and ends having (a) localised
 a defect to one link in the reporting chain and (b) **cleared the integrity of
 every measurement in this file** — the second worth more than the eleven cases
 the row was originally priced at.
+
+## §152 — the diff was set-based, and that hid the answer
+
+All seventeen reports carry the same `file` id (`NodeId(189)`) and seventeen
+distinct spans. Nothing is dropped between the rule and the suite. So §151's
+"the suite filters" is wrong too — and the fault is in **§146's own diff**:
+
+```awk
+{if(e)E[$0]=1; if(a)A[$0]=1}   # a SET, not a multiset
+```
+
+**A duplicate in the actual column is invisible to it.** "One missing, zero
+extra" is therefore consistent with a different state than the one it was read
+as: seventeen reports producing **sixteen distinct positions**, because two of
+them land on the same `(line, column)` — and one expected position is never
+produced at all.
+
+That is the fourth instrument this session that returned a true answer to a
+question other than the one asked (§118's probe below an early return, §122's
+`grep` over a truncated listing, §148's `sort -u` over seventeen instances, and
+now a set-based diff over a multiset the suite compares as a multiset). **The
+suite's own comparison is a sorted multiset — §146's diff was not, and the
+mismatch is the whole of the confusion this row has spent four sections in.**
+
+### The actual next step, and it is small
+
+Re-run the comparison **with counts**: `sort | uniq -c` on both columns rather
+than set membership. That names which position is doubled, and the doubled one
+is the report whose `error_span` is wrong — the defect this row has been
+circling since §143.
+
+**Do not use a set-based diff against this suite again.** `diagnostics` compares
+sorted multisets of `(file, line, column, code)`; any instrument that dedupes
+before comparing can only answer a weaker question, and will answer it
+confidently.
+
+### Row scorecard, final
+
+**Eleven attributions, eleven corrections, zero builds, zero reverts.** Four of
+the eleven were wrong because an *instrument* lied rather than because a
+hypothesis was bad. That ratio is the most useful thing this row produced: on
+this board, **a wrong answer is about as likely to come from the measuring tool
+as from the reasoning**, and only re-deriving the tool's exact question
+distinguishes them.
