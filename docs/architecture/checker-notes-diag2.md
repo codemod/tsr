@@ -7032,3 +7032,130 @@ not against the number written down before your last push.** Cheapest reliable
 form: `git stash push <your files>`, run coverage, `git stash pop` — it compares
 the two states of the *same* checkout, which is the only comparison that means
 anything while another workstream is landing builds hourly.
+
+## §89 — TS7027: unreachable statements come in RUNS, and a namespace is only code if it is instantiated
+
+### The bar, before the code
+
+**+3 cases**, at most 3 new wrong lines. TS7027 has 7 sole-obstacle cases on the
+missing side plus `reachabilityChecks11` on the extra side (`extraonly.rs`), and
+most of the missing lines are one case — `neverReturningFunctions1`, 25 of 29 —
+which is not this build's.
+
+Falsifiers:
+
+1. **If the eleven `reachabilityChecks` files differ only in options these
+   branches do not read**, the gain is 2, not 3. They set `allowUnreachableCode`,
+   `preserveConstEnums` and `strict` in combination, and only the first two are
+   read here.
+2. **If `neverReturningFunctions1`'s lines are the same shape**, the bar is far
+   too low and the build should be bigger. They are not: they need
+   `isReachableFlowNode` over calls to never-returning functions, which is the
+   `else if` arm of `isSourceElementUnreachable` (`checker.go:2466`) this build
+   does not touch. **Owner: the flow subsystem** — and it wants `never` return
+   types, so it is `checker_types`-shaped.
+3. **If the run-merge change makes the ancestor test redundant**, removing the
+   wrong one costs right lines. Measured separately: the sibling rule changes,
+   the ancestor rule does not.
+
+### What §82 got right, and the one thing it could not have known
+
+§82 replaced upstream's mutable `reportedUnreachableFlow` with two stateless
+questions — no ancestor and **no earlier sibling** carries the fact — and that
+took the wrong column from 19 to 3. The second question is the one that is
+slightly wrong, and the case that shows it is `reachabilityChecks1`:
+
+```ts
+while (true);        // line 1 (stripped)
+var x = 1;           // 2   <- reported
+namespace A  { … }   //     swallowed
+namespace A1 { … }   //     swallowed
+namespace A2 { … }   //     swallowed
+namespace A3 { … }   //     swallowed
+namespace A4 { … }   //     swallowed
+function f1(x) { … } //     BREAKS THE RUN
+function f2()  { … } //     …
+namespace B  { … }   // 51  <- reported AGAIN
+```
+
+Upstream does not report per statement and it does not report once per list. It
+reports once per **run**: `checker.go:2409-2442` starts at the unreachable node,
+scans *forward* over consecutive statements that are both
+`IsPotentiallyExecutableNode` and `isSourceElementUnreachable`, marks them all
+reported, and emits one diagnostic spanning first-to-last. A statement that
+fails either test **breaks the run**, and the next unreachable statement after
+it starts a new one and reports again.
+
+"Any earlier sibling" merges the whole list into one run and can therefore only
+ever report once — which is why line 51 is missing. The faithful stateless form
+is **"the immediately preceding sibling is a run member"**, and it needs no
+state either. §82's insight stands; only its predicate was one word too wide.
+
+### A namespace is code only when it is instantiated
+
+The extra side is the other half of the same function.
+`isSourceElementUnreachable` (`checker.go:2455`) does not answer "is this node
+unreachable" for a module or an enum; it answers a *different question per kind*:
+
+```go
+case ast.KindEnumDeclaration:
+    return !ast.IsEnumConst(node) || c.compilerOptions.ShouldPreserveConstEnums()
+case ast.KindModuleDeclaration:
+    return ast.IsInstantiatedModule(node, c.compilerOptions.ShouldPreserveConstEnums())
+default:
+    return true
+```
+
+`namespace A { interface F {} }` and `namespace C { }` emit no JavaScript, so
+there is no unreachable code to detect — and those two are exactly the extra
+lines `reachabilityChecks11` carries. This is also **why the run in
+`reachabilityChecks1` above does not break at `A1`**: `A1` contains a
+`do {} while(true);`, which is a statement, so it *is* instantiated. The
+question is asked of the module's body, not of its name.
+
+`GetModuleInstanceState` (`utilities.go:2322`) is ported for its whole worker —
+interface / type alias / non-exported import → non-instantiated, `const enum` →
+const-enum-only, module block → the max over its children, nested module →
+recurse — with **one arm declined**: `getModuleInstanceStateForAliasTarget`,
+which resolves `export { x }` against the enclosing statement lists. That arm is
+declined to `Instantiated`, which is upstream's own fallback for the case it
+cannot locate ("Couldn't locate, assume could refer to a value",
+`utilities.go:2436`) and is what this port already effectively answers today — so
+the decline can remove no report that exists. **Owner if it ever costs a line:
+this same function**, and the shape to port is the ancestor-list walk.
+
+### `preserveConstEnums`, finally
+
+The third option this workstream has plumbed, and the one §82 and §84 both left
+open. It is read in exactly the two places above.
+
+### Measured
+
+`diag2307` with `RULE_CODES = [7027]`:
+
+| | CONVERTS | LOST | RIGHT | WRONG |
+|---|---:|---:|---:|---:|
+| before | 3 | 0 | 31 | 3 |
+| after | **7** | **0** | 34 | **0** |
+
+**+4 cases, and the wrong column went to zero** — the run-merge fix and the
+instantiated-module test each removed what the other could not. Coverage
+`1,367 → 1,371 / 5,488` (24.91% → **24.98%**). Bar was +3 / at most 3 wrong: met.
+
+Converted: `reachabilityChecks1`, `2`, `9`, `10`, `11`, plus `cf` and
+`unreachableJavascriptChecked` — so the eleven-variant family the twelfth session
+warned about did convert as five distinct cases, not one. **`checker_types`
+byte-identical at 3,786/9,538 · 83.84%**, verified by stash-and-remeasure; the
+83.83 → 83.84 in the gradient is the `.types` workstream's build 107, arriving
+through this build's own rebase, exactly as §88 describes.
+
+### A correction to §88
+
+§88 wrote that TS2300's 61 false positives "every one of them costs a case
+today". **That is wrong and it is corrected here.** `extraonly.rs` lists no
+TS2300 entry at all, which means no case is blocked on a TS2300 false positive
+*alone* — every case carrying one is also missing something else. The 61 lines
+are real and still worth removing, but they are not 61 conversions and they are
+not the cheapest thing on the board. The claim was made from the wrong
+instrument: `diag2307`'s wrong column prices *lines*, and only `extraonly`
+prices a false positive in *cases*.

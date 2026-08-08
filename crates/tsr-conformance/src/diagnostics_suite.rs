@@ -275,6 +275,14 @@ fn from_check_traversal(test: &crate::TestCase) -> Vec<BaselineDiagnostic> {
     checker.set_unreachable_code_is_error(
         test.options.get("allowunreachablecode").is_some_and(|v| v.eq_ignore_ascii_case("false")),
     );
+    // `ShouldPreserveConstEnums` is `PreserveConstEnums.IsTrue() ||
+    // IsolatedModules.IsTrue()` — an `IsTrue()` option, so unset is **false**,
+    // unlike the strict options above (`checker-notes-diag2.md` §84's table).
+    checker.set_preserve_const_enums(
+        ["preserveconstenums", "isolatedmodules"]
+            .iter()
+            .any(|key| test.options.get(*key).is_some_and(|v| v.eq_ignore_ascii_case("true"))),
+    );
 
     // `unusedIsError` (`checker.go:7104`) reads both as `IsTrue()`, so an unset
     // option is off and `crate::unused` reports nothing at all — which is what

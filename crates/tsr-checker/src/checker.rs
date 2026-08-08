@@ -344,6 +344,9 @@ pub struct Checker<'a, 'n> {
     pub(crate) allow_unreachable_code: bool,
     /// `unreachableCodeIsError` — the option written **explicitly** `false`.
     pub(crate) unreachable_code_is_error: bool,
+    /// `CompilerOptions.ShouldPreserveConstEnums()` — see
+    /// [`Checker::set_preserve_const_enums`].
+    pub(crate) preserve_const_enums: bool,
     /// `compilerOptions.noUnusedLocals`, read as `IsTrue()`
     /// (`checker.go:7107`) — unset is `false`, which is what keeps the whole
     /// unused-identifier family off for every case that does not ask for it.
@@ -627,6 +630,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             file_has_parse_errors: false,
             allow_unreachable_code: false,
             unreachable_code_is_error: false,
+            preserve_const_enums: false,
             no_implicit_any: false,
             no_unused_locals: false,
             no_unused_parameters: false,
@@ -724,6 +728,21 @@ impl<'a, 'n> Checker<'a, 'n> {
     /// dead code — `checker-notes-diag2.md` §82.
     pub fn set_unreachable_code_is_error(&mut self, on: bool) {
         self.unreachable_code_is_error = on;
+    }
+
+    /// Set [`Checker::preserve_const_enums`] from a case's compiler options.
+    ///
+    /// `ShouldPreserveConstEnums` is `PreserveConstEnums.IsTrue() ||
+    /// IsolatedModules.IsTrue()` (`core/compileroptions.go`), an `IsTrue()`
+    /// option and therefore **false when unset** — not a strict option, whose
+    /// unset state is true (`GetStrictOptionValue`, `core/compileroptions.go:294`;
+    /// the three option shapes are tabulated in `checker-notes-diag2.md` §84).
+    ///
+    /// It decides two questions and both are `isSourceElementUnreachable`'s
+    /// (`checker.go:2455`): whether a `const enum` is code, and whether a
+    /// namespace containing only `const enum`s is instantiated.
+    pub fn set_preserve_const_enums(&mut self, on: bool) {
+        self.preserve_const_enums = on;
     }
 
     /// Set `noUnusedLocals` / `noUnusedParameters` from a case's compiler

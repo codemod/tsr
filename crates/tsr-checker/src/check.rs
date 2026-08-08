@@ -1932,10 +1932,7 @@ impl Checker<'_, '_> {
     /// `AllowUnreachableCode == TSFalse`, explicitly — see
     /// [`Checker::set_unreachable_code_is_error`].
     fn check_unreachable(&mut self, node: NodeId, ambient: bool) {
-        if self.file_has_parse_errors
-            || !self.binder.facts(node).contains(NodeFacts::UNREACHABLE)
-            || !Self::is_reportable_unreachable_kind(self.nodes.kind(node))
-        {
+        if self.file_has_parse_errors || !self.is_unreachable_run_member(node) {
             return;
         }
         let Some(parent) = self.nodes.parent(node) else { return };
@@ -1949,21 +1946,27 @@ impl Checker<'_, '_> {
         {
             return;
         }
-        // …and so is a statement whose **preceding sibling** is unreachable.
+        // …and so is a statement whose **immediately preceding sibling** is
+        // itself part of the run. Upstream reports once per *run*, not once per
+        // statement and not once per list: `checker.go:2409-2442` scans forward
+        // over consecutive statements that are both potentially executable and
+        // unreachable, marks them reported, and emits one diagnostic. A
+        // statement failing either test breaks the run, and the next unreachable
+        // one after it reports again — which is `reachabilityChecks1`'s second
+        // top-level report, at the `namespace B` that follows two function
+        // declarations. §82 asked whether *any* earlier sibling was unreachable,
+        // which can only ever report once per list; §89 narrowed it by one word.
+        //
         // Modelling `reportedUnreachableFlow` as mutable walk state was tried
-        // first and got this wrong: it clears on a reachable statement, and
-        // this binder starts a fresh flow inside a namespace body where
-        // upstream does not, so the flag came back on and every top-level
-        // `namespace` after the first reported. Asking the sibling list is the
-        // same question with no state — §82.
+        // first and got this wrong for a different reason: it clears on a
+        // reachable statement, and this binder starts a fresh flow inside a
+        // namespace body where upstream does not, so the flag came back on and
+        // every top-level `namespace` after the first reported — §82.
         let Some(typed) = self.node_map.get(parent) else { return };
         let mut siblings: Vec<NodeId> = Vec::new();
         tsr_ast::for_each_child_id(typed, |child| siblings.push(child));
         let Some(index) = siblings.iter().position(|&child| child == node) else { return };
-        if siblings[..index]
-            .iter()
-            .any(|&earlier| self.binder.facts(earlier).contains(NodeFacts::UNREACHABLE))
-        {
+        if index > 0 && self.is_unreachable_run_member(siblings[index - 1]) {
             return;
         }
         // `!(node.Flags&NodeFlagsAmbient != 0)` — a statement in an ambient
@@ -1980,6 +1983,106 @@ impl Checker<'_, '_> {
         // centralised the others precisely so an exception is visible.
         let span = self.nodes.span(node);
         self.report(file, Diagnostic::new(&messages::UNREACHABLE_CODE_DETECTED, span));
+    }
+
+    /// Is `node` part of an unreachable run — reportable in its own right, and
+    /// therefore also able to swallow the statement that follows it?
+    ///
+    /// `IsPotentiallyExecutableNode(node) && isSourceElementUnreachable(node)`
+    /// (`ast/utilities.go:4229`, `checker.go:2455`), which upstream tests both
+    /// at the node it might report on and at every node it scans forward over.
+    /// One predicate, because they are the same question — see
+    /// `checker-notes-diag2.md` §89.
+    fn is_unreachable_run_member(&self, node: NodeId) -> bool {
+        if !self.binder.facts(node).contains(NodeFacts::UNREACHABLE)
+            || !Self::is_reportable_unreachable_kind(self.nodes.kind(node))
+        {
+            return false;
+        }
+        // `isSourceElementUnreachable`'s per-kind switch (`checker.go:2458`):
+        // an enum or a namespace that emits no JavaScript is not unreachable
+        // *code*, because it is not code.
+        match self.node_map.get(node) {
+            Some(Node::EnumDeclaration(declaration)) => {
+                !has_modifier(declaration.modifiers, SyntaxKind::ConstKeyword)
+                    || self.preserve_const_enums
+            }
+            Some(Node::ModuleDeclaration(_)) => self.is_instantiated_module(node),
+            _ => true,
+        }
+    }
+
+    /// `IsInstantiatedModule` (`ast/utilities.go:2443`).
+    fn is_instantiated_module(&self, node: NodeId) -> bool {
+        match self.module_instance_state(node, 0) {
+            ModuleInstanceState::Instantiated => true,
+            ModuleInstanceState::ConstEnumOnly => self.preserve_const_enums,
+            ModuleInstanceState::NonInstantiated => false,
+        }
+    }
+
+    /// `getModuleInstanceStateWorker` (`ast/utilities.go:2352`).
+    ///
+    /// Called on a module declaration, its body, or any statement inside one.
+    /// The recursion is upstream's; the `visited` map is not needed because the
+    /// only cycle it guards is `getModuleInstanceStateForAliasTarget`'s walk
+    /// back out through enclosing statement lists, and that arm is declined —
+    /// see §89. The depth cap stands in for it.
+    fn module_instance_state(&self, node: NodeId, depth: u32) -> ModuleInstanceState {
+        if depth > 64 {
+            return ModuleInstanceState::Instantiated;
+        }
+        let Some(typed) = self.node_map.get(node) else { return ModuleInstanceState::Instantiated };
+        match typed {
+            Node::InterfaceDeclaration(_) | Node::TypeAliasDeclaration(_) => {
+                ModuleInstanceState::NonInstantiated
+            }
+            Node::EnumDeclaration(declaration)
+                if has_modifier(declaration.modifiers, SyntaxKind::ConstKeyword) =>
+            {
+                ModuleInstanceState::ConstEnumOnly
+            }
+            // A non-exported import declares nothing in the emitted module.
+            Node::ImportDeclaration(declaration)
+                if !has_modifier(declaration.modifiers, SyntaxKind::ExportKeyword) =>
+            {
+                ModuleInstanceState::NonInstantiated
+            }
+            Node::ImportEqualsDeclaration(declaration)
+                if !has_modifier(declaration.modifiers, SyntaxKind::ExportKeyword) =>
+            {
+                ModuleInstanceState::NonInstantiated
+            }
+            // `export { … }` with no module specifier resolves each specifier
+            // against the enclosing statement lists. That arm is declined to
+            // `Instantiated`, which is upstream's own "couldn't locate, assume
+            // could refer to a value" fallback (`utilities.go:2436`).
+            Node::ModuleDeclaration(declaration) => match declaration.body {
+                Some(body) => body.node_id().map_or(ModuleInstanceState::Instantiated, |body| {
+                    self.module_instance_state(body, depth + 1)
+                }),
+                // `declare module "x";` with no body is instantiated upstream.
+                None => ModuleInstanceState::Instantiated,
+            },
+            Node::ModuleBlock(_) => {
+                let mut children = Vec::new();
+                tsr_ast::for_each_child_id(typed, |child| children.push(child));
+                let mut state = ModuleInstanceState::NonInstantiated;
+                for child in children {
+                    match self.module_instance_state(child, depth + 1) {
+                        ModuleInstanceState::Instantiated => {
+                            return ModuleInstanceState::Instantiated;
+                        }
+                        ModuleInstanceState::ConstEnumOnly => {
+                            state = ModuleInstanceState::ConstEnumOnly;
+                        }
+                        ModuleInstanceState::NonInstantiated => {}
+                    }
+                }
+                state
+            }
+            _ => ModuleInstanceState::Instantiated,
+        }
     }
 
     /// The kinds `checkUnreachable`'s `reportError` accepts, minus the
@@ -3082,6 +3185,15 @@ fn is_numeric_binary_operator(kind: SyntaxKind) -> bool {
 ///
 /// A decorator in the modifier list is not a modifier; the enum keeps them
 /// together because the parser does (`ModifierLike`).
+/// `ModuleInstanceState` (`ast/utilities.go`), minus the `Unknown` state, which
+/// exists only for `getModuleInstanceStateCached`'s cycle guard.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ModuleInstanceState {
+    NonInstantiated,
+    ConstEnumOnly,
+    Instantiated,
+}
+
 /// The `<T, U>` list this node declares, empty for a node that declares none.
 ///
 /// The union of the node kinds upstream's four `checkTypeParameters` call sites
