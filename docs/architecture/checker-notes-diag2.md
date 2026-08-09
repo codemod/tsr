@@ -24523,3 +24523,88 @@ in `tsr-parser`** — and §445's fixture shows why the substitute cannot stand 
 `declare namespace M { declare class C {} }` in a **`.ts`** file needs a flag
 that says *this node*, in a file where `file_is_ambient` is false and `ambient`
 is true for the wrong reason.
+
+## §447 — TS2576: an instance access to a static member
+
+**5 blocked, all single-line, `occupied 0/5`.**
+
+```ts
+class List {
+  public Blah() { this.Foo(); }   // TS2576 at `Foo`
+  public static Foo() {}
+}
+```
+
+`check_nonexistent_property` **already computes this** and throws it away:
+
+```rust
+if self.is_a_universal_object_member(name_text)
+    || self.other_side_of_class_has(receiver_type, name_text)
+{
+    return;
+}
+```
+
+and `other_side_of_class_has`'s own doc names the code — *"accessed as `C.x` is
+TS2576 … not TS2339"*. The helper exists **because** this distinction matters,
+the answer is correct, and the caller returns on it.
+
+> §345's shape at its purest — a computed answer discarded by a guard written to
+> suppress the *wrong* code rather than to select the *right* one. Four
+> instances now (§345, §357, §410, §447), and the tell is identical each time:
+> **a helper whose doc comment names a diagnostic, called from a site that only
+> ever returns.**
+
+### The bound
+
+Only the instance→static direction: the name is in the symbol's `exports` and
+not its `members`. The reverse (`C.x` for an instance member) is a different
+upstream message and is left alone.
+
+### The bar
+
+```
+bar:  +3 of 5,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **A genuinely absent name reports TS2576.** It must be in `exports` — the
+   suggestion is the whole point of the code.
+2. **A universal object member (`toString`) reports.** That test runs first and
+   is untouched.
+
+## §448 — §447 built: **+5**, above bar
+
+```
+diagnostics   1,953 → 1,958   (bar was +3;  +5, 0 LOST)   35.68%
+every other suite unmoved — both falsifiers negative
+```
+
+### The pattern, now four instances and mechanically searchable
+
+```
+§345  TS2315   `maximum == 0` computed and discarded
+§357  TS7016   module_resolution_found's second answer unread
+§410  TS2741   the absent-form rule behind an unfiring trigger
+§447  TS2576   other_side_of_class_has computed, used only to suppress
+```
+
+The tell each time: **a helper whose doc comment names a diagnostic, called from
+a site that only ever `return`s.** That is two greps composed —
+
+```
+grep -rn "TS[0-9]\{4\}" crates/tsr-checker/src --include=*.rs | grep "///"
+→ for each helper so named, is its every call site inside an `if … { return }`?
+```
+
+— and unlike §444's sweep this one is over **this port**, so §444's own finding
+applies: it will not terminate, it will go stale, and it is worth re-running
+rather than exhausting.
+
+§421 already ran the first half of that composition and found every
+comment-named code emitted. **The second half is new**: §421 asked *does this
+port emit the code at all*, and this asks *does the helper's answer reach a
+report*. TS2576 was emitted nowhere and TS2741 is emitted 48 times — the two
+questions have different answers on the same corpus, which is why the composed
+grep is worth writing down as a pair rather than a refinement.

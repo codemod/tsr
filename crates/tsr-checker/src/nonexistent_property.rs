@@ -97,9 +97,37 @@ impl Checker<'_, '_> {
         if self.get_property_of_type(receiver_type, name_text).is_some() {
             return;
         }
-        if self.is_a_universal_object_member(name_text)
-            || self.other_side_of_class_has(receiver_type, name_text)
-        {
+        if self.is_a_universal_object_member(name_text) {
+            return;
+        }
+        // **The other side of the class is not silence, it is TS2576.**
+        // `other_side_of_class_has`'s own doc names the code; the caller used
+        // the answer only to suppress TS2339. `this.Foo()` on a static `Foo` is
+        // upstream's suggestion form, and the instance→static direction is the
+        // one the corpus writes. §447.
+        if self.other_side_of_class_has(receiver_type, name_text) {
+            let statically_declared = self.owning_symbol_of(receiver_type).is_some_and(|symbol| {
+                let entry = self.binder.symbols().get(symbol);
+                entry.exports.contains_key(name_text) && !entry.members.contains_key(name_text)
+            });
+            if !statically_declared {
+                return;
+            }
+            let class_name = self
+                .owning_symbol_of(receiver_type)
+                .map(|symbol| self.binder.symbols().get(symbol).name.to_string())
+                .unwrap_or_default();
+            let Some(file) = self.source_file_of_for_diagnostics(name_id) else { return };
+            let span = self.error_span(name_id);
+            let printed = self.type_to_string(receiver_type);
+            self.report(
+                file,
+                Diagnostic::with_args(
+                    &messages::PROPERTY_0_DOES_NOT_EXIST_ON_TYPE_1_DID_YOU_MEAN_TO_ACCESS_THE_STATIC_MEMBER_2_INSTEAD,
+                    span,
+                    [name_text.to_string(), printed, format!("{class_name}.{name_text}")],
+                ),
+            );
             return;
         }
         // `reportNonexistentProperty`'s suggestion arm: a near-miss member name
