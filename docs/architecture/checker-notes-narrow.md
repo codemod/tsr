@@ -4140,3 +4140,22 @@ Predict **+25–60 G→R** (constAssertions' tuple half the head),
 zero R→W tolerated; adverse limited to number/quote SPELLING lines,
 priced per line. Must NOT move: §104's 232, the written-annotation
 rights, §55 enum values.
+
+**§105 slice 1 score — LANDED at ~10:1.** right 407,030 → **407,148**
+on the isolated stash/accept/pop pair: **+112 G→R + 6 W→R against
+12 G→W, zero R→W/R→G** (controlFlowAssignmentPatternOrder 24,
+spreadsAndContextualTupleTypes 23, constAssertions 12,
+es2022IntlAPIs 6 W→R, wide tail). The bar predicted +25–60 and
+measured 118 — a 2× miss in the FAVORABLE direction, recorded:
+readonly-tuple wants reached through destructuring and spread
+contexts the constAssertions-centric sizing did not count. The 12
+G→W are two named next-rule populations, the §31-chain precedent:
+  - declarationEmitTypeParameterNameShadowedInternally 6 — the
+    mint made nested generic signatures printable and their wants
+    carry `T_1` SHADOW renames; §102's shadow arm is the owner
+    (flagged to checker-1), not this mint.
+  - constAssertions 5 + typeSatisfaction_asConstArrays 1 —
+    object-membered readonly wants (`{ readonly x: 10; }`) arriving
+    WRONG through a road the direct object gate does not guard;
+    slice 2's population, and its trace should start from 0:115's
+    holder chain.

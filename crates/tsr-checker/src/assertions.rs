@@ -130,11 +130,40 @@ impl<'a> Checker<'a, '_> {
                 None => return self.intrinsics.error,
             }
         }
-        if matches!(
-            inner,
-            Expression::ObjectLiteralExpression(_) | Expression::ArrayLiteralExpression(_)
-        ) {
+        if matches!(inner, Expression::ObjectLiteralExpression(_)) {
             return self.intrinsics.error;
+        }
+        // §105 slice 1: an ARRAY operand mints the readonly tuple of its
+        // elements' regular types — `checkArrayLiteral`'s const-context
+        // answer (`checker.go:8021` under `isConstContext`), reached here
+        // because the assertion IS the const context. Nested arrays recurse
+        // through this same arm (inheriting the paren-climb and the object
+        // gate); spreads, holes, and object elements decline the operand
+        // whole — readonly MEMBERS are slice 2, behind the value-spelling
+        // carriage.
+        if let Expression::ArrayLiteralExpression(array) = inner {
+            let mut elements = Vec::with_capacity(array.elements.len());
+            for element in array.elements {
+                let element_type = match element {
+                    Expression::SpreadElement(_) | Expression::OmittedExpression(_) => {
+                        return self.intrinsics.error;
+                    }
+                    nested @ (Expression::ArrayLiteralExpression(_)
+                    | Expression::ParenthesizedExpression(_)) => {
+                        self.check_const_assertion(*nested)
+                    }
+                    Expression::ObjectLiteralExpression(_) => return self.intrinsics.error,
+                    other => {
+                        let checked = self.check_expression(*other);
+                        self.get_regular_type_of_literal_type(checked)
+                    }
+                };
+                if element_type == self.intrinsics.error {
+                    return self.intrinsics.error;
+                }
+                elements.push(element_type);
+            }
+            return self.create_tuple_type(elements, true);
         }
         let operand_type = self.check_expression(operand);
         self.get_regular_type_of_literal_type(operand_type)
