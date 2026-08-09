@@ -436,6 +436,19 @@ impl Checker<'_, '_> {
                         info.value
                     }
                 } else {
+                            crate::types::TypeData::Anonymous { .. } => "Anonymous",
+                            crate::types::TypeData::Union { .. } => "Union",
+                            crate::types::TypeData::Intersection { .. } => "Intersection",
+                            _ => "other",
+                        };
+                        eprintln!(
+                            "miss: {shape} .{name} recv={}",
+                            crate::printing::type_to_string(self.store.get(receiver_type))
+                                .chars()
+                                .take(40)
+                                .collect::<String>()
+                        );
+                    }
                     error
                 }
             };

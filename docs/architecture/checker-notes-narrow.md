@@ -4715,3 +4715,19 @@ branch if so). NEXT: the instrumented receiver-shape census
 (one probe at the miss site classifying receiver TypeData + apparent
 road taken), then the design doc with measured entries. No slice
 before the census.
+
+**§117 census — RUN (2,795 miss events, full corpus).** By receiver
+shape: Named+members 1,144 / Anonymous 610 / Union 593 /
+Intersection 185 / Named-bare 174 / other 89. By member name, the
+decisive cut: `.prototype` 121, `.toString` 112, `.name` 82,
+`.constructor` 70, `.length` 62 — plus the bind/call/apply class —
+are the OBJECT/FUNCTION PROTOTYPE FAMILY: upstream's member walk
+falls back to the global `Object`/`Function` interfaces at the
+apparent-type layer, a road this port's walk never takes. That is
+SLICE 1 (one fallback in the declared-member walk; owns
+strictBindCallApply1's 113 and the toString rows across hundreds of
+cases). SLICE 2: `.prototype` on class statics — a synthetic
+property of the typeof side. The `.foo/.a/.b/.x` 600+ are
+case-specific names — mostly genuine misses (correct gaps) to be
+left alone; the Union 593 and Intersection 185 shapes route to
+their §49/§92 arms' residues. Bar for slice 1 comes next window.
