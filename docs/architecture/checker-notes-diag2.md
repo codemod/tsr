@@ -22937,3 +22937,43 @@ assignable to one it must have, and no relation is consulted to know that.**
 TS2411 and TS2352 are §404's remaining candidates and have not been read.
 `diagslice` (fresh) prices them at 22 blocked / 14 single / `occupied 1/103` and
 23 / 13 / `0/66`.
+
+## §409 — §404's re-pricing lead, closed: **+9 of four candidates**
+
+§404 said four relation-refused rows had never been asked whether their corpus
+cases fall in a decidable subset. All four are now asked:
+
+```
+TS2394   §403  +4   primitive return vs primitive return
+TS2416   §405   0   fails §293's `occupied` at 15/34 — reverted
+TS2420   §407  +5   a member declared NOWHERE — no comparison at all
+TS2411   §409   —   `number` vs `RegExp`; siblings are §9's computed names
+TS2352   §409   —   generic intersections and instantiation expressions
+```
+
+**TS2411 declined, owner: the apparent type of a primitive.** Its cheapest case
+is `class C { 0: number; [x: number]: RegExp }`, and deciding that `number` is
+not assignable to `RegExp` is *not* the singleton argument — a primitive **is**
+assignable to a structurally empty interface, so the answer depends on
+`RegExp`'s members, which is the relation. The remaining cases are
+`computedPropertyNames*_ES6`, which §9 refuses.
+
+**TS2352 declined, owner: the relation.** `aliasInstantiationExpressionGeneric…`
+is exactly what its name says.
+
+> **The lead was worth `+9` and is exhausted.** Recording that it *closes*
+> matters as much as recording that it paid: §404 framed it as reframing "several
+> standing refusals", and the honest count is two of four, with one of the two
+> paying by a mechanism (`absent` is not a comparison) that the framing did not
+> anticipate.
+
+### What the four builds taught, ranked
+
+1. **`absent` beats `decidably different`.** §407's `+5` needed no type
+   comparison; §403's `+4` needed the primitives to line up; §405 needed them to
+   line up *and* the position to be free, and failed the second.
+2. **Read `occupied` before the fixture.** §293's column, skipped once, cost a
+   whole build.
+3. **A refusal's owner can be wrong about the row without being wrong about the
+   mechanism.** "TS2394 is signature assignability" was true and still hid
+   sixteen cases of `number` versus `string`.
