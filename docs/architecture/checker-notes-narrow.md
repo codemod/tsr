@@ -3946,3 +3946,19 @@ probe that buckets by the answer's spelling missed its mechanism).
 Bar to be COMPLETED with row predictions after that trace; this
 section claims the number and records the sizing so the next
 window starts at the trace.
+
+**§102 sizing addendum (the retry's map).** The `_n`-want WRONG
+population is ~200: underscoreTest1 100,
+typeParametersAreIdenticalToThemselves 34, promisePermutations 12,
+declarationsWithRecursiveInternalTypesProduceUniqueTypeParams 12,
+genericSpecializationToTypeLiteral1 10, scattered 30. The decisive
+fact: promisePermutations holds BOTH populations — 12 rename-wants
+beside the 168 plain-wants the naive arm regressed — so the
+reuse-vs-build split cuts WITHIN one case, per print, not per case
+or per provenance class. The §88 "two types, two prints" hope
+(instantiated mints vs declared composites) is therefore too coarse
+by itself. The retry's first step is a WANT-PAIR study inside
+promisePermutations: for one member printed both ways, diff the two
+assertion sites' surroundings — what the builder visited first, and
+whether a written node exists for one and not the other. No code
+before that study names the discriminator.
