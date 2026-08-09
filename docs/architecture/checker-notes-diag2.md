@@ -11027,3 +11027,192 @@ one does, on the last line, after the kind test has already done the work.
 **+47 cases across two builds, both at exactly zero wrong lines**, out of a
 family four handoffs described as blocked on `alwaysStrict` in the binder. The
 option was never read by any of it.
+
+## §163 — `onFailedToResolveSymbol`'s cascade: the two silent returns already name their own codes
+
+`diaggap` at `58b5ed2` puts four meaning-mismatch codes together:
+
+```
+TS2693   17 lines    9 cases   '{0}' only refers to a type, but is being used as a value here.
+TS2709   15 lines    9 cases   Cannot use namespace '{0}' as a type.
+TS2661   36 lines    9 cases   Cannot export '{0}'. Only local declarations can be exported…
+TS2749    4 lines    4 cases   '{0}' refers to a value, but is being used as a type here…
+                    ── 31 cases
+```
+
+**All four are arms of one function**, `onFailedToResolveSymbol`
+(`checker.go:1564`), whose seven-way `||` chain runs *before* the missing-lib /
+spelling-suggestion / `Cannot find name` sequence this port already ports in
+full:
+
+```go
+c.checkAndReportErrorForMissingPrefix(...) ||
+c.checkAndReportErrorForExtendingInterface(...) ||
+c.checkAndReportErrorForUsingTypeAsNamespace(...) ||
+c.checkAndReportErrorForExportingPrimitiveType(...) ||      // TS2661
+c.checkAndReportErrorForUsingNamespaceAsTypeOrValue(...) || // TS2708 / TS2709
+c.checkAndReportErrorForUsingTypeAsValue(...) ||            // TS2693 / TS2585
+c.checkAndReportErrorForUsingValueAsType(...)               // TS2749
+```
+
+### The port already located the gap and wrote it down
+
+This is not a discovery; it is a debt with an address. `check_value_identifier`
+carries the comment
+
+> `checkAndReportErrorForUsingTypeAsValue` / `…NamespaceAsTypeOrValue`
+> (`checker.go:1681`, `:1643`): a name that resolves under another meaning gets
+> a *different* code, **so silence is the only sound answer until those arms are
+> ported.**
+
+and `check_type_reference_name` the matching one:
+
+> a qualified `A.B` fails as TS2694, a name that resolves as a value is
+> **TS2749**, and as a namespace **TS2709** — three wrong codes at a right
+> position.
+
+Each rule's meaning ladder is a `for` loop that `return`s on the first hit:
+`[TYPE, NAMESPACE, ALIAS]` in the value rule, `[TYPE, VALUE, NAMESPACE]` in the
+type rule. **The build is to replace the silent `return` with the code the hit
+already identifies**, in upstream's order.
+
+| position | ladder hit | upstream arm | code |
+|---|---|---|---|
+| value | `NAMESPACE_MODULE` | `…NamespaceAsTypeOrValue`, value branch | TS2708 |
+| value | `TYPE`, symbol has no `VALUE` | `…UsingTypeAsValue` | TS2693 |
+| value | `ALIAS` | — | stays silent (§79) |
+| type | `MODULE` | `…NamespaceAsTypeOrValue`, type branch | TS2709 |
+| type | `VALUE`, symbol has no `NAMESPACE` | `…UsingValueAsType` | TS2749 |
+| type | `TYPE` | — | correct resolution, stays silent |
+| either | primitive name under an `ExportSpecifier` | `…ExportingPrimitiveType` | TS2661 |
+
+### What is deliberately not ported, and why each is safe
+
+- **`maybeMappedType`** (`checker.go:1707`) selects a *different* TS2693-family
+  message when the name is the key of a single-member type literal whose
+  declared type is a union of string/number literals. It needs
+  `getDeclaredTypeOfSymbol` and `allTypesAssignableToKind` — `checker_types`
+  machinery. Omitting it emits plain TS2693 where upstream emits the variant,
+  which is a **wrong code at a right position**, so it is a falsifier below, not
+  a free omission.
+- **`checkAndReportErrorForMissingPrefix`**, **`…ExtendingInterface`** and
+  **`…UsingTypeAsNamespace`** — the first three arms. Their codes (TS2662/TS2663,
+  TS2689, TS2702) are not on `diaggap`'s single-code column at all, so they buy
+  nothing and each is an independent wrong-column risk.
+- **The heritage-clause variants of the primitive-name branch** (TS2840/TS2839/
+  TS2422) fire only when a primitive name appears in an `extends`/`implements`
+  clause. Ported, because they are three `if`s over the grandparent and skipping
+  them would put TS2693 where upstream puts one of those.
+
+### The bar
+
+Off the CASE count. Sole-obstacle across the four codes: **31**.
+
+```
+bar:  +15 cases,  0 LOST,  WRONG delta ≤ +12
+```
+
+Set at half the ceiling because TS2661's 36 lines over 9 cases is a
+concentration of **4.0** — the worst on this board since §82 — so most of that
+row needs every other line in its case as well, and because these rules fire
+from the two busiest sites in `crate::check`.
+
+### Falsifiers
+
+1. **`WRONG` delta exceeds +12.** First suspect is the ladder's *meaning* not
+   matching upstream's `resolveName` argument: upstream asks for
+   `SymbolFlagsType &^ SymbolFlagsValue` and `SymbolFlagsModule`, which are
+   narrower than the `TYPE` and `NAMESPACE` this port's ladder passes. A hit on
+   the port's wider mask where upstream's narrower one misses is a false
+   positive by construction.
+2. **A wrong line carries TS2693 where the baseline carries TS2585 or the
+   mapped-type variant.** That falsifies the omission above, not the arm.
+3. **`LOST` is non-zero.** Both sites currently return *silently*, so every new
+   line is additive; a loss means a case that was exact.
+4. **`binder_symbols` moves.** It must not.
+
+## §164 — §163 REFUSED at +2 for +6, and the refusal found the row's real blocker
+
+The bar was `+15 cases, 0 LOST, WRONG delta ≤ +12`. Built in full — all four
+arms, both entry points — and measured with
+`RULE_CODES = [2661, 2693, 2708, 2709, 2749, 2585, 2840, 2839, 2422]`:
+
+| version | CONVERTS | LOST | RIGHT | WRONG |
+|---|---:|---:|---:|---:|
+| as written | 2 | **4** | 12 | **238** |
+| type-position arms only | 0 | 0 | 8 | 0 |
+| bounded (final) | 2 | 0 | 12 | 6 |
+
+**Refused, and reverted.** +2 cases against 6 new false positives is 0.33
+conversions per wrong line — the same neighbourhood as §13's refused 0.26 — and
+it is thirteen cases short of a bar that was already set at half the ceiling.
+The code is not in the tree; this section is the product.
+
+### The 238 wrong lines were one defect, and it is not in the new code
+
+Every one of the 238 was TS2693, all from the **value-position** arm. Three
+fixtures read (not inferred — §131's rule, applied at the first surprise rather
+than the fourth):
+
+```
+classMergedWithInterfaceMultipleBasesNoError.ts(4,23) (4,28)
+    interface Foo extends Bar, Baz { }
+genericTypeWithMultipleBases1.ts(9,32) (9,36)
+    export interface I3<T> extends I1, I2 {
+inheritFromGenericTypeParameter.ts(1,20)
+    class C<T> extends T { }        ← upstream says TS2304 here
+```
+
+**`Checker::is_value_reference` admits the heritage names of an interface, and
+the `implements` list of a class.** Those are *type* positions: upstream reaches
+them through `resolveEntityName` with `Type` meaning, they resolve, and nothing
+is reported. This port's TS2304 rule was already firing on them — and *silently
+returning*, because the name resolved under `TYPE` on the meaning ladder. The
+silence was not a decline; it was a defect wearing a decline's clothes.
+
+**One condition — "no ancestor is a `HeritageClause`" — removed 232 of the 238
+and all four losses.** That is the measurement worth carrying:
+
+> §90's rule has a third instance. *A decline can conceal a bug rather than
+> prevent one, and lifting it is the only way to find out which kind it was.*
+> Here the concealed bug is in a **different rule** from the one being lifted,
+> and it has been in the tree since §55.
+
+### Why the bounded version still is not worth landing
+
+Bounding gets to `+2 / 0 LOST / 6 WRONG`, and the six are diagnosed:
+
+- **Four are `mappedTypeProperties`** — upstream's `maybeMappedType`
+  (`checker.go:1707`) picks a *different* message when the name is the key of a
+  single-member type literal whose declared type is a union of string/number
+  literals. The syntactic half of its walk was ported as a suppression and **did
+  not fire**, so the position's shape here is not the shape upstream walks.
+  Owner: `checker_types` for the type half, and an unread AST shape for the
+  syntactic half.
+- **Two are `scannerUnicodeEscapeInKeyword2`** — unread.
+
+Six false positives to buy two cases, in a row whose 31-case population the
+build reached only 12 lines of, is the wrong trade. **`RIGHT` was 12 against 72
+missing lines**: the arms mostly are not firing where the row needs them, which
+means the population is blocked on *position* — the rules never see those
+nodes — not on the cascade.
+
+### What has to happen first, in order
+
+1. **Fix `is_value_reference` to exclude interface `extends` and every
+   `implements` clause.** It is a defect on its own terms, independent of this
+   cascade, and it is worth measuring alone: it may already be costing TS2304
+   lines that the ladder's silence hides.
+2. **Re-take TS2709's and TS2749's positions.** The type-position arms measured
+   **0 wrong and 0 converts** — they are correct and unreached. `diagcase` on
+   `moduleWithNoValuesAsType` will say which node kind the missing line sits on;
+   `check_type_reference_name` is bounded to the `type_name` slot of a bare
+   `TypeReferenceNode` and that is the first suspect.
+3. **Only then port the cascade**, against a bar re-taken at that point.
+
+The refused source is not in the tree. It was four arms transcribed from
+`checker.go:1629-1731` with `isExportAssignmentExpressionName`,
+`isPrimitiveTypeName`, `isES2015OrLaterConstructorName` and the three
+heritage-clause message variants, and it is straightforward to write again —
+**the expensive part was never the code, it was learning that the row is
+blocked two layers below it.**
