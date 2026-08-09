@@ -72,3 +72,23 @@ The funnel's admitted 5,821 lines stop at, by slice ownership:
   family).
 Ceilings are populations, not conversions — the §-standard
 counterfactual discipline applies per slice.
+
+## Slice 1 bar [checker-2, registered before the code]
+
+`choose_overload` already selects by assignability under SELECTABLE
+domains; its FIRST reduction ("a generic candidate anywhere in the
+set" → None) is callgate's 547-line row. Slice 1 is upstream's own
+first pass promoted ahead of that decline: `hasCorrectArity`
+(`checker.go:9107`) filters the candidates BEFORE anything else —
+a SINGLE arity-survivor returns outright (generic survivors flow to
+the caller's existing check_generic_call path, exactly as a
+born-single generic does today); multiple survivors keep every
+existing decline. Composes with §114's context-layer arity
+discriminator — same rule, resolution layer. Arity here: required
+≤ args ≤ params (optionals/defaults lower the floor; rest lifts
+the ceiling — rest-bearing candidates keep the existing decline
+this slice). Predict **+60–200** of the 547+113 ceiling (the
+arity-singular subset; the §33-family cases fun/fn overload pairs
+are the head shapes); must NOT move: single-candidate calls,
+choose_overload's landed selections, §114/§115. Adverse over 1:5
+refuses; artifact test on untouched-case rows mandatory.
