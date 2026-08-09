@@ -574,3 +574,16 @@ both builds — full chain in checker-1's 4b9fafc):
     an old defect surface as "new" in whichever pull happens to
     re-expose it. `git worktree add --detach <dir> <pre-window-sha>`
     and one filtered run answers it in under a minute.
+
+FRESH BOARD (rank_board at right 408,314 / 85.25%, residual 70,640):
+top-250 rows hold 96.64% of residual lines. NEAR-MISS gold: of
+3,931 cases within 10 lines of finishing, 1,184 need ONE row.
+Case-gate ranking: CallExpression-answered-error 770 near-miss
+cases (the contextual/call arc, checker-2's lane, still #1),
+ALIAS/no-value-decl 428+177 (ES-import resolver parity — REFUSED at
+2.7:1 in the §31.1 era, but that price predates §106/§108's
+findability machinery; RE-PRICE before believing it), ArrowFunction
+315, ObjectLiteral 279, member/property-access no-such-property
+269+264 (post-§110 lib/member residue). The §112 refusal's two
+const-T prerequisites and the §98 DISCRIM mask-pairing trace stand
+as recorded entries.
