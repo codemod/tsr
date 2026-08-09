@@ -5178,3 +5178,25 @@ sentinel that PRINTS differently). destructuringParameterProperties
 1/2/5 came in nearly whole (112 lines). Gates: four 100% suites
 held, diagnostics 2,040 → 2,044, clippy 0, tests 0 FAILED via
 `rtk proxy`, anchors 2,692.
+
+## §124 — the Anonymous side's established miss answers any [claimed: checker-1]
+
+**§123's analogue one table over.** The Anonymous bucket (256 lines
+post-§123): `C.missing` on a class's static side, `f.missing` on a
+function, `E.missing` on an enum — upstream reports TS2339/TS2551
+and answers errorType-printed-any exactly as on the instance side.
+Absence is establishable per owner kind: a CLASS owner via §123's
+`walk_completes` over the extends chain (§122's exports walk read
+every table absence claims); a FUNCTION or ENUM owner's exports
+table is single-declaration-set and whole by construction.
+VALUE_MODULE owners are NOT admitted this slice: a namespace's
+surface can arrive through `export *` whose targets this port may
+not resolve, so absence there is not established (the §-after gate
+if its rows warrant). Non-JS positions only, as §123.
+
+**Bar.** ≥80 G→R at ≥5:1. Falsifiers: (a) expando functions
+(member ASSIGNMENTS creating properties the exports table never
+held — JS-gated but TS `namespace f` merges exist: a FUNCTION owner
+merged with a namespace carries real exports; the merged-symbol
+read must happen before the kind test); (b) the §122 `#`-exclusion
+class — a missing `#` static wants any and IS admitted here.
