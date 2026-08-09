@@ -505,3 +505,20 @@ full text is patch126 (+ the seed) in scratchpad history; the
 +202-class wins it reproduces are stable. This document now
 contains everything except that one trace — the next window opens
 with it.
+
+**The final round — seven probes, two lines: the arithmetic is the
+instruction.** The re-assembled unit gained +50 net from the
+constraint fallback in the MEMO map (the getInferredType final
+block, confirmed on the head fixture's own read) but the head-23
+stayed invariant through: the memo, the seed, the final-map
+constraint gate with the self-referential test — every link argued
+from source, each measured, total movement TWO lines. The class
+defeats source-argued wiring conclusively. THE UPGRADED FINAL
+INSTRUCTION: the next window's first act is a PER-LINK INSTRUMENTED
+TRACE of exactly one head-fixture line (the arrow's checked type at
+phase 1, the memo's parameter, the contextual road's answer, the
+final map's entry — four prints, one filtered run) with the whole
+draft applied; the failing link will name itself as every other
+trace this project has run eventually did. The draft is patch126 +
+the seed + the constraint gates in scratchpad history; the memo
+fallback's +50 rides with it. Reverted whole; the baseline stands.
