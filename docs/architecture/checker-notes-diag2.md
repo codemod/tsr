@@ -20745,3 +20745,43 @@ decline site, how many corpus cases reach it *and* still miss a line, which is
 `diagreach.rs`'s shape applied to guards rather than to rules. The cost is a
 corpus run per instrumented site unless the counters are threaded through one
 run, which is the design question.
+
+## §355 — three rows priced and declined, with owners
+
+Continuing down `diagdeepen`'s under-fires list. Each of these passes
+`diagslice`'s convertibility filters — all single-line, `occupied 0/n` — and
+each is declined for a reason found *before* any code was written, which is the
+cheapest kind of build.
+
+### TS2349 — 11 blocked. Owner: intersection reduction
+
+```ts
+declare const f: { (x: string): number, a: "" } & { a: number }
+f()                     // TS2349 — the intersection reduces to never
+```
+
+`neverIntersectionNotCallable` needs an intersection whose conflicting members
+reduce it to `never`, and `constructorOverloads4` needs the call signatures of
+a `new` expression's *instance* type. Both are the structural machinery in
+`relater.rs`/`declared.rs`, not a predicate.
+
+### TS2364 — 5 blocked. Owner: parser recovery
+
+**All five cases are `parserGreaterThanTokenAmbiguity*`.** They are the
+`<no node at position>` population `diagnode` sized at 967 lines (§336) —
+positions where this port's parse produced no node at all, which no checker rule
+can reach. Changing the parser's recovery risks `parser_typescript` and
+`printer_round_trip`, both at 100%.
+
+### TS1344 — 6 blocked. Owner: parser grammar diagnostics
+
+Not a checker rule at all: `A_label_is_not_allowed_here` appears in
+`vendor/typescript-go/internal/compiler/program.go:2151`'s list of codes the
+**parser** raises, and nowhere in `checker/`. Same rail risk as TS2364.
+
+> **A row that passes every convertibility filter can still be owned by another
+> subsystem.** `diagslice` prices *whether a partial rule could convert the
+> case*; it says nothing about *which crate the rule would live in*. Three rows
+> in a row here, which suggests the filters have been run down far enough that
+> the remaining single-line rows are mostly parser-owned — a claim §356 should
+> test rather than assume.
