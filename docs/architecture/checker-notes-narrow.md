@@ -4399,7 +4399,11 @@ machinery around them existed. What remains of the §103 head is
 now ONLY the inference plumbing (const-T argument typing), and
 §33's decline in calls.rs is its entry.
 
-## §109 — JSDoc @template reaches the signature bake [claimed: checker-1]
+## §110 — JSDoc @template reaches the signature bake [claimed: checker-1]
+
+[Renumbered from §109: checker-2's carriage bar (4c4beec) is an
+ancestor of this claim (bfbe644) — verified by merge-base both
+sides; the claim commit's message carries the stale number.]
 
 The @template family holds ~200 WRONG + 34 GAP across seven cases
 (jsdocTemplateTag6 127 the head; Tag3 30, TagDefault 17, Tag8 14,
