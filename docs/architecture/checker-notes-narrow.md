@@ -3371,3 +3371,35 @@ full coverage run.
 
 **§89.1 score — LANDED.** right 404,772 → **404,780 (84.51%)**, all
 8 W→R, ZERO adverse on the full pair.
+
+## §90 — an instantiated alias reference keeps its body's members
+
+The generic-alias instantiation subsystem's first seam, located by one
+trace (`longObjectInstantiationChain2` 0:15): round ONE of
+`o1.merge({p2})` answers `Type<merge<{p1:1},{p2:number}>>` RIGHT —
+the §46 annotation mint carries the body symbol, member lookup and
+signature instantiation all compose — and round TWO gaps, because the
+call-return was rebuilt by `instantiate_type`'s arm 3 through
+`create_type_reference`, which mints the ALIAS symbol (no members)
+where §46's road mints the alias BODY's TypeLiteral symbol. The
+member road past the mint is proven; only the mint's symbol differs.
+
+**Mechanism:** `create_type_reference` mints the body symbol when the
+target is a TYPE_ALIAS whose body is a TypeLiteral with a bound
+symbol — the same admission test as §46's arm, one road lower.
+`type_reference_targets` keeps the ALIAS symbol, which is what the
+member-instantiation seam already reads (round 1 proves that
+mapping).
+
+**Counterfactual:** chain2 holds 308 GAP lines; chain1 34, chain3 34.
+**Bar: ≥250 of chain2's gaps convert, adverse within 10:1.**
+Falsifiers: (a) IDENTITY SPLIT — the annotated `Type<{p1:1}>`
+(§46-keyed) and an instantiated one (`instantiations`-keyed) become
+two TypeIds printing alike; if the relater compares them, R→W lands
+in §46-family cases — the honoured answer is unifying the two intern
+keys, not reverting; (b) the body symbol's member table answering
+UNINSTANTIATED member types — would show as wrong lines wanting
+substituted prints; the §46 road's round-1 evidence says the
+get_type_of_property_of_type seam substitutes, so zero expected;
+(c) non-literal alias bodies (chain1/3's `merge` itself is an
+intersection body) must fall through unchanged.
