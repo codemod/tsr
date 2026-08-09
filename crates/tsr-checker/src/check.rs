@@ -618,6 +618,7 @@ impl Checker<'_, '_> {
         }
         if self.nodes.kind(node) == SyntaxKind::SuperKeyword {
             self.check_super_in_computed_name(node);
+            self.check_super_call_outside_constructor(node);
         }
         if self.nodes.kind(node) == SyntaxKind::ThisKeyword {
             self.check_this_in_module_body(node);
@@ -1655,6 +1656,56 @@ impl Checker<'_, '_> {
             file,
             Diagnostic::new(
                 &messages::SUPER_CANNOT_BE_REFERENCED_IN_A_COMPUTED_PROPERTY_NAME,
+                span,
+            ),
+        );
+    }
+
+    /// TS2337 — `Super calls are not permitted outside constructors or in
+    /// nested functions inside constructors.`
+    ///
+    /// `checkSuperExpression`'s **second** arm (`checker.go:7904`), reached only
+    /// when the usage is already illegal and the first arm — the computed
+    /// property name, §468 — has declined. `isCallExpression` is *`super` is the
+    /// callee of a call*, and this port decides the illegality syntactically:
+    /// the nearest function-like container is not a constructor. Arm three needs
+    /// `isLegalUsageOfSuperExpression`'s full walk and is not attempted. §482.
+    fn check_super_call_outside_constructor(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        // Arm one first — §103's order.
+        if self
+            .nodes
+            .ancestors(node)
+            .any(|ancestor| self.nodes.kind(ancestor) == SyntaxKind::ComputedPropertyName)
+        {
+            return;
+        }
+        let is_call_callee = self.nodes.parent(node).is_some_and(|parent| {
+            matches!(self.node_map.get(parent), Some(Node::CallExpression(call))
+                if call.expression.and_then(|e| e.node_id()) == Some(node))
+        });
+        if !is_call_callee {
+            return;
+        }
+        for ancestor in self.nodes.ancestors(node) {
+            if matches!(self.node_map.get(ancestor), Some(Node::ConstructorDeclaration(_))) {
+                return;
+            }
+            if self.is_function_like_or_static_block(ancestor) {
+                break;
+            }
+            if matches!(self.nodes.kind(ancestor), SyntaxKind::SourceFile) {
+                return;
+            }
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let span = self.nodes.span(node);
+        self.report(
+            file,
+            Diagnostic::new(
+                &messages::SUPER_CALLS_ARE_NOT_PERMITTED_OUTSIDE_CONSTRUCTORS_OR_IN_NESTED_FUNCTIONS_INSIDE_CONSTRUCTORS,
                 span,
             ),
         );

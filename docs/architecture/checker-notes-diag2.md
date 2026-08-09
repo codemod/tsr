@@ -25868,3 +25868,82 @@ guess (−14). Two candidates, one honest note, no third hypothesis (§131).
 > remaining question was about the tree.** That is not a coincidence — it is
 > what a boundary looks like from the inside. Every instrument here measures
 > diagnostics; none measures what the parser built.
+
+## §482 — TS2337: a `super` call outside a constructor
+
+§479's last candidate, and **§468's second arm**. 3 blocked, `occupied 0/7`.
+
+```ts
+function foo() {
+    super(value => String(value));   // TS2337 at `super`
+}
+```
+
+`checkSuperExpression`'s switch (`checker.go:7902`), in order:
+
+```go
+case current != nil && ast.IsComputedPropertyName(current):   // TS2466 — §468
+case isCallExpression:                                        // TS2337 — this
+case container == nil || !(IsClassLike(container.Parent) || …): // TS2335 family
+```
+
+`isCallExpression` is `ast.IsCallExpression(node.Parent) && node.Parent.Expression() == node`
+— *`super` is the callee of a call* — and the arm is reached only when the usage
+is already illegal. This port decides that syntactically: **the nearest
+function-like container is not a constructor.**
+
+> §468 built arm one and §482 builds arm two, of the same three-way switch, six
+> builds apart. **§103's rule — the `else if` order is the specification — is
+> what makes the second arm safe to add without re-reading the first**: arm one
+> already returns for a computed property name, so arm two cannot steal its
+> cases.
+
+### The bound
+
+`super` is a call's callee; the nearest enclosing function-like node is not a
+`ConstructorDeclaration`. Arm three (the container's parent is not class-like)
+is not attempted — it needs `isLegalUsageOfSuperExpression`'s full walk.
+
+### The bar
+
+```
+bar:  +2 of 3,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **`super()` in a constructor reports.** The container test is the whole gate.
+2. **`super.x` — a property access, not a call — reports.** `isCallExpression`
+   requires `super` to be the callee.
+
+## §483 — §482 built: **+1**, and the message-catalogue search closes
+
+```
+diagnostics   1,996 → 1,997   (bar was +2;  +1, 0 LOST)   36.39%
+every other suite unmoved — both falsifiers negative
+```
+
+Kept. The three-line case (`superCallOutsideConstructor`) wants arm three as
+well — `isLegalUsageOfSuperExpression`, which is not attempted.
+
+### §467's message-catalogue search, closed at **+21 over eight builds**
+
+```
+restrictions   TS2358 +4 · TS2466 +4 · TS2376 +3 · TS1268 +1
+prohibitions   TS1184 +2 · TS1114 +4 · TS1203 +2 · TS2337 +1
+                                                    ─────
+                                                    +21
+```
+
+One candidate was declined without a build (TS2851, the `[Symbol.asyncDispose]`
+lookup) and one measured `+0` and was reverted (TS1120, §481). **Eight builds,
+one revert, one decline — and the sweep is exhausted**, which makes it the
+fourth mechanical search this session to end on a measured total (§421 zero,
+§444 zero, §473 +12, §483 +21).
+
+> **Four sweeps, four measured endings, and the two that paid both searched
+> upstream.** §444 predicted it and §473 restated it; §483 is the third
+> confirmation and the last one this session can supply. The standing
+> recommendation is unchanged and now has eight builds behind it: **search the
+> artefact that describes the target.** The options catalogue (§479) is the one
+> such artefact not yet swept.
