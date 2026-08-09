@@ -17281,3 +17281,55 @@ The slice decides *no annotation and no initialiser*. Upstream also reports for
 a property whose initialiser widens to `any` and for `KindBinaryExpression` —
 a JavaScript `this.x = …` — both needing real widening. The nine short cases
 mix decided and undecided members in one file.
+
+## §273 — `diagslice`: how many lines does a blocked case actually need?
+
+§272 named an instrument that did not exist. This is it.
+
+`diaggap` reports *cases blocked on exactly one missing code*, which prices the
+**row**. A case passes only when it has **every** line of that code, so a
+partial rule converts nothing unless the blocked cases happen to want one line
+each. `diagslice` reports that distribution:
+
+```
+code      cases  1 line     2-3      4+   convertible by a partial rule?
+TS2322      487     262     134      91   yes — mostly single-line
+TS2430       25       7       6      12   no  — needs the whole rule
+TS2300       20       2      12       6   no  — needs the whole rule
+TS2769       23      11      10       2   no  — needs the whole rule
+TS2394       16      15       1       0   yes — mostly single-line
+TS7006       16      13       2       1   yes — mostly single-line
+```
+
+The three `no` rows are the ones a fragment cannot reach at any level of
+correctness, and nothing said so before.
+
+### Validated against this session's own builds
+
+```
+TS7008    6 blocked   (was 7 — §271 converted one)
+TS2378    1 blocked   (was 7 — §267 converted six)
+TS1308    2 blocked   (was 4 — §269 converted two)
+```
+
+The residuals match what each build measured, which is the check that the
+instrument is counting the same population `diag2307` did.
+
+### What it does **not** answer, stated because the last three builds were
+### mispriced by exactly this kind of gap
+
+A one-line blocked case is *capable* of being converted by a fragment. Whether
+**this** fragment converts it is a separate question — the line still has to be
+one the slice decides. TS7008 reads `yes — mostly single-line` and §271
+converted one case of seven, because three of its single-line cases want a line
+the slice declines (a property with an initialiser, needing real widening).
+
+> **`diagslice` gives a necessary condition, not a sufficient one.** It rules
+> rows *out* — TS2430, TS2300 and TS2769 cannot be reached by any fragment —
+> and it does not promise the rest. That is still strictly more than
+> `diaggap` could say, and it is the half that was costing bars.
+
+### The next candidate it surfaces
+
+`TS2464` — 13 cases, 9 of them single-line — has not been examined this
+session and does not appear in the ranked gap's head.
