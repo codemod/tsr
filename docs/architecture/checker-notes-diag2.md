@@ -18425,3 +18425,81 @@ does.
 The fourth is the one this build discovered it was missing. `diaggap` already
 reports *blocked by both*, so the join exists; nothing has used it to price a
 row.
+
+## §301 — TS2503, the silent return `diagpair` pointed at
+
+`diagpair` (§300) put TS2503 in TS2304's partner list at ×5 on its first run,
+and it has 6 cases of its own — 11 in reach of one arm, where `diaggap` showed
+6.
+
+The arm already exists. `check_qualified_type_name`
+(`check.rs:4022`) resolves a qualified name's left side and, when it fails,
+**returns silently**:
+
+```rust
+let Some(namespace) = self.binder.resolve_name(…, SymbolFlags::MODULE | SymbolFlags::ALIAS)
+else {
+    return;                     // upstream reports TS2503 here
+};
+```
+
+`resolveEntityName` (`checker.go:15782`) reports `Cannot_find_namespace_0`
+whenever the meaning is exactly `Namespace` and the name does not resolve. The
+existing rule already computes the name and the position; only the message was
+missing.
+
+### The risk this build actually carries
+
+The left of a qualified name **is** an identifier, and
+`check_type_reference_name` visits identifiers in type positions. If it already
+reports TS2304 there, adding TS2503 double-reports rather than converts. That is
+falsifier 1, and it is the reason this is not simply free.
+
+### The bar
+
+```
+bar:  +4 cases of 11,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **The left of an unresolved `A.B` reports TS2503 *and* TS2304.** Two codes at
+   one position is worse than the silence it replaces.
+2. **A resolvable `A.B` reports.** The rule only fires where resolution failed.
+
+## §302 — §301 built: +3, after one bound took 60 wrong lines to 2
+
+```
+unbounded         diagnostics 1,786 → 1,789   RIGHT 16 · WRONG 60
++ "resolves under no meaning"          → 1,789   RIGHT 14 · WRONG  2
+CONVERTS 3 · LOST 0 · STILL SHORT 6
+```
+
+The board reads `+3` either way, which is the point: **the case delta was
+identical while the wrong column moved by a factor of thirty.** Nothing in the
+coverage number distinguishes the two builds, and shipping the first would have
+been shipping 58 wrong lines for the same score.
+
+### The bound
+
+`resolveEntityName` reports `Cannot_find_namespace_0` only when the name
+resolves to **nothing at all**. A name that resolves under another meaning
+reaches a different arm — and `conditionalTypeDoesntSpinForever` is the corpus's
+shape: a **type parameter** on the left of a qualified name inside a conditional
+type. Sixty wrong lines, one fixture family.
+
+> **"Does not resolve as a namespace" and "does not resolve" are different
+> conditions, and upstream's message names the first while its guard tests the
+> second.** The existing arm had already narrowed the meaning to
+> `MODULE | ALIAS` deliberately — §185's note says *"`MODULE` rather than the
+> wider `NAMESPACE` keeps a class or enum from answering"* — and that narrowing
+> is right for *selecting the namespace* and wrong for *deciding the name is
+> absent*.
+
+One lookup serving two questions, and the second question needed the wider one.
+
+### What `diagpair` bought
+
+TS2503 showed 6 sole-obstacle cases in `diaggap` and 11 in reach once its
+partner column was read. It converted 3 and left `STILL SHORT 6` — the partners
+are real but want TS2304 lines this port still misses.

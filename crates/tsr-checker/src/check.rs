@@ -4027,6 +4027,32 @@ impl Checker<'_, '_> {
             &namespace_name,
             SymbolFlags::MODULE | SymbolFlags::ALIAS,
         ) else {
+            // `resolveEntityName` reports `Cannot_find_namespace_0` only when
+            // the name resolves to **nothing at all** (`checker.go:15782`).
+            // A name that resolves under another meaning — a type parameter in
+            // a conditional type is the corpus's shape — reaches a different
+            // arm entirely, and reporting TS2503 there was 60 wrong lines.
+            // §302.
+            if [SymbolFlags::TYPE, SymbolFlags::VALUE, SymbolFlags::NAMESPACE].into_iter().any(
+                |meaning| {
+                    self.binder
+                        .resolve_name(self.nodes, self.node_map, left, &namespace_name, meaning)
+                        .is_some()
+                },
+            ) {
+                return;
+            }
+            if let Some(file) = self.source_file_of_for_diagnostics(left) {
+                let span = self.nodes.span(left);
+                self.report(
+                    file,
+                    Diagnostic::with_args(
+                        &messages::CANNOT_FIND_NAMESPACE_0,
+                        span,
+                        [namespace_name],
+                    ),
+                );
+            }
             return;
         };
         // `resolveAlias(namespace)` — upstream's own call, and the one §185

@@ -68,11 +68,12 @@ fn main() {
     println!("{:<8} {:>6} {:>7}   top partners (cases blocked on both)", "code", "cases", "alone");
     for (code, cases) in ranked.iter().take(40) {
         let solo = alone.get(code).copied().unwrap_or(0);
-        let mut top: Vec<(u32, usize)> =
-            partners.get(code).map(|m| m.iter().map(|(&k, &v)| (k, v)).collect()).unwrap_or_default();
+        let mut top: Vec<(u32, usize)> = partners
+            .get(code)
+            .map(|m| m.iter().map(|(&k, &v)| (k, v)).collect())
+            .unwrap_or_default();
         top.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
-        let shown: Vec<String> =
-            top.iter().take(4).map(|(c, n)| format!("TS{c}×{n}")).collect();
+        let shown: Vec<String> = top.iter().take(4).map(|(c, n)| format!("TS{c}×{n}")).collect();
         println!("TS{code:<6} {cases:>6} {solo:>7}   {}", shown.join("  "));
     }
 }
