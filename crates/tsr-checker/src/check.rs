@@ -772,7 +772,16 @@ impl Checker<'_, '_> {
             // (`Checker::unresolved_types`), and `class C { [e]: Type }` with
             // neither name declared is exactly that shape — §43's first wrong
             // line.
-            if self.is_error(declared)
+            // §324 — `is_error` conflates two shapes: a property whose *type*
+            // did not resolve, and one whose *name* did not. TS2564 is about
+            // the initialiser, and an unresolved annotation does not make a
+            // property initialised — `public cars: Car[]` with `Car` an
+            // unresolved import-equals is a real miss. §43's wrong line is the
+            // other shape, `class C { [e]: Type }`, which is a **computed**
+            // name; that stays declined.
+            let computed_name =
+                matches!(property.name, tsr_ast::PropertyName::ComputedPropertyName(_));
+            if (self.is_error(declared) && computed_name)
                 || declared == self.intrinsics.any
                 || declared == self.intrinsics.unknown
                 || self.contains_undefined_type(declared)

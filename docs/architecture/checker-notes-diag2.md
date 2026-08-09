@@ -19384,3 +19384,83 @@ Two edits were in the tree — the bound, and a `clippy` fix to
 before concluding, so the second was tested: `file.jsdoc().iter()` already
 yields by value, the removed `.map(|(h, d)| (h, d))` was a true identity, and
 the edit is semantically nothing. That left the bound holding all fifty.
+
+## §324 — TS2564 and the two shapes `is_error` conflates
+
+Third row off the deepening seam: 12 blocked cases, 6 single-line, rule present.
+
+`arrayOfExportedClass` is the shape, and its two files are the experiment:
+
+```
+arrayOfExportedClass_0.ts(2,5)   TS2564   reported
+arrayOfExportedClass_1.ts(6,12)  TS2564   missed —  public cars: Car[];
+```
+
+`Car` is `import Car = require('./arrayOfExportedClass_0')`, an entity-name
+import-equals this port does not resolve (§238 built that arm and §239 reverted
+it at `−40 checker_types`). So `Car[]` mints an unresolved `Named` type, which
+answers `is_error`, and the rule declines.
+
+That decline is §43's, and it was measured: `class C { [e]: Type }` with neither
+name declared is the same `is_error` answer and upstream reports nothing there.
+
+> **One predicate, two shapes: a property whose *type* did not resolve, and a
+> property whose *name* did not resolve.** TS2564 is about the initialiser, not
+> the type — an unresolved annotation does not make a property initialised — so
+> the first should report and only the second should decline.
+
+The two are separable without touching `is_error`: §43's line is a **computed**
+name, and this one is an identifier.
+
+### The bar
+
+```
+bar:  +4 cases of 12,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **`class C { [e]: Type }` reports.** §43's line, and the reason the decline
+   exists.
+2. **A property whose type is genuinely `any` reports.** That disjunct is
+   untouched.
+
+## §325 — §324 built: +4, exactly the bar
+
+```
+diagnostics   1,833 → 1,837   (+4, bar was +4)
+every other suite unmoved — falsifiers 1 and 2 negative
+```
+
+The separation held: `class C { [e]: Type }` stays declined and
+`public cars: Car[]` reports.
+
+### The isolation's number is not the delta, and §323 is why it matters
+
+```
+diag2307 [2564]:  CONVERTS 271 · LOST 3 · RIGHT 1386 · WRONG 20
+```
+
+That is the **whole rule's** counterfactual — TS2564 has been ported for many
+sessions and decides 271 cases. The marginal effect of this build is the board's
+`+4`. §323 established that the isolation misses displacement; this is the
+converse trap, where the isolation reports a rule's entire history and reads
+like a build's result.
+
+> **`diag2307` answers "what does this rule do", not "what did this change
+> do".** For a new rule they coincide, which is why fifty-odd builds never had
+> to separate them. For a rule already in the tree they do not, and the board
+> is the only number that isolates the edit.
+
+### The deepening seam, three builds in
+
+```
+§321  TS1038 + eleven modifier codes   +12   a dispatch, not a rule
+§323  TS2694's depth bound             −50   reverted
+§325  TS2564's `is_error` conflation    +4
+```
+
+Net `−34` measured, `+16` kept. The seam's rules are **older**, which cuts both
+ways: their conditions have been measured before (§43's decline was right and
+needed splitting, not removing), and their blast radius is larger because other
+rules have been built around them.
