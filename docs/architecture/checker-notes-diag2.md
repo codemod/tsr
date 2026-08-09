@@ -16385,3 +16385,48 @@ The +1 is `exportDefaultAbstractClass`. The finding is the anchor: this port
 resolves identifiers at a **narrower meaning than upstream**, and now does not.
 Every future rule that resolves a value name inherits the correction whether or
 not the corpus can see it today.
+
+## §253 — a `return c.errorType` that two rules depend on
+
+`extraonly` listed `arithAssignTyping` with four invented TS2362 lines. The
+baseline wants **twelve TS2629 and no TS2362 at all**:
+
+```
+arithAssignTyping.ts(3,1): error TS2629: Cannot assign to 'f' because it is a class.
+…twelve of them, for `f += ''`, `f -= 1`, `f *= 1`, …
+```
+
+§243 built TS2629 and it fires correctly. What §243 did *not* port is the line
+after it:
+
+```go
+c.error(node, assignmentError, c.symbolToString(symbol))
+return c.errorType                     // checker.go:11093
+```
+
+**The return is a second rule's guard.** `checkArithmeticOperandType` is never
+asked about an operand whose type is the error type, so upstream reports TS2629
+and stops. This port reported TS2629 *and* TS2362, because its arithmetic check
+computed the class's real type instead.
+
+> **Porting a rule's report without its return ports half of it.** The report is
+> what the gap shows you; the `return` is invisible from the outside and is what
+> keeps the *next* rule quiet. §243 measured `WRONG 0` on its own codes and was
+> still incomplete — the damage landed in a different code entirely.
+
+That is why `diag2307`'s per-rule isolation could not have caught this: it
+measures the rule's own codes, and the cost was in TS2362's column.
+
+### The shape of the fix
+
+The condition was inline in `check_identifier_assignment_target`; it is now
+`assignment_target_meaning(node, text) -> Option<SymbolFlags>`, and both rules
+read it — the reporter to choose its message, the arithmetic check to decline.
+One predicate, two consumers, which is what the shared `errorType` return is.
+
+```
+diagnostics    1,687 → 1,688   (+1)
+checker_types  4,006 → 4,008   (+2)
+extraonly         22 → 18 lines
+every rail unmoved at 100%
+```

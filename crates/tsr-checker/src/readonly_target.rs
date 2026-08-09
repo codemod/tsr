@@ -102,24 +102,7 @@ impl Checker<'_, '_> {
             return;
         }
         let Some(Node::Identifier(identifier)) = self.node_map.get(node) else { return };
-        let Some(symbol) = self.binder.resolve_name(
-            self.nodes,
-            self.node_map,
-            node,
-            identifier.text,
-            SymbolFlags::VALUE,
-        ) else {
-            return;
-        };
-        // `getExportSymbolOfValueSymbolIfExported` — an exported declaration's
-        // local carries `EXPORT_VALUE` and none of the real flags, so reading
-        // the local would answer "not a variable" for every exported `var`.
-        let symbol = self.binder.symbols().get(symbol).export_symbol.unwrap_or(symbol);
-        let symbol = self.binder.merged_symbol(symbol);
-        let flags = self.binder.symbols().get(symbol).flags;
-        if flags.intersects(SymbolFlags::VARIABLE) {
-            return;
-        }
+        let Some(flags) = self.assignment_target_meaning(node, identifier.text) else { return };
         let message = if flags.intersects(SymbolFlags::ENUM) {
             &messages::CANNOT_ASSIGN_TO_0_BECAUSE_IT_IS_AN_ENUM
         } else if flags.intersects(SymbolFlags::CLASS) {
@@ -136,6 +119,33 @@ impl Checker<'_, '_> {
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
         let span = self.error_span(node);
         self.report(file, Diagnostic::with_args(message, span, [identifier.text.to_string()]));
+    }
+
+    /// The flags of what an assignment target *names*, when it is not a
+    /// variable — the condition `checkIdentifier`'s arm fires on
+    /// (`checker.go:11077`). `None` when the rule does not apply.
+    ///
+    /// Shared because upstream's arm ends `return c.errorType`, and that
+    /// return is load-bearing for a **second** rule: an operand whose type is
+    /// the error type is not asked whether it is arithmetic. `arithAssignTyping`
+    /// wants twelve TS2629 and no TS2362, and this port emitted both. §253.
+    pub(crate) fn assignment_target_meaning(
+        &mut self,
+        node: NodeId,
+        text: &str,
+    ) -> Option<SymbolFlags> {
+        if self.assignment_target_kind(node) == AssignmentTargetKind::None {
+            return None;
+        }
+        let symbol =
+            self.binder.resolve_name(self.nodes, self.node_map, node, text, SymbolFlags::VALUE)?;
+        // `getExportSymbolOfValueSymbolIfExported` — an exported declaration's
+        // local carries `EXPORT_VALUE` and none of the real flags, so reading
+        // the local would answer "not a variable" for every exported `var`.
+        let symbol = self.binder.symbols().get(symbol).export_symbol.unwrap_or(symbol);
+        let symbol = self.binder.merged_symbol(symbol);
+        let flags = self.binder.symbols().get(symbol).flags;
+        (!flags.intersects(SymbolFlags::VARIABLE)).then_some(flags)
     }
 
     /// `isReadonlySymbol`'s **property-signature** row, which

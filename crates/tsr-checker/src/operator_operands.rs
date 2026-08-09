@@ -250,6 +250,17 @@ impl Checker<'_, '_> {
             return;
         }
         let (Some(left), Some(right)) = (binary.left, binary.right) else { return };
+        // `checkIdentifier`'s assignment arm ends `return c.errorType`
+        // (`checker.go:11093`), and that return is what stops this check: an
+        // operand of the error type is never asked whether it is arithmetic.
+        // `arithAssignTyping` wants twelve TS2629 and **no** TS2362, and this
+        // port emitted both until §253.
+        if let tsr_ast::Expression::Identifier(identifier) = left
+            && let Some(id) = identifier.node_id
+            && self.assignment_target_meaning(id, identifier.text).is_some()
+        {
+            return;
+        }
         let left_type = self.check_expression(left);
         let right_type = self.check_expression(right);
         // `checkNonNullType` runs first at this site and reports TS18050 /
