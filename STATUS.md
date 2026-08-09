@@ -1307,6 +1307,25 @@ its whole deliverable and accept that it converts nothing until finished.
 
 ## 5. Refused, with the number that refused it
 
+### New, this session, TS2323 — duplicate exported names, 8 cases
+
+Refused by **§246**, after three bounds and three measurements. Owner:
+**`declareSymbol`'s fresh-symbol-on-conflict behaviour** (upstream
+`binder.go:202`), which this port does not reproduce.
+
+On an exclusion conflict upstream gives the offending declaration a **fresh
+symbol**; this port's binder **merges** it into the existing one. So upstream's
+export entry carries only the declarations that merged cleanly and
+`exportedDeclarationsCount` never reaches two — while ours carries all of them,
+and every name the binder already complained about looks like a duplicate export.
+`duplicateDefaultExport` wants TS2528 alone and `exportInterfaceClassAndValue`
+wants TS2451 alone; both got the right diagnostic **and** TS2323 on top.
+
+**This is not local to TS2323.** It is a difference in what a symbol's
+`declarations` list *means*, and any rule that **counts** declarations rather
+than looking one up will read a list this port assembles differently. TS2323 is
+the first. It will not be the last.
+
 ### New, this session, TS2303 — circular import alias, 10 cases
 
 Refused by **§237**, after being built and reverted. All ten are
@@ -2193,6 +2212,7 @@ holds only the numbers.
 | 2026-08-09 | HEAD | **30.14%** | **1,654** | **second whole build reverted after measurement** | **§237 named entity-name `import A = B` as TS2303's owner; §238 built it; §239 measured `+0` diagnostics and `−40` `checker_types`.** TS2303 never fires even with the guard — the alias resolves in one hop and never re-enters. *A named owner is still a hypothesis.* The 40 lines give `nameres` §14's older refusal the number it lacked. Real owner is a refactor: cycle detection sits in the per-walker `seen` sets, which **absorb** the cycle upstream reports. §238–§239 |
 | 2026-08-09 | HEAD | **30.28%** | **1,662** | **+8, the whole ceiling — a channel, not a rule** | **TS6053 was never refused; it was *unroutable*.** The loader's own comment: *"a diagnostic upstream and is dropped here, as every other loader diagnostic is."* Four codes shared one missing field. Built `LoaderDiagnostic` → `Program::loader_diagnostics` (upstream's `fileProcessingDiagnostics`); `FileReference.span` had carried the doc *"so a diagnostic can point at it"* for a consumer that did not exist. ***"Not ported" and "has nowhere to go" look identical from the gap, and only one is fixed by writing the rule.*** Third no-producer row to hit its ceiling. §240–§241 |
 | 2026-08-09 | HEAD | **30.50%** | **1,674** | **+12, `RIGHT 90 · WRONG 0` — the best ratio measured** | **TS2628/2629/2630/2631/2632/2539**, a six-way switch on symbol flags alone. *A rule gated on symbol flags has nothing to be approximately right about.* **The first measurement said 1,072** — a 590-case collapse that read exactly like the falsifier firing, and was §140 for the **third** time. §231's rule said clippy *before* coverage; both ran in one invocation and the coverage number was read first. ***A gate that runs before the measurement is not a gate; a gate that BLOCKS the measurement is.*** Also §242: the three loader arms §241 promised are worth **zero**, measured before building. §242–§244 |
+| 2026-08-09 | HEAD | 30.50% | 1,674 | **third whole build reverted after measurement** | **TS2323** — bounded three times (no bound `WRONG 47`, skip `default` `WRONG 24`, skip binder-reported symbols **no change**), net negative throughout. The mechanism was read off two baselines: **upstream's `declareSymbol` gives a conflicting declaration a fresh symbol; this port's binder merges it.** ***A refusal that names a divergence in shared infrastructure is worth more than the eight cases that found it*** — the session's three prior refusals each named a *rule's* blocker; this names a **data-model** difference every future counting rule will meet. §245–§246 |
 
 ## 8. Updating this file
 
