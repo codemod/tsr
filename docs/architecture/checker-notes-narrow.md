@@ -3706,3 +3706,9 @@ contextual member type that §97 just made computable (`string` got,
 §97 stays on this branch unpushed until that arm exists or the
 trade is re-priced; landing it earlier converts honest gaps into
 confident wrongs that read as the origin arm's fault.
+
+**LANDED AT USER DIRECTION ahead of §98 retention** (2026-08-08,
+"push to main"): the 1.6:1 trade ships as measured — +93 G→R
+against 59 G→W whose owner is the §98 retention family; when §98
+lands those 59 convert and its score must state the inheritance.
+§99's 44 temporal composition rows also activate with this landing.
