@@ -96,12 +96,22 @@ impl Checker<'_, '_> {
                     return false;
                 }
                 let declarations = self.binder.symbols().get(symbol).declarations.to_vec();
+                // A **namespace merged onto the class** — a clodule — is not a
+                // reason the static table is incomplete. The gap this arm
+                // guards is `getBaseConstructorTypeOfClass`, inherited statics,
+                // and a `ModuleDeclaration` is not a base: it contributes more
+                // members to the same exports table. The arm directly above
+                // already trusts a pure namespace's table, so both halves are
+                // independently complete and only their conjunction was not.
+                // §349.
                 return declarations.iter().all(|declaration| {
-                    matches!(
-                        self.node_map.get(*declaration),
-                        Some(Node::ClassDeclaration(class))
-                            if class.type_parameters.is_empty() && class.heritage_clauses.is_empty()
-                    )
+                    match self.node_map.get(*declaration) {
+                        Some(Node::ClassDeclaration(class)) => {
+                            class.type_parameters.is_empty() && class.heritage_clauses.is_empty()
+                        }
+                        Some(Node::ModuleDeclaration(_)) => true,
+                        _ => false,
+                    }
                 });
             }
             _ => return false,

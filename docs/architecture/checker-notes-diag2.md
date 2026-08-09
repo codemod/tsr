@@ -20495,3 +20495,95 @@ The pattern common to all four is now sharp enough to search for deliberately:
 > **A rule's reach is the intersection of every predicate between the dispatch
 > and the report.** Codes rank the report. Nothing ranked the intersection, and
 > four builds' worth of cases were sitting in it.
+
+## §349 — TS2341: a namespace merged onto a class is not an incomplete table
+
+`diagmissing 2341` (cheapest-first) opens with **four one-line cases that share
+one factor**: a class merged with a namespace.
+
+```ts
+class Clod {
+    private static x = 10;
+}
+namespace Clod {
+    var p = Clod.x;   // TS2341 — the namespace body is not inside the class
+}
+```
+
+The rule emits 44 right lines, so plain private access works; the merge is the
+differentiator. The decline is not in the rule at all — it is in
+`declared_members_are_complete`'s class-static arm
+(`member_completeness.rs:98`):
+
+```rust
+return declarations.iter().all(|declaration| {
+    matches!(self.node_map.get(*declaration),
+        Some(Node::ClassDeclaration(class))
+            if class.type_parameters.is_empty() && class.heritage_clauses.is_empty())
+});
+```
+
+A clodule's merged symbol has `CLASS | MODULE` and its declarations include the
+**`ModuleDeclaration`**, so `all` is false.
+
+The comment two lines above states the arm's entire justification:
+`getBaseConstructorTypeOfClass` — **inherited statics** — is the only gap, "and
+a class that extends nothing cannot reach it." A namespace declaration is not a
+base. It contributes *more* members to the same exports table, and the arm
+directly above already returns `true` for a pure namespace's table, so both
+halves of a clodule's table are independently trusted; only their conjunction
+was not.
+
+> §343's shape again, and worth counting: **a decline written for one reason
+> catching a case it has no reason to catch.** §343 was `?` merging two endings,
+> §345 a guard for the mismatch case eating the zero case, this one an
+> `all(matches!(…))` whose pattern encodes *the reason* rather than *the
+> condition*.
+
+### The bar
+
+```
+bar:  +3 cases of 8,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **A clodule whose class `extends` something reports.** That is the arm's
+   actual gap and must still decline.
+2. **A generic clodule reports.** Same — the type-parameter test is unchanged.
+
+## §350 — §349 built: **+3**, bar met
+
+```
+diagnostics   1,857 → 1,860   (bar was +3;  +3, 0 LOST)
+checker_types unmoved — and this was a SHARED predicate
+```
+
+`declared_members_are_complete` gates `crate::nonexistent_property`, the
+assignability reports and this rule alike, so widening it could have moved the
+other workstream's suite in either direction. It did not, which is the
+falsifier that mattered most and was not one I registered — §323's caution
+about rules that share a predicate, arriving from the other side.
+
+### Five builds, one failure, five spellings
+
+```
+§335  +7   a position two correct predicates both declined
+§343  +1   a `?` merging *absent* with *unresolvable*
+§345  +2   a computed answer discarded by a guard for another case
+§347  +3   a question asked of one node kind and not of two others
+§349  +3   an `all(matches!(…))` whose pattern encodes the REASON, not the condition
+```
+
+**Sixteen cases, no new subsystem.** §349 is the one worth generalising:
+
+> **A predicate that encodes *why* it declines rather than *what* it declines
+> will decline things the reason does not cover.** The comment said "a class
+> that extends nothing cannot reach `getBaseConstructorTypeOfClass`" — the
+> condition is *no base*. The pattern written was *is a `ClassDeclaration` with
+> no base*, and the extra conjunct silently caught every merged declaration.
+
+That is mechanically findable in a way §348's "intersection of predicates" is
+not: **a `matches!` or `all(…)` in a completeness or decidability predicate
+whose pattern tests node *kind* when its documented reason tests a *property*.**
+Recorded as the next sweep with a shape narrow enough to grep for.
