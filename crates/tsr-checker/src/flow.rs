@@ -862,6 +862,41 @@ impl Checker<'_, '_> {
         false
     }
 
+    /// §126's gate: whether an identifier reference resolves to a variable
+    /// declared at a source file's top level. The instanceof FALSE branch
+    /// does not narrow those in the baselines (typeGuardOfFormInstanceOf)
+    /// while parameters and locals narrow
+    /// (instanceofWithStructurallyIdenticalTypes); an unresolvable
+    /// reference answers `true` — the arm then declines, the safe side.
+    fn reference_is_top_level_var(&mut self, reference: NodeId) -> bool {
+        let Some(Node::Identifier(identifier)) = self.node_map.get(reference) else {
+            return true;
+        };
+        let Some(symbol) = self.binder.resolve_name(
+            self.nodes,
+            self.node_map,
+            reference,
+            identifier.text,
+            SymbolFlags::VALUE,
+        ) else {
+            return true;
+        };
+        let Some(&declaration) = self.binder.symbols().get(symbol).declarations.first() else {
+            return true;
+        };
+        if self.nodes.kind(declaration) != SyntaxKind::VariableDeclaration {
+            return false;
+        }
+        // VariableDeclaration → VariableDeclarationList → VariableStatement
+        // → SourceFile, exactly — anything else (a function body, a block)
+        // is a local.
+        self.nodes
+            .parent(declaration)
+            .and_then(|list| self.nodes.parent(list))
+            .and_then(|statement| self.nodes.parent(statement))
+            .is_some_and(|container| self.nodes.kind(container) == SyntaxKind::SourceFile)
+    }
+
     fn is_constant_reference(&mut self, reference: NodeId) -> bool {
         match self.node_map.get(reference) {
             Some(Node::Identifier(identifier)) => {
@@ -2563,13 +2598,24 @@ impl Checker<'_, '_> {
                     if let Some(predicate_type) = self.has_instance_predicate_type(callee_type) {
                         return self.narrow_by_predicate_type(t, predicate_type, assume_true);
                     }
-                    // The FALSE branch has NO effect on the STRUCTURAL road —
-                    // the baseline is unambiguous (`typeGuardOfFormInstanceOf`'s
-                    // else prints the WHOLE union); filtering it measured 21
-                    // adverse.
-                    if !assume_true {
+                    // §126 iteration 2: the false arm holds for TOP-LEVEL
+                    // script vars — typeGuardOfFormInstanceOf's baseline
+                    // keeps `C1 | C2` whole in the else on GLOBAL vars while
+                    // instanceofWithStructurallyIdenticalTypes narrows the
+                    // same shape on PARAMETERS; §83's "global var vs
+                    // parameter" observation was the literal discriminator,
+                    // measured again here (14 adverse ungated, all one case).
+                    if !assume_true && self.reference_is_top_level_var(left_id) {
                         return t;
                     }
+                    // §126: the FALSE branch narrows too — by DERIVATION.
+                    // `getNarrowedTypeWorker`'s `!assumeTrue` arm
+                    // (flow.go:861) filters constituents derived from the
+                    // candidate (`isTypeDerivedFrom` = declared base chains,
+                    // relater.go:4962). typeGuardOfFormInstanceOf's
+                    // whole-union else stays whole because its constituents
+                    // derive from nothing — the §83-era "21 adverse" used a
+                    // structural test this trace retired.
                     let TypeData::Anonymous { symbol: class_symbol, .. } =
                         self.store.get(callee_type).data
                     else {
@@ -2587,7 +2633,14 @@ impl Checker<'_, '_> {
                         {
                             // Non-union: `x: Base` with `x instanceof Derived`
                             // narrows TO the derived instance when the chain
-                            // relates them; anything else declines.
+                            // relates them (true); §126: an identity or
+                            // chain-DERIVED t is removed whole in the else —
+                            // upstream's `t == candidate → never` and the
+                            // derivation filter. Anything undecidable declines.
+                            let derived = t == instance
+                                || self.class_instance_symbol(t).is_some_and(|symbol| {
+                                    self.class_extends_chain_contains(symbol, class_symbol)
+                                });
                             if assume_true {
                                 if t == instance {
                                     return t;
@@ -2601,6 +2654,8 @@ impl Checker<'_, '_> {
                                 {
                                     return instance;
                                 }
+                            } else if derived {
+                                return self.intrinsics.never;
                             }
                             return t;
                         }
@@ -2618,12 +2673,22 @@ impl Checker<'_, '_> {
                     let kept: Vec<TypeId> = members
                         .iter()
                         .zip(&matches)
-                        .filter_map(|(&member, &is_match)| is_match.then_some(member))
+                        .filter_map(|(&member, &is_match)| {
+                            (is_match == assume_true).then_some(member)
+                        })
                         .collect();
-                    if kept.is_empty() || kept.len() == members.len() {
-                        // Nothing decided (or everything kept): upstream's
-                        // fallback logic here needs assignability — decline.
+                    if kept.len() == members.len() {
                         return t;
+                    }
+                    if kept.is_empty() {
+                        // §126: the FALSE branch's empty remainder IS `never`
+                        // (upstream's filterType); the TRUE branch's empty
+                        // set still declines — its fallback needs
+                        // assignability this port lacks.
+                        if assume_true {
+                            return t;
+                        }
+                        return self.intrinsics.never;
                     }
                     return self.rebuild_union_subset(t, &kept);
                 }

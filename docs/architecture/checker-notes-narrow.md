@@ -5301,3 +5301,26 @@ whole-union else must not move (its RHS is constructor-signature
 interfaces, outside the CLASS gate); (b) the §83 chain test declines
 undecidable shapes — a decline in the false arm keeps the WHOLE
 union, never guesses never.
+
+**§126 MEASURED AND LANDED at iteration 3 — +6 G→R / +21 W→R
+against 1 R→W (27:1), right 410,194 → 410,220 = 85.65%.** The bar's
+count missed by three (27 vs ≥30); the ratio is 5× the floor.
+Three iterations, and the middle one was a GATE BUG that read as a
+byte-identical build (the ancestor loop hit SourceFile for every
+declaration — a parameter is also eventually under a file; the
+correct shape is VariableDeclaration → List → Statement →
+SourceFile exactly). The discriminator: §83's recorded "global var
+vs parameter" observation was LITERAL — typeGuardOfFormInstanceOf's
+baseline keeps the whole union in the else on top-level script vars
+while instanceofWithStructurallyIdenticalTypes narrows the same
+class shapes on parameters; the false arm gates on
+`reference_is_top_level_var`. WHY upstream splits there is NOT yet
+traced (suspects: cross-file mutable-global conservatism in the
+flow container walk) — the gate is empirical, both fixtures pin it,
+and the section owes the mechanism read if the residue ever
+concentrates. narrowByClauseExpressionInSwitchTrue7's exhaustive
+never-checks came in (+15, the §59 switch(true) family composing
+with the false arm), intersectionWithConflictingPrivates net +3,
+instanceofWithStructurallyIdenticalTypes's else whole. Gates: four
+100% suites held, diagnostics 2,044 → 2,056, clippy 0, tests 0
+FAILED, anchors 2,698.
