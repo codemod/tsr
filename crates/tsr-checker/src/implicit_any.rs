@@ -280,6 +280,38 @@ impl Checker<'_, '_> {
     /// so `declare function f();` in a `.d.ts` does report. Both are upstream's
     /// and conflating them is the obvious mistake here
     /// (`checker-notes-diag2.md` §81).
+    /// TS7013 / TS7011 — a **signature** with no return-type annotation.
+    ///
+    /// `checkSignatureDeclaration` (`checker.go:2749`) selects on *kind*, not on
+    /// namelessness: a construct signature and a call signature each have their
+    /// own code, in their own function, and neither is the function-expression
+    /// form `check_implicit_any_return`'s closing comment names. §438.
+    pub(crate) fn check_implicit_any_signature_return(&mut self, node: NodeId, ambient: bool) {
+        if ambient || !self.no_implicit_any || self.file_has_parse_errors {
+            return;
+        }
+        if self.in_js_file(node) {
+            return;
+        }
+        let (annotation, message) = match self.node_map.get(node) {
+            Some(Node::ConstructSignatureDeclaration(signature)) => (
+                signature.r#type,
+                &messages::CONSTRUCT_SIGNATURE_WHICH_LACKS_RETURN_TYPE_ANNOTATION_IMPLICITLY_HAS_AN_ANY_RETURN_TYPE,
+            ),
+            Some(Node::CallSignatureDeclaration(signature)) => (
+                signature.r#type,
+                &messages::CALL_SIGNATURE_WHICH_LACKS_RETURN_TYPE_ANNOTATION_IMPLICITLY_HAS_AN_ANY_RETURN_TYPE,
+            ),
+            _ => return,
+        };
+        if annotation.is_some() {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let span = self.error_span(node);
+        self.report(file, Diagnostic::new(message, span));
+    }
+
     pub(crate) fn check_implicit_any_return(&mut self, node: NodeId, ambient: bool) {
         if !self.no_implicit_any || self.file_has_parse_errors || self.in_js_file(node) {
             return;

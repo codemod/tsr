@@ -24166,3 +24166,91 @@ like a regression to revert — when it may be the other suite's own gap being
 exposed for the first time. **The falsifier for such a build should be "no
 `checker_types` case goes from passing to failing", not "the number is
 unmoved"**, and this workstream's instruments cannot currently tell those apart.
+
+## §438 — TS7013/TS7011: a signature with no return annotation
+
+Fourth of §433's rows. **TS7013: 6 blocked, all single-line, `occupied 0/6`.**
+
+```ts
+interface I {
+    new (public x);      // TS7013 at `new`
+}
+```
+
+`check_implicit_any_return` already asks this question for three node kinds and
+ends with
+
+```rust
+// `declaration.Name() == nil` takes a different message entirely
+// (TS7011, the function-expression form), which is not this rule.
+let Some(name) = name else { return };
+```
+
+That comment is right that a nameless declaration takes a different message, and
+**incomplete about which**: upstream's `checkSignatureDeclaration`
+(`checker.go:2749`) selects on *kind*, not on namelessness —
+
+```go
+if c.noImplicitAny && returnTypeNode == nil {
+    switch node.Kind {
+    case ast.KindConstructSignature: … Construct_signature_which_lacks_return_type_annotation…
+    case ast.KindCallSignature:      … Call_signature_which_lacks_return_type_annotation…
+    }
+}
+```
+
+so a construct signature and a call signature have **their own codes**, in
+their own function, and neither is the function-expression form the comment
+names. §428's shape: a note that correctly says *"a different message"* and is
+read as *"not our row"*.
+
+### The bound
+
+Upstream's is already exact — `noImplicitAny`, no return annotation, and the
+kind. Nothing to bound; this is a straight port of six lines.
+
+### The bar
+
+```
+bar:  +4 of 6,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **A construct signature *with* a return type reports.** The annotation test
+   is upstream's first conjunct.
+2. **A method signature reports twice.** It has its own arm in
+   `check_implicit_any_return` and a different code.
+
+## §439 — §438 built: **+7**, well above bar
+
+```
+diagnostics   1,938 → 1,945   (bar was +4;  +7, 0 LOST)   35.44%
+every other suite unmoved — both falsifiers negative
+```
+
+Six lines of upstream, ported straight, worth `+7` — because the call-signature
+half (TS7011) carried cases the row for TS7013 never counted. **`diagslice`
+prices one code at a time and upstream's function emitted two**, so the bar was
+set from half the population.
+
+> **When one upstream function emits two codes, the row you priced is half the
+> build.** §230 refused to ship one branch of a two-branch `if` on principle;
+> this is the same principle paying on the *estimate* rather than on
+> correctness. The generalisation is small and useful: **read the `switch` before
+> setting the bar, not just the arm your row named.**
+
+### §433's newly-visible rows, four of six worked
+
+```
+TS2309  §432  +8
+TS2351  §434  +2
+TS2507  §436  +3   (and checker_types +14)
+TS7013  §438  +7   (with TS7011 alongside)
+TS2417, TS18014   unworked
+```
+
+**+20 from four rows that a stale table had hidden**, against `+474` for the
+hundred builds before the refresh. That ratio is the argument for §433's rule
+and the reason it is stated as a threshold rather than a habit: **re-run
+`diagslice` after any build moving the board by more than about five.**

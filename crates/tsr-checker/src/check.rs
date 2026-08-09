@@ -583,6 +583,12 @@ impl Checker<'_, '_> {
         }
         // `this` is a keyword node rather than a `Node` variant, so it is asked
         // here rather than from a match arm. §392.
+        if matches!(
+            typed,
+            Node::ConstructSignatureDeclaration(_) | Node::CallSignatureDeclaration(_)
+        ) {
+            self.check_implicit_any_signature_return(node, ambient);
+        }
         if matches!(typed, Node::ExportAssignment(_)) {
             self.check_export_assignment_alone(node);
         }
