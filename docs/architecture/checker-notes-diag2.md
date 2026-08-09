@@ -23827,3 +23827,80 @@ session; the row is real, small, and now written down with its guard.
 > yielded a build and a scoped row; `getIndexedAccessType` (§394) and
 > `checkGrammarObjectLiteral` yielded nothing.** Two of four is the rate to
 > expect, not "reading upstream always finds something".
+
+## §429 — TS2365: a guard whose reason holds in one mode only
+
+```ts
+// @strict: false
+var z = 3 + null;    // TS2365 — Operator '+' cannot be applied to 'number' and 'null'
+```
+
+`addition_operands_have_no_result` answers **true** here — `assignable_to_kind`
+correctly refuses `null` against `NUMBER_LIKE` (`operator_operands.rs:216`) — so
+the predicate was never the problem. §402's fork, applied: read the call chain
+upward, and the caller declines twenty lines earlier:
+
+```rust
+// `checkNonNullType` runs before both arms (`checker.go:12419`, `:12467`) and
+// reports TS2531/TS2533 in place of this code, so a nullish operand is a
+// different diagnostic rather than a missing one.
+if self.operand_is_nullish(source) || self.operand_is_nullish(target) { return }
+```
+
+The comment is correct **and mode-dependent**. `checkNonNullType` strips and
+reports only under `strictNullChecks`; with the flag off it is a no-op, the
+addition arm sees `null` directly, and TS2365 is what upstream emits.
+
+> §342 is the same family from the other side — there a guard *looked* like it
+> tested a property of the source and really tested whether this port had
+> computed an answer. Here a guard tests a real upstream behaviour that
+> **exists in only one of two modes**, and the note recording it named the
+> behaviour without naming the mode. **A guard justified by another rule's
+> behaviour inherits that rule's preconditions, including its flags.**
+
+### The bar
+
+```
+bar:  +2 of 11,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **Under `strictNullChecks`, a nullish operand reports TS2365.** That is
+   TS2531/TS2533's territory and the decline must still hold there — this is
+   the falsifier the whole change turns on.
+2. **`"a" + null` reports.** One string operand is concatenation; the string
+   arm of the predicate is untouched.
+
+## §430 — §429 built: **+1** of a bar of +2
+
+```
+diagnostics   1,924 → 1,925   (bar was +2;  +1, 0 LOST)   35.08%
+every other suite unmoved — both falsifiers negative
+```
+
+Under bar and kept: positive, nothing lost, and the change makes a guard's
+precondition explicit rather than widening it. The other ten cases are the
+`comparisonOperatorWith*` family, whose operands are intersections and type
+parameters — §49's decline, still standing.
+
+### The mode-dependent guard, as a class
+
+```
+§342  a guard testing "did this port compute an answer", read as testing the source
+§429  a guard testing another rule's behaviour, without that rule's flag
+```
+
+Both are guards whose *stated reason* is true and whose *applicability* is
+narrower than the code. The second is easier to find than the first, and the
+search is mechanical: **a guard whose comment cites another function by name is
+a guard that inherits that function's preconditions.** `operator_operands.rs`
+cited `checkNonNullType`, which is `strictNullChecks`-only, and nothing carried
+the flag across.
+
+`grep -n "runs before\|in place of this code\|instead of this" crates/tsr-checker/src`
+finds the comments of that shape — eleven of them — and each one is a question:
+*does the function it names run unconditionally?*
+
+Recorded as a lead with its own honest caveat: §428 measured the neighbour
+check at two of four, and there is no reason to expect better here.

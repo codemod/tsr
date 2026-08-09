@@ -65,7 +65,16 @@ impl Checker<'_, '_> {
         // `C1M4A2?: number` is `number | undefined`, `checkNonNullType` strips
         // it and reports TS18048 instead. `optionalParamArgsTest` is three
         // lines of that.
-        if self.operand_is_nullish(source) || self.operand_is_nullish(target) {
+        //
+        // **…and only under `strictNullChecks`.** `checkNonNullType` strips and
+        // reports nothing when the flag is off, so the addition arm sees `null`
+        // directly and TS2365 is upstream's answer — `null.ts` sets
+        // `@strict: false` and expects it. A guard justified by another rule's
+        // behaviour inherits that rule's preconditions, including its flags.
+        // §429.
+        if self.strict_null_checks
+            && (self.operand_is_nullish(source) || self.operand_is_nullish(target))
+        {
             return;
         }
         if !self.pair_is_reportable(source, target) {
