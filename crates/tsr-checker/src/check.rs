@@ -208,6 +208,7 @@ impl Checker<'_, '_> {
             }
             Node::ClassDeclaration(declaration) => {
                 self.check_super_call_is_first(node);
+                self.check_derived_constructor_calls_super(node);
                 self.check_static_side_kind_mismatch(node);
                 self.check_extends_primitive(node);
                 self.check_implements_missing_member(node);
@@ -1793,6 +1794,69 @@ impl Checker<'_, '_> {
                 span,
             ),
         );
+    }
+
+    /// TS2377 — `Constructors for derived classes must contain a 'super' call.`
+    ///
+    /// `checkConstructorDeclaration`'s final `else if` (`checker.go:2884`),
+    /// reached when `findFirstSuperCall` returned nothing. §470 built the
+    /// sibling branch — a super call present but not first; this is the one
+    /// where there is none. An arrow function is **not** a boundary: an arrow
+    /// keeps `super`, so a call inside one still counts. §485.
+    fn check_derived_constructor_calls_super(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let Some(Node::ClassDeclaration(class)) = self.node_map.get(node) else { return };
+        let Some(extends) = class
+            .heritage_clauses
+            .iter()
+            .find(|clause| clause.token.kind == SyntaxKind::ExtendsKeyword)
+        else {
+            return;
+        };
+        if extends.types.iter().any(|base| {
+            base.expression
+                .and_then(|e| e.node_id())
+                .is_some_and(|id| self.nodes.kind(id) == SyntaxKind::NullKeyword)
+        }) {
+            return;
+        }
+        for member in class.members {
+            let tsr_ast::ClassElement::ConstructorDeclaration(constructor) = member else {
+                continue;
+            };
+            let Some(body) = constructor.body.and_then(|body| body.node_id()) else { continue };
+            if self.subtree_has_super_call(body) {
+                continue;
+            }
+            let Some(id) = constructor.node_id else { continue };
+            let Some(file) = self.source_file_of_for_diagnostics(id) else { continue };
+            let span = self.error_span(id);
+            self.report(
+                file,
+                Diagnostic::new(
+                    &messages::CONSTRUCTORS_FOR_DERIVED_CLASSES_MUST_CONTAIN_A_SUPER_CALL,
+                    span,
+                ),
+            );
+        }
+    }
+
+    /// `findFirstSuperCall` — any call whose callee is `super`, anywhere in the
+    /// subtree. Arrows are not a boundary. §485.
+    fn subtree_has_super_call(&self, node: NodeId) -> bool {
+        if matches!(self.node_map.get(node), Some(Node::CallExpression(call))
+            if call.expression.and_then(|e| e.node_id())
+                .is_some_and(|callee| self.nodes.kind(callee) == SyntaxKind::SuperKeyword))
+        {
+            return true;
+        }
+        let mut children = Vec::new();
+        if let Some(typed) = self.node_map.get(node) {
+            tsr_ast::for_each_child_id(typed, |child| children.push(child));
+        }
+        children.into_iter().any(|child| self.subtree_has_super_call(child))
     }
 
     /// `IsExpressionStatement(s) && isSuperCall(SkipOuterExpressions(…))`. §470.

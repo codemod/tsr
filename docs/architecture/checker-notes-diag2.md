@@ -25981,3 +25981,87 @@ distribution is a long tail rather than a head.
 Not declined, and not worth a build at the head of a queue that still holds
 three- to seven-case rows elsewhere. **Recorded with its distribution** so the
 next session can price it in one read rather than re-running the join.
+
+## §485 — TS2377: a derived constructor with no `super` call
+
+§470's neighbour, in the same function, fifteen builds later. **5 blocked,
+`occupied 0/8`.**
+
+```ts
+class A { }
+class B extends A {
+    constructor() {       // TS2377 — no super call anywhere in the body
+        var x = 1;
+    }
+}
+```
+
+`checkConstructorDeclaration`'s final `else if` (`checker.go:2884`):
+
+```go
+} else if !classExtendsNull {
+    c.error(node, diagnostics.Constructors_for_derived_classes_must_contain_a_super_call)
+}
+```
+
+The branch is reached when `findFirstSuperCall` returned nothing. §470 built the
+*sibling* branch — a super call present but not first — and this is the one
+where there is none at all.
+
+> Three arms of `checkConstructorDeclaration` are now ported across three
+> builds (§470, §485, and §482's neighbour in `checkSuperExpression`), and each
+> time the read was cheaper than the first because §103's ordering had already
+> been established. **A function read once for one arm is read for free for the
+> rest** — which is the argument for recording *which* arm a build took, not
+> just which code.
+
+### The bound
+
+The class has an `extends` clause whose expression is not `null`; the
+constructor has a body; the body's subtree contains no call whose callee is
+`super`. Arrow functions are **not** a boundary — an arrow keeps `super`, so a
+super call inside one still counts.
+
+### The bar
+
+```
+bar:  +3 of 5,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **A constructor containing `super()` reports.** The subtree scan is the gate.
+2. **`class B extends null { constructor() {} }` reports.** `classExtendsNull`
+   is upstream's own exemption.
+
+## §486 — §485 built: **+1** of a bar of +3
+
+```
+diagnostics   1,997 → 1,998   (bar was +3;  +1, 0 LOST)   36.41%
+every other suite unmoved — both falsifiers negative
+```
+
+Kept. Under bar because four of the five cases want a *second* line as well —
+`illegalSuperCallsInConstructor` and `superCallInsideClassDeclaration` both pair
+TS2377 with TS2337 or TS17009, and §273's rule applies: a case converts only
+when every line arrives.
+
+> **A row can be single-line per `diagslice` and multi-code per case.** The
+> column counts *lines missing of the blocking code*; a case blocked on one code
+> with one line can still be failing for a second reason once that line is
+> supplied — because supplying it changes nothing about the *other* codes the
+> case also lacks. `diaggap`'s sole-obstacle population is computed **before**
+> the build, and a build that adds a line to a case can move it out of that
+> population without converting it.
+>
+> That is §272's finding one level up, and it explains the four builds this
+> session that came in at exactly one under bar (§455, §462, §473, §486).
+
+### `checkConstructorDeclaration`, three arms, three builds
+
+```
+§470  a super call present but not first          +3
+§485  no super call at all                        +1
+      a super call not at root level              not attempted — needs
+                                                  superCallIsRootLevelInConstructor
+```
