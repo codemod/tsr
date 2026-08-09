@@ -14324,3 +14324,51 @@ Not a gate. `<a:` with nothing after the colon should not produce a JSX element
 this rule can see — that is `tsr_parser`'s namespaced-name recovery, and it is
 the same class as §198–§201's parameter list: a construct upstream refuses to
 build. Filed there rather than here.
+
+## §216 — `extraonly`'s ten TS2322 lines are not reachable by a flag bound
+
+`extraonly` after §211 is 27 cases, and its largest single bucket is **ten
+TS2322 lines across five cases** — five conversions, each one false positive
+away:
+
+```
+distributiveConditionalTypeConstraints   3 lines
+narrowByClauseExpressionInSwitchTrue7    4
+divergentAccessorsTypes2 · memberOverride · assignFromNumberInterface2   1 each
+```
+
+The first name suggests the cheapest possible fix: upstream's `elaborateError`
+refuses a generic conditional outright (`relater.go:441`,
+`isOrHasGenericConditional`), so adding `TypeFlags::CONDITIONAL` to
+`UNDECIDABLE_HERE` — the constant that already vetoes `ANY`, `UNKNOWN` and the
+enum flags — would decline them.
+
+Measured, before and after:
+
+```
+CONVERTS 85 · LOST 1 · RIGHT 451 · WRONG 79     (identical)
+```
+
+**Not one line moved**, so the types reaching `pair_is_reportable` at those
+positions do not carry `CONDITIONAL`. Reverted.
+
+### What that rules out, which is the point of recording it
+
+The five cases are **not** available to a bound at the reporting site. They are
+`relate_ternary` answering a confident `NotRelated` where upstream relates —
+the relation being *wrong*, not undecided — and no veto list at the report can
+distinguish that from the cases where it is right.
+
+> **A veto constant can only decline what it can name.** `UNDECIDABLE_HERE`
+> works for `ANY` and the enums because those are flags on the type; "the
+> relation got this wrong" is not a flag, and there is no cheap proxy for it.
+> That is the same wall §9 hit on TS2339 and §186 on partial symbol tables,
+> reached from a third direction.
+
+`extraonly`'s remaining 27 therefore split into: **10 lines / 5 cases needing
+the relation itself** (`checker_types`), 13 parser-recovery lines across several
+constructs, 3 for an unimplemented harness directive (§212), and the rest
+individually diagnosed. **None of it is reachable from this workstream** without
+one of those four owners moving first — which is the same conclusion §172 and
+§177 reached for the *missing* column, now established for the *extra* column
+too.
