@@ -5389,3 +5389,18 @@ the container end that upstream still types normally (only flow
 AFTER the call truncates — the CALL node's position in the graph
 handles this by construction; if lines before the call move, the
 graph claim is wrong).
+
+**§128 MEASURED AND REFUSED at 4:13 — the naive never-truncation is
+WRONGER than no truncation, reverted byte-identical.** The arm
+(resolved signature's return is `never` → unreachableNeverType)
+converted 4 and broke 13, all in neverReturningFunctions1: reads
+where upstream keeps `string | number | undefined` and we answered
+`never`. The diagnosis pointer for the re-open: upstream reaches
+this through `getEffectsSignature`, NOT plain call resolution — its
+gates (single-signature callees, dotted-name typing WITHOUT flow,
+the explicit-return-type requirement, and which CALL nodes the
+binder even wires) are unread, and at least one of them excludes
+the majority of this fixture's calls. Read getEffectsSignature +
+the binder's createFlowCall conditions BEFORE the second attempt;
+the §127 asserts half survives unchanged (its pre-gate keeps the
+never road out).
