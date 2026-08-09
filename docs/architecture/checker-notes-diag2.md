@@ -22565,3 +22565,50 @@ have and §229 measured as the reason.
 The three unported sites are recorded above rather than left implicit, so a
 future session with `declareSymbol`'s behaviour in hand can price them without
 re-deriving the inventory.
+
+## §400 — the detector, corrected: sites **by file**, not by count
+
+§399 found that §377's list was ranked by the wrong key. §353's TS2353 read
+shows why in one line: all four of its "sites" are in `relater.go`, so the code
+has four sites and **zero** portable ones. Counting sites without naming their
+file is what made TS2300 top the list and TS2353 look live.
+
+The corrected detector, still one command:
+
+```
+for each code with blocked >= 4 and single >= 2:
+    grep -rn "diagnostics.<Message>" vendor/typescript-go/internal/
+    → count sites PER FILE
+    → a row whose files are only {relater.go} is dead to this workstream
+```
+
+```
+code     single blocked   upstream files
+TS2322      263     489   relater.go                      RELATION
+TS2345       69     109   checker.go, relater.go
+TS2339       60     103   checker.go ×12, jsx.go ×2, relater.go ×2
+TS2741       32      46   relater.go                      RELATION ONLY — dead
+TS2454       27      47   checker.go
+TS2353       21      33   checker.go, relater.go ×3
+TS2403       16      30   checker.go
+TS2304       16      21   checker.go, grammarchecks.go
+TS2411       15      25   checker.go
+TS2416       15      20   checker.go
+TS2394       15      16   checker.go
+TS2488        9      11   checker.go
+```
+
+> **`TS2741` is the finding worth carrying: 46 blocked cases, 32 of them
+> single-line, and nothing to build.** Every previous instrument ranks it near
+> the top — `diagslice` calls it *"yes — mostly single-line"*, `diagdeepen` calls
+> it UNDER-FIRES with 48 emits. Both are right, and the row is dead, because its
+> only upstream site is inside the structural walk. A session that trusted the
+> convertibility columns alone would have spent a build finding that out.
+
+**`TS2339` carries twelve `checker.go` sites** against this port's one rule.
+That is the largest unexplored surface the detector has produced, and §399's
+warning applies in reverse: twelve sites in the *right* file is a genuine
+inventory, not a count.
+
+Recorded as the ordering for the next session: **files first, then
+`diagslice` ∩ `diagdeepen`, then read the function.**
