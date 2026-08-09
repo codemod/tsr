@@ -22375,3 +22375,79 @@ guard is shared by every branch.
 > ever got written up when it paid, the next session would over-estimate its
 > hit rate. **Two of two functions read this way surfaced a neighbour; the
 > third did not.**
+
+## §395 — TS1156: a block-scoped declaration as a bare statement body
+
+Lead #1, next code. Three upstream sites, and this port emits TS1156 nowhere.
+
+```ts
+declare var x: any;
+if (x) using a = null;      // TS1156 — 'using' declarations can only be declared inside a block
+```
+
+`checkGrammarForDisallowedBlockScopedVariableStatement` plus
+`containerAllowsBlockScopedVariable` (`grammarchecks.go:1790`–`:1828`) is
+twenty-five lines and entirely syntactic:
+
+```go
+switch parent.Kind {
+case KindIfStatement, KindDoStatement, KindWhileStatement, KindWithStatement,
+     KindForStatement, KindForInStatement, KindForOfStatement:
+    return false
+case KindLabeledStatement:
+    return c.containerAllowsBlockScopedVariable(parent.Parent)
+}
+return true
+```
+
+`NodeFlags::BLOCK_SCOPED` already exists here (`flags.rs:87`, `LET | CONST |
+USING`), so the flag half needs nothing. The keyword argument is message text,
+which the suite does not compare, but it is written correctly anyway —
+`await using` is `USING` plus the statement's `await` modifier upstream, and
+this port reads the same two.
+
+### The bar
+
+```
+bar:  +2 of 4,  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **`{ let a = 1 }` reports.** A block is the legal container; only the seven
+   listed kinds are not.
+2. **`for (let i = 0; …)` reports.** The `for` *initialiser* is a declaration
+   list, not a `VariableStatement`, so it never reaches this rule — upstream's
+   seven kinds are about a statement in *body* position.
+
+## §396 — §395 built: **+2**, bar met
+
+```
+diagnostics   1,892 → 1,894   (bar was +2;  +2, 0 LOST)   34.51%
+every other suite unmoved — both falsifiers negative
+```
+
+### §377's list, five builds in
+
+```
+TS2661  §375  +1    a code's second upstream site
+TS1042  §377  +4    a nine-line function never ported
+TS7008  §379  +4    a rule dispatched from one node kind
+TS6133  §383  +2    a write counted as a read
+TS1156  §395  +2    a twenty-five-line grammar check never ported
+```
+
+`+13` from five reads of `internal/checker`, against `+24` from ten builds of
+predicate-widening. **Per build it is the better seam**, and it did not exist as
+a category before §375 because nothing in this port's own output points at it —
+`diagdeepen` calls all five "UNDER-FIRES", which is true and useless: four of
+them had no rule at the site at all.
+
+The detector remains one command, and **ten codes on §377's list are unworked**.
+
+> The thing worth carrying forward is not the list but why it works: **this port
+> is a transliteration in progress, so its gaps are shaped like *functions*, not
+> like *behaviours*.** Instruments that rank behaviour — every one built here —
+> are measuring the wrong unit for that class of gap. `grep -c` on a message
+> name is measuring the right one, which is why nine lines of shell found more
+> per build than six instruments did.

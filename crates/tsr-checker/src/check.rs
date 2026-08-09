@@ -234,6 +234,7 @@ impl Checker<'_, '_> {
                     || self.is_ambient_module_node(node)
             }
             Node::VariableStatement(statement) => {
+                self.check_block_scoped_statement_container(node);
                 ambient || has_modifier(statement.modifiers, SyntaxKind::DeclareKeyword)
             }
             Node::FunctionDeclaration(declaration) => {
@@ -886,6 +887,65 @@ impl Checker<'_, '_> {
                     return;
                 }
                 _ => {}
+            }
+        }
+    }
+
+    /// TS1156 — `'{0}' declarations can only be declared inside a block.`
+    ///
+    /// `checkGrammarForDisallowedBlockScopedVariableStatement` with
+    /// `containerAllowsBlockScopedVariable` (`grammarchecks.go:1790`, `:1814`).
+    /// Entirely syntactic: a `let`/`const`/`using` statement in the *body*
+    /// position of one of seven statement kinds, seen through any number of
+    /// labels.
+    ///
+    /// A `for` initialiser is a declaration *list*, not a `VariableStatement`,
+    /// so it never reaches here — the seven kinds are about body position. §395.
+    fn check_block_scoped_statement_container(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let Some(Node::VariableStatement(statement)) = self.node_map.get(node) else { return };
+        let Some(list) = statement.declaration_list.and_then(|l| l.node_id) else { return };
+        let flags = self.nodes.flags(list);
+        let keyword = if flags.contains(tsr_ast::NodeFlags::USING) {
+            if has_modifier(statement.modifiers, SyntaxKind::AwaitKeyword) {
+                "await using"
+            } else {
+                "using"
+            }
+        } else if flags.contains(tsr_ast::NodeFlags::CONST) {
+            "const"
+        } else if flags.contains(tsr_ast::NodeFlags::LET) {
+            "let"
+        } else {
+            return;
+        };
+        let mut parent = self.nodes.parent(node);
+        while let Some(container) = parent {
+            match self.nodes.kind(container) {
+                // `containerAllowsBlockScopedVariable` recurses through labels.
+                SyntaxKind::LabeledStatement => parent = self.nodes.parent(container),
+                SyntaxKind::IfStatement
+                | SyntaxKind::DoStatement
+                | SyntaxKind::WhileStatement
+                | SyntaxKind::WithStatement
+                | SyntaxKind::ForStatement
+                | SyntaxKind::ForInStatement
+                | SyntaxKind::ForOfStatement => {
+                    let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+                    let span = self.nodes.span(node);
+                    self.report(
+                        file,
+                        Diagnostic::with_args(
+                            &messages::_0_DECLARATIONS_CAN_ONLY_BE_DECLARED_INSIDE_A_BLOCK,
+                            span,
+                            [keyword.to_string()],
+                        ),
+                    );
+                    return;
+                }
+                _ => return,
             }
         }
     }
