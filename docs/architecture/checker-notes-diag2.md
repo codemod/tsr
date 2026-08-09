@@ -25156,3 +25156,86 @@ positions paid       §403 +4 · §436 +3 · §450 +3 · §454 +1 · §458 +5   
 position rejected    §460 TS2349 — types absent, no build spent
 domain extension     §338 −3, reverted
 ```
+
+## §463 — TS2417: a static member's *kind* changes
+
+§462 said a decline is about the argument that was tried. TS2417 was declined as
+the relation's; re-checked, its cases are not type comparisons at all — the
+fixture names say so:
+
+```
+inheritanceStaticFuncOverridingProperty
+inheritanceStaticAccessorOverridingMethod
+inheritanceStaticFuncOverridingAccessor
+```
+
+```ts
+class a { static x: string; }
+class b extends a { static x() { return "20"; } }   // TS2417 at `b`
+```
+
+**A method is never a property and an accessor is never either** — the mismatch
+is in the *declaration kind*, and no relation compares kinds. This is §407's
+`absent`-style argument one step over: not *is the member missing*, but *is it a
+different kind of thing*, and both are answered by the member list rather than
+by the type.
+
+### The bound
+
+Base and derived are each a single non-generic `ClassDeclaration`; a **static**
+member name appears in both; the two declarations differ in kind among
+{property, method, accessor}. Same-kind pairs decline — that is where the
+relation would be needed and where §405 measured `+0`.
+
+### The bar
+
+```
+bar:  +3 of 6,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **A same-kind static override reports.** `static x: string` over
+   `static x: number` is the relation's, and §405's row.
+2. **An *instance* member mismatch reports.** That is TS2416, a different code
+   with a different error node.
+
+## §464 — §463 built: **+4**, and the board passes **36%**
+
+```
+diagnostics   1,972 → 1,976   (bar was +3;  +4, 0 LOST)   36.01%
+every other suite unmoved — both falsifiers negative
+```
+
+### §462's lesson, paid twice in three builds
+
+```
+§461  TS2348  a row next to a declined one, different argument   +2
+§463  TS2417  a DECLINED row, different argument                 +4
+```
+
+§463 is the stronger case: TS2417 was on the refused pile as *"the relation's"*,
+and that was true of the comparison it names. It was not true of its **cases**,
+which are kind mismatches — a method against a property — and no relation
+compares declaration kinds.
+
+> **A row's owner is the owner of the *general* check; the corpus decides which
+> part of it the cases need.** Every refusal this session named a mechanism
+> honestly and several still hid rows, because the mechanism a code *can* need
+> and the mechanism its cases *do* need are different questions. The fixture
+> names alone said so here — `inheritanceStaticFuncOverridingProperty` is the
+> whole diagnosis, and it was sitting in `diagmissing`'s output the entire time.
+
+### The arguments that step around the relation, complete
+
+```
+absent            §407 TS2420 +5   a member declared nowhere
+singletons        §403 §436 §450 §454 §458          +16
+no upper bound    §456 TS2464 +3   an unconstrained type parameter
+not callable      §461 TS2348 +2   a class without `new`
+kind mismatch     §463 TS2417 +4   a method against a property
+```
+
+**+30 from five arguments, none of which consults the relation.** That is the
+session's largest single seam and it was opened by §407 asking whether *absent*
+needed a comparison at all.

@@ -207,6 +207,7 @@ impl Checker<'_, '_> {
                 ambient
             }
             Node::ClassDeclaration(declaration) => {
+                self.check_static_side_kind_mismatch(node);
                 self.check_extends_primitive(node);
                 self.check_implements_missing_member(node);
                 // `declare class C { x: number }` puts every member in an
@@ -1472,6 +1473,99 @@ impl Checker<'_, '_> {
                 [printed],
             ),
         );
+    }
+
+    /// TS2417 — `Class static side '{0}' incorrectly extends base class static
+    /// side '{1}'.`
+    ///
+    /// The **kind-mismatch** subset: a static member declared as a property in
+    /// one class and a method or accessor in the other. A method is never a
+    /// property, and no relation compares declaration kinds — §407's `absent`
+    /// argument one step over. Same-kind pairs decline; that is where the
+    /// relation would be needed and where §405 measured `+0`. §463.
+    fn check_static_side_kind_mismatch(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let Some(Node::ClassDeclaration(class)) = self.node_map.get(node) else { return };
+        if !class.type_parameters.is_empty() {
+            return;
+        }
+        let Some(name_id) = class.name.and_then(|name| name.node_id) else { return };
+        let Some(extends) = class
+            .heritage_clauses
+            .iter()
+            .find(|clause| clause.token.kind == SyntaxKind::ExtendsKeyword)
+        else {
+            return;
+        };
+        let [base] = extends.types else { return };
+        if !base.type_arguments.is_empty() {
+            return;
+        }
+        let Some(expression) = base.expression.and_then(|e| e.node_id()) else { return };
+        let Some(text) = self.identifier_text(expression).map(str::to_string) else { return };
+        let Some(symbol) = self.binder.resolve_name(
+            self.nodes,
+            self.node_map,
+            expression,
+            &text,
+            SymbolFlags::TYPE,
+        ) else {
+            return;
+        };
+        let declarations =
+            self.binder.symbols().get(self.binder.merged_symbol(symbol)).declarations.clone();
+        let [declaration] = declarations.as_slice() else { return };
+        let Some(Node::ClassDeclaration(base_class)) = self.node_map.get(*declaration) else {
+            return;
+        };
+        if !base_class.type_parameters.is_empty() {
+            return;
+        }
+        let kinds = |members: &[tsr_ast::ClassElement<'_>]| -> Vec<(String, u8)> {
+            members
+                .iter()
+                .filter_map(|member| {
+                    let (name, kind, modifiers) = match member {
+                        tsr_ast::ClassElement::PropertyDeclaration(p) => (p.name, 0u8, p.modifiers),
+                        tsr_ast::ClassElement::MethodDeclaration(m) => (m.name, 1, m.modifiers),
+                        tsr_ast::ClassElement::GetAccessorDeclaration(a) => {
+                            (a.name, 2, a.modifiers)
+                        }
+                        tsr_ast::ClassElement::SetAccessorDeclaration(a) => {
+                            (a.name, 2, a.modifiers)
+                        }
+                        _ => return None,
+                    };
+                    if !has_modifier(modifiers, SyntaxKind::StaticKeyword) {
+                        return None;
+                    }
+                    let tsr_ast::PropertyName::Identifier(name) = name else { return None };
+                    Some((name.text.to_string(), kind))
+                })
+                .collect()
+        };
+        let base_kinds = kinds(base_class.members);
+        for (name, kind) in kinds(class.members) {
+            let Some((_, base_kind)) = base_kinds.iter().find(|(other, _)| *other == name) else {
+                continue;
+            };
+            if *base_kind == kind {
+                continue;
+            }
+            let Some(file) = self.source_file_of_for_diagnostics(name_id) else { return };
+            let span = self.error_span(name_id);
+            self.report(
+                file,
+                Diagnostic::with_args(
+                    &messages::CLASS_STATIC_SIDE_0_INCORRECTLY_EXTENDS_BASE_CLASS_STATIC_SIDE_1,
+                    span,
+                    [String::new(), String::new()],
+                ),
+            );
+            return;
+        }
     }
 
     fn check_this_in_module_body(&mut self, node: NodeId) {
