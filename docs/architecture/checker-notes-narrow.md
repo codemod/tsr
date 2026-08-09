@@ -3278,3 +3278,16 @@ refactor unlocks it. **+28 net (29 W→R against 1 R→G, 29:1)**
 (`genericRestParameters1` 15, `readonlyRestParameters` 5).
 
 **§88 score — LANDED.** right 404,444 → **404,472 (84.47%)**.
+
+## §88.1 — variadic rest expansion, written reuse still winning
+
+The variadic half of §88, resolved lazily from §87's node: `...args:
+[number, boolean, ...string[]]` prints `args_0: number, args_1:
+boolean, ...args: string[]` when no written annotation rides the
+parameter. The ungated first cut (12 R→W) taught the split: rows
+110/115 keep `typeof t2` because the ANNOTATION signature's parameter
+carries written reuse; row 111's expanding want is the ARROW VALUE's
+fresh signature — two types, two prints, no site-sensitivity needed.
+**+22, ZERO adverse** (`genericRestParameters2` 20).
+
+**§88.1 score — LANDED.** right 404,472 → **404,494 (84.48%)**.

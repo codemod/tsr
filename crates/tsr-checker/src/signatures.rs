@@ -2192,6 +2192,56 @@ impl<'a> Checker<'a, '_> {
             // rest keeps its reuse (rows 39/44 fired against the ungated
             // arm); the VARIADIC want that expands OVER written (row 111)
             // is the tail family, blocked on the immutable renderer.
+            // §88.1: the VARIADIC half — a rest over `[number, boolean,
+            // ...string[]]` expands to `args_0: number, args_1: boolean,
+            // ...args: string[]`. Written reuse still wins (rows 110/115
+            // keep `typeof t2` — row 111's expanding want is the ARROW
+            // VALUE's fresh signature, not the annotation's). Resolved
+            // lazily from §87's recorded node.
+            if parameter.rest
+                && parameter.written_text.is_none()
+                && let Some(&tuple_node) = self.tuple_rest_tails.get(&parameter.r#type)
+                && let Some(tsr_ast::Node::TupleTypeNode(tuple)) = self.node_map.get(tuple_node)
+                && let [prefix @ .., tsr_ast::TypeNode::RestTypeNode(_)] = tuple.elements
+                && !prefix.is_empty()
+            {
+                let prefix: Vec<tsr_ast::TypeNode> = prefix.to_vec();
+                let mut pieces = Vec::with_capacity(prefix.len() + 1);
+                let mut clean = true;
+                for (position, member) in prefix.iter().enumerate() {
+                    let resolved = self.get_type_from_type_node(*member);
+                    if resolved == self.intrinsics.error {
+                        clean = false;
+                        break;
+                    }
+                    pieces.push(format!(
+                        "{}_{position}: {}",
+                        parameter.name,
+                        render(self, resolved)
+                    ));
+                }
+                if clean {
+                    let tail = match self.node_map.get(tuple_node) {
+                        Some(tsr_ast::Node::TupleTypeNode(tuple)) => match tuple.elements.last() {
+                            Some(tsr_ast::TypeNode::RestTypeNode(rest)) => rest.r#type,
+                            _ => None,
+                        },
+                        _ => None,
+                    };
+                    if let Some(tail) = tail {
+                        let resolved = self.get_type_from_type_node(tail);
+                        if resolved != self.intrinsics.error {
+                            pieces.push(format!(
+                                "...{}: {}",
+                                parameter.name,
+                                render(self, resolved)
+                            ));
+                            out.push_str(&pieces.join(", "));
+                            continue;
+                        }
+                    }
+                }
+            }
             if parameter.rest
                 && parameter.written_text.is_none()
                 && let Some((elements, _)) = self.tuple_element_lists.get(&parameter.r#type)
