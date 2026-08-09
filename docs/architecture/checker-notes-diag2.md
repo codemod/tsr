@@ -15973,3 +15973,117 @@ first match and deletes the rest silently. The tell is always
 
 **Grep the dispatch for the node kind before adding an arm to it.** One `grep`
 would have caught all three.
+
+## §245 — TS2323, duplicate exported names
+
+`checkExternalModuleExports` (`checker.go:5693`), reached from `checkSourceFile`
+(`:2209`) and from the namespace path (`:5661`). A self-contained loop over one
+module's export table:
+
+```go
+for id, symbol := range c.getExportsOfModule(moduleSymbol) {
+    if id == InternalSymbolNameExportStar { continue }
+    // TS exceptions: namespaces, function overloads, enums, and interfaces
+    if symbol.Flags&(Namespace|Enum) != 0 { continue }
+    count := CountWhere(symbol.Declarations, func(d) bool {
+        return isNotOverload(d) && !IsAccessor(d) && !IsInterfaceDeclaration(d) })
+    if symbol.Flags&TypeAlias != 0 && count <= 2 { continue }   // alias + merged value
+    if count > 1 && !every(...JSDeclarationKindExportsProperty) {
+        for _, declaration := range symbol.Declarations {
+            if isNotOverload(declaration) {
+                c.error(declaration, Cannot_redeclare_exported_variable_0, id)
+```
+
+with
+
+```go
+func isNotOverload(node) bool {
+    return !IsFunctionDeclaration(node) && !IsMethodDeclaration(node) || node.Body() != nil
+}
+```
+
+Four exemptions and each is load-bearing: **namespaces and enums merge by
+design**, **overloads are one declaration wearing several hats**, **accessors
+come in pairs**, and a **type alias plus one merged value is legal** — which is
+why the alias case tests `<= 2` rather than `<= 1`.
+
+### It reports on every declaration, not on the second one
+
+The inner loop is over `symbol.Declarations` again. Two conflicting `export var
+x` produce **two** diagnostics, and §152's multiset comparison means reporting
+one is as wrong as reporting three.
+
+### Dispatch checked first (§244)
+
+`grep` for the node kinds this needs: `Node::SourceFile` has **no** arm in the
+main dispatch, `Node::ModuleDeclaration` has two (`check.rs:230` and `:448`).
+The file-level call goes in `check_source_file` beside `report_merge_conflicts`,
+which is already program-scoped for the same reason.
+
+### The bar
+
+```
+bar:  +5 cases of 8,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **A function with overloads reports.** `isNotOverload` is the guard; without
+   it every overloaded export in the corpus reports.
+2. **A `get`/`set` pair reports.** Accessors are excluded from the count.
+3. **`checker_types` moves.**
+
+## §246 — §245 reverted, and the binder divergence it found
+
+Three bounds, three measurements, net negative throughout. Reverted.
+
+```
+no bound              diagnostics 1,674 → 1,670   CONVERTS 5 · LOST 9 · RIGHT 34 · WRONG 47
+skip `default`                    →     1,672   CONVERTS 2 · LOST 4 · RIGHT 20 · WRONG 24
++ skip binder-reported symbols    →     1,672   unchanged
+```
+
+### The mechanism, read off two baselines rather than guessed
+
+`duplicateDefaultExport` wants **TS2528 alone**; `exportInterfaceClassAndValue`
+wants **TS2451 alone**. In both, this port emitted the right diagnostic *and*
+TS2323 on top of it.
+
+Upstream's loop needs no guard against either, and the reason is one line of
+`declareSymbol`:
+
+> **On an exclusion conflict upstream gives the offending declaration a *fresh
+> symbol*; this port's binder merges it into the existing one.**
+
+So upstream's export-table entry carries only the declarations that merged
+cleanly and `exportedDeclarationsCount` never reaches two. Ours carries all of
+them, and every name the binder has already complained about looks like a
+duplicate export to this rule.
+
+**That is not a TS2323 bug.** It is a structural difference in what a symbol's
+`declarations` list *means* in the two ports, and TS2323 is simply the first
+rule to read that list for a count rather than for lookup.
+
+### Why the third bound changed nothing
+
+Filtering on `binder.merge_conflicts()` was the principled version of the
+`default` hack — skip any symbol the binder already reported. It moved **zero
+lines**, so those symbols are not in that table: it holds the *cross-file* merges
+§159 built it for, and TS2451 here is reported by a different path.
+
+Two of three bounds were no-ops. Both are on the record.
+
+### Refused, with an owner worth more than the row
+
+**TS2323, 8 cases — refused.** Owner: **`declareSymbol`'s fresh-symbol-on-conflict
+behaviour** (upstream `binder.go:202`), which this port does not reproduce.
+
+Worth stating plainly because it is not local to this rule: *any* future rule
+that counts a symbol's declarations, rather than looking one up, will read a
+list this port assembles differently from upstream. TS2323 is the first to do
+it. It will not be the last.
+
+> **A refusal that names a divergence in shared infrastructure is worth more
+> than the eight cases that found it.** The three prior refusals this session
+> (§226 TS2335, §237 TS2303, this) each named a *rule's* blocker; this one names
+> a **data-model** difference that every counting rule will meet.
