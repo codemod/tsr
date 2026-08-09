@@ -23020,7 +23020,13 @@ The detector's rule should be: **`relater.go`-only marks a row dead *unless this
 port already emits the code*.** `diagdeepen` answers that in the column beside
 it — TS2741 shows **48 emits** — and the two instruments disagreeing was the
 signal I read past.
-## §400 — `symbolIsValue`'s alias half, and 1,384 TS2339 on a barrel module
+## §400b — `symbolIsValue`'s alias half, and 1,384 TS2339 on a barrel module
+
+> **Renumbered from §400 on landing.** Two workstreams appended a §400 to this
+> file within minutes of each other and `git` merged both cleanly, because
+> appended sections never textually conflict. This one is the `.types`
+> workstream's; §400 above is the `diagnostics` workstream's. The content is
+> untouched — only the heading is disambiguated. See §413.
 
 `import * as P from "./parts"; P.Root` reported *"Property 'Root' does not
 exist"* for every member of every module whose exports are written as
@@ -23195,3 +23201,32 @@ is now worth stating together:
 All three look identical from the board. The discriminators are, in order: a
 fixture read, `grep -n "<rule>(node"`, and reading the **call chain upward**
 until something decides.
+
+## §413 — two workstreams, one numbering space
+
+`git rebase` stopped on `checker-notes-diag2.md` for the first time in this
+session, and the conflict was not a disagreement — both workstreams had appended
+a section at the end of the file, and both had numbered it **§400**.
+
+The `.types` workstream's has been renumbered to **§400b** in place, with a note
+at its head. Its content is untouched.
+
+> **Append-only files do not conflict, which is exactly why their numbering
+> does.** Every previous cross-workstream collision this session was a *code*
+> conflict — `assertions.rs`'s identical match arms, `checker.rs`'s `#[must_use]`
+> placement — and `cargo` caught each one. A duplicated section number compiles,
+> merges, and passes every gate; `cargo run -p xtask -- anchors` checks upstream
+> references and `issue-ids` checks `bd` citations, and **neither checks that
+> section numbers are unique**.
+
+### The rule, going forward
+
+The two workstreams already keep separate task files (`TASK.md`,
+`TASK-diagnostics.md`) and separate status rows. They should keep separate
+**note files** for the same reason. Until that split happens, a section number
+is not a stable anchor for a cross-reference, and the safe citation form is the
+section *title*, which is unique.
+
+Not fixed here beyond the rename: splitting the file is the other workstream's
+call as much as this one's, and doing it unilaterally mid-session would break
+every `§N` cross-reference in both.
