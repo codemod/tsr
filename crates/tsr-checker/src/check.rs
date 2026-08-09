@@ -589,6 +589,9 @@ impl Checker<'_, '_> {
         ) {
             self.check_implicit_any_signature_return(node, ambient);
         }
+        if matches!(typed, Node::FunctionDeclaration(_) | Node::MethodDeclaration(_)) {
+            self.check_empty_body_returns_value(node);
+        }
         if matches!(typed, Node::ExportAssignment(_)) {
             self.check_export_assignment_alone(node);
         }
@@ -1124,6 +1127,56 @@ impl Checker<'_, '_> {
                 );
             }
         }
+    }
+
+    /// TS2355 — `A function whose declared type is neither 'undefined', 'void',
+    /// nor 'any' must return a value.`
+    ///
+    /// The **empty-body subset** of `checkAllCodePathsInNonVoidFunctionReturnOrThrow`.
+    /// The general check is `functionHasImplicitReturn`, which is reachability
+    /// and this port's standing refusal; an empty body has no statements, so
+    /// "does control reach the end" is not a question — it does, and no flow
+    /// graph is consulted. The error node is the **return annotation**. §440.
+    fn check_empty_body_returns_value(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let (annotation, body, modifiers, asterisk) = match self.node_map.get(node) {
+            Some(Node::FunctionDeclaration(f)) => (f.r#type, f.body, f.modifiers, f.asterisk_token),
+            Some(Node::MethodDeclaration(m)) => (m.r#type, m.body, m.modifiers, m.asterisk_token),
+            _ => return,
+        };
+        if asterisk.is_some() || has_modifier(modifiers, SyntaxKind::AsyncKeyword) {
+            return;
+        }
+        let Some(annotation) = annotation else { return };
+        let Some(annotation_id) = annotation.node_id() else { return };
+        // Upstream's exclusion list, which the message itself names.
+        if let Some(Node::KeywordTypeNode(keyword)) = self.node_map.get(annotation_id)
+            && matches!(
+                keyword.kind,
+                SyntaxKind::VoidKeyword
+                    | SyntaxKind::AnyKeyword
+                    | SyntaxKind::UndefinedKeyword
+                    | SyntaxKind::NeverKeyword
+            )
+        {
+            return;
+        }
+        let Some(body) = body.and_then(|body| body.node_id()) else { return };
+        let Some(Node::Block(block)) = self.node_map.get(body) else { return };
+        if !block.statements.is_empty() {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(annotation_id) else { return };
+        let span = self.nodes.span(annotation_id);
+        self.report(
+            file,
+            Diagnostic::new(
+                &messages::A_FUNCTION_WHOSE_DECLARED_TYPE_IS_NEITHER_UNDEFINED_VOID_NOR_ANY_MUST_RETURN_A_VALUE,
+                span,
+            ),
+        );
     }
 
     fn check_this_in_module_body(&mut self, node: NodeId) {

@@ -24254,3 +24254,86 @@ TS2417, TS18014   unworked
 hundred builds before the refresh. That ratio is the argument for §433's rule
 and the reason it is stated as a threshold rather than a habit: **re-run
 `diagslice` after any build moving the board by more than about five.**
+
+## §440 — TS2355: the empty-body subset
+
+§415's rule applied to a standing refusal. TS2355 was declined with the owner
+*"`functionHasImplicitReturn` is reachability"* — true of the general check, and
+the corpus's cases do not need it:
+
+```ts
+function A(): (public B) => C {
+}                                   // TS2355 at the return annotation
+
+class Bug { public foo():string {
+} }                                 // same
+```
+
+**An empty body has no statements, so "does control reach the end" is not a
+question** — it does, trivially, and no flow graph is consulted to know it.
+
+### The bound
+
+- a `FunctionDeclaration` or `MethodDeclaration` whose body is present and whose
+  statement list is **empty**;
+- a **written** return annotation that is not `void`, `any`, `undefined` or
+  `never` — upstream's own exclusion list, and the reason the message names
+  those three;
+- not `async` and not a generator: both wrap the annotation in `Promise`/
+  `Generator` and upstream asks about the *awaited* or *yielded* type, which is
+  a different question this does not attempt.
+
+The error node is the **return annotation**, not the name:
+`missingReturnStatement` expects column 22 of `public foo():string {`, which is
+`string`.
+
+### The bar
+
+```
+bar:  +4 of 7,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **`function f(): void {}` reports.** The exclusion list is upstream's first
+   test.
+2. **A body with any statement reports.** Only the empty list is decidable
+   without reachability — `{ if (x) return 1; }` is exactly the case
+   `functionHasImplicitReturn` exists for.
+
+## §441 — §440 built: **+4**, bar met. A refusal reopened correctly
+
+```
+diagnostics   1,945 → 1,949   (bar was +4;  +4, 0 LOST)   35.51%
+every other suite unmoved — both falsifiers negative
+```
+
+TS2355 had been refused since §? with the owner *"`functionHasImplicitReturn` is
+reachability"*. That refusal was **correct and is still correct** for the general
+check; what it did not say — because nobody had asked — is that seven of its
+cases have **empty bodies**, where reachability is not a question at all.
+
+### The refusal-reopening tally
+
+Five standing refusals have now been reopened by reading their *reason* rather
+than their verdict:
+
+```
+§393  TS2683's refusal → TS2331          +2
+§415  TS2411's refusal → TS2678 bound    +1
+§416  TS2683 itself, via a comment       +9
+§426  TS2503's deferral → TS2749         +2
+§440  TS2355's refusal → empty bodies    +4
+```
+
+**+18 from refusals this session**, and the mechanism was identical every time:
+the note recorded *what made the general case undecidable*, and that sentence
+delimits the decidable remainder. A note reading "owner: the relation" would
+have produced none of them.
+
+> **The value of a refusal is proportional to how specifically it states what it
+> cannot do.** That is a testable claim about documentation practice and this
+> session is five data points for it. It also predicts where the technique stops
+> working: **refusals naming a whole subsystem** — §412's "the relation's
+> trigger", §424's "the type-side representation" — have been reopened **zero**
+> times, because a subsystem name delimits nothing.
