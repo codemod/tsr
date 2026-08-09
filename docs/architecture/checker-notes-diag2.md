@@ -22068,3 +22068,49 @@ every other suite unmoved — both falsifiers negative
 That sweep is stated with §381's caveat attached: it finds candidates, and the
 semantic condition — *does upstream report for the other variant here* — is what
 turns one into a defect.
+
+## §387 — §386's sweep run: fourteen candidates, none yet a defect
+
+```
+grep -rn "Name::Identifier(.*) = .* else" crates/tsr-checker/src/
+```
+
+Fourteen sites, across five `…Name` enums:
+
+```
+nonexistent_property.rs:53   MemberName        TS2339
+call_arity.rs:437            MemberName        TS2554/TS2555
+check.rs:3775                MemberName        TS2729
+flow.rs:888, :901            MemberName        narrowing
+check.rs:1774, :4030         BindingName       TS2454, TS2480
+index_signatures.rs:233      BindingName       TS1096 family
+declared.rs:619, :662        PropertyName      declared members
+declared.rs:459              EntityName        type resolution
+symbols.rs:949, :990         ModuleExportName  export resolution
+```
+
+**None is promoted to a defect here**, and that is §381's rule being obeyed
+rather than a shortage of nerve: the sweep is syntactic, and the condition that
+makes one of these a bug — *does upstream report for the other variant at this
+position* — has to be checked per site against `internal/checker`. Three of the
+fourteen were already checked this session and two paid (§379, §385); the
+remaining eleven are one `grep` each.
+
+The two most likely, with their reasons, so the next session starts from a
+hypothesis rather than the list:
+
+- **`nonexistent_property.rs:53`** carries TS2339, the largest under-firing row
+  on the board (103 blocked). A `this.#nope` is a real shape. The reason to be
+  careful is that most of TS2339's 103 are relation-owned, so the *row* being
+  large says nothing about *this arm*.
+- **`check.rs:1774`** is inside `check_used_before_its_declaration`, whose
+  `BindingName::Identifier` decline means `let [a] = …; a;` before the
+  declaration is silent. TS2448 already paid once this session (§353).
+
+### Why this is recorded rather than built
+
+The session is 86 builds deep and the last four rows have been one-arm
+widenings worth `+1` each. Starting a speculative one at the tail — with no
+semantic check done, on a rule whose row is 103 cases of mostly-relation work —
+is how §368's `−2` happened. **The list plus two hypotheses is a better handoff
+than a coin-flip build**, and the sweep itself was the deliverable.
