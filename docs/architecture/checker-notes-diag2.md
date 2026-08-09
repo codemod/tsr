@@ -14183,3 +14183,48 @@ Honouring `@link` needs three things, and the third is the reason it stops here:
 
 A VFS build for **one case**, against a directive the pinned upstream also
 ignores. Filed rather than built.
+
+## §213 — `validRegexp`'s standing-LOST diagnosis is wrong: the parser is right now
+
+`TASK-diagnostics.md` has carried this for many sessions:
+
+> **`compiler/validRegexp`** — an extra TS2304. The parser reads an ambiguous
+> `/` as division, so the regex body parses as identifiers. Owner:
+> `tsr_parser`.
+
+Measured:
+
+```
+expected  validRegexp.ts(1,24) TS1005
+actual    validRegexp.ts(1,24) TS1005  +  (1,24) TS2304
+```
+
+**The parser is not reading `/` as division.** If it were, `/ [a - z /]$ /`
+would yield several identifiers and several TS2304s; there is exactly one, and
+the TS1005 lands at upstream's own column. `Scanner::rescan_as_regular_expression`
+(`lib.rs:1027`) exists, is called from `parse_primary_expression` on `/` and
+`/=`, and tracks `in_class` so the `/` inside `[a - z /]` does not terminate the
+literal. The literal is scanned correctly; the space before `i` ends the flags,
+and `i` becomes a statement of its own — which is upstream's reading too, since
+upstream also reports `';' expected` there.
+
+**What is left is one TS2304 on that `i`, and its owner is a decision, not a
+defect.** TS2304 deliberately carries **no** parse-error gate: §40.3 deleted it
+for +6, §50.1 re-measured at −6, and §79 converted three recovered trees with it
+absent. *Absent is right for TS2304* — and this line is what absent costs.
+
+### Why the wrong attribution survived
+
+The entry named a plausible mechanism at a time when it may well have been
+true, and nothing re-ran it after `rescan_as_regular_expression` landed. It is
+in the **standing LOST** list, which is the one section of the handoff explicitly
+described as *"a rule's existing loss reads as furniture"* — and furniture is
+not re-measured.
+
+> **A standing-loss list needs the same re-measurement discipline as a refusal.**
+> §194 established that a refusal must record what it was measured *through*;
+> a carried loss is a refusal with the bar left off, and this one outlived its
+> cause by an unknown number of sessions.
+
+The entry is corrected in `TASK-diagnostics.md` rather than deleted, per the
+project's rule about superseding.

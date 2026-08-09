@@ -463,9 +463,16 @@ TS2540      12         9
 as furniture. All three below are also `extraonly.rs` entries — each is **one
 false positive from passing** — and all three are diagnosed:
 
-- **`compiler/validRegexp`** — an extra TS2304. The parser reads an ambiguous
+- **`compiler/validRegexp`** — an extra TS2304. ~~The parser reads an ambiguous
   `/` as division, so the regex body parses as identifiers. Owner:
-  `tsr_parser`.
+  `tsr_parser`.~~ **CORRECTED, §213: the parser is right.**
+  `Scanner::rescan_as_regular_expression` exists, is wired, and tracks
+  character classes, so the literal scans correctly and the TS1005 lands at
+  upstream's own column. The single remaining TS2304 is on the trailing `i`,
+  and its owner is **TS2304's deliberate absence of a parse-error gate**
+  (§40.3 +6, §50.1 −6, §79 *absent is right*) — a measured decision, not a
+  defect. **A standing loss is a refusal with the bar left off; re-measure this
+  list the way §194 says to re-measure a refusal.**
 - **`conformance/resolutionModeTripleSlash1` and `3`** — extra TS2304 on
   `MODULE`. `/// <reference types="foo" />` against an `@types` package whose
   `exports` map sends `import` to `.d.mts` and `require` to `.d.cts`; the port
