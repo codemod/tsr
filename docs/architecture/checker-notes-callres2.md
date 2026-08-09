@@ -50,3 +50,25 @@ its own bar and counterfactual:
 
 Slice 1 is the next bar; its population is measurable tonight
 (calls declining today solely on `signatures.len() > 1`).
+
+## The slices' ceilings, measured (callgate at 85.29%)
+
+The funnel's admitted 5,821 lines stop at, by slice ownership:
+- **Slice 3 (per-candidate inference): 1,829** — "inference
+  gapped", the single largest stop in the whole funnel; plus 85
+  "generic, to inference". This is the summit.
+- **Slice 1 (arity-discriminated selection): 547 + 113** — "a
+  generic candidate in the set" (multi-candidate sets declining
+  whole today) and "ambiguous: matches with different returns";
+  slice 1 converts the subset whose arity discriminates to a
+  single non-generic candidate — the rest waits for slices 2-3.
+- **Slice 2 (the two-pass skip)**: unlabeled here — its population
+  is inside slice 3's 1,829 (context-sensitive arguments gapping
+  inference); measure it when slice 3's design fixes the boundary.
+- Adjacent-owner rows, NOT this subsystem's: "callee type is not
+  an object type" 617 (the §115-era new-side gate), "identifier:
+  symbol types as a non-object" 484, "an any parameter" 299 (the
+  §112 const-family), relation-gated 212 (the ADR-0039 ceiling
+  family).
+Ceilings are populations, not conversions — the §-standard
+counterfactual discipline applies per slice.
