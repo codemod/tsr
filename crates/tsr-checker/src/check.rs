@@ -239,6 +239,7 @@ impl Checker<'_, '_> {
                     || self.is_ambient_module_node(node)
             }
             Node::VariableStatement(statement) => {
+                self.check_modifier_on_nested_statement(node);
                 self.check_block_scoped_statement_container(node);
                 ambient || has_modifier(statement.modifiers, SyntaxKind::DeclareKeyword)
             }
@@ -1790,6 +1791,34 @@ impl Checker<'_, '_> {
                 span,
             ),
         );
+    }
+
+    /// TS1184 — `Modifiers cannot appear here.`
+    ///
+    /// `findFirstIllegalModifier`'s **default** arm (`grammarchecks.go:614`): a
+    /// modifier is legal on a statement only at the top level of a file or a
+    /// module block. Bounded to a `VariableStatement`, which has no permitted
+    /// modifier at all — the arm's other sub-cases keep one each (`async` on a
+    /// function, `abstract` on a class) and need `findFirstModifierExcept`.
+    /// §474.
+    fn check_modifier_on_nested_statement(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let Some(Node::VariableStatement(statement)) = self.node_map.get(node) else { return };
+        let Some(tsr_ast::ModifierLike::Token(first)) = statement.modifiers.first() else {
+            return;
+        };
+        let legal = self.nodes.parent(node).is_some_and(|parent| {
+            matches!(self.nodes.kind(parent), SyntaxKind::ModuleBlock | SyntaxKind::SourceFile)
+        });
+        if legal {
+            return;
+        }
+        let Some(id) = first.node_id else { return };
+        let Some(file) = self.source_file_of_for_diagnostics(id) else { return };
+        let span = self.nodes.span(id);
+        self.report(file, Diagnostic::new(&messages::MODIFIERS_CANNOT_APPEAR_HERE, span));
     }
 
     fn check_this_in_module_body(&mut self, node: NodeId) {

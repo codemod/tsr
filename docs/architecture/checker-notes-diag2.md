@@ -25580,3 +25580,80 @@ rather than a guess (§421, §444, §473).
 > **upstream's message catalogue**, which is the one artefact that describes
 > behaviour this port has not written yet. §444 predicted exactly this: sweeps
 > over upstream terminate and pay; sweeps over the port go stale.
+
+## §474 — TS1184: a modifier on a statement inside a block
+
+The broadened message search (§473's finding: **upstream's catalogue is the seam
+that pays**) surfaced five new candidates. Largest first. **TS1184: 5 blocked,
+`occupied 0/7`.**
+
+```ts
+export function foo() {
+   export var x = this;   // TS1184 at `export`
+}
+```
+
+`findFirstIllegalModifier` (`grammarchecks.go:587`)'s **default** arm:
+
+```go
+default:
+    if node.Parent.Kind == ast.KindModuleBlock || node.Parent.Kind == ast.KindSourceFile {
+        return nil
+    }
+```
+
+A modifier is legal on a statement only at the top level of a file or a module
+block. Inside a function body — a plain `Block` — it is not, and the three
+`parserModifierOnStatementInBlock*` fixtures are exactly that.
+
+### The bound
+
+A `VariableStatement` carrying modifiers whose parent is neither `ModuleBlock`
+nor `SourceFile`. The default arm's other sub-cases — a `FunctionDeclaration`
+may keep `async`, a `ClassDeclaration` `abstract` — are **not** attempted: they
+need `findFirstModifierExcept`, and a variable statement has no permitted
+modifier at all, which is what makes this half free.
+
+### The bar
+
+```
+bar:  +3 of 5,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **A top-level `export var x` reports.** `SourceFile` parent is the exemption.
+2. **`export var x` in a `namespace` reports.** `ModuleBlock` is the other.
+
+## §475 — §474 built: **+2** of a bar of +3
+
+```
+diagnostics   1,988 → 1,990   (bar was +3;  +2, 0 LOST)   36.26%
+every other suite unmoved — both falsifiers negative
+```
+
+Kept. The other two cases carry modifiers on kinds the bound excludes —
+`findFirstModifierExcept`'s territory, where a function keeps `async` and a
+class keeps `abstract`.
+
+### The broadened search, first row
+
+§473 concluded that upstream's message catalogue is the seam that pays, and
+§474 tested it by widening the grep from *type restrictions* to **any syntactic
+prohibition**: `cannot appear`, `is not allowed`, `not permitted`, `duplicate`,
+`already`. Five new candidates, first one `+2`.
+
+```
+TS1184  §474  +2   modifiers on a nested statement
+TS1114   4 cases   Duplicate label
+TS1203   4 cases   Export assignment under ES modules
+TS1120   3 cases   An export assignment cannot have modifiers
+TS2337   3 cases   Super calls outside constructors  — §468's second arm
+```
+
+> **The message catalogue is a to-do list written by someone who finished the
+> job.** Every entry names a condition, and the ones this port has no rule for
+> are exactly the conditions it does not check. Three sweeps over it have now
+> paid `+12` and `+2`; the two sweeps over this port's own source paid zero.
+> **Search the artefact that describes the target, not the one that describes
+> the progress.**
