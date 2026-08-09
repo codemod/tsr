@@ -14135,3 +14135,51 @@ symbols carry no exports"*. §208 found the real cause — a missing
 `jsxNamespacePrefixInName` and its React variant — namespaced tag names, which
 §206 already recorded as an open question with the closing-element bound. They
 are unaffected by the pragma and stay filed.
+
+## §212 — `@link` is unimplemented on both sides, and the baseline is older than either
+
+`extraonly`'s three TS2307 lines are one case:
+
+```
+symbolLinkDeclarationEmitModuleNames
+  expected  monorepo/context/src/bindingkey.ts(3,12) TS2564
+  actual    …(1,29) TS2307 · usage.ts(2,28) TS2307 · application.ts(1,29) TS2307 + the TS2564
+```
+
+Three `Cannot find module '@loopback/context'`. The fixture's last line is
+
+```
+// @link: monorepo/context -> monorepo/node_modules/@loopback/context
+```
+
+### Neither runner acts on it
+
+- **This port**: `case.rs` handles `@symlink` and lets `@link` fall through to a
+  global option.
+- **typescript-go**: `test_case_parser.go:171` handles `@symlink` the same way,
+  and `harnessutil.go:401` assigns `harnessOptions.Link` — which is **read
+  nowhere in the repository**.
+
+So upstream-Go would report these too. **The baseline is inherited from the
+original TypeScript harness**, which does implement `@link`, and
+[ADR-0006](../adr/0006-conformance-oracle.md) makes the baseline the oracle
+regardless.
+
+> **A baseline can encode behaviour the pinned upstream does not have.** Every
+> divergence on this board has so far been *this port* against *typescript-go*;
+> this one is typescript-go against its own testdata. Worth knowing before the
+> next unexplained residue is attributed to a porting gap.
+
+### Priced, not built
+
+Honouring `@link` needs three things, and the third is the reason it stops here:
+
+1. parse `A -> B` into `TestCase::symlinks` — a few lines;
+2. resolve the direction (`symlinks` maps a link path to a unit);
+3. **make `program_for_case`'s VFS honour symlinks at all.** It does not:
+   `symlinks` has exactly one consumer in the whole workspace,
+   `trace_case.rs:310`, which is the module-resolution *trace* suite.
+   `module_resolution` (95/95) and `file_loader` (96/96) both pass without it.
+
+A VFS build for **one case**, against a directive the pinned upstream also
+ignores. Filed rather than built.
