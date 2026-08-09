@@ -803,14 +803,22 @@ impl Checker<'_, '_> {
     /// references, import specifiers — and a missing deny-list arm is a false
     /// positive while a missing allow-list arm is only a missed conversion.
     fn check_value_identifier(&mut self, node: NodeId, text: &str) {
-        // A file the parser could not read cleanly has a tree this port
-        // *recovered*, and upstream recovered a different one. Reporting an
-        // unresolvable name there is reporting about a program upstream never
-        // saw — see [`crate::checker::Checker::file_has_parse_errors`]. It was
-        // the single largest family in the residual: `jsxUnclosedParserRecovery`
+        // **This is a position test, not a parse-error test**, and the
+        // distinction cost a measurement to establish (§254).
+        //
+        // The family this guard was written for — `jsxUnclosedParserRecovery`
         // 21 lines, `arrowFunctionsMissingTokens` 15,
-        // `parserUnterminatedGeneric2` 8, and a long tail of `parserSkippedTokens`
-        // and conflict-marker cases.
+        // `parserUnterminatedGeneric2` 8, and a tail of `parserSkippedTokens`
+        // and conflict-marker cases — is handled by `is_value_reference`
+        // declining the *positions* a recovered tree invents, **not** by
+        // consulting [`crate::checker::Checker::file_has_parse_errors`].
+        //
+        // Adding a blanket `if self.file_has_parse_errors { return }` here was
+        // measured at **−14 cases**: upstream does check identifiers in a file
+        // that failed to parse, and reports TS2304 in plenty of them. The
+        // residue that remains — `validRegexp`'s `i` in
+        // `var x = / [a - z /]$ / i;` — is a *recovery* difference, and the
+        // owner is the parser, not this guard.
         if !self.is_value_reference(node) || is_specially_diagnosed_name(text) {
             return;
         }

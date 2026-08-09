@@ -16430,3 +16430,46 @@ checker_types  4,006 → 4,008   (+2)
 extraonly         22 → 18 lines
 every rail unmoved at 100%
 ```
+
+## §254 — a comment that described a guard the code does not have
+
+`check_value_identifier` opens with a comment about files the parser could not
+read cleanly, naming the family it was written for and pointing at
+`Checker::file_has_parse_errors`. **The function never consults that flag.**
+
+`validRegexp` is the row that exposed it. Upstream reports one diagnostic for
+`var x = / [a - z /]$ / i;`:
+
+```
+validRegexp.ts(1,24): error TS1005: ',' expected.
+```
+
+This port reports that *and* TS2304 for the `i`. The comment reads as though a
+parse-error guard should have caught it, so the guard was added and measured:
+
+```
+with `if self.file_has_parse_errors { return }`   diagnostics 1,688 → 1,674   (−14)
+```
+
+**Upstream checks identifiers in files that failed to parse, and reports TS2304
+in plenty of them.** The family the comment names was fixed by
+`is_value_reference` declining the *positions* a recovered tree invents — a
+position test, not a parse-error test — and the comment had drifted into
+describing a mechanism that was never there.
+
+> **A comment naming a flag the function does not read is worse than no comment:
+> it is an instruction to restore something that costs 14 cases.** This one had
+> survived every review because its *claim* — that recovered trees are dangerous
+> here — is true; only its account of how that is handled was wrong.
+
+Corrected in place, with the −14 recorded so the next reader does not re-buy it.
+
+`validRegexp`'s residue stays: it is a **recovery** difference (upstream expects
+`,` where this port accepts an identifier), and the owner is the parser.
+
+### What this says about the `extraonly` board
+
+Of its remaining 18 lines, **eleven are TS2322** and belong to the structural
+relation — the other workstream's, and explicitly not this one's to spend. The
+rest are one line each across seven cases, five of them parser recovery. The
+board is no longer a source of cheap conversions; §253 was the last one.
