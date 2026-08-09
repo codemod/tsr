@@ -305,6 +305,10 @@ pub struct Checker<'a, 'n> {
     /// **on**; each is a separately measurable change and `bd tsr-e10` names
     /// the optionality one.
     pub(crate) strict_null_checks: bool,
+    /// `noImplicitThis`, the fifth member of the strict family — the four
+    /// beside it were ported when their consumers arrived, and TS2683 is this
+    /// one's. §416.
+    pub(crate) no_implicit_this: bool,
     /// `compilerOptions.noUncheckedSideEffectImports`, read through upstream's
     /// `IsTrueOrUnknown` (`checker.go:5321`) — so the default here is `true`,
     /// matching an *unset* option rather than a `false` one.
@@ -720,6 +724,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             instantiation_depth: 0,
             instantiation_count: 0,
             strict_null_checks: true,
+            no_implicit_this: false,
             no_unchecked_side_effect_imports: true,
             no_unchecked_indexed_access: false,
             use_unknown_in_catch_variables: false,
@@ -820,6 +825,7 @@ impl<'a, 'n> Checker<'a, 'n> {
     pub fn apply_compiler_options(&mut self, options: &tsr_core::CompilerOptions) {
         // The strict family (`checker.go:919-926`).
         self.strict_null_checks = options.strict_option_value(options.strict_null_checks);
+        self.no_implicit_this = options.strict_option_value(options.no_implicit_this);
         self.strict_property_initialization =
             options.strict_option_value(options.strict_property_initialization);
         self.use_unknown_in_catch_variables =

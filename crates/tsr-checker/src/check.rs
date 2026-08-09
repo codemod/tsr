@@ -582,6 +582,7 @@ impl Checker<'_, '_> {
         // here rather than from a match arm. §392.
         if self.nodes.kind(node) == SyntaxKind::ThisKeyword {
             self.check_this_in_module_body(node);
+            self.check_implicit_this(node);
         }
         self.check_truthiness_sites(node, ambient);
         self.note_member_name_at(node);
@@ -867,6 +868,60 @@ impl Checker<'_, '_> {
     /// `expressions.rs:932` already states for `this`'s *type* — so
     /// `namespace M { var f = () => this }` reports, which is `topLevelLambda`.
     /// Every other function-like kind is opaque and stops the walk. §392.
+    /// TS2683 — `'this' implicitly has type 'any' because it does not have a
+    /// type annotation.`
+    ///
+    /// `checkThisExpression`'s `noImplicitThis` arm (`checker.go:12119`), which
+    /// fires when `tryGetThisTypeAtEx` answers `nil`. `expressions.rs:939`
+    /// records the exact shape where that happens and where this port already
+    /// answers `any`: a **plain function** rebinds `this`, and an arrow does
+    /// not. A `this` parameter is what upstream reads instead of falling
+    /// through, so a function that declares one declines. §416.
+    fn check_implicit_this(&mut self, node: NodeId) {
+        if self.file_has_parse_errors || !self.no_implicit_this {
+            return;
+        }
+        for ancestor in self.nodes.ancestors(node) {
+            let kind = self.nodes.kind(ancestor);
+            if kind == SyntaxKind::ArrowFunction {
+                continue;
+            }
+            let parameters = match self.node_map.get(ancestor) {
+                Some(Node::FunctionDeclaration(function)) => function.parameters,
+                Some(Node::FunctionExpression(function)) => function.parameters,
+                _ => {
+                    if self.is_function_like_or_static_block(ancestor)
+                        || matches!(
+                            kind,
+                            SyntaxKind::SourceFile
+                                | SyntaxKind::ClassDeclaration
+                                | SyntaxKind::ClassExpression
+                                | SyntaxKind::ModuleDeclaration
+                        )
+                    {
+                        return;
+                    }
+                    continue;
+                }
+            };
+            if parameters.iter().any(|parameter| {
+                matches!(parameter.name, Some(tsr_ast::BindingName::Identifier(name)) if name.text == "this")
+            }) {
+                return;
+            }
+            let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+            let span = self.nodes.span(node);
+            self.report(
+                file,
+                Diagnostic::new(
+                    &messages::THIS_IMPLICITLY_HAS_TYPE_ANY_BECAUSE_IT_DOES_NOT_HAVE_A_TYPE_ANNOTATION,
+                    span,
+                ),
+            );
+            return;
+        }
+    }
+
     fn check_this_in_module_body(&mut self, node: NodeId) {
         if self.file_has_parse_errors {
             return;

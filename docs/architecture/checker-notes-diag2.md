@@ -23310,3 +23310,98 @@ type prints empty. **The suite does not compare message text** (§152), so this
 costs nothing measurable — but it is a real gap in the output and is recorded
 rather than hidden: a user-facing build of this port would print
 `Type '' is not comparable to type '0'`.
+
+## §416 — TS2683: `this` in a plain function, under `noImplicitThis`
+
+§415's lesson applied to the next refusal. §392 declined TS2683 with the owner
+*"`tryGetThisTypeAtEx` returning `nil` under `noImplicitThis`"* — and that
+sentence names the buildable shape, because `expressions.rs:939` already says
+what this port answers there:
+
+> *"Opaque: a plain function rebinds `this` — to `any`, in every mode
+> (`tryGetThisTypeAtEx`'s fallthrough; TS2683 is a diagnostic under
+> `noImplicitThis`, not a type change)."*
+
+That comment was written as an explanation of a *type* decision and is, read
+back, a complete specification of the diagnostic: the exact shape where this
+port answers `any` is the exact shape where upstream's function returns `nil`.
+
+```ts
+// @noImplicitThis: true
+class C {
+  constructor() {
+    this.x = function() { return this.x; };   // TS2683 on the inner `this`
+  }
+}
+```
+
+### What has to be added
+
+`Checker` has no `no_implicit_this` field — `apply_compiler_options` ports four
+members of the strict family and this is the fifth. `CompilerOptions` already
+carries it (`options.rs:636`), so the addition is one field and one
+`strict_option_value` line.
+
+### The bound
+
+The `this`'s nearest **opaque** container is a `FunctionDeclaration` or
+`FunctionExpression` — arrows are transparent (§392 established that walk) — and
+that function declares **no `this` parameter**, which upstream reads to give
+`this` a type.
+
+### The bar
+
+```
+bar:  +3 of 15,  0 LOST,  WRONG delta <= +3
+```
+
+`occupied 3/32`, so the bar sits below the eight single-line cases.
+
+### Falsifiers
+
+1. **A method's `this` reports.** A method's container gives `this` the class
+   type; only plain functions fall through.
+2. **`function f(this: T) { this }` reports.** The `this` parameter is exactly
+   what upstream reads instead of falling through.
+
+## §417 — §416 built: **+9**, the session's largest
+
+```
+diagnostics   1,910 → 1,919   (bar was +3;  +9, 0 LOST)   34.97%
+every other suite unmoved — both falsifiers negative
+```
+
+Three times the bar, and it came out of a refusal written twenty-four sections
+earlier.
+
+### The chain, because it is the session's clearest case
+
+```
+§392   TS2683 refused. Owner recorded as "tryGetThisTypeAtEx returning nil
+       under noImplicitThis" — not "the this-type machinery".
+§415   A refusal's reason is a specification for the case that would survive it.
+§416   expressions.rs:939 already said WHERE this port answers `any`:
+       "a plain function rebinds `this` — to `any`, in every mode
+        (tryGetThisTypeAtEx's fallthrough; TS2683 is a diagnostic under
+        noImplicitThis, not a type change)."
+§417   +9.
+```
+
+That comment was written to explain a **type** decision. Read back, it is a
+complete specification of the **diagnostic**: the shape where this port answers
+`any` is the shape where upstream's function returns `nil`, and the comment says
+so in its own parenthesis.
+
+> **The port's own explanatory comments are a diagnostic inventory nobody has
+> read as one.** `expressions.rs:939` named TS2683, by number, as something this
+> port does not do — inside a doc comment about `this`-typing, four sessions
+> before the code was written. `grep -rn "TS[0-9]" crates/*/src --include=*.rs`
+> over doc comments is the sweep that finds the rest, and unlike §386's it needs
+> no semantic condition: a comment that names a code this port does not emit is
+> already the finding.
+
+### What it cost
+
+One field. `Checker` had four of the strict family and this was the fifth;
+`CompilerOptions` already carried `no_implicit_this` (`options.rs:636`) and
+`apply_compiler_options` gained one `strict_option_value` line.
