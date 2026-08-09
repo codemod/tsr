@@ -4625,3 +4625,20 @@ stands re-confirmed and this section records the price). Falsifiers:
 (a) `export ... from` re-export aliases are NOT admitted (different
 declaration kinds, different upstream rule); (b) findable-but-untyped
 modules keep the errorType gap (the predicate's IsResolved half).
+
+**§113 measured — the §31.1 refusal RE-CONFIRMED at its own number,
+and the number is now twice-priced.** Ungated (all ES-import forms
+through the calibrated predicate): +238 G→R (ramdaToolsNoInfinite2
+130!) against 118 G→W + 2 R→W = 2:1 — better than the era's 110:117
+but the adverse is byte-for-byte the refusal's named class
+(symlinkedWorkspace* 28, declarationEmitReexportedSymlink 12,
+monorepo non-relative specifiers throughout). Relative-gated: +35
+against 13 — the era's 35:13 REPRODUCED EXACTLY two years of
+machinery later. Verdict: not stale. The five diagnostic gates
+changed nothing because the blocker is beneath them all: the HOST's
+resolver has no symlink realpath or path-mapping support, so
+resolution FAILS (not resolves-outside-program) precisely where
+upstream succeeds. The unlock is an infrastructure build in
+tsr-vfs/loader (symlink realpath + paths mapping), priced here at
+~240 lines + the 428-case near-miss row. Reverted whole; tsr-9or.1
+keeps the head with this fresh price attached.
