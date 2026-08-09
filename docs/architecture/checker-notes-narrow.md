@@ -4893,3 +4893,41 @@ build" §113 priced turned out to be already-built machinery the
 types harness wasn't handed. The `paths`-mapping half (tsconfig
 units the types harness does not parse) remains parked with
 tsr-9or.1; re-price it against the post-§118 board before building.
+
+## §119 — §113 re-run POST-§118: the ES-import forms through the calibrated predicate [claimed: checker-1]
+
+**Why a twice-confirmed refusal gets a third run.** §113's verdict
+was honest and precise: the ES-import arm measured +238 G→R against
+118 G→W + 2 R→W (2:1), and the adverse class was BYTE-FOR-BYTE the
+§31.1 era's — symlinkedWorkspace* 28, declarationEmitReexportedSymlink
+12, monorepo non-relative specifiers — corpora whose modules upstream
+resolves through symlinks and this harness could not. §118 changed
+the ONLY fact that refusal rested on: those corpora's links are now
+mounted, their specifiers are now FINDABLE, and a findable specifier
+never enters the unfindable-reads-any arm at all. The adverse class
+is not "priced differently" — it is structurally excluded from the
+arm's domain. This is the cleanest stale-refusal shape there is:
+the rule was always right, and the world it was measured in was
+wrong. (Directive authority: the §118 landing's quoted goal text —
+"There might be some stale refusals. Keep re-evaluating them...")
+
+**The arm.** In `get_type_of_alias` (`symbols.rs:324`), beside the
+§31 require() arm: an alias whose declaration is an ImportSpecifier,
+ImportClause (default import), or NamespaceImport walks to its
+ImportDeclaration's module specifier; `module_specifier_unfindable`
+(the five-gate calibrated predicate, `check.rs:2734`) reading true
+answers `any`. Findable-but-untyped modules keep the errorType gap
+(the predicate's IsResolved half) — unchanged from §113.
+
+**Candidates** (novaldecl at 409,219): ImportSpecifier 133 gap
+lines / 46 near-miss cases, ImportClause 86/19, NamespaceImport
+55/7 — ~274 admitted lines, plus reference-position reads the
+census undercounts.
+
+**Bar.** ≥150 G→R at ≥5:1. Falsifiers carried from §113:
+(a) `export ... from` re-export aliases NOT admitted (different
+declaration kinds, different upstream rule); (b) NamespaceExportDeclaration
+(`export as namespace`) NOT admitted — 30 census lines stay;
+(c) if the symlink-corpora adverse RECURS despite §118 (some
+specifier class still unfindable for a third reason), the refusal
+is thrice-confirmed and the price recorded here.
