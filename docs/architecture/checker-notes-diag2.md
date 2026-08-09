@@ -23904,3 +23904,39 @@ finds the comments of that shape — eleven of them — and each one is a questi
 
 Recorded as a lead with its own honest caveat: §428 measured the neighbour
 check at two of four, and there is no reason to expect better here.
+
+## §431 — §430's search run: **eight comments, not eleven, and the lead closes**
+
+§430 said the mechanical search would find *"eleven"* comments of the
+inherited-precondition shape. Run:
+
+```
+grep -rn "reports … in place of\|runs before\|short-circuits to" crates/tsr-checker/src/*.rs
+→ 8 hits
+```
+
+**The number was wrong and is corrected here**, per the non-negotiables. Worse
+than the count being off, the *population* is smaller still — the eight hits are
+four distinct guards:
+
+```
+operator_operands.rs:61,137   checkNonNullType          FIXED by §429
+operator_operands.rs:95       checkForDisallowedESSymbolOperand  unconditional — no gap
+call_arity.rs:40              getSpreadArgumentIndex    structural, not flag-dependent
+check.rs:5195                 checkBinaryLikeExpression structural (operator + left shape)
+```
+
+Only one of the four was ever flag-dependent, and §429 fixed it. **The lead
+closes at zero remaining**, which is §421's outcome again and the second time
+this session a mechanical search has been exhausted in the same turn it was
+proposed.
+
+> **Estimating a sweep's yield before running it is a habit worth dropping.**
+> §430's "eleven" was a guess stated as a count, in a note whose whole purpose
+> was to hand the next session a number. §356 corrected a population claim,
+> §365 corrected a rate, §420 corrected a false-positive set, and this corrects
+> a size. The pattern in all four: **the estimate was cheap to make and cheaper
+> to check, and I made it without checking.**
+
+The rule that follows and costs nothing: when a note proposes a sweep, either
+run it in the same turn or record it **without a number**.
