@@ -3712,3 +3712,45 @@ confident wrongs that read as the origin arm's fault.
 against 59 G→W whose owner is the §98 retention family; when §98
 lands those 59 convert and its score must state the inheritance.
 §99's 44 temporal composition rows also activate with this landing.
+
+## §98 — retention's roots widen: assignment position, union and intersection members [checker-2]
+
+The retention family sized from the §95-era dump: 462 WRONG lines
+are object prints differing from their want ONLY by literal
+widening. Temporal's 87 are NOT this section's: traced with
+TSR_CTX_DEBUG (the §56 call arm instrumented), temporal declines at
+122 errored method callees and ~300 member lookups through
+qualified/generic interface parameter types — the resolution lane
+(§97/§99's owner continues there). What IS this section's, decline
+points traced per case:
+
+1. **The assignment root.** `c.x = { a: "a" }` contextually types
+   its right operand by the LEFT operand's type
+   (`getContextualTypeForBinaryOperand`'s equals arm,
+   `checker.go:29843`); the §56 walk has no BinaryExpression holder
+   arm at all, so `staticFieldWithInterfaceContext`'s `c.x =` family
+   widens (traced: the walk never fires — zero CTX lines). The
+   class-expression half of that case (`let c: I = class { static
+   x = … }`) is NOT claimed — class-expression contextual typing is
+   its own unported machine.
+2. **Union and intersection member lookup.** `var x: A | B =
+   { a: 1 }` reaches the VariableDeclaration root and dies at
+   `get_type_of_property_of_type(union, name)` — upstream maps the
+   lookup over constituents (`getTypeOfPropertyOfContextualTypeEx`,
+   `checker.go:30555`, via `mapTypeEx` with noReductions): each
+   object constituent contributes its concrete property type, the
+   hits union; an intersection collects per-constituent property
+   types and intersects. Generic mapped types inside stay declined
+   (unported; the arm returns None there rather than guessing).
+
+**Bar, registered before the code:** predict
+**+30–70 combined W→R/G→R**, concentrated in
+excessPropertyCheckWithUnions (+15–30 of its 38),
+contextualTypeShouldBeLiteral (part of 13), the
+staticFieldWithInterfaceContext assignment family (~12–20 of 51),
+with the §97-inherited 15 G→W claimed ONLY where the shape is a
+union-contextual object member (the stringLiteralTypesInUnionTypes
+7 look like alias-named `||` prints — different family, not
+claimed). Must NOT move: §56's existing annotation/call/return
+converts. Adverse worse than 1:5 refuses whichever arm produced it;
+the arms measure separately.
