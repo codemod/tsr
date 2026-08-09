@@ -1342,9 +1342,35 @@ impl Checker<'_, '_> {
             return;
         }
         let Some(parent) = self.nodes.parent(node) else { return };
-        let Some(Node::TypeReferenceNode(reference)) = self.node_map.get(parent) else { return };
-        if reference.type_name.and_then(|name| name.node_id()) != Some(node) {
-            return;
+        // **An `implements` name is a type reference in a different node
+        // kind.** `class C implements I` resolves `I` at `Type` and reports
+        // TS2304 when it does not resolve, but its parent is an
+        // `ExpressionWithTypeArguments`, not a `TypeReferenceNode`. An
+        // `extends` name is a *value* reference and belongs to
+        // `check_value_identifier`, which is the distinction
+        // `is_value_reference` and `is_in_extends_clause` already draw. §334.
+        match self.node_map.get(parent) {
+            Some(Node::TypeReferenceNode(reference)) => {
+                if reference.type_name.and_then(|name| name.node_id()) != Some(node) {
+                    return;
+                }
+            }
+            Some(Node::ExpressionWithTypeArguments(with_arguments)) => {
+                if with_arguments.expression.and_then(|e| e.node_id()) != Some(node) {
+                    return;
+                }
+                let is_implements = self.nodes.parent(parent).is_some_and(|clause| {
+                    matches!(
+                        self.node_map.get(clause),
+                        Some(Node::HeritageClause(heritage))
+                            if heritage.token.kind == SyntaxKind::ImplementsKeyword
+                    )
+                });
+                if !is_implements {
+                    return;
+                }
+            }
+            _ => return,
         }
         let span = self.error_span(node);
         if text.is_empty() || span.start == span.end {

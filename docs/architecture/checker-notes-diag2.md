@@ -19771,3 +19771,86 @@ LOST 0 · every rail unmoved
 
 §327 taught "widen the dispatch too". This adds: **count the places a rule reads
 its own applicability, and widen all of them.** For this rule there were three.
+
+## §334 — TS2304 in an `implements` clause
+
+Largest deepening row: 30 blocked cases, 25 single-line. `bind1` is two lines
+and says what it wants in a comment:
+
+```ts
+namespace M {
+    export class C implements I {} // this should be an unresolved symbol I error
+}
+```
+
+Two rules could own `I`, and **neither does**:
+
+- `check_value_identifier` declines because `is_value_reference` correctly
+  excludes an `implements` name — only `extends` resolves its name as a value,
+  and that distinction is already drawn twice in this file;
+- `check_type_reference_name` declines because it requires the parent to be a
+  `TypeReferenceNode`, and an `implements` name's parent is an
+  `ExpressionWithTypeArguments`.
+
+> **§333's rule, third instance: the applicability predicate is the thing that
+> is narrow.** §321 was a dispatch, §327 a dispatch, §333 a dispatch *and* a
+> guard *and* an input list. Here both candidate rules are correct and the
+> position falls between their predicates.
+
+### The bar
+
+```
+bar:  +6 cases of 30,  0 LOST,  WRONG delta <= +2
+```
+
+The `implements` shape is a subset of the row; the rest are `arguments` and
+other names §254 and `is_specially_diagnosed_name` decline deliberately.
+
+### Falsifiers
+
+1. **An `extends B` name reports twice.** `check_value_identifier` owns that
+   one, and the heritage keyword is what separates them.
+2. **A resolvable `implements I` reports.** The type lookup is unchanged.
+
+## §335 — §334 built: +7, and the deepening seam's shape
+
+```
+diagnostics   1,844 → 1,851   (+7, bar was +6)
+every other suite unmoved — falsifiers 1 and 2 negative
+diag2307 [2304] (whole rule): CONVERTS 248 · LOST 5 · RIGHT 2214 · WRONG 333
+```
+
+Per §325 that isolation is TS2304's **entire** history — a rule that decides 248
+cases and has carried 333 wrong lines since long before this build. The board's
+`+7` is the edit.
+
+### Three rules, one position, and nobody owning it
+
+`class C implements I` fell between two correct predicates:
+
+```
+is_value_reference          excludes `implements` — correct, only `extends` is a value
+check_type_reference_name   requires a TypeReferenceNode parent — correct for its own shape
+```
+
+Neither is wrong. The position simply belongs to a node kind
+(`ExpressionWithTypeArguments`) that one predicate rejects on purpose and the
+other never considered.
+
+> **A gap between two correct predicates is invisible to both of them.** Every
+> instrument here ranks codes and every sweep this session has ranked
+> *functions*; nothing ranks *positions*, which is why `bind1` — a two-line
+> fixture whose comment says exactly what it wants — sat unconverted for
+> fourteen sessions.
+
+### The seam, seven builds in
+
+```
+§321 +12 · §323 −50 (reverted) · §325 +4 · §327 +4
+§330  +2 · §333  +1 · §335  +7
+```
+
+`+30` kept. Five of the seven turned on **where a rule is asked**, not on what
+it decides — and §328's sweep of call sites found none of them, because they
+live in candidate lists, guards and applicability predicates rather than at the
+dispatch.
