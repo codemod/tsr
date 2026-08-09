@@ -3425,3 +3425,38 @@ owed; underscoreTest1's 149 stay with it.
 
 **§90 + §90.1 score — LANDED.** right 404,780 → **405,060 (84.57%)**,
 +278 G→R and +2 W→R, ZERO adverse on the full pair.
+
+## §91 — conditional alias bodies evaluate at instantiation rebuilds
+
+The chain1/chain3 pair pins the rule: at a call-return rebuild
+(`instantiate_type` arm 3), a PLAIN generic alias keeps its name
+(`merge<{ p1: number; }, { p2: number; }>`, chain1 — already right)
+and a CONDITIONAL one EVALUATES to its branch (chain3's 166 wrong
+lines want `Omit<... & ..., "p2"> & { ... }`). Upstream:
+`getConditionalTypeInstantiation` resolves a conditional whose check
+goes concrete, and the resolved branch does not carry the alias.
+
+**Mechanism, the slice:** an evaluator entered from arm 3 when the
+target alias's body is a ConditionalTypeNode. It binds parameter
+symbols to the substituted arguments (a checker-level env stack),
+walks the body's nodes with three env-gated arms — type-parameter
+references answer their binding, `keyof T` answers T's literal key
+union, an intersection of literal-key unions reduces by set
+intersection — and decides `extends never` by the check's emptiness
+(only the NeverKeyword extends form is admitted). `keys_of` covers
+member-table types, intersections (union of sides), and `Omit<T, K>`
+by name (keys of T minus K's literals — the §45 Record precedent).
+ANY refusal anywhere falls back to today's name print, which is what
+gates the entry: no separate concreteness test, computability is the
+test.
+
+**Counterfactual:** chain3 166 wrong (every `merge<...>`-got line) +
+jsxGenericComponentWithSpreadingResultOfGenericFunction 2 +
+ramdaToolsNoInfinite2 1. **Bar: ≥140 of chain3 converts at ≥10:1.**
+Falsifiers: (a) downstream consumers of the now-intersection results
+(property reads have NO intersection arm in `get_property_of_type`;
+chain3's right lines are literal members, so expected zero — R→G
+there fires this leg); (b) the keyof/intersection arms leaking
+outside the env gate — any adverse in §35.1's old population fires
+it; (c) next-round `keys_of` through `Omit` mis-set — shows as
+wrong-not-gap in chain3's own later rounds.
