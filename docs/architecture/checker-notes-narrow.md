@@ -4666,3 +4666,8 @@ must answer whether the flow walk reaches instanceof conditions for
 suggest the unknown-receiver road answers before narrowing runs.
 WIP on worktree-checker-1-printing (81 lines incl. the neutral
 ladder extraction); nothing on main.
+**LANDED AT USER DIRECTION** (2026-08-09, "push it to main"): the
+arm ships INERT as measured (zero-fire, byte-identical pair, gates
+green) — correct-by-reading, unreachable until the entry probe finds
+why the flow walk never consults instanceof conditions for these
+references; the ladder extraction is behaviour-neutral shared code.
