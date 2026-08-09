@@ -3693,3 +3693,21 @@ refuses the build outright, because it means `is_optional_declaration`
 leaked past the question token. The rest-optional `...arg?: any[] |
 undefined` pair (parserParameterList11) is NOT claimed — no
 initializer, different road, stays a residue.
+
+## §99 — multi-signature composites render at the site [claimed: checker-1]
+
+[Bar committed to claim the number; build on worktree-checker-1-printing.]
+§10.13's composite re-render is gated to SINGLE-signature types, so an
+OVERLOADED member's type-literal print (`{ (roundTo:
+PluralizeUnit<...>): Duration; ... }`) keeps every embedded name bare
+where the site wants it qualified (temporal's remaining ~50
+non-retention wrongs, the Intl.ListFormat rows same shape).
+
+**Mechanism:** extend the arm to `signatures.len() >= 1`: the
+type-literal form renders each signature's member text through the
+site-aware slot renderer, falling back whole to baked text when any
+signature declines. **Bar:** ≥40 of the family W→R at 10:1;
+falsifiers: (a) declaration-site prints of the same overloaded
+members must not change (their chains resolve bare — the §95
+precedent held); (b) the §89/§90.1 keep-text set members stay
+excluded.
