@@ -24015,3 +24015,80 @@ survivors sink out of view precisely as they become workable.
 five**, not once a session. It is one corpus run against a rewrite of the
 ranking, and this session paid for the lesson twice — §406 in a `+0` and here in
 thirty builds of a narrowed field.
+
+## §434 — TS2351: `new` on a class instance
+
+Second of §433's newly-visible rows. **9 blocked, all single-line,
+`occupied 0/9`.**
+
+```ts
+class C {}
+var x = new C();
+new x();            // TS2351 — This expression is not constructable
+
+abstract class B { }
+declare const b: B;
+new b();            // same
+```
+
+The general check is "does this type have a construct signature", which is the
+relation's. The corpus's cases are one shape: **the callee is a value whose type
+is a class *instance***, and an instance never constructs.
+
+### The bound
+
+The callee is a bare `Identifier` resolving to a symbol **without** `CLASS`
+(so it is not the class itself), whose expression type is a `TypeData::Named`
+carrying a members-symbol whose declaration is a `ClassDeclaration`. That is the
+instance-of-a-class shape and nothing else.
+
+§424 is the caution: a `new` expression's *own* type did not present as
+`TypeData::Named { members: Some(_) }` there. Here the subject is an identifier
+with a declared type, which is the shape that lookup was built for — **but that
+is a prediction, and the measurement is what settles it.**
+
+### The bar
+
+```
+bar:  +3 of 9,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **`new C()` on the class itself reports.** The `CLASS` flag test excludes it
+   — this is the falsifier the bound exists for.
+2. **`new f()` where `f` is a function reports.** A function has a construct
+   signature and its symbol's declaration is not a `ClassDeclaration`.
+
+## §435 — §434 built: **+2**, and §424's lookup worked here
+
+```
+diagnostics   1,933 → 1,935   (bar was +3;  +2, 0 LOST)   35.26%
+every other suite unmoved — both falsifiers negative
+```
+
+Under bar and kept. The interesting part is the prediction §434 registered:
+`TypeData::Named { members: Some(_) }` failed in §424 for a `new` expression's
+own type and was predicted to succeed here for an identifier with a declared
+type. **It did.**
+
+> **The same lookup answering on one shape and not another is a fact about the
+> port's type construction, not about the lookup.** §424 recorded the failure
+> without isolating it and called that the toolkit's boundary; §434 crossed the
+> boundary by *choosing a shape on the working side of it* rather than by
+> building an instrument. That is cheaper and it is not a substitute — §424's
+> question, *which expression forms produce a `Named` type*, is still unanswered
+> and still worth an instrument.
+
+Registering the prediction is what made the result readable. Had §434 not said
+which way it expected the lookup to go, a `+2` would have been a number; with
+the prediction attached it is also a measurement of `check_expression`'s
+coverage.
+
+### §433's newly-visible rows, two of six worked
+
+```
+TS2309  §432  +8
+TS2351  §434  +2
+TS2507, TS2417, TS7013, TS18014   unworked, same clean signature
+```

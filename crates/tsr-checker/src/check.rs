@@ -447,6 +447,7 @@ impl Checker<'_, '_> {
                 ambient
             }
             Node::NewExpression(_) => {
+                self.check_new_on_instance(node);
                 self.check_new_arity(node);
                 self.check_call_type_argument_arity(node);
                 ambient
@@ -1026,6 +1027,48 @@ impl Checker<'_, '_> {
                 span,
             ),
         );
+    }
+
+    /// TS2351 — `This expression is not constructable.`
+    ///
+    /// The instance-of-a-class subset of `resolveNewExpression`'s
+    /// no-construct-signature arm. An instance never constructs, and deciding
+    /// *that* needs no relation: the callee resolves to a value without the
+    /// `CLASS` flag whose type is the named type of a class. §434.
+    fn check_new_on_instance(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let Some(Node::NewExpression(call)) = self.node_map.get(node) else { return };
+        let Some(callee) = call.expression.and_then(|e| e.node_id()) else { return };
+        let Some(text) = self.identifier_text(callee).map(str::to_string) else { return };
+        let Some(symbol) =
+            self.binder.resolve_name(self.nodes, self.node_map, callee, &text, SymbolFlags::VALUE)
+        else {
+            return;
+        };
+        let symbol = self.binder.merged_symbol(symbol);
+        // The class itself constructs; only a *value of* the class does not.
+        if self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::CLASS) {
+            return;
+        }
+        let Some(expression) = call.expression else { return };
+        let callee_type = self.check_expression(expression);
+        let crate::types::TypeData::Named { members: Some(owner), .. } =
+            &self.store.get(callee_type).data
+        else {
+            return;
+        };
+        let declarations = self.binder.symbols().get(*owner).declarations.clone();
+        if !declarations
+            .iter()
+            .any(|&d| matches!(self.node_map.get(d), Some(Node::ClassDeclaration(_))))
+        {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(callee) else { return };
+        let span = self.error_span(callee);
+        self.report(file, Diagnostic::new(&messages::THIS_EXPRESSION_IS_NOT_CONSTRUCTABLE, span));
     }
 
     fn check_this_in_module_body(&mut self, node: NodeId) {
