@@ -584,6 +584,87 @@ impl Suite for BinderSymbols {
                         let _ = target_symbol;
                     }
                 }
+                // An index signature reached through a destructured variable
+                // displays under THAT variable — `const { ...t2 } = strMap`
+                // prints `t2.z : Symbol(t2.__index, Decl(<strMap's index
+                // signature>))` (`noUncheckedIndexedAccessDestructuring`).
+                for index in 0..nodes.len() {
+                    #[allow(clippy::cast_possible_truncation)]
+                    let node_id = tsr_ast::NodeId::new(index as u32);
+                    if nodes.kind(node_id) != SyntaxKind::VariableDeclaration
+                        || !file.contains(node_id)
+                    {
+                        continue;
+                    }
+                    let Some(tsr_ast::Node::VariableDeclaration(declaration)) =
+                        program.node_map().get(node_id)
+                    else {
+                        continue;
+                    };
+                    let Some(tsr_ast::BindingName::BindingPattern(pattern)) = declaration.name
+                    else {
+                        continue;
+                    };
+                    let Some(tsr_ast::Expression::Identifier(receiver)) = declaration.initializer
+                    else {
+                        continue;
+                    };
+                    let Some(receiver_symbol) = bound.resolve_name(
+                        nodes,
+                        program.node_map(),
+                        node_id,
+                        receiver.text,
+                        tsr_binder::SymbolFlags::VALUE,
+                    ) else {
+                        continue;
+                    };
+                    let Some(&receiver_decl) =
+                        bound.symbols().get(receiver_symbol).declarations.first()
+                    else {
+                        continue;
+                    };
+                    let Some(tsr_ast::Node::VariableDeclaration(receiver_var)) =
+                        program.node_map().get(receiver_decl)
+                    else {
+                        continue;
+                    };
+                    // The literal may sit inside an intersection —
+                    // `{ x: number } & { [s: string]: number }`.
+                    let literals: Vec<&tsr_ast::TypeLiteralNode<'_>> = match receiver_var.r#type {
+                        Some(tsr_ast::TypeNode::TypeLiteralNode(literal)) => vec![literal],
+                        Some(tsr_ast::TypeNode::IntersectionTypeNode(intersection)) => intersection
+                            .types
+                            .iter()
+                            .filter_map(|member| match member {
+                                tsr_ast::TypeNode::TypeLiteralNode(literal) => Some(*literal),
+                                _ => None,
+                            })
+                            .collect(),
+                        _ => continue,
+                    };
+                    let index_signature = literals.iter().find_map(|literal| {
+                        literal.members.iter().find_map(|member| {
+                            let tsr_ast::TypeElement::IndexSignatureDeclaration(signature) = member
+                            else {
+                                return None;
+                            };
+                            signature.node_id
+                        })
+                    });
+                    let Some(index_signature) = index_signature else { continue };
+                    let span = nodes.span(index_signature);
+                    let pos = full_starts.of(&unit.content, span.start);
+                    let (line, _) = symbols_baseline::line_and_character(&unit.content, pos);
+                    for element in pattern.elements {
+                        let Some(tsr_ast::BindingName::Identifier(bound_name)) = element.name
+                        else {
+                            continue;
+                        };
+                        ours.entry(format!("{}.__index", bound_name.text))
+                            .or_default()
+                            .insert(line);
+                    }
+                }
                 // The exports alias loop: `exports.fn2 = Foo.min` resolves
                 // the right-hand entity and the checker names ITS symbol by
                 // the exported property, so `fn2`'s list carries `min`'s
@@ -666,9 +747,7 @@ impl Suite for BinderSymbols {
                         let tsr_ast::PropertyName::Identifier(name) = assignment.name else {
                             return None;
                         };
-                        (name.text == member.text)
-                            .then_some(assignment.node_id)
-                            .flatten()
+                        (name.text == member.text).then_some(assignment.node_id).flatten()
                     });
                     let Some(member_id) = member_id else { continue };
                     let span = nodes.span(member_id);
