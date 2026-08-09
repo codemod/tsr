@@ -1030,6 +1030,25 @@ impl Checker<'_, '_> {
         }
         let Some(parent) = self.nodes.parent(node) else { return };
         let Some(Node::SourceFile(source)) = self.node_map.get(parent) else { return };
+        // TS1203: `export =` is not available when emitting ECMAScript modules.
+        // The fixtures set only `@target`, with no `@module` and no
+        // `package.json`, so `GetImpliedNodeFormatForEmit` answers the module
+        // kind itself and upstream's parenthesis reduces to the comparison
+        // below. §478.
+        if self.module_kind >= tsr_core::ModuleKind::ES2015
+            && self.module_kind != tsr_core::ModuleKind::Preserve
+            && let Some(file) = self.source_file_of_for_diagnostics(node)
+        {
+            let span = self.nodes.span(node);
+            self.report(
+                file,
+                Diagnostic::new(
+                    &messages::EXPORT_ASSIGNMENT_CANNOT_BE_USED_WHEN_TARGETING_ECMASCRIPT_MODULES_CONSIDER_USING_EXPORT_DEFAULT_OR_ANOTHER_MODULE_FORMAT_INSTEAD,
+                    span,
+                ),
+            );
+            return;
+        }
         let exports_a_value = source.statements.iter().any(|statement| {
             let Some(id) = statement.node_id() else { return false };
             if id == node {

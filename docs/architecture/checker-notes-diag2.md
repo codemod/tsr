@@ -25728,3 +25728,75 @@ Three candidates remain from the broadened grep: `TS1203`, `TS1120`, `TS2337`.
 > missing, `diagdeepen` ranks what half-exists, `diagnode` ranks where — and
 > none of them can name a condition nobody has written a rule for. The
 > catalogue names all of them, in English, sorted by number.
+
+## §478 — TS1203: `export =` when targeting ECMAScript modules
+
+§477's list, next row. **4 blocked, `occupied 0/6`.**
+
+```ts
+// @target: es6
+var a = 10;
+export = a;      // TS1203
+```
+
+`checkExportAssignment` (`checker.go:5671`). The full condition is four
+conjuncts wide, and three of them are about the *implied node format* of the
+file — `GetImpliedNodeFormatForEmit`, which depends on `package.json` type
+fields and file extension, and which this port does not compute.
+
+### The bound, and the one conjunct that carries it
+
+```go
+if c.moduleKind >= ModuleKindES2015 && c.moduleKind != ModuleKindPreserve && (…implied format…)
+```
+
+The fixtures set **only `@target`**, with no `@module` and no `package.json`, so
+`GetImpliedNodeFormatForEmit` answers the module kind itself and the parenthesis
+reduces to *not CommonJS* — which the first conjunct already implies. This
+port's `ModuleKind` is a plain ordinal (`options.rs:153`), so `>= ES2015` is a
+comparison and the effective kind, when `module` is unset, is ES2015 for an
+ES2015-or-later target and CommonJS otherwise — upstream's `getEmitModuleKind`.
+
+**Bounded to files with no `package.json` in play**, which is every fixture in
+this row and the reason the parenthesis can be dropped rather than approximated.
+
+### The bar
+
+```
+bar:  +3 of 4,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **`export =` under `@module: commonjs` reports.** The comparison is the
+   whole gate.
+2. **`export default` reports.** Only `is_export_equals`.
+
+## §479 — §478 built: **+2** of a bar of +3
+
+```
+diagnostics   1,994 → 1,996   (bar was +3;  +2, 0 LOST)   36.37%
+every other suite unmoved — both falsifiers negative
+```
+
+Kept. `Checker` gained a `module_kind` field — `getEmitModuleKind`'s default,
+the sixth compiler option this session has had to port (after `noImplicitThis`
+in §416), and the same shape: **the option existed on `CompilerOptions` and
+nothing read it.**
+
+> Two builds, two options, one pattern: **`CompilerOptions` is ported ahead of
+> its consumers, so an unread field is not a gap in the port — it is a
+> diagnostic that has not been asked for yet.** That makes
+> `grep -L "options\." ` over the option list a *third* catalogue-style sweep,
+> alongside the message text (§467) and the comment scan (§417). Recorded, not
+> run: §473's finding says catalogue sweeps pay, and this would be the first
+> over the **options** catalogue.
+
+### The message-catalogue search, seven rows
+
+```
+TS2358 +4 · TS2466 +4 · TS2376 +3 · TS1268 +1
+TS1184 +2 · TS1114 +4 · TS1203 +2                 = +20
+```
+
+Two candidates remain: `TS1120` (3) and `TS2337` (3, §468's second arm).

@@ -309,6 +309,9 @@ pub struct Checker<'a, 'n> {
     /// beside it were ported when their consumers arrived, and TS2683 is this
     /// one's. §416.
     pub(crate) no_implicit_this: bool,
+    /// `getEmitModuleKind` — `options.module`, or ES2015 for an ES2015-or-later
+    /// target and `CommonJS` otherwise. §478.
+    pub(crate) module_kind: tsr_core::ModuleKind,
     /// `compilerOptions.noUncheckedSideEffectImports`, read through upstream's
     /// `IsTrueOrUnknown` (`checker.go:5321`) — so the default here is `true`,
     /// matching an *unset* option rather than a `false` one.
@@ -725,6 +728,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             instantiation_count: 0,
             strict_null_checks: true,
             no_implicit_this: false,
+            module_kind: tsr_core::ModuleKind::None,
             no_unchecked_side_effect_imports: true,
             no_unchecked_indexed_access: false,
             use_unknown_in_catch_variables: false,
@@ -826,6 +830,15 @@ impl<'a, 'n> Checker<'a, 'n> {
         // The strict family (`checker.go:919-926`).
         self.strict_null_checks = options.strict_option_value(options.strict_null_checks);
         self.no_implicit_this = options.strict_option_value(options.no_implicit_this);
+        self.module_kind = if options.module == tsr_core::ModuleKind::None {
+            if options.target >= tsr_core::ScriptTarget::ES2015 {
+                tsr_core::ModuleKind::ES2015
+            } else {
+                tsr_core::ModuleKind::CommonJS
+            }
+        } else {
+            options.module
+        };
         self.strict_property_initialization =
             options.strict_option_value(options.strict_property_initialization);
         self.use_unknown_in_catch_variables =
