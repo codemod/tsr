@@ -4471,3 +4471,16 @@ subsystem, and slice 2 stays refused until its common forms exist.
 Slice 1 (template plumbing) stands landed; returnTagTypeGuard's 2
 R→W confirm the return-tag half also interacts with the §100
 predicate road and must land together with the grammar.
+
+**§110 slice 2b — a measured ZERO, reverted whole.** The five simple
+JSDoc wrappers (`*`, `?T`, `!T`, `T=`, `...T`) as
+`get_type_from_type_node` arms + the slice-2 consult re-applied with
+compute-guards (a doc type that does not compute leaves the implicit
+any / the body-inference road): the full pair is BYTE-IDENTICAL. The
+guards suppress the −17 loss exactly, and the wrappers convert
+nothing — so the forms actually failing in the corpus's `@param`
+types are NOT the wrappers (suspects: `Object`, `function(...)`,
+dotted `module:` names, record types). The third attempt's
+PRECONDITION is a census probe: dump the distinct annotation node
+KINDS the consult sees on the jsdoc family, and port the top of that
+list — not another guess. Everything reverted; slice 1 stands.
