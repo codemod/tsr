@@ -12615,3 +12615,119 @@ That is the **fifth** per-rule measurement of this gate (§40.3 +6, §50.1 −6,
 session whose residue is a construct upstream's parser rejects and this one
 accepts. The parse-error *set* being incomplete is now the single most
 frequently named owner on this board.
+
+## §185 — TS2694, the qualified arm `check_type_reference_name` names as its own gap
+
+15 sole-obstacle cases over 18 lines — concentration **1.2**, the best shape on
+the relation-free board.
+
+`resolveEntityName`'s qualified-name failure arm (`checker.go:15884`). And it is
+the third debt this session that was already written down at its own address:
+`check_type_reference_name`'s doc comment says
+
+> Bounded to a bare identifier that resolves under **no** meaning: a qualified
+> `A.B` fails as **TS2694**, a name that resolves as a value is TS2749, and as
+> a namespace TS2709 — three wrong codes at a right position.
+
+§167 built the second and third. This is the first.
+
+### The rule
+
+For a `QualifiedName` in a type position whose **left** resolves to a namespace:
+look `right`'s text up in that namespace's exports at the requested meaning, and
+if it is absent report on the `right` node with the namespace's name and the
+member's.
+
+`getExportsOfSymbol(resolveAlias(namespace))` is the lookup; this port has the
+exports table directly and **`resolve_name` has answered meaning correctly only
+since §166**, which is what makes the left-hand resolution trustworthy here.
+
+### The four arms ahead of it, and why each is safe to skip
+
+`resolveEntityName` tries four things before TS2694 and each carries a
+*different* code:
+
+1. **`getSuggestedSymbolForNonexistentModule`** → TS2724 (`… Did you mean …`).
+   The spelling machinery exists (`spelling_suggestion_for`) but is scoped to
+   scope-chain names, not to one symbol's exports. **Not ported** — and it is a
+   falsifier below, because a near-miss makes TS2694 the wrong code.
+2. **`canSuggestTypeof`** → TS2749, needing `tryGetQualifiedNameAsValue`.
+3. **The type-but-not-namespace arm** → TS2713, only when the *parent* is also a
+   qualified name.
+4. Both 2 and 3 are bounded away by requiring the qualified name to be exactly
+   two deep and its parent not to be another qualified name.
+
+### The bar
+
+```
+bar:  +9 cases,  0 LOST,  WRONG delta ≤ +5
+```
+
+Under 15 because arm (1) is unported and the corpus's `namespacesDeclaration2`
+family is three lines in one case — a case converts only when all three land.
+
+### Falsifiers
+
+1. **A wrong line where the baseline has TS2724.** That is arm (1), and it means
+   the spelling suggestion has to be scoped to a symbol's exports before this
+   rule is sound.
+2. **`WRONG` above +5 on names whose left is a *value* rather than a namespace.**
+   The left-hand resolution asks for `MODULE`; if it admits a class or enum the
+   message names something that is not a namespace.
+3. **`LOST` non-zero** — the site is silent today.
+
+## §186 — §185 REFUSED at +5 for 14, and alias resolution is the named blocker
+
+The bar was `+9 cases, 0 LOST, WRONG delta ≤ +5`. Built, bounded once, and
+reverted.
+
+| version | CONVERTS | LOST | RIGHT | WRONG |
+|---|---:|---:|---:|---:|
+| as written | 7 | **5** | 19 | **127** |
+| declining an alias namespace and an empty export table | 5 | 0 | 14 | **14** |
+
+**+5 for 14 wrong is 0.36 conversions per wrong line** — below §13's refused
+0.26 only by a little, well under the bar, and against a row whose whole appeal
+was a 1.2 concentration. Refused.
+
+### The 127, and the one line of upstream that explains them
+
+```go
+// checker.go:15855
+symbol = c.getMergedSymbol(c.getSymbol(c.getExportsOfSymbol(c.resolveAlias(namespace)), text, meaning))
+```
+
+**`resolveAlias(namespace)`.** Upstream resolves the namespace through its alias
+chain *before* reading exports. This port does not follow aliases at all
+(`bd tsr-y4u.12`, and `lookup_scoped`'s own comment says so), so a namespace
+that is an alias has an empty or partial export table here and **every** member
+reads as absent. `aliasBug`, `aliasOnMergedModuleInterface`,
+`augmentExportEquals1`, `badExternalModuleReference` — all of them.
+
+Declining an alias namespace and an empty export table took 127 → 14 and the
+five losses to zero. What is left is the same defect one step in:
+`moduleVisibilityTest4`, `privacyGloImportParseErrors` and
+`privacyImportParseErrors` reach a namespace whose exports are *non-empty but
+incomplete*, which no syntactic bound can distinguish from a genuinely missing
+member.
+
+> **An empty table can be declined; a partial one cannot.** That is the same
+> shape as §9's TS2339 refusal — *"an absent property and an unbuilt members
+> table are the same `None`"* — reappearing in the *symbol* tables rather than
+> the type ones. A rule that reports on absence needs a table that knows whether
+> it is complete, and neither of this port's two table layers has that bit.
+
+### What would make this win
+
+**Alias resolution in `resolve_name`** (`bd tsr-y4u.12`). It is the same
+prerequisite §166 was for §167, and this row is now the second measured
+consumer of it: 15 sole-obstacle cases waiting behind one unported
+`resolveAlias`. The refused source is one function of ~50 lines, described arm
+by arm in §185, and it should be re-run — not rewritten — the day aliases
+resolve.
+
+Also unported and required before the row is sound:
+`getSuggestedSymbolForNonexistentModule` → **TS2724**, which upstream tries
+*first*; a near-miss member makes TS2694 the wrong code, and this port's
+spelling machinery is scoped to the scope chain rather than to one symbol's
+exports.
