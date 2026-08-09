@@ -55,7 +55,7 @@ fixes ride into the checker rows.
 | **`checker_types`** (superseding the row above) | **3,957/9,538** | **41.49%** | **gradient 405,682/478,954 = 84.70%**, measured at the `declare global` landing on top of `a7dccd4`, one release run. The row above is kept because its attributions are still the record; only the totals are superseded. **The delta is +2 cases and +292 lines, and it was measured twice on two different bases** — once against `22d745c` (405,111 → 405,403) and again after rebasing onto the fifteenth `.types` session (405,390 → 405,682). Same delta both times, which is the evidence that the two workstreams compose rather than overlap. Also: **the committed snapshot was stale by 280 lines at `22d745c`** — it read 84.52% where a fresh run read 84.5824%, i.e. `454a559`'s +280 landed in the commit message and not in the snapshot |
 | **`checker_types`** (lines only, superseding the gradient above) | *cases not re-taken* | — | **gradient 405,698/478,954 = 84.70%**, measured at `45436ae` (`45436ae^..45436ae`) by the scorepair pair over a baseline freshly accepted on clean `4965add` (405,682). **§93's true delta is +16 right G→R (fatarrowfunctions 11, fatarrowfunctionsOptionalArgs 5) against 4 G→W — 4:1, zero R→W/R→G.** The commit's own message claims "+311, 8.6:1, +300 G→R"; **that score is WRONG** — it was taken against a baseline stale by several landings, and the +300 (jsxChildren 42, reactDefaultProps 27, jsx arity 17 among them) was drift already on main, proven by the stash/clean-run counterfactual reading 405,682 with every one of those transitions present. The correction is in `checker-notes-narrow.md` §93 — carried inside `45436ae` itself, because the committing session swept the other session's in-tree correction into its commit (conventions' fourth sweep form, benign this once). Case count deliberately not quoted: no coverage run was taken at this commit |
 | **`checker_types`** (lines only, §94) | *cases not re-taken* | — | **gradient 405,805/478,954 = 84.73%**, measured at `c9b7f93` (`c9b7f93^..c9b7f93`) by the full scorepair pair over the §93-corrected baseline (405,698). **§94: +93 G→R / +14 W→R against 1 G→W — 107:1, zero R→W/R→G.** `has_no_contextual_type` became the nil-ladder of upstream's `getContextualType` dispatch (`checker.go:29343`); the bar (`67a472e`, committed before the code) predicted +60–110 in the head case and measured 81 there. The one adverse is the strict-optional `| undefined` print residue, now priced twice (§93 0:457, §94 parserParameterList11) and named the seam's next candidate. checker-2 session |
-| `diagnostics` | **1,707/5,488** | **31.10%** | measured at HEAD, 2026-08-09, fresh release run. **Fourteenth session (`diagnostics`) §156–§259: +256 over thirty-nine builds, 0 lost.** Running total 80 → 1,707, **21.3×**. Also **+42 to `checker_types`**, **invented parser lines 1,288 → 1,209**, **column-only mismatched lines 107 → 85**. **Thirteen refusals; seven reversed or corrected in-session; four builds reverted whole after measurement.** `extraonly` fell **50 → 18 lines**. `binder_symbols` 100% throughout |
+| `diagnostics` | **1,712/5,488** | **31.20%** | measured at HEAD, 2026-08-09, fresh release run via `cargo xtask measure`. **Fourteenth session (`diagnostics`) §156–§263: +261 over forty builds, 0 lost.** Running total 80 → 1,712, **21.4×**. Also **+61 to `checker_types`**, **invented parser lines 1,288 → 1,209**, **column-only mismatched lines 107 → 85**. **Thirteen refusals; eight reversed or corrected in-session; five builds reverted whole after measurement.** `extraonly` fell **50 → 18 lines**. `binder_symbols` 100% throughout |
 | **`checker_types`** (lines only, §202) | *cases not re-taken* | — | **gradient 406,209/478,954 = 84.81%**, measured at the ambient-module-quoting landing against `357df05` (406,188) in a worktree at the base commit. **+21 lines, 0 cases.** The corpus barely moves because it holds no ambient-module/global name collision; the change is scored on a real repository instead, where it is worth 110 diagnostics |
 
 ### `checker_types`, the number the project is steered by
@@ -1307,27 +1307,6 @@ its whole deliverable and accept that it converts nothing until finished.
 
 ## 5. Refused, with the number that refused it
 
-### New, this session, TS2874 — JSX factory not in scope, 6 cases
-
-Refused by **§262**, after two bounds. `+2` against **36 wrong lines and 4
-lost**.
-
-The first 49 wrong lines were fragments — upstream resolves those through
-`getJsxFactoryEntity`/`jsxFragmentFactory` (`checker.go:28533`), a second lookup
-this port does not have. Dropping them is right independently.
-
-The remaining 36 are **elements in files that name their factory**:
-`jsxFactoryAndJsxFragmentFactory.tsx` declares `h` and got TS2874 for `React`,
-so `jsx_namespace_name` fell through to its default. *A rule whose input is a
-configured name cannot be measured until the configuration is known to arrive.*
-
-**Owner: whichever of the two `jsxFactory` roads does not reach
-`Checker::jsx_namespace` in this suite** — §211's pragma hook
-(`tsr-compiler/src/lib.rs:610`) or the `jsxFactory` option folded in at
-`checker.rs:812`. Both are built; one is not arriving. **This is upstream of
-three rules** — §255's TS7026 and §221's `getJsxNamespaceAt` read the same
-function.
-
 ### New, this session, TS2783 — spread overwrites a property, 9 cases
 
 Refused by **§251**. `checkSpreadPropOverrides` (`checker.go:13371`) tests
@@ -2254,6 +2233,7 @@ holds only the numbers.
 | 2026-08-09 | HEAD | **31.10%** | **1,707** | **+4, exactly the bar** | **TS1039/TS1254**, found by re-ranking the gap with relation-owned codes filtered out (§256's rule, working as intended). *The **annotation** decides which message, not the initialiser.* `isInitializerSimpleLiteralEnumReference` declined rather than approximated — a missing line where the alternative was a wrong one. **§244's trap attempted a second time**: clippy and coverage batched into one invocation again, coverage read first, 3 lint errors unread. ***Knowing the rule is not the same as having the rule*** — the correction lived only in prose and batching is the ergonomic default. §259 |
 | 2026-08-09 | HEAD | 31.10% | 1,707 | **tooling — the ordering made mechanical** | **`cargo xtask measure`: clippy, and only if it exits 0, the conformance run.** §140/§231/§244/§259 are one defect four times — a new dispatch arm shadows an existing one, Rust deletes it silently, and the coverage number measures a compiler with a rule switched off. The first time it read as a **590-case collapse**. The correction *"run clippy first"* was written three times, correctly, and broken on the next multi-part build each time. ***A correction that lives in prose is a correction you get to make again*** — the difference is not insight, it is that this one can say no. Verified in both directions. §260 |
 | 2026-08-09 | HEAD | 31.10% | 1,707 | **fifth whole build reverted after measurement** | **TS2874** — `+2` against 36 wrong lines and 4 lost. Every wrong line is a report about **`React` in a file that never mentions `React`**: the configured factory name is not arriving. ***A rule whose input is a configured name cannot be measured until the configuration is known to arrive*** — the rule was never the variable. Owner is smaller and more testable than the row, and sits **upstream of three rules**. Also §261's build was the new `xtask measure` gate's first real outing and it **blocked** on an unused parameter. §261–§262 |
+| 2026-08-09 | HEAD | **31.20%** | **1,712** | **+5 — §262's refusal reversed by three lines in the harness** | **The `jsxFactory` directive never left the test harness.** `apply_test_directives` maps `jsx` and `jsximportsource` and not `jsxfactory`, so `Checker::jsx_namespace` took its `React` default and TS2874 reported a name the file never mentions. **Identical checker code**: `+2 / LOST 4 / WRONG 36` before, `+5 / LOST 0 / WRONG 2` after. ***When every wrong line names the same wrong value, suspect the input before the rule*** — §262 looked in the two places the value is *consumed* rather than the one place it is *produced*. **The harness is part of the compiler under test, and the part with no conformance suite of its own.** §263 |
 
 ## 8. Updating this file
 
