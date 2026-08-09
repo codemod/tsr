@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 binder_symbols Summary:
 What a pass means: every symbol in the .symbols baseline exists with the same declaration lines
-Passed         : 8451/8460 (99.89%)
-Failed         : 9
+Passed         : 8452/8460 (99.91%)
+Failed         : 8
 Skipped        : 3984 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -12,8 +12,6 @@ Skipped        : 3984 (excluded from the denominator)
   924  skipped: upstream recorded no .symbols baseline
   450  skipped: upstream records a known divergence from TypeScript (.diff baseline)
 
-compiler/ambientExternalModuleWithRelativeModuleName
-  1 symbol(s): .\\relativeModule: no symbol
 compiler/moduleElementsInWrongContext
   1 symbol(s): Foo: declared on {24}, expected to include {6, 24}
 compiler/ramdaToolsNoInfinite2

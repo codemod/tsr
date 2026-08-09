@@ -1230,6 +1230,25 @@ fn written_name_spellings(
             continue;
         }
         let Some(node) = program.node_map().get(*declaration) else { continue };
+        // An ambient module's name is spelled as the source wrote it —
+        // `declare module ".\\relativeModule"` prints with its escape intact
+        // (`ambientExternalModuleWithRelativeModuleName`).
+        if let tsr_ast::Node::ModuleDeclaration(module) = node
+            && let Some(tsr_ast::ModuleName::StringLiteral(literal)) = module.name
+            && let Some(id) = literal.node_id
+        {
+            let span = nodes.span(id);
+            if let Some(source_text) = source.get(span.start as usize..span.end as usize) {
+                let inner = source_text
+                    .strip_prefix(['"', '\''])
+                    .and_then(|rest| rest.strip_suffix(['"', '\'']))
+                    .unwrap_or(source_text);
+                if inner != literal.text && !spellings.contains(&inner.to_string()) {
+                    spellings.push(inner.to_string());
+                }
+            }
+            continue;
+        }
         let Some(name) = declared_property_name(node) else { continue };
         let text = match name {
             tsr_ast::PropertyName::NumericLiteral(literal) => literal.text.to_string(),
