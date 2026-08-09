@@ -1848,9 +1848,13 @@ impl<'a> Checker<'a, '_> {
         {
             let mut single_quoted = false;
             let mut array_headed = false;
-            if let Some(text) =
-                Self::written_type_text(annotation, &mut single_quoted, &mut array_headed)
-                && (single_quoted || array_headed)
+            let mut void_union = false;
+            if let Some(text) = Self::written_type_text_flags(
+                annotation,
+                &mut single_quoted,
+                &mut array_headed,
+                &mut void_union,
+            ) && (single_quoted || array_headed || void_union)
             {
                 return Some(text);
             }
@@ -1926,6 +1930,20 @@ impl<'a> Checker<'a, '_> {
         single_quoted: &mut bool,
         array_headed: &mut bool,
     ) -> Option<String> {
+        // Wrapper keeping the two-flag signature; §108's void sibling adds a
+        // third admission internally.
+        Self::written_type_text_flags(annotation, single_quoted, array_headed, &mut false)
+    }
+
+    /// §108's flag walk. `void_union` joins the admission set: a WRITTEN
+    /// union carrying `void` keeps its order — the fresh render sorts void
+    /// first (`callWithMissingVoid`'s `number | void`).
+    pub(crate) fn written_type_text_flags(
+        annotation: TypeNode<'_>,
+        single_quoted: &mut bool,
+        array_headed: &mut bool,
+        void_union: &mut bool,
+    ) -> Option<String> {
         match annotation {
             TypeNode::KeywordTypeNode(keyword) => match keyword.kind {
                 SyntaxKind::StringKeyword => Some("string".to_string()),
@@ -1971,13 +1989,23 @@ impl<'a> Checker<'a, '_> {
                 }
                 let mut parts = Vec::with_capacity(reference.type_arguments.len());
                 for argument in reference.type_arguments {
-                    parts.push(Self::written_type_text(*argument, single_quoted, array_headed)?);
+                    parts.push(Self::written_type_text_flags(
+                        *argument,
+                        single_quoted,
+                        array_headed,
+                        void_union,
+                    )?);
                 }
                 Some(format!("{}<{}>", identifier.text, parts.join(", ")))
             }
             TypeNode::ArrayTypeNode(array) => {
                 let element = array.element_type?;
-                let inner = Self::written_type_text(element, single_quoted, array_headed)?;
+                let inner = Self::written_type_text_flags(
+                    element,
+                    single_quoted,
+                    array_headed,
+                    void_union,
+                )?;
                 if matches!(element, TypeNode::UnionTypeNode(_)) {
                     Some(format!("({inner})[]"))
                 } else {
@@ -1987,7 +2015,17 @@ impl<'a> Checker<'a, '_> {
             TypeNode::UnionTypeNode(union) => {
                 let mut parts = Vec::with_capacity(union.types.len());
                 for constituent in union.types {
-                    parts.push(Self::written_type_text(*constituent, single_quoted, array_headed)?);
+                    if matches!(constituent, TypeNode::KeywordTypeNode(keyword)
+                        if keyword.kind == SyntaxKind::VoidKeyword)
+                    {
+                        *void_union = true;
+                    }
+                    parts.push(Self::written_type_text_flags(
+                        *constituent,
+                        single_quoted,
+                        array_headed,
+                        void_union,
+                    )?);
                 }
                 (parts.len() > 1).then(|| parts.join(" | "))
             }
@@ -2018,8 +2056,12 @@ impl<'a> Checker<'a, '_> {
                     };
                     let optional =
                         property.postfix_token.is_some_and(|t| t.kind == SyntaxKind::QuestionToken);
-                    let inner =
-                        Self::written_type_text(property.r#type?, single_quoted, array_headed)?;
+                    let inner = Self::written_type_text_flags(
+                        property.r#type?,
+                        single_quoted,
+                        array_headed,
+                        void_union,
+                    )?;
                     parts.push(format!("{name}{}: {inner};", if optional { "?" } else { "" }));
                 }
                 if parts.is_empty() {

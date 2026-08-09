@@ -4642,3 +4642,13 @@ upstream succeeds. The unlock is an infrastructure build in
 tsr-vfs/loader (symlink realpath + paths mapping), priced here at
 ~240 lines + the 428-case near-miss row. Reverted whole; tsr-9or.1
 keeps the head with this fresh price attached.
+
+**§108.1 — the void sibling (handed by the other lane's §114 triage).**
+A WRITTEN union carrying `void` keeps its order — the fresh render
+sorts void first (`number | void` → `void | number`). Third
+admission flag in `written_type_text`'s walk. **+22 W→R, ZERO
+adverse** (callWithMissingVoid 8, typeGuardTypeOfUndefined 8,
+doubleUnderscoreExportStar 2, spread). The admission principle's
+third confirmation: quote, Array head, void position — each a
+spelling the fresh render cannot reproduce, each landing at zero
+adverse.
