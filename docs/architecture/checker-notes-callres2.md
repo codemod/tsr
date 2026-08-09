@@ -364,3 +364,25 @@ bucket) BEFORE any further resolution slice — the §98-era
 discipline: name the shapes, then pick the decidable subset. The
 foundation stands (step 1's byte-identity untouched); step 2
 (priorities) still awaits its first writer.
+
+**Step 3, three sub-iterations — REFUSED whole; the census, the
+misread, and the pipeline, all banked.** The disagreement census
+(82 pairs corpus-wide, instrumented at the site): unit pairs (1|2,
+""|0, B|A), object pairs including an identical-text/distinct-id
+row, mixed tails. Sub-iterations, each measured: (3a) literal-base
+reduction — ZERO, the class never occurs; (3b) unreduced union —
+42:130, the object rows need structural subtype reduction
+(genericCallWithNonSymmetricSubtypes: upstream DROPS the subtype —
+tsr-eak is load-bearing at this site, and the census's
+identical-text row was the tell a first reading missed); (3b-unit)
+unit-only union — 11:20, the unit unions then miss the WIDENING
+stage (typeArgumentsWithStringLiteralTypes01: inferred literal
+unions widen at getInferredType unless the parameter wants
+literals). CONCLUSION: candidate resolution is `getInferredTypes`'
+FOUR-STAGE PIPELINE (union → subtype reduction → literal widening
+→ constraint fixing) or nothing — single stages measure underwater
+from three directions. The foundation's remaining build order:
+read getInferredTypes/getCovariantInference in full, port the
+pipeline as ONE unit over the step-1 collector, with the census's
+82 pairs as the acceptance set and this trio as the negative
+space. Nothing smaller at this site converts.
