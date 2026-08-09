@@ -23522,3 +23522,43 @@ the run already happens every session.
 the board before shipping, so **`+12` stands**. The remaining seven candidates
 from §417's list are now *unverified* rather than pending, and should be
 re-derived from a `diagdeepen` join rather than worked from the list as printed.
+
+## §421 — the corrected sweep returns **zero**, and the lead is closed
+
+§420 said §417's sweep needed a measured oracle instead of a parse. Re-derived
+against `diagdeepen`'s emit column:
+
+```
+codes NAMED in this port's comments, WITH blocked cases, and MEASURED emits == 0
+
+(0 candidates)
+```
+
+**Every code this port names in a comment and still blocks cases on is already
+emitted.** §416 (`TS2683`, `+9`) and §418 (`TS2669`, `+3`) took the only two
+that were not, and the seven that looked pending were §420's parse artefacts.
+
+> **A lead that closes at zero is a better outcome than a lead that closes at
+> "nothing obvious left".** The first is a measurement and the next session can
+> trust it; the second is a mood. §363 ended a seam on a *run of four declines*
+> and §365 refuted it one build later; §399 ended one on a *sample of three* and
+> §356 had already refuted that shape. This one ends on a join over the whole
+> corpus, and it will still be true next session unless the comments change.
+
+### The sweep is worth keeping as a session-close check
+
+It costs one `python` over the crates plus a `diagdeepen` run that already
+happens. Run at the *end* of a session it answers a question no other instrument
+does: **did I write a comment naming a diagnostic I did not then wire?** This
+session wrote roughly seventy such comments and the answer is currently no.
+
+### Where the session's leads stand
+
+```
+§377's list (multi-site codes)     8 unworked, ordering corrected by §400/§399
+§386's destructures                11 unchecked, semantic condition each
+§417's comment sweep               CLOSED at zero (§421)
+§404's re-pricing                  CLOSED at +9 of four (§409)
+§354's decline counter             unbuilt; 3 proxies failed (§351, §366, §367)
+TS2741's 46 cases                  the relation's trigger (§412)
+```
