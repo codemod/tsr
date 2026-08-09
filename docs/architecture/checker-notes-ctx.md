@@ -907,3 +907,15 @@ per-build names move. Bisect owner: whoever's landing falls in the
 range once enumerated — enumerate first, then the artifact-test
 dump at each candidate. Until resolved, §114's per-case list
 carries this note and §108.1's does too.
+
+**Destructured-optionality trace (one look, banked):** Action2's
+members DECLARE `payload: number | undefined` / `string |
+undefined`, and the want at the destructure (`payload : string |
+number`) strips the undefined — this is not an optionality leak in
+our roads but upstream's FLOW NARROWING AT THE DECLARATION of
+destructured members (the f22 "parent-flow-at-declaration" head
+TASK has carried since the §82 era, confirmed now with its exact
+shape). The family is flow-machine work, not a contextual arm;
+it stays with the §50-family board entry, and the "our roads add
+undefined" reading from the §114 triage is CORRECTED — our answer
+matches the declared type; upstream's narrowing is what we lack.
