@@ -13838,3 +13838,47 @@ row is expensive, check what has landed underneath it since it was priced.**
 
 Twenty-three cases, all from four fixes in the parser and the harness, none of
 them a rule.
+## §206 — §189's opening-element bound is contradicted by the corpus, and the record is corrected
+
+§189 landed TS7026 bounded to `JsxOpeningElement` and `JsxSelfClosingElement`,
+with this justification written into the code:
+
+> *"A `JsxElement` carries an opening and a closing tag and upstream reaches
+> `getIntrinsicTagSymbol` from the opening one; reporting on both would put two
+> diagnostics at two positions where upstream has one."*
+
+**That is false.** `jsxNamespacePrefixInName`'s baseline:
+
+```
+(1,20) TS7026
+(2,20) TS7026   (2,31) TS7026     ← <a:element></a:element>: BOTH tags
+(3,20) TS7026   (3,46) TS7026
+(4,20) TS7026   (4,39) TS7026
+(5,20) TS7026   (5,54) TS7026
+```
+
+Upstream checks the **closing** tag's name too. The bound was asserted from
+reading `getIntrinsicTagSymbol`'s callers rather than from a baseline, which is
+§157's rule — *read the fixture before the first refusal* — broken inside a
+build that was otherwise measured end to end.
+
+### What is NOT explained, and is left open rather than guessed
+
+This port emits **no TS7026 at all** in that file. Its expected lines are all
+missing, not duplicated — so lifting the bound would not obviously produce them,
+and something else stops the rule from firing there. Candidates, none probed:
+`no_implicit_any` off for this case, or the namespaced-tag path not reaching the
+rule.
+
+**The bound is therefore kept and the justification replaced**, in the code and
+here. Two separate things were wrong and only one is now known: the *reason* was
+false, and the *behaviour* may or may not be.
+
+> **A bound is a claim and needs the same evidence as a report.** Every wrong
+> line in this file was measured; the one sentence explaining why a whole node
+> kind was excluded was not, and it sat in the code for fifteen sections looking
+> like the rest of it.
+
+Fifth correction of a claim of my own this session, after §165, §187, §188 and
+§199 — and the first that was wrong in a *comment* rather than in a refusal.
+That is worth noting because nothing re-measures a comment.

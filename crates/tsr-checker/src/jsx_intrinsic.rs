@@ -44,10 +44,18 @@ fn is_intrinsic_jsx_name(name: &str) -> bool {
 impl Checker<'_, '_> {
     /// One JSX opening-like element.
     ///
-    /// **Opening-like only.** A `JsxElement` carries an opening *and* a closing
-    /// tag and upstream reaches `getIntrinsicTagSymbol` from the opening one;
-    /// reporting on both would put two diagnostics at two positions where
-    /// upstream has one, and the suite compares multisets (§151).
+    /// **Opening-like only, and that bound is now known to be incomplete.**
+    /// §189 justified it as *"upstream reaches `getIntrinsicTagSymbol` from the
+    /// opening one; reporting on both would put two diagnostics where upstream
+    /// has one"*. The corpus contradicts that: `jsxNamespacePrefixInName`'s
+    /// baseline carries TS7026 at **both** `(2,20)` and `(2,31)` — the opening
+    /// and the closing tag of `<a:element></a:element>` — so upstream checks the
+    /// closing name as well.
+    ///
+    /// The bound is kept because lifting it is a *measurement*, not an
+    /// inference, and this port emits **no** TS7026 in that file today for a
+    /// separate reason. **Do not lift it without re-measuring**; §206 records
+    /// what the baseline actually shows and what is unexplained.
     pub(crate) fn check_jsx_intrinsic_element(&mut self, node: NodeId, typed: Node<'_>) {
         // `if c.noImplicitAny` (`jsx.go:1252`) — the whole arm is inside it,
         // so the rule is silent under `noImplicitAny: false` rather than
