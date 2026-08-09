@@ -4989,3 +4989,33 @@ G→W class recurs at material size (§92's 134, or any structured
 fraction of it), the gate goes back verbatim and this section
 records the second price with its case names — two priced refusals
 would make the gate load-bearing, not provisional.
+
+**§120 MEASURED AND LANDED at iteration 4 — +172 G→R / 31 G→W /
+0 R→W (5.5:1), right 409,452 → 409,624 = 85.52%.** The §92 gate was
+HALF stale: single-hit distribution (exactly one constituent
+carries the name) is clean and took uncalledFunctionChecksInConditional2
+103, noUncheckedIndexedAccessDestructuring 20, mixinClassesMembers 19;
+multi-hit positions are where §92's 134 lived and they STAY REFUSED
+— four measured iterations mapped them precisely:
+  1. naive combination: 86 G→W (unparenthesized signature
+     intersections, `never`/`any` compatibility wants);
+  2. TypeId-dedup: 55 G→W (identically-printed distinct
+     instantiations don't dedupe by id; upstream also sometimes
+     WANTS the intersection — `(() => void) & (() => void)` —
+     exactly where we collapsed);
+  3. single-hit only: 39 G→W;
+  4. + the `this`-mention decline (a single hit whose declaration
+     subtree contains a ThisType node declines — upstream binds
+     polymorphic `this` to the WHOLE intersection and prints
+     `this`; we substitute the declaring class): 31 G→W, bar met.
+The multi-hit refusal is now TWICE priced (§92's 134, §120's
++14-over-iteration-3 in mixinAccessModifiers/discriminatedUnionTypes2)
+— the gate is load-bearing, not provisional; a third attempt needs
+the intersection-property MINT (parenthesized signature prints,
+compatibility never/any) built first. Residual adverse accepted at
+the bar: discriminatedUnionTypes2 8 (alias-name prints through the
+new road), unionTypeCallSignatures6 6 (written `(F0)` parenthesized
+spellings the fresh union render cannot reproduce — §77-family),
+uncalledFunctionChecksInConditional2 5 (net +98 in-case),
+libTypeScriptOverride* 6. Gates: all four 100% suites held,
+diagnostics +4 (2,019 → 2,023), clippy 0, 1,559 tests, anchors ok.

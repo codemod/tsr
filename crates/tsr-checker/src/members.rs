@@ -740,24 +740,45 @@ impl Checker<'_, '_> {
     /// alias reference with a non-literal body (evaluated under §91's
     /// bindings, then re-asked). `None` stays *no such property*.
     fn property_type_via_shape(&mut self, id: TypeId, name: &str) -> Option<TypeId> {
-        // Only intersections PRODUCED by alias evaluation — a written
-        // intersection answering confidently here measured 134 G→W in the
-        // discriminated-union family (union order, un-narrowed members).
-        if self.alias_evaluated_types.contains(&id)
-            && let TypeData::Intersection { types, .. } = &self.store.get(id).data
-        {
+        // §120: EVERY intersection distributes — upstream's
+        // `getUnionOrIntersectionProperty` reads a member from any
+        // constituent that has it. The §92 gate (alias-evaluated
+        // intersections only) was priced at 134 G→W in the
+        // discriminated-union era; re-measured after §98's discrimination
+        // machinery landed.
+        if let TypeData::Intersection { types, .. } = &self.store.get(id).data {
             let constituents = types.clone();
             let mut hits = Vec::new();
             for constituent in constituents {
                 if let Some(member) = self.get_type_of_property_of_type(constituent, name) {
-                    hits.push(member);
+                    hits.push((constituent, member));
                 }
             }
+            // §120 iteration 3: a WRITTEN intersection answers only when
+            // exactly ONE constituent carries the name. Multi-hit positions
+            // are where every adverse class lived — upstream variously
+            // intersects the hits with parenthesized prints, keeps `this`
+            // polymorphic (intersectionThisTypes' `() => this`), or answers
+            // `never`/`any` from compatibility checks this port lacks; each
+            // measured as G→W under both the naive combination (iteration 1,
+            // 86) and TypeId-dedup (iteration 2, 55). Alias-evaluated
+            // intersections keep §92's multi-hit intersection behaviour.
             return match hits.as_slice() {
                 [] => None,
-                [one] => Some(*one),
+                // A member whose declaration mentions the polymorphic `this`
+                // type declines even at a single hit: upstream binds `this`
+                // to the WHOLE intersection and prints it as `this`
+                // (intersectionThisTypes' `() => this` wants); this port
+                // substitutes the declaring class, a confident wrong.
+                &[(constituent, one)] => {
+                    let this_typed = self
+                        .get_property_of_type(constituent, name)
+                        .is_some_and(|symbol| self.symbol_mentions_this_type(symbol));
+                    if this_typed { None } else { Some(one) }
+                }
+                _ if !self.alias_evaluated_types.contains(&id) => None,
                 many => {
-                    let many = many.to_vec();
+                    let many = many.iter().map(|&(_, member)| member).collect::<Vec<_>>();
                     Some(self.get_intersection_type(&many, None))
                 }
             };
@@ -777,6 +798,23 @@ impl Checker<'_, '_> {
             }
         }
         None
+    }
+
+    /// Whether any of a symbol's declarations contains a `ThisType` node —
+    /// §120's decline key for intersection member reads. Syntactic because
+    /// this port has no this-type at the type level; a bounded subtree scan.
+    fn symbol_mentions_this_type(&self, symbol: SymbolId) -> bool {
+        let declarations = &self.binder.symbols().get(symbol).declarations;
+        let mut stack: Vec<tsr_ast::NodeId> = declarations.iter().copied().collect();
+        while let Some(id) = stack.pop() {
+            if self.nodes.kind(id) == tsr_ast::SyntaxKind::ThisType {
+                return true;
+            }
+            if let Some(node) = self.node_map.get(id) {
+                tsr_ast::for_each_child_id(node, |child| stack.push(child));
+            }
+        }
+        false
     }
 
     /// A member's type as seen through an instantiated reference: `declared`
