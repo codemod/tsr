@@ -871,3 +871,23 @@ are artifacts, the arity arm's real score is +16/0, and it LANDS
 (gates + isolated pair as usual). If the subjects match, the six
 are real and the transmitting road is still unfound — refuse per
 the bar. Nine rounds; the family is one diff from its verdict.
+
+**§114 family-1 — LANDED after nine trace rounds and the deciding
+diff.** The arity arm (contextual_type_for_argument: when §70's
+agreement declines on disagreement, the single candidate whose
+parameter count equals the call's argument count decides, same
+guards): isolated full pair right 408,314 → **408,346** — +4 G→R
++34 W→R (parenthesizedContexualTyping2 12, callWithMissingVoid 8,
+typeGuardTypeOfUndefined 8, tail) against 8 adverse, ALL in the
+head case and ALL of the CONFIRMED artifact class: the deciding
+diff showed the want-texts at the fixed indices changing between
+runs (`x : any` → bare `any`) — the aligner re-pairing around the
+twelve in-case wins, the §87 unicodeEscapes precedent exactly, now
+with the artifact test written down: A FIXED INDEX WHOSE WANT TEXT
+CHANGES BETWEEN RUNS IS THE ALIGNER MOVING, NOT THE ANSWER.
+Nine rounds' lessons, banked where they fired: an instrument that
+prints only one side reads zero (round 3, self-caught); a stale
+module doc claimed an existing arm absent (round 7-8 inversion);
+and the transmitting-road hunt ended with NO road — the adverse
+was never semantic. The §114 record is the project's most complete
+trace archive; read it before any future contextual-arc build.

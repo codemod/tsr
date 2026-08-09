@@ -595,17 +595,32 @@ impl<'a> Checker<'a, '_> {
             return None;
         };
         let candidates = self.get_signatures_of_symbol(symbol)?;
+        // SS114 family 1: when the candidates DISAGREE at this index (or a
+        // candidate lacks the position), upstream would contextually type
+        // through the RESOLVED signature - the first discriminator of which
+        // is arity. The single candidate whose parameter count equals the
+        // call's argument count decides; ties or no match keep the SS70
+        // agreement requirement. Found by round 4's PARAM-SYM instrumentation:
+        // thirteen None positions on the head case, all at mixed-arity
+        // overload pairs.
+        let by_arity: Vec<&Signature> =
+            candidates.iter().filter(|c| c.parameters.len() == call.arguments.len()).collect();
+        if let [chosen] = by_arity.as_slice() {
+            let parameter = chosen.parameters.get(index)?;
+            if parameter.rest || parameter.optional {
+                return None;
+            }
+            if self.mentions_any_type_parameter(parameter.r#type, 2) {
+                return None;
+            }
+            return Some(parameter.r#type);
+        }
         let mut agreed: Option<TypeId> = None;
         for candidate in &candidates {
             let parameter = candidate.parameters.get(index)?;
             if parameter.rest || parameter.optional {
                 return None;
             }
-            // A parameter whose type MENTIONS the candidate's own type
-            // parameters (by ID, walked two levels through signatures and
-            // reference arguments — a TEXT test collided the callback's own
-            // `<T>` with the candidate's and killed the wins) is not
-            // position-stable — decline.
             if self.mentions_any_type_parameter(parameter.r#type, 2) {
                 return None;
             }
