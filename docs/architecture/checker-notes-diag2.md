@@ -18169,3 +18169,97 @@ emits.
 > it does answer, and said so plainly.** The alternative — quietly keeping it
 > and citing it later as though it had worked — is how a measurement stops
 > meaning anything.
+
+## §294 — five arms chosen under §293's rule
+
+Every candidate here was filtered by the check §293 cost two builds to learn:
+**the code itself has blocked cases**, not merely its function or its
+neighbours.
+
+```
+TS1184    5 cases   Modifiers cannot appear here
+TS18016   3 cases   Private identifiers are not allowed outside class bodies
+TS1186    2 cases   A rest element cannot have an initializer
+TS2462    2 cases   A rest element must be last in a destructuring pattern
+TS1182    2 cases   A destructuring declaration must have an initializer
+```
+
+- **TS18016** (`:100`) — a `PrivateIdentifier` with no containing class. An
+  ancestor walk and nothing else.
+- **TS2462 / TS2566 / TS1186** (`:1536`) — `checkGrammarBindingElement`'s rest
+  arms: not last in the element list, carrying a property name, carrying an
+  initialiser. One ordered run, returning on the first.
+- **TS1182** (`:1573`) — a binding pattern with no initialiser whose parent is
+  *not* itself a binding pattern, outside `for-in`/`for-of` and outside an
+  ambient context.
+- **TS1184** — reported from two places. `reportObviousModifierErrors` needs
+  `findFirstIllegalModifier`; the **second** site (`:1437`) is a method in an
+  **object literal** carrying any modifier other than a single `async`, and only
+  that one is ported.
+
+### The bar
+
+```
+bar:  +7 cases of 14,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **`class C { #x = 1 }` reports TS18016.** The containing-class walk is the
+   whole rule.
+2. **`const { a } = o` reports TS1182.** It has an initialiser.
+3. **`const [a, ...b] = xs` reports TS2462.** The rest *is* last.
+4. **`({ async m() {} })` reports TS1184.** A single `async` is the exemption.
+
+## §295 — §294 measured twice and reverted
+
+```
+five arms, unbounded              diagnostics 1,779 → 1,777   LOST 8 · RIGHT 30 · WRONG 40
++ catch-clause variables excluded              → 1,777   LOST 8 · RIGHT 30 · WRONG 24
+```
+
+Reverted. §293's filter did its job — every code here *was* in the gap — and the
+build still failed, for a different reason.
+
+### One hypothesis raised and disproved
+
+The wrong lines were spread across four of the five arms, which reads like a
+**hook** problem rather than five independent predicate bugs. Checked:
+
+```
+checker.go:4274   checkBindingElement            → checkGrammarBindingElement
+checker.go:5785   checkVariableDeclaration       → checkGrammarVariableDeclaration
+checker.go:7838   checkPrivateIdentifierExpression → checkGrammarPrivateIdentifierExpression
+```
+
+**All three are per-node-kind dispatch, exactly where this port hooked them.**
+The placement is right and the predicates are wrong — the opposite of what the
+spread suggested, and worth the two minutes it cost to check before writing it
+down.
+
+### What the catch-clause bound established
+
+`catch ({ a })` binds a pattern with no initialiser and is legal.
+`checkGrammarVariableDeclaration` reads `node.Parent.Parent` as a *statement*,
+which only holds when the parent is a `VariableDeclarationList`; a catch clause's
+variable has a `CatchClause` parent. Requiring the list took 40 wrong lines to
+24 and is correct independently.
+
+### Where the rest are
+
+`objectRestPropertyMustBeLast` wants **TS2462 at (1,9)** and this port produced
+**(1,6)** — right code, wrong column, three characters apart. An **object**
+rest is not reached through `checkGrammarBindingElement` at all; the same message
+is reported from the object-literal/spread path, on a different node.
+
+> **Two codes with the same message text are not one rule.** TS2462 is emitted
+> from at least two upstream sites, and the gap — which is keyed on the code —
+> shows them as one row. §278's function sweep would have separated them; it was
+> not run on this batch because §293's filter felt sufficient.
+
+### Refused, owners named
+
+**TS2462's object-rest half** — a different upstream site, not
+`checkGrammarBindingElement`. **TS1186, TS18016, TS1184** — each has residual
+wrong lines that need their own reading; grouping five arms into one build made
+all four indistinguishable until they were isolated.
