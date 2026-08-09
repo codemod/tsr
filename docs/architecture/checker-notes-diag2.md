@@ -13028,3 +13028,123 @@ that would replace those conversions.
 `_0_EXPECTED` with `UNEXPECTED_TOKEN` and make it report one, then re-run this
 one-line change. If `diagnostics` comes back at or above 1,594 the build lands
 and takes `checker_types`' +6 with it.
+
+## §192 — the TS1012 §191 refused on is one missing `if`, and it is upstream's
+
+§191 refused the parser conjunct because each new TS1005 arrived with a spurious
+TS1012, and named finding the double-reporting recovery site as the next step.
+There is no such site. There is a missing guard.
+
+```go
+// parser.go:327 — parseErrorAtRange, through which EVERY parser diagnostic goes
+// Don't report another error if it would just be at the same location as the last error
+if len(p.diagnostics) == 0 || p.diagnostics[len(p.diagnostics)-1].Pos() != loc.Pos() {
+    result = ast.NewDiagnostic(nil, loc, message, args...)
+    p.diagnostics = append(p.diagnostics, result)
+}
+```
+
+```rust
+// crates/tsr-parser/src/parser.rs:495
+pub(crate) fn error_at(&mut self, message: &'static Message, span: Span) {
+    self.diagnostics.push(Diagnostic::new(message, span));
+}
+```
+
+**Unconditional push.** Upstream reports `';' expected` at the `=` and then
+`Declaration or statement expected` at the *same* `=` — and the second is
+dropped by this guard, which is why the baseline for `x++ = 4;` carries exactly
+one line. This port keeps both.
+
+### Why §191 looked for the wrong thing
+
+It reasoned from the *pair* — `_0_EXPECTED` beside `UNEXPECTED_TOKEN` — and went
+looking for a site that emits both. Neither site is wrong; they are two
+recoveries firing in sequence, which is upstream's behaviour too. **The
+divergence is in the sink, not in either source**, and a sink is invisible from
+the symptom because every producer looks individually correct.
+
+That is the same shape as §182's *"a shared helper is not a shared
+convention"*, inverted: here a shared **sink** carries a convention that neither
+caller states.
+
+### What it should be worth
+
+`extraonly` — cases one false positive from passing — has **41 TS1005 and 18
+TS1012 lines** at its head, and the whole `parserErrorRecovery` family in it.
+Those are exactly the shape a missing same-position guard produces. This is
+therefore not a bounded fix for one row; it is a candidate for a large part of
+the extra column.
+
+### The bar
+
+```
+bar:  diagnostics +6,  0 LOST,  parser_typescript and printer_round_trip UNMOVED
+```
+
+Off `diagnostics` cases and not off extra lines, per §79. `+6` because the guard
+alone should recover §191's −6; anything above that is the `extraonly` column
+paying out. **`parser_typescript` at 5,031/5,031 and `printer_round_trip` at
+11,762/11,762 are the rails** — a dedup that dropped a *first* error would move
+them.
+
+### Falsifiers
+
+1. **`parser_typescript` moves at all.** The guard must drop only a diagnostic
+   whose start equals the immediately preceding one's.
+2. **`diagnostics` falls.** Then some case was passing on a duplicate this port
+   emits and upstream does not, which would mean the multiset comparison had
+   been matching two of ours against one of theirs — impossible, so a fall means
+   the guard is dropping a *different* line.
+
+## §193 — §192 built: +14 on ONE `if`, and every rail unmoved
+
+The bar was `diagnostics +6, 0 LOST, parser_typescript and printer_round_trip
+unmoved`.
+
+| suite | before | after |
+|---|---:|---:|
+| **`diagnostics`** | 1,594 | **1,608 (+14)** |
+| `parser_typescript` | 5,031/5,031 | 5,031/5,031 |
+| `binder_symbols` | 8,459/8,459 | 8,459/8,459 |
+| `printer_round_trip` | 11,762/11,762 | 11,762/11,762 |
+| `checker_types` | 3,964 | 3,964 |
+
+**+14 cases for one `if`, and nothing else moved at all.**
+
+`would_repeat_last_error` — `parseErrorAtRange`'s guard (`parser.go:327`),
+comparing the **start** and not the whole span, because upstream compares
+`Pos()`.
+
+### Why it is worth this much
+
+`extraonly` — cases one false positive from passing — had **41 TS1005 and 18
+TS1012 lines** at its head, and the whole `parserErrorRecovery` family. Every
+one of them was a second diagnostic at a position that already had one. Two
+recoveries firing at a single token is *correct* and upstream does it too; what
+upstream does not do is record both.
+
+### The finding, which is bigger than the fix
+
+> **A divergence can live in a sink that every producer feeds, and it is
+> invisible from any producer.** §191 saw `_0_EXPECTED` beside
+> `UNEXPECTED_TOKEN` and went looking for the site that emits both. There is no
+> such site — there are two correct sites and a missing filter between them and
+> the list.
+
+Four sessions of notes named `tsr_parser`'s *parse-error set* as incomplete
+(§162, §179, §182, §184), §190 corrected that to a missing conjunct in one
+expression rule, and §192 corrected *that* to a missing guard in the reporting
+sink. **Three attributions, each more specific than the last, and only the third
+was right — every one of the first two was reached by reasoning from the
+symptom rather than reading the function upstream routes through.**
+
+`error_at` was the function to read from the first sentence of §162, and nothing
+pointed at it because nothing that *emits* a diagnostic looked wrong.
+
+### What is still open on the parser
+
+§191's conjunct — `IsLeftHandSideExpression` in `parse_assignment_expression` —
+is **not** in this build. It measured `diagnostics −6` when the sink still
+double-reported; that number is now stale and it should be re-run on top of this
+guard before anyone believes it. It is `bd`-filed with that instruction.

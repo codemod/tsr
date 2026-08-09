@@ -1077,12 +1077,11 @@ impl<'a, 'n> Checker<'a, 'n> {
                 let mut parts = Vec::with_capacity(entries.len());
                 let mut complete = true;
                 for entry in entries {
-                    match self.type_to_string_at(entry, reference) {
-                        Some(part) => parts.push(part),
-                        None => {
-                            complete = false;
-                            break;
-                        }
+                    if let Some(part) = self.type_to_string_at(entry, reference) {
+                        parts.push(part);
+                    } else {
+                        complete = false;
+                        break;
                     }
                 }
                 self.rendering_composites.remove(&id);
@@ -1140,14 +1139,13 @@ impl<'a, 'n> Checker<'a, 'n> {
                 out.push_str(&parameter.name);
                 if let Some(constraint) = parameter.constraint {
                     out.push_str(" extends ");
-                    match &parameter.written_constraint {
-                        Some(written) => out.push_str(written),
-                        None => {
-                            let rendered = self
-                                .type_to_string_at(constraint, reference)
-                                .unwrap_or_else(|| self.type_to_string(constraint));
-                            out.push_str(&rendered);
-                        }
+                    if let Some(written) = &parameter.written_constraint {
+                        out.push_str(written);
+                    } else {
+                        let rendered = self
+                            .type_to_string_at(constraint, reference)
+                            .unwrap_or_else(|| self.type_to_string(constraint));
+                        out.push_str(&rendered);
                     }
                 }
                 if let Some(default) = parameter.default {
@@ -1172,14 +1170,13 @@ impl<'a, 'n> Checker<'a, 'n> {
             }
             out.push_str(&parameter.name);
             out.push_str(if parameter.optional { "?: " } else { ": " });
-            match &parameter.written_text {
-                Some(written) => out.push_str(written),
-                None => {
-                    let rendered = self
-                        .type_to_string_at(parameter.r#type, reference)
-                        .unwrap_or_else(|| self.type_to_string(parameter.r#type));
-                    out.push_str(&rendered);
-                }
+            if let Some(written) = &parameter.written_text {
+                out.push_str(written);
+            } else {
+                let rendered = self
+                    .type_to_string_at(parameter.r#type, reference)
+                    .unwrap_or_else(|| self.type_to_string(parameter.r#type));
+                out.push_str(&rendered);
             }
         }
         out.push_str("): ");

@@ -482,6 +482,9 @@ impl<'a> Parser<'a> {
     /// Report at the current token, with substitution arguments.
     pub(crate) fn error_at_current_with(&mut self, message: &'static Message, args: &[&str]) {
         let span = self.token.span;
+        if self.would_repeat_last_error(span) {
+            return;
+        }
         self.diagnostics.push(Diagnostic::with_args(
             message,
             span,
@@ -491,7 +494,28 @@ impl<'a> Parser<'a> {
 
     /// Report at an explicit span.
     pub(crate) fn error_at(&mut self, message: &'static Message, span: Span) {
+        if self.would_repeat_last_error(span) {
+            return;
+        }
         self.diagnostics.push(Diagnostic::new(message, span));
+    }
+
+    /// `parseErrorAtRange`'s guard (`parser.go:327`):
+    ///
+    /// > *Don't report another error if it would just be at the same location
+    /// > as the last error.*
+    ///
+    /// Every parser diagnostic upstream goes through `parseErrorAtRange`, so
+    /// this is a property of the **sink** and not of any reporting site. Two
+    /// recoveries firing in sequence at one token is normal and correct — a
+    /// statement's missing `;` and then the statement list's refusal of the
+    /// same token — and upstream keeps the first only.
+    ///
+    /// It compares the **start** and not the whole span, which is upstream's
+    /// `Pos()`: a longer or shorter range at the same start is still the same
+    /// location. See `checker-notes-diag2.md` §192.
+    fn would_repeat_last_error(&self, span: Span) -> bool {
+        self.diagnostics.last().is_some_and(|last| last.span.start == span.start)
     }
 
     // ---- node construction ----------------------------------------------
