@@ -24652,3 +24652,77 @@ one-case row, and the same edit shape does not make it the same build.
 > is the honest rate for this technique, and it is recorded rather than left as
 > "ten leads" — which is what §431 corrected the last time a note handed forward
 > a number instead of a measurement.
+
+## §450 — TS2394 widened: type literals of primitives
+
+§403 ported TS2394's bare-primitive subset (`():number` vs `():string`) for `+4`.
+The row is **12 blocked, 11 single-line, `occupied 0/13`**, and the remainder is
+one step out:
+
+```ts
+function foo():{a:number;}
+function foo():{a:string;} { return {a:""} }   // TS2394
+```
+
+Two **type literals whose every member is a written primitive**. Member-wise,
+§257's argument applies exactly as it did to the bare case: two distinct
+intrinsic singletons are unrelated, so `{a:number}` and `{a:string}` cannot be
+compatible — no relation is consulted, only two maps compared.
+
+### The bound
+
+Both return annotations are `TypeLiteralNode`s; **every** member of both is a
+non-optional `PropertySignature` with a written annotation naming one of the
+four intrinsic primitives; the two name→primitive maps differ. Any other member
+kind, any optional member, any non-primitive annotation — decline the whole
+comparison, because a partial map cannot prove a difference.
+
+`functionOverloads18` is the **parameter** direction of the same shape and is
+not attempted here: upstream's compatibility check is bivariant on parameters
+and getting that backwards reports where upstream is silent.
+
+### The bar
+
+```
+bar:  +3 of 12,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **Identical literals report.** `{a:number}` twice must compare equal.
+2. **A literal with one non-primitive member reports.** The map is then partial
+   and proves nothing — decline is the only sound answer.
+
+## §451 — §450 built: **+3**, and `checker_types` **+8**
+
+```
+diagnostics     1,958 → 1,961   (bar was +3;  +3, 0 LOST)   35.73%
+checker_types   4,045 → 4,053   (+8)
+```
+
+§437's observation holds a second time: the widened rule reads return
+annotations the class path had not been evaluating, and the other suite moves
+with it. **That is now a predictable side effect rather than a surprise**, and
+§437's correction to the falsifier — *"no case goes passing→failing", not "the
+number is unmoved"* — is what makes a `+8` readable instead of alarming.
+
+### §257's argument, five applications
+
+```
+§257  TS2403  two declarations of one variable      bare primitives
+§338  TS2403  widened to `any`                      −3, reverted
+§403  TS2394  overload vs implementation            bare primitives      +4
+§436  TS2507  `extends` a primitive                 no construct sig     +3
+§450  TS2394  the same, member-wise                 literals of primitives +3
+```
+
+**+10 kept from one idea**, and its boundary is now sharp on both sides:
+`any` is out (§338, measured), and a *partial* map is out by construction —
+§450 declines the whole comparison if one member is non-primitive, because two
+maps that are each incomplete cannot prove a difference.
+
+> **A decidable-subset argument extends by making the unit smaller, not the
+> domain wider.** §403 compared types; §450 compares members of types. The
+> failed extension (§338) went the other way — it kept the unit and admitted a
+> new member to the domain. That is the distinction worth carrying: **narrowing
+> the unit preserves the proof; widening the domain re-opens it.**

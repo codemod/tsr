@@ -1425,7 +1425,11 @@ impl Checker<'_, '_> {
         if implementation.body.is_none() {
             return;
         }
-        let Some(body_return) = self.written_primitive_return(node) else { return };
+        let body_return = self.written_primitive_return(node);
+        let body_literal = self.written_primitive_literal(node);
+        if body_return.is_none() && body_literal.is_none() {
+            return;
+        }
         let Some(symbol) = self.binder.symbol_of(node) else { return };
         let declarations =
             self.binder.symbols().get(self.binder.merged_symbol(symbol)).declarations.clone();
@@ -1441,10 +1445,17 @@ impl Checker<'_, '_> {
             {
                 continue;
             }
-            let Some(overload_return) = self.written_primitive_return(declaration) else {
-                continue;
+            // Bare primitive against bare primitive (§403), or type literal of
+            // primitives against the same (§450). A mixed pair declines: the two
+            // shapes are not comparable without the relation.
+            let differs = match (body_return, self.written_primitive_return(declaration)) {
+                (Some(body), Some(overload)) => body != overload,
+                _ => match (body_literal.clone(), self.written_primitive_literal(declaration)) {
+                    (Some(body), Some(overload)) => body != overload,
+                    _ => continue,
+                },
             };
-            if overload_return == body_return {
+            if !differs {
                 continue;
             }
             let Some(file) = self.source_file_of_for_diagnostics(declaration) else { continue };
@@ -1458,6 +1469,48 @@ impl Checker<'_, '_> {
             );
             break;
         }
+    }
+
+    /// The written members of a type-literal return annotation, when **every**
+    /// one is a non-optional property with an intrinsic-primitive annotation.
+    ///
+    /// A partial map cannot prove a difference, so any other member kind
+    /// declines the whole comparison. §450.
+    fn written_primitive_literal(&self, node: NodeId) -> Option<Vec<(String, SyntaxKind)>> {
+        let Some(Node::FunctionDeclaration(function)) = self.node_map.get(node) else {
+            return None;
+        };
+        let id = function.r#type.and_then(|annotation| annotation.node_id())?;
+        let Some(Node::TypeLiteralNode(literal)) = self.node_map.get(id) else { return None };
+        if literal.members.is_empty() {
+            return None;
+        }
+        let mut out = Vec::new();
+        for member in literal.members {
+            let tsr_ast::TypeElement::PropertySignatureDeclaration(property) = member else {
+                return None;
+            };
+            if property.postfix_token.is_some() {
+                return None;
+            }
+            let tsr_ast::PropertyName::Identifier(name) = property.name else { return None };
+            let annotation = property.r#type.and_then(|t| t.node_id())?;
+            let Some(Node::KeywordTypeNode(keyword)) = self.node_map.get(annotation) else {
+                return None;
+            };
+            if !matches!(
+                keyword.kind,
+                SyntaxKind::StringKeyword
+                    | SyntaxKind::NumberKeyword
+                    | SyntaxKind::BooleanKeyword
+                    | SyntaxKind::BigIntKeyword
+            ) {
+                return None;
+            }
+            out.push((name.text.to_string(), keyword.kind));
+        }
+        out.sort();
+        Some(out)
     }
 
     /// The written return annotation of a function declaration, when it names
