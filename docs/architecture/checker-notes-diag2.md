@@ -16740,3 +16740,94 @@ then removed, and the clean path re-run to 1,707. Both directions observed.
 > this one can say no.
 
 `CLAUDE.md`'s build section now lists it above the raw `coverage` invocation.
+
+## §261 — TS2874, the JSX factory that is not in scope
+
+Sixth row off §256's re-ranked list. `markJsxAliasReferenced`
+(`checker.go:28502`):
+
+```go
+jsxFactoryRefErr := core.IfElse(c.compilerOptions.Jsx == core.JsxEmitReact,
+    diagnostics.This_JSX_tag_requires_0_to_be_in_scope_but_it_could_not_be_found, nil)
+jsxFactoryNamespace := c.getJsxNamespace(node)
+jsxFactoryLocation := node
+if ast.IsJsxOpeningLikeElement(node) { jsxFactoryLocation = node.TagName() }
+…
+jsxFactorySym = c.resolveName(jsxFactoryLocation, jsxFactoryNamespace, flags, jsxFactoryRefErr, …)
+```
+
+The diagnostic is `resolveName`'s *not-found* message, so the rule is: resolve
+the JSX factory namespace as a **value** at the tag name, and if it is not in
+scope under `jsx: react`, that is TS2874 naming the namespace.
+
+Every piece is already here. §211 built `jsx_factory_namespace` on the pragma
+table and `jsx_namespace_name` (`jsx_intrinsic.rs:189`) already applies the
+three-way default — `React`, or `jsxFactory`'s first identifier, or
+`reactNamespace` — and prefers a file's `@jsx` pragma over all of them.
+
+### Three guards, each load-bearing
+
+- **`Jsx == JsxEmitReact` only.** Under `preserve` the tag is emitted as
+  written and no factory is called, so nothing needs to be in scope. Under the
+  automatic runtime (`ReactJsx`) the factory is imported, not resolved.
+- **`getJsxNamespaceContainerForImplicitImport` returns early** — the automatic
+  runtime again, reached from a different direction.
+- **A fragment whose namespace is literally `"null"`** is exempt (upstream's
+  `#38720/60122`).
+
+### The bar
+
+```
+bar:  +4 cases of 6,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **Every JSX file reports.** `React` is in scope in most of the corpus's JSX
+   fixtures; if the resolution is asked with the wrong meaning or at the wrong
+   location, this detonates.
+2. **A `jsx: preserve` case reports.** The mode guard is the difference.
+
+## §262 — §261 built, bounded once, reverted
+
+```
+all opening-like nodes + fragments   diagnostics 1,707 → 1,709   CONVERTS 6 · LOST 4 · RIGHT 19 · WRONG 49
+fragments dropped                                  → 1,709   CONVERTS 6 · LOST 4 · RIGHT 17 · WRONG 36
+```
+
+Net `+2` against 36 wrong lines and **4 lost**. Not shippable at either bound.
+
+### What the two measurements established
+
+The first 49 wrong lines were all **fragments**, and dropping them is correct
+independent of the rest: upstream resolves a fragment's factory through
+`getJsxFactoryEntity` and `jsxFragmentFactory` (`checker.go:28533`), a second
+lookup with its own entity and its own `null` exemption, and
+`jsx_namespace_name` answers the *element* factory — the wrong name for a `<>`.
+
+The remaining 36 are **elements in files that name their factory**.
+`jsxFactoryAndJsxFragmentFactory.tsx` declares `h` and gets TS2874 for `React`,
+which means `jsx_namespace_name` fell through to its default instead of the
+configured factory. The host hook §211 built
+(`Program::jsx_factory_namespace`, `tsr-compiler/src/lib.rs:610`) reads the
+**in-file `@jsx` pragma**; these cases set the *option* `jsxFactory`, which
+`Checker::apply_options` folds into `self.jsx_namespace`
+(`checker.rs:812`). One of those two roads is not arriving in this suite, and
+which one is **not established** — three candidates were narrowed to two and no
+further.
+
+> **A rule whose input is a configured name cannot be measured until the
+> configuration is known to arrive.** TS2874 is a one-line resolution over
+> `jsx_namespace_name`; every wrong line it produced is a report about
+> `React` in a file that never mentions `React`. The rule was never the
+> variable.
+
+### Refused, owner named
+
+**TS2874, 6 cases — refused.** Owner: **whichever of the two `jsxFactory` roads
+does not reach `Checker::jsx_namespace` under the diagnostics suite** — the
+pragma hook or the compiler option. Both are built; one is not arriving.
+
+That is a *smaller* and more testable owner than "port TS2874", and it is worth
+more than the row: `jsx_namespace_name` is also what §255's TS7026 and §221's
+`getJsxNamespaceAt` read, so the same defect is upstream of three rules.

@@ -1307,6 +1307,27 @@ its whole deliverable and accept that it converts nothing until finished.
 
 ## 5. Refused, with the number that refused it
 
+### New, this session, TS2874 — JSX factory not in scope, 6 cases
+
+Refused by **§262**, after two bounds. `+2` against **36 wrong lines and 4
+lost**.
+
+The first 49 wrong lines were fragments — upstream resolves those through
+`getJsxFactoryEntity`/`jsxFragmentFactory` (`checker.go:28533`), a second lookup
+this port does not have. Dropping them is right independently.
+
+The remaining 36 are **elements in files that name their factory**:
+`jsxFactoryAndJsxFragmentFactory.tsx` declares `h` and got TS2874 for `React`,
+so `jsx_namespace_name` fell through to its default. *A rule whose input is a
+configured name cannot be measured until the configuration is known to arrive.*
+
+**Owner: whichever of the two `jsxFactory` roads does not reach
+`Checker::jsx_namespace` in this suite** — §211's pragma hook
+(`tsr-compiler/src/lib.rs:610`) or the `jsxFactory` option folded in at
+`checker.rs:812`. Both are built; one is not arriving. **This is upstream of
+three rules** — §255's TS7026 and §221's `getJsxNamespaceAt` read the same
+function.
+
 ### New, this session, TS2783 — spread overwrites a property, 9 cases
 
 Refused by **§251**. `checkSpreadPropOverrides` (`checker.go:13371`) tests
@@ -2232,6 +2253,7 @@ holds only the numbers.
 | 2026-08-09 | HEAD | **31.03%** | **1,703** | **+2 against a bar of +10** | **TS2403's decidable fragment.** `isTypeIdenticalTo` is a *third* relation beside assignability and comparability and this port has none of the three — but identity **is** decidable between the intrinsic primitives, which are singletons, so `a != b` there needs no interning assumption. ***A decidable fragment of a relation is worth taking and worth pricing low***: it answers where it is certain, which is systematically the part the corpus least needs. Upstream's `SymbolFlagsAssignment` guard is ported and **idle** — recorded as idle, not as working. §257–§258 |
 | 2026-08-09 | HEAD | **31.10%** | **1,707** | **+4, exactly the bar** | **TS1039/TS1254**, found by re-ranking the gap with relation-owned codes filtered out (§256's rule, working as intended). *The **annotation** decides which message, not the initialiser.* `isInitializerSimpleLiteralEnumReference` declined rather than approximated — a missing line where the alternative was a wrong one. **§244's trap attempted a second time**: clippy and coverage batched into one invocation again, coverage read first, 3 lint errors unread. ***Knowing the rule is not the same as having the rule*** — the correction lived only in prose and batching is the ergonomic default. §259 |
 | 2026-08-09 | HEAD | 31.10% | 1,707 | **tooling — the ordering made mechanical** | **`cargo xtask measure`: clippy, and only if it exits 0, the conformance run.** §140/§231/§244/§259 are one defect four times — a new dispatch arm shadows an existing one, Rust deletes it silently, and the coverage number measures a compiler with a rule switched off. The first time it read as a **590-case collapse**. The correction *"run clippy first"* was written three times, correctly, and broken on the next multi-part build each time. ***A correction that lives in prose is a correction you get to make again*** — the difference is not insight, it is that this one can say no. Verified in both directions. §260 |
+| 2026-08-09 | HEAD | 31.10% | 1,707 | **fifth whole build reverted after measurement** | **TS2874** — `+2` against 36 wrong lines and 4 lost. Every wrong line is a report about **`React` in a file that never mentions `React`**: the configured factory name is not arriving. ***A rule whose input is a configured name cannot be measured until the configuration is known to arrive*** — the rule was never the variable. Owner is smaller and more testable than the row, and sits **upstream of three rules**. Also §261's build was the new `xtask measure` gate's first real outing and it **blocked** on an unused parameter. §261–§262 |
 
 ## 8. Updating this file
 
