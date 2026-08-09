@@ -386,6 +386,13 @@ pub struct Checker<'a, 'n> {
     pub(crate) non_null_type_variables: FxHashMap<(TypeId, String), TypeId>,
     /// §85's reverse map: mint → (base type variable, refinement kind).
     pub(crate) non_null_mint_bases: FxHashMap<TypeId, (TypeId, crate::flow::NonNullKind)>,
+    /// §92: alias-body evaluations, keyed (alias symbol, arguments); error
+    /// marks a remembered refusal.
+    pub(crate) alias_body_evaluations: FxHashMap<(tsr_binder::SymbolId, Vec<TypeId>), TypeId>,
+    /// §92: types PRODUCED by alias evaluation — the only intersections the
+    /// shape property road may search (a WRITTEN intersection answering
+    /// confidently was 134 G→W in the discriminated-union family).
+    pub(crate) alias_evaluated_types: rustc_hash::FxHashSet<TypeId>,
     /// §91: the conditional-alias evaluator's binding frames — type-parameter
     /// symbol → the argument it is bound to during one body evaluation. Empty
     /// outside evaluation, which is the gate on the evaluator's node arms.
@@ -688,6 +695,8 @@ impl<'a, 'n> Checker<'a, 'n> {
             alias_inline_level: 0,
             non_null_type_variables: FxHashMap::default(),
             non_null_mint_bases: FxHashMap::default(),
+            alias_body_evaluations: FxHashMap::default(),
+            alias_evaluated_types: rustc_hash::FxHashSet::default(),
             alias_evaluation_bindings: Vec::new(),
             alias_named_signature_types: rustc_hash::FxHashSet::default(),
             no_unused_locals: false,

@@ -741,6 +741,12 @@ impl<'a> Checker<'a, '_> {
         if let [single] = types[..] {
             return single;
         }
+        // §92: under evaluation bindings the node is an alias BODY being
+        // instantiated — its own alias attribution (parent = the generic
+        // alias declaration) must not fire the generic-alias error arm.
+        if !self.alias_evaluation_bindings.is_empty() {
+            return self.get_union_type(&types);
+        }
         match node.node_id.and_then(|id| self.alias_symbol_for_type_node(id)) {
             None => self.get_union_type(&types),
             Some(alias) if self.local_type_parameters_of(alias).is_empty() => {
@@ -817,10 +823,12 @@ impl<'a> Checker<'a, '_> {
         // set intersection — upstream's `intersectUnionsOfPrimitiveTypes` +
         // the two-unit-types-are-never rule, applied only where the
         // conditional-alias evaluator needs it (`keyof base & keyof props`).
-        if !self.alias_evaluation_bindings.is_empty()
-            && let Some(reduced) = self.intersect_literal_key_unions(&types)
-        {
-            return reduced;
+        if !self.alias_evaluation_bindings.is_empty() {
+            if let Some(reduced) = self.intersect_literal_key_unions(&types) {
+                return reduced;
+            }
+            // §92: same alias-body rule as the union arm above.
+            return self.get_intersection_type(&types, None);
         }
         match node.node_id.and_then(|id| self.alias_symbol_for_type_node(id)) {
             None => self.get_intersection_type(&types, None),
@@ -2299,12 +2307,98 @@ impl<'a> Checker<'a, '_> {
         }
         self.alias_evaluation_bindings.pop();
         self.instantiation_depth -= 1;
+        if let Some(evaluated) = result {
+            self.alias_evaluated_types.insert(evaluated);
+        }
         result
+    }
+
+    /// §92: evaluate ANY generic alias body under bindings — the
+    /// non-conditional generalization of [`Checker::evaluate_conditional_alias`],
+    /// used by the property road to see through `merge<X, Y>` when the body is
+    /// an intersection. Cached per (symbol, arguments); `None` when the body
+    /// does not evaluate, which keeps the named reference as the answer.
+    pub(crate) fn evaluate_alias_body(
+        &mut self,
+        symbol: SymbolId,
+        arguments: &[TypeId],
+    ) -> Option<TypeId> {
+        let key = (symbol, arguments.to_vec());
+        if let Some(&cached) = self.alias_body_evaluations.get(&key) {
+            return (cached != self.intrinsics.error).then_some(cached);
+        }
+        if let Some(evaluated) = self.evaluate_conditional_alias(symbol, arguments) {
+            self.alias_body_evaluations.insert(key, evaluated);
+            self.alias_evaluated_types.insert(evaluated);
+            return Some(evaluated);
+        }
+        let error = self.intrinsics.error;
+        let mut result = None;
+        if self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS)
+            && let Some(declaration) = self.binder.symbols().get(symbol).declarations.first().copied()
+            && let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
+            && let Some(body) = alias.r#type
+            && !matches!(body, TypeNode::ConditionalTypeNode(_))
+            // A TypeLiteral anywhere in the body's structural spine belongs
+            // to the §90 symbol road, whose member reads instantiate;
+            // evaluating one here mints WRITTEN member types (`T | undefined`
+            // for a bound T — 19 G→W in controlFlowAliasedDiscriminants,
+            // whose `UseQueryResult<T>` is a union of two literals).
+            && !Self::body_carries_type_literal(body)
+            && self.instantiation_depth < 100
+        {
+            let parameters = self.local_type_parameters_of(symbol);
+            if parameters.len() == arguments.len() && !parameters.is_empty() {
+                let mut frame = rustc_hash::FxHashMap::default();
+                let mut complete = true;
+                for (parameter, &argument) in parameters.iter().zip(arguments) {
+                    match parameter.node_id.and_then(|id| self.binder.symbol_of(id)) {
+                        Some(parameter) => {
+                            frame.insert(parameter, argument);
+                        }
+                        None => complete = false,
+                    }
+                }
+                if complete {
+                    self.instantiation_depth += 1;
+                    self.alias_evaluation_bindings.push(frame);
+                    let evaluated = self.get_type_from_type_node(body);
+                    self.alias_evaluation_bindings.pop();
+                    self.instantiation_depth -= 1;
+                    if evaluated != error {
+                        result = Some(evaluated);
+                    }
+                }
+            }
+        }
+        self.alias_body_evaluations.insert(key, result.unwrap_or(error));
+        if let Some(evaluated) = result {
+            self.alias_evaluated_types.insert(evaluated);
+        }
+        result
+    }
+
+    /// §92's admission walk: whether a TypeLiteral sits on the body's
+    /// structural spine (through unions, intersections, parentheses).
+    fn body_carries_type_literal(node: TypeNode<'_>) -> bool {
+        match node {
+            TypeNode::TypeLiteralNode(_) => true,
+            TypeNode::UnionTypeNode(union) => {
+                union.types.iter().any(|&t| Self::body_carries_type_literal(t))
+            }
+            TypeNode::IntersectionTypeNode(intersection) => {
+                intersection.types.iter().any(|&t| Self::body_carries_type_literal(t))
+            }
+            TypeNode::ParenthesizedTypeNode(parenthesized) => {
+                parenthesized.r#type.is_some_and(Self::body_carries_type_literal)
+            }
+            _ => false,
+        }
     }
 
     /// The literal-key texts of a string-literal union (or single literal, or
     /// `never` = empty), `None` for anything else.
-    fn literal_key_texts(&self, id: TypeId) -> Option<Vec<String>> {
+    pub(crate) fn literal_key_texts(&self, id: TypeId) -> Option<Vec<String>> {
         let ty = self.store.get(id);
         if ty.flags.contains(TypeFlags::NEVER) {
             return Some(Vec::new());
@@ -2370,13 +2464,23 @@ impl<'a> Checker<'a, '_> {
         if id == self.intrinsics.error {
             return None;
         }
-        if let Some((target, arguments)) = self.type_reference_targets.get(&id).cloned()
-            && self.global_type_symbol("Omit") == Some(target)
-            && arguments.len() == 2
-        {
-            let base = self.keys_of(arguments[0])?;
-            let removed = self.literal_key_texts(arguments[1])?;
-            return Some(base.into_iter().filter(|key| !removed.contains(key)).collect());
+        if let Some((target, arguments)) = self.type_reference_targets.get(&id).cloned() {
+            if self.global_type_symbol_with_arity("Omit", 2) == Some(target) && arguments.len() == 2
+            {
+                let base = self.keys_of(arguments[0])?;
+                let removed = self.literal_key_texts(arguments[1])?;
+                return Some(base.into_iter().filter(|key| !removed.contains(key)).collect());
+            }
+            // §92: a NAMED alias reference's keys are its evaluated body's —
+            // the alias symbol's own member table is empty and must not be
+            // read as "no keys" (chain1's deep reads).
+            if self.binder.symbols().get(target).flags.contains(SymbolFlags::TYPE_ALIAS) {
+                let evaluated = self.evaluate_alias_body(target, &arguments)?;
+                if evaluated == id {
+                    return None;
+                }
+                return self.keys_of(evaluated);
+            }
         }
         if let crate::types::TypeData::Intersection { types, .. } = &self.store.get(id).data {
             let types = types.clone();
@@ -2395,6 +2499,11 @@ impl<'a> Checker<'a, '_> {
             crate::types::TypeData::Anonymous { symbol, .. } => *symbol,
             _ => return None,
         };
+        // A TYPE_ALIAS owner's member table is structurally empty — reading
+        // it as "no keys" is the §92 hazard the alias arm above exists for.
+        if self.binder.symbols().get(owner).flags.contains(SymbolFlags::TYPE_ALIAS) {
+            return None;
+        }
         // Declaration order, not table order: the members table is an
         // unordered map, and a printed key union must be deterministic.
         let mut named: Vec<(Option<tsr_ast::NodeId>, String)> = self

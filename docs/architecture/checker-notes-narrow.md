@@ -3471,3 +3471,31 @@ mapped types, `get_property_of_type`'s missing Intersection arm (the
 evaluated results answer no property reads yet — chain1's 34-line
 gap family), and the §36 alias-declared entry (templateLiteralTypes3
 still declines).
+
+## §92 — property reads through evaluated alias bodies
+
+§91's consumer half: `get_type_of_property_of_type` gains a SHAPE
+road for what the symbol table cannot answer — an INTERSECTION's
+constituents (searched only for types the §91/§92 evaluator
+PRODUCED; a written intersection answering confidently measured 134
+G→W in the discriminated-union family and the registry set is the
+gate), `Omit<T, K>` by its GLOBAL ARITY-2 symbol (the §45 Record
+precedent; `global_type_symbol`'s arity-1 default was the first
+trap), and an alias reference with a non-literal body (evaluated by
+`evaluate_alias_body`, §91's generalization to plain bodies). Three
+measured traps shaped the gates: (1) the alias BODY node's own alias
+attribution fired the generic-alias error arm — under bindings
+attribution is off; (2) TypeLiterals on the body's structural spine
+evaluate to WRITTEN member types (`T | undefined` for a bound `T`) —
+refused by `body_carries_type_literal`, those stay with §90's
+instantiating symbol road; (3) a lost edit — the registry insert
+silently vanished in an aborted scripted edit and only a TypeId probe
+found it (registration read false for the id the evaluator had just
+returned).
+
+**§92 score — LANDED.** right 405,277 → **405,390 (84.63%)**:
++113 G→R (chain1 26 + chain3 26 + chain2 20 + omitTypeHelper 15 +
+discriminated/aliased families), 12 G→W at 9.4:1, ZERO R→W. The 12
+are priced residues: exactOptional modifier interplay through the
+Omit arm (4+2), two discriminated-union alias-name variants (4), and
+dependentDestructuredVariables 2.

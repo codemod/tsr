@@ -660,9 +660,69 @@ impl Checker<'_, '_> {
                 Some(element) => element,
             });
         }
-        let property = self.get_property_of_type(id, name)?;
-        let declared = self.get_type_of_symbol(property);
-        Some(self.instantiate_for_reference(id, declared))
+        if let Some(property) = self.get_property_of_type(id, name) {
+            let declared = self.get_type_of_symbol(property);
+            let instantiated = self.instantiate_for_reference(id, declared);
+            // §92: a property the symbol road FINDS but cannot type may
+            // still answer through the shape road (chain1's low reads — the
+            // alias symbol's table hands back a symbol whose declared type
+            // does not compute).
+            if instantiated == self.intrinsics.error
+                && let Some(shaped) = self.property_type_via_shape(id, name)
+            {
+                return Some(shaped);
+            }
+            return Some(instantiated);
+        }
+        self.property_type_via_shape(id, name)
+    }
+
+    /// §92 (`checker-notes-narrow.md`): the property roads the symbol table
+    /// cannot answer — an INTERSECTION's constituents (multiple hits
+    /// intersect, upstream's synthesized intersection property), `Omit<T, K>`
+    /// by its global symbol (a name outside `K` reads through `T`), and an
+    /// alias reference with a non-literal body (evaluated under §91's
+    /// bindings, then re-asked). `None` stays *no such property*.
+    fn property_type_via_shape(&mut self, id: TypeId, name: &str) -> Option<TypeId> {
+        // Only intersections PRODUCED by alias evaluation — a written
+        // intersection answering confidently here measured 134 G→W in the
+        // discriminated-union family (union order, un-narrowed members).
+        if self.alias_evaluated_types.contains(&id)
+            && let TypeData::Intersection { types, .. } = &self.store.get(id).data
+        {
+            let constituents = types.clone();
+            let mut hits = Vec::new();
+            for constituent in constituents {
+                if let Some(member) = self.get_type_of_property_of_type(constituent, name) {
+                    hits.push(member);
+                }
+            }
+            return match hits.as_slice() {
+                [] => None,
+                [one] => Some(*one),
+                many => {
+                    let many = many.to_vec();
+                    Some(self.get_intersection_type(&many, None))
+                }
+            };
+        }
+        let Some((target, arguments)) = self.type_reference_targets.get(&id).cloned() else {
+            return None;
+        };
+        if self.global_type_symbol_with_arity("Omit", 2) == Some(target) && arguments.len() == 2 {
+            let removed = self.literal_key_texts(arguments[1])?;
+            if removed.iter().any(|key| key == name) {
+                return None;
+            }
+            return self.get_type_of_property_of_type(arguments[0], name);
+        }
+        if self.binder.symbols().get(target).flags.contains(tsr_binder::SymbolFlags::TYPE_ALIAS) {
+            let evaluated = self.evaluate_alias_body(target, &arguments)?;
+            if evaluated != id {
+                return self.get_type_of_property_of_type(evaluated, name);
+            }
+        }
+        None
     }
 
     /// A member's type as seen through an instantiated reference: `declared`
