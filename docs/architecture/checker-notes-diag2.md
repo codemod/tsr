@@ -23719,3 +23719,76 @@ namespace-and-value symbol.
 `checkAndReportErrorForUsingValueAsType` in order for a symbol carrying both
 flags, then (2) ask the ladder from `check_qualified_type_name`. Bar when built:
 `+2 of 3`, with `checker_types` unmoved as the falsifier.
+
+## §426 — §425's prerequisite read, and the rung it found
+
+§425 said the ladder's order had to be established before porting the position.
+Read. **TS2749's qualified-name site is not the ladder at all** — it is a second
+site, inside `resolveEntityName`'s failure path (`checker.go:15872`):
+
+```go
+canSuggestTypeof := c.globalObjectType != nil && meaning&SymbolFlagsType != 0 &&
+    containingQualifiedName != nil && !ast.IsTypeOfExpression(containingQualifiedName.Parent) &&
+    c.tryGetQualifiedNameAsValue(containingQualifiedName) != nil
+if canSuggestTypeof {
+    c.error(containingQualifiedName, X_0_refers_to_a_value_but_is_being_used_as_a_type_here…)
+```
+
+and it is tested **before** the namespace branch — which is the rung order §425
+needed and the reason a fundule answers TS2749 rather than TS2709.
+
+So §425's plan was wrong about the mechanism while right about the caution:
+asking `report_meaning_mismatch_in_type_position` from `check_qualified_type_name`
+would have reported TS2709 for the corpus's cases. **The read cost one `grep`
+and saved the build §369 already paid for once.**
+
+### Where it goes
+
+`check_qualified_type_name`'s member test accepts `TYPE | NAMESPACE | ALIAS`, so
+a fundule's `B` is "found" and the rule returns silently. That is precisely
+upstream's `canSuggestTypeof` position. The new rung: the member exists, carries
+`VALUE`, and lacks `TYPE` → TS2749 at the **whole qualified name**, not the
+member.
+
+### The bar
+
+```
+bar:  +2 of 3,  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **`typeof A.B` reports.** Upstream excludes a `TypeQuery` parent explicitly.
+2. **A pure namespace `A.B` reports TS2749.** Without `VALUE` it is TS2709's
+   case, which this port does not emit — silence is correct there.
+
+## §427 — §426 built: **+2**, bar met
+
+```
+diagnostics   1,922 → 1,924   (bar was +2;  +2, 0 LOST)   35.06%
+every other suite unmoved — both falsifiers negative
+```
+
+### The scoping note paid for itself in one turn
+
+§425 wrote the work down instead of building it, and gave a reason:
+*"porting the position without first establishing upstream's rung order for a
+merged symbol is how §369 happened."* One `grep` later, the rung order turned
+out to be in a **different function entirely** — `resolveEntityName`'s failure
+path, not the meaning ladder — and §425's own plan would have reported TS2709.
+
+> **A scoping note is a cheap way to be wrong on paper instead of on the
+> board.** §425's plan was wrong about the mechanism and right about the
+> caution, and the caution is what made the read happen before the edit. §369
+> is the same row's earlier attempt, built without that read, at `−2`.
+
+That is the fourth time this session a decline or a deferral produced the build
+(§393, §415, §418, §426), and in every case the *reason* recorded was the thing
+that paid — never the verdict.
+
+### The board
+
+```
+80 → 1,924 across fourteen sessions, 24.05×
+this session: +473 over ninety-nine builds, 0 lost
+```

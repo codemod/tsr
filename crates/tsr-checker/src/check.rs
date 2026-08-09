@@ -5446,7 +5446,39 @@ impl Checker<'_, '_> {
                     .intersects(SymbolFlags::TYPE | SymbolFlags::NAMESPACE | SymbolFlags::ALIAS)
             },
         );
+        // **`canSuggestTypeof` (`checker.go:15869`), tested before the namespace
+        // branch.** A *fundule* — `function B` merged with `namespace B` — is
+        // "found" by the test above because it carries `NAMESPACE`, and upstream
+        // reports TS2749 there rather than TS2709: the member exists, the whole
+        // qualified name resolves as a **value**, and the position wanted a
+        // type. The error node is the whole name, not the member. §426.
         if found {
+            let value_only =
+                self.binder.symbols().get(namespace).exports.get(member.as_str()).is_some_and(
+                    |&symbol| {
+                        let flags = self.binder.symbols().get(symbol).flags;
+                        flags.intersects(SymbolFlags::VALUE) && !flags.intersects(SymbolFlags::TYPE)
+                    },
+                );
+            let in_type_query = self
+                .nodes
+                .parent(node)
+                .is_some_and(|parent| self.nodes.kind(parent) == SyntaxKind::TypeQuery);
+            if value_only
+                && !in_type_query
+                && let Some(file) = self.source_file_of_for_diagnostics(node)
+            {
+                let span = self.nodes.span(node);
+                let printed = format!("{namespace_name}.{member}");
+                self.report(
+                    file,
+                    Diagnostic::with_args(
+                        &messages::_0_REFERS_TO_A_VALUE_BUT_IS_BEING_USED_AS_A_TYPE_HERE_DID_YOU_MEAN_TYPEOF_0,
+                        span,
+                        [printed],
+                    ),
+                );
+            }
             return;
         }
         let Some(file) = self.source_file_of_for_diagnostics(right) else { return };
