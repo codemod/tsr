@@ -131,3 +131,18 @@ the answer honest). Predict **+150–500** of the 1,829 (the
 map/filter/then callback families are the head shapes); must NOT
 move: slice 1's +723, §70/§75/§114/§115. Adverse over 1:5 refuses;
 artifact test mandatory on untouched-case rows.
+
+**Slice 3a — MEASURED ZERO, reverted; the zero names the
+subsystem's true order.** The function-shape arm was built complete
+and moved nothing: a callback argument's own type is ERROR until
+its parameters have context, and its context (through a generic
+callee) needs the inference the arm was built to feed — the exact
+CIRCULARITY upstream breaks with chooseOverload's TWO-PASS
+structure (pass 1: infer from non-context-sensitive arguments
+only; pass 2: fix contextual types from the partial inferences and
+re-check). SLICE 2 IS THE GATE, not an optimization — slices 2 and
+3 land together or not at all, and the study's slice ordering is
+corrected: the next build is the two-pass skip WITH the
+function-shape arm inside it, measured as one unit against the
+1,829 ceiling. The reverted arm's text lives in this repo's
+history (patch118) for the reunion build.
