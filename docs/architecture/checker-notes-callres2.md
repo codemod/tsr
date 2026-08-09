@@ -439,3 +439,18 @@ their union) lands clean; the widen branch's 9:7 waits on
 topLevel/isFixed (steps 2/4's fields) with its wins registered as
 their acceptance fixtures. Re-isolated identically over §123's
 +381 (right 410,131 composed).
+
+**The widen branch's reduction claim — measured WRONG; step 4 is
+load-bearing.** The "reduces to top-level-in-return" gate (argued
+from today's invariants: all candidates top-level by construction,
+no fixing consumer) INVERTED typeArgumentsWithStringLiteralTypes01
+(its 7 wins became 7 G→W): that fixture's context CONSUMES T, so
+upstream's isFixed is TRUE there and widening proceeds DESPITE the
+top-level return — no gate without the real fixing rule serves both
+falsifier fixtures, which is precisely why upstream carries the
+field. The widen branch's complete spec is now: the 9:7 pure
+measurement + this inversion + step 4's consumption rule as the
+only admissible gate. (Also for the record: the reverting edit
+itself broke brace balance and was recovered by checkout-from-HEAD
+— at this depth of session, landed-commit recovery beats
+re-surgery.)
