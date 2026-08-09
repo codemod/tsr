@@ -386,3 +386,24 @@ read getInferredTypes/getCovariantInference in full, port the
 pipeline as ONE unit over the step-1 collector, with the census's
 82 pairs as the acceptance set and this trio as the negative
 space. Nothing smaller at this site converts.
+
+**The pipeline read (getCovariantInference, inference.go:1434, in
+full) — the four stages have exact shapes, and stage 4 is an old
+friend.** (1) `unionObjectAndArrayLiteralCandidates`: object/array
+LITERAL candidates collapse into one via union-with-subtype-
+reduction — reduction scoped to literal object types, which is the
+identical-text census row's fix and a bounded tsr-eak slice; (2)
+the widening decision: primitive-constraint → regular; topLevel &&
+(fixed || parameter-not-top-level-in-return) → widened; else keep
+(typeArgumentsWithStringLiteralTypes01's exact rule — the 3b-unit
+refusal measured its absence); (3) combination: priority-implies-
+combination → union w/ subtype reduction, DEFAULT →
+**getCommonSupertype** — the BCT machinery, NOT union (3b's
+error), and the SAME engine the ancient true|boolean 97-line head
+has waited on since the shape census era — one port, two boards;
+(4) getWidenedType last. THE BUILD: port getCommonSupertype (+ its
+getCommonSupertype/BCT dependencies) as the pipeline's core, then
+the four stages over the step-1 collector as ONE measured unit —
+the census's 82 pairs and the five refused shapes are the
+acceptance set. This is the singular named next for the summit,
+and it pays the inference board AND the BCT board together.
