@@ -266,6 +266,15 @@ impl Checker<'_, '_> {
         if !self.unused_check_enabled() {
             return;
         }
+        // **A write is not a read.** `isReferenced` (`checker.go:7123`) asks
+        // whether a member is *read*, so `this.x = 1` leaves a private `x`
+        // unused — the `noUnusedLocals_writeOnlyProperty` family. A compound
+        // assignment reads as well as writes and keeps marking, which is
+        // exactly what `is_write_only_access` already answers for the local
+        // rule (§329). §383.
+        if self.is_write_only_access(node) {
+            return;
+        }
         let named = match self.node_map.get(node) {
             Some(Node::PropertyAccessExpression(access)) => access.name.and_then(|n| n.node_id()),
             Some(Node::QualifiedName(name)) => name.right.and_then(|n| n.node_id),

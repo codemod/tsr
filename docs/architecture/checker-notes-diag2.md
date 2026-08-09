@@ -21933,3 +21933,76 @@ hides a `−n` somewhere else.
 **Owner: this workstream, next session.** Bar when it is built: `+4 of 7`, and
 the falsifier that matters is `checker_types` unmoved, since
 `referenced_member_names` is shared.
+
+## §383 — §382 corrected: two of its three items already existed
+
+Read before building, and §382's scoping was wrong in two ways. Correcting the
+record per the non-negotiables:
+
+| §382 said | actually |
+|---|---|
+| item 1, a private-member arm, must be written | **already exists** — `check_unused_class_members` (`unused.rs:717`) covers all four member kinds, guards on `private` modifier *or* `PrivateIdentifier` name |
+| item 3, the set-accessor exemption, is a two-line guard to add | **already exists**, `unused.rs:731`, anchored to `checker.go:7119` |
+| item 2 risks TS6138 and the nonexistent-property path, since `referenced_member_names` is shared | **not shared** — the only two readers are `unused.rs:744` and `:767`, both in this same rule |
+
+> **I scoped a build from upstream's source without reading this port's.** §382's
+> three items came from `checker.go:7124` and the assumption that a site upstream
+> reports from is a site this port lacks. Two-thirds of it was already here. That
+> is §143's rail — *read the existing rule before assuming the missing arm* —
+> and the reason it cost only a paragraph is that the scoping note was written
+> before the code rather than after.
+
+### What is actually missing
+
+Item 2 alone: `note_member_name_at` records a member name from **any**
+property-access position, so `this.x = 1` marks `x` as referenced. Upstream's
+`isReferenced` is a read test, which is why four of the seven blocked cases are
+named `…writeOnlyProperty…`.
+
+`is_write_only_access` already answers this and the *local* rule already uses it
+(§329). The change is one guard in the noting path.
+
+### The bar
+
+```
+bar:  +4 of 7,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **`this.x += 1` reports.** A compound assignment reads; `accessKind` is
+   `ReadWrite` and must keep noting.
+2. **A member read anywhere reports.** The guard applies only to the write-only
+   spelling.
+
+## §384 — §383 built: **+2** of a bar of +4
+
+```
+diagnostics   1,884 → 1,886   (bar was +4;  +2, 0 LOST)   34.37%
+every other suite unmoved — both falsifiers negative
+```
+
+One guard, four lines including the comment, in a rule that already had its arm,
+its private test and its set-accessor exemption. The two builds this session
+that read *upstream* first (§382's scoping) and *this port* first (§383's
+correction) cost a paragraph and paid `+2`; the ordering is the lesson.
+
+> **Scoping a build from upstream's source alone will over-scope it.** Upstream
+> tells you what the finished behaviour is. It cannot tell you which parts this
+> port already has, and after fourteen sessions that fraction is large and
+> growing. §143 said this about a *rule*; §382 is the same error about a
+> *feature*, and the correction was three greps.
+
+### The session's arc, since it is now long enough to have one
+
+```
+no-producer seam        exhausted before this session (§319, confirmed §339)
+predicate/branch        §335 §343 §345 §347 §349 §353 §361 §364 §371 §373  +24
+missing upstream site   §375 §377 §379 §383                                +11
+instruments             §336 §339 §341 §370                                  —
+reverted, mechanism recorded  §338 §339 §341 §351 §368                     −16
+```
+
+The second row did not exist as a category until §375, and it is now the larger
+producer per build. Its detector is one command (§376), and fifteen codes on
+that list are unworked.
