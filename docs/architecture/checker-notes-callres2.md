@@ -226,3 +226,28 @@ now three-times-measured wrong (361:424, mixed, 9:73). The +361
 first-fire wins remain the falsifier the correct build must
 reproduce. All code reverted; patches 119/120/121 in scratchpad
 history carry the three shapes.
+
+**The priority read (inferTypeArguments, checker.go:9390-9494, in
+full) — the memo model was WRONG; upstream's shape is smaller.**
+The argument loop is one line of structure: `argType :=
+checkExpressionWithContextualType(arg, paramType, ...)` — every
+argument checks WITH ITS PARAMETER TYPE AS CONTEXT, generic or
+not. A context-sensitive arrow against `(x: T) => U` ADOPTS T (the
+§75 uninstantiated pass is upstream's own behavior here, not a
+port shortcut) and types its body in terms of T; inference then
+walks the arrow's type against the parameter structurally and
+extracts U=bodyT. SkipContextSensitive orders WHICH argument
+checks first; it never excludes, and no memo exists — the
+"resolved-signature threading" this study hypothesized was the
+wrong mechanism. ITERATION 4's unit, three small arms:
+  (a) contextual_type_for_argument serves a SINGLE GENERIC
+      candidate's parameter type AS-IS (uninstantiated — the §75
+      semantics extended to the argument road; the §70 mention
+      guard stays on the multi-candidate agreement path where
+      position-stability is a real question);
+  (b) the §93 gate un-gates for exactly that context (a narrow
+      disjunct: single-generic-callee argument positions);
+  (c) the function-shape arm reunited in infer_from_types
+      (patch118's text) — arrows now type, so it fires.
+Falsifier unchanged: the +361-class wins must appear; §70/§75
+populations must hold (no deferral touches them).
