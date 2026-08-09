@@ -207,6 +207,7 @@ impl Checker<'_, '_> {
                 ambient
             }
             Node::ClassDeclaration(declaration) => {
+                self.check_super_call_is_first(node);
                 self.check_static_side_kind_mismatch(node);
                 self.check_extends_primitive(node);
                 self.check_implements_missing_member(node);
@@ -1631,6 +1632,121 @@ impl Checker<'_, '_> {
                 span,
             ),
         );
+    }
+
+    /// TS2376 — `A 'super' call must be the first statement in the constructor
+    /// …when a derived class contains initialized properties, parameter
+    /// properties, or private identifiers.`
+    ///
+    /// `checkConstructorDeclaration`'s else-branch (`checker.go:2868`): scan the
+    /// constructor's statements for the first `super()` expression statement,
+    /// stopping early at one that references `super` or `this`. Entirely
+    /// syntactic, gate included. §470.
+    fn check_super_call_is_first(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let Some(Node::ClassDeclaration(class)) = self.node_map.get(node) else { return };
+        let Some(extends) = class
+            .heritage_clauses
+            .iter()
+            .find(|clause| clause.token.kind == SyntaxKind::ExtendsKeyword)
+        else {
+            return;
+        };
+        if extends.types.iter().any(|base| {
+            base.expression
+                .and_then(|e| e.node_id())
+                .is_some_and(|id| self.nodes.kind(id) == SyntaxKind::NullKeyword)
+        }) {
+            return;
+        }
+        // "initialized properties, parameter properties, or private identifiers"
+        let mut has_state = false;
+        let mut constructor = None;
+        for member in class.members {
+            match member {
+                tsr_ast::ClassElement::PropertyDeclaration(property) => {
+                    if property.initializer.is_some()
+                        || matches!(property.name, tsr_ast::PropertyName::PrivateIdentifier(_))
+                    {
+                        has_state = true;
+                    }
+                }
+                tsr_ast::ClassElement::ConstructorDeclaration(each) => {
+                    if each.parameters.iter().any(|parameter| {
+                        parameter
+                            .modifiers
+                            .iter()
+                            .any(|modifier| matches!(modifier, tsr_ast::ModifierLike::Token(_)))
+                    }) {
+                        has_state = true;
+                    }
+                    if each.body.is_some() {
+                        constructor = Some(each);
+                    }
+                }
+                _ => {}
+            }
+        }
+        let (Some(constructor), true) = (constructor, has_state) else { return };
+        let Some(body) = constructor.body.and_then(|body| body.node_id()) else { return };
+        let Some(Node::Block(block)) = self.node_map.get(body) else { return };
+        let mut found = false;
+        for statement in block.statements {
+            let Some(id) = statement.node_id() else { continue };
+            if self.statement_is_a_super_call(id) {
+                found = true;
+                break;
+            }
+            if self.subtree_references_super_or_this(id) {
+                break;
+            }
+        }
+        if found {
+            return;
+        }
+        let Some(id) = constructor.node_id else { return };
+        let Some(file) = self.source_file_of_for_diagnostics(id) else { return };
+        let span = self.error_span(id);
+        self.report(
+            file,
+            Diagnostic::new(
+                &messages::A_SUPER_CALL_MUST_BE_THE_FIRST_STATEMENT_IN_THE_CONSTRUCTOR_TO_REFER_TO_SUPER_OR_THIS_WHEN_A_DERIVED_CLASS_CONTAINS_INITIALIZED_PROPERTIES_PARAMETER_PROPERTIES_OR_PRIVATE_IDENTIFIERS,
+                span,
+            ),
+        );
+    }
+
+    /// `IsExpressionStatement(s) && isSuperCall(SkipOuterExpressions(…))`. §470.
+    fn statement_is_a_super_call(&self, node: NodeId) -> bool {
+        let Some(Node::ExpressionStatement(statement)) = self.node_map.get(node) else {
+            return false;
+        };
+        let Some(mut id) = statement.expression.and_then(|e| e.node_id()) else { return false };
+        while let Some(Node::ParenthesizedExpression(inner)) = self.node_map.get(id) {
+            let Some(next) = inner.expression.and_then(|e| e.node_id()) else { return false };
+            id = next;
+        }
+        matches!(self.node_map.get(id), Some(Node::CallExpression(call))
+            if call.expression.and_then(|e| e.node_id())
+                .is_some_and(|callee| self.nodes.kind(callee) == SyntaxKind::SuperKeyword))
+    }
+
+    /// `nodeImmediatelyReferencesSuperOrThis` — a subtree scan that stops at
+    /// function boundaries, the shape `subtree_has_return_or_throw` uses. §470.
+    fn subtree_references_super_or_this(&self, node: NodeId) -> bool {
+        if matches!(self.nodes.kind(node), SyntaxKind::SuperKeyword | SyntaxKind::ThisKeyword) {
+            return true;
+        }
+        let mut children = Vec::new();
+        if let Some(typed) = self.node_map.get(node) {
+            tsr_ast::for_each_child_id(typed, |child| children.push(child));
+        }
+        children.into_iter().any(|child| {
+            !self.is_function_like_or_static_block(child)
+                && self.subtree_references_super_or_this(child)
+        })
     }
 
     fn check_this_in_module_body(&mut self, node: NodeId) {

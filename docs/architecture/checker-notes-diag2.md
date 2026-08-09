@@ -25425,3 +25425,88 @@ TS1268  3 cases  an index signature parameter type must be string/number/symbol
 TS2851  3 cases  an `await using` initializer must have `[Symbol.asyncDispose]`
 TS2413  3 cases  index type not assignable to index type          — the relation
 ```
+
+## §470 — TS2376: `super()` not first, with initialized state
+
+§469's list, next row. **3 blocked, `occupied 0/9`.**
+
+```ts
+class A extends B {
+  #x;
+  constructor() {
+    this;        // references `this` before the super call
+    super();
+  }              // TS2376 at `constructor`
+}
+```
+
+`checkConstructorDeclaration`'s else-branch (`checker.go:2868`) scans the
+constructor's statements for the first `super()` **expression statement**, and
+stops early if a statement references `super` or `this` first:
+
+```go
+for _, statement := range node.Body().Statements() {
+    if ast.IsExpressionStatement(statement) && isSuperCall(SkipOuterExpressions(statement.Expression())) {
+        superCallStatement = statement; break
+    }
+    if nodeImmediatelyReferencesSuperOrThis(statement) { break }
+}
+if superCallStatement == nil { c.error(node, …) }
+```
+
+Entirely syntactic. The gate above it — *"a derived class containing initialized
+properties, parameter properties, or private identifiers"* — is three
+declaration-shape tests.
+
+### The bound
+
+`extends` present and not `extends null`; the class declares an initialized
+property, a parameter property, or a private-identifier member; the constructor
+has a body. `nodeImmediatelyReferencesSuperOrThis` is a subtree scan that stops
+at function boundaries — the shape `subtree_has_return_or_throw`
+(`check.rs:4436`) already uses, reused rather than reinvented.
+
+### The bar
+
+```
+bar:  +2 of 3,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **A constructor whose first statement is `super()` reports.** That is the
+   loop's success case.
+2. **A derived class with no initialized state reports.** The three-way gate
+   must hold; upstream's other branch handles those.
+
+## §471 — §470 built: **+3**, above bar
+
+```
+diagnostics   1,984 → 1,987   (bar was +2;  +3, 0 LOST)   36.21%
+every other suite unmoved — both falsifiers negative
+```
+
+Third consecutive row from §467's search (`+4, +4, +3`), and the first where
+upstream's arm was **not** nine lines — the statement scan, the three-way state
+gate and `nodeImmediatelyReferencesSuperOrThis` together are about thirty. It
+still went in on the first measurement, because §383's step ran: the subtree
+walk it needs is `subtree_has_return_or_throw`'s shape, already in the file, and
+reusing it removed the only part that had a stopping condition to get wrong.
+
+> **§391's "nine lines half the time" is about the arm, not the build.** A
+> thirty-line arm is still a first-measurement build when the port already owns
+> its hard part. The estimate that matters is not *how long is upstream's code*
+> but *how much of it does this port already have* — which is §383's question,
+> and the reason it sits at step 5 rather than step 2.
+
+### §467's search, three rows
+
+```
+TS2358  §466  +4   a primitive on the left of `instanceof`
+TS2466  §468  +4   `super` in a computed property name
+TS2376  §470  +3   `super()` not first, with initialized state
+                   ─────
+                   +11 from one grep over message text
+```
+
+Two candidates remain on that list: TS1268 and TS2851, three cases each.
