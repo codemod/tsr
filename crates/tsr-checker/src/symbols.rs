@@ -2069,7 +2069,12 @@ impl<'a> Checker<'a, '_> {
         }
 
         let initializer_type = self.check_expression(initializer);
-        Some(self.get_widened_literal_type_for_initializer(declaration, initializer_type))
+        let widened = self.get_widened_literal_type_for_initializer(declaration, initializer_type);
+        // §96 (`checker-notes-narrow.md`): upstream wraps the initializer
+        // branch too (`checker.go:16750`) — `(b? = 0)` is `number | undefined`.
+        // A written `?` is required (`is_optional_declaration`), so plain
+        // defaulted parameters stay bare.
+        Some(self.add_optionality_for_declaration(widened, declaration))
     }
 
     /// Ported from `Checker.getWidenedLiteralTypeForInitializer`

@@ -3694,6 +3694,28 @@ leaked past the question token. The rest-optional `...arg?: any[] |
 undefined` pair (parserParameterList11) is NOT claimed — no
 initializer, different road, stays a residue.
 
+**§96 score — LANDED at +6/0; the bar's magnitude MISSED and the
+miss is the finding.** right 405,951 → **405,957**: +6 W→R
+(optionalMethods 3, fatarrowfunctionsOptionalArgs 2 — §93/§94's
+0:457 residue closed — isolatedDeclarationsAddUndefined 1), **zero
+adverse in any column**; the must-not-move leg (no defaulted-only
+parameter gains `| undefined`) held exactly. The predicted +12–25
+did not appear because the sizing probe's exact-insertion test
+bucketed by the ANSWER's shape and not by the mechanism:
+defaultParameterAddsUndefinedWithStrictNullChecks's 8 lines belong
+to the *initialized-parameter-before-a-required-one* rule (an
+un-omittable defaulted parameter prints REQUIRED with
+`| undefined` — a signature-print arity rule, not optionality) and
+to literal-widening in optional-parameter positions
+(`true | undefined` wanting `boolean | undefined`), and
+contravariantOnlyInference's 4 are contextual-inference wrongs that
+merely end in the same spelling. The conventions' three-level
+lesson, paid again at small scale: a textual answer-shape probe
+sizes a SPELLING, not a rule. Residues now named with owners:
+initialized-before-required (~8, signature print), optional-literal
+widening (~6, widening road), rest-optional `...arg?` (2,
+parserParameterList11, no-initializer road).
+
 ## §99 — multi-signature composites render at the site [claimed: checker-1]
 
 [Bar committed to claim the number; build on worktree-checker-1-printing.]
