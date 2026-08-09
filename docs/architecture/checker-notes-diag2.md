@@ -23405,3 +23405,83 @@ so in its own parenthesis.
 One field. `Checker` had four of the strict family and this was the fifth;
 `CompilerOptions` already carried `no_implicit_this` (`options.rs:636`) and
 `apply_compiler_options` gained one `strict_option_value` line.
+
+## §418 — TS2669, found by §417's sweep
+
+§417's sweep — codes this port *names in its own comments* but never emits —
+returns **62 codes**. Cross-referenced against the gap, nine have blocked cases,
+and TS2669 is the best: **4 blocked, all single-line, `occupied 0/4`**.
+
+`binder.rs:1073` names it in the course of explaining a *merge* decision:
+
+> *"Everything else is a diagnostic, not a merge: `checkModuleDeclaration`
+> reports TS2669 … for a global block anywhere else (`checker.go:5203`,
+> `:5209`). Verified against `tsc` 5.x on the two-form fixture in
+> `tests/bind.rs`."*
+
+The binder already computes the predicate (`is_merged_global_augmentation`) and
+already **verified it against `tsc`**. The diagnostic was named, sourced, and
+tested — and never emitted, because the binder's consumer was the merge and
+nothing asked the other question.
+
+> Second instance of §417's finding, and the sharper one: §416's comment named
+> the code, this one names the code **and cites the upstream line numbers
+> and records a `tsc` verification of the exact predicate.** **A comment that
+> explains why a rule declines to merge is a specification of the diagnostic
+> that fires instead.**
+
+### The bound
+
+A `ModuleDeclaration` carrying `GLOBAL_AUGMENTATION` that is neither top-level
+in an external module nor directly inside a top-level ambient module
+declaration. The predicate is the binder's, re-derived on the checker side
+because the binder's is private to it.
+
+### The bar
+
+```
+bar:  +3 of 4,  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **`export {}; declare global { }` reports.** That is the first legal form.
+2. **`declare module "m" { global { } }` in a script `.d.ts` reports.** The
+   second.
+
+## §419 — §418 built: **+3**, and the board passes **35%**
+
+```
+diagnostics   1,919 → 1,922   (bar was +3;  +3, 0 LOST)   35.02%
+every other suite unmoved — both falsifiers negative
+```
+
+### §417's sweep, two builds
+
+```
+§416  TS2683  +9   named in `expressions.rs:939`'s parenthesis
+§418  TS2669  +3   named in `binder.rs:1073`, with upstream line numbers
+                   and a recorded `tsc` verification
+```
+
+**+12 from comments this port already contained.** The sweep costs one command
+and returns **62 codes**; nine have blocked cases and seven are unworked.
+
+> **A comment explaining why a rule declines to do X is a specification of the
+> diagnostic that fires instead.** Both builds are that sentence. `binder.rs`
+> knew the predicate, had verified it against `tsc` 5.x, and used it to decide a
+> *merge* — the diagnostic was one `if` away and nothing asked for it, because
+> the binder's consumer was never the diagnostics suite.
+
+That is the transliteration defect §362 named, seen from inside: **the port
+records its reasoning faithfully and then wires only the consumer it needed that
+day.** Six sessions of instruments looked for missing *behaviour*; the last two
+builds found missing *wiring* by reading what the port had already written down
+about itself.
+
+### The board
+
+```
+80 → 1,922 across fourteen sessions, 24.0×
+this session: +471 over ninety-eight builds, 0 lost
+```

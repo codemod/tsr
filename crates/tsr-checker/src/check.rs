@@ -230,6 +230,7 @@ impl Checker<'_, '_> {
             // ambient contexts, and so is an *ambient* module's body whether or
             // not the keyword is repeated inside it.
             Node::ModuleDeclaration(declaration) => {
+                self.check_global_augmentation_position(node);
                 ambient
                     || has_modifier(declaration.modifiers, SyntaxKind::DeclareKeyword)
                     || self.is_ambient_module_node(node)
@@ -920,6 +921,54 @@ impl Checker<'_, '_> {
             );
             return;
         }
+    }
+
+    /// TS2669 — `Augmentations for the global scope can only be directly nested
+    /// in external modules or ambient module declarations.`
+    ///
+    /// `checkModuleDeclaration` (`checker.go:5203`, `:5209`). The two legal
+    /// shapes are `binder.rs:1101`'s `is_merged_global_augmentation`, whose doc
+    /// records a `tsc` 5.x verification of exactly this predicate; the binder's
+    /// consumer was the *merge*, and the diagnostic that fires otherwise was
+    /// never emitted. §418.
+    fn check_global_augmentation_position(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let Some(Node::ModuleDeclaration(module)) = self.node_map.get(node) else { return };
+        // `ast.IsGlobalScopeAugmentation` — the parser gives the block a
+        // synthetic `global` identifier, so only the keyword distinguishes it
+        // from `namespace global { … }`.
+        if module.keyword.kind != SyntaxKind::GlobalKeyword {
+            return;
+        }
+        let legal = match self.nodes.parent(node).and_then(|p| self.node_map.get(p)) {
+            Some(Node::SourceFile(source)) => tsr_binder::is_external_module(source),
+            Some(Node::ModuleBlock(_)) => {
+                let block = self.nodes.parent(node);
+                let outer = block.and_then(|b| self.nodes.parent(b));
+                let file = outer.and_then(|o| self.nodes.parent(o));
+                matches!(
+                    (outer.and_then(|o| self.node_map.get(o)), file.and_then(|f| self.node_map.get(f))),
+                    (Some(Node::ModuleDeclaration(_)), Some(Node::SourceFile(source)))
+                        if !tsr_binder::is_external_module(source)
+                )
+            }
+            _ => false,
+        };
+        if legal {
+            return;
+        }
+        let Some(name) = module.name.and_then(|name| name.node_id()) else { return };
+        let Some(file) = self.source_file_of_for_diagnostics(name) else { return };
+        let span = self.error_span(name);
+        self.report(
+            file,
+            Diagnostic::new(
+                &messages::AUGMENTATIONS_FOR_THE_GLOBAL_SCOPE_CAN_ONLY_BE_DIRECTLY_NESTED_IN_EXTERNAL_MODULES_OR_AMBIENT_MODULE_DECLARATIONS,
+                span,
+            ),
+        );
     }
 
     fn check_this_in_module_body(&mut self, node: NodeId) {
