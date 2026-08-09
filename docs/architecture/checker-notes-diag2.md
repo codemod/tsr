@@ -25049,3 +25049,37 @@ no.
 That is a usable rule for the next session: **before extending one of these,
 ask whether the change adds a position or a type.** A position is free; a type
 needs its own measurement.
+
+## §460 — §459's rule applied prospectively: a position without the types
+
+§459 said the primitive argument travels by position, and TS2349 — *"This
+expression is not callable"*, 11 blocked, 9 single-line, `occupied 0/14` — is
+the obvious next position: a primitive is no more callable than constructable.
+
+**Checked before building, and the types are not there:**
+
+```
+constructorOverloads4        (new M.Function("…"))()   — a class instance
+methodChainError             .notMethod()              — a missing member
+neverIntersectionNotCallable f()  where f is an intersection reducing to never
+superCallParameterContextualTyping2   value<string>()  — a generic call
+```
+
+Not one primitive callee among them. §363 declined this row for intersection
+reduction and that owner stands; what is new is that **the decline took one
+`diagmissing` instead of a build**, because §459's rule says exactly what to
+check: *does this position carry the types the argument is about?*
+
+> **A rule that predicts where an argument fails is worth as much as one that
+> predicts where it works.** Five positions paid (§403, §436, §450, §454, §458)
+> and this is the first checked-and-rejected one — which is what makes the rule
+> falsifiable rather than a description of past successes.
+
+The remaining unchecked positions for the same argument, with what each would
+need:
+
+```
+TS2349  not callable          checked — no primitive callees in the corpus
+TS2348  `new` on a non-ctor   5 blocked; unchecked
+TS2350  `new` on a void ctor  not on the board
+```
