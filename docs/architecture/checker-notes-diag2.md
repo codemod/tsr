@@ -16087,3 +16087,102 @@ it. It will not be the last.
 > than the eight cases that found it.** The three prior refusals this session
 > (§226 TS2335, §237 TS2303, this) each named a *rule's* blocker; this one names
 > a **data-model** difference that every counting rule will meet.
+
+## §247 — TS2591 and its siblings: the name table behind `Cannot find name`
+
+`getCannotFindNameDiagnosticForName` (`checker.go:13915`) is a plain
+`switch node.Text()` — a name table, no types, no resolution:
+
+| name(s) | message | code |
+|---|---|---|
+| `document`, `console` | change your target library to include `dom` | TS2584 |
+| `$` | install `@types/jquery` | TS2581 / **TS2592** |
+| `beforeEach`, `describe`, `suite`, `it`, `test` | install a test runner's types | TS2582 / **TS2593** |
+| `process`, `require`, `Buffer`, `module`, `NodeJS` | install `@types/node` | TS2580 / **TS2591** |
+| `Bun` | install `@types/bun` | TS2867 / **TS2868** |
+| `Map`, `Set`, `Promise`, … | change your target library | TS2583 |
+| `await` in a call | did you mean to write this in an async function | — |
+
+Each pair is `UsesWildcardTypes()`, which is
+`slices.Contains(options.Types, "*")` (`core/compileroptions.go:326`). The corpus
+sets no `types`, so the slice is empty, the test is **false**, and every case
+takes the *second* — longer — variant. That is why the gap asks for TS2591 and
+not TS2580, and it is the whole reason this row is reachable without porting
+`types` resolution.
+
+### Where it goes, which is not where it is written
+
+Upstream computes the message *first* (`checker.go:13896`) and passes it into
+`resolveNameForSymbolWithDiagnostic` as `nameNotFoundMessage` — but
+`onFailedToResolveSymbol` reports the **missing lib** first and a **spelling
+suggestion** second, falling back to that message only if neither fires. So the
+table is the **fallback**, and it belongs immediately before the plain TS2304
+this port already emits — not at the top of the function where upstream writes it.
+
+`suggested_lib_for` (`check.rs:4589`) already covers the `Map`/`Set`/`Promise`
+row as TS2583, and both existing arms above it stay untouched.
+
+### The bar
+
+```
+bar:  +6 cases of 9,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **A resolvable `require` reports.** The table is only consulted on the path
+   that already emits TS2304, so a declared `require` never reaches it.
+2. **`diagnostics` falls.** This only ever changes TS2304 into a narrower code
+   at the same position, so a fall means the narrower code was wrong.
+
+## §248 — §247 measured inert, reverted; and one dead call found by reading
+
+```
+table at the value site                diagnostics 1,674  unchanged
++ table at the type site (`:15784`)    diagnostics 1,674  unchanged
+```
+
+The table never fires. `moduleKeywordRepeatError` wants TS2591 for `module` in
+`module.module { }`, and this port emits **nothing at all** at that position —
+so the name never reaches the TS2304 site the table sits at the end of.
+
+### One hypothesis raised and disproved
+
+The obvious candidate was the parser: `module X { }` is a namespace, so
+`module.module { }` might be parsed as one and never produce an identifier
+expression. Probed directly:
+
+```
+parse (3,15) TS1005 ';' expected.
+statement kind: ExpressionStatement
+statement kind: Block
+```
+
+**The parse is right** — expression statement plus a block, and the TS1005 lands
+exactly where upstream puts it. The decline is in `check_value_identifier`, on
+one of its five guards, and which one is not established.
+
+### Reverted, for the reason §237 gave
+
+Zero gain, zero loss, and §234/§237 both reverted changes for exactly that. The
+distinction I tried and rejected: this table sits on a path that *is* live —
+every TS2304 goes through it — so it is not unreachable in §237's sense, merely
+unmatched. That is a real difference and it is not enough. **A table that has
+never once selected a message is indistinguishable from a table that cannot**,
+to anyone reading it later, and the corpus is the only thing either of us has.
+
+Owner recorded: **`check_value_identifier` declines for these names before
+reaching the fallback.** The parser hypothesis is disproved and on the record.
+
+### What reading the function did buy
+
+`report_meaning_mismatch_in_value_position` was called **twice in a row**, with
+two different comment blocks split across the pair. The second call is
+unreachable — the first returns on every path that reports — so it cost nothing
+at runtime and read as though two different cascades were being run. A §169
+rebase artefact, removed; `diagnostics` and `checker_types` both unmoved,
+confirming it was dead.
+
+> **Three builds this session found their real defect while reading code for a
+> different reason** (§232's column, §244's shadowed arm, this). The gap tells
+> you which function to open; it does not tell you what you will find there.

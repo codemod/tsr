@@ -939,11 +939,14 @@ impl Checker<'_, '_> {
         // three meanings, which made `typeofAnExportedType` §79's only new
         // wrong line.
         // §169: re-measured against the post-§166 resolver.
-        if self.report_meaning_mismatch_in_value_position(node, text) {
-            return;
-        }
+        //
         // §169: the value-position half of `onFailedToResolveSymbol`'s cascade,
         // re-measured against the post-§166 resolver.
+        //
+        // **This call appeared twice**, with these two comment blocks split
+        // across the pair. The second was unreachable — the first returns on
+        // every path that reports — so it cost nothing and read as though two
+        // different cascades were being run. §248.
         if self.report_meaning_mismatch_in_value_position(node, text) {
             return;
         }
