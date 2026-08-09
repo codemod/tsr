@@ -26488,3 +26488,29 @@ recorded for the next attempt:
 **Owner: the `NodeFlagsAmbient` family again (§452), now with a third row.**
 TS1155's 3 cases join TS1038's 6 and TS1359's 7 — **sixteen cases behind one
 parser change.**
+
+## §498 — a snapshot conflict, and the number it moved
+
+`git rebase` stopped on both suites' snapshots — the `.types` workstream had
+regenerated them concurrently. Resolved by taking each workstream's own file and
+**re-running `measure` on the merged base**, which is the only way to get a
+consistent pair:
+
+```
+diagnostics     2,021 → 2,022    (+1 on the merged base)
+checker_types   4,054 → 4,055
+```
+
+The `+1` is not this workstream's build — it is the other workstream's change
+converting one more diagnostics case, visible only after the merge.
+
+> **A number measured before a rebase is a number measured on a different
+> tree.** §406 said instrument output expires with the board; this is the same
+> expiry with a different cause, and it is the one that cannot be avoided by
+> re-running an instrument — only by re-running the **measurement** after the
+> merge. `cargo xtask measure` already prints `git diff --stat HEAD` (§284) for
+> the edit-did-not-land case; nothing prints *the base moved under you*, and a
+> rebase that touches a snapshot is exactly that signal.
+
+Recorded rather than fixed: making `measure` refuse to run on a dirty rebase
+state is a change to the shared gate, and the other workstream owns half of it.
