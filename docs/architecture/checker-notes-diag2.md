@@ -22344,3 +22344,34 @@ have been just as correct and would have found nothing.
 cases. The `container` switch this build ported is the part that needs no type
 at all; the rest needs the `this`-type resolution this port answers as `any`
 unconditionally (`expressions.rs:939`, `checker-notes-narrow.md` §39).
+
+## §394 — TS2493 declined, with the neighbour check done
+
+```ts
+let x = <[]>[];
+let y = x[0];      // TS2493 — tuple of length 0 has no element at index 0
+```
+
+`checker.go:27062`'s guard, read in full per §393:
+
+```go
+if accessNode != nil && everyType(objectType, func(t *Type) bool {
+    return t.TargetTupleType().combinedFlags&ElementFlagsVariable == 0
+}) && accessFlags&AccessFlagsAllowMissing == 0 {
+```
+
+Three type-side questions before the report — `isTupleType`, the target tuple's
+`combinedFlags`, and `getTypeReferenceArity` — none of which is syntactic.
+**Owner: the tuple-type machinery.** 9 cases.
+
+The neighbour check §393 prescribes was done and came back **empty**: the two
+other diagnostics in this block are `A_tuple_type_cannot_be_indexed_with_a_negative_value`
+(same three preconditions) and TS2339 (the relation's). Unlike
+`checkThisExpression`, this function has no syntactic arm to lift out — the
+guard is shared by every branch.
+
+> Recording the *negative* neighbour check matters as much as §393's positive
+> one. The method is "read the whole function before refusing"; if that only
+> ever got written up when it paid, the next session would over-estimate its
+> hit rate. **Two of two functions read this way surfaced a neighbour; the
+> third did not.**
