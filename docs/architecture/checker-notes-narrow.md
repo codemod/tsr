@@ -3540,10 +3540,13 @@ was measured against a STALE baseline** — the clean tree (§93
 stashed) already read 405,682 with every one of those transitions
 present: they belong to landings already on main, not to this arm.
 This is the §85.1 trap's fifth firing, and the first time it
-inflated a LANDED score rather than a refusal — the session that
-wrote it committed the docs and TASK but never the code, so the
-claim outlived its evidence. Corrected 2026-08-08 by the
-stash/accept/re-measure pair.
+inflated a LANDED score rather than a refusal — at the moment of
+correction the docs and TASK were committed while the code was
+still working-tree-only, so the claim briefly outlived its
+evidence. (The code then landed in `45436ae` alongside this very
+paragraph, swept in from the shared tree; what remains wrong on
+that commit is only its MESSAGE's numbers.) Corrected 2026-08-08
+by the stash/accept/re-measure pair, checker-2 session.
 
 **The true §93 score**, baseline accepted on clean `4965add`:
 right 405,682 → **405,698**. +16 G→R (fatarrowfunctions 11,
