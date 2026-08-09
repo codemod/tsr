@@ -1104,6 +1104,24 @@ pub fn program_for_case<'a>(
     arena: &'a tsr_core::Arena,
     case: &crate::TestCase,
 ) -> tsr_compiler::Program<'a> {
+    // **`@currentDirectory` is a directive, not decoration** (50 corpus cases).
+    // The *default* stays `/` — `trace_case` defaults to `/.src` because the
+    // resolution traces are baselined against those paths and the diagnostics
+    // baselines against bare names, so the two suites' conventions genuinely
+    // differ and aligning them would break the one that is right. Only the
+    // directive is honoured, over this producer's own default, which is what
+    // upstream's harness does. §539.
+    let current_directory = case.current_directory.as_deref().map_or_else(
+        || CURRENT_DIRECTORY.to_string(),
+        |dir| tsr_path::get_normalized_absolute_path(dir, CURRENT_DIRECTORY),
+    );
+    let current_directory = current_directory.as_str();
+    // `@useCaseSensitiveFileNames` (9 corpus cases), read exactly as
+    // `trace_case` reads it: absent or anything but `false` means sensitive.
+    let case_sensitive = case
+        .options
+        .get("usecasesensitivefilenames")
+        .is_none_or(|value| !value.eq_ignore_ascii_case("false"));
     // The case's `tsconfig.json`, parsed once: §533 needs its options and §535
     // needs its file list. `trace_case::compilation` reads both; this producer
     // read neither.
@@ -1113,9 +1131,13 @@ pub fn program_for_case<'a>(
         .find(|unit| crate::trace_case::config_name_from_file_name(&unit.name).is_some())
         .map(|config| {
             let config_file_name =
-                tsr_path::get_normalized_absolute_path(&config.name, CURRENT_DIRECTORY);
-            let config_fs =
-                crate::trace_case::build_file_system(&case.files, case, CURRENT_DIRECTORY, true);
+                tsr_path::get_normalized_absolute_path(&config.name, current_directory);
+            let config_fs = crate::trace_case::build_file_system(
+                &case.files,
+                case,
+                current_directory,
+                case_sensitive,
+            );
             tsr_tsoptions::parse_config_file(
                 &config_file_name,
                 &config.content,
@@ -1127,7 +1149,7 @@ pub fn program_for_case<'a>(
     let mut files: Vec<(String, String)> = bundled_libs().to_vec();
     let mut roots = Vec::new();
     for unit in &case.files {
-        let name = tsr_path::get_normalized_absolute_path(&unit.name, CURRENT_DIRECTORY);
+        let name = tsr_path::get_normalized_absolute_path(&unit.name, current_directory);
         files.push((name.clone(), unit.content.clone()));
     }
     // **Roots are chosen, not assumed.** With a config they are its file list
@@ -1139,11 +1161,11 @@ pub fn program_for_case<'a>(
         Some(parsed) => case
             .files
             .iter()
-            .map(|unit| tsr_path::get_normalized_absolute_path(&unit.name, CURRENT_DIRECTORY))
+            .map(|unit| tsr_path::get_normalized_absolute_path(&unit.name, current_directory))
             .filter(|name| parsed.file_names.contains(name))
             .collect::<Vec<_>>(),
         None => {
-            crate::trace_case::root_files_without_a_config(case, &case.files, CURRENT_DIRECTORY)
+            crate::trace_case::root_files_without_a_config(case, &case.files, current_directory)
         }
     });
 
@@ -1175,7 +1197,7 @@ pub fn program_for_case<'a>(
     let base = parsed_config
         .as_ref()
         .map_or_else(tsr_core::CompilerOptions::default, |config| config.compiler_options.clone());
-    let options = crate::trace_case::apply_test_directives(base, case, CURRENT_DIRECTORY);
+    let options = crate::trace_case::apply_test_directives(base, case, current_directory);
     // §118 (`checker-notes-narrow.md`): the case's `@symlink` links, normalized
     // exactly as `trace_case::build_file_system` normalizes them. The VFS and
     // resolver have followed links since the module_resolution suite landed;
@@ -1186,12 +1208,12 @@ pub fn program_for_case<'a>(
         .iter()
         .map(|(link, target)| {
             (
-                tsr_path::get_normalized_absolute_path(link, CURRENT_DIRECTORY),
-                tsr_path::get_normalized_absolute_path(target, CURRENT_DIRECTORY),
+                tsr_path::get_normalized_absolute_path(link, current_directory),
+                tsr_path::get_normalized_absolute_path(target, current_directory),
             )
         })
         .collect::<Vec<_>>();
-    let host = CaseHost { fs: tsr_vfs::InMemoryFileSystem::new(files, symlinks, true) };
+    let host = CaseHost { fs: tsr_vfs::InMemoryFileSystem::new(files, symlinks, case_sensitive) };
     tsr_compiler::Program::from_root_files(
         arena,
         &host,

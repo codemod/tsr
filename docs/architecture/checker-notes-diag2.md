@@ -28473,3 +28473,94 @@ individual match arms were being audited one at a time.
 Recorded as the standing recommendation for the next session: **before the next
 rule, diff `types_producer.rs` against `trace_case.rs` line by line.** They are
 two implementations of one thing and only one of them is tested.
+
+## §539 — the diff §538 recommended, run immediately: two more directives the producer drops
+
+`types_producer.rs` against `trace_case.rs`, line by line, as §538 said to do
+before the next rule. Two more inputs, and **one non-difference worth recording
+so nobody "fixes" it**:
+
+```
+@currentDirectory          50 corpus cases   parsed into `case.current_directory`, never read
+@useCaseSensitiveFileNames  9 corpus cases   `InMemoryFileSystem::new(files, symlinks, true)` — hardcoded
+```
+
+### The non-difference
+
+`trace_case` defaults its current directory to `SRC_FOLDER` (`/.src`) and the
+producer to `/`. **That is not a bug in either.** The module-resolution traces
+are baselined against `/.src` paths and the diagnostics baselines against `/`
+and bare names, so the two suites' conventions genuinely differ and aligning
+them would break the suite that is currently right.
+
+> **Two implementations of one thing are not the same as two wrong
+> implementations.** §538's recommendation was to diff them, and the first thing
+> the diff turned up was a difference that must be preserved. A sweep that
+> treats every divergence as a defect would have "fixed" this one and lost the
+> file-name column in every diagnostics baseline.
+
+Only the **directive** is honoured here, over the producer's own default —
+which is exactly what upstream's harness does with it.
+
+### The bar
+
+```
+bar:  net >= 0 with a named mechanism, on `diagnostics` AND `checker_types`
+```
+
+Same shape as §537: this changes where files live for 50 cases, so it can move
+either way, and the falsifier decides.
+
+### Falsifiers
+
+1. **A case's diagnostics move to a different file name.** Expected for the 50;
+   the baseline says whether upstream agrees. If the *column* is right and the
+   *file* is wrong, this build made it worse.
+2. **`binder_symbols` or `printer_round_trip` move.** They read every file and
+   should be indifferent to the directory it sits in.
+3. **The other 5,438 cases move at all.** The directive is absent for them and
+   the default is unchanged, so any movement means the default was touched.
+
+## §540 — §539 built: **+0 and +0**, and that closes the vein
+
+```
+                              diagnostics   checker_types   binder   printer
+@currentDirectory  (50 cases)     +0             +0          100%     100%
+@useCaseSensitive… ( 9 cases)     +0             +0          100%     100%
+```
+
+Both wired, both faithful, both worth nothing. **Kept anyway** — they cost
+nothing, they move no suite, and the next person to read
+`InMemoryFileSystem::new(files, symlinks, true)` should not have to rediscover
+that the `true` was a guess.
+
+### The vein, priced end to end
+
+```
+§533   the config's OPTIONS              +2 diagnostics   +8 checker_types
+§535   the config's ROOT FILES           +3               −2
+§537   the no-config ROOT HEURISTIC      +6               +5
+§539   @currentDirectory                 +0               +0
+§539   @useCaseSensitiveFileNames        +0               +0
+                                        ───              ───
+                                        +11              +11
+```
+
+**Five inputs, three of them worth everything and two worth nothing**, and there
+was no way to know which from the case counts: `@currentDirectory` appears in 50
+corpus cases and converted none, while the no-config root heuristic has no
+directive to count at all and converted six.
+
+> **A harness input's corpus frequency does not predict its yield**, for the
+> same reason §526's 111 guard sites were worth ~+4: what matters is whether the
+> input changes an answer the suite is *judging*, and nothing about a `grep`
+> count knows that. Both of this session's sweeps were priced by measurement and
+> both came in far from where their counts pointed — one high, one at zero.
+
+§538 recommended this diff before the next rule. It is done, it paid nothing
+further, and **the recommendation is now discharged rather than standing**: the
+producer and `trace_case` agree on every input either one reads, with the single
+deliberate exception of the current-directory *default*, which differs because
+the two suites' baselines differ (§539).
+
+Back to rules.
