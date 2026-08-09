@@ -4381,3 +4381,25 @@ es2020IntlAPIs/localesObjectArgument locale-options family is the
 head). Must NOT move: slice 2a's converts, standalone
 double-quoted literal lines, §104's 232. One wrong-quote line
 anywhere refuses the arm.
+
+## §109 — JSDoc @template reaches the signature bake [claimed: checker-1]
+
+The @template family holds ~200 WRONG + 34 GAP across seven cases
+(jsdocTemplateTag6 127 the head; Tag3 30, TagDefault 17, Tag8 14,
+Tag7 4, Tag2 2). The parser MATERIALIZES the tags
+(`parse_template_tag`, jsdoc.rs:513, `@template {Constraint} T, U`
+forms) and the binder files JSDoc declarations (tsr-2); the checker's
+`signature_parts_of` reads only `node.type_parameters`, which is
+empty for a JS function whose parameters live in the doc comment —
+so every such signature bakes `(x: any) => any` (upstream:
+`getEffectiveTypeParameterDeclarations`' JSDoc half). **Mechanism:**
+`signature_parts_of` (and the type-parameter identity roads that
+mirror it: `type_parameter_types`, §102/§107's declaration matches)
+consult the declaration's JSDoc template tags when
+`type_parameters` is empty and the file is JS. **Bar:** ≥80 of the
+family at ≥10:1; falsifiers: (a) TS-file signatures byte-identical
+(the JSDoc read is JS-gated); (b) `@template` with defaults/
+constraints that don't parse keep the current gap, not a partial
+list (the partial-map rule every identity road states); (c) the
+`const` modifier form (Tag6's `<const T>` wants) prints only if the
+tag carries it — no invented modifiers.
