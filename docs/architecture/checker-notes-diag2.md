@@ -18043,3 +18043,80 @@ groups (25–67 cases each) are untouched.
 between them, landing on the unit-returning `set_jsdoc` instead. **That is
 §241's shape exactly**, from a different author: a doc comment placed between an
 attribute and its item moves the attribute.
+
+## §291 — the index-signature sequence
+
+Next cluster off the seam. `checkGrammarIndexSignature`
+(`grammarchecks.go:795`) is a straight run of guards, each returning:
+
+```
+exactly one parameter · no trailing comma · no rest · no accessibility modifier
+no question mark · no initialiser · parameter must have a type annotation
+parameter type is not a literal or generic · parameter type is a valid index key
+the signature itself must have a type annotation
+```
+
+Seven of them are decidable from the tree alone. Two are not:
+
+- **TS1337** (`literal type or generic type`) tests
+  `TypeFlagsStringOrNumberLiteralOrUnique` **or** `c.isGenericType(t)`. The flag
+  half is decidable; `isGenericType` is not ported, so a generic parameter type
+  declines.
+- **TS1268** (`must be string, number, symbol or a template literal`) is
+  `everyType(t, c.isValidIndexKeyType)`. Ported for the shapes whose flags
+  answer, declined otherwise — §274's rule, which is why that build was `+7` and
+  §258's was `+2`.
+
+### The bar
+
+```
+bar:  +5 cases of 7,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **A legal `[k: string]: T` reports.** Every guard above must decline it.
+2. **`checker_types` moves.** These read types and report diagnostics.
+
+## §292 — §291 measured three ways and reverted
+
+```
+full sequence                       diagnostics 1,779 → 1,783   RIGHT 11 · WRONG 22
++ generic keys declined                          → 1,783   RIGHT 11 · WRONG 21
+syntactic guards only, type arms dropped         → 1,779   (+0)
+```
+
+Reverted. The three measurements together say something the first one alone did
+not:
+
+> **The `+4` was entirely the type arms, and the syntactic guards contribute
+> nothing.** Every one of `checkGrammarIndexSignature`'s tree-decidable checks —
+> exactly one parameter, no rest, no modifier, no question mark, no initialiser,
+> parameter must be annotated — is already covered by something this port
+> reports, and porting them again moved zero cases.
+
+That is worth having measured. §287's parameter-list family looked identical
+from the gap and was `+9`; this one looked identical and is `+0`. **A cluster of
+no-producer codes in a syntactic function is not evidence that the *cases* are
+reachable** — only that this port does not emit those particular codes, which it
+may be covering with different ones.
+
+### Why the type arms are not the answer either
+
+TS1268 and TS1337 read the key type. `isGenericType` is unported, so a generic
+key falls through to TS1268 and reports where upstream reports TS1337 — and
+declining type parameters outright moved 22 wrong lines to **21**, which says
+the misfires are ordinary types this port resolves differently, not generics.
+
+`arraySigChecking` is the shape: upstream wants **TS1268 at (11,17)** and this
+port produced **TS1021 at (11,16)** — a different code at a different column,
+because the guard that should have returned first never ran.
+
+### Refused, owner named
+
+**The index-signature sequence — refused.** Owner: `isValidIndexKeyType` and
+`isGenericType` (`grammarchecks.go:826`–`:832`). The sequence is *ordered*, and
+its two type-reading guards sit in the middle: without them every later guard
+reports at a position upstream never reaches. **An ordered guard sequence cannot
+be ported in fragments** — that is a new refusal shape and worth more than the
+seven cases.
