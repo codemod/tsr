@@ -17026,3 +17026,88 @@ the diagnostic.
 - **`grammarErrorOnFirstToken`**, not the declaration name — the column is the
   `function` keyword, not the function's name. §232 and §234 are the same
   distinction from the other side.
+
+## §267 — TS2378, and two more flags that are declared and never set
+
+`checkAccessorDeclaration` (`checker.go:2941`) is a pure flag test:
+
+```go
+if ast.IsGetAccessorDeclaration(node) {
+    if node.Flags&ast.NodeFlagsAmbient == 0 && ast.NodeIsPresent(node.Body()) &&
+       node.Flags&ast.NodeFlagsHasImplicitReturn != 0 {
+        if node.Flags&ast.NodeFlagsHasExplicitReturn == 0 {
+            c.error(name, diagnostics.A_get_accessor_must_return_a_value)
+        }
+    }
+}
+```
+
+`NodeFlags::HAS_IMPLICIT_RETURN` and `HAS_EXPLICIT_RETURN` (`flags.rs:34`,
+`:36`) are **declared here and set nowhere** — the same category as
+`SymbolFlags::OPTIONAL` (§251) and the six the handoff already lists. Upstream's
+*parser* sets them while it walks a function body; this port's does not.
+
+So the faithful test is unavailable and the row is a **bounded slice**, sound in
+the reporting direction:
+
+- **no `return` anywhere in the body** ⟹ `HasExplicitReturn` is certainly false;
+- **and no `throw` either** ⟹ the body can complete normally, so
+  `HasImplicitReturn` is certainly true.
+
+`get x() { }` and `get x() { log(); }` are decided. `get x() { if (c) return 1; }`
+is not — it has an explicit return *and* an implicit one, upstream reports, and
+this declines. A missing line, never a wrong one.
+
+`get x() { throw new Error(); }` is the case the `throw` clause protects: no
+implicit return, upstream silent, and without the clause this would report.
+
+### The bar
+
+```
+bar:  +4 cases of 7,  0 LOST
+```
+
+### Falsifiers
+
+1. **A getter that returns on every path reports.** The `return` scan is the
+   whole guard.
+2. **A getter that only throws reports.**
+3. **An ambient getter reports.** `.d.ts` accessors have no body.
+
+## §268 — §267 built: +6 of 7, `WRONG 0`, from a slice of a flag that does not exist
+
+```
+diagnostics   1,719 → 1,725   (+6, bar was +4, ceiling was 7)
+CONVERTS 6 · LOST 0 · STILL SHORT 2 · RIGHT 10 · WRONG 0
+every other suite unmoved — falsifiers 1, 2 and 3 negative
+```
+
+Six of seven, at zero wrong, for a rule whose upstream test reads two `NodeFlags`
+this port **declares and never sets**.
+
+> **A flag that is never set does not always block the rule that reads it — the
+> question is whether the flag's *meaning* is decidable another way.** §251
+> refused TS2783 on `SymbolFlags::OPTIONAL` because optionality is a property of
+> a symbol nothing here computes. `HasImplicitReturn`/`HasExplicitReturn` are
+> different: they are summaries of a body's shape, and the body is right there.
+
+The slice takes the fragment where the summary is certain — no `return` and no
+`throw` — and declines the mixed case. That is `+6 of 7`, where §258's
+identity-relation fragment was `+2 of 32`, and the difference is not effort: a
+flag summarising *syntax already present* has a large decidable fragment, while
+a relation over *types not yet built* has a small one.
+
+### The `throw` clause earned its place
+
+Without it, `get x() { throw new Error(); }` reports and upstream is silent —
+there is no implicit return to complain about. It is one `matches!` arm and it
+is the difference between `WRONG 0` and a wrong line in every fixture that uses
+a getter as a stub.
+
+### The gate blocked twice on this build
+
+`cargo xtask measure` (§260) refused twice before any number was produced: a
+`node_id` field/method confusion, then an unused parameter. Neither would have
+corrupted a measurement — both are compile errors — but the second is the exact
+shape §262 hit, and the gate is now the thing that notices rather than the
+reading.

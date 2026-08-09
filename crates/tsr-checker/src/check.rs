@@ -307,6 +307,10 @@ impl Checker<'_, '_> {
                 self.check_annotated_initializer(node, ambient);
                 ambient
             }
+            Node::GetAccessorDeclaration(accessor) => {
+                self.check_get_accessor_returns(accessor, ambient);
+                ambient
+            }
             Node::PropertyDeclaration(property) => {
                 self.check_ambient_initializer(
                     node,
@@ -2737,6 +2741,59 @@ impl Checker<'_, '_> {
             file,
             Diagnostic::new(&messages::GENERATORS_ARE_NOT_ALLOWED_IN_AN_AMBIENT_CONTEXT, span),
         );
+    }
+
+    /// TS2378 — `A 'get' accessor must return a value.`
+    ///
+    /// `checkAccessorDeclaration` (`checker.go:2941`) tests
+    /// `HasImplicitReturn && !HasExplicitReturn`, two `NodeFlags` upstream's
+    /// **parser** sets and this port's does not (`flags.rs:34`, `:36` — declared
+    /// and set nowhere, the same category as `SymbolFlags::OPTIONAL`).
+    ///
+    /// So this is a bounded slice, sound in the reporting direction: **no
+    /// `return` in the body** makes `HasExplicitReturn` certainly false, and
+    /// **no `throw` either** makes `HasImplicitReturn` certainly true. A getter
+    /// that returns on *some* paths has both flags upstream and is declined
+    /// here — a missing line, never a wrong one. §267.
+    fn check_get_accessor_returns(
+        &mut self,
+        accessor: &tsr_ast::GetAccessorDeclaration<'_>,
+        ambient: bool,
+    ) {
+        if ambient || self.file_has_parse_errors {
+            return;
+        }
+        // `ast.NodeIsPresent(node.Body())` — an overload or a `.d.ts` accessor
+        // has none.
+        let Some(body) = accessor.body else { return };
+        let Some(body_id) = body.node_id() else { return };
+        if self.subtree_has_return_or_throw(body_id) {
+            return;
+        }
+        let Some(name) = accessor.name.node_id() else { return };
+        let Some(file) = self.source_file_of_for_diagnostics(name) else { return };
+        let span = self.error_span(name);
+        self.report(file, Diagnostic::new(&messages::A_GET_ACCESSOR_MUST_RETURN_A_VALUE, span));
+    }
+
+    /// Does this subtree contain a `return` or a `throw`, **not** descending
+    /// into a nested function-like body?
+    ///
+    /// The nesting rule is upstream's by construction: the parser sets the
+    /// return flags on the function whose body it is walking, so a `return`
+    /// inside a nested arrow belongs to the arrow.
+    fn subtree_has_return_or_throw(&self, node: NodeId) -> bool {
+        if matches!(self.nodes.kind(node), SyntaxKind::ReturnStatement | SyntaxKind::ThrowStatement)
+        {
+            return true;
+        }
+        let mut children = Vec::new();
+        if let Some(typed) = self.node_map.get(node) {
+            tsr_ast::for_each_child_id(typed, |child| children.push(child));
+        }
+        children.into_iter().any(|child| {
+            !self.is_function_like_or_static_block(child) && self.subtree_has_return_or_throw(child)
+        })
     }
 
     /// TS1046 — `Top-level declarations in .d.ts files must start with either
