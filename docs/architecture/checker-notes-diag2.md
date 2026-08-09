@@ -14372,3 +14372,59 @@ individually diagnosed. **None of it is reachable from this workstream** without
 one of those four owners moving first — which is the same conclusion §172 and
 §177 reached for the *missing* column, now established for the *extra* column
 too.
+
+## §217 — a module specifier is an arbitrary expression upstream, and consuming it is the fix
+
+§216 closed the *extra* column's TS2322 bucket as unreachable. Its next-largest
+bucket is parser recovery — thirteen lines — and `tsr_parser` is **this
+codebase**, not another workstream: §193, §201, §205 and §194 all landed there
+this session.
+
+```
+importNonStringLiteral
+  expected  vs/foo_0.ts(2,22) TS1141   String literal expected.
+  actual    (2,22) TS1141  +  (2,23) TS1005
+```
+
+`import foo = require(x);`. Upstream's `parseModuleSpecifier` carries its own
+explanation:
+
+> *"We allow arbitrary expressions here, even though the grammar only allows
+> string literals. We check to ensure that it is only a string literal later in
+> the grammar check pass."*
+
+```go
+if p.token == ast.KindStringLiteral { return p.parseLiteralExpression(false) }
+return p.parseExpression()
+```
+
+So `x` is **consumed**, the `)` is found, and the file has one diagnostic. This
+port reported at the same position — which is right — and then returned a
+*missing* identifier **without consuming**, so `)` was reported missing too.
+
+```
+diagnostics   1,615 → 1,616
+extraonly        27 → 26 cases
+parser_typescript / scanner_clean_files / binder_symbols /
+printer_round_trip / checker_types — all unmoved
+```
+
+### The bound taken, stated because it is a divergence
+
+Upstream reports TS1141 from a **grammar check pass**, not from the parser. This
+port keeps the report in the parser and only fixes the *consumption*. The report
+lands at upstream's own position, so the observable behaviour matches; moving it
+to a grammar pass would trade a two-line fix for an unported check with its own
+bar. Recorded as a divergence rather than presented as fidelity.
+
+### Why this one was reachable when §215's was not
+
+Both are "one extra diagnostic after a correct one". §215's `<a:` needed
+`scanJsxIdentifier`'s whitespace semantics, which cannot be established by
+reading — I stopped there rather than guess. This one is a function with its own
+comment stating the design, and the divergence is visible in four lines of Go.
+
+> **"Read the upstream function" is not a uniform cost.** Some carry their
+> rationale in a comment and some encode it in scanner state; the first kind is
+> worth attempting late in a session and the second is not. That distinction is
+> what separated §217 from §215, and it is the more useful half of both.

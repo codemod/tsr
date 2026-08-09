@@ -580,8 +580,23 @@ impl<'a> Parser<'a> {
     fn parse_module_specifier(&mut self) -> Expression<'a> {
         let start = self.pos();
         if !self.at(SyntaxKind::StringLiteral) {
+            // `parseModuleSpecifier` (`parser.go`) **parses an arbitrary
+            // expression** here — its own comment says *"we allow arbitrary
+            // expressions here, even though the grammar only allows string
+            // literals; we check to ensure that it is only a string literal
+            // later in the grammar check pass"*. So `import foo = require(x)`
+            // consumes `x`, finds the `)`, and yields exactly one diagnostic.
+            //
+            // This port reported at the same position — which is right — and
+            // then returned a **missing** identifier without consuming, so the
+            // `)` was reported missing too. `importNonStringLiteral` is one
+            // TS1141 upstream and was TS1141 plus a TS1005 here.
+            //
+            // The report stays in the parser rather than moving to a grammar
+            // pass: it lands at upstream's own position, and moving it would
+            // trade a bounded fix for an unported check. §217.
             self.error_at_current(&messages::STRING_LITERAL_EXPECTED);
-            return Expression::Identifier(self.missing_identifier());
+            return self.parse_expression();
         }
         let text = self.token_value();
         let flags = self.token.ast_flags();
