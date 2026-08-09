@@ -4764,3 +4764,16 @@ signature TEXTS (falsifier (b)'s priced print class),
 multiImportExport/declarationsIndirect alias-object reads (the
 receiver shape needs its own trace — the module-flag hypothesis
 measured zero), typeGuard truthiness interplays, stackDepth 3.
+
+**§117 slice 2 bar — the synthetic `.prototype`.** The census's 121
+`.prototype` misses: upstream mints the property on every class
+STATIC side, typed as the INSTANCE type (generic classes: the
+instance reference over `any` arguments — `getTypeOfPrototypeProperty`,
+`checker.go`). Port at the TYPE level (`get_type_of_property_of_type`
+answering before the symbol road for `prototype` on an Anonymous
+CLASS receiver): non-generic → the declared instance; generic → the
+reference over per-parameter `any`. **Bar: ≥60 at ≥10:1.**
+Falsifiers: (a) `prototype` on non-class receivers (functions'
+`.prototype` is `any` upstream — the FUNCTION arm answers any, not
+the instance); (b) written `prototype` MEMBERS (a user property
+named prototype wins — the symbol road runs first).
