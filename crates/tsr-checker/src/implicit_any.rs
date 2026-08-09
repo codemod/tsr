@@ -53,6 +53,52 @@ impl Checker<'_, '_> {
     /// Called from the walk at the *declaration*, not at the parameter, because
     /// the decision is about the declaration's kind and asking it once per
     /// parameter would ask it N times.
+    /// TS7008 — `Member '{0}' implicitly has an '{1}' type.`
+    ///
+    /// `reportImplicitAny`'s first case (`checker.go:18283`), which covers
+    /// `PropertyDeclaration` and `PropertySignature`.
+    ///
+    /// Upstream reports when the **widened** type is implicitly `any`. That is
+    /// decidable without widening for the shape this corpus uses: a property
+    /// with **no annotation and no initialiser** is `any` under any inference
+    /// this port could have. One with an initialiser has a type to widen and is
+    /// declined. §271.
+    ///
+    /// Every guard is [`Checker::check_implicit_any_parameters`]' — including
+    /// the blanket `.js` decline, which exists because JSDoc supplies types
+    /// this port does not parse into one.
+    pub(crate) fn check_implicit_any_member(&mut self, node: NodeId, ambient: bool) {
+        if !self.no_implicit_any || self.file_has_parse_errors || ambient {
+            return;
+        }
+        if self.in_js_file(node) {
+            return;
+        }
+        let (name, annotation, initializer) = match self.node_map.get(node) {
+            Some(Node::PropertyDeclaration(property)) => {
+                (property.name, property.r#type, property.initializer)
+            }
+            Some(Node::PropertySignatureDeclaration(property)) => {
+                (property.name, property.r#type, property.initializer)
+            }
+            _ => return,
+        };
+        if annotation.is_some() || initializer.is_some() {
+            return;
+        }
+        let tsr_ast::PropertyName::Identifier(name) = name else { return };
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let span = self.error_span(node);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::MEMBER_0_IMPLICITLY_HAS_AN_1_TYPE,
+                span,
+                [name.text.to_string(), "any".to_string()],
+            ),
+        );
+    }
+
     pub(crate) fn check_implicit_any_parameters(&mut self, node: NodeId, ambient: bool) {
         if !self.no_implicit_any || self.file_has_parse_errors {
             return;

@@ -17203,3 +17203,81 @@ and re-deriving it downstream is not available at any price.
 **Owner: `NodeFlags::AWAIT_CONTEXT` in `tsr-parser`**, deciding whether `await`
 begins an expression or is an identifier. Two wrong lines here, and it is also
 why `YIELD_CONTEXT` will not yield to the same trick.
+
+## §271 — TS7008, the member arm of `reportImplicitAny`
+
+`reportImplicitAny` (`checker.go:18275`) switches on the declaration kind, and
+its **first** case is the one this port does not have:
+
+```go
+case ast.KindBinaryExpression, ast.KindPropertyDeclaration, ast.KindPropertySignature:
+    diagnostic = core.IfElse(c.noImplicitAny,
+        diagnostics.Member_0_implicitly_has_an_1_type,
+        diagnostics.Member_0_implicitly_has_an_1_type_but_a_better_type_may_be_inferred_from_usage)
+```
+
+`implicit_any.rs` already holds the `KindParameter` case (TS7006/TS7019) with
+its guards worked out: `no_implicit_any`, no parse errors, **no `.js` file at
+all** (§: JSDoc supplies types this port does not parse, and it was the whole of
+that rule's first wrong column), no annotation, no initialiser, and not ambient.
+
+The member arm reuses every one of them. What it does *not* reuse is
+`parameters_cannot_be_contextually_typed` — a property has no contextual type
+from a signature, so the question does not arise.
+
+### The slice
+
+Upstream reports when the **widened** type is implicitly `any`. Decidable
+without widening for the shape the corpus uses: a `PropertyDeclaration` or
+`PropertySignature` with **no annotation and no initialiser** is `any` under any
+inference this port could have. A property with an initialiser has a type to
+widen and is declined.
+
+`KindBinaryExpression` — a JavaScript `this.x = …` assignment declaration — is
+not ported; §251 recorded `SymbolFlags::ASSIGNMENT` as live, but the shape is
+`.js`-only and the `.js` decline above already covers it.
+
+### The bar
+
+```
+bar:  +4 cases of 7,  0 LOST
+```
+
+### Falsifiers
+
+1. **An annotated property reports.** `x: number` must be silent.
+2. **A property with an initialiser reports.** `x = 1` has a type.
+3. **`noImplicitAny: false` reports.** The whole rule is behind it.
+
+## §272 — §271 built: +1 against a bar of +4, and what `STILL SHORT` measured
+
+```
+diagnostics   1,727 → 1,728   (+1, bar was +4)
+CONVERTS 1 · LOST 0 · STILL SHORT 9 · RIGHT 17 · WRONG 0
+every other suite unmoved — falsifiers 1, 2 and 3 negative
+```
+
+**Seventeen right lines, zero wrong, one case converted.** The bar was priced
+off `diaggap`'s sole-obstacle count — 7 cases blocked on TS7008 *alone* — and
+that count was accurate. What it cannot say is whether a rule will produce
+**all** of a case's lines of that code.
+
+> **A sole-obstacle count prices the row, not the slice.** `diaggap` answers
+> "this case needs only TS7008", and a bounded slice answers "here are some
+> TS7008". Nine cases moved from *blocked on one code* to `STILL SHORT` — they
+> now have some of their TS7008 lines and not all, which is exactly as far from
+> passing as before.
+
+That is a distinction worth carrying: §258's identity fragment and §267's
+return-flag fragment both hit it too, and only §267's was large enough to clear
+its bar. **A bounded slice should be barred against the lines it can decide, not
+against the cases the code blocks** — and no instrument currently reports the
+first, which is why every fragment this session has been mispriced in the same
+direction.
+
+### Where the missing lines are
+
+The slice decides *no annotation and no initialiser*. Upstream also reports for
+a property whose initialiser widens to `any` and for `KindBinaryExpression` —
+a JavaScript `this.x = …` — both needing real widening. The nine short cases
+mix decided and undecided members in one file.

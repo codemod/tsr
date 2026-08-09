@@ -307,6 +307,10 @@ impl Checker<'_, '_> {
                 self.check_annotated_initializer(node, ambient);
                 ambient
             }
+            Node::PropertySignatureDeclaration(_) => {
+                self.check_implicit_any_member(node, ambient);
+                ambient
+            }
             Node::GetAccessorDeclaration(accessor) => {
                 self.check_get_accessor_returns(accessor, ambient);
                 ambient
