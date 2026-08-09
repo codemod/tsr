@@ -26970,3 +26970,46 @@ than once, which is a test of the *walk*, not of the flag.
 `YIELD_CONTEXT` as well as `AWAIT_CONTEXT` — the only one in the sixteen that
 needs both flags, which makes it the acceptance test for the whole change rather
 than an outlier to be excluded.
+
+## §508 — TS1038 on the third predicate: **+5**, and §445's −14 explained
+
+```
+diagnostics   2,026 → 2,031   (+5, 0 LOST)   37.01%
+parser_typescript 100% · printer_round_trip 100% — untouched, because no
+                                                   parser change was needed
+```
+
+Three predicates have now been tried on one guard:
+
+```
+§?    file_is_ambient                       the original — too narrow, 6 cases missed
+§445  the walk-threaded `ambient`           −14 — file_is_ambient OR an enclosing declare
+§508  declaration_is_in_an_ambient_context  +5 — an enclosing `declare`, and only that
+```
+
+**§445's failure was the predicate, not the flag.** In a `.d.ts` the threaded
+`ambient` is true of *every* node whether or not an ancestor carries `declare`,
+so every `declare` member of every module block in every declaration file
+reported. The ancestor walk requires an actual modifier and is exactly the shape
+this arm tests.
+
+> **§499 priced this as a parser change and it was a one-line predicate swap.**
+> The reasoning that led there was sound at each step — §446 measured the
+> conflation of three "ambient" meanings, §452 merged two refusals into one
+> parser item, §499 wrote the implementation down to a function name — and the
+> conclusion was still wrong, because **all three notes reasoned about the flag
+> and none re-examined the predicate already in the file.**
+>
+> `declaration_is_in_an_ambient_context` was written in §99, is documented as
+> the substitute for `NodeFlags::AMBIENT`, and its own comment says so. **The
+> answer had been in the codebase for four hundred sections, one grep from the
+> refusal that pointed away from it.**
+
+### What this does to §507's sixteen
+
+TS1038's 6 are converted **without touching the parser**. TS1155's 3 and
+TS1359's 7 may or may not be the same shape — TS1155 uses the same predicate and
+still measured `−5` (§497), and TS1359 needs `AWAIT_CONTEXT`, which has no
+ancestor-walk equivalent because it is a *parser context*, not a modifier.
+
+**The sixteen is now six-done, three-unknown, seven-parser.**

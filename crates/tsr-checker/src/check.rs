@@ -4925,8 +4925,18 @@ impl Checker<'_, '_> {
             // above and this one and cannot fire here** — this port has no
             // block-scope kind for them. §183 records that as the reason this
             // build is barred below its ceiling.
+            // **The predicate is "an enclosing `declare`", not "the file".**
+            // §445 substituted the walk-threaded `ambient` — `file_is_ambient`
+            // OR an enclosing `declare` — and measured −14, because in a `.d.ts`
+            // it is true of every node whether or not any ancestor carries the
+            // modifier. `declaration_is_in_an_ambient_context` walks ancestors
+            // for an actual `declare` and excludes the bare-file case, which is
+            // upstream's `NodeFlagsAmbient` for the shape this arm tests. §508.
             if kind == SyntaxKind::DeclareKeyword
-                && self.file_is_ambient
+                && self
+                    .nodes
+                    .parent(node)
+                    .is_some_and(|parent| self.declaration_is_in_an_ambient_context(parent))
                 && self
                     .nodes
                     .parent(node)
