@@ -24894,3 +24894,86 @@ note records why, so the next reader does not conclude the helper was the defect
 **+11 kept.** The unit has now shrunk three times — types, then members of
 types, then members inherited across a base chain — and each shrink preserved
 the proof. §451's rule holds at six data points.
+
+## §456 — TS2464: an unconstrained type parameter as a computed name
+
+**6 blocked, all single-line, `occupied 0/6`.**
+
+```ts
+function f<T, K extends keyof T>() {
+    var t!: T;  var k!: K;
+    var v = {
+        [t]: 0,     // TS2464 — T is unconstrained
+        [k]: 1      // fine — keyof T IS string | number | symbol
+    };
+}
+```
+
+The fixture contains its own control: `[k]` does **not** error, so the rule is
+not "a type parameter is never a valid computed name" — it is **an
+*unconstrained* one**, because a constraint of `keyof T` is exactly the allowed
+union.
+
+§274's rule declines here: it asks the relation whether the name's type is
+assignable to `string | number | symbol | any`, and for an unconstrained
+parameter the relation cannot decide. **The syntax can**: a
+`TypeParameterDeclaration` with no `constraint` has nothing that could relate.
+
+### The bound
+
+The computed name's expression is an `Identifier` whose type resolves to a
+symbol declared by a `TypeParameterDeclaration` carrying **no constraint**.
+Anything with a constraint — even one this port cannot evaluate — declines,
+because `keyof T` is the corpus's counter-example and the whole reason the bound
+is stated this way.
+
+### The bar
+
+```
+bar:  +3 of 6,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **`[k]` with `K extends keyof T` reports.** The fixture's own control, and
+   the falsifier that matters.
+2. **A plain `string` name reports.** §274's existing arm handles those and is
+   untouched.
+
+## §457 — §456 built: **+3**, bar met
+
+```
+diagnostics   1,962 → 1,965   (bar was +3;  +3, 0 LOST)   35.81%
+every other suite unmoved — both falsifiers negative
+```
+
+### A fixture that carries its own control
+
+`computedPropertyNames51_ES6` writes `[t]` and `[k]` side by side, with
+`T` unconstrained and `K extends keyof T`, and expects an error on exactly one.
+That is a **falsifier supplied by the corpus** — the bound could not be *"a type
+parameter is not a valid computed name"* because the fixture disproves it two
+lines down.
+
+> **A fixture containing both the positive and the negative is worth more than
+> two fixtures containing one each.** §131's rail says read the fixture before
+> the fourth hypothesis; this is the stronger form — *read the fixture for the
+> case it does **not** report*, because that line is the bound, written by
+> someone who knew it.
+
+Three builds this session were bounded by a control the fixture itself supplied:
+§423's `[Symbol.iterator]`, §440's `void` return, and this. None of the three
+needed a hypothesis at all.
+
+### §274's rule, and why the relation could not answer
+
+§274 asks whether the name's type is assignable to `string | number | symbol`.
+For an unconstrained parameter the relation has **nothing to relate** and
+answers undecidable, which §274 correctly treats as silence. The syntax decides
+it instead: a `TypeParameterDeclaration` with no `constraint` has no upper bound
+to be assignable *from*.
+
+That is the fourth distinct way this session has stepped around the relation —
+after §407 (absent), §403 (singletons), and §436 (no construct signature).
+**Each one replaced a question the relation cannot answer with one the syntax
+can**, and the four together are worth `+22`.

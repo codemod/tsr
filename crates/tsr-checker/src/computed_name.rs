@@ -63,6 +63,24 @@ impl Checker<'_, '_> {
         if self.is_error(named) || self.type_of(named).flags.intersects(TypeFlags::ANY_OR_UNKNOWN) {
             return;
         }
+        // **An unconstrained type parameter cannot be a computed name**, and the
+        // relation cannot say so — it has nothing to relate. The syntax can: a
+        // `TypeParameterDeclaration` with no `constraint`. The fixture's own
+        // control is `K extends keyof T`, which **is** the allowed union, so the
+        // bound is *unconstrained* rather than *is a type parameter*. §456.
+        if self.name_is_unconstrained_type_parameter(expression) {
+            if let Some(file) = self.source_file_of_for_diagnostics(node) {
+                let span = self.error_span(node);
+                self.report(
+                    file,
+                    Diagnostic::new(
+                        &messages::A_COMPUTED_PROPERTY_NAME_MUST_BE_OF_TYPE_STRING_NUMBER_SYMBOL_OR_ANY,
+                        span,
+                    ),
+                );
+            }
+            return;
+        }
         if !self.type_of(named).flags.intersects(TypeFlags::NULLABLE) {
             if self.type_of(named).flags.intersects(ALLOWED_KINDS) {
                 return;
@@ -140,5 +158,66 @@ impl Checker<'_, '_> {
                     | SyntaxKind::InterfaceDeclaration
             )
         })
+    }
+    /// Is this computed name an identifier whose declared type is a type
+    /// parameter with **no constraint**?
+    ///
+    /// Resolved syntactically — the variable's written annotation names a type
+    /// parameter, and that declaration carries no `extends`. A constrained one
+    /// declines whatever the constraint is, because `keyof T` is the corpus's
+    /// counter-example. §456.
+    fn name_is_unconstrained_type_parameter(
+        &mut self,
+        expression: tsr_ast::Expression<'_>,
+    ) -> bool {
+        let Some(id) = expression.node_id() else { return false };
+        let Some(text) = self.identifier_text(id).map(str::to_string) else { return false };
+        let Some(symbol) = self.binder.resolve_name(
+            self.nodes,
+            self.node_map,
+            id,
+            &text,
+            tsr_binder::SymbolFlags::VALUE,
+        ) else {
+            return false;
+        };
+        let declarations =
+            self.binder.symbols().get(self.binder.merged_symbol(symbol)).declarations.clone();
+        for declaration in declarations {
+            let Some(Node::VariableDeclaration(variable)) = self.node_map.get(declaration) else {
+                continue;
+            };
+            let Some(annotation) = variable.r#type.and_then(|t| t.node_id()) else { continue };
+            let Some(Node::TypeReferenceNode(reference)) = self.node_map.get(annotation) else {
+                continue;
+            };
+            let Some(name) = reference.type_name.and_then(|n| n.node_id()) else { continue };
+            let Some(type_text) = self.identifier_text(name).map(str::to_string) else { continue };
+            let Some(type_symbol) = self.binder.resolve_name(
+                self.nodes,
+                self.node_map,
+                name,
+                &type_text,
+                tsr_binder::SymbolFlags::TYPE,
+            ) else {
+                continue;
+            };
+            let type_declarations = self
+                .binder
+                .symbols()
+                .get(self.binder.merged_symbol(type_symbol))
+                .declarations
+                .clone();
+            if type_declarations.iter().any(|&d| {
+                matches!(
+                    self.node_map.get(d),
+                    Some(Node::TypeParameterDeclaration(parameter))
+                        if parameter.constraint.is_none()
+                )
+            }) {
+                return true;
+            }
+        }
+        false
     }
 }
