@@ -4856,3 +4856,40 @@ harness that misrepresents the file system is not a legitimate gate.
 `diagnostics_suite.rs` — the diagnostics gradient moves with this.
 Announced to the other lane before measuring; both numbers reported
 in the landing.
+
+**§118 MEASURED AND LANDED — +46 G→R / 33 G→W / 0 R→W (right
+409,065 → 409,111 on the /478,954 gradient; scorepair, two steps:
+`@symlink` alone +23/0, `@link` parsing +23 more/33).** The bar's
+≥100-at-≥5:1 was NOT met numerically, and falsifier (b) is what
+fired: every G→W line is the newly-resolving corpora printing bare
+`Foo` where upstream prints `import("package-a").Foo` — the
+already-recorded PER-FILE import-spelling head (the §81/temporal
+per-site printing family), now with 33 more lines on its ledger.
+The harness change stands under the bar's own pre-written rule: it
+reproduces upstream's harness byte-for-byte (`linkRegex`,
+`test_case_parser.go:44`/`:290`, mounted at `harnessutil.go:201` —
+`@link: A -> B` links **B** to **A**), and a harness that
+misrepresents the file system is not a legitimate gate. The second
+slice landed alongside: `case.rs` now parses `@link` (it fell into
+the options map before, which also silently stripped it from unit
+content — the reason symlinkedWorkspace* stayed dark after the
+`@symlink` slice).
+
+Regression legs, all held: parser_typescript 5031/5031,
+binder_symbols 8456/8456, module_resolution 95/95, file_loader
+96/96, printer_round_trip 11757/11757, scanners 100%. The
+diagnostics suite (shared `program_for_case`) moved +1 case
+(1,998 → 1,999). clippy 0 errors (grep-verified), 1,554 tests pass,
+anchors resolve.
+
+**Authority note.** The LOADER entry was parked "joint-or-user-nod".
+This session's goal directive, verbatim: *"keep improving
+checker_types conformance until we get to 100%. @STATUS.md @TASK.md
+There might be some stale refusals. Keep re-evaluating them now
+that we have 100% binder and parser conformance. in coordination
+with checker-2 agent."* What landed here is narrower than the
+parked entry: no resolver or vfs code moved — the "infrastructure
+build" §113 priced turned out to be already-built machinery the
+types harness wasn't handed. The `paths`-mapping half (tsconfig
+units the types harness does not parse) remains parked with
+tsr-9or.1; re-price it against the post-§118 board before building.

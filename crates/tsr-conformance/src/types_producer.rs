@@ -1135,7 +1135,22 @@ pub fn program_for_case<'a>(
         case,
         CURRENT_DIRECTORY,
     );
-    let host = CaseHost { fs: tsr_vfs::InMemoryFileSystem::new(files, [], true) };
+    // §118 (`checker-notes-narrow.md`): the case's `@symlink` links, normalized
+    // exactly as `trace_case::build_file_system` normalizes them. The VFS and
+    // resolver have followed links since the module_resolution suite landed;
+    // this harness was the one road handing them an empty link table, which
+    // made every symlink-reached module "unfindable" at the checker.
+    let symlinks = case
+        .symlinks
+        .iter()
+        .map(|(link, target)| {
+            (
+                tsr_path::get_normalized_absolute_path(link, CURRENT_DIRECTORY),
+                tsr_path::get_normalized_absolute_path(target, CURRENT_DIRECTORY),
+            )
+        })
+        .collect::<Vec<_>>();
+    let host = CaseHost { fs: tsr_vfs::InMemoryFileSystem::new(files, symlinks, true) };
     tsr_compiler::Program::from_root_files(
         arena,
         &host,

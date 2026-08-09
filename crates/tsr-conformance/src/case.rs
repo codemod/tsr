@@ -118,6 +118,21 @@ impl TestCase {
                         }
                     }
                 }
+                // `// @link: A -> B` creates a symlink at **B** pointing to
+                // **A** — upstream's `linkRegex` captures the two sides and
+                // stores `symlinks[right] = left`
+                // (`internal/testrunner/test_case_parser.go:44`, `:290`),
+                // which `harnessutil.go:201` mounts as
+                // `testfs[src] = Symlink(target)`. Unlike `@symlink` it names
+                // both ends, so it needs no current unit.
+                "link" => {
+                    if let Some((target, link)) = directive.value.split_once("->") {
+                        let (target, link) = (target.trim(), link.trim());
+                        if !target.is_empty() && !link.is_empty() {
+                            symlinks.insert(link.to_string(), target.to_string());
+                        }
+                    }
+                }
                 _ => {
                     options.insert(directive.name, directive.value);
                 }
