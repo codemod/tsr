@@ -22695,3 +22695,82 @@ TS2339's remaining blocked cases are the relation's. The element-access cluster
 (`checker.go:27074`–`:27196`) is now half-ported — the string-literal subset —
 and the computed-index arms need the index-type machinery, which is the same
 owner as §394's tuple arity.
+
+## §403 — TS2394: the decidable-primitive subset
+
+```ts
+function foo():number;
+function foo():string { return "" }   // TS2394 at the overload
+```
+
+`checkFunctionOrConstructorSymbol` (`checker.go:3693`) calls
+`isImplementationCompatibleWithOverload`, which is signature assignability — the
+relation, and the reason this row has sat. But `functionOverloads11`'s two
+return annotations are **`number` and `string`**, and §257 established that two
+distinct intrinsic singletons are decidably unrelated with no interning
+assumption.
+
+§338 is the warning attached: **`any` is a singleton type but not a singleton
+conclusion.** Here that exclusion is required by upstream anyway —
+`isImplementationCompatibleWithOverload` treats an `any` or `void`
+implementation return as compatible with everything — so the same four
+primitives §257 admits are exactly the safe set, and `any` is out for two
+independent reasons.
+
+### The bound
+
+- both the overload and the implementation carry a **written** return
+  annotation that names one of `string`/`number`/`boolean`/`bigint`;
+- the two names differ;
+- the parameter counts are equal, so no arity effect is being read as a return
+  effect.
+
+Everything else — inferred returns, object types, generics, `void`, `any`,
+unions — declines. This is the smallest subset that decides `functionOverloads11`
+and its siblings and nothing else.
+
+### The bar
+
+```
+bar:  +3 of 16,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **`function f(): any; function f(): string {}` reports.** `any` is
+   compatible with every overload upstream, and is out of the decidable set.
+2. **Differing parameter counts report TS2394.** That is a different
+   diagnostic's territory and the equal-count guard excludes it.
+
+## §404 — §403 built: **+4**, above bar
+
+```
+diagnostics   1,900 → 1,904   (bar was +3;  +4, 0 LOST)   34.69%
+every other suite unmoved — both falsifiers negative
+```
+
+### §257's trick, four sessions and three rules later
+
+```
+§257  TS2403   two declarations of one variable      the original
+§338  TS2403   widened to `any`                      −3, reverted
+§403  TS2394   an overload against its implementation +4
+```
+
+The decidable-primitive argument is now the most reused idea in this file, and
+§338 is why it is stated with its exclusion attached every time: **`any` is a
+singleton type but not a singleton conclusion.** Here that exclusion happened to
+be required by upstream as well — an `any` or `void` implementation return is
+compatible with every overload — so the same four names are safe for two
+independent reasons, which is the first time the port's constraint and
+upstream's agreed exactly.
+
+> **A relation-owned row can have a decidable subset, and the subset is worth
+> porting when upstream's own predicate degenerates on it.** TS2394 was on the
+> refused pile as "signature assignability"; it is, and sixteen cases of it are
+> `number` versus `string`.
+
+That reframes several standing refusals. The ones with named relation owners —
+TS2416, TS2411, TS2420, TS2352 — have never been asked whether their corpus
+cases are primitive-versus-primitive. **That question is one `diagcase` each**,
+and it is the best-specified lead this session ends with.

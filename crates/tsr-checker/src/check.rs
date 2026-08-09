@@ -238,6 +238,7 @@ impl Checker<'_, '_> {
                 ambient || has_modifier(statement.modifiers, SyntaxKind::DeclareKeyword)
             }
             Node::FunctionDeclaration(declaration) => {
+                self.check_overload_implementation_return(node);
                 self.check_function_or_constructor_symbol(node, ambient);
                 let ambient =
                     ambient || has_modifier(declaration.modifiers, SyntaxKind::DeclareKeyword);
@@ -1018,6 +1019,82 @@ impl Checker<'_, '_> {
                 [text.to_string()],
             ),
         );
+    }
+
+    /// TS2394 — `This overload signature is not compatible with its
+    /// implementation signature.`
+    ///
+    /// `checkFunctionOrConstructorSymbol` (`checker.go:3693`). The test is
+    /// `isImplementationCompatibleWithOverload`, which is signature
+    /// assignability — the relation. This ports the **decidable-primitive
+    /// subset** §257 established: two distinct intrinsic singletons are
+    /// unrelated with no interning assumption.
+    ///
+    /// `any` is excluded for two independent reasons — §338's (`any` is also
+    /// this port's "no better answer") and upstream's (an `any` or `void`
+    /// implementation return is compatible with every overload). §403.
+    fn check_overload_implementation_return(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let Some(Node::FunctionDeclaration(implementation)) = self.node_map.get(node) else {
+            return;
+        };
+        // Run once, from the implementation.
+        if implementation.body.is_none() {
+            return;
+        }
+        let Some(body_return) = self.written_primitive_return(node) else { return };
+        let Some(symbol) = self.binder.symbol_of(node) else { return };
+        let declarations =
+            self.binder.symbols().get(self.binder.merged_symbol(symbol)).declarations.clone();
+        for declaration in declarations {
+            if declaration == node {
+                continue;
+            }
+            let Some(Node::FunctionDeclaration(overload)) = self.node_map.get(declaration) else {
+                continue;
+            };
+            if overload.body.is_some()
+                || overload.parameters.len() != implementation.parameters.len()
+            {
+                continue;
+            }
+            let Some(overload_return) = self.written_primitive_return(declaration) else {
+                continue;
+            };
+            if overload_return == body_return {
+                continue;
+            }
+            let Some(file) = self.source_file_of_for_diagnostics(declaration) else { continue };
+            let span = self.error_span(declaration);
+            self.report(
+                file,
+                Diagnostic::new(
+                    &messages::THIS_OVERLOAD_SIGNATURE_IS_NOT_COMPATIBLE_WITH_ITS_IMPLEMENTATION_SIGNATURE,
+                    span,
+                ),
+            );
+            break;
+        }
+    }
+
+    /// The written return annotation of a function declaration, when it names
+    /// one of the four intrinsic primitives §257 admits. §403.
+    fn written_primitive_return(&self, node: NodeId) -> Option<SyntaxKind> {
+        let Some(Node::FunctionDeclaration(function)) = self.node_map.get(node) else {
+            return None;
+        };
+        let id = function.r#type.and_then(|annotation| annotation.node_id())?;
+        let Some(Node::KeywordTypeNode(keyword)) = self.node_map.get(id) else { return None };
+        matches!(
+            keyword.kind,
+            SyntaxKind::StringKeyword
+                | SyntaxKind::NumberKeyword
+                | SyntaxKind::BooleanKeyword
+                | SyntaxKind::BigIntKeyword
+        )
+        .then_some(keyword.kind)
     }
 
     /// TS2307 — `Cannot find module '{0}' or its corresponding type declarations.`
