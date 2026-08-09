@@ -3616,3 +3616,35 @@ error-recovery optional REST parameter whose want is
 print residue already priced at §93 (0:457), now with two spellings
 on record. That print is the seam's next candidate and it owns both
 adverse families.
+
+## §95 — site-aware reference re-render (the argument slots)
+
+[checker-1's lane, built on branch worktree-checker-1-printing.]
+
+temporal's 400 WRONG lines decompose against the §81 refusal and
+most are NOT its architectural half: the outer reference already
+prints qualified at the site (`Temporal.PartialTemporalLike<...>` —
+design P + §41/§42 own that), and the failure is the TYPE-ARGUMENT
+slot keeping its baked inside-view text
+(`<ZonedDateTimeLikeObject>` where the site wants
+`<Temporal.ZonedDateTimeLikeObject>`). The baked argument text was
+minted inside the namespace; the site is outside; the slot never
+re-renders.
+
+**Mechanism:** `type_to_string_at`'s reference arm rebuilds the
+print from `type_reference_targets`' `(symbol, arguments)` — the
+target through the existing site-aware naming stack, each argument
+recursively through `type_to_string_at`, the `Array`/`ReadonlyArray`
+shorthands preserved — falling back to the baked text when ANY piece
+declines. §10.13's composite re-render, for references.
+
+**Bar:** ≥150 of temporal's 400 W→R; adverse within 10:1.
+Falsifiers: (a) INSIDE-view sites re-rendering their arguments
+qualified — §81's 6,768-line trap; the argument inherits the SAME
+site the outer name already resolves correctly at, so zero expected,
+and `parserRealSource11/12` R→W fires this leg; (b) the `T[]`
+shorthand lost on rebuilt Array references — element-position
+re-render must keep `array_element_text`'s parenthesisation;
+(c) baked-right references re-rendering DIFFERENTLY at their own
+declaration sites (the §89/§90.1 keep-text family) — any R→W whose
+want equals the old baked text fires it.
