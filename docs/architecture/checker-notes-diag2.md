@@ -21315,3 +21315,80 @@ predicate about the program. Every cheap approximation of it has now failed —
 true everywhere). Three failures of the proxy is the argument for paying for the
 instrumented version, which is a `decline!(site)` counter behind an env var and
 one corpus run.
+
+## §368 — TS2503: the namespace on the right of `import =`
+
+```ts
+import TypeScript = TypeScriptServices.TypeScript;
+//                  ^ TS2503 — Cannot find namespace 'TypeScriptServices'.
+```
+
+`check_qualified_type_name` claims exactly one position:
+
+```rust
+let Some(Node::TypeReferenceNode(reference)) = self.node_map.get(parent) else { return };
+```
+
+An `import =` entity reference is a `QualifiedName` in a different parent, so
+the rule never sees it. §335 was this same sentence in
+`check_type_reference_name` and was worth `+7`; this is its qualified-name
+twin, unfixed because the two rules are deliberately disjoint and only one of
+them was widened.
+
+> **Disjoint rules do not share a widening.** §335's note said the two claim the
+> same slot and are therefore disjoint — which is true, and is exactly why
+> fixing the position for one left the other blind to it. A pair of rules
+> partitioned by node kind needs the *position* audited on both sides.
+
+`import x = require("y")` is an `ExternalModuleReference`, a different node, so
+it is out of scope by construction rather than by a guard.
+
+### The bar
+
+```
+bar:  +2 of 6,  0 LOST,  WRONG delta <= +1
+```
+
+Two of the six blocked cases are this shape (`parserImportDeclaration1`,
+`scannerImportDeclaration1`). The `parserGenericsInTypeContexts` pair sit in a
+`TypeReferenceNode` and are declined by something else — not diagnosed here, and
+deliberately not guessed at.
+
+### Falsifiers
+
+1. **`import x = require("y")` reports.** Different node kind entirely.
+2. **A resolvable `import x = N.M` reports.** The namespace lookup is unchanged.
+
+## §369 — §368 measured **−2**, reverted
+
+```
+diagnostics    1,873 → 1,871   (bar was +2;  −2)
+checker_types  4,029 → 4,030   (+1, the other workstream's)
+```
+
+Reverted. The position widening is sound about *where* a `QualifiedName`
+appears and wrong about *what upstream reports there*.
+
+An `import x = A.B` whose `A` does not resolve at `MODULE | ALIAS` is not
+automatically TS2503. `resolveEntityName` for an import-equals reference runs
+with `SymbolFlagsNamespace` **and** an alias-resolution path that reaches
+TS2307, TS2305 and TS1340 depending on what `A` turns out to be — and the
+message this rule carries names a *namespace*, which is only right when the
+lookup failed for the namespace reason.
+
+> **§335's twin was not §335's fix.** The two rules are disjoint by node kind,
+> and I read that as meaning the *position* argument transfers. It does not: a
+> type reference's `QualifiedName` has exactly one failure mode, and an
+> `import =` reference has a family of them. The shape of the gap was right and
+> the code to emit into it was wrong — the same distinction §360 drew for
+> TS6142 two builds earlier, arrived at from the other direction.
+
+That §360 and §369 are the same lesson, found twice in six builds, is worth more
+than either: **a code and a position are separate facts, and finding the
+position does not tell you the code.** Every instrument here ranks codes;
+`diagnode` ranks positions; nothing joins them, and both failures were joins
+performed by hand and assumed.
+
+TS2503's four remaining cases keep their owner: the `parserGenericsInTypeContexts`
+pair sit in a `TypeReferenceNode` and are declined by something not yet
+diagnosed, deliberately not guessed at a second time.
