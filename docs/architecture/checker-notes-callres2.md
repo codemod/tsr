@@ -558,3 +558,17 @@ TypeData it answers the old object). One grep each; TRACE3 is the
 probe; the draft + fallback (now to be folded into patch126) is
 the harness. The summit's remaining unknown is exactly one of
 three greps wide.
+
+**Cache enumeration, round 2: node_types (checker.rs:80) EXISTS
+and its eviction is ALSO insufficient** — the arrow re-froze
+through candidate (b) (a contextual-road memo) or (c) (the
+Named-type interning answering the old object on recompute). The
+complete draft — unit + constraint fallback + full eviction
+(symbol_types + node_types, arrow and parameters) — is preserved
+as WHOLE FILE SNAPSHOTS (summit_*.rs.draft in the scratchpad),
+ending the reassembly-error class the trace caught once already.
+Round 3's command: grep the contextual roads for memos (candidate
+b), then test (c) by printing the arrow's TypeId before/after
+eviction — same id means the intern table answered. The survivor
+is one of two; TRACE3's "foo" print remains the win condition, the
+head-23's conversion the proof, the twin sets the landing bar.
