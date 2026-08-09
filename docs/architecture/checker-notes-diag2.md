@@ -27343,3 +27343,78 @@ one measurement away and the note claimed the general case anyway.
 `asyncOrYieldAsBindingIdentifier1` stays open. **Owner: `NodeFlagsYieldContext`,
 and this time the parser really is the place** — the flag is set during scanning,
 where the boundary is known.
+
+## §517 — TS1492: a `using` declaration with a binding pattern
+
+**2 blocked, `occupied 0/2`.** `checkGrammarVariableDeclaration`'s **first**
+guard (`grammarchecks.go:1559`), which returns before the initializer guard
+§509 ported:
+
+```go
+if ast.IsBindingPattern(node.Name()) {
+    switch blockScopeKind {
+    case NodeFlagsAwaitUsing: … "await using"
+    case NodeFlagsUsing:      … "using"
+    }
+}
+```
+
+```ts
+for (using [a] of []) { }   // TS1492
+```
+
+Same function, same node, same `using`/`await using` split — **§497 says extend
+§509's rule rather than write a second**, and §103 says the binding-pattern test
+must come *first*, so §509's initializer arm cannot fire for a pattern name.
+
+That ordering is the build's only real content: a `using [a]` with no
+initialiser satisfies both guards, and upstream reports the pattern one.
+
+### The bar
+
+```
+bar:  +2 of 2,  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **`using [a] = expr` reports TS1155.** The pattern guard runs first and
+   returns, whatever the initialiser is.
+2. **`using a;` stops reporting TS1155.** §509's arm must be untouched —
+   §494's differential inside one rule again.
+
+## §518 — §517 built: **+2**, bar met, row closed
+
+```
+diagnostics   2,040 → 2,042   (bar was +2;  +2, 0 LOST)   37.21%
+every other suite unmoved — both falsifiers negative
+```
+
+`checkGrammarVariableDeclaration` now has two of its guards ported, **in
+upstream's order**, inside one rule:
+
+```
+guard 1   a binding-pattern name        §517  +2   returns first
+guard 3   no initialiser                §509  +3
+guard 2   the `const` arm               §497  −5, declined with a measured reason
+```
+
+> **A function's guards are a sequence, and porting them out of order is only
+> safe if you re-establish the order each time.** §509 built guard three first
+> and §517 had to insert guard one *above* it — which was three lines because
+> §509's rule was written as a single early-return chain rather than as
+> independent tests. **Writing a ported guard as a chain, not a set, is what
+> makes the next guard cheap to add.**
+
+That is a claim about how to *write* a rule, not about which rule to write, and
+it is the first such claim this session has earned: §491's six-message block was
+written as a chain and §493's fix was one line; §496's two-rule bundle was
+written as a set and cost a full revert to separate.
+
+### The `using` family, complete for the corpus
+
+```
+TS1155  §509  +3   TS1156  §395  +2   TS1492  §517  +2
+```
+
+All three of the corpus's `using`-declaration grammar rows are closed.

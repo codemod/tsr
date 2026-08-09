@@ -2357,25 +2357,46 @@ impl Checker<'_, '_> {
             return;
         }
         let Some(Node::VariableDeclaration(declaration)) = self.node_map.get(node) else { return };
+        let Some(list) = self.nodes.parent(node) else { return };
+        let Some(statement) = self.nodes.parent(list) else { return };
+        if !self.nodes.flags(list).contains(tsr_ast::NodeFlags::USING) {
+            return;
+        }
+        let awaited = matches!(self.node_map.get(statement), Some(Node::VariableStatement(s))
+            if has_modifier(s.modifiers, SyntaxKind::AwaitKeyword))
+            || matches!(self.node_map.get(statement), Some(Node::ForInOrOfStatement(f))
+                if f.await_modifier.is_some());
+        // **TS1492 is the FIRST guard of `checkGrammarVariableDeclaration`
+        // (`grammarchecks.go:1559`) and returns before the initialiser one**, so
+        // a `using [a]` with no initialiser reports the pattern message, not
+        // TS1155. §103's order, inside one rule. §517.
+        if matches!(declaration.name, Some(tsr_ast::BindingName::BindingPattern(_))) {
+            let keyword = if awaited { "await using" } else { "using" };
+            if let Some(file) = self.source_file_of_for_diagnostics(node) {
+                let span = self.error_span(node);
+                self.report(
+                    file,
+                    Diagnostic::with_args(
+                        &messages::_0_DECLARATIONS_MAY_NOT_HAVE_BINDING_PATTERNS,
+                        span,
+                        [keyword.to_string()],
+                    ),
+                );
+            }
+            return;
+        }
         if declaration.initializer.is_some() || declaration.exclamation_token.is_some() {
             return;
         }
-        let Some(list) = self.nodes.parent(node) else { return };
-        let Some(statement) = self.nodes.parent(list) else { return };
         if matches!(
             self.nodes.kind(statement),
             SyntaxKind::ForInStatement | SyntaxKind::ForOfStatement
         ) {
             return;
         }
-        if !self.nodes.flags(list).contains(tsr_ast::NodeFlags::USING) {
-            return;
-        }
         if self.declaration_is_in_an_ambient_context(node) {
             return;
         }
-        let awaited = matches!(self.node_map.get(statement), Some(Node::VariableStatement(s))
-            if has_modifier(s.modifiers, SyntaxKind::AwaitKeyword));
         let keyword = if awaited { "await using" } else { "using" };
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
         let span = self.error_span(node);
