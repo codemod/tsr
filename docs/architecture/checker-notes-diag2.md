@@ -22532,3 +22532,36 @@ functions read for this build (`reportObjectPossiblyNullOrUndefinedError`,
 `checkGrammarForDisallowedBlockScopedVariableStatement`) both had their
 syntactic arms at the *head*, ahead of the type machinery — which is now three
 of three for that shape.
+
+## §399 — TS2300 declined, with its six sites inventoried
+
+TS2300 has **six** upstream sites, more than any other code in the gap, and
+`diagslice` prices it at 20 blocked / **2 single-line** / `occupied 3/71`. The
+site inventory, since the whole point of §376's detector is that a code's sites
+are separate work:
+
+```
+grammarchecks.go:1137   duplicate method in an object literal      NOT PORTED
+binder.go:217           declareSymbol's conflict path              §229's refusal — this port merges
+binder.go:965           a `prototype` export colliding             NOT PORTED
+checker.go:3168         reportDuplicateMemberErrors (class)        NOT PORTED
+checker.go:7015         duplicate TYPE PARAMETER name              PORTED — check_type_parameter_list
+checker.go:16049/51     duplicate declarations across a merge      §229's refusal
+```
+
+**Declined.** Not because no site is portable — three are — but because the row
+is `2 of 20` single-line and `occupied 3/71`, so the convertible fraction is
+small and the two refusals at `binder.go:217` and `checker.go:16049` are
+`declareSymbol`'s fresh-symbol-per-conflict behaviour, which this port does not
+have and §229 measured as the reason.
+
+> **A code with six sites is not six opportunities.** §376's detector says
+> "upstream reports this from more places than you do", and the last six builds
+> made that pay — but §377's list is ranked by *site count*, and site count is
+> not convertibility. TS2300 tops the list and is the worst row on it.
+> `diagslice` and `diagdeepen` still have to agree before the read is worth
+> doing, and here they do not.
+
+The three unported sites are recorded above rather than left implicit, so a
+future session with `declareSymbol`'s behaviour in hand can price them without
+re-deriving the inventory.
