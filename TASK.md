@@ -621,3 +621,19 @@ checker-1's §113 re-price: ~240 gradient lines + the 428-case
 near-miss ALIAS row; the era refusal (35:13) reproduced EXACTLY
 after two years, proving the blocker sits beneath the checker.
 module_resolution's 100% suite must hold through any attempt.
+
+BOARD RE-CENSUS AT 85.29% (post-§115, the day's close): the
+near-miss top is UNCHANGED by the day's twenty-three landings —
+the cheap heads are exhausted. The four remaining owners, each
+gated: (1) CallExpression 772 = deep generic-overload resolution
+(the §33-family machinery; §114/§115 took its dispatch fringe);
+(2) ALIAS 428+177 = the LOADER UNLOCK, parked joint-or-user-nod
+with checker-1's exact price; (3) member/property no-such-property
+270+265 = the lib-member residue, checker-1's lane; (4) the
+FUNCTION-row 203 SAMPLED and FOLDED into (1)'s known cases
+(intraExpressionInferences, generatedContextualTyping,
+complexRecursiveCollections) — no new cheap head exists there.
+§116 measured zero and is recorded; §114's ledger correction and
+the gain-column artifact rule are in conventions.md. The next
+session opens on subsystem-scale work or the parked unlocks —
+nothing smaller remains at the top.
