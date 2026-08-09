@@ -12,8 +12,8 @@ FIRST: git pull. Then read, in this order:
   builds.
 
 STATE AT HANDOFF, fourteenth session (verify with a fresh run):
-  diagnostics    1,594/5,488 = 29.05%   (+143 over THIRTEEN builds, zero lost —
-                 §156-§189)
+  diagnostics    1,611/5,488 = 29.35%   (+160 over SIXTEEN builds, zero lost —
+                 §156-§196)
 
 ## READ THIS FIRST: THREE REFUSALS WERE FILED AND ALL THREE WERE WRONG
 
