@@ -14062,3 +14062,31 @@ That is the **third** site where this port substitutes structurally for
 simply forgotten rather than approximated. Worth a sweep: `grep` for
 `in_ambient_module` and `has_declare` and check each against
 `in_declaration_file`.
+
+## §210 — the `NodeFlagsAmbient` sweep, run: clean, and that is the result
+
+§209 filed a sweep of every structural substitute for upstream's
+`NodeFlagsAmbient`. Run over `tsr-binder` and `tsr-checker`:
+
+| site | substitute | state |
+|---|---|---|
+| `Binder::bind_into` (`binder.rs:480`) | `self.in_declaration_file` | already correct |
+| `Binder::bind_container` (`:1036`) | `in_declaration_file` | **fixed at §208** |
+| `Checker::file_is_ambient` | `FileContext { ambient: declaration_file }`, supplied per file by the suite | correct |
+| §99 `declaration_is_in_an_ambient_context` | walks `declare` modifiers | correct |
+| §132 `member_has_declare_modifier` | the member's own modifier | correct |
+
+**No further miss.** §208 was the only forgotten one.
+
+That is worth a section for the reason §137 gave when its `grep` came back
+empty: *a miss costs one command and upgrades an inference into a verified
+negative*. "The ambient substitution is probably wrong elsewhere too" was a
+plausible sentence with nothing behind it, and it is now closed rather than left
+to be re-suspected.
+
+### Session close on this thread
+
+Five sections (§205–§210) turned one filed P1 — *"imported namespace symbols
+carry no exports"* — into: a corrected diagnosis (nothing to do with imports), a
+one-disjunct fix, a test that pins it, and a swept negative. The P1 is closed
+and what replaced it is a P2 that is already done.
