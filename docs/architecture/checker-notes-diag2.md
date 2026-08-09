@@ -19988,3 +19988,241 @@ TS2403's remaining 30 cases need real identity, which is §257's original
 refusal and stands. **Owner: the identity relation, absent from
 `relater.rs`'s `Relation` enum** (which has `Assignable`, `Subtype`,
 `StrictSubtype` — no `Identity`).
+
+## §339 — `diagdeepen`, and TS2454's initializer bound
+
+### The instrument
+
+§321 opened the deepening seam and seven builds followed, every row found by
+reading a fixture. `diagdeepen` computes the distinction that makes a row a
+deepening row, which nothing here computed:
+
+```
+emits = 0, blocked > 0   the rule is ABSENT   — port it, or refuse with an owner
+emits > 0, blocked > 0   the rule UNDER-FIRES — widen where it is asked
+```
+
+Those need completely different work and every instrument reported them in one
+column. `diaggap` says *TS2304 blocks 30 cases* whether this port has never
+heard of the code or emits it 2,214 times and misses one node kind — and §335
+was the latter, worth `+7` for a predicate widening.
+
+```
+code      blocked    emits
+TS2322        487      451     TS2300         20      411
+TS2345        109       37     TS2416         20        5
+TS2339        103      166     TS2420         16       13
+TS2454         46     3860     TS7006         15      205
+TS2741         46       48     TS1109         12      109
+TS2353         33       14     TS2554         12       92
+TS2403         30       17     TS2694         10       14
+TS2411         25       39     TS2729          9       16
+```
+
+> **Every one of the top twenty-five rows under-fires. The `ABSENT` column is
+> empty until rank 26.**
+
+That confirms mechanically what §319 argued from exhaustion: the no-producer
+seam is closed, and the whole remaining board is *widening rules this port
+already has*.
+
+### The row it picks: TS2454, 46 blocked against **3,860 right**
+
+`controlFlowDestructuringVariablesInTryCatch` wants five lines and gets none:
+
+```ts
+try {
+    var a = f1();
+    var [b] = f2();
+    ...
+} catch { }
+a; b; c; d; e;    // all five: used before being assigned
+```
+
+§8's bound requires *no initialiser, no `!`, and an explicit annotation*. The
+comment says the annotation is what keeps the auto-typed path out — but the
+**initialiser** clause is doing a different job, unstated: avoiding the flow
+query where assignment looks obvious. This fixture is exactly where that
+intuition is wrong. A `var a = f1()` inside a `try` is *not* assigned at the
+reference, because the `catch` can be entered before the initialiser runs.
+
+`bind_try_statement` is already a faithful port of upstream's, `ReduceLabel`
+included, so the flow graph can answer this. The bound is what declines.
+
+### The bar
+
+```
+bar:  +5 cases of 46,  LOST <= 2,  WRONG delta <= +10
+```
+
+Deliberately loose on WRONG: dropping the clause runs the flow query on every
+initialised variable in the corpus, and every imprecision in this port's flow
+analysis becomes a report. That is the risk, and it is the measurement's job.
+
+### Falsifiers
+
+1. **`let x = 1; x;` reports.** Straight-line flow, no branch — if this fires,
+   the flow query is imprecise and the clause was load-bearing.
+2. **A `const x = 1` reports.** Same, and already guarded separately.
+
+## §340 — §339 measured **−3**, and the case never converted
+
+```
+diagnostics   1,851 → 1,848   (bar was +5;  −3)
+controlFlowDestructuringVariablesInTryCatch: still 0 of 5 lines
+```
+
+Reverted whole. The interesting part is not the −3; it is that **the target case
+did not move at all**, so the clause I removed was never what declined it.
+
+### The rail I broke
+
+> *Probe at the rule's ENTRY, not at a branch.*
+
+I read `check_used_before_assigned` top-to-bottom, found a guard clause that
+plausibly explained the silence, and changed it. I never established that
+control *reached* that clause. It did not: the case's five declarations are
+
+```ts
+var a = f1();      // VariableDeclaration
+var [b] = f2();    // BindingElement
+var { c } = f3();  // BindingElement
+var [d = 1] = [];  // BindingElement
+var { e = 1 } = {};// BindingElement
+```
+
+and the rule's `let Some(Node::VariableDeclaration(variable)) = …` — **twelve
+lines above the clause I edited** — declines four of the five outright. The
+initialiser clause is unreachable for them.
+
+### The second rail, and it was mine
+
+§273 exists to stop exactly this: *a partial fix converts a case only if it
+supplies **every** line.* `diagslice` says TS2454 is "mostly single-line" **as a
+row** — 26 of 46 cases want one line. This case wants **five**. I applied the
+row-level filter, then picked the case that `diagmissing` happened to print
+first, which fails it.
+
+> **A row-level convertibility verdict does not transfer to the case you open.**
+> `diagmissing` prints cases alphabetically, not by line count, and the first
+> one is a sample of the row's *worst* end as often as its best.
+
+That is a defect in the instrument's ergonomics, not just in my reading:
+`diagslice` knows each case's line count and `diagmissing` does not print it.
+Recorded as the next instrument change (§341) rather than fixed blind here.
+
+### What TS2454 actually needs
+
+Two things, and neither is the initialiser clause:
+
+1. **`BindingElement` declarations** — `diagnode` independently ranks
+   `Identifier in BindingElement` at 357 lines. This is the same gap seen from
+   the other axis, which is the first time two instruments have pointed at one
+   position.
+2. Whatever kept `var a = f1()` — the one plain `VariableDeclaration` — silent
+   after the clause was gone. Unknown; **not** diagnosed, and deliberately not
+   guessed at a second time.
+
+## §341 — `diagmissing` sorts cheapest-first, and immediately pays
+
+§340's process defect, fixed: `diagmissing` now prints `[n line(s)]` and sorts
+ascending. The first line of the new output for TS2454 is a case §339 could
+never have reached:
+
+```
+[1 line(s)] compiler/letDeclarations-useBeforeDefinition  (8,5)
+```
+
+```ts
+var v1;
+{
+    v1;          // wants TS2448 AND TS2454 — we emit only TS2448
+    let v1 = 0;
+}
+```
+
+`let v1 = 0` has an **initialiser and no annotation**. §8's guard is
+
+```rust
+if variable.initializer.is_some() || … || variable.r#type.is_none() { return }
+```
+
+so this declines on the *annotation* clause. §339 removed the *initialiser*
+clause — the other half — and measured −3.
+
+### What the annotation clause is actually for
+
+§8's comment says it keeps the auto-typed path (`t == autoType`) out. That
+condition is **`no annotation and no initialiser`**: `var x;` is auto-typed;
+`let v1 = 0` is `number`. So the guard tests a sufficient condition for
+non-auto, not the necessary one, and excludes a shape it has no reason to.
+
+The three arms, each now carrying its own measurement:
+
+```
+annotation, no initialiser    §8's original      admitted
+annotation and initialiser    §339               MEASURED −3, stays excluded
+no annotation, initialiser    this               the auto path cannot arise
+no annotation, no initialiser auto-typed         excluded, correctly
+```
+
+Keeping the second arm out is not tidy, and it is not a guess: it is the only
+arm with a number against it.
+
+### The bar
+
+```
+bar:  +2 cases,  LOST 0,  WRONG delta <= +4
+```
+
+### Falsifiers
+
+1. **`var x; x;` reports TS2454.** That is the auto-typed path and a different
+   diagnostic; the fourth arm must still decline.
+2. **A case §339 lost now reports again.** The second arm must stay excluded.
+
+## §342 — §341 measured **−8**. The bound is load-bearing in both directions
+
+```
+§339  drop the initialiser clause     −3
+§341  drop the annotation clause      −8
+```
+
+Both reverted. Together they settle what §8's guard is doing, which neither its
+comment nor mine had right:
+
+> **§8's guard is not about the auto-typed path. It is a precision filter on
+> this port's flow analysis.**
+
+The reasoning in §341 — *the auto-typed condition is `no annotation and no
+initialiser`, so the annotation clause excludes shapes it has no reason to* — is
+correct as stated about `autoType` and still produced −8. What the clause
+actually buys is that a variable with **neither** an annotation nor an
+initialiser is the one shape where this port's flow type carrying `undefined` is
+*reliable*. Everywhere else, `undefined` in the flow type means "this port did
+not narrow", and upstream did.
+
+That is the same mechanism as §338, one week and one subsystem apart:
+
+> §338: `any` is a singleton *type* but not a singleton *conclusion* — the
+> widened-type path also returns it when this port cannot compute a better
+> answer.
+>
+> §342: `undefined` in a flow type is not a *fact about the program* — it is
+> also what this port produces when it cannot narrow.
+
+Both times a guard looked like it was testing a *property of the source* and was
+really testing *did this port compute a real answer*. Both times the widening
+was sound about the property and wrong about the port.
+
+> **Before relaxing a guard, ask which of the two it is testing.** The tell is
+> the same in both cases: the guard names a syntactic shape, but the value it
+> protects is computed by machinery that has a failure mode.
+
+### TS2454's owner, now stated
+
+**The flow analysis's narrowing precision**, not the guard, and not
+`bind_try_statement` (a faithful port). 46 cases. Reopening the bound without
+first measuring how often this port's flow type carries `undefined` where
+upstream's does not will cost another build; that measurement is the
+prerequisite, and it does not exist.

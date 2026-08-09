@@ -24,12 +24,20 @@ fn main() {
         .expect("usage: diagmissing <code>");
     let corpus = Corpus::from_repo_root(&repo_root());
     let cases = corpus.discover().expect("corpus");
-    let rows: Vec<(String, Vec<String>)> =
+    let mut rows: Vec<(String, Vec<String>)> =
         cases.par_iter().filter_map(|case| measure(case, code)).collect();
+    // **Cheapest case first.** A partial fix converts a case only if it supplies
+    // *every* line (§273), so the case worth opening is the one wanting fewest.
+    // Printing alphabetically cost §339 a build: `diagslice` called TS2454
+    // "mostly single-line" *as a row*, and the case this printed first wanted
+    // five. A row-level convertibility verdict does not transfer to the case you
+    // open, so the line count belongs next to the case. §340, §341.
+    rows.sort_by(|a, b| a.1.len().cmp(&b.1.len()).then_with(|| a.0.cmp(&b.0)));
     let mut total = 0usize;
     for (name, missing) in &rows {
+        let wants = missing.len();
         for m in missing {
-            println!("{name}  {m}");
+            println!("[{wants} line(s)] {name}  {m}");
             total += 1;
         }
     }
