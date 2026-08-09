@@ -623,3 +623,19 @@ snapshots, and verify with TRACE3 = "foo" before measuring
 anything. The chain of custody rule: a snapshot's coverage ends at
 its copy timestamp, and this study's own reassembly hole (round 4)
 is why this note exists.
+
+**The window's final facts:** (1) custody CORRECTION — both
+"post-snapshot" wires (the reentrancy guard AND the type-first
+read) turned out to pre-exist in the snapshots; the custody note
+was over-cautious and the snapshots ARE the winning state (verify
+by the two assertion-failures on re-application, recorded here as
+the proof). (2) The return-type seed, re-measured POST-freeze on
+its own family (inferFromGenericFunctionReturnTypes*): no visible
+conversion — the `wrap(s => s.length)` class's residue is
+PIPELINE-QUALITY work (candidate/seed conflict resolution,
+reference-arm zips through the outer context) from every direction
+now measured. THE SUMMIT'S COMPLETE STATE: snapshots = the winning
++549 draft; the bar's blocker = the ~250-line pipeline-quality
+residue; the pipeline's spec = the four stages, read and cited;
+the next window builds THAT, lands the whole, and the twin sets
+close. Fourteen-plus rounds; nothing else remains unknown.
