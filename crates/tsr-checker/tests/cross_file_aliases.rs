@@ -252,13 +252,29 @@ fn type_of_alias_of_kind(
 /// Only [`no_lib_control`] needs this; it is here rather than inline so the
 /// control reads as one assertion.
 fn type_of_variable(fixture: &Fixture<'_>, name: &str) -> String {
+    type_of_variable_with_host(fixture, name, false)
+}
+
+/// [`type_of_variable`] with the fixture host wired in.
+///
+/// `import * as p from "./m"` reaches the module through *module resolution*,
+/// so a no-host checker answers `error` for every member of it — including the
+/// control. The member-access tests at the end of this file all need it, and
+/// the first run without it failed the control too, which is how a harness gap
+/// announces itself rather than masquerading as a finding.
+fn type_of_variable_with_host(fixture: &Fixture<'_>, name: &str, with_host: bool) -> String {
+    let host: Option<&dyn ModuleHost> = if with_host { Some(&fixture.host) } else { None };
     let mut checker =
-        Checker::with_module_host(&fixture.bound, &fixture.nodes, &fixture.node_map, None);
+        Checker::with_module_host(&fixture.bound, &fixture.nodes, &fixture.node_map, host);
     let symbol: SymbolId = (0..u32::try_from(fixture.nodes.len()).expect("fits"))
         .map(NodeId::new)
         .filter(|&id| fixture.nodes.kind(id) == SyntaxKind::VariableDeclaration)
-        .find_map(|id| fixture.bound.symbol_of(id))
-        .filter(|&s| fixture.bound.symbols().get(s).name == name)
+        // `filter_map` then `find`, not `find_map` then `filter`: the latter
+        // takes the *first* variable in the program and then checks its name,
+        // so it only ever worked for a fixture with exactly one. Every fixture
+        // here had one until the member-access tests below added a second.
+        .filter_map(|id| fixture.bound.symbol_of(id))
+        .find(|&s| fixture.bound.symbols().get(s).name == name)
         .expect("the fixture declares that variable");
     let id = checker.get_type_of_symbol(symbol);
     checker.type_to_string(id)
@@ -512,4 +528,87 @@ fn no_lib_control() {
     let arena = Arena::new();
     let fixture = program(&arena, &[("a", "var x: number[];\n")]);
     assert_eq!(type_of_variable(&fixture, "x"), "error");
+}
+
+// ---------------------------------------------------------------------------
+// Member access on a module object, where the member is an ALIAS
+//
+// `import * as P from "./m"; P.y` reads `m`'s exports through
+// `get_property_of_anonymous_symbol`, whose `symbolIsValue` gate
+// (`checker.go:22095`) has two disjuncts. Only the first was ported, and an
+// alias's own flags carry **no** `VALUE` bit — so every export written as a
+// *specifier* rather than as a declaration answered "no property", which
+// `nonexistent_property` reports as TS2339.
+//
+// The corpus never caught it, and it covers the negative direction only:
+// `conformance/exportNamespace3` and `conformance/importEquals2` both pass
+// *because* a type-only alias must NOT become a value, and both broke when the
+// alias half landed without `excludeTypeOnlyMeanings`. Nothing in the corpus
+// covers the positive, which is why the whole barrel-module shape was broken
+// while the suite read 100% on it. `checker-notes-diag2.md` §400.
+// ---------------------------------------------------------------------------
+
+/// `m`'s value, re-exported under a new name by a specifier.
+const RENAMED: (&str, &str) = ("renamed", "export { x as y } from \"./m\";\n");
+
+#[test]
+fn a_module_objects_member_resolves_through_a_re_export_specifier() {
+    // The shape every `index.parts.d.ts` barrel has, and the one that reported
+    // 1,384 TS2339 on a 22-package repository against `tsc`'s zero.
+    //
+    // Red under: `symbol_is_value` taking the raw flags, which is what it did.
+    let arena = Arena::new();
+    let fixture = program(
+        &arena,
+        &[M, RENAMED, ("a", "import * as p from \"./renamed\";\nconst v = p.y;\n")],
+    );
+    assert_eq!(type_of_variable_with_host(&fixture, "v", true), "number");
+}
+
+#[test]
+fn a_module_objects_member_resolves_through_a_same_file_export_specifier() {
+    // No module specifier on the export — the alias is local. Same gate, and it
+    // is worth its own test because `resolve_alias` takes a different arm for
+    // it than for the re-export above.
+    let arena = Arena::new();
+    let fixture = program(
+        &arena,
+        &[
+            ("local", "const inner: number = 1;\nexport { inner as outer };\n"),
+            ("a", "import * as p from \"./local\";\nconst v = p.outer;\n"),
+        ],
+    );
+    assert_eq!(type_of_variable_with_host(&fixture, "v", true), "number");
+}
+
+#[test]
+fn a_type_only_re_export_is_not_a_value_member() {
+    // `excludeTypeOnlyMeanings` (`checker.go:16374`). `symbolIsValue` passes
+    // `includeTypeOnlyMembers: false`, so a type-only alias must not contribute
+    // its target's value-ness however much of a value the target is.
+    //
+    // This is the direction the corpus already tests — and it is the direction
+    // that broke when the alias half first landed without the gate, silently,
+    // reported by the suite only as `1,898 -> 1,896`.
+    let arena = Arena::new();
+    let fixture = program(
+        &arena,
+        &[
+            ("cls", "export class C {}\n"),
+            ("typeonly", "export type { C } from \"./cls\";\n"),
+            ("a", "import * as p from \"./typeonly\";\nconst v = p.C;\n"),
+        ],
+    );
+    // Not `typeof C`: the member is not a value, so the lookup misses and the
+    // variable has no type — which is what leaves upstream's TS2339 standing.
+    assert_eq!(type_of_variable_with_host(&fixture, "v", true), "error");
+}
+
+#[test]
+fn a_directly_declared_export_is_unaffected() {
+    // The control for the pair above: a member that was never an alias. If this
+    // ever moves, the change is not about aliases at all.
+    let arena = Arena::new();
+    let fixture = program(&arena, &[M, ("a", "import * as p from \"./m\";\nconst v = p.x;\n")]);
+    assert_eq!(type_of_variable_with_host(&fixture, "v", true), "number");
 }

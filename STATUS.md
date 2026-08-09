@@ -1307,6 +1307,31 @@ its whole deliverable and accept that it converts nothing until finished.
 
 ## 5. Refused, with the number that refused it
 
+### New, this session, `symbolIsValue`
+
+- **A stale "not ported" note outlived the reason that wrote it, and cost 1,384
+  diagnostics** (§400). `symbolIsValueEx` (`checker.go:22095`) has two
+  disjuncts; this port had the first. An alias's own flags carry no `VALUE`
+  bit — which is *why* upstream has a second — so every module export written
+  as a **specifier** rather than a declaration answered "no property", and
+  `nonexistent_property` reported TS2339 on it. Every `index.parts.d.ts`-style
+  barrel: `import * as P from "…"; P.Root`, **1,384 against `tsc`'s zero** on a
+  22-package repository.
+
+  The note said *"nothing follows aliases yet"*. `get_symbol_flags` had followed
+  them for sessions, and `get_type_of_alias` three functions away already took
+  its own `VALUE` test over it and explained why. **A decline is only as good as
+  the fact that justified it, and nothing re-checks those facts.**
+
+- **The suite's summary hid a regression the tool named in one run.** Landing
+  the alias half without upstream's `excludeTypeOnlyMeanings` guard read
+  `1,898 → 1,896`; `examples/casequery.rs` named
+  `conformance/exportNamespace3` and `conformance/importEquals2`, both of which
+  test that a **type-only** re-export must not become a value. The transitive
+  walk to answer it already existed as §121's
+  `type_only_alias_declaration` — a syntax-only copy was written first and
+  discarded, and it would have been wrong in exactly the way §120 records.
+
 ### New, this session, TS2353 through a type assertion, 33 cases
 
 Refused by **§306**, after §303–§305 published **three wrong attributions** and
@@ -2246,6 +2271,7 @@ holds only the numbers.
 | 2026-08-09 | `1608d44` | **29.41%** | **1,614** | **+1, every rail unmoved** | **Parameter-list recovery, guarded by a SUBSET.** §198 ported `parseDelimitedList`'s continue with no guard and lost 64 parser files; §200 admits only what unambiguously starts a parameter and lets everything else keep the old `break`. *When a faithful port is too expensive, the question is not "port less" but "which direction does porting less fail in".* `checker-notes-diag2.md` §198–§201 |
 | 2026-08-08 | *(this session)* | 27.77% | 1,524 | **ambient module symbols carry their quotes: real repo 1,550 → 1,440, `binder_symbols` still 100%** | §173 recorded this collision with a number and left it; fixed here. `getDeclarationName` (`binder.go:311`) names `declare module "fs"` as `"fs"`, quotes included, and `IsAmbientModuleSymbolName` is literally a quote test — they are what keep `"process"` and `process` apart in one table. The binder change is one function; **what it exposed is that five call sites had open-coded `tryFindAmbientModule`'s lookup**, all five went silently dead, and only one was findable by grep. Two of them were not equivalent to each other. **`binder_symbols` fell to 8,350/8,459 on a strictly more faithful change** because the suite normalised upstream's names and not ours — fixed by normalising both, per dotted suffix. Also ported two predicates that were being re-derived instead of read: `tspath.IsExternalModuleNameRelative` (already in `tsr-path`, and stricter than the hand-rolled prefix test) and `stringutil.StripQuotes` (new `tsr_core::stringutil`, now shared with the harness's own copy, which had forgotten the backtick). `checker_types` +21 lines, `diagnostics` no case changed verdict. `checker-notes-diag2.md` §202 |
 | 2026-08-09 | *(this session)* | 29.43% | 1,615 | **TS7026's 1,642 false positives removed; every suite byte-identical** | §189 landed TS7026 at +14 cases. It ported `getJsxNamespaceAt`'s **third** road and neither of the first two — on a rustdoc claim that upstream falls back to the global `JSX` when there is no `@jsx` pragma. Road 2's name is a single choice (`jsx.go:1341`) and it is **`React`** by default; `@types/react` 19 has no global `JSX` at all. So every JSX element in a modern React build drew TS7026 — **1,642 across 22 packages against `tsc`'s zero**. Built roads 2 and 3 in upstream's order with the three alias hops real code needs (UMD global, `import * as`, default import) and the `export = React` follow. **Merged with §211**, which built the pragma half concurrently and **moved this repository by zero** — no real project writes a pragma. `checker_types` 3,982/406,491 and `diagnostics` 1,615 byte-identical before and after on four bases. The two measurements are each other's blind spot. `checker-notes-diag2.md` §221 |
+| 2026-08-09 | *(this session)* | 34.58% | 1,898 | **`symbolIsValue`'s alias half: repo 1,488 → 104, `diagnostics` no case changed verdict** | `symbolIsValueEx` (`checker.go:22095`) has two disjuncts and this port had one. An alias's own flags carry no `VALUE` bit, so every module export written as a **specifier** answered "no property" and `nonexistent_property` reported TS2339 — **1,384 on a 22-package repository against `tsc`'s zero**, one per member access on a barrel module; `packages/ui` alone ~300 → 15. The decline's recorded reason (*"nothing follows aliases yet"*) had expired sessions earlier. Landing the alias half alone LOST 2 (`exportNamespace3`, `importEquals2`) — upstream's `excludeTypeOnlyMeanings` guard, named by `casequery` in one run and answered by §121's existing transitive walk rather than the syntax-only copy written first. `checker_types` +1 case / +45 lines; four tests, each red under the arm it exists for. `checker-notes-diag2.md` §400 |
 | 2026-08-09 | `9f4698e` | **29.43%** | **1,615** | **+1, every rail unmoved** | **`parseObjectBindingElement` branches on `isBindingIdentifier`**, read *before* the property name — `{ while }` is one `':' expected` upstream and was four errors here. It costs one condition only because **§193's same-position guard had already landed** for a different row: the third time this session a general fix changed what a later build costs. `checker-notes-diag2.md` §204–§205 |
 | 2026-08-09 | `00d7d76` | 29.43% | 1,615 | **+0, and landed on purpose** | **A namespace in a `.d.ts` exports what it declares.** `bind_container`'s ambient test had three disjuncts and not `in_declaration_file`. Filed as *"imported namespace symbols carry no exports"* — imports had nothing to do with it. Landed at +0 because it is **observable and pinned** (a test red without the disjunct) where §207's +0 was unobservable; three rows queue behind it. `checker-notes-diag2.md` §208–§210 |
 | 2026-08-09 | `7373eff` | 29.43% | 1,615 | **TS7026 wrong 9 → 3, `checker_types` +8** | **The `@jsx` pragma path, rebuilt on §208's table.** §207 built it across three crates, measured +0, and reverted; §208 fixed the table its second hop reads and landed at +0 **because it was observable and pinned**. Had §208 been reverted for scoring zero this rebuild would be unreachable. *Unmeasured and unobservable are different.* `checker-notes-diag2.md` §207–§211 |

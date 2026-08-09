@@ -23020,3 +23020,88 @@ The detector's rule should be: **`relater.go`-only marks a row dead *unless this
 port already emits the code*.** `diagdeepen` answers that in the column beside
 it — TS2741 shows **48 emits** — and the two instruments disagreeing was the
 signal I read past.
+## §400 — `symbolIsValue`'s alias half, and 1,384 TS2339 on a barrel module
+
+`import * as P from "./parts"; P.Root` reported *"Property 'Root' does not
+exist"* for every member of every module whose exports are written as
+**specifiers** rather than as declarations. On a 22-package repository that is
+**1,384 diagnostics against `tsc`'s zero** — one per member access on a barrel.
+`packages/ui` alone went from ~300 reported errors to 15.
+
+### One disjunct
+
+`symbolIsValueEx` (`internal/checker/checker.go:22095`):
+
+```go
+return symbol.Flags&ast.SymbolFlagsValue != 0 || symbol.Flags&ast.SymbolFlagsAlias != 0 &&
+    c.getSymbolFlagsEx(symbol, !includeTypeOnlyMembers, false)&ast.SymbolFlagsValue != 0
+```
+
+This port had the first disjunct only. **An alias's own flags carry no `VALUE`
+bit** — that is the entire reason upstream's test has a second one — so
+`get_property_of_anonymous_symbol`'s gate said "not a value" for every
+`export { x } from "./m"`, the property lookup missed, and
+`nonexistent_property` turned the miss into TS2339.
+
+It was recorded as deliberately unported, with the reason *"nothing follows
+aliases yet (`bd tsr-y4u.12`)"*. **That reason had expired**:
+`Checker::get_symbol_flags` is `getSymbolFlagsEx` and has followed aliases
+since — `get_type_of_alias` already takes its own `VALUE` test over it, and says
+in its rustdoc exactly why. The stale note is what let the gap survive; the code
+it described was three functions away.
+
+### The second disjunct has a second half, and the corpus enforces it
+
+Landing the alias half alone took `diagnostics` from **1,898 to 1,896**.
+`examples/casequery.rs` named the two: `conformance/exportNamespace3` and
+`conformance/importEquals2`, both of which write `export type { A } from './a'`
+and both of which expect the TS2339 a **type-only** re-export earns. That is
+`getSymbolFlagsEx`'s `excludeTypeOnlyMeanings` guard (`:16374`), and
+`symbolIsValue` passes it `true`. Without it, following the alias finds
+`class A` — a perfectly good value — and the error disappears for the wrong
+reason.
+
+**The walk to answer it already existed.** A syntax-only copy was written here
+first and then replaced by `Checker::type_only_alias_declaration`, which is
+§121's port of the same question and follows the alias **chain** — §120 measured
+7 wrong lines for stopping at the first hop. The copy would have been wrong in
+exactly the way §120 already records, which is the second time in two sessions
+that reading the tree beat writing the four-line version (§202's
+`IsExternalModuleNameRelative` was the first).
+
+### The measurement
+
+| | base | with the fix |
+|---|---:|---:|
+| `binder_symbols` | 8,456/8,456 | 8,456/8,456 |
+| `diagnostics` | 1,898/5,488 | 1,898/5,488 — **no case changed verdict** |
+| `checker_types` cases | 4,030/9,538 | **4,031** |
+| `checker_types` lines | 408,450 (85.28%) | **408,495** (85.29%) |
+| the 22-package repository | **1,488** | **104** |
+
++1 case and +45 lines on a corpus of 478,954 assertion lines, against −1,384
+diagnostics on one repository. **The fourth defect this session the conformance
+suites can barely see**, after §202's ambient-module key, §202's collision and
+§221's JSX namespace — and the same cause every time: the corpus is a compiler
+test suite, and a compiler test suite writes its fixtures the way compiler tests
+are written, not the way `node_modules` is written.
+
+### Tests, and a harness bug the tests found
+
+Four in `crates/tsr-checker/tests/cross_file_aliases.rs`, each red under the arm
+it exists for:
+
+| mutation | reddens |
+|---|---|
+| `symbol_is_value` over the raw flags (the original bug) | the two positive member tests |
+| drop the `excludeTypeOnlyMeanings` gate | the type-only test **only** |
+
+The control — a directly-declared export, never an alias — is green under both,
+which says the change is about aliases rather than about module members.
+
+`type_of_variable` did not take a host, so the first run failed the **control**
+too. That is a harness gap announcing itself rather than masquerading as a
+finding, and it is the second time this session the same signal appeared
+(§221's JSX tests). It also had a real bug: `find_map` then `filter` takes the
+*first* variable in the program and then checks its name, which only ever worked
+for a fixture with exactly one variable. Fixed to `filter_map` then `find`.

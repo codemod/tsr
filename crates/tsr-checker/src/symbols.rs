@@ -421,7 +421,7 @@ impl<'a> Checker<'a, '_> {
     /// `errorType`: a gap rather than a claim. Returning "all meanings" for a
     /// target we could not find would send `get_type_of_symbol` a symbol that
     /// does not exist.
-    fn get_symbol_flags(&mut self, symbol: SymbolId) -> SymbolFlags {
+    pub(crate) fn get_symbol_flags(&mut self, symbol: SymbolId) -> SymbolFlags {
         let mut seen: Vec<SymbolId> = Vec::new();
         let mut current = symbol;
         let mut flags = self.binder.symbols().get(current).flags;

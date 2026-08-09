@@ -795,9 +795,9 @@ impl Checker<'_, '_> {
     /// cosmetic here: a class's or interface's members table also holds its **type
     /// parameters** (`declareSymbolAndAddToSymbolTable` →
     /// `declareClassMember`, `internal/binder/binder.go:429-441`), so without it
-    /// `new C().T` would answer with the type parameter `T`. The alias half of
-    /// upstream's test is not ported — nothing follows aliases yet
-    /// (`bd tsr-y4u.12`) — so an alias member is a miss rather than a wrong answer.
+    /// `new C().T` would answer with the type parameter `T`. **The alias half is
+    /// ported too** — see [`Checker::symbol_is_value`]; it used to be a miss, and
+    /// a miss on this gate is what `nonexistent_property` reports as TS2339.
     ///
     /// # Two tables, chosen by what the type *is*
     ///
@@ -1054,11 +1054,78 @@ impl Checker<'_, '_> {
             .then_some(symbol)
     }
 
-    /// Ported from `Checker.symbolIsValueEx` (`checker.go:22095`), value half
-    /// only — see [`Checker::get_property_of_type`] for why the alias half is not
-    /// ported.
-    pub(crate) fn symbol_is_value(&self, symbol: SymbolId) -> bool {
-        self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::VALUE)
+    /// `Checker.symbolIsValueEx` (`checker.go:22095`), **both halves**:
+    ///
+    /// ```go
+    /// return symbol.Flags&ast.SymbolFlagsValue != 0 || symbol.Flags&ast.SymbolFlagsAlias != 0 &&
+    ///     c.getSymbolFlagsEx(symbol, …)&ast.SymbolFlagsValue != 0
+    /// ```
+    ///
+    /// # The alias half, and why it was missing
+    ///
+    /// An alias's own flags carry **no** `VALUE` bit — that is the whole reason
+    /// upstream's test has a second disjunct. So a value-ness gate over the raw
+    /// flags says no to every `export { x } from "./m"`, and
+    /// [`Checker::get_property_of_anonymous_symbol`] turned that `no` into
+    /// *"property does not exist"*.
+    ///
+    /// This was recorded as unported with the reason *"nothing follows aliases
+    /// yet (`bd tsr-y4u.12`)"*, and that reason expired:
+    /// [`Checker::get_symbol_flags`] is upstream's `getSymbolFlagsEx` and has
+    /// followed aliases since — `get_type_of_alias` already takes its own
+    /// `VALUE` test over it for exactly this reason. The stale note is what let
+    /// the gap survive.
+    ///
+    /// The gap is not exotic. Every `index.parts.d.ts`-style barrel is a file
+    /// of nothing but export specifiers, so `import * as P from "…/parts"` then
+    /// `P.Root` reported TS2339 on every member — 1,384 diagnostics on a
+    /// 22-package repository, against `tsc`'s zero.
+    /// `docs/architecture/checker-notes-diag2.md` §400.
+    ///
+    /// **`&mut self`, because resolving an alias can create types.** The three
+    /// callers all had a `&mut` receiver already.
+    pub(crate) fn symbol_is_value(&mut self, symbol: SymbolId) -> bool {
+        let flags = self.binder.symbols().get(symbol).flags;
+        if flags.intersects(SymbolFlags::VALUE) {
+            return true;
+        }
+        flags.intersects(SymbolFlags::ALIAS)
+            && !self.alias_is_type_only(symbol)
+            && self.get_symbol_flags(symbol).intersects(SymbolFlags::VALUE)
+    }
+
+    /// `getTypeOnlyAliasDeclaration(symbol) != nil`, as
+    /// `getSymbolFlagsEx`'s `excludeTypeOnlyMeanings` guard uses it
+    /// (`checker.go:16374`):
+    ///
+    /// ```go
+    /// if excludeTypeOnlyMeanings && c.getTypeOnlyAliasDeclaration(symbol) != nil {
+    ///     break
+    /// }
+    /// ```
+    ///
+    /// `symbolIsValue` passes `includeTypeOnlyMembers: false`, hence
+    /// `excludeTypeOnlyMeanings: true` — so a **type-only** alias does not
+    /// contribute its target's value-ness, and `a.A` stays an error even though
+    /// `A` is a class.
+    ///
+    /// # This is not optional, and two corpus cases said so
+    ///
+    /// Following the alias without this gate silently turned
+    /// `conformance/exportNamespace3` and `conformance/importEquals2` from
+    /// passing to failing — both write `export type { A }` and both expect the
+    /// TS2339 a type-only re-export earns. The suite summary said only
+    /// `1,898 → 1,896`; `examples/casequery.rs` named them.
+    ///
+    /// # The walk already existed
+    ///
+    /// [`Checker::type_only_alias_declaration`] is §121's port of the same
+    /// question, and it follows the alias **chain** rather than reading one
+    /// declaration — §120 measured 7 wrong lines for stopping at the first hop.
+    /// A second, syntax-only copy was written here before that one was found;
+    /// it would have been wrong in exactly the way §120 records.
+    fn alias_is_type_only(&mut self, symbol: SymbolId) -> bool {
+        self.type_only_alias_declaration(symbol).is_some()
     }
 }
 

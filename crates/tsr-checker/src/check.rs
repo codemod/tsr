@@ -1963,7 +1963,10 @@ impl Checker<'_, '_> {
     /// only the symbol's own declaration — §120 measured 7 wrong lines for
     /// stopping at the first hop. The walk here is the same one, bounded, using
     /// [`Checker::resolve_alias`]. §121.
-    fn type_only_alias_declaration(&mut self, symbol: tsr_binder::SymbolId) -> Option<bool> {
+    pub(crate) fn type_only_alias_declaration(
+        &mut self,
+        symbol: tsr_binder::SymbolId,
+    ) -> Option<bool> {
         let mut current = self.binder.merged_symbol(symbol);
         for _ in 0..16 {
             let entry = self.binder.symbols().get(current);
