@@ -7,6 +7,7 @@
 //!                        --upstream <path> checks a newer checkout, which is
 //!                        the drift report (bd tsr-l68)
 //! cargo xtask issue-ids  verify every `bd` id cited in docs/ actually exists
+//! cargo xtask measure    clippy, then — only if it is clean — the conformance run
 //! ```
 //!
 //! Codegen reads `vendor/typescript-go/_scripts/ast.json`, the same
@@ -23,6 +24,7 @@ mod gen_libs;
 mod gen_nodes;
 mod gen_unicode;
 mod issue_ids;
+mod measure;
 mod perf;
 
 use std::{fs, path::PathBuf};
@@ -48,11 +50,14 @@ fn main() -> Result<()> {
             anchors::run(&workspace_root(), upstream)
         }
         Some("issue-ids") => issue_ids::run(&workspace_root()),
+        Some("measure") => measure::run(&workspace_root()),
         Some(other) => {
-            bail!("unknown task {other:?}; expected `codegen`, `perf`, `anchors` or `issue-ids`")
+            bail!(
+                "unknown task {other:?}; expected `codegen`, `perf`, `anchors`, `issue-ids` or `measure`"
+            )
         }
         None => {
-            eprintln!("usage: cargo xtask <codegen|perf|anchors|issue-ids>");
+            eprintln!("usage: cargo xtask <codegen|perf|anchors|issue-ids|measure>");
             Ok(())
         }
     }

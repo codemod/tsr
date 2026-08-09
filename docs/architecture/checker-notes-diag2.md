@@ -16695,3 +16695,48 @@ number happened to be right.
 The measurement was retaken after the lint was fixed and is unchanged at 1,707.
 Recording the near-miss because the first time this pattern cost a 590-case
 misreading, and the second time it cost nothing purely by luck.
+
+## §260 — the ordering made mechanical: `cargo xtask measure`
+
+§140, §231, §244 and §259 are one defect four times: a new rule adds a `match`
+arm for a node kind that already has one further down, Rust takes the first and
+silently deletes the second, and the coverage run measures a compiler with a
+rule switched off. The first occurrence read as a **590-case collapse** and was
+within one sentence of being reported as a failed hypothesis.
+
+Clippy catches it every time — `unreachable pattern`. The correction written
+after each occurrence was *"run clippy before coverage"*, and §259 recorded why
+that kept failing: batching the two into one shell invocation is the ergonomic
+default, and the lint count lands three lines above the number you are waiting
+for.
+
+So it is a program now:
+
+```
+cargo xtask measure     # clippy --workspace --all-targets -- -D warnings
+                        # ...and ONLY if that exits 0, the conformance run
+```
+
+There is no flag that skips the gate. The failure message names §231 and §244
+and the 590 cases, so the person who hits it does not have to go looking for why
+a lint is blocking a measurement.
+
+### Verified by making it fail
+
+A gate nobody has watched refuse is an untested assertion, so it was made to
+refuse: an unused binding in `measure.rs` itself, and
+
+```
+[measure] clippy --workspace --all-targets -- -D warnings
+Error: clippy is not clean — refusing to measure.
+```
+
+then removed, and the clean path re-run to 1,707. Both directions observed.
+
+> **A correction that lives in prose is a correction you get to make again.**
+> This one had been written down three times in the same file, each time
+> correctly, and was broken on the next multi-part build every time. The
+> difference between §244's version and this one is not insight — it is that
+> this one can say no.
+
+`CLAUDE.md`'s build section now lists it above the raw `coverage` invocation.
