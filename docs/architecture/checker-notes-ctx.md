@@ -725,3 +725,21 @@ the fun-family tail); must NOT move: §70's own converts, §75's, the
 §93 nil-ladder. Tagged templates need the template-tag argument
 mapping (span 0 is the strings array) — if that mapping is absent
 the tagged half stays gapped and says so.
+
+**§114 family-1, first probe: a MEASURED ZERO, reverted per the §34
+precedent.** The proposed arm turned out to ALREADY EXIST — §70's
+agreement generalization sits in `contextual_type_for_argument`
+citing this very family, and the mention walk correctly skips
+re-bound inner generics (a generic nested signature contributes no
+mention). The suspected remaining decline — `contextual_signature`'s
+Anonymous-only fallback missing alias-named function types — was
+built and measured ZERO transitions on the head case: correct in
+principle, unreached in fact, reverted. THE NEXT TRACE therefore
+starts with instrumentation at THREE points on
+parenthesizedContexualTyping2: does `contextual_type_for_argument`
+fire and answer FuncType; does `contextual_signature` receive it;
+which road consumes the arrow if neither. The §93 nil-ladder's
+has_no_contextual_type may be answering true (standalone-typing the
+arrow as `any`) BEFORE the contextual road is consulted — check the
+consultation ORDER first; the §68-family dispatch decides who asks
+whom.
