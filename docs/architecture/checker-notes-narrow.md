@@ -4731,3 +4731,22 @@ property of the typeof side. The `.foo/.a/.b/.x` 600+ are
 case-specific names — mostly genuine misses (correct gaps) to be
 left alone; the Union 593 and Intersection 185 shapes route to
 their §49/§92 arms' residues. Bar for slice 1 comes next window.
+
+**§117 slice 1 bar — the Object/Function member fallback.**
+`getPropertyOfTypeEx` (`checker.go:18918-18934`): an OBJECT-flagged
+receiver whose own walk misses falls back to (a) the FUNCTION
+interface family when it has signatures — `globalCallableFunctionType`
+for call signatures, `globalNewableFunctionType` for construct
+(each the strictBindCallApply interface, falling to `Function`
+when unmounted) — then (b) `globalObjectType`, always. Port: the
+same two-stage tail on `get_property_of_type`'s miss, globals by
+name at arity 0. **Bar: ≥250 of the census's prototype-family lines
+at ≥10:1** (the family: toString 112 + prototype-adjacent name/
+length/constructor ~200 + bind/call/apply — strictBindCallApply1's
+113 whole). Falsifiers: (a) genuine `.foo` misses stay None —
+upstream's own fallback misses them too, byte-identical by
+construction; (b) the found members' SIGNATURE prints come from the
+lib bake — any adverse concentrated in bind/apply signature texts
+is a §95/§99-family print question, priced separately from the
+lookup; (c) `.prototype` is NOT this slice (it is synthetic on the
+static side, slice 2).
