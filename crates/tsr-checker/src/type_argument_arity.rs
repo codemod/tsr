@@ -219,9 +219,20 @@ impl Checker<'_, '_> {
                 Some(Node::ClassDeclaration(class)) => class.type_parameters,
                 Some(Node::ClassExpression(class)) => class.type_parameters,
                 Some(Node::InterfaceDeclaration(interface)) => interface.type_parameters,
-                // A merged declaration of another kind — a namespace, an enum,
-                // a variable — means the symbol's type parameters are not read
-                // off any one of these lists.
+                // **"I have nothing to add" is not "nobody can answer."** A
+                // merged *value* declaration contributes no type parameters, so
+                // it is skipped rather than treated as evidence the answer is
+                // unknown. `Array` is the standard library merge — `interface
+                // Array<T>` and `declare var Array: ArrayConstructor` — and
+                // returning `None` here made every bare reference to a lib
+                // generic silent. The parameters are read off the *type*
+                // declarations, and the check below requires there to be one.
+                // §364.
+                Some(
+                    Node::VariableDeclaration(_)
+                    | Node::FunctionDeclaration(_)
+                    | Node::ModuleDeclaration(_),
+                ) => continue,
                 _ => return None,
             };
             let maximum = parameters.len();

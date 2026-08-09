@@ -21143,3 +21143,90 @@ workstream's.
 > the population (§356). This one names *missing machinery inside `tsr-checker`*
 > — which is what §362 predicted would be left once the "stopped one step before
 > the diagnostic" cases were taken.
+
+## §364 — TS2314: the value half of a lib merge
+
+```ts
+class X { public f(a: Array) { } }   // TS2314 — Array<T> requires 1 type argument
+```
+
+`declared_type_parameter_arity` computes `(1, 1)` for `Array` and never gets
+there. Its declaration loop:
+
+```rust
+let parameters = match self.node_map.get(*declaration) {
+    Some(Node::ClassDeclaration(class)) => class.type_parameters,
+    Some(Node::InterfaceDeclaration(interface)) => interface.type_parameters,
+    // A merged declaration of another kind — a namespace, an enum, a
+    // variable — means the symbol's type parameters are not read off any
+    // one of these lists.
+    _ => return None,
+};
+```
+
+`Array`'s symbol is the **standard library merge**: `interface Array<T>` *and*
+`declare var Array: ArrayConstructor`. The `VariableDeclaration` hits `_` and
+the whole lookup declines — so every bare reference to a lib generic is silent.
+
+The comment's reason is right about *where the type parameters come from* and
+wrong about *what to do*: a value declaration contributes none, so it should be
+**skipped**, not treated as evidence the answer is unknown. The type parameters
+are read off the type declarations, and there is at least one.
+
+> §349 was this exact confusion in `declared_members_are_complete` and §353 in
+> the deferral list. Three times now: **a `_ => return None` arm that means "I
+> have nothing to add" being written as "nobody can answer".** In a `match` over
+> declaration kinds of a *merged* symbol, those are almost never the same
+> statement.
+
+### The bar
+
+```
+bar:  +2 of 5,  0 LOST,  WRONG delta <= +2
+```
+
+Widening a lib-wide lookup can produce TS2314 on shapes that were silent, so the
+WRONG allowance is real rather than nominal.
+
+### Falsifiers
+
+1. **A namespace-merged class reports a wrong arity.** `ModuleDeclaration`
+   contributes no type parameters and must be skipped, not read.
+2. **A symbol with *only* value declarations reports.** With no class or
+   interface among them the lookup must still decline — skipping must not
+   become answering `(0, 0)`.
+
+## §365 — §364 built: **+3**
+
+```
+diagnostics   1,870 → 1,873   (bar was +2;  +3, 0 LOST)   34.13%
+every other suite unmoved — both falsifiers negative
+```
+
+Above bar, and it contradicts §363's conclusion one build later. §363 said the
+seam's cheap end was thinning because four consecutive rows named algorithms.
+The next row named a `match` arm and paid `+3`.
+
+> **§356's lesson, self-inflicted a second time: a run of four is not a rate
+> either.** §363's declines were each correct; the inference from their
+> *sequence* was not. The list is ordered by blocked-case count, not by
+> difficulty, so a run of hard rows says nothing about the rows after it. I
+> wrote that sentence about §355 and then repeated the error in the same
+> session, one paragraph after quoting it.
+
+The correction that actually follows: **stop drawing population claims from
+consecutive samples of an ordered list at all.** §356 measured the population
+directly when the question mattered; that is the only move that has worked.
+
+### The `_ => return None` family, three instances
+
+```
+§349  declared_members_are_complete   a merged ModuleDeclaration read as incompleteness   +3
+§353  the deferral list               a conditional flattened to a membership             +1
+§364  declared_type_parameter_arity   a merged VariableDeclaration read as unknowable     +3
+```
+
+All three are `match`es over the declaration kinds of a **merged symbol**, and
+all three conflate *this declaration contributes nothing* with *the answer is
+unknown*. For a merged symbol those are almost never the same statement, and
+`tsr-checker` has more of these matches than three.
