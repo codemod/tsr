@@ -14277,3 +14277,50 @@ this workstream has been carrying it as a three-case blocker (§171 cited it,
 there is a missing TS2552, not a false positive to remove.**
 
 The section is corrected in `TASK-diagnostics.md` rather than deleted.
+
+## §215 — the parse-error gate, measured a sixth time and REFUSED for TS7026
+
+§206 left TS7026's residue as an open question and §211 reduced it to three
+lines. Two are `jsxNamespacePrefixInName` line 24 — `<a: attr={"value"} />`,
+which upstream's parser rejects with two `TS1109`s and never checks as an
+element. The obvious move is the gate that has paid five times:
+
+```rust
+if !self.no_implicit_any || self.file_has_parse_errors { return; }
+```
+
+| | before | after |
+|---|---:|---:|
+| `WRONG` | 3 | **0** |
+| `CONVERTS` | 14 | 14 |
+| `LOST` | 0 | 0 |
+| **`RIGHT`** | **234** | **142** |
+| `diagnostics` | 1,615 | 1,615 |
+
+**Refused.** The gate buys three wrong lines for **ninety-two right ones**.
+
+### Why, and it is visible in the fixture that motivated it
+
+`jsxNamespacePrefixInName` **wants** TS7026 on lines 18, 19, 21 and 22 — in a
+file that also carries `TS1003` and `TS1005`. Upstream reports JSX diagnostics in
+files with parse errors; it simply does not reach line 24's `<a:` because its
+*parser* produced a different tree there. Gating the whole file on parse errors
+is not a narrower version of that — it is a different rule.
+
+> **A gate that would fix the residue can be wrong about the row.** Five
+> measurements said this gate was right (§40.3 +6, §179 −20/+0, §184 −1/+0,
+> §200's file bounds, §202's) and the sixth says it is wrong here by 92 lines.
+> The per-rule discipline §179 named is not a formality: **it is the only thing
+> that distinguishes "suppress a construct upstream's parser rejects" from
+> "suppress every diagnostic in any file that has an error anywhere".**
+
+`diagnostics` does not move either way, because every affected case fails for
+other reasons — which is exactly why the *line* columns had to be read rather
+than the case count. A build judged on cases alone would have landed this.
+
+### What the three residual lines actually need
+
+Not a gate. `<a:` with nothing after the colon should not produce a JSX element
+this rule can see — that is `tsr_parser`'s namespaced-name recovery, and it is
+the same class as §198–§201's parameter list: a construct upstream refuses to
+build. Filed there rather than here.
