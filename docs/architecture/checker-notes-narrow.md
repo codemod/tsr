@@ -3740,3 +3740,34 @@ partial conversion — temporal 16). Measured atop the held §97 the
 same arm reads +99 (temporal 60): 44 of temporal's rows need §97's
 un-errored union types to exist before this renderer can touch them —
 that composition is §97's to state when it lands after §98 retention.
+
+## §96 — alias-named unions join the origin gate
+
+[checker-1, worktree branch.] §53's slice gate admits only ENUM-named
+union entries and plain types, because the ungated form's falsifier
+fired on "temporal's 82 site-sensitive alias spellings" — a baked
+origin text cannot serve inside- and outside-view sites at once.
+§95 built the missing half: site-aware re-rendering. The two compose:
+
+**Mechanism:** (a) the §53 gate admits entries that are ALIAS-named
+unions (union data carrying a TYPE_ALIAS symbol); (b)
+`type_to_string_at` gains an ORIGIN arm — a union with recorded
+`union_origin` entries re-renders as each entry site-rendered
+(named entries qualify through the existing naming stack) joined
+`" | "`, falling back to baked text on any decline. The written
+`DateUnit | TimeUnit` argument (lib.esnext.temporal.d.ts:247/:314)
+then builds instead of erroring, un-blocking the reference, the
+signature bake, and every method read downstream.
+
+**Bar:** temporal ≥120 net (the 49 Duration results + 60 signature
+prints + reads are its census ceiling of ~230); corpus adverse
+within 10:1. Falsifiers: (a) §53's own — inside-view union
+spellings re-rendering qualified (parserRealSource11/12 R→W fires
+it; the origin arm renders bare exactly where the entry's chain
+finds the name in scope, so zero expected); (b) origin entries
+whose members were REDUCED away (the §53 subset road) must not
+resurrect through the new arm — rebuild_union_subset already
+decomposes partial entries and stays untouched; (c) union ORDER —
+origin preserves WRITTEN entry order while the §77.2-family wants
+builder order in places; any adverse whose want is the same set
+re-ordered belongs to §77.2, priced there, not here.
