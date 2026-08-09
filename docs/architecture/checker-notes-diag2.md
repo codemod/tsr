@@ -21881,3 +21881,55 @@ upstream reports from several is §380's shape exactly.
 
 Recorded without a build. The 39-rule list is reproducible in one command and is
 not worth checking in.
+
+## §382 — TS6133's third site: unused **private class members**
+
+§377's list, next row. TS6133 has three upstream sites and this port has the
+locals-and-parameters one. The corpus wants `checker.go:7124`:
+
+```go
+case KindMethodDeclaration, KindPropertyDeclaration, KindGetAccessor, KindSetAccessor:
+    symbol := c.getSymbolOfDeclaration(member)
+    if !c.isReferenced(symbol) &&
+       (ast.HasModifier(member, ModifierFlagsPrivate) ||
+        member.Name() != nil && ast.IsPrivateIdentifier(member.Name())) &&
+       member.Flags&NodeFlagsAmbient == 0 {
+        c.reportUnused(member, UnusedKindLocal, NewDiagnosticForNode(member.Name(), …))
+    }
+```
+
+```ts
+// @noUnusedLocals: true
+class C {
+    private x;      // TS6133 at the name, column 13
+}
+```
+
+### Why this is a build and not an arm — stated so it is not under-scoped twice
+
+`unused.rs` tracks member references **by name**
+(`referenced_member_names: HashSet<String>`, `note_member_name`), not by symbol.
+That is sufficient for *never mentioned at all*, and four of the seven blocked
+cases are named `…writeOnlyProperty…`: upstream reports them **because a write
+is not a read**, and `note_member_name` is called from property-access
+positions without distinguishing the two.
+
+So the honest scope is:
+
+1. a private-member arm over the four member kinds, guarded on modifier or
+   private name, and on non-ambient;
+2. the write-only distinction for member names — `is_write_only_access` already
+   exists and answers it for the *local* rule (§329 used it), so the work is
+   threading it into `note_member_name_at` rather than inventing it;
+3. the set-accessor exemption (`break // Already would have reported an error on
+   the getter`), which is a two-line guard.
+
+Item 2 is the one that can regress the existing rule, because
+`referenced_member_names` is shared with TS6138 and the nonexistent-property
+path. That is why this is recorded rather than started at the end of a session:
+a half-threaded write-only flag is exactly the shape that measures `+0` and
+hides a `−n` somewhere else.
+
+**Owner: this workstream, next session.** Bar when it is built: `+4 of 7`, and
+the falsifier that matters is `checker_types` unmoved, since
+`referenced_member_names` is shared.
