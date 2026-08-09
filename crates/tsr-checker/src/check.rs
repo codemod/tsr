@@ -3260,6 +3260,48 @@ impl Checker<'_, '_> {
     /// be optional`), so the rest test is the arm's guard rather than a bound
     /// this port chose — §103's rule that the `else if` order is the
     /// specification. §180.
+    /// Does a class this one extends declare a property of this name?
+    ///
+    /// `isPropertyDeclaredInAncestorClass` (`checker.go:11720`), one hop —
+    /// the same resolution §309 uses, and bounded the same way. §317.
+    fn ancestor_class_declares(&mut self, class: NodeId, name: &str) -> bool {
+        let clauses = match self.node_map.get(class) {
+            Some(Node::ClassDeclaration(c)) => c.heritage_clauses,
+            Some(Node::ClassExpression(c)) => c.heritage_clauses,
+            _ => return false,
+        };
+        let Some(extends) =
+            clauses.iter().find(|clause| clause.token.kind == SyntaxKind::ExtendsKeyword)
+        else {
+            return false;
+        };
+        let Some(base) = extends.types.first() else { return false };
+        let Some(tsr_ast::Expression::Identifier(base_name)) = base.expression else {
+            return false;
+        };
+        let Some(at) = base_name.node_id else { return false };
+        let Some(symbol) = self.binder.resolve_name(
+            self.nodes,
+            self.node_map,
+            at,
+            base_name.text,
+            SymbolFlags::CLASS,
+        ) else {
+            return false;
+        };
+        let symbol = self.binder.merged_symbol(symbol);
+        let Some(declaration) = self.binder.symbols().get(symbol).value_declaration else {
+            return false;
+        };
+        let Some(Node::ClassDeclaration(base_class)) = self.node_map.get(declaration) else {
+            return false;
+        };
+        base_class.members.iter().any(|member| {
+            matches!(member, tsr_ast::ClassElement::PropertyDeclaration(property)
+                if matches!(property.name, tsr_ast::PropertyName::Identifier(it) if it.text == name))
+        })
+    }
+
     /// TS2610 / TS2611 — a member overridden as the *other* kind.
     ///
     /// `checkKindsOfPropertyMemberOverrides` (`checker.go:4626`). Upstream
@@ -3411,6 +3453,13 @@ impl Checker<'_, '_> {
         }
         let (Some(using_at), Some(target_at)) = (using_at, target_at) else { return };
         if target_at < using_at {
+            return;
+        }
+        // `!c.isPropertyDeclaredInAncestorClass(prop)` — the sixth conjunct,
+        // and a **negative** guard: leaving it out adds output rather than
+        // withholding it. `useBeforeDeclaration_superClass` was both of §316's
+        // wrong lines, and §309's base-class resolution is the machinery. §317.
+        if self.ancestor_class_declares(class, name.text) {
             return;
         }
         let Some(file) = self.source_file_of_for_diagnostics(name_id) else { return };

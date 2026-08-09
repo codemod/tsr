@@ -19106,3 +19106,29 @@ symbol rather than a member list.
 > was not wired in.
 
 That is a cheap, named next step rather than a refusal: the walk exists.
+
+## §317 — §316's named next step, done
+
+```
+diagnostics   1,817 → 1,817   (unchanged)
+CONVERTS 2 · LOST 0 · RIGHT 16 · WRONG 2 → 1
+```
+
+The sixth conjunct wired in — `!isPropertyDeclaredInAncestorClass`, using §309's
+base-class resolution unchanged. One of the two wrong lines is gone; the case
+itself was already failing for other reasons, so the board does not move.
+
+**A build worth taking despite a flat score.** §302 measured the same shape from
+the other side — a bound that moved the wrong column by thirty with no change to
+the case delta — and the argument is identical: the score is not the only thing
+the port is accountable for. A wrong line is a claim about a program, and this
+one was false.
+
+The residual line is `useBeforeDeclaration_superClass.ts(16,18)` against
+`(6,18)` now correct: **one hop only**, as §309 bounded it and §317 inherits.
+A grandparent's property still reads as absent.
+
+> **Two builds ago this was a decline recorded in prose; one build ago it was
+> two wrong lines; now it is one hop of inheritance.** Each step cost less than
+> the one before because the previous step named what was missing precisely
+> enough to act on.
