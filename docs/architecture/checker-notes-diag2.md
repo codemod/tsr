@@ -23485,3 +23485,40 @@ about itself.
 80 → 1,922 across fourteen sessions, 24.0×
 this session: +471 over ninety-eight builds, 0 lost
 ```
+
+## §420 — §417's sweep has false positives, and the fix is a measured oracle
+
+TS2391 was third on §417's list of "named in a comment, never emitted". It **is
+emitted** — `check.rs:6510` — behind a fully ported rule with its own decline
+table (`next_sibling_is_the_implementation`, anchored to `checker.go:3567`).
+
+The false positive is in the sweep's *second* half, not its first. Its
+"emitted" set was built by parsing `messages.rs` for
+`pub static NAME: Message = Message::new(CODE`, and constants whose declaration
+wraps differently are missed; a code whose constant is missed can never enter
+the set, so it appears unemitted no matter what the checker does.
+
+> **A sweep that joins two greps inherits both their error rates, and the
+> failure is silent in one direction only.** A missed *comment* costs a
+> candidate nobody sees. A missed *constant* manufactures a candidate that looks
+> real all the way to the fixture — which is where this one was caught, at the
+> cost of one read.
+
+### The fix
+
+`diagdeepen` already reports, per code, how many **right lines this port
+actually emits** — a measured number rather than a parse. Joining §417's comment
+scan against that column instead of against `messages.rs` removes the failure
+mode entirely: a code with `emits > 0` is emitted, whatever its constant looks
+like.
+
+Restated, the sweep is: **codes named in this port's comments whose
+`diagdeepen` emit count is zero.** That is one command and one corpus run, and
+the run already happens every session.
+
+### What survives
+
+§416 (`TS2683`) and §418 (`TS2669`) were both verified against the fixture and
+the board before shipping, so **`+12` stands**. The remaining seven candidates
+from §417's list are now *unverified* rather than pending, and should be
+re-derived from a `diagdeepen` join rather than worked from the list as printed.
