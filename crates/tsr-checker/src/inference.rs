@@ -782,6 +782,112 @@ impl Checker<'_, '_> {
         minted
     }
 
+    /// §102's print-only clone, the DECODED two-mechanism form
+    /// (`promisePermutations` lines 6/15/24/33/62 are the proof set):
+    ///
+    /// - SHADOW (`typeParameterShadowsOtherTypeParameterInScope`,
+    ///   `nodebuilderimpl.go:1396`): a parameter whose name resolves at the
+    ///   print SITE to a DIFFERENT type-parameter symbol renames — uniformly
+    ///   `name_1`, however many collide, and without claiming the suffix.
+    /// - BYTEXT (`:1420`): at a site where the name resolves to nothing, a
+    ///   LATER signature's same-named distinct parameter takes the first
+    ///   free `name_n` and claims it.
+    ///
+    /// The site's own signature always prints plain — its name resolves to
+    /// itself. Falls back unchanged where identities cannot be established.
+    pub(crate) fn rename_type_parameters_for_site(
+        &mut self,
+        signature: crate::signatures::Signature,
+        reference: NodeId,
+        claimed: &mut rustc_hash::FxHashSet<String>,
+    ) -> crate::signatures::Signature {
+        if signature.type_parameters.is_empty() {
+            for parameter in &signature.type_parameters {
+                claimed.insert(parameter.name.clone());
+            }
+            return signature;
+        }
+        let Some(own) = self.type_parameter_types(&signature) else {
+            for parameter in &signature.type_parameters {
+                claimed.insert(parameter.name.clone());
+            }
+            return signature;
+        };
+        if own.len() != signature.type_parameters.len() {
+            return signature;
+        }
+        // Own parameter SYMBOLS, via the declaration — the identity the
+        // shadow test compares against.
+        let declarations = match self.node_map.get(signature.declaration) {
+            Some(Node::FunctionDeclaration(node)) => node.type_parameters,
+            Some(Node::FunctionExpression(node)) => node.type_parameters,
+            Some(Node::ArrowFunction(node)) => node.type_parameters,
+            Some(Node::MethodDeclaration(node)) => node.type_parameters,
+            Some(Node::MethodSignatureDeclaration(node)) => node.type_parameters,
+            Some(Node::CallSignatureDeclaration(node)) => node.type_parameters,
+            Some(Node::ConstructSignatureDeclaration(node)) => node.type_parameters,
+            Some(Node::FunctionTypeNode(node)) => node.type_parameters,
+            _ => return signature,
+        };
+        let mut map = Vec::new();
+        let mut renames: Vec<Option<String>> = Vec::with_capacity(own.len());
+        for ((parameter, &own_type), declaration) in
+            signature.type_parameters.iter().zip(&own).zip(declarations)
+        {
+            let own_symbol = declaration.node_id.and_then(|id| self.binder.symbol_of(id));
+            let shadowed = own_symbol.is_some_and(|own_symbol| {
+                self.binder
+                    .resolve_name(
+                        self.nodes,
+                        self.node_map,
+                        reference,
+                        &parameter.name,
+                        tsr_binder::SymbolFlags::TYPE,
+                    )
+                    .is_some_and(|found| {
+                        found != own_symbol
+                            && self
+                                .binder
+                                .symbols()
+                                .get(found)
+                                .flags
+                                .contains(tsr_binder::SymbolFlags::TYPE_PARAMETER)
+                    })
+            });
+            // SHADOW ONLY: `underscoreTest1:3229/3233/3237` print [T,T_1],
+            // [T_1,T] and [T_1,T_1] per site, and asyncFunctionReturnType
+            // holds ZERO renames at neutral sites — the byText half does not
+            // exist in this corpus and regressed 763 lines when built.
+            let fresh_name = shadowed.then(|| format!("{}_1", parameter.name));
+            if let Some(fresh_name) = fresh_name {
+                let fresh = self.store.new_named(
+                    crate::flags::TypeFlags::TYPE_PARAMETER,
+                    fresh_name.clone(),
+                    None,
+                );
+                map.push((own_type, fresh));
+                renames.push(Some(fresh_name));
+            } else {
+                renames.push(None);
+            }
+        }
+        if map.is_empty() {
+            return signature;
+        }
+        let names: Vec<&str> =
+            signature.type_parameters.iter().map(|parameter| parameter.name.as_str()).collect();
+        let Some(mut renamed) = self.instantiate_signature(signature.clone(), &map, &own, &names)
+        else {
+            return signature;
+        };
+        for (parameter, rename) in renamed.type_parameters.iter_mut().zip(renames) {
+            if let Some(fresh_name) = rename {
+                parameter.name = fresh_name;
+            }
+        }
+        renamed
+    }
+
     /// §90.1's print-only clone: own type parameters respelled `name_1` and
     /// every occurrence substituted to a fresh mint carrying the new text.
     /// Falls back to the input unchanged when the own parameters cannot be

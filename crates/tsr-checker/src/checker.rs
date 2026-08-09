@@ -1057,9 +1057,17 @@ impl<'a, 'n> Checker<'a, 'n> {
             {
                 let signatures = signatures.clone();
                 self.rendering_composites.insert(id);
+                // §102 (decoded): shadow renames against the SITE, byText
+                // claims across the signatures of ONE render.
+                let mut claimed = rustc_hash::FxHashSet::default();
                 let mut out = String::from("{ ");
                 for signature in &signatures {
-                    out.push_str(&self.signature_member_text_at(signature, reference));
+                    let signature = self.rename_type_parameters_for_site(
+                        signature.clone(),
+                        reference,
+                        &mut claimed,
+                    );
+                    out.push_str(&self.signature_member_text_at(&signature, reference));
                     out.push_str("; ");
                 }
                 out.push('}');

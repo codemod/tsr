@@ -3999,3 +3999,24 @@ pathological shape, recorded in the test. Residues: the 6 G→W are
 index-signature/narrowing shapes behind as-const receivers (their
 own roads' work), and readonly tuple/object minting stays the
 subsystem's next slice.
+
+**§102 DECODED and LANDED — the §20.1 double-refusal closed.** The
+want-pair study the sizing addendum demanded produced the rule in
+three lines of baseline: `underscoreTest1:3229/3233/3237` print the
+same composite [T, T_1], [T_1, T], [T_1, T_1] BY SITE, and
+`asyncFunctionReturnType` holds zero renames at neutral use sites.
+The mechanism is the SHADOW TEST ALONE
+(`typeParameterShadowsOtherTypeParameterInScope`,
+`nodebuilderimpl.go:1396`): a signature's own type parameter renames
+— uniformly `name_1`, unclaimed — iff its name resolves at the print
+site to a DIFFERENT type-parameter symbol. There is NO byText
+mechanism in this corpus: the byText half regressed 763 lines in two
+different builds (naive claim-set, then shadow+byText) and
+shadow-only converts the same rows at zero cost. **+269 W→R, ZERO
+adverse** on the isolated pair (underscoreTest1 86/100,
+typeParametersAreIdenticalToThemselves 33, genericCall 9, spread
+across 20+ cases). Bar met (≥50 at 10:1 → 86 at ∞). Residues:
+underscore's last 14 (the flipped-order pairs whose sites our
+resolve_name reads differently — trace before touching), and §90.1's
+chain2 `r_1` family stays on its empirical gate (a THIRD mechanism,
+still undecoded).
