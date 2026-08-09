@@ -18,6 +18,7 @@
 //! `docs/architecture/checker-notes-diag2.md` §49.
 
 use tsr_ast::{Node, NodeId, SyntaxKind};
+use tsr_binder::SymbolFlags;
 use tsr_diagnostics::{Diagnostic, messages};
 
 use crate::{
@@ -257,7 +258,13 @@ impl Checker<'_, '_> {
         // port emitted both until §253.
         if let tsr_ast::Expression::Identifier(identifier) = left
             && let Some(id) = identifier.node_id
-            && self.assignment_target_meaning(id, identifier.text).is_some()
+            && self.assignment_target_symbol(id, identifier.text).is_some_and(|(symbol, flags)| {
+                // Both of `checkIdentifier`'s assignment arms end
+                // `return c.errorType` (`checker.go:11093`, `:11101`), and
+                // an error-typed operand is never asked whether it is
+                // arithmetic. §253 wired the first; §282 adds the second.
+                !flags.intersects(SymbolFlags::VARIABLE) || self.is_readonly_symbol(symbol)
+            })
         {
             return;
         }

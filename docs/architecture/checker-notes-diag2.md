@@ -17688,3 +17688,86 @@ message where upstream reports
 
 The function is now closed except for that one predicate, and the sweep's other
 four groups (25–67 cases each) are untouched.
+
+## §282 — the arm immediately after §243's
+
+The sweep's largest group — 67 cases across TS2454, TS2540, TS2588, TS2815 and
+TS7005 — is `checkIdentifier`'s assignment/narrowing region, and §243 already
+ported the *first* of its two assignment arms. The second is four lines below
+(`checker.go:11095`):
+
+```go
+if c.isReadonlySymbol(localOrExportSymbol) {
+    if localOrExportSymbol.Flags&ast.SymbolFlagsVariable != 0 {
+        c.error(node, diagnostics.Cannot_assign_to_0_because_it_is_a_constant, c.symbolToString(symbol))
+    } else {
+        c.error(node, diagnostics.Cannot_assign_to_0_because_it_is_a_read_only_property, c.symbolToString(symbol))
+    }
+    return c.errorType
+}
+```
+
+**The two arms are mutually exclusive by construction.** §243's fires when the
+symbol has *no* `Variable` flag; this one fires when it does and the symbol is
+readonly. `assignment_target_meaning` already computes exactly the symbol §243
+needed and returns `None` in precisely the case this arm wants — so the shared
+predicate has to give up its `Option` and hand back the symbol instead.
+
+`is_readonly_symbol` is `crate::flow`'s, built for `checker-notes-narrow.md` §27
+and already used by the property-access arm of TS2540.
+
+### §253's return applies here too
+
+Upstream's `return c.errorType` is on **both** arms. §253 wired the first into
+`check_arithmetic_operand_types`; the same guard has to cover the second, or
+`const x = 1; x += 1` reports TS2588 *and* TS2362 where upstream reports one.
+
+### The bar
+
+```
+bar:  +6 cases of 14,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **A `let` reassignment reports.** `isReadonlySymbol` is the whole guard.
+2. **`const x = 1; x += 1` reports TS2362 as well.** §253's arithmetic decline
+   must cover this arm.
+
+## §283 — §282 built: +4, and a Python edit that silently did not apply
+
+```
+diagnostics   1,759 → 1,763   (+4, bar was +6)
+CONVERTS 7 · LOST 0 · STILL SHORT 12 · RIGHT 92 · WRONG 1
+every other suite unmoved
+```
+
+Ninety-two right lines against one wrong — `withStatements.ts(3,5)`, inside a
+`with` block, where §? already records that upstream resolves nothing.
+
+### §207's trap, and why it did not cost a wrong number
+
+The build was three edits: widen the shared predicate, add the new arm, extend
+§253's arithmetic guard to cover it. **The third asserted and did not apply**,
+and the run still produced a plausible `+4`.
+
+§207 recorded this exact shape — *a multi-part edit whose middle assertion fails
+leaves the file untouched, and "no change" reads like a result*. What differs
+here is that the number *did* move, so the failure was invisible in the
+measurement and visible only in the shell output above it.
+
+> **An edit that fails its own assertion is a silent partial build, and the
+> measurement cannot tell you.** The `+4` was real; falsifier 2 — "`const x = 1;
+> x += 1` reports TS2362 as well" — was simply unverified, because the guard
+> that answers it was never written.
+
+Applied properly, the number is unchanged at `1,763`: the guard fires on no
+corpus case today. It stays, for §253's reason — both of upstream's arms end
+`return c.errorType`, and porting one arm's return without the other's is the
+same half-port §253 was written about.
+
+### `STILL SHORT 12`
+
+Per §281's reading, that is the row saying its remaining cases want more of
+these two codes than this arm produces — the property-access half of TS2540 and
+the `readonly` shapes `is_readonly_symbol` does not decide.

@@ -129,11 +129,11 @@ impl Checker<'_, '_> {
     /// return is load-bearing for a **second** rule: an operand whose type is
     /// the error type is not asked whether it is arithmetic. `arithAssignTyping`
     /// wants twelve TS2629 and no TS2362, and this port emitted both. §253.
-    pub(crate) fn assignment_target_meaning(
+    pub(crate) fn assignment_target_symbol(
         &mut self,
         node: NodeId,
         text: &str,
-    ) -> Option<SymbolFlags> {
+    ) -> Option<(SymbolId, SymbolFlags)> {
         if self.assignment_target_kind(node) == AssignmentTargetKind::None {
             return None;
         }
@@ -145,7 +145,54 @@ impl Checker<'_, '_> {
         let symbol = self.binder.symbols().get(symbol).export_symbol.unwrap_or(symbol);
         let symbol = self.binder.merged_symbol(symbol);
         let flags = self.binder.symbols().get(symbol).flags;
+        Some((symbol, flags))
+    }
+
+    /// The §243 arm's condition: the target names something that is **not** a
+    /// variable.
+    pub(crate) fn assignment_target_meaning(
+        &mut self,
+        node: NodeId,
+        text: &str,
+    ) -> Option<SymbolFlags> {
+        let (_, flags) = self.assignment_target_symbol(node, text)?;
         (!flags.intersects(SymbolFlags::VARIABLE)).then_some(flags)
+    }
+
+    /// TS2588 — `Cannot assign to '{0}' because it is a constant.`
+    /// TS2540 — `Cannot assign to '{0}' because it is a read-only property.`
+    ///
+    /// `checkIdentifier`'s **second** assignment arm (`checker.go:11095`), four
+    /// lines below the one §243 ported and mutually exclusive with it: that one
+    /// fires when the symbol has no `Variable` flag, this one when it does and
+    /// the symbol is readonly.
+    ///
+    /// Upstream's `return c.errorType` is on both arms, so §253's arithmetic
+    /// decline has to cover this one too — otherwise `const x = 1; x += 1`
+    /// reports TS2588 *and* TS2362 where upstream reports one. §282.
+    pub(crate) fn check_readonly_identifier_assignment(&mut self, node: NodeId, ambient: bool) {
+        if ambient || self.file_has_parse_errors {
+            return;
+        }
+        let Some(Node::Identifier(identifier)) = self.node_map.get(node) else { return };
+        let Some((symbol, flags)) = self.assignment_target_symbol(node, identifier.text) else {
+            return;
+        };
+        if !flags.intersects(SymbolFlags::VARIABLE) {
+            // §243's arm owns this shape.
+            return;
+        }
+        if !self.is_readonly_symbol(symbol) {
+            return;
+        }
+        let message = if flags.intersects(SymbolFlags::VARIABLE) {
+            &messages::CANNOT_ASSIGN_TO_0_BECAUSE_IT_IS_A_CONSTANT
+        } else {
+            &messages::CANNOT_ASSIGN_TO_0_BECAUSE_IT_IS_A_READ_ONLY_PROPERTY
+        };
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let span = self.error_span(node);
+        self.report(file, Diagnostic::with_args(message, span, [identifier.text.to_string()]));
     }
 
     /// `isReadonlySymbol`'s **property-signature** row, which
