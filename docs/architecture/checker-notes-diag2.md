@@ -15482,3 +15482,64 @@ binder_symbols               100%, unmoved — falsifier 2 negative
 and the 85 remaining lines are ranked and cheap to re-read after any span
 change. TS1005's 53 lines are the parser's, not the binder's, and are the next
 head — a different owner from everything §156–§232 touched.
+
+## §235 — correcting §233's instrument, one build after shipping it
+
+§234 closed by naming TS1005's 53 lines "the next head", on the strength of
+`diagcolumn` calling them column-only mismatches. Running the two fixtures
+through this port's parser directly:
+
+```
+classAbstractManyKeywords, line 3 — `default abstract class C {}`
+  upstream   (3,1)  TS1005 'export' expected.
+  this port  (3,9)  TS1005 ';' expected.
+```
+
+**Different token, different message, different recovery.** Not an anchor on the
+same token. `typePredicateOnVariableDeclaration02` is the same shape — upstream
+reports TS2304 on `z` in `var y: z is number`, this port on `is` — and so is
+`unclosedExportClause01`.
+
+### Why the instrument could not see it
+
+The suite compares `(file, line, column, code)` and **not the message text**, so
+`'export' expected` and `';' expected` are the same code. `diagcolumn` is built
+on the same tuple and inherits the blindness exactly.
+
+> **An instrument built on the suite's key can only ever be as discriminating as
+> the suite.** `diagcolumn` was designed to be *more* informative than
+> `diaggap` + `extragap`, and it is — but only about position. It cannot see
+> that the two diagnostics it paired are different assertions, because the
+> oracle it is written against cannot either.
+
+Single-line fixtures make it worse: when every diagnostic is on line 1, *any*
+divergence pairs by `(file, line, code)`.
+
+### The correction, and what it costs the plan
+
+A row in `diagcolumn` is one of two things with wildly different prices:
+
+- a **span-lookup bug** — one call and done (§232's TS2440, §234's TS2300); or
+- a **recovery divergence** — real parser work, wearing a column's clothing.
+
+The instrument now splits by producer and says so in its own header:
+
+```
+parser  (1xxx)  68   assume recovery divergence; read the fixture
+checker (2xxx+) 17   a span lookup is plausible here
+```
+
+**TS1005's 53 lines are not cheap, and §234's "next head" was wrong.** Left
+uncorrected it would have cost the next session a build before it noticed —
+which is precisely what §233's instrument was built to prevent, one build after
+it was built.
+
+### The general shape, twice in three builds
+
+§232 retracted a cross-build claim built on an unread line. This retracts a
+one-build claim built on an unread *fixture*. Both survived because the number
+they rested on was real; only the interpretation was invented.
+
+> **A measurement licenses a count, never a cause.** Every claim about *why* in
+> this workstream has had to be bought separately, and the two that were not
+> were both wrong.

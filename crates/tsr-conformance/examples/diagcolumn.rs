@@ -19,10 +19,38 @@
 //! narrows a *named* declaration to its name via `getErrorSpanForNode`. Any
 //! other rule reporting on a named declaration has the same bug available.
 //!
-//! **Cases blocked by column alone are the headline.** Those pass the moment
-//! the span rule is right, with no new rule ported at all.
+//! # What this instrument CANNOT tell you — read before pricing anything
 //!
-//! `docs/architecture/checker-notes-diag2.md` §233.
+//! §235 corrected this file's original framing one build after it shipped. The
+//! suite compares `(file, line, column, code)` and **not the message text**, and
+//! this instrument is built on the same tuple. So two `TS1005`s with different
+//! expected tokens — `'export' expected` and `';' expected` — are *the same
+//! code*, and a pair of them lands here labelled "wrong column".
+//!
+//! Measured on `classAbstractManyKeywords`:
+//!
+//! ```text
+//! upstream   (3,1)  TS1005 'export' expected.
+//! this port  (3,9)  TS1005 ';' expected.
+//! ```
+//!
+//! Not an anchor on the same token — **a different token, from a different
+//! recovery**. The same is true of `typePredicateOnVariableDeclaration02`
+//! (TS2304 at `z` upstream, at `is` here) and `unclosedExportClause01`.
+//!
+//! So a row here is one of two very different things:
+//!
+//! - a **span-lookup bug** — one call, the whole fix (§232's TS2440, §234's
+//!   TS2300 via `name_node_of`); or
+//! - a **recovery divergence** — real parser work, wearing a column's clothing.
+//!
+//! Single-line fixtures make this worse: when every diagnostic is on line 1,
+//! *any* divergence pairs by `(file, line, code)`.
+//!
+//! **The `1xxx` block is parser-owned and should be assumed to be the second
+//! kind until a baseline says otherwise.** Read the fixture before pricing.
+//!
+//! `docs/architecture/checker-notes-diag2.md` §233, §234, §235.
 
 use std::collections::BTreeMap;
 
@@ -58,6 +86,13 @@ fn main() {
     }
     let mut ranked: Vec<(u32, usize)> = by_code.into_iter().collect();
     ranked.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+    // §235 — split by producer, because the two halves have utterly different
+    // prices and the original single ranking invited reading all of it as cheap.
+    let parser: usize = ranked.iter().filter(|(c, _)| *c < 2000).map(|(_, n)| n).sum();
+    let checker: usize = ranked.iter().filter(|(c, _)| *c >= 2000).map(|(_, n)| n).sum();
+    println!("-- by producer --");
+    println!("  parser  (1xxx)  {parser:>4}   assume recovery divergence; read the fixture");
+    println!("  checker (2xxx+) {checker:>4}   a span lookup is plausible here\n");
     println!("-- by code --");
     for (code, n) in ranked.iter().take(25) {
         println!("  TS{code:<6} {n:>4}");
