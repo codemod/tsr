@@ -26760,3 +26760,40 @@ so `type_only_alias_declaration` is concluding type-only somewhere in a chain
 that contains no `export type` at all. That is a different mechanism from this
 section's and it predates it; it is not fixed here and it is not swept under the
 rug. `tsc` reports nothing on that package.
+
+## §502 — both of §501's unbuilt siblings have **zero** blocked cases
+
+§501 audited the four pairs this session shipped apart and named two with an
+unbuilt arm. Checked, before building either:
+
+```
+the `super` switch, arm three   TS2335 / TS2336 / TS2338   0 blocked
+the constructor, root-level arm TS2401                     0 blocked
+```
+
+**Neither converts anything.** §293's filter — a code with no sole-obstacle case
+converts nothing however correct the rule — declines both, and the check cost
+one `grep` against a table already on disk.
+
+> **Recording the unbuilt sibling is worth doing even when the sibling is
+> worthless.** §501's discipline was *say which arm you did not port*, and the
+> immediate payoff is not a build — it is that this check was *possible*. Two
+> arms named in one note, two greps, two rejections, and the pairs are now
+> closed rather than open-ended.
+>
+> **An audit that ends in two rejections has done its job.** The alternative —
+> leaving them unnamed — is not a smaller cost, it is an unmeasurable one: the
+> next session would have re-derived both arms from upstream before discovering
+> the corpus does not exercise them.
+
+### The four pairs, closed
+
+```
+§392 TS2331 ⇄ §500 TS2465   both built
+§472 TS1268 ⇄ §496 TS1021   both built
+§468 TS2466 ⇄ §482 TS2337   arm three: 0 cases — closed
+§470 TS2376 ⇄ §485 TS2377   root-level arm: 0 cases — closed
+```
+
+All four are now either complete or complete-for-the-corpus, which is the
+honest form of "done" this suite can express.
