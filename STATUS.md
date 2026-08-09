@@ -449,8 +449,18 @@ rule and the refusals. **`checker_types` is byte-identical across all of them**:
 The suite's board is now `diaggap.rs`'s single-code column, re-run after every
 rule because rows *grow* as rules land (a case blocked on two codes becomes a
 case blocked on one). At **611** passing: TS2322 433, TS2339 133, TS2345 85,
-TS2304 81, TS6133 80, TS2454 60, TS2564 35 — **TS2339 is refused with its
-number**, §5.
+TS2304 81, TS6133 80, TS2454 60, TS2564 35 — ~~**TS2339 is refused with its
+number**, §5.~~
+
+> **CORRECTED, fifteenth session.** That refusal was **retired** by the
+> completeness walk (see the `~` row further down: *"TS2339 — §9's refusal
+> retired"*, +12), and this sentence was left behind. It matters because it was
+> read as current and acted on: a real-repository run reported 5,396 TS2339s and
+> this line was cited as the explanation — *the rule over-reports, as recorded*.
+> It does not. Every one of those diagnostics was correct; the namespace type
+> handed to it was empty because `export *` did not populate module exports
+> (`Checker::get_export_from_star`, fifteenth session). **A stale refusal is
+> worse than no note: it supplies a ready explanation and stops the search.**
 
 **The metric a diagnostic rule is scored on is not its conversions.** A case
 carrying a spurious diagnostic can never pass however many rules land later, so

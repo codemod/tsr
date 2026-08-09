@@ -918,11 +918,11 @@ impl<'a> Checker<'a, '_> {
     ///   combine a value symbol with a type symbol
     ///   (`combineValueAndTypeSymbols`). Both are real machinery; this answers
     ///   `None` when `exports` holds `export=`, so nothing is guessed.
-    /// - **`export *` re-exports.** `getExportOfModule` reads
-    ///   `getExportsOfSymbol` (`checker.go:15920`), which resolves star exports
-    ///   through `getExportsOfModuleWorker` (`checker.go:16148`). This reads the
-    ///   binder's `exports` table directly, so a name that arrives only through
-    ///   `export * from "./n"` is not found.
+    /// - ~~**`export *` re-exports.**~~ **Ported** — see
+    ///   [`Checker::get_export_from_star`]. The refusal was accurate when it was
+    ///   written: the binder collected no `__export` symbol at all, so the
+    ///   information the checker needed did not exist. Both halves landed
+    ///   together.
     /// - **A shorthand ambient module** (`isShorthandAmbientModuleSymbol`,
     ///   `internal/checker/utilities.go:198`), which upstream answers with the
     ///   module symbol itself. Unreachable here: ambient modules are

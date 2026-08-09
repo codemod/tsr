@@ -1048,8 +1048,10 @@ corpus measurement of any kind this cycle. So the correction stands, and
 **B is the more direct bucket and A is the proxy**, which by
 `docs/conventions.md`'s own rule — *pre-register on the most direct bucket your
 instrument produces* — argues for B. But B's mock resolves forms this arm
-**declines** (`export =`, `export *`, ambient modules, string-literal export
-names), so it is an upper bound on what this arm can do; the 0.85 is the
+**declines** (`export =`, ~~`export *`~~, ambient modules, string-literal export
+names — **`export *` no longer declines**, see
+`Checker::get_export_from_star`), so it is an upper bound on what this arm can
+do; the 0.85 is the
 correction for that and it is a guess, labelled as one, exactly as leg 2 was.
 
 **Revised: 300 lines, range 246–366** — the bracket the two methods span, point
