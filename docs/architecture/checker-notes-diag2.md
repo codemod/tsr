@@ -19896,3 +19896,95 @@ converts nothing by construction, however many lines it carries. Recording it
 because 86 lines looks like a row until the second number is read — and
 `diagnode` is the first instrument that shows line counts prominently enough to
 make that mistake available.
+
+## §337 — TS2403: `any` is a singleton too
+
+`diagslice` puts TS2403 at 30 blocked cases, 16 single-line, `occupied 0/84` —
+the cleanest deepening row left. The rule exists (§257, §258); it under-fires.
+
+`duplicateVariablesWithAny` states the whole finding in its own comment:
+
+```ts
+// They should have to be the same even when one of the types is 'any'
+var x: any;
+var x = 2;    // error
+var y = "";
+var y;        // error
+var z: any;
+var z;        // ok
+```
+
+§257 bounded the rule to the intrinsic primitives because identity cannot be
+approximated by `TypeId` equality — two structurally identical types with
+different ids would compare unequal and report where upstream is silent. The
+argument was *singletons in `Intrinsics` compare by identity with no interning
+assumption*, and it enumerated four: `string`, `number`, `bigint`, `boolean`.
+
+**`any` is a singleton in exactly the same sense and was simply not listed.**
+`isTypeIdenticalTo(any, number)` is false, and `var z` — `any` against `any` —
+is already handled by the `first == next` early return, which is why the fixture
+marks that line `ok`.
+
+The one thing that could have made this unsound is an error type wearing `any`'s
+id: a declaration whose annotation failed to resolve would then report TS2403
+spuriously. `Intrinsics` has **`error` as a separate field from `any`**
+(`intrinsics.rs:39,43`), so a failed resolution is not in the decidable set at
+all.
+
+### The bar
+
+```
+bar:  +3 cases of 30,  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **`var z: any; var z;` reports.** Identical types, caught by `first == next`.
+2. **A declaration with an unresolvable annotation reports.** That is `error`,
+   not `any`.
+
+## §338 — §337 measured **−3** and is reverted
+
+```
+diagnostics   1,851 → 1,848   (bar was +3;  −3)
+```
+
+Reverted whole. The singleton argument is sound and the conclusion is still
+wrong, which is worth more than the three cases.
+
+> **`any` is a singleton *type* but not a singleton *conclusion*.**
+
+§257's reasoning was: these ids are interned singletons, so `a != b` is
+identity-false with certainty. That holds for `string`/`number`/`bigint`/
+`boolean`, whose id is only ever produced by *actually being* that type. It does
+not hold for `any`, because `get_widened_type_for_variable_like_declaration`
+also returns `any` **wherever this port cannot compute a better answer** — an
+unannotated declaration typed from context upstream, a shape not yet ported, a
+widening that bottoms out. Those are "unknown", not "`any`".
+
+So the guard `is_decidable_primitive` was never really testing *is this type a
+primitive*; it was testing *did this port compute a real answer*. `any` passes
+the first test and fails the second, and the four original members happened to
+satisfy both. The `error` singleton I checked for is the *declared* failure
+channel; this is the undeclared one, and it is much wider.
+
+### The falsifier that would have caught it before the measurement
+
+Not the two I registered — both were about soundness of identity, and identity
+was never the problem. The one that would have worked:
+
+> Count how many declarations in the corpus this port types as `any`, and
+> compare against how many upstream's baselines treat as `any`. A large excess
+> means the id is carrying "unknown" traffic and cannot be read as a type.
+
+That probe generalises: **before treating a type id as evidence, ask whether the
+code that produces it has any other reason to produce it.** It applies to
+`unknown`, to `never` (the empty-union bottom), and to every `Option::None`
+short-circuit in a rule that reports on the `Some` side.
+
+### What this leaves
+
+TS2403's remaining 30 cases need real identity, which is §257's original
+refusal and stands. **Owner: the identity relation, absent from
+`relater.rs`'s `Relation` enum** (which has `Assignable`, `Subtype`,
+`StrictSubtype` — no `Identity`).
