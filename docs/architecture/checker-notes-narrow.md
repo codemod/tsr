@@ -3851,3 +3851,25 @@ consumer road, and (b) narrowing shapes `narrow_type` declines
 (instanceof-false, `in`-negative, custom guards through aliases) —
 each an owned follow-up, none a defect of the admission. Falsifier
 (c) held: multi-return and implicit-return functions byte-identical.
+
+## §102 — within-print byText renames [claimed: checker-1]
+
+The §20.1 double-refusal's print-context study, paid at last by
+mechanism found in the baselines: inside ONE multi-signature
+type-literal print, two DISTINCT type parameters spelling `T` rename
+the LATER one `T_1` (`underscoreTest1`'s
+`{ <T>(list: T[], ...): boolean; <T_1>(list: Dictionary<T_1>, ...) }`,
+100 want-lines) — upstream's `typeParameterToName` byText set
+(`nodebuilderimpl.go:1420`) scoped to the builder context, which the
+baseline writer resets per assertion. **Mechanism:** §99's composite
+renderer threads a claimed-names set across the signatures of one
+render; a later signature whose own parameter collides re-renders
+through the §90.1 print-only clone at the first free `name_n`.
+**Bar:** ≥50 of underscoreTest1's 100 at ≥10:1. Falsifiers: (a) the
+two flipped-order wants (`<T_1>` on the FIRST overload) say claim
+order is site-dependent — naive first-claims converts at most one of
+each flipped pair and MUST NOT regress the other (both wrong today);
+(b) single-signature prints stay untouched (the §90.1 promise trap);
+(c) same-symbol repeated Ts — if any corpus want keeps plain `T` on
+both overloads, the arm needs a distinct-declaration test before
+landing.
