@@ -473,3 +473,18 @@ consumption rule, the four-stage pipeline, arms (a)+(b) as the
 context side, instantiated-return substitution as the consumer.
 The +193-class and the 330-class are its twin acceptance sets —
 the build must convert BOTH.
+
+**The staging question's final answer: no smaller increment
+exists — the gates enforce it.** Steps 2+4's fields were drafted
+fields-first per the step-1 discipline and the dead-code warning
+refused them immediately: `priority` and `is_fixed` have no writer
+and no reader short of the pipeline itself (the consumption rule
+IS the reader; the prioritized writers ARE the pipeline's stages),
+so the -D warnings gate — correctly — will not carry them ahead of
+their unit. The summit build is therefore whole-or-nothing down to
+its struct fields, and this study's staging ladder is complete:
+step 1 (the collector) was the LAST separable piece and it is
+landed. Everything else in this owner ships as one build against
+the twin acceptance sets, or not at all. The next window that
+opens this document starts at the build, with nothing left to
+discover first.
