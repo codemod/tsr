@@ -5250,3 +5250,24 @@ reads a real member where this arm claims any. If it fires above
 the ratio, the candidate gate is unions with no shared
 literal-discriminant member; if that also fails, the class is
 narrowing-owned whole and the section records it.
+
+**§125 MEASURED AND REFUSED at 39:164 — the class is
+narrowing-owned WHOLE, and the number is the proof.** The
+per-constituent establishment arm measured +39 G→R against 164 G→W:
+typeGuardOfFormInstanceOfOnInterface 28, typeGuardOfFormIsType 28,
+typeGuardOfFormIsTypeOnInterfaces 28, discriminantElementAccessCheck
+20, assertionFunctionsCanNarrowByDiscriminant — every adverse case
+is a GUARDED read where upstream narrows the union before the
+lookup (instanceof, user-defined `is` predicates, assertion
+functions, discriminant element access) and reads the surviving
+constituent's REAL member. The pre-named fallback gate
+(no-shared-discriminant unions) cannot save it: the instanceof and
+is-type families are not discriminant-keyed. Reverted whole,
+byte-identical revert verified against the accepted baseline. DO
+NOT RE-DERIVE: the union-miss error-answer only becomes buildable
+AFTER the predicate-narrowing legs land (getTypePredicateFromBody,
+instanceof false-arm, assertion functions — the board's standing
+inferTypePredicates head); re-open §125 then, citing this pair.
+The member-miss seam closes at §124: rows 5/6 fell 2,384 → ~1,700
+this window, and every remaining concentration names narrowing or
+tsr-4qx as its owner.
