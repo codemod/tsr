@@ -1104,12 +1104,39 @@ pub fn program_for_case<'a>(
     arena: &'a tsr_core::Arena,
     case: &crate::TestCase,
 ) -> tsr_compiler::Program<'a> {
+    // The case's `tsconfig.json`, parsed once: §533 needs its options and §535
+    // needs its file list. `trace_case::compilation` reads both; this producer
+    // read neither.
+    let parsed_config = case
+        .files
+        .iter()
+        .find(|unit| crate::trace_case::config_name_from_file_name(&unit.name).is_some())
+        .map(|config| {
+            let config_file_name =
+                tsr_path::get_normalized_absolute_path(&config.name, CURRENT_DIRECTORY);
+            let config_fs =
+                crate::trace_case::build_file_system(&case.files, case, CURRENT_DIRECTORY, true);
+            tsr_tsoptions::parse_config_file(
+                &config_file_name,
+                &config.content,
+                tsr_path::get_directory_path(&config_file_name),
+                &config_fs,
+            )
+        });
+
     let mut files: Vec<(String, String)> = bundled_libs().to_vec();
     let mut roots = Vec::new();
     for unit in &case.files {
         let name = tsr_path::get_normalized_absolute_path(&unit.name, CURRENT_DIRECTORY);
         files.push((name.clone(), unit.content.clone()));
-        roots.push(name);
+        // **Roots are the config's file list, not every unit.** A case whose
+        // config names three of its five units compiled all five here, and the
+        // `tsconfig.json` was itself handed over as a program root. §535.
+        let is_config = crate::trace_case::config_name_from_file_name(&unit.name).is_some();
+        let listed = parsed_config.as_ref().is_none_or(|parsed| parsed.file_names.contains(&name));
+        if !is_config && listed {
+            roots.push(name);
+        }
     }
 
     // The `/.lib` test-library folder — `harnessutil.go:39` and the copy-in
@@ -1137,23 +1164,9 @@ pub fn program_for_case<'a>(
     // `@typescript/lib-*` relative to — was simply absent.
     // `trace_case::compilation` has had this branch all along.
     // `docs/architecture/checker-notes-diag2.md` §533.
-    let base = case
-        .files
-        .iter()
-        .find(|unit| crate::trace_case::config_name_from_file_name(&unit.name).is_some())
-        .map_or_else(tsr_core::CompilerOptions::default, |config| {
-            let config_file_name =
-                tsr_path::get_normalized_absolute_path(&config.name, CURRENT_DIRECTORY);
-            let config_fs =
-                crate::trace_case::build_file_system(&case.files, case, CURRENT_DIRECTORY, true);
-            tsr_tsoptions::parse_config_file(
-                &config_file_name,
-                &config.content,
-                tsr_path::get_directory_path(&config_file_name),
-                &config_fs,
-            )
-            .compiler_options
-        });
+    let base = parsed_config
+        .as_ref()
+        .map_or_else(tsr_core::CompilerOptions::default, |config| config.compiler_options.clone());
     let options = crate::trace_case::apply_test_directives(base, case, CURRENT_DIRECTORY);
     // §118 (`checker-notes-narrow.md`): the case's `@symlink` links, normalized
     // exactly as `trace_case::build_file_system` normalizes them. The VFS and

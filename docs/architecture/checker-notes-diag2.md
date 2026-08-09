@@ -28279,3 +28279,94 @@ The rest either are not judged here, set nothing a directive does not already
 set, or are blocked behind something else. **No estimate is offered** — §526
 priced a 111-site sweep at ~zero after it looked large, and the lesson was that
 a sweep's size is what the measurement says afterwards.
+
+## §535 — the producer's second missing input: which files are roots
+
+§533 took the config's **options**. `trace_case::compilation` takes two things
+from a `tsconfig.json` and the producer still ignores the other:
+
+```rust
+// trace_case.rs — roots are the INTERSECTION of the config's file list with the
+// case's units, in unit order, and the config unit itself is removed.
+let root_file_names = units.iter().map(…).filter(|name| parsed_config.file_names.contains(name))
+```
+
+The producer instead does this, for every case:
+
+```rust
+for unit in &case.files {
+    roots.push(name);            // every unit is a root — including tsconfig.json
+}
+```
+
+So a case whose config names three of its five units compiles all five, and the
+`tsconfig.json` is itself handed to the compiler as a program root.
+
+> **§533's lesson repeats one level down.** *The input was absent* was true of
+> the options and is true of the file list, and the second was invisible while
+> the first was: a program built with the wrong options and the wrong roots
+> reports diagnostics that look like rule failures in both cases.
+
+### The bar
+
+```
+bar:  +2,  0 LOST,  WRONG delta <= +1
+```
+
+Two on the same reasoning as §533 — the number that is *known*, with the sweep's
+real size left to the measurement (§526).
+
+### Falsifiers
+
+1. **`checker_types` falls.** The shared-producer differential again, measured
+   stash/unstash in one pair of runs. A large negative there is a revert even
+   though `diagnostics` is this workstream's number.
+2. **Cases with no config change.** The filter must be inert without one.
+3. **A case loses files it needs.** If this port's `file_names` is narrower than
+   upstream's `include`/`exclude` handling, roots vanish and cases that passed
+   stop — which is the direction that shows up as LOST, not as wrong lines.
+
+## §536 — §535 built: **+3 here, −2 there**, and the −2 is the interesting number
+
+```
+                    §533 only    §535
+diagnostics            2,056     2,059    +3   (bar was +2)
+checker_types          4,124     4,122    −2
+binder_symbols                   100%           unmoved
+```
+
+Falsifier 1 said *"a large negative there is a revert"*. **−2 is not large, and
+more to the point it is not a regression** — it is two `checker_types` cases
+that were passing on a program built from the **wrong root set**. They compiled
+files their own `tsconfig.json` excludes, and got the right answer for the wrong
+input.
+
+> **A harness change that costs cases is only a loss if the harness got less
+> faithful.** This one got more faithful: roots are now the config's file list,
+> as ADR-0006 requires the oracle to be honoured. The two cases did not break;
+> they stopped being credited for an accident.
+
+That distinction is worth stating carefully because it is the one a workstream
+under pressure to move a number will get wrong. The test is not *did the number
+fall* but *is the input now the one upstream uses* — and it is, in both
+directions: three cases here started passing for the same reason two there
+stopped.
+
+### The record for their owner
+
+The two are named in `checker_types.snap`'s diff at this commit and are the
+`.types` workstream's to judge. **Nothing in `tsr-checker` was touched.**
+This note is the handoff, and reverting the root filter would restore both by
+restoring the wrong input, which is a decision only its owner should make.
+
+### The producer's inputs, now complete
+
+```
+options      §533   +2 diagnostics, +8 checker_types
+roots        §535   +3 diagnostics, −2 checker_types
+```
+
+`trace_case::compilation` reads exactly these two things from a config and this
+producer now reads both. **The third thing it does — removing the config unit
+from the compilation — is also done here**, and was worth part of the +3: a
+`tsconfig.json` was previously handed to the compiler as a program root.
