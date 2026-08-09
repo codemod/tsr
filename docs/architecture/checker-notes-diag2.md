@@ -18939,3 +18939,98 @@ knows and a `return`/`throw` scan does not.
 (`checker.go:3739`), which is reachability, not the presence of a `return`. The
 type-based annotation guard is correct and is recorded here for whoever builds
 it properly; the `.js` decline is a second, separate omission.
+
+## §313 — TS2335, revisited with the machinery §307 built
+
+§226 refused this row:
+
+> "It sits at `checker.go:7924`, deep inside `checkSuperExpression`, **after**
+> arms that report two *other* `super` messages. Porting the last arm alone
+> reports TS2335 everywhere upstream reports one of the earlier ones."
+
+That was right then. Reading the whole function now — with the class/constructor
+walk §307 built — every earlier arm turns out to be **decidable from the tree**:
+
+```go
+if container == nil || !isLegalUsageOfSuperExpression() {
+    switch {
+    case inside a ComputedPropertyName:                 X_super_cannot_be_referenced_in_a_computed_property_name
+    case isCallExpression:                              Super_calls_are_not_permitted_outside_constructors…
+    case container.Parent is not class-like/objlit:      X_super_can_only_be_referenced_in_members_of_derived_classes…
+    default:                                            X_super_property_access_is_permitted_only_in_a_constructor…
+    }
+    return
+}
+if container.Parent.Kind == KindObjectLiteralExpression { return anyType }
+if GetExtendsHeritageClauseElement(classLikeDeclaration) == nil {
+    c.error(node, X_super_can_only_be_referenced_in_a_derived_class)      // TS2335
+```
+
+`isLegalUsageOfSuperExpression` is a **node-kind list**. The computed-property
+test is an ancestor walk stopping at the container. Both are syntax.
+
+So this is §228's shape — *a fallback is portable exactly when its siblings'
+conditions are computable, even if the siblings' messages are not* — and §226
+declined it only because those conditions had not been read.
+
+> **A refusal is a claim about what is knowable *now*, and §307's constructor
+> walk changed what was knowable.** Nothing about TS2335 moved; the port did.
+
+### The bar
+
+```
+bar:  +4 cases of 8,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **`super` in a derived class reports.** The extends clause is the whole gate.
+2. **`super` in an object-literal method reports.** Upstream returns `any` there
+   without an error.
+3. **`super` in a computed property name reports TS2335** rather than declining
+   to its own code.
+
+## §314 — §313 built: +8 of a ceiling of 8, `WRONG 0`, and the board crosses 33%
+
+```
+one legality list     diagnostics 1,807 → 1,815   CONVERTS 8 · RIGHT 13 · WRONG 7
+call/access split                   → 1,815   CONVERTS 8 · RIGHT 13 · WRONG 0
+every other suite unmoved — falsifiers 1, 2 and 3 negative
+```
+
+Twice the bar, the whole row, and **§226's refusal reversed**.
+
+### `isLegalUsageOfSuperExpression` is two lists, not one
+
+```go
+if isCallExpression {
+    return NodeKindIs(container, MethodDeclaration, MethodSignature, GetAccessor,
+                      SetAccessor, PropertyDeclaration, ClassStaticBlockDeclaration)
+}
+return NodeKindIs(container, MethodDeclaration, MethodSignature, GetAccessor,
+                  SetAccessor, PropertyDeclaration, PropertySignature, Constructor)
+```
+
+Two `return`s, four lines apart, differing by two kinds — and the difference is
+the rule: **a `super()` call is legal only in a constructor**, so a `super()` in
+a method is `Super_calls_are_not_permitted_outside_constructors` (TS2337), not
+TS2335. `errorSuperCalls` is seven lines of exactly that, and its baseline shows
+the split plainly: line 4 is TS2335 in a constructor, lines 9 through 38 are
+TS2337 in methods.
+
+> **Two adjacent `return`s with near-identical lists are a distinction, not a
+> repetition.** §288 met the same shape in `isOptionalDeclaration` versus
+> `isOptionalParameter` — two functions four lines apart with opposite answers
+> for the case that mattered. Collapsing either pair reads as tidying and is a
+> silent behaviour change.
+
+### What reversed §226
+
+§226 was correct when written: *"porting the last arm alone reports TS2335
+everywhere upstream reports one of the earlier ones"*. Reading the whole
+function now shows every earlier arm is a **node-kind list or an ancestor
+walk** — syntax — so their conditions can be evaluated and their messages
+declined. §228's rule, applied to a refusal a hundred sections old.
+
+**A refusal is a claim about what is knowable now.** §307's constructor walk and
+§313's reading changed that, and nothing about TS2335 moved.

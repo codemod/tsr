@@ -496,6 +496,7 @@ impl Checker<'_, '_> {
         self.check_grammar_heritage_clauses(typed);
         self.check_override_kind(node, typed);
         self.check_this_before_super(node);
+        self.check_super_in_derived_class(node);
         if matches!(typed, Node::GetAccessorDeclaration(_) | Node::SetAccessorDeclaration(_)) {
             self.check_grammar_accessor(node, typed);
         }
@@ -3334,6 +3335,81 @@ impl Checker<'_, '_> {
                 ),
             );
         }
+    }
+
+    /// TS2335 — `'super' can only be referenced in a derived class.`
+    ///
+    /// `checkSuperExpression`'s extends test (`checker.go:7922`). §226 refused
+    /// this because four arms report *other* `super` messages before it; every
+    /// one of those is a node-kind list or an ancestor walk, so their conditions
+    /// are evaluated here and their messages declined — §228's shape. §313.
+    fn check_super_in_derived_class(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        if self.nodes.kind(node) != SyntaxKind::SuperKeyword {
+            return;
+        }
+        let Some(container) =
+            self.nodes.ancestors(node).find(|&it| self.is_function_like_or_static_block(it))
+        else {
+            // `container == nil` — an earlier arm's message.
+            return;
+        };
+        // **A super _call_ is legal only in a constructor.**
+        // `isLegalUsageOfSuperExpression` has two lists and picks by
+        // `isCallExpression` (`checker.go:7880`, `:7882`); a `super()` in a
+        // method is `Super_calls_are_not_permitted_outside_constructors`
+        // (TS2337), not this code. `errorSuperCalls` was seven wrong lines
+        // without the split. §314.
+        let is_call =
+            self.nodes.parent(node).and_then(|parent| self.node_map.get(parent)).is_some_and(
+                |typed| {
+                    matches!(typed, Node::CallExpression(call)
+                    if call.expression.and_then(|e| e.node_id()) == Some(node))
+                },
+            );
+        if is_call {
+            if self.nodes.kind(container) != SyntaxKind::Constructor {
+                return;
+            }
+        } else if !matches!(
+            self.nodes.kind(container),
+            SyntaxKind::MethodDeclaration
+                | SyntaxKind::MethodSignature
+                | SyntaxKind::GetAccessor
+                | SyntaxKind::SetAccessor
+                | SyntaxKind::PropertyDeclaration
+                | SyntaxKind::PropertySignature
+                | SyntaxKind::Constructor
+                | SyntaxKind::ClassStaticBlockDeclaration
+        ) {
+            return;
+        }
+        // `super` inside a computed property name is TS2466, and the walk stops
+        // at the container exactly as upstream's `FindAncestorOrQuit` does.
+        if self
+            .nodes
+            .ancestors(node)
+            .take_while(|&it| it != container)
+            .any(|it| self.nodes.kind(it) == SyntaxKind::ComputedPropertyName)
+        {
+            return;
+        }
+        let Some(parent) = self.nodes.parent(container) else { return };
+        // An object-literal method's `super` is `any` upstream, with no error.
+        let clauses = match self.node_map.get(parent) {
+            Some(Node::ClassDeclaration(class)) => class.heritage_clauses,
+            Some(Node::ClassExpression(class)) => class.heritage_clauses,
+            _ => return,
+        };
+        if clauses.iter().any(|clause| clause.token.kind == SyntaxKind::ExtendsKeyword) {
+            return;
+        }
+        self.report_grammar_at(
+            Some(node),
+            &messages::SUPER_CAN_ONLY_BE_REFERENCED_IN_A_DERIVED_CLASS,
+        );
     }
 
     /// TS17009 — `'super' must be called before accessing 'this' in the
