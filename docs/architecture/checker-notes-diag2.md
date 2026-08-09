@@ -18591,3 +18591,42 @@ producer".
 That is the second instrument this session to fail its first real use (§293's
 `occupied` was the first), and the difference between them is that `occupied`
 was validated and reported honestly, while this one was believed.
+
+## §305 — correcting §304's owner: the array type node does build the reference
+
+§304 attributed §303's `+0` to the element hop:
+
+> "`array_spread_element_type` … is keyed on `type_reference_targets` naming the
+> **global `Array`** symbol. An array *type node* — `T[]` — does not produce
+> that entry."
+
+**It does.** `get_type_from_array_type_node` (`declared.rs:882`) ends:
+
+```rust
+let target = if readonly { "ReadonlyArray" } else { "Array" };
+let Some(target) = self.global_type_symbol(target) else { return error };
+self.create_type_reference(target, vec![element])
+```
+
+so the entry is populated and the lookup would have answered. The owner named in
+§304 is withdrawn, and **no replacement is offered**: why the arm reported
+nothing is not established.
+
+> **"Zero movement is the proof" was the error.** §304 reasoned that if the hop
+> had resolved, the rule would have converted or produced wrong lines — and
+> concluded the hop was the culprit. That inference is only valid once every
+> *other* way the arm can decline has been ruled out, and `check_excess_properties`
+> has four of its own early returns. A `+0` says something declined; it does not
+> say which thing.
+
+Three attributions in this build's neighbourhood — §303's row selection, §304's
+owner, and this — and the pattern is the same each time: a plausible mechanism
+adopted without a probe that would separate it from its neighbours. §229 fixed
+this once by writing the disproving probe in the same breath as the candidate;
+that discipline lapsed here because the arm was small and the reasoning felt
+tight.
+
+**Recorded as open**: TS2353's 33 sole-obstacle cases, the assertion arm
+measured at `+0`, and the reason unattributed. The next attempt should
+instrument `check_excess_properties`' four returns before touching the call
+sites.
