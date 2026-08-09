@@ -1843,6 +1843,12 @@ impl<'a> Checker<'a, '_> {
                 }
             }
         }
+        if std::env::var("TSR_CTX_DEBUG").is_ok() {
+            eprintln!(
+                "DISCRIM: {} discriminators, eliminated_any={eliminated_any}, include={include:?}",
+                discriminators.len()
+            );
+        }
         if !eliminated_any {
             return t;
         }
