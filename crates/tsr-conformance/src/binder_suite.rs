@@ -183,7 +183,12 @@ impl Suite for BinderSymbols {
             let unit_total =
                 parsed.files.iter().filter(|unit| unit.name == expected_file.file).count();
             let occurrence =
-                if section_totals.get(expected_file.file.as_str()) == Some(&1) && unit_total > 1 {
+                if unit_total > 1 {
+                    // Even with several sections, each one's `Decl` positions
+                    // are the LAST unit's (`autoAccessorNoUseDefineForClassFields`
+                    // prints `Decl(file3.ts, 0, 10)` under both): tsgo compiles
+                    // last-wins and stamps every section with the winner.
+                    let _ = section_totals.get(expected_file.file.as_str());
                     unit_total
                 } else {
                     occurrence
