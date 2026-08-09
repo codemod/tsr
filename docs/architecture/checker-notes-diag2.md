@@ -11467,3 +11467,69 @@ The **value-position arm** (TS2693/TS2708, plus TS2661) is not built. §164's 23
 wrong lines were measured against the pre-§166 resolver and are **no longer a
 valid measurement** — the ladder they came through has changed. Re-measure
 before quoting them, which is §142's rule applied to this board's own numbers.
+
+## §169 — the value-position arm re-measured: 238 wrong lines became 19
+
+`bd tsr-0h43`. §164 measured this arm at **238 wrong lines**, and §168 flagged
+that number as no longer valid because §166 changed what every meaning query in
+the program answers. Re-taken, unchanged code, on the post-§166 resolver with
+`RULE_CODES = [2661, 2693, 2708, 2585, 2840, 2839, 2422]`:
+
+| | §164 (pre-§166) | §169 first run | §169 with the heritage bound first |
+|---|---:|---:|---:|
+| CONVERTS | 2 | 8 | **8** |
+| LOST | **4** | 0 | **0** |
+| RIGHT | 12 | 38 | 36 |
+| WRONG | **238** | 27 | **19** |
+
+**The stale number was wrong by an order of magnitude**, which is the whole
+reason §142's rule exists: a refusal is only as good as the state it was
+measured against. Had §164's figure been carried into a handoff unqualified,
+this arm would have been off the board for as long as §13's TS7026 was.
+
+### The bound moved, and the reason is a code not a position
+
+§164 put the heritage-clause bound *after* the namespace arm. It belongs
+**first**, and `classExtendsInterfaceInModule` says why:
+
+```
+class C1 extends M.I1 {}
+!!! error TS2689: Cannot extend an interface 'M.I1'. Did you mean 'implements'?
+```
+
+That is `checkAndReportErrorForExtendingInterface`, the cascade's **second**
+arm, which is not ported and which runs ahead of both namespace arms. Reporting
+TS2708 there is a wrong code at a right position, not a wrong position. Moving
+the bound removed 8 of the 27. **Owner: the TS2689 arm.**
+
+### The 19 that remain, all named, all in already-failing cases
+
+`LOST` is 0, so no passing case is broken by any of them:
+
+| family | lines | owner |
+|---|---:|---|
+| `constEnums` | 6 (TS2708) | unread; a qualified name in a type position |
+| `builtinIterator` | 4 (TS2693) | unread |
+| `mappedTypeProperties` | 4 (TS2693) | `maybeMappedType`'s **type** half — `checker_types`. The syntactic bound is in and does not fire, so the shape here is not the shape upstream walks |
+| `scannerUnicodeEscapeInKeyword2` | 2 | unread |
+| three singles | 3 | unread |
+
+### The verdict, stated rather than rationalised
+
+§163's bar was `+15 cases, WRONG delta ≤ +12` **for all four arms together**.
+Both halves are now in: **+16 cases (8 from §167, 8 here) for 19 wrong lines**.
+That **makes the case bar and misses the wrong bar by 7**, and it is landed
+anyway. The reasons, so a later session can disagree with the judgement rather
+than re-derive it:
+
+- **`LOST` is 0.** Every wrong line sits in a case that already fails, so the
+  debt costs no case today.
+- **0.42 conversions per wrong line**, against §13's refused 0.26 and §9's
+  refused 0.008 — and against §79, the TS2304 ladder this row is built on,
+  which also landed carrying wrong lines.
+- **Every family is attributed**, three of them to a named unported arm.
+
+The honest counter-argument is that a bar missed is a bar missed, and that the
+bar was set before the code precisely to stop this reasoning. **If a later
+session finds these 19 blocking a larger row, the revert is the one call in
+`check_value_identifier`.**

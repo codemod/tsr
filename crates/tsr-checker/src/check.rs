@@ -903,6 +903,15 @@ impl Checker<'_, '_> {
         // gives an import-equals its own `ALIAS` symbol and none of the other
         // three meanings, which made `typeofAnExportedType` §79's only new
         // wrong line.
+        // §169: re-measured against the post-§166 resolver.
+        if self.report_meaning_mismatch_in_value_position(node, text) {
+            return;
+        }
+        // §169: the value-position half of `onFailedToResolveSymbol`'s cascade,
+        // re-measured against the post-§166 resolver.
+        if self.report_meaning_mismatch_in_value_position(node, text) {
+            return;
+        }
         if [SymbolFlags::TYPE, SymbolFlags::NAMESPACE, SymbolFlags::ALIAS].into_iter().any(
             |meaning| {
                 self.binder.resolve_name(self.nodes, self.node_map, node, text, meaning).is_some()
