@@ -4566,3 +4566,25 @@ there plus a tail. Must NOT move: non-const generic calls (the
 decline's lift is keyed on `is_const` exactly), §98's retention
 converts, §105's readonly population. Adverse over 1:5 re-instates
 the decline with the new measurement recorded beside §33's old 70.
+
+**§111 — REFUSED at 15:6 after three measured gates; the code is
+reverted whole.** The lift's iterations, each measured: (1)
+unrestricted — 19:49 (typeParameterConstModifiersReturnsAndYields
+40: non-literal arguments reach unmodelled inference arms); (2)
+literal-shape-gated arguments — 18:9; (3) plus unconstrained-T-only
+— **15:6 isolated**, still over the registered 1:5. The two
+mechanisms the residue named, each a prerequisite:
+  - CONSTRAINT-AWARE READONLY STRIPPING: `<const T extends
+    string[]>` infers the MUTABLE tuple (`["b", "c"]`, 0:11) —
+    upstream strips readonly per the constraint's own mutability.
+  - NON-BARE POSITIONS: `f({ x: [1, 'x'] })` against `{ x: T }`
+    infers through members the context arm never marks const, so
+    the inner literals widen and the now-answering call is
+    confidently wrong (0:103–109) — the lift must require every
+    parameter MENTIONING a const T to be bare, or the context arm
+    must reach nested positions.
+§33's decline stands with this second price beside its first (70
+G→W pre-readonly). DO NOT retry without both mechanisms; the
+readonly machinery alone was necessary but is now measured
+insufficient. The §103 head stays open with a sharper spec than it
+had this morning.
