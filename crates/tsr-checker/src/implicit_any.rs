@@ -124,9 +124,21 @@ impl Checker<'_, '_> {
             if declaration.r#type.is_some() || declaration.initializer.is_some() {
                 continue;
             }
-            // A binding pattern parameter reports TS7031 per element, which is
-            // its own row.
-            let Some(tsr_ast::BindingName::Identifier(name)) = declaration.name else { continue };
+            // A binding pattern parameter reports TS7031 **per element**, at
+            // the element's name rather than at the pattern —
+            // `function f1([a], {b})` wants columns 14 and 19, which are `a`
+            // and `b`. The same code from a *variable* declaration
+            // (`var [a, b] = [undefined, null]`) is triggered by the
+            // initialiser widening rather than by the syntax, and is a
+            // different owner. §373.
+            let name = match declaration.name {
+                Some(tsr_ast::BindingName::Identifier(name)) => name,
+                Some(tsr_ast::BindingName::BindingPattern(_)) if !ambient => {
+                    self.report_binding_pattern_elements(parameter);
+                    continue;
+                }
+                _ => continue,
+            };
             // `this` is not a parameter for this purpose — it has no symbol and
             // upstream's widening never reaches it.
             if name.text == "this" {
@@ -362,6 +374,50 @@ impl Checker<'_, '_> {
                 _ => None,
             })
             .unwrap_or(false)
+    }
+
+    /// One TS7031 per element of a parameter's binding pattern.
+    ///
+    /// `checkVariableLikeDeclaration`'s pattern arm — the error node is each
+    /// element's **name**, and a nested pattern recurses. An element with its
+    /// own initialiser is not implicitly `any`. §373.
+    fn report_binding_pattern_elements(&mut self, parameter: NodeId) {
+        let elements = match self.node_map.get(parameter) {
+            Some(Node::ParameterDeclaration(declaration)) => match declaration.name {
+                Some(tsr_ast::BindingName::BindingPattern(pattern)) => pattern.elements,
+                _ => return,
+            },
+            Some(Node::BindingElement(element)) => match element.name {
+                Some(tsr_ast::BindingName::BindingPattern(pattern)) => pattern.elements,
+                _ => return,
+            },
+            _ => return,
+        };
+        for element in elements {
+            let Some(id) = element.node_id else { continue };
+            if element.initializer.is_some() {
+                continue;
+            }
+            match element.name {
+                Some(tsr_ast::BindingName::Identifier(name)) => {
+                    let Some(name_id) = name.node_id else { continue };
+                    let Some(file) = self.source_file_of_for_diagnostics(name_id) else { continue };
+                    let span = self.error_span(name_id);
+                    self.report(
+                        file,
+                        Diagnostic::with_args(
+                            &messages::BINDING_ELEMENT_0_IMPLICITLY_HAS_AN_1_TYPE,
+                            span,
+                            [name.text.to_string(), "any".to_string()],
+                        ),
+                    );
+                }
+                Some(tsr_ast::BindingName::BindingPattern(_)) => {
+                    self.report_binding_pattern_elements(id);
+                }
+                None => {}
+            }
+        }
     }
 
     /// The parameter nodes of a declaration this rule admits.

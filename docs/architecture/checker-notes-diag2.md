@@ -21514,3 +21514,71 @@ second case wants an indirect cycle this deliberately declines.
 reverted, all with the mechanism recorded. The kept total is the number that
 matters, and so is the fact that four of five negatives came from assuming a
 guard's *reason* rather than reading it.
+
+## §373 — TS7031: binding elements of an untyped pattern parameter
+
+`implicit_any.rs:127` declines this in one line — *"A binding pattern parameter
+reports TS7031 per element, which is its own row"* — and the row has sat there
+since.
+
+```ts
+function f1([a], {b}, c, d) { }
+//           ^      ^  TS7031 on the ELEMENTS, not the patterns
+```
+
+`noImplicitAnyDestructuringParameterDeclaration` wants exactly those two lines
+and nothing else, so §371's judgement applies again: the rule is **complete and
+small** — a parameter whose name is a binding pattern and which carries no
+annotation reports once per element — and one rule supplies every line the case
+needs. `diagslice` reads *"no — needs the whole rule"*, correctly, and that is
+not a refusal when the whole rule is a loop over `elements`.
+
+### The half deliberately left out
+
+`wideningTuples5` is `var [a, b] = [undefined, null];` — the same code from a
+**variable declaration**, where the trigger is the initialiser widening to
+`any`. That needs the widening, not the syntax, and is a different owner.
+Recorded rather than attempted; the parameter arm is what this build claims.
+
+### The bar
+
+```
+bar:  +1 of 3,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **An annotated pattern parameter reports.** `function f([a]: number[])` has
+   a type and must stay silent — the existing `declaration.r#type.is_some()`
+   test already guards it and must keep applying.
+2. **A pattern parameter with an initialiser reports.** Same guard, same reason.
+
+## §374 — §373 built: **+1**, bar met
+
+```
+diagnostics   1,874 → 1,875   (bar was +1;  +1, 0 LOST)   34.17%
+every other suite unmoved — both falsifiers negative
+```
+
+Second consecutive build on a row `diagslice` labels *"no — needs the whole
+rule"*, and the second where that label was a description rather than a
+refusal. Both times the whole rule was a loop.
+
+> **§273's column tells you the case needs every line. It cannot tell you how
+> many lines the rule is.** That second number is in upstream's source and costs
+> one `grep` to read. Two builds (`§371 +1`, `§373 +1`) came out of rows that
+> had been sitting behind that label since it was introduced.
+
+Worth noting what did *not* happen: neither build widened a bound. §371 is a new
+four-line arm and §373 is a `match` arm plus a loop, both reporting where this
+port previously reported nothing — `claimed 6/530` and `13/357` respectively,
+which is `diagnode`'s column doing exactly the job §370 built it for.
+
+### A process note for the handoff
+
+An edit script asserted its second anchor and failed, so **nothing was written**
+— and the next script's clippy run reported `method is never used`, which is
+what surfaced the half-applied change. That is §283's failure mode caught by a
+different mechanism: §284 added `git diff --stat` to `measure` for exactly this,
+and here the dead-code lint got there first. Two independent detectors for
+"the edit did not land" is the right number.
