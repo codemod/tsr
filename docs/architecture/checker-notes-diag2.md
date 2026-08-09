@@ -18344,3 +18344,84 @@ yet; both filters came out of those failures.
 `parserWithStatement2.ts(2,3)` — a `return` inside a `with` block, which is the
 same fixture family §254 recorded for TS2304. Upstream resolves nothing inside
 `with` and this port has no `NodeFlagsInWithStatement`.
+
+## §298 — TS2481, a `var` shadowed by a block-scoped declaration
+
+Filtered as §296 was: TS2481 has 6 blocked cases, **one** upstream site
+(`checker.go:6015`), and no relation anywhere in it.
+
+`checkVariableLikeDeclaration`'s tail:
+
+```go
+if symbol.Flags&ast.SymbolFlagsFunctionScopedVariable != 0 {
+    localDeclarationSymbol := c.resolveName(node, name.Text(), ast.SymbolFlagsVariable, nil, false, false)
+    if localDeclarationSymbol != nil && localDeclarationSymbol != symbol &&
+       localDeclarationSymbol.Flags&ast.SymbolFlagsBlockScopedVariable != 0 {
+        if c.getDeclarationNodeFlagsFromSymbol(localDeclarationSymbol)&ast.NodeFlagsBlockScoped != 0 {
+            varDeclList := ast.FindAncestorKind(localDeclarationSymbol.ValueDeclaration, ast.KindVariableDeclarationList)
+            …
+            namesShareScope := container != nil && (ast.IsBlock(container) && ast.IsFunctionLike(container.Parent) ||
+                ast.IsModuleBlock(container) || ast.IsModuleDeclaration(container) || ast.IsSourceFile(container))
+            if !namesShareScope { … Cannot_initialize_outer_scoped_variable_0_in_the_same_scope_as_block_scoped_declaration_1 }
+```
+
+The comment upstream puts on `namesShareScope` is the rule: *"names of
+block-scoped and function scoped variables can collide only if the block scoped
+variable is defined in the function\\module\\source file scope (because of
+variable hoisting)"*. A `var` whose name resolves to a `let` **in a narrower
+block** is the error; one where both live in the same hoisting scope is a
+duplicate-identifier case and a different code.
+
+Every piece exists: `resolve_name`, `BLOCK_SCOPED_VARIABLE`,
+`NodeFlags::BLOCK_SCOPED`, and the ancestor walk.
+
+### The bar
+
+```
+bar:  +3 cases of 6,  0 LOST,  WRONG delta <= +2
+```
+
+`diagslice` says only 2 of the 6 are single-line, so a complete arm is needed —
+this ports the whole condition rather than a fragment.
+
+### Falsifiers
+
+1. **`function f() { var x; let x; }` reports.** Both are in the function's
+   hoisting scope; `namesShareScope` is true and upstream is silent.
+2. **A `var` with no shadowing `let` reports.** The resolve is the whole guard.
+
+## §299 — §298 built: +2, `WRONG 0`
+
+```
+diagnostics   1,784 → 1,786   (+2, bar was +3)
+CONVERTS 2 · LOST 0 · STILL SHORT 2 · RIGHT 8 · WRONG 0
+every other suite unmoved — falsifiers 1 and 2 negative
+```
+
+Under the bar by one, at zero wrong. `diagslice` said 2 of 6 blocked cases were
+single-line and **exactly those two converted** — the arm is complete and the
+other four want a second code as well.
+
+> **When a complete arm converts exactly the single-line count, the row is
+> finished and the residue is somebody else's.** §297's TS1108 converted 19
+> against a count of 5 because it also completed cases blocked on *two* things,
+> one of which it supplied. This one converted 2 against a count of 2 because
+> the other four want a code nothing here emits.
+
+Both are complete arms and they read oppositely against the same instrument.
+What separates them is whether the *other* blocking code is already ported —
+which `diagslice` does not track and `diaggap`'s "blocked on both" bucket
+does.
+
+### The four filters after §297
+
+| filter | source | this build |
+|---|---|---|
+| the code has blocked cases | §293 | 6 |
+| exactly one upstream site | §295 | `checker.go:6015` |
+| blocked cases single-line | §273 | 2 of 6 — a **complete** arm required |
+| is the other blocker ported? | **new, §299** | not checked; it is the residue |
+
+The fourth is the one this build discovered it was missing. `diaggap` already
+reports *blocked by both*, so the join exists; nothing has used it to price a
+row.

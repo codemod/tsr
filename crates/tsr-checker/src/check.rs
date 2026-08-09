@@ -326,6 +326,7 @@ impl Checker<'_, '_> {
                 ambient
             }
             Node::VariableDeclaration(declaration) => {
+                self.check_outer_scoped_variable(node);
                 self.check_ambient_initializer(
                     node,
                     declaration.initializer,
@@ -3255,6 +3256,99 @@ impl Checker<'_, '_> {
     /// be optional`), so the rest test is the arm's guard rather than a bound
     /// this port chose — §103's rule that the `else if` order is the
     /// specification. §180.
+    /// TS2481 — `Cannot initialize outer scoped variable '{0}' in the same
+    /// scope as block scoped declaration '{1}'.`
+    ///
+    /// `checkVariableLikeDeclaration`'s tail (`checker.go:5995`). Upstream's own
+    /// comment on `namesShareScope` is the rule: *names of block-scoped and
+    /// function-scoped variables can collide only if the block-scoped one is
+    /// defined in the function/module/source-file scope, because of hoisting*.
+    /// A `var` whose name resolves to a `let` in a **narrower block** is this
+    /// error; one where both share a hoisting scope is a duplicate identifier
+    /// and a different code. §298.
+    fn check_outer_scoped_variable(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let Some(Node::VariableDeclaration(declaration)) = self.node_map.get(node) else { return };
+        let Some(tsr_ast::BindingName::Identifier(name)) = declaration.name else { return };
+        let Some(symbol) = self.binder.symbol_of(node) else { return };
+        let symbol = self.binder.merged_symbol(symbol);
+        if !self
+            .binder
+            .symbols()
+            .get(symbol)
+            .flags
+            .intersects(SymbolFlags::FUNCTION_SCOPED_VARIABLE)
+        {
+            return;
+        }
+        let Some(local) = self.binder.resolve_name(
+            self.nodes,
+            self.node_map,
+            node,
+            name.text,
+            SymbolFlags::VARIABLE,
+        ) else {
+            return;
+        };
+        let local = self.binder.merged_symbol(local);
+        if local == symbol
+            || !self
+                .binder
+                .symbols()
+                .get(local)
+                .flags
+                .intersects(SymbolFlags::BLOCK_SCOPED_VARIABLE)
+        {
+            return;
+        }
+        let Some(value_declaration) = self.binder.symbols().get(local).value_declaration else {
+            return;
+        };
+        // `FindAncestorKind(…, KindVariableDeclarationList)`, then the
+        // statement's parent — the container the `let` actually lives in.
+        let Some(list) = self
+            .nodes
+            .ancestors(value_declaration)
+            .find(|&it| self.nodes.kind(it) == SyntaxKind::VariableDeclarationList)
+        else {
+            return;
+        };
+        if !self.nodes.flags(list).intersects(tsr_ast::NodeFlags::BLOCK_SCOPED) {
+            return;
+        }
+        let Some(statement) = self.nodes.parent(list) else { return };
+        if self.nodes.kind(statement) != SyntaxKind::VariableStatement {
+            return;
+        }
+        let Some(container) = self.nodes.parent(statement) else { return };
+        let names_share_scope = match self.nodes.kind(container) {
+            SyntaxKind::Block => self
+                .nodes
+                .parent(container)
+                .is_some_and(|owner| self.is_function_like_or_static_block(owner)),
+            SyntaxKind::ModuleBlock | SyntaxKind::ModuleDeclaration | SyntaxKind::SourceFile => {
+                true
+            }
+            _ => false,
+        };
+        if names_share_scope {
+            return;
+        }
+        let text = self.binder.symbols().get(local).name.to_string();
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let span = self.nodes.span(node);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::CANNOT_INITIALIZE_OUTER_SCOPED_VARIABLE_0_IN_THE_SAME_SCOPE_AS_BLOCK_SCOPED_DECLARATION_1,
+                span,
+                [text.clone(), text],
+            ),
+        );
+    }
+
     /// TS1108 — `A 'return' statement can only be used within a function body.`
     /// TS1107 — `A 'return' statement cannot be used inside a class static block.`
     ///
