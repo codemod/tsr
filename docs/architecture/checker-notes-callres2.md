@@ -323,3 +323,14 @@ forbid it. A struct landed WITHOUT the writer migration is dead
 code the clippy gate refuses — do not stage it separately (this
 window drafted exactly that and held it). Falsifier unchanged:
 step 1's full pair must be BYTE-IDENTICAL.
+
+**Step 1 — LANDED, byte-identical on the first pair.** The
+InferenceInfo collector replaces the flat pairs as the collection
+model (one push site migrated; the flattener carries the boundary
+with the cross-parameter-order prohibition in its doc), and the
+full pair read "no transitions vs baseline" at right 409,452
+exactly — the registered falsifier, passed first try because the
+execution note's two traps were recorded before the build. The
+foundation is live with zero semantic surface; steps 2-4
+(priorities, resolution under the bd tsr-eak question, fixing)
+build on it, each with its own pair.

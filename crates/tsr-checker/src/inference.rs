@@ -253,11 +253,12 @@ impl Checker<'_, '_> {
         // against its parameter's type, accumulating `(type parameter,
         // candidate)` pairs. See [`Checker::infer_from_types`] for which of
         // upstream's arms are ported and why the rest cannot be.
-        let mut candidates: Vec<(TypeId, TypeId)> = Vec::new();
+        let mut infos: Vec<InferenceInfo> = Vec::new();
         for (index, parameter) in signature.parameters.iter().enumerate() {
             let Some(&argument) = argument_types.get(index) else { continue };
-            self.infer_from_types(argument, parameter.r#type, &parameters, &mut candidates, 0);
+            self.infer_from_types(argument, parameter.r#type, &parameters, &mut infos, 0);
         }
+        let candidates: Vec<(TypeId, TypeId)> = flatten_infos(&infos);
         let mut map = Vec::with_capacity(parameters.len());
         for (position, &type_parameter) in parameters.iter().enumerate() {
             // `getCovariantInference` (`inference.go`) unions the candidates.
@@ -447,7 +448,7 @@ impl Checker<'_, '_> {
         source: TypeId,
         target: TypeId,
         parameters: &[TypeId],
-        out: &mut Vec<(TypeId, TypeId)>,
+        out: &mut Vec<InferenceInfo>,
         depth: usize,
     ) {
         // Not a stack guard: a recursive generic type
@@ -458,7 +459,7 @@ impl Checker<'_, '_> {
             return;
         }
         if parameters.contains(&target) {
-            out.push((target, source));
+            add_candidate(out, target, source);
             return;
         }
         let target_reference = self.type_reference_targets.get(&target).cloned();
@@ -1580,4 +1581,40 @@ mod tests {
         assert_eq!(generic_call_with_strictness(source, "f", true), "null");
         assert_eq!(generic_call_with_strictness(source, "f", false), "error");
     }
+}
+
+/// The InferenceInfo collector (checker-notes-callres2.md, the foundation
+/// design, step 1): per-parameter candidate lists as the COLLECTION model,
+/// flattened to the wire pairs at the boundary. Step 1 is
+/// behavior-identical — within-parameter order is preserved and the sole
+/// consumer scans per-parameter; a future consumer MUST NOT read
+/// cross-parameter order off the flattened list (it differs from the old
+/// interleaving; see the execution note in checker-notes-callres2.md).
+/// Priorities, contra lists, resolution, and fixing arrive as steps 2-4.
+#[derive(Clone, Debug)]
+pub(crate) struct InferenceInfo {
+    pub(crate) type_parameter: TypeId,
+    pub(crate) candidates: Vec<TypeId>,
+}
+
+pub(crate) fn add_candidate(
+    infos: &mut Vec<InferenceInfo>,
+    type_parameter: TypeId,
+    candidate: TypeId,
+) {
+    if let Some(info) = infos.iter_mut().find(|i| i.type_parameter == type_parameter) {
+        info.candidates.push(candidate);
+    } else {
+        infos.push(InferenceInfo { type_parameter, candidates: vec![candidate] });
+    }
+}
+
+pub(crate) fn flatten_infos(infos: &[InferenceInfo]) -> Vec<(TypeId, TypeId)> {
+    let mut out = Vec::new();
+    for info in infos {
+        for &candidate in &info.candidates {
+            out.push((info.type_parameter, candidate));
+        }
+    }
+    out
 }
