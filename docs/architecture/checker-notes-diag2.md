@@ -21095,3 +21095,51 @@ found none of these: the code exists, the datum exists, the resolution exists,
 and the report does not. The instrument that would rank this directly is §354's
 — *which decline site do blocked cases reach* — still unbuilt and still the
 best-specified next lead.
+
+## §363 — four rows priced and declined
+
+The checker-owned single-line rows §356's split surfaced, worked down. TS7016
+(§357) and TS2686 (§361) paid; these four do not, each for a reason that is a
+*missing algorithm* rather than a missing branch — the first batch this session
+where that is true, and the signal that this seam's cheap end is thinning.
+
+### TS2552 — 5 blocked. Owner: `getSpellingSuggestion`
+
+```ts
+const globals = { x: true }
+global.x        // TS2552 — "Cannot find name 'global'. Did you mean 'globals'?"
+```
+
+TS2552 *is* TS2304 with a suggestion attached, at the same position. Converting
+a case means emitting 2552 **exactly where upstream finds a suggestion and
+nowhere else**, so a partial port of `getSpellingSuggestionForName` trades 5
+cases against TS2304's **2,214 right lines** — every position where this port
+guesses "there is a suggestion" and upstream disagrees becomes a wrong line in
+a rule that currently works. Not a bound worth relaxing without the real
+algorithm.
+
+### TS7027 — 5 blocked. Owner: `typeof`-switch exhaustiveness
+
+```ts
+switch (typeof x) {        // x: any — all eight cases present
+    case 'string': return 0
+    …
+}
+                           // TS7027: unreachable
+```
+
+Reachability after the switch depends on the *narrowing* recognising that eight
+`typeof` cases exhaust `any`. That is `narrowTypeByTypeFacts` territory, not the
+reachability walk this port has.
+
+### TS2720, TS2693 — 4 and 5 blocked. Owner: the relation
+
+`Class 'X' incorrectly implements class 'Y'` and `'X' only refers to a type but
+is used as a value` both need the structural comparison, which is the other
+workstream's.
+
+> **A batch of declines that all name algorithms rather than branches is the
+> honest end of a seam.** §355's batch named *other crates* and was wrong about
+> the population (§356). This one names *missing machinery inside `tsr-checker`*
+> — which is what §362 predicted would be left once the "stopped one step before
+> the diagnostic" cases were taken.
