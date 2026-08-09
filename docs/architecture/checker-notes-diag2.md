@@ -18772,3 +18772,88 @@ and testing the text is sound *for this tree*. Whether the parser should build a
 
 That is the fourth time this session a probe of *this port's own tree* has
 answered a question that reading upstream could not (§166, §251, §306, this).
+
+## §309 — TS2610 / TS2611, property-versus-accessor overrides
+
+Off the validated scan. `checkKindsOfPropertyMemberOverrides`
+(`checker.go:4626`):
+
+```go
+overriddenInstanceProperty := basePropertyFlags != Property && derivedPropertyFlags == Property
+overriddenInstanceAccessor := basePropertyFlags == Property && derivedPropertyFlags != Property
+if overriddenInstanceProperty || overriddenInstanceAccessor {
+    errorMessage := IfElse(overriddenInstanceProperty,
+        X_0_is_defined_as_an_accessor_in_class_1_but_is_overridden_here_in_2_as_an_instance_property,   // TS2610
+        X_0_is_defined_as_a_property_in_class_1_but_is_overridden_here_in_2_as_an_accessor)             // TS2611
+```
+
+Upstream reaches it through `getPropertiesOfType(baseType)`, but the *condition*
+is about **declaration kinds**: a base member declared as a property and a
+derived member declared as an accessor, or the reverse. Both are visible in the
+tree once the base class's declaration is in hand, and `resolve_name` on the
+`extends` expression is what puts it there.
+
+### What is declined
+
+- **Private on either side** — upstream skips those outright, and so does this.
+- **The base being abstract or an interface** (`arePropertiesAbstractOrInterface`)
+  — flags need not match there. Declined by requiring the base to be a
+  **class declaration**.
+- **`useDefineForClassFields`'s uninitialised-property arm**, which is the
+  `else if` below and a different code. §264 recorded that option as one the
+  harness drops and nothing reads.
+- **More than one level of inheritance.** One hop only; a grandparent's member
+  declines.
+
+### The bar
+
+```
+bar:  +5 cases of 13,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **A property overriding a property reports.** Both kinds must differ.
+2. **A `static` member reports.** The rule is about instance members.
+3. **An `implements` clause is read as `extends`.** Only the extends clause.
+
+## §310 — §309 built: +10, `WRONG 0`, after one dedupe
+
+```
+per-declaration      diagnostics 1,797 → 1,801   CONVERTS 4 · RIGHT 13 · WRONG 6
+one report per name              → 1,807   CONVERTS 10 · RIGHT 13 · WRONG 0
+every other suite unmoved
+```
+
+Twice the bar, and the whole distance between the two measurements is one
+`Vec<&str>`.
+
+### A `get`/`set` pair is one symbol upstream and two declarations here
+
+`checkKindsOfPropertyMemberOverrides` walks `getPropertiesOfType(baseType)` and
+compares **symbols**. A `get x()` and a `set x(v)` are one symbol with two
+declarations, so upstream reports once. This port walks the class's *member
+list* and saw two.
+
+```
+accessorsOverrideProperty   upstream (5,9) and (12,9)
+                            this port also (13,9) — the `set` half of the pair
+```
+
+Every one of the six wrong lines was a second accessor.
+
+> **Iterating declarations where upstream iterates symbols produces exactly the
+> duplicates a merged symbol was hiding**, and the corpus shows it as wrong
+> lines at positions that look individually reasonable. §246 met the mirror
+> image — upstream *splitting* a symbol where this port merges — and both cost a
+> build to see.
+
+The dedupe also raised `CONVERTS` from 4 to 10: six cases wanted one line and
+were getting two, so removing the duplicate converted them outright. **A wrong
+line and a missing conversion were the same defect.**
+
+### The declines held
+
+Falsifiers 1–3 stayed negative: a property overriding a property, a `static`
+member, and an `implements` clause are all silent. The one-hop restriction and
+the abstract/interface decline are recorded in §309 and untested by this corpus.

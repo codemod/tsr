@@ -494,6 +494,7 @@ impl Checker<'_, '_> {
         // deleted by exactly that. §156.
         self.check_reserved_declaration_name(typed);
         self.check_grammar_heritage_clauses(typed);
+        self.check_override_kind(node, typed);
         self.check_this_before_super(node);
         if matches!(typed, Node::GetAccessorDeclaration(_) | Node::SetAccessorDeclaration(_)) {
             self.check_grammar_accessor(node, typed);
@@ -3257,6 +3258,84 @@ impl Checker<'_, '_> {
     /// be optional`), so the rest test is the arm's guard rather than a bound
     /// this port chose — §103's rule that the `else if` order is the
     /// specification. §180.
+    /// TS2610 / TS2611 — a member overridden as the *other* kind.
+    ///
+    /// `checkKindsOfPropertyMemberOverrides` (`checker.go:4626`). Upstream
+    /// reaches the pair through `getPropertiesOfType(baseType)`, but the
+    /// condition is about **declaration kinds** — a base property overridden by
+    /// a derived accessor, or the reverse — and both are in the tree once the
+    /// base class's declaration is resolved. §309.
+    fn check_override_kind(&mut self, node: NodeId, typed: Node<'_>) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let (clauses, members) = match typed {
+            Node::ClassDeclaration(class) => (class.heritage_clauses, class.members),
+            _ => return,
+        };
+        let Some(extends) =
+            clauses.iter().find(|clause| clause.token.kind == SyntaxKind::ExtendsKeyword)
+        else {
+            return;
+        };
+        let Some(base) = extends.types.first() else { return };
+        let Some(tsr_ast::Expression::Identifier(name)) = base.expression else { return };
+        let Some(at) = name.node_id else { return };
+        let Some(symbol) =
+            self.binder.resolve_name(self.nodes, self.node_map, at, name.text, SymbolFlags::CLASS)
+        else {
+            return;
+        };
+        let symbol = self.binder.merged_symbol(symbol);
+        let Some(declaration) = self.binder.symbols().get(symbol).value_declaration else { return };
+        let Some(Node::ClassDeclaration(base_class)) = self.node_map.get(declaration) else {
+            return;
+        };
+        let _ = node;
+        // **A `get`/`set` pair is one symbol upstream and two declarations
+        // here.** `accessorsOverrideProperty` wants one TS2611 per name and
+        // this reported one per accessor — six wrong lines, every one the
+        // second half of a pair. §310.
+        let mut reported: Vec<&str> = Vec::new();
+        for member in members {
+            let Some((derived_name, derived_kind, derived_at)) = class_member_shape(*member) else {
+                continue;
+            };
+            let Some((_, base_kind, _)) = base_class
+                .members
+                .iter()
+                .filter_map(|it| class_member_shape(*it))
+                .find(|(seen, _, _)| *seen == derived_name)
+            else {
+                continue;
+            };
+            let message = match (base_kind, derived_kind) {
+                (MemberKind::Property, MemberKind::Accessor) => {
+                    &messages::_0_IS_DEFINED_AS_A_PROPERTY_IN_CLASS_1_BUT_IS_OVERRIDDEN_HERE_IN_2_AS_AN_ACCESSOR
+                }
+                (MemberKind::Accessor, MemberKind::Property) => {
+                    &messages::_0_IS_DEFINED_AS_AN_ACCESSOR_IN_CLASS_1_BUT_IS_OVERRIDDEN_HERE_IN_2_AS_AN_INSTANCE_PROPERTY
+                }
+                _ => continue,
+            };
+            if reported.contains(&derived_name) {
+                continue;
+            }
+            reported.push(derived_name);
+            let Some(file) = self.source_file_of_for_diagnostics(derived_at) else { continue };
+            let span = self.nodes.span(derived_at);
+            let base_text = name.text.to_string();
+            self.report(
+                file,
+                Diagnostic::with_args(
+                    message,
+                    span,
+                    [derived_name.to_string(), base_text.clone(), base_text],
+                ),
+            );
+        }
+    }
+
     /// TS17009 — `'super' must be called before accessing 'this' in the
     /// constructor of a derived class.`
     ///
@@ -5672,6 +5751,45 @@ const NODE_CORE_MODULES: &[&str] = &[
 /// `BigInt` arms (`grammarchecks.go:1978`).
 /// Every declaration kind that carries modifiers, for the grammar checks that
 /// scan them rather than asking about one. §280.
+/// Whether a class member is a plain property or an accessor, for §309.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum MemberKind {
+    Property,
+    Accessor,
+}
+
+/// A class member's name, kind and name-node, skipping `static` and `private`
+/// members — upstream skips a private on either side outright, and the rule is
+/// about instance members.
+fn class_member_shape(member: tsr_ast::ClassElement<'_>) -> Option<(&str, MemberKind, NodeId)> {
+    let (name, kind, modifiers) = match member {
+        tsr_ast::ClassElement::PropertyDeclaration(p) => {
+            (p.name, MemberKind::Property, p.modifiers)
+        }
+        tsr_ast::ClassElement::GetAccessorDeclaration(a) => {
+            (a.name, MemberKind::Accessor, a.modifiers)
+        }
+        tsr_ast::ClassElement::SetAccessorDeclaration(a) => {
+            (a.name, MemberKind::Accessor, a.modifiers)
+        }
+        _ => return None,
+    };
+    if modifiers.iter().any(|modifier| {
+        matches!(
+            modifier,
+            tsr_ast::ModifierLike::Token(token)
+                if matches!(token.kind, SyntaxKind::StaticKeyword | SyntaxKind::PrivateKeyword)
+        )
+    }) {
+        return None;
+    }
+    let id = name.node_id()?;
+    match name {
+        tsr_ast::PropertyName::Identifier(identifier) => Some((identifier.text, kind, id)),
+        _ => None,
+    }
+}
+
 fn modifiers_of(typed: Node<'_>) -> Option<&[tsr_ast::ModifierLike<'_>]> {
     Some(match typed {
         Node::ClassDeclaration(n) => n.modifiers,
