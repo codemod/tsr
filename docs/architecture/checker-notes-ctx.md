@@ -629,3 +629,20 @@ page pre-registered "a flat gradient with an improved right/wrong split is the
 success case", which is a *correct and honest* thing to have written before
 measuring — and it is not what this prediction said. This prediction named
 120–200 lines. It got 22.
+
+## §113 — the contextual parameter road's next context: PARENTHESIZED function annotations [checker-2, bar]
+
+The calleegap sizing's named entry, claimed for the next window.
+parenthesizedContexualTyping2's shapes: a function-typed parameter
+annotation wrapped in PARENS (`x: (<T>(p: T) => T)`) fails to
+supply the contextual parameter type — the §56-family road reads
+the annotation node and a ParenthesizedTypeNode layer defeats it
+(GAP `(x: <T>(p: T) => T) => …` whole, WRONG `any` for the inner
+callback's own print). The suspected one-arm fix: unwrap
+ParenthesizedTypeNode layers wherever the road reads a written
+function-type annotation — upstream's getTypeFromTypeNode does it
+implicitly because parens are transparent in type resolution.
+Sizing input recorded in TASK (the 87-line bucket, spread); bar
+prediction to be REGISTERED after one trace confirms the paren
+layer is the decline (TSR_CTX_DEBUG on the head case). Entry:
+crates/tsr-checker/src/contextual.rs's parameter road.
