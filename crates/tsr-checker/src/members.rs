@@ -110,6 +110,18 @@ impl Checker<'_, '_> {
         );
         let stripped = self.check_non_null_type(non_optional);
         if stripped == error {
+            // §121 (`checker-notes-narrow.md`): the receiver COMPUTED (the
+            // gap test above passed) and the non-null strip itself refused.
+            // Upstream reports (TS2532/TS18048/TS18047) and returns
+            // `errorType`, printed `any`: the deliberate error-answer, the
+            // boundary-argument chain's seventh hop. GATED to receivers that
+            // are PURELY nullish — the ungated arm measured 64:36 with the
+            // adverse concentrated in `unknown` receivers this port fails to
+            // narrow (catch variables, assertion predicates); those keep the
+            // honest gap.
+            if self.receiver_is_purely_nullish(non_optional) {
+                return self.intrinsics.any;
+            }
             return error;
         }
         // `isAssignmentToReadonlyEntity` (`checker.go:11377`): a readonly
@@ -192,6 +204,18 @@ impl Checker<'_, '_> {
             return error;
         }
         non_nullable
+    }
+
+    /// §121's gate: the receiver is `undefined`, `null`, or a union of only
+    /// those — every constituent carries `TypeFlags::NULLABLE`. `unknown`
+    /// and mixed remainders are excluded: the ungated arm measured its
+    /// adverse there (receivers this port fails to narrow).
+    fn receiver_is_purely_nullish(&mut self, id: TypeId) -> bool {
+        let non_nullable = self.get_non_nullable_type(id);
+        let original = self.store.get(id).flags;
+        original.intersects(crate::flags::TypeFlags::NULLABLE.union(crate::flags::TypeFlags::UNION))
+            && self.store.get(non_nullable).flags.intersects(crate::flags::TypeFlags::NEVER)
+            && !original.intersects(crate::flags::TypeFlags::UNKNOWN)
     }
 
     /// `GetNonNullableType` (`checker.go:18663`): the `NEUndefinedOrNull`
@@ -311,8 +335,19 @@ impl Checker<'_, '_> {
         };
         // `checkQualifiedName` routes the left through `checkNonNullExpression`
         // (`checker.go:8127`) exactly as a property access does its receiver.
-        let left_type = self.check_non_null_type(left_type);
-        self.access_member_lookup(left_type, right.text, node.node_id)
+        if left_type == error {
+            return error;
+        }
+        let stripped = self.check_non_null_type(left_type);
+        if stripped == error {
+            // §121: same gate as the property-access road — a computed,
+            // purely-nullish left takes upstream's deliberate error-answer.
+            if self.receiver_is_purely_nullish(left_type) {
+                return self.intrinsics.any;
+            }
+            return error;
+        }
+        self.access_member_lookup(stripped, right.text, node.node_id)
     }
 
     /// The shared tail of `checkPropertyAccessExpressionOrQualifiedName`

@@ -5052,3 +5052,52 @@ and downstream reads. **Bar: ≥60 G→R at ≥5:1.** If the
 false-undefined class (port narrowing misses) produces G→W above
 the ratio, the arm gates on receiver flags (pure NULLABLE only,
 unknown excluded) before it reverts whole.
+
+**§121 MEASURED — landed GATED at +47 G→R / 6 G→W / 0 R→W (7.8:1),
+right 409,624 → 409,671 = 85.53%.** Two measured iterations:
+UNGATED (any strip-refusal answers `any`) measured 64:36 — the
+falsifier's exact class, receivers this port fails to NARROW
+(`unknown` catch variables in useUnknownInCatchVariables01,
+assertion predicates in assertionTypePredicates1, discriminant
+walks) reading confidently wrong. The gate:
+`receiver_is_purely_nullish` — the receiver is `undefined`, `null`,
+or a union of only those (every constituent NULLABLE, UNKNOWN
+excluded, `never` excluded), the shapes where upstream's OWN
+receiver is the same nullish type and its errorType-printed-any is
+the deliberate answer rather than our narrowing miss. The bar's
+line count MISSED (47 vs ≥60 predicted — the intrinsic census's
+`unknown` 28 and `never` 22 are exactly the excluded classes; §96's
+sizing lesson again: buckets by SPELLING, mechanism decides), the
+ratio 7.8:1 over the 5:1 floor. Residual adverse priced:
+jsdocImportType 4 (JSDoc-typed JS vars null-initialized — the
+annotation is unread so the receiver is honestly-wrongly nullish;
+JSDoc's owner), controlFlowArrays 2 (evolving-array nullish
+snapshots). The qualified-name road took the same gate.
+
+## §122 — statics inherit: the anonymous side's base walk [claimed: checker-1]
+
+**The miss.** `get_property_of_anonymous_symbol` (`members.rs:1073`)
+reads a class's own `exports` and the export-star road — and stops.
+Upstream's static side is a real inheritance chain: the constructor
+type's base is the base class's constructor type
+(`getBaseConstructorTypeOfClass`), so `class D extends B` finds
+`B.x` through `typeof D`. The instance side here already walks
+bases (`get_property_of_declared_symbol`'s `base_symbols_of` loop,
+with the visiting guard); the static side never got the mirror.
+member_shapes' "Anonymous, name absent in exports" bucket: 302
+lines — protectedStaticClassPropertyAccessibleWithinSubclass 20
+(pure gaps wanting `string`, verified by dump), staticIndexSignature4
+16, spread tail. (strictBindCallApply1's 24 are bind/call/apply
+receivers — §117-fallback territory, NOT this.)
+
+**The arm.** For a CLASS-flagged anonymous symbol whose own
+exports (and star road) miss: walk `base_symbols_of` and read each
+base's `exports` recursively, same visiting guard, first hit wins.
+`base_symbols_of`'s existing refusals (instantiated bases,
+non-identifier heritage) stay refusals — a gapped base gaps the
+walk, never answers the wrong symbol.
+
+**Bar.** ≥40 G→R at ≥5:1. Falsifier: shadowing — a derived static
+redeclaring a base's must answer the DERIVED symbol; own-exports-
+first ordering guarantees it by construction, and a measured
+adverse there means the ordering claim is wrong.
