@@ -511,6 +511,7 @@ impl Checker<'_, '_> {
             // `checkImportBinding` (`checker.go:5287`-`:5303`, `:5473`) and
             // `checkExportDeclaration`'s clause (`:5534`).
             Node::ImportClause(_) | Node::NamespaceImport(_) | Node::NamespaceExport(_) => {
+                self.check_module_has_default_export(node);
                 self.check_alias_symbol(node);
             }
             // `NodeCanBeDecorated` rejects every one of these outright.
@@ -1988,6 +1989,45 @@ impl Checker<'_, '_> {
             self.report(file, Diagnostic::with_args(&messages::DUPLICATE_LABEL_0, span, [text]));
             return;
         }
+    }
+
+    /// TS1192 — `Module '{0}' has no default export.`
+    ///
+    /// `reportNonDefaultExport`'s **second** arm (`checker.go:14595`). The
+    /// first — the module exports something under the binding's own name — is a
+    /// suggestion form with its own code and is excluded here, which is what
+    /// keeps this from firing where upstream reports the other message.
+    ///
+    /// §186's rule holds: an **empty** exports table cannot be asked whether a
+    /// member is missing, because the answer would be "all of them". §487.
+    fn check_module_has_default_export(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let Some(Node::ImportClause(clause)) = self.node_map.get(node) else { return };
+        let Some(name) = clause.name.and_then(|name| name.node_id) else { return };
+        let Some(text) = self.identifier_text(name).map(str::to_string) else { return };
+        let Some(declaration) = self.nodes.parent(node) else { return };
+        let Some(Node::ImportDeclaration(import)) = self.node_map.get(declaration) else { return };
+        let Some(specifier) = import.module_specifier.and_then(|s| s.node_id()) else { return };
+        let Some(symbol) = self.resolve_external_module_name(declaration, specifier) else {
+            return;
+        };
+        let symbol = self.binder.merged_symbol(symbol);
+        let exports = &self.binder.symbols().get(symbol).exports;
+        if exports.is_empty()
+            || exports.contains_key("default")
+            || exports.contains_key(text.as_str())
+        {
+            return;
+        }
+        let printed = self.binder.symbols().get(symbol).name.to_string();
+        let Some(file) = self.source_file_of_for_diagnostics(name) else { return };
+        let span = self.error_span(name);
+        self.report(
+            file,
+            Diagnostic::with_args(&messages::MODULE_0_HAS_NO_DEFAULT_EXPORT, span, [printed]),
+        );
     }
 
     fn check_this_in_module_body(&mut self, node: NodeId) {

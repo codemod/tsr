@@ -26065,3 +26065,81 @@ when every line arrives.
       a super call not at root level              not attempted — needs
                                                   superCallIsRootLevelInConstructor
 ```
+
+## §487 — TS1192: a module with no default export
+
+**5 blocked, `occupied 0/8`.**
+
+```ts
+import a from "./m";   // TS1192 at `a`, when m exports no `default`
+```
+
+`reportNonDefaultExport` (`checker.go:14591`) has two arms and the second is
+this one:
+
+```go
+if moduleSymbol.Exports != nil && moduleSymbol.Exports[node.Symbol().Name] != nil {
+    …Did_you_mean_to_use_import_1_from_0_instead     // a different code
+} else {
+    c.error(node.Name(), diagnostics.Module_0_has_no_default_export, …)
+```
+
+The first arm — the module exports something under the *binding's own name* — is
+a suggestion form and is excluded, which is also what keeps this from firing
+where upstream reports the other message.
+
+### The bound
+
+The module specifier resolves to a symbol whose `exports` table is **non-empty**
+(§186: an empty table cannot be asked whether a member is missing — the answer
+would be "all of them"), lacks `default`, and lacks the binding's own name. The
+error node is the import clause's **name**.
+
+### The bar
+
+```
+bar:  +3 of 5,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **A module exporting `default` reports.** The key test is the whole rule.
+2. **`import a from "m"` where `m` exports `a`** reports TS1192. That is
+   upstream's *other* arm and a different code — the exclusion is what makes
+   this bound honest rather than approximate.
+
+## §488 — §487 built: **+4**, and the board passes **2,000**
+
+```
+diagnostics   1,998 → 2,002   (bar was +3;  +4, 0 LOST)   36.48%
+every other suite unmoved — both falsifiers negative
+```
+
+```
+80 → 2,002 across fourteen sessions, 25.0×
+this session: +551 over one hundred and twenty-five builds, 0 lost
+```
+
+### What the last twenty builds were
+
+Twenty consecutive builds, `+62`, no reverts among them, and **every one came
+from reading upstream rather than from an instrument**:
+
+```
+the message catalogue      §466 §468 §470 §472 §474 §476 §478 §482   +21
+the relation-free arguments §454 §456 §458 §461 §463               +15
+a function's other arms    §485 §487 and the four above them       +12
+options / comments / setup §478's field, §418, §442                 +9
+```
+
+The instruments ranked the rows; **none of them chose one.** `diagslice` says
+which rows are convertible, `diagdeepen` which are absent, `diagnode` where —
+and the choice among the survivors came, every time, from a sentence in
+`checker.go` or a message in the catalogue.
+
+> **After fourteen sessions the instruments' job is to narrow, and upstream's
+> source is what decides.** That is not a criticism of the instruments — a
+> hundred rows had to be eliminated before a sentence in `checker.go` was worth
+> reading. It is a statement of where the remaining work is: the six
+> instruments are built and will not need a seventh, and the reading is
+> unbounded.
