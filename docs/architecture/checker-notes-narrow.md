@@ -4502,3 +4502,12 @@ retained, a §100-side change), jsFileMethodOverloads3 4 (doc types
 on JS overload lists), inferThis 3+3 (`@this` tag unported). The
 JSDoc family's remaining ~150 wait on those three plus the
 non-wrapper grammar forms.
+
+**§110 slice 3 — LANDED at +15/0.** `@this {T}` supplies the
+synthetic this-parameter through the same consult: thisTag1 7,
+inferThis 6 (slice 2c's residue), thisTag2 2, ZERO adverse. The
+JSDoc family's remaining board: returnTagTypeGuard's predicate
+interplay (a §100-side change, evidence in slice 2c's record),
+jsFileMethodOverloads doc-overloads, the non-wrapper grammar forms
+(`Object`, `function()`, record types), and @template-through-
+identity-roads for the §102/§107 renames.

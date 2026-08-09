@@ -529,6 +529,7 @@ impl<'a> Checker<'a, '_> {
         // module host carries; the node's own list is empty there.
         let mut param_types: Vec<(&str, TypeNode<'a>)> = Vec::new();
         let mut return_tag: Option<TypeNode<'a>> = None;
+        let mut this_tag: Option<TypeNode<'a>> = None;
         if self.in_js_file(declaration) {
             // The DOC HOST for an arrow/function expression is the enclosing
             // statement (`/** @template T */ const f = (x) => x` attaches to
@@ -582,12 +583,21 @@ impl<'a> Checker<'a, '_> {
                                 tsr_ast::JSDocTag::JSDocReturnTag(tag) if return_tag.is_none() => {
                                     return_tag = tag.type_expression;
                                 }
+                                // §110 slice 3: `@this {T}` supplies the
+                                // synthetic this-parameter's type.
+                                tsr_ast::JSDocTag::JSDocThisTag(tag) if this_tag.is_none() => {
+                                    this_tag = tag.type_expression;
+                                }
                                 _ => {}
                             }
                         }
                     }
                 }
-                if !from_jsdoc.is_empty() || !param_types.is_empty() || return_tag.is_some() {
+                if !from_jsdoc.is_empty()
+                    || !param_types.is_empty()
+                    || return_tag.is_some()
+                    || this_tag.is_some()
+                {
                     break;
                 }
             }
@@ -626,6 +636,21 @@ impl<'a> Checker<'a, '_> {
         // joins `parameters` *before* the optionality test, so
         // `minArgumentCount` is a count and not an index.
         let mut this_parameter = None;
+        // §110 slice 3: an `@this {T}` doc supplies the this-parameter a JS
+        // function cannot write; a doc type that does not compute supplies
+        // nothing.
+        if let Some(annotation) = this_tag {
+            let typed = self.get_type_from_type_node(annotation);
+            if typed != self.intrinsics.error {
+                this_parameter = Some(Parameter {
+                    name: "this".to_string(),
+                    optional: false,
+                    rest: false,
+                    r#type: typed,
+                    written_text: None,
+                });
+            }
+        }
         let mut parameters: Vec<Parameter> = Vec::with_capacity(parameter_nodes.len());
         let mut min_argument_count = 0;
         for (index, node) in parameter_nodes.iter().enumerate() {
