@@ -22774,3 +22774,87 @@ That reframes several standing refusals. The ones with named relation owners —
 TS2416, TS2411, TS2420, TS2352 — have never been asked whether their corpus
 cases are primitive-versus-primitive. **That question is one `diagcase` each**,
 and it is the best-specified lead this session ends with.
+
+## §405 — TS2416: the decidable-primitive subset, second application
+
+§404 said four relation-refused rows had never been asked whether their cases
+are primitive-versus-primitive. Asked, for TS2416 (20 blocked, 15 single-line):
+
+```ts
+interface FileSystem { read: number; }
+class WorkerFS implements FileSystem {
+  read: string;          // TS2416
+}
+```
+
+`number` versus `string`, written annotations on both sides — §403's shape one
+rule over, and the first of §404's four to be checked.
+
+### The bound
+
+- the heritage name is an `Identifier` resolving to a symbol with exactly one
+  `InterfaceDeclaration` or `ClassDeclaration`, and that declaration has **no
+  type parameters** (an instantiated member type is not the written one);
+- the own member and the base member are both `PropertyDeclaration`/
+  `PropertySignature` with a **written** annotation naming one of the four
+  intrinsic primitives;
+- the two names differ.
+
+Both `extends` and `implements` are read: upstream reports TS2416 for a member
+mismatching either, and `elaboratedErrors` is the `implements` spelling.
+
+### The bar
+
+```
+bar:  +3 of 20,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **A generic base reports.** Type parameters mean the base's written
+   annotation is not the member's type.
+2. **An optional member (`read?: string`) reports.** Optionality changes the
+   relation and is not in this subset — it declines.
+
+## §406 — §405 measured **+0**, reverted, and the row was mispriced
+
+```
+diagnostics   1,904 → 1,904   (bar was +3;  0)
+```
+
+Reverted. Two things went wrong, and the second is the useful one.
+
+### The rule did not fire, and the dispatch was fine
+
+§402's rail was applied first — `grep -n "check_member_against_base_primitive(node)"`
+showed the call in the `Node::ClassDeclaration` arm, so this is §351's branch of
+the fork (dispatched, reached, still silent) rather than §380's. **The
+declining guard was not isolated**, and I am recording that rather than
+guessing at it, because §339 and §341 are what guessing costs.
+
+### The row was not what `diagmissing` implied
+
+```
+-- expected --                      -- actual --
+  (11,3) TS2416                       (11,3) TS2564
+  (11,3) TS2564                       (20,1) TS2741
+  (20,1) TS2741
+  (21,1) TS2741  (24,1) (25,1) TS2741
+```
+
+`elaboratedErrors` is missing **TS2416 *and* three TS2741 lines**, so it cannot
+convert on TS2416 alone however correct the rule is. `diagmissing 2416` listed
+it as `[1 line(s)]`, which is the sole-obstacle population — and the two
+disagree, so **one of the instruments is reporting against a stale
+measurement**: `diagslice`'s table was captured before §397–§404 changed what
+this port emits, and every row count read off it since is that old.
+
+> **An instrument's output is a measurement, and measurements expire.** §284
+> added `git diff --stat` to `measure` because an *edit* can silently not
+> apply; this is the same failure one level up — a *reading* that silently no
+> longer applies. The scratch table behind the last six builds' row counts was
+> taken at 1,873 and the board is now 1,904.
+
+Re-running `diagslice` before the next row is the fix, and it costs one corpus
+run. §404's remaining three re-pricing candidates (TS2411, TS2420, TS2352)
+should be re-read from a fresh table, not from the one in scratch.
