@@ -103,6 +103,90 @@ impl Checker<'_, '_> {
         );
     }
 
+    /// The same arity question for a **call**: `f<number>()`, `new D<number>()`.
+    ///
+    /// `getTypeArgumentArityError` (`checker.go:9852`). Written type arguments
+    /// make both value-arity arms decline (`if !call.type_arguments.is_empty()`)
+    /// and nothing took over, so this position had no owner at all. §347.
+    ///
+    /// The error node is upstream's `loc`: the type-argument **list**, whose
+    /// `Pos` is just past the `<`, so after `SkipTrivia` the span starts at the
+    /// first type argument rather than at the callee.
+    ///
+    /// Confined to upstream's own `len(signatures) == 1` branch — one
+    /// declaration, a function or a class. The overload arm needs a signature
+    /// set this port does not build and carries a different message.
+    pub(crate) fn check_call_type_argument_arity(&mut self, node: NodeId) {
+        if self.file_has_parse_errors || self.in_js_file(node) {
+            return;
+        }
+        let (callee, type_arguments) = match self.node_map.get(node) {
+            Some(Node::CallExpression(call)) => {
+                (call.expression.and_then(|e| e.node_id()), call.type_arguments)
+            }
+            Some(Node::NewExpression(call)) => {
+                (call.expression.and_then(|e| e.node_id()), call.type_arguments)
+            }
+            _ => return,
+        };
+        let (Some(callee), [first, ..]) = (callee, type_arguments) else { return };
+        let Some(Node::Identifier(identifier)) = self.node_map.get(callee) else { return };
+        let Some(symbol) = self.binder.resolve_name(
+            self.nodes,
+            self.node_map,
+            callee,
+            identifier.text,
+            SymbolFlags::VALUE,
+        ) else {
+            return;
+        };
+        let symbol = self.binder.merged_symbol(symbol);
+        let entry = self.binder.symbols().get(symbol);
+        // `len(signatures) == 1`. An overload set is upstream's other branch.
+        let [declaration] = entry.declarations.as_slice() else { return };
+        let parameters = match self.node_map.get(*declaration) {
+            Some(Node::FunctionDeclaration(function)) => function.type_parameters,
+            Some(Node::ClassDeclaration(class)) => class.type_parameters,
+            _ => return,
+        };
+        // A generic constructor of its own would supply the signature's type
+        // parameters instead of the class's, so a class is only asked when its
+        // constructors declare none.
+        if let Some(Node::ClassDeclaration(class)) = self.node_map.get(*declaration)
+            && class.members.iter().any(|member| {
+                matches!(member, tsr_ast::ClassElement::ConstructorDeclaration(constructor)
+                    if !constructor.type_parameters.is_empty())
+            })
+        {
+            return;
+        }
+        let maximum = parameters.len();
+        if maximum == 0 {
+            return;
+        }
+        let minimum = parameters
+            .iter()
+            .position(|parameter| parameter.default_type.is_some())
+            .unwrap_or(maximum);
+        let written = type_arguments.len();
+        if written >= minimum && written <= maximum {
+            return;
+        }
+        let Some(argument) = first.node_id() else { return };
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let span = self.error_span(argument);
+        let expected =
+            if minimum < maximum { format!("{minimum}-{maximum}") } else { minimum.to_string() };
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::EXPECTED_0_TYPE_ARGUMENTS_BUT_GOT_1,
+                span,
+                [expected, written.to_string()],
+            ),
+        );
+    }
+
     /// `(getMinTypeArgumentCount(typeParameters), len(typeParameters))` for the
     /// class or interface an entity name refers to.
     ///

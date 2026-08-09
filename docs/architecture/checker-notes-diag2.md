@@ -20403,3 +20403,95 @@ them:
 > nothing else, so supplying the right diagnostic instead is free. §342's
 > annotation clause protects against this port's flow analysis being wrong,
 > which is not a thing a better message can fix.
+
+## §347 — TS2558: type-argument arity in a **call** position
+
+`diagmissing`'s cheapest-first list for TS2558 opens with three one-line cases,
+and they are not the alias family §18's table describes:
+
+```ts
+class D<T, U> { x: T; y: U }
+var d = new D<number>();      // Expected 2 type arguments, but got 1.
+
+function f<T, U>() { }
+f<number>();                  // same
+```
+
+`check_type_argument_arity` answers exactly this question, and only ever for a
+`TypeReferenceNode` or a heritage clause. Both call arms decline outright:
+
+```rust
+if !call.type_arguments.is_empty() { return }   // check_call_arity, check_new_arity
+```
+
+so *written type arguments* switches off the value-arity rule and no rule takes
+over. §335's shape — a position between two rules' predicates — for the fourth
+time, and the first where the two predicates belong to the **same** question
+asked of two node kinds.
+
+### The error node
+
+`getTypeArgumentArityError` (`checker.go:9852`) reports on the type-argument
+**list**, not the callee:
+
+```go
+loc := core.NewTextRange(scanner.SkipTrivia(sourceFile.Text(), typeArgumentList.Loc.Pos()), typeArgumentList.Loc.End())
+```
+
+A `NodeArray`'s `Pos` is just past the `<`, so after `SkipTrivia` the span starts
+at the **first type argument**. `constructorInvocationWithTooFewTypeArgs`
+expects column 15 of `var d = new D<number>();`, which is `number`, not `D` —
+confirming the reading before any code was written.
+
+### The bound
+
+`len(signatures) == 1` is upstream's own branch, so this port takes only it: a
+callee resolving to a symbol with exactly one declaration, a function or a
+class. The overload arm computes `belowArgCount`/`aboveArgCount` across a
+signature set this port does not build, and it carries a *different* message
+(TS2560) whose row is not on the board.
+
+### The bar
+
+```
+bar:  +2 cases of 6,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **A correctly-typed call reports.** `f<number, string>()` is in range.
+2. **An overloaded function reports.** Two declarations must decline — that is
+   upstream's other branch and a different code.
+
+## §348 — §347 built: **+3**, bar met
+
+```
+diagnostics   1,854 → 1,857   (bar was +3;  +3, 0 LOST)
+every other suite unmoved — both falsifiers negative
+```
+
+The column prediction held without adjustment: reading `loc` out of
+`getTypeArgumentArityError` and checking it against
+`constructorInvocationWithTooFewTypeArgs`'s expected column *before* writing any
+code is why this landed on the first measurement rather than the third. §233
+built `diagcolumn` after four builds lost their cases to spans; the cheaper
+version of that instrument is arithmetic on the fixture.
+
+### The seam, four builds in
+
+```
+§335  +7   a position two correct predicates both declined
+§343  +1   a `?` merging *absent* with *unresolvable*
+§345  +2   a computed answer discarded by a guard for another case
+§347  +3   a question asked of one node kind and not of two others
+```
+
+**Thirteen cases, no new subsystem.** §347 is the purest instance: the arity
+comparison, the minimum-count rule, the message and the resolution all already
+existed in `type_argument_arity.rs` — what was missing was *asking a call*.
+
+The pattern common to all four is now sharp enough to search for deliberately:
+
+> **A rule's reach is the intersection of every predicate between the dispatch
+> and the report.** Codes rank the report. Nothing ranked the intersection, and
+> four builds' worth of cases were sitting in it.

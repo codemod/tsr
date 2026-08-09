@@ -427,10 +427,12 @@ impl Checker<'_, '_> {
             Node::CallExpression(_) => {
                 self.check_callee_is_callable(node);
                 self.check_call_arity(node);
+                self.check_call_type_argument_arity(node);
                 ambient
             }
             Node::NewExpression(_) => {
                 self.check_new_arity(node);
+                self.check_call_type_argument_arity(node);
                 ambient
             }
             Node::TypeReferenceNode(_) | Node::ExpressionWithTypeArguments(_) => {
