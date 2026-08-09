@@ -10348,3 +10348,38 @@ hypothesis was bad. That ratio is the most useful thing this row produced: on
 this board, **a wrong answer is about as likely to come from the measuring tool
 as from the reasoning**, and only re-deriving the tool's exact question
 distinguishes them.
+
+## §153 — seventeen actual, all distinct: the missing line is among the NINE declined
+
+The count comparison §152 asked for: the actual column holds **17 TS2540 lines,
+every one unique**. No duplicate. §152's hypothesis is wrong too.
+
+So the arithmetic closes: expected has **18**, this port emits **17**, and
+§148's entry probe counted **17 passing the assignment-target gate and 9
+declined at it**. The missing line is one of those nine — declined by
+`assignment_target_kind(node) == None`, the rule's very first test, before any
+gate this row spent nine sections probing.
+
+**Which puts the answer back at `assignment_target`'s climb**, the one place
+§147 cleared by *reading* rather than measuring. Reading it showed a loop that
+handles nested parentheses; the count says one access that should be an
+assignment target is not classified as one. `++((M.x))` remains the only
+candidate shape in the file.
+
+**§147 is the lesson, not the code.** It is the single section of this row that
+concluded from a *read* instead of a probe, and it is the one whose conclusion
+survived nine sections before the arithmetic contradicted it. Reading code
+answers *what it does*; only running it answers *what it did*.
+
+### The row, handed over
+
+- **Actual 17, expected 18, entry probe 17 pass / 9 decline.** The missing line
+  is in the nine.
+- **Next command:** print the node kind and parent chain for each of the nine
+  declined at the entry gate, on this case. One run.
+- **Zero builds, zero reverts, twelve corrections, twelve commands.**
+
+Five of the twelve were wrong because an instrument answered a different
+question; one was wrong because a read replaced a measurement. **That is the
+distribution worth remembering: on this board the reasoning was rarely the
+weakest link.**
