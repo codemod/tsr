@@ -4801,3 +4801,58 @@ literal element count; optional-bearing tuples decline (upstream
 answers a length UNION there — a later arm if its rows surface).
 strictTupleLength 6 + destructuring defaults 3 + rest-pattern 1,
 zero adverse.
+
+## §118 — the types harness honours `@symlink` (the LOADER unlock, first slice) [claimed: checker-1]
+
+**The forcing find.** §113 re-confirmed the §31.1-era refusal at its
+own price and named the blocker as infrastructure: "the HOST's
+resolver has no symlink realpath or path-mapping support." Half of
+that sentence is now false at the wrong layer. `tsr-vfs`'s
+`InMemoryFileSystem` implements symlink following and realpath in
+full (`crates/tsr-vfs/src/lib.rs:206-235`, with directory-prefix
+redirection and cycle bounding), the module resolver consumes it
+(`create_resolved_module_handling_symlink`, `resolver.rs:2434`), and
+the module_resolution suite holds 100% THROUGH that road —
+`trace_case.rs:297-320` passes `case.symlinks` into the VFS. The one
+road that drops them is the types/diagnostics harness itself:
+`program_for_case` (`types_producer.rs:1138`) constructs
+`InMemoryFileSystem::new(files, [], true)` — an empty symlink table.
+Every `@symlink` case fails resolution not because the resolver
+cannot follow links but because the harness never told it any
+existed. The blocker §113 priced as "an infrastructure build in
+tsr-vfs/loader" is, for the `@symlink` half, a harness omission.
+
+**The change.** `program_for_case` passes the case's symlinks,
+normalized exactly as `trace_case::build_file_system` normalizes
+them (`get_normalized_absolute_path` against the case's current
+directory, both link and target). No resolver, vfs, or checker code
+moves.
+
+**Scope honestly stated.** This is the `@symlink` slice only. The
+`paths`-mapping half of §113's price is NOT this: `paths` arrives
+via tsconfig units the types harness does not parse
+(`apply_test_directives` reads directives; `base.paths` stays
+default), and stays with the parked entry. The 428-case ALIAS
+near-miss row will therefore convert partially at best.
+
+**Bar.** ≥100 G→R at ≥5:1 on checker_types. The candidate class is
+§113's measured adverse class inverted: symlinkedWorkspace* (28),
+declarationEmitReexportedSymlink (12), moduleResolutionWithSymlinks*,
+the monorepo corpora — cases whose imports upstream resolves through
+links and this harness reported unfindable.
+
+**Falsifiers.** (a) If the linked-to modules resolve but their
+member types do not compute, conversion lands as gap-shuffling
+(unfindable-any → errorType gap) and the count undershoots — record
+the residue's owner. (b) The §31-family boundary rules keyed on
+`module_specifier_unfindable` flip from unfindable to findable on
+these corpora; if that direction produces G→W above the bar's ratio,
+the harness change is still CORRECT (it matches upstream's harness,
+harnessutil's symlink copy-in) — the wrongs then name checker work,
+and the section records them rather than reverting the harness. A
+harness that misrepresents the file system is not a legitimate gate.
+
+**Cross-suite note.** `program_for_case` also feeds
+`diagnostics_suite.rs` — the diagnostics gradient moves with this.
+Announced to the other lane before measuring; both numbers reported
+in the landing.
