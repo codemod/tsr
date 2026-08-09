@@ -986,3 +986,22 @@ per-case rows are attributions, not measurements, until the
 untouched-case rows pass the fixed-index dump. My §114 landing
 message and STATUS row carry the stale +38; corrected here and in
 STATUS, messages immutable.
+
+## §116 — the dispatch's ArrayLiteralExpression arm [checker-2, bar]
+
+The "seventeen arms not here" doc rejected this arm because "every
+one of them needs tuple types this port does not have" — written
+before §37/§79/§80/§105 built exactly those. The arm
+(`getContextualTypeForElementExpression`, `checker.go:29380/29972`):
+an array-literal ELEMENT answers the array's own contextual type's
+element type — positional through a TUPLE context
+(tuple_element_lists), the plain element type through an ARRAY
+context (type_reference_targets on the Array target), nil past a
+tuple's length; spreads decline the whole literal (the index
+becomes meaningless — the §114-family precedent). Predict **+15–60**
+(the old census: 33 contextual functions over 15 files, top 10
+files 85% — plus everything tuple contexts gained since); must NOT
+move: §63's tuple-context literals (the array's own print road —
+this arm feeds ELEMENTS, not the literal), §115's converts, §68's
+family. Adverse over 1:5 refuses; artifact test on any
+untouched-case row per the new conventions rule.
