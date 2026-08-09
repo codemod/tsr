@@ -1130,11 +1130,31 @@ pub fn program_for_case<'a>(
         }
     }
 
-    let options = crate::trace_case::apply_test_directives(
-        tsr_core::CompilerOptions::default(),
-        case,
-        CURRENT_DIRECTORY,
-    );
+    // **A case's `tsconfig.json` is an input, not decoration.** This producer
+    // built every program from `CompilerOptions::default()` plus `@`-directives
+    // and left the config unit inert, so any option a case sets only in its
+    // tsconfig — and `config_file_path` itself, which upstream resolves
+    // `@typescript/lib-*` relative to — was simply absent.
+    // `trace_case::compilation` has had this branch all along.
+    // `docs/architecture/checker-notes-diag2.md` §533.
+    let base = case
+        .files
+        .iter()
+        .find(|unit| crate::trace_case::config_name_from_file_name(&unit.name).is_some())
+        .map_or_else(tsr_core::CompilerOptions::default, |config| {
+            let config_file_name =
+                tsr_path::get_normalized_absolute_path(&config.name, CURRENT_DIRECTORY);
+            let config_fs =
+                crate::trace_case::build_file_system(&case.files, case, CURRENT_DIRECTORY, true);
+            tsr_tsoptions::parse_config_file(
+                &config_file_name,
+                &config.content,
+                tsr_path::get_directory_path(&config_file_name),
+                &config_fs,
+            )
+            .compiler_options
+        });
+    let options = crate::trace_case::apply_test_directives(base, case, CURRENT_DIRECTORY);
     // §118 (`checker-notes-narrow.md`): the case's `@symlink` links, normalized
     // exactly as `trace_case::build_file_system` normalizes them. The VFS and
     // resolver have followed links since the module_resolution suite landed;

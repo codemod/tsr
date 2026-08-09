@@ -275,7 +275,7 @@ fn contains_path_reference(content: &str) -> bool {
 }
 
 /// Which unit is the config (`harnessutil.GetConfigNameFromFileName`).
-fn config_name_from_file_name(name: &str) -> Option<&'static str> {
+pub(crate) fn config_name_from_file_name(name: &str) -> Option<&'static str> {
     let base = tsr_path::get_base_file_name(name).to_ascii_lowercase();
     match base.as_str() {
         "tsconfig.json" => Some("tsconfig.json"),
@@ -294,7 +294,7 @@ fn file_system(
     build_file_system(units, case, current_directory, use_case_sensitive_file_names)
 }
 
-fn build_file_system(
+pub(crate) fn build_file_system(
     units: &[TestFile],
     case: &TestCase,
     current_directory: &str,

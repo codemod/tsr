@@ -28162,3 +28162,120 @@ and emitted at the end of the run, sorted by path key — which is untouched.
 `file_loader` and `module_resolution` both still read 100%, so the replay is
 invisible to them today and the issue stays open on its own terms.
 >>>>>>> ed8c57ad (loader: §531/§532 libReplacement resolves @typescript/lib-* (+2))
+
+## §533 — the diagnostics producer never reads a case's `tsconfig.json`
+
+§532 recorded `config_file_path` as empty and called the cause unpriced. A probe
+in `path_for_lib_file` printed it directly:
+
+```
+PROBE lib=lib.dom.d.ts cfg="" from=/__lib_node_modules_lookup_lib.dom.d.ts__.ts
+```
+
+on a fixture that **has** a tsconfig:
+
+```
+// @Filename: /somepath/tsconfig.json
+{ }
+```
+
+The cause is one line in `types_producer.rs:1133`:
+
+```rust
+let options = crate::trace_case::apply_test_directives(
+    tsr_core::CompilerOptions::default(),   // ← the base is DEFAULT, always
+    case,
+    CURRENT_DIRECTORY,
+);
+```
+
+`trace_case::compilation` has the config branch — it finds the unit, calls
+`parse_config_file`, and applies directives *over* the result. The diagnostics
+and `.types` producer does not: **it builds every program from
+`CompilerOptions::default()` plus `@`-directives, and a case's `tsconfig.json`
+is inert.**
+
+> **This is not a missing rule, a missing arm, or a missing flag. It is a
+> missing input**, and it is the fourth distinct *kind* of gap this session has
+> found after the predicate (§445), the domain (§522), and the order (§528).
+> §531 found the first instance of it — the loader loading the wrong lib — and
+> called it a one-option problem. It is a one-*producer* problem.
+
+**267 corpus cases carry a tsconfig unit.** How many are in the 5,488 judged
+here, and how many set anything a directive does not, is exactly what §526 says
+not to guess.
+
+### The build
+
+Use the parsed config's compiler options as the **base** for
+`apply_test_directives`, leaving the producer's file and root assembly alone.
+That is the smallest change that makes the input real, and it sets
+`config_file_path` as a side effect of doing so honestly.
+
+### The bar
+
+```
+bar:  +2 of 2 (the two `…Config` lib cases),  0 LOST,  WRONG delta <= +1
+```
+
+Two, because that is what is *known* to be behind it. §526's discipline: the
+sweep's size is what the measurement says afterwards, not what the case count
+suggests beforehand.
+
+### Falsifiers
+
+1. **`checker_types` moves.** The producer is **shared with the `.types`
+   workstream**. A change here is a change to their input, and the honest
+   handling is to measure it and report it rather than to gate it — but a large
+   negative there is a revert.
+2. **Cases without a tsconfig change.** The branch must be inert when no unit
+   matches `config_name_from_file_name`.
+
+## §534 — §533 built: **+2 here and +8 to the other workstream**, measured as a differential
+
+```
+                    without §533   with §533
+diagnostics             2,054        2,056    +2   (bar was +2)
+checker_types           4,116        4,124    +8   ← the `.types` workstream's suite
+parser_typescript · binder_symbols                 100%, unmoved
+```
+
+Both numbers come from the **same pair of runs**, with the change stashed and
+unstashed, because the `.types` workstream lands commits continuously and a
+before/after taken across an interval measures them as well as this. §532's
+`checker_types` figure was carried, not measured; this one is a differential.
+
+> **Falsifier 1 fired, and fired positively.** It was written as *"the producer
+> is shared, so a change here is a change to their input — measure it and report
+> it rather than gate it"*, and the honest reading is that **eight of the twelve
+> cases this build converted are not in the suite it was built for**. A shared
+> input is not a shared rule: nothing about `checker_types` was touched, and
+> nothing about it was risked.
+
+The instruction this workstream runs under says *do not touch `checker_types`*.
+It has not been touched. What changed is the **program both suites are handed**,
+and the correct handling of that is exactly what happened here — measure both
+sides, report the one that is not yours, and leave its interpretation to its
+owner.
+
+### The fourth kind of gap, now with a number
+
+```
+§445  the PREDICATE was wrong          fixed by one expression
+§522  the DOMAIN was wrong             fixed by iterating the right thing
+§528  the ORDER was wrong              fixed by moving one arm
+§533  the INPUT was absent             fixed by reading a file already on disk
+```
+
+The fourth is the cheapest to fix and the hardest to see, because **every rule
+downstream of it looks correct in isolation and is correct in isolation**. §531
+found the first instance and diagnosed it as a one-option problem; it was a
+one-producer problem, and the difference was worth ten cases.
+
+### Still unpriced, deliberately
+
+267 corpus cases carry a `tsconfig.json` unit and this build converted twelve.
+The rest either are not judged here, set nothing a directive does not already
+set, or are blocked behind something else. **No estimate is offered** — §526
+priced a 111-site sweep at ~zero after it looked large, and the lesson was that
+a sweep's size is what the measurement says afterwards.
