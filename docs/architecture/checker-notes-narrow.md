@@ -4361,3 +4361,23 @@ is safe to reuse, and the Array head is the quote's sibling. The
 generic-reference arm in `written_type_text` also carries any OTHER
 name<args> spelling nested under an admitted subtree — no adverse
 appeared, so the arm stands as written.
+
+## §109 — the value-spelling carriage closes the readonly subsystem [checker-2]
+
+The §105 single-quote gate exists because a member VALUE spelled
+`'lookup'` must print single-quoted INSIDE the object type while
+its own standalone line prints `"lookup"` (the assertions.rs module
+doc's second blocker, recorded sessions ago). With slice 2a landed
+the carriage is one arm, not a subsystem: in the const-context
+member loop, a member whose initializer is DIRECTLY a single-quoted
+StringLiteral prints its type text as `'text'` verbatim (the §77.3
+name-quote precedent applied to values); everything else keeps the
+fresh render. The gate then lifts for exactly the carried shape —
+indirect single-quote reaches (nested in unions/expressions) keep
+declining, which keeps the impossible-not-detectable property.
+
+**Bar, registered before the code:** predict **+15–50** (the
+es2020IntlAPIs/localesObjectArgument locale-options family is the
+head). Must NOT move: slice 2a's converts, standalone
+double-quoted literal lines, §104's 232. One wrong-quote line
+anywhere refuses the arm.
