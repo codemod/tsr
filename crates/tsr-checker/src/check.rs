@@ -489,6 +489,7 @@ impl Checker<'_, '_> {
         // `FunctionDeclaration` and both unary kinds behind guards this rule
         // must not be filtered through, and §140 recorded a rule silently
         // deleted by exactly that. §156.
+        self.check_reserved_declaration_name(typed);
         self.check_jsx_intrinsic_element(node, typed);
         self.check_jsx_factory_in_scope(typed);
         self.check_strict_mode_eval_or_arguments_sites(node, typed, ambient);
@@ -2801,6 +2802,61 @@ impl Checker<'_, '_> {
         children.into_iter().any(|child| {
             !self.is_function_like_or_static_block(child) && self.subtree_has_return_or_throw(child)
         })
+    }
+
+    /// `checkTypeNameIsReserved` (`checker.go:6901`) — the eleven predefined
+    /// type keywords, which "are reserved and cannot be used as names of user
+    /// defined types" (TS 1.0 spec 3.6.1, cited in upstream's own comment).
+    ///
+    /// One helper, five callers, five codes. §276.
+    fn check_type_name_is_reserved(
+        &mut self,
+        name: Option<NodeId>,
+        text: &str,
+        message: &'static tsr_diagnostics::Message,
+    ) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        if !matches!(
+            text,
+            "any"
+                | "unknown"
+                | "never"
+                | "number"
+                | "bigint"
+                | "boolean"
+                | "string"
+                | "symbol"
+                | "void"
+                | "object"
+                | "undefined"
+        ) {
+            return;
+        }
+        let Some(name) = name else { return };
+        let Some(file) = self.source_file_of_for_diagnostics(name) else { return };
+        let span = self.nodes.span(name);
+        self.report(file, Diagnostic::with_args(message, span, [text.to_string()]));
+    }
+
+    /// The reserved-name check for each declaration kind that has one.
+    fn check_reserved_declaration_name(&mut self, typed: Node<'_>) {
+        let (name, message) = match typed {
+            Node::ClassDeclaration(n) => (n.name, &messages::CLASS_NAME_CANNOT_BE_0),
+            Node::ClassExpression(n) => (n.name, &messages::CLASS_NAME_CANNOT_BE_0),
+            Node::InterfaceDeclaration(n) => (n.name, &messages::INTERFACE_NAME_CANNOT_BE_0),
+            Node::TypeAliasDeclaration(n) => (n.name, &messages::TYPE_ALIAS_NAME_CANNOT_BE_0),
+            Node::TypeParameterDeclaration(n) => {
+                (n.name, &messages::TYPE_PARAMETER_NAME_CANNOT_BE_0)
+            }
+            Node::ImportClause(n) => (n.name, &messages::IMPORT_NAME_CANNOT_BE_0),
+            Node::NamespaceImport(n) => (n.name, &messages::IMPORT_NAME_CANNOT_BE_0),
+            Node::ImportSpecifier(n) => (n.name, &messages::IMPORT_NAME_CANNOT_BE_0),
+            _ => return,
+        };
+        let Some(name) = name else { return };
+        self.check_type_name_is_reserved(name.node_id, name.text, message);
     }
 
     /// TS1046 — `Top-level declarations in .d.ts files must start with either

@@ -17431,3 +17431,85 @@ it. Ten of thirteen did.
 
 `STILL SHORT 4` — cases wanting a TS2464 line the object test does not decide.
 Those are type parameters and unresolved shapes, and they need the relation.
+
+## §276 — `checkTypeNameIsReserved`: one helper, five codes
+
+Off `diagslice`'s tail. TS2414 (5 cases, 5 single-line) and TS2427 (5, 5) sat
+next to each other in the list, and they are the *same function*:
+
+```go
+func (c *Checker) checkTypeNameIsReserved(name *ast.Node, message *diagnostics.Message) {
+	// TS 1.0 spec (April 2014): 3.6.1
+	// The predefined type keywords are reserved and cannot be used as names of user defined types.
+	switch name.Text() {
+	case "any", "unknown", "never", "number", "bigint", "boolean", "string", "symbol", "void", "object", "undefined":
+		c.error(name, message, name.Text())
+	}
+}
+```
+
+Five callers, five codes, one word list — and the list is written out in the
+source with its spec citation. §266's shape again: *a rule whose upstream source
+contains its own specification*.
+
+| caller | message | code |
+|---|---|---|
+| `checkTypeParameter` (`:2623`) | type parameter name cannot be | TS2368 |
+| `checkInterfaceDeclaration` (`:4999`) | interface name cannot be | TS2427 |
+| `checkImportBinding` (`:5488`) | import name cannot be | TS2438 |
+| `checkTypeAliasDeclaration` (`:6879`) | type alias name cannot be | TS2457 |
+| `checkClassLikeDeclaration` (`:10454`) | class name cannot be | TS2414 |
+
+All five, for §230's reason: they are five calls to one function, and shipping
+only the two the gap ranks is how a port acquires shapes nobody can explain.
+
+The class caller is guarded by `ast.IsClassLike(node)` — it sits inside
+`checkCollisionWithGlobals`-adjacent code that also runs for other kinds.
+
+### The bar
+
+```
+bar:  +8 cases,  0 LOST,  WRONG delta <= +2
+```
+
+Ten cases are visible for TS2414 and TS2427; the other three codes are below
+`diagslice`'s cutoff and may add.
+
+### Falsifiers
+
+1. **A type named `T` reports.** Only the eleven predefined keywords.
+2. **A *variable* named `string` reports.** The rule is about type names.
+
+## §277 — §276 built: +13, `WRONG 0`, from one eleven-word list
+
+```
+diagnostics   1,735 → 1,748   (+13, bar was +8)
+CONVERTS 13 · LOST 0 · STILL SHORT 2 · RIGHT 25 · WRONG 0
+every other suite unmoved — falsifiers 1 and 2 negative
+```
+
+The largest build since §255, and the whole of it is a `matches!` over eleven
+strings plus a dispatch that names which message each declaration kind gets.
+
+### What `diagslice` did here that `diaggap` could not
+
+TS2414 and TS2427 were **5 cases each** — far down any ranking by size, and
+`diaggap` had never surfaced either. `diagslice` listed them adjacently with
+`5 single` beside both, which is what made it obvious they were one rule seen
+twice. Reading the upstream site then turned two rows of five into **five codes
+sharing one helper**.
+
+> **Rows are ranked; rules are not.** Every instrument in this workstream sorts
+> by *code*, and a helper that five codes call is invisible to all of them —
+> it appears as five small rows scattered by case count. Two of these five
+> (TS2368, TS2438, TS2457) were below every cutoff and came free with the other
+> two.
+
+That is the third time this session the *upstream source* has been the thing
+that priced a build correctly — §266's grammar comment, §274's decidable object
+case, and this. The gap says which function to open; what is inside decides
+what it costs.
+
+### The residue
+
+`STILL SHORT 2` — cases wanting one of these codes *and* something else.
