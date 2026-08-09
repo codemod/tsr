@@ -439,6 +439,10 @@ impl Checker<'_, '_> {
                 self.check_type_argument_arity(node);
                 ambient
             }
+            Node::TypeParameterDeclaration(_) => {
+                self.check_circular_type_parameter_constraint(node);
+                ambient
+            }
             Node::QualifiedName(_) => {
                 self.check_qualified_type_name(node);
                 ambient
@@ -646,6 +650,63 @@ impl Checker<'_, '_> {
                 &messages::_0_REFERS_TO_A_UMD_GLOBAL_BUT_THE_CURRENT_FILE_IS_A_MODULE_CONSIDER_ADDING_AN_IMPORT_INSTEAD,
                 span,
                 [text.to_string()],
+            ),
+        );
+    }
+
+    /// TS2313 — `Type parameter '{0}' has a circular constraint.`
+    ///
+    /// The **direct** form only: `T extends T`. Upstream's check is a general
+    /// cycle over `getConstraintOfTypeParameter`, so `T extends U, U extends T`
+    /// is a two-node cycle this declines, and `T extends Array<T>` is legal and
+    /// must not report. The error node is the **constraint**, not the parameter
+    /// name — `typeParameterDirectlyConstrainedToItself.ts(3,19)` on `class C<T
+    /// extends T> { }` is the second `T`. §371.
+    fn check_circular_type_parameter_constraint(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let Some(Node::TypeParameterDeclaration(parameter)) = self.node_map.get(node) else {
+            return;
+        };
+        let Some(name) = parameter.name.and_then(|name| name.node_id) else { return };
+        let Some(text) = self.identifier_text(name).map(str::to_string) else { return };
+        let Some(constraint) = parameter.constraint.and_then(|c| c.node_id()) else { return };
+        // A bare reference, not `Array<T>` — the type arguments are what make
+        // the recursive form legal.
+        let Some(Node::TypeReferenceNode(reference)) = self.node_map.get(constraint) else {
+            return;
+        };
+        if !reference.type_arguments.is_empty() {
+            return;
+        }
+        let Some(referenced) = reference.type_name.and_then(|name| name.node_id()) else { return };
+        if self.identifier_text(referenced) != Some(text.as_str()) {
+            return;
+        }
+        // Resolution rather than text equality, so a shadowed name cannot
+        // false-positive. A type parameter is in scope in its own constraint,
+        // so the two agree wherever this fires.
+        let Some(symbol) = self.binder.resolve_name(
+            self.nodes,
+            self.node_map,
+            referenced,
+            &text,
+            SymbolFlags::TYPE,
+        ) else {
+            return;
+        };
+        if !self.binder.symbols().get(symbol).declarations.contains(&node) {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(constraint) else { return };
+        let span = self.error_span(constraint);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::TYPE_PARAMETER_0_HAS_A_CIRCULAR_CONSTRAINT,
+                span,
+                [text],
             ),
         );
     }

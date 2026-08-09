@@ -21436,3 +21436,81 @@ on the board and would have been the next place to widen a position blindly.
 `§360` (TS6142) and `§369` (TS2503) both widened a position whose blocked cases
 sit in the claimed column. Neither instrument then existing could show that;
 `diagslice` reported `occupied 0/n` for both, correctly and misleadingly.
+
+## §371 — TS2313: a type parameter constrained to itself
+
+`diagnode`'s new column points at `Identifier in TypeReference`, **6/530
+claimed** — the emptiest large region on the board, and where §335's `+7` came
+from. Its second code is TS2313, 41 missing lines.
+
+```ts
+class C<T extends T> { }
+interface I<T extends T> { }
+function f<T extends T>() { }
+var b = <T extends T>() => { }
+```
+
+`typeParameterDirectlyConstrainedToItself` is ten of these and wants ten lines.
+
+> **§273's filter does not apply here, and saying why matters.** That filter
+> refuses *partial* rules on multi-line cases, because a fragment cannot supply
+> every line. This is not a fragment: `X extends X` is the whole of upstream's
+> *direct* circularity check, and one rule supplies all ten lines of the case at
+> once. The filter is about completeness of the rule, not about the count of the
+> case — a distinction §340 got wrong in the other direction.
+
+The error node is the **constraint**, not the parameter name:
+`typeParameterDirectlyConstrainedToItself.ts(3,19)` on
+`class C<T extends T> { }` is the second `T`.
+
+### The bound
+
+Only the *direct* form. Upstream's circularity is a general cycle check over
+`getConstraintOfTypeParameter`; `T extends U, U extends T` is a two-node cycle
+this does not attempt, and neither does it try `T extends Array<T>`, which is
+legal. Resolution is used rather than text equality so a shadowed name cannot
+false-positive, though a type parameter is in scope in its own constraint and
+the two agree in every corpus case.
+
+### The bar
+
+```
+bar:  +2 (both cases),  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **`T extends Array<T>` reports.** Legal, and the constraint is not a bare
+   reference to `T`.
+2. **`T extends U, U extends T` reports.** The indirect cycle is out of scope;
+   reporting it would be a different message shape and an unbounded walk.
+
+## §372 — §371 built: **+1** of 2
+
+```
+diagnostics   1,873 → 1,874   (bar was +2;  +1, 0 LOST)   34.15%
+every other suite unmoved — both falsifiers negative
+```
+
+`typeParameterDirectlyConstrainedToItself` converts: one rule, ten lines, one
+case — which is the point §371 made against applying §273's filter here. The
+second case wants an indirect cycle this deliberately declines.
+
+> **A complete small rule and a fragment of a large one look identical in
+> `diagslice`.** Both show a multi-line case and both read *"no — needs the
+> whole rule"*. The column is right; what it cannot know is whether the whole
+> rule is ten lines of `match` or a cycle detector. That judgement is upstream's
+> source, and it is cheap to check — `checkTypeParameter`'s direct arm is four
+> lines.
+
+### The seam, twelve builds
+
+```
+§335 +7 · §343 +1 · §345 +2 · §347 +3 · §349 +3 · §353 +1
+§357 +6 · §359 +1 · §361 +2 · §364 +3 · §371 +1 · §351 0
+```
+
+**Thirty cases.** Against them: §338 −3, §339 −3, §341 −8, §368 −2, all
+reverted, all with the mechanism recorded. The kept total is the number that
+matters, and so is the fact that four of five negatives came from assuming a
+guard's *reason* rather than reading it.
