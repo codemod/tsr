@@ -16473,3 +16473,82 @@ Of its remaining 18 lines, **eleven are TS2322** and belong to the structural
 relation — the other workstream's, and explicitly not this one's to spend. The
 rest are one line each across seven cases, five of them parser recovery. The
 board is no longer a source of cheap conversions; §253 was the last one.
+
+## §255 — lifting §206's bound: TS7026 on the closing tag
+
+§206 recorded a bound and an instruction: upstream checks a JSX element's
+**closing** tag as well as its opening one, this port checks only openings, and
+*"do not lift it without re-measuring"*. Re-measuring.
+
+`checkJsxElementDeferred` (`jsx.go:77`):
+
+```go
+c.checkJsxOpeningLikeElementOrOpeningFragment(jsxElement.OpeningElement)
+// Perform resolution on the closing tag so that rename/go to definition/etc work
+if isJsxIntrinsicTagName(jsxElement.ClosingElement.TagName()) {
+    c.getIntrinsicTagSymbol(jsxElement.ClosingElement)
+```
+
+and the baseline is unambiguous — `jsxFactoryAndJsxFragmentFactory.tsx` line 5,
+`<><span>1</span><><span>2.1</span><span>2.2</span></></>;`, wants **six**
+TS7026 at columns 3, 10, 19, 28, 35, 44: the opening *and* the closing name of
+each of the three `span`s.
+
+```
+TS7026   44 missing lines   14 cases blocked on it alone
+```
+
+### The bar
+
+```
+bar:  +8 cases of 14,  0 LOST
+```
+
+### Falsifiers
+
+1. **A case that passes today gains a closing-tag line and fails.** This
+   roughly doubles the rule's output; any element whose opening this port
+   reports correctly now reports twice, and if upstream wanted one of them the
+   case is lost.
+2. **`checker_types` moves.**
+
+## §256 — §255 built: +13 of a ceiling of 14
+
+```
+diagnostics   1,688 → 1,701   (+13, bar was +8, ceiling was 14)
+every other suite unmoved — falsifiers 1 and 2 negative
+
+diag2307, RULE_CODES = [7026]:
+  CONVERTS 27 · LOST 0 · STILL SHORT 22 · RIGHT 371 · WRONG 5
+```
+
+**Zero lost** across a change that roughly doubled a rule's output — falsifier 1
+was the whole risk and it did not fire.
+
+### The five wrong lines are §206's other bound
+
+```
+jsxNamespacePrefixInName / …React      (24,21) / (26,21)
+jsxInvalidEsprimaTestSuite 14.tsx      (1,9)
+jsxInvalidEsprimaTestSuite 15.tsx      (1,11)
+```
+
+All `<a:b>` namespaced names — the shape §206 recorded as needing
+`scanJsxIdentifier` semantics, and already filed. The closing-tag arm makes them
+visible twice rather than once; the owner is unchanged.
+
+### What the bound cost by existing
+
+§206 wrote the bound down correctly, named the mechanism, and attached the right
+instruction — *"do not lift it without re-measuring"*. It then sat for the rest
+of that session and most of this one, worth **13 cases at a one-line change**.
+
+> **A bound that records exactly how to lift it is a debt with the interest
+> rate written on it, and this one was cheap money left on the table.** The
+> instruction was right; nothing scheduled the re-measurement.
+
+That is a process gap, not a reasoning one. The counter-measure is already in
+this file: §226's sweep re-read the *whole* gap for no-producer codes rather than
+working a list from memory, and TS7026's growth from "3 residual lines" to
+**14 cases** only became visible when the gap was re-ranked in §255. **Re-rank
+before choosing; do not work from the last session's ordering.**

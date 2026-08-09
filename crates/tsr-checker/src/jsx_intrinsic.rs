@@ -69,6 +69,11 @@ impl Checker<'_, '_> {
         let tag = match typed {
             Node::JsxOpeningElement(element) => element.tag_name,
             Node::JsxSelfClosingElement(element) => element.tag_name,
+            // §255 — `checkJsxElementDeferred` (`jsx.go:81`) resolves the
+            // closing name too, and `getIntrinsicTagSymbol` is what reports.
+            // The baseline is unambiguous: `<span>1</span>` wants TS7026 at the
+            // opening `span` **and** at the closing one.
+            Node::JsxClosingElement(element) => element.tag_name,
             _ => return,
         };
         let Some(tag) = tag else { return };
