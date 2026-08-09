@@ -3754,3 +3754,34 @@ union-contextual object member (the stringLiteralTypesInUnionTypes
 claimed). Must NOT move: §56's existing annotation/call/return
 converts. Adverse worse than 1:5 refuses whichever arm produced it;
 the arms measure separately.
+
+## §100 — type predicates infer from single-return bodies [claimed: checker-1]
+
+[Bar claims the number; build follows on checker-1's worktree branch.]
+`inferTypePredicates`' 154 wrongs: an unannotated function whose body
+is ONE `return <narrowing-expr>` should type as `(x: T) => x is U`
+(`getTypePredicateFromBody`, `checker.go:20535`). The mechanism is
+three reuses of machinery this port has:
+
+1. Admission (`:20535`): normal function flags, exactly one return
+   with an expression (concise arrow body counts), no implicit
+   return. Constructors/accessors decline.
+2. Per parameter (`checkIfExpressionRefinesAnyParameter`,
+   `:20565`): identifier name, non-boolean declared type, never
+   assigned (`mark_node_assignments`' map), non-rest. The return
+   expression's type must be BOOLEAN-flagged.
+3. The refinement pair (`checkIfExpressionRefinesParameter`,
+   `:20586`): trueType = narrow declared by expr TRUE (§82's
+   `narrow_type` arms); decline if unchanged; falseSubtype = flow
+   type with declared=init, INITIAL=trueType through expr FALSE —
+   predicate exists iff that reduces to NEVER. First refining
+   parameter wins; predicate = `x is trueType`.
+
+**Bar:** ≥40 of inferTypePredicates' 154 at ≥10:1 (the case mixes
+predicate-print lines with downstream `.filter()` consequences that
+need the predicate CONSUMED — those are a second slice). Falsifiers:
+(a) declared-boolean parameters must keep `boolean` returns —
+upstream's own comment; (b) any narrowing shape `narrow_type` cannot
+decide answers initType and MUST leave the return as `boolean`, not
+gap it; (c) multi-return and implicit-return functions must be
+byte-identical — the admission is the whole gate.
