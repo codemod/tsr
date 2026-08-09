@@ -966,3 +966,23 @@ distinction from a no-output success twice. Bisect continues at the
 narrowed range's midpoint; the conventions entry (re-pair ledger
 disputes against the last known-good attestation) is confirmed
 earned and should land with the bisect's conclusion.
+
+**§114 SCORE CORRECTED — the artifact test applied to my own gain
+column.** The bisect concluded with TWO independent instrument
+chains in full agreement (checker-1's four checkout+dump points and
+my own worktree probes at e42c32d9, 7e9236c3, d53b8a03, 0a56e089,
+and decisively e6a7b2a7^ itself): the §108.1 keys were RIGHT at
+EVERY point — there was NO regression, and §114's claimed
+"callWithMissingVoid 8 + typeGuardTypeOfUndefined 8 W→R" were MY
+OWN §87-class aligner artifacts on the GAIN side, exactly
+symmetric with the six R→W the same pair produced. §114's true
+per-name delta is ~+22 (the head-case family and G→R stand); the
+measured total right 408,346→408,450 arithmetic is unaffected —
+only the names move, §108.1's +22 stands whole, and no regression
+entry is owed. THE SHARPENED RULE, earned by this correction: **the
+artifact test applies to GAIN columns too — a W→R in a case your
+change didn't touch is as suspect as an R→W**, and a pair's
+per-case rows are attributions, not measurements, until the
+untouched-case rows pass the fixed-index dump. My §114 landing
+message and STATUS row carry the stale +38; corrected here and in
+STATUS, messages immutable.

@@ -3346,3 +3346,30 @@ context, `-C n` both sides. All three checked.
 > whether an item could exist at all. Ask for it explicitly with `-A`; do not
 > rely on an imprecise read to stumble over it.
 
+
+## The aligner-artifact test, and it applies to gain columns too
+
+A scorepair's per-case transition rows are **attributions, not
+measurements**: the walker pairs lines by subject text, so a change that
+alters your own line texts re-pairs the neighbourhood, and the pair then
+reports transitions in cases the change never touched. Two firings on
+2026-08-09, symmetric: six R→W that nine trace rounds proved artifactual,
+and — after the six taught the test — sixteen W→R in the SAME pair that a
+two-lane bisect (nine checkout+dump points, two independent instrument
+chains in agreement) dissolved the same way.
+
+The test costs seconds and is decisive: **dump the exact keys at both
+commits; a fixed index whose WANT text changes between runs is the aligner
+moving, not the answer.** Apply it to any transition row naming a case the
+change has no road to — and gains are as suspect as losses, because the
+favourable reading is the one nobody re-checks (the same asymmetry as the
+instrument-zero rule). The totals survive artifacts — right/gap/wrong
+arithmetic is measured — but per-name credit does not, and a ledger built
+on unchecked pair rows drifts one flattering row at a time.
+
+Two seams found running the test, both of the produces-a-plausible-result
+family: `ln -sfn` into an **existing directory** creates the link *inside*
+it (the worktree then judges an EMPTY corpus — TOTAL 0 — which reads as a
+clean zero); and an rtk-piped empty result is indistinguishable from
+no-output success. Check `ls <link>/testdata` before trusting any
+worktree measurement.
