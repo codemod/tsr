@@ -12,10 +12,13 @@ FIRST: git pull. Then read, in this order:
   builds.
 
 STATE AT HANDOFF, fourteenth session (verify with a fresh run):
-  diagnostics    1,617/5,488 = 29.46%   (+166 over TWENTY-TWO builds, zero lost —
-                 §156-§218).  SEVEN parser list loops still carry the bare
-                 `break` §198-§201 diagnosed; none is named by `extraonly`
-                 today, so each needs a case before it is worth doing.  `extraonly` fell 50 -> 26 cases, ALL of it from
+  diagnostics    1,619/5,488 = 29.50%   (+168 over TWENTY-THREE builds, zero
+                 lost — §156-§219).  The list-loop sweep is DONE (§219): ten
+                 loops, four fixed, seven measured as having no case asking for
+                 them.  `extragap` shows ~1,150 invented parser lines against
+                 `extraonly`'s 25 cases — **`extraonly` is the narrowest
+                 projection of the extra column** — and those lines are NOT in
+                 the list loops.  Locating them is the open question.  `extraonly` fell 50 -> 26 cases, ALL of it from
                  four parser/harness fixes and not one rule.
 
   THE HIGHEST-YIELD MOVE THIS SESSION FOUND, stated for reuse: **when a row is
