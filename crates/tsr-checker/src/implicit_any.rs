@@ -86,7 +86,16 @@ impl Checker<'_, '_> {
         if annotation.is_some() || initializer.is_some() {
             return;
         }
-        let tsr_ast::PropertyName::Identifier(name) = name else { return };
+        // A **private name** is a separate `PropertyName` variant, and
+        // `class B { #prop; }` is TS7008 exactly as `class B { prop; }` is.
+        // Upstream reaches it through the same arm, exempting only
+        // `isPrivateWithinAmbient` — which the `ambient` guard above already
+        // answers. §379.
+        let text = match name {
+            tsr_ast::PropertyName::Identifier(name) => name.text,
+            tsr_ast::PropertyName::PrivateIdentifier(name) => name.text,
+            _ => return,
+        };
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
         let span = self.error_span(node);
         self.report(
@@ -94,7 +103,7 @@ impl Checker<'_, '_> {
             Diagnostic::with_args(
                 &messages::MEMBER_0_IMPLICITLY_HAS_AN_1_TYPE,
                 span,
-                [name.text.to_string(), "any".to_string()],
+                [text.to_string(), "any".to_string()],
             ),
         );
     }

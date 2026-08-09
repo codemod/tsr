@@ -21761,3 +21761,81 @@ missing upstream site       §375 §377                                         
 instruments                 §336 §339 §341 §370                                   —
 reverted with mechanism     §338 §339 §341 §351 §368                            −16
 ```
+
+## §379 — TS7008 on a private-name member
+
+Second row from §377's list of sixteen. TS7008 has **four** upstream sites; this
+port has one, and the corpus wants a shape the existing one declines.
+
+```ts
+// @noImplicitAny: true
+declare class A { #prop; }    // exempt — isPrivateWithinAmbient
+class B { #prop; }            // TS7008
+```
+
+§271's rule ends:
+
+```rust
+let tsr_ast::PropertyName::Identifier(name) = name else { return };
+```
+
+A `PrivateIdentifier` is a separate `PropertyName` variant, so `#prop` declines.
+§335's shape for the eleventh time, and the cheapest instance of it yet — one
+extra match arm.
+
+The ambient half is already right: `check_implicit_any_member` returns on
+`ambient`, which is exactly `isPrivateWithinAmbient`'s effect for
+`declare class A`.
+
+### The bar
+
+```
+bar:  +1 of 9,  0 LOST,  WRONG delta <= +1
+```
+
+Deliberately small — the other eight blocked cases are the three *other*
+upstream sites (`flow.go:2479`, `flow.go:2502`, `checker.go:18285`), which are
+the auto-accessor and evolving-type paths and not this arm.
+
+### Falsifiers
+
+1. **`declare class A { #prop; }` reports.** The ambient guard must hold.
+2. **`#prop: number` or `#prop = 1` reports.** The annotation/initialiser guard
+   is untouched and applies before the name test.
+
+## §380 — §379 built: **+4**, and the private name was not the gap
+
+```
+private-name widening alone   1,880 → 1,880   (+0)
+plus the dispatch arm         1,880 → 1,884   (+4, 0 LOST)   34.33%
+```
+
+The bar was `+1` and the mechanism was wrong. `#prop` declining on
+`PropertyName::Identifier` was real, and fixing it converted nothing, because
+**`check_implicit_any_member` was dispatched only from
+`PropertySignatureDeclaration`** — an interface member. No *class* property had
+ever reached the rule, private-named or otherwise.
+
+> **A guard that declines and a dispatch that never calls are indistinguishable
+> from the outside.** Both produce silence. I read the rule top-down, found a
+> plausible decline, fixed it, and measured `+0` — which is §340's rail
+> (*probe at the rule's ENTRY, not at a branch*) failing a second time in the
+> same session, and caught this time only because the measurement was taken
+> before the commit rather than after.
+
+The cheap discriminator, worth stating because it costs one command:
+
+```
+grep -n "<rule_name>(node" crates/tsr-checker/src/check.rs
+```
+
+One call site for a rule that should apply to several node kinds is the signal.
+§271 wrote the rule for interface members and the class arm was never added;
+nothing in the rule's own text says so.
+
+### Both halves were needed
+
+The private-name arm alone was `+0`; the dispatch alone would have missed
+`privateNameAmbientNoImplicitAny`, whose member *is* private. The build keeps
+both, and the notes keep the order they were measured in, because the `+0`
+is what located the dispatch.

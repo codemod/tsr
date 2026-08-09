@@ -316,6 +316,10 @@ impl Checker<'_, '_> {
                 ambient
             }
             Node::PropertyDeclaration(property) => {
+                // §271 built this rule and dispatched it only from
+                // `PropertySignatureDeclaration`, so no *class* property ever
+                // reached it — the shape §321 opened, at the dispatch. §379.
+                self.check_implicit_any_member(node, ambient);
                 self.check_ambient_initializer(
                     node,
                     property.initializer,
