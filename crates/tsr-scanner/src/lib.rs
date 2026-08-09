@@ -608,7 +608,13 @@ impl<'a> Scanner<'a> {
                 self.bump();
                 if let Some(decoded_char) = self.scan_unicode_escape().and_then(char::from_u32) {
                     {
-                        let is_valid = if self.pos == start + 1 {
+                        // Whether this escape spells the identifier's FIRST
+                        // character is decided by where the escape began, not
+                        // by the cursor after it — the escape just consumed
+                        // six characters (`\u0031a`: `1` cannot start an
+                        // identifier, and upstream errors;
+                        // `invalidUnicodeEscapeSequance4`).
+                        let is_valid = if escape_start == start {
                             is_identifier_start(decoded_char)
                         } else {
                             is_identifier_part(decoded_char)

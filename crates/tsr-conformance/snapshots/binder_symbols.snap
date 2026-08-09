@@ -2,20 +2,18 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 binder_symbols Summary:
 What a pass means: every symbol in the .symbols baseline exists with the same declaration lines
-Passed         : 8450/8461 (99.87%)
-Failed         : 11
-Skipped        : 3983 (excluded from the denominator)
+Passed         : 8450/8460 (99.88%)
+Failed         : 10
+Skipped        : 3984 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
   673  skipped: the baseline names no symbols in any unit we bind
-  539  skipped: the parser reports errors for this file
+  540  skipped: the parser reports errors for this file
   924  skipped: upstream recorded no .symbols baseline
   450  skipped: upstream records a known divergence from TypeScript (.diff baseline)
 
 compiler/ambientExternalModuleWithRelativeModuleName
   1 symbol(s): .\\relativeModule: no symbol
-compiler/invalidUnicodeEscapeSequance4
-  1 symbol(s): u0031a: no symbol
 compiler/moduleElementsInWrongContext
   1 symbol(s): Foo: declared on {24}, expected to include {6, 24}
 compiler/module_augmentUninstantiatedModule

@@ -187,10 +187,15 @@ fn recovered_new_type_assertion_does_not_gain_a_second_call() {
 }
 
 #[test]
-fn recovered_digit_starting_identifier_is_escaped() {
+fn a_digit_starting_escape_is_a_scan_error_like_upstream() {
+    // `\u0031` decodes to `1`, which cannot start an identifier; upstream
+    // reports Invalid_character (`invalidUnicodeEscapeSequance4`), so the
+    // recovery tree owes no round trip. The print still reproduces the
+    // spelling for whoever asks.
+    let parsed = tsr_parser::ParsedFile::parse(r"var \u0031a;".to_string());
+    assert!(!parsed.diagnostics().is_empty(), "upstream errors here");
     let output = printed(r"var \u0031a;");
     assert!(output.contains(r"var \u0031a;"));
-    assert!(round_trips(r"var \u0031a;"));
 }
 
 #[test]
