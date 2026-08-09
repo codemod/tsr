@@ -835,3 +835,20 @@ the ternary-branch arrows names the transmitting arm; the guard
 then moves to that arm's conditional case. The +16 win population
 and the six-line adverse are both stable across three arm shapes —
 the family lands the day the transmitting arm is named.
+
+**§114 family-1, round 7 (banked; reverted):** the transmitting arm
+is NAMED — `get_contextual_type`'s dispatch HAS a
+ConditionalExpression arm and it fires for the ternary-branch
+arrows (2× on the head case; GCT parent-kind census: 17
+paren-parents, 4 call, 4 property-assignment, 2 conditional). The
+guard belongs in that arm, gated to call-argument-derived context
+only (annotation-derived ternary context must keep flowing — §68
+wins depend on it). ONE PUZZLE remains, round 8's single command:
+pre-arity-arm these branches printed `any` (RIGHT) even though
+index-0 agreement SUCCEEDS for the 2-arg call — so the conditional
+arm's RESULT was None for a reason the arity arm then changed;
+print that arm's result with and without the arity arm before
+placing the guard, or the guard may mask a different mechanism.
+Seven rounds: every arm in the chain is now individually measured;
+the family is one result-print plus one guard placement from its
+pair.
