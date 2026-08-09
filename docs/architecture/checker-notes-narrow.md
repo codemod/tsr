@@ -3814,3 +3814,30 @@ upstream's own comment; (b) any narrowing shape `narrow_type` cannot
 decide answers initType and MUST leave the return as `boolean`, not
 gap it; (c) multi-return and implicit-return functions must be
 byte-identical — the admission is the whole gate.
+
+## §101 — the template fold consults the constant evaluator [checker-2]
+
+`1 - \`${ 3 - 4 }\`` folds upstream to `"-1"`: `checkTemplateExpression`
+hands the WHOLE template to the constant evaluator
+(`evaluated = c.evaluate(node, node).Value`, `checker.go:7991`) and a
+non-nil string becomes the fresh literal — the span's TYPE is
+`number`, and our §24 fold reads types, so every arithmetic span
+declines to `string`. The port's only evaluator today is §55's
+enum-local `fn eval`, which lacks binary arithmetic.
+
+The arm: a reusable expression-value evaluator — numeric/string
+literals, parenthesized, prefix `+`/`-`, binary `+ - * / % **` over
+numbers and `+` string concatenation, templates recursively —
+declining (None) on identifiers, property accesses, and anything
+else; a None anywhere keeps today's answer. Number formatting is
+gated: integers below 1e21 print as integers, other finite values
+only when Rust's `{}` round-trips the parse; `-0` prints `0`;
+anything else declines rather than risks a JS-spelling divergence.
+
+**Bar, registered before the code:** the four
+templateStringBinaryOperations* cases hold ~216 WRONG lines of the
+`"-1"`/`"2-1"` shape; predict **+120–216 W→R** there with a small
+corpus tail. Must NOT move: §24's existing all-literal folds and
+§55's enum values (untouched module). Any adverse from number
+SPELLING divergence is priced per line and refuses the formatting
+arm (not the fold) if it exceeds 1:5.
