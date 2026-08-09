@@ -1276,9 +1276,12 @@ impl Checker<'_, '_> {
     ///
     /// Upstream gates the whole arm on `c.noImplicitAny` (`checker.go:16697`):
     /// with it **off**, `let x; x = 1; x` is `any` at every use and nothing
-    /// evolves. This checker has no compiler options plumbed at all — nothing
-    /// reads a `CompilerOptions` anywhere in `tsr-checker` — so the flag cannot
-    /// be consulted and is assumed on, matching `strict`.
+    /// evolves. The flag is **assumed on** here, matching `strict`.
+    ///
+    /// Its original reason — *"this checker has no compiler options plumbed at
+    /// all"* — expired with ADR-0042: [`Checker::no_implicit_any`] is set from
+    /// `CompilerOptions` at construction and can be read here. The assumption
+    /// survives only because nobody has changed the arm to read it.
     ///
     /// **How you would know this was wrong:** conformance lines *regressing*
     /// from `any` to a narrowed type in fixtures compiled without

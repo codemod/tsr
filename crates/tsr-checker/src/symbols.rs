@@ -1359,8 +1359,11 @@ impl<'a> Checker<'a, '_> {
     ///   the name is computed once at creation, and upstream computes it per
     ///   reference site.
     /// - **`strictNullChecks` and an optional symbol** (`checker.go:16942`) is
-    ///   not ported: there are no compiler options here, so the port is
-    ///   uniformly non-strict.
+    ///   not ported. **Its stated reason is gone**: the checker carries compiler
+    ///   options now ([`Checker::apply_compiler_options`], ADR-0042) and
+    ///   [`Checker::strict_null_checks`] is one of them, so "there are no
+    ///   compiler options here" no longer holds. The arm is still unwritten —
+    ///   only the excuse expired.
     fn get_type_of_func_class_enum_module_worker(&mut self, symbol: SymbolId) -> TypeId {
         let flags = self.binder.symbols().get(symbol).flags;
         // `isShorthandAmbientModuleSymbol` (`utilities.go:198`): `declare module

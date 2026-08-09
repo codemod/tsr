@@ -52,12 +52,15 @@
 //!
 //! `isSimpleTypeRelatedTo` branches on `c.strictNullChecks` in two places: with
 //! it **off**, `undefined` and `null` are assignable to everything except
-//! `never`. This crate has no compiler options plumbed through to the checker,
-//! and the two readings are not symmetric — assuming *off* makes the relation
-//! maximally permissive, which is the direction that manufactures wrong answers.
-//! Assuming *on* costs correctness only on files that actually disable it, and
-//! costs it as a gap. So the strict reading is hard-coded, and this paragraph is
-//! the note to delete when options arrive.
+//! `never`. The two readings are not symmetric — assuming *off* makes the
+//! relation maximally permissive, which is the direction that manufactures wrong
+//! answers. Assuming *on* costs correctness only on files that actually disable
+//! it, and costs it as a gap. So the strict reading is hard-coded.
+//!
+//! **The note this paragraph replaced said to delete it "when options arrive".
+//! They have arrived** — ADR-0042 sets [`Checker::strict_null_checks`] from
+//! `CompilerOptions` — and the hard-coding is now a plain unfinished arm rather
+//! than a forced choice. Reading the field is the fix.
 //!
 //! # The recursion limits are exercised, and that was measured
 //!
