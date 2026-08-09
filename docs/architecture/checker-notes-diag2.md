@@ -21268,3 +21268,50 @@ TS2411's owner is therefore the relation, not this family. The family's
 remaining members are real and unranked, and the instrument that would rank
 them is still §354's — *which decline sites do blocked cases actually reach* —
 now with a fourth motivating instance.
+
+## §367 — `diagmerge` built, measured useless, deleted
+
+§354's instrument has been named five times, so I built the narrow version of
+it: per blocked row, how many of its cases sit in a program containing a symbol
+whose declarations are of **more than one kind** — the precondition every member
+of §365's family shares. A zero would refute a row; a high count would nominate
+it.
+
+It ran, and every row read **100%**:
+
+```
+TS2322   488 blocked   488 merged
+TS2345   109 blocked   108 merged
+TS2339   101 blocked   101 merged
+TS2454    47 blocked    47 merged
+…
+```
+
+> **The standard library is a merged-symbol program.** `interface Array<T>` and
+> `declare var Array`, `interface String` and `declare var String`, and so on
+> for every lib global — so "does this program contain a merged symbol" is true
+> of every case in the corpus, and the predicate has no discriminating power at
+> all.
+
+§366's `numericIndexerConstraint` is exactly the trap: the *fixture* is a lone
+`class C` with no merge, and the *program* it compiles in is full of them. I
+tested at the wrong granularity, and the instrument could not have detected its
+own uselessness without being run — the output is a column of identical numbers,
+which is the same tell as a suite reading 100% on its first run.
+
+### The corrected design, for whoever builds it
+
+Restrict the scan to symbols whose declarations lie in the **test's own files**,
+not in the lib. `Program::source_file` already maps a unit name to a file, so
+the filter is a containment test per declaration. That is the version worth
+running; this one is deleted rather than left in the tree misreporting.
+
+### What this says about §354's real instrument
+
+The proxy failed for a reason the real instrument would not share: §354 counts
+**decline sites actually executed**, which is a fact about the run rather than a
+predicate about the program. Every cheap approximation of it has now failed —
+§351 (correct fix, unreached), §366 (right shape, wrong row), §367 (predicate
+true everywhere). Three failures of the proxy is the argument for paying for the
+instrumented version, which is a `decline!(site)` counter behind an env var and
+one corpus run.
