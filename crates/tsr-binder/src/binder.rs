@@ -4026,7 +4026,8 @@ fn has_export_declarations(module: &tsr_ast::ModuleDeclaration<'_>) -> bool {
 /// One indicator is **not** implemented: upstream also treats a file containing
 /// `import.meta` anywhere as a module (`getImportMetaIfNecessary`), which needs a
 /// full-tree walk under specific module settings the binder does not have.
-fn is_external_module(file: &SourceFile<'_>) -> bool {
+#[must_use]
+pub fn is_external_module(file: &SourceFile<'_>) -> bool {
     file.statements.iter().any(|statement| {
         let node = Node::from(*statement);
         match node {

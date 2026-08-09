@@ -421,6 +421,12 @@ impl Checker<'_, '_> {
             Node::ParameterDeclaration(n) => self.check_modifier_order(n.modifiers),
             _ => {}
         }
+        // Its own call rather than an arm in either `match` above: the two
+        // above claim `BinaryExpression`, `ParameterDeclaration`,
+        // `FunctionDeclaration` and both unary kinds behind guards this rule
+        // must not be filtered through, and §140 recorded a rule silently
+        // deleted by exactly that. §156.
+        self.check_strict_mode_eval_or_arguments_sites(node, typed, ambient);
         self.check_type_parameter_list(type_parameters_of(typed));
         self.check_truthiness_sites(node, ambient);
         self.note_member_name_at(node);
@@ -3358,7 +3364,7 @@ impl Checker<'_, '_> {
 
     /// The text of an identifier or private identifier used as a declaration
     /// name, for the name comparison above.
-    fn identifier_text(&self, node: NodeId) -> Option<&str> {
+    pub(crate) fn identifier_text(&self, node: NodeId) -> Option<&str> {
         match self.node_map.get(node)? {
             Node::Identifier(identifier) => Some(identifier.text),
             Node::PrivateIdentifier(identifier) => Some(identifier.text),

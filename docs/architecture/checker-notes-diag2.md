@@ -10471,3 +10471,163 @@ it was priced at: **on this board the dominant failure mode is not bad reasoning
 about the compiler — it is reading a measurement that answered a narrower
 question than the one asked.** Every `sort -u`, `head`, `grep -A n` and
 set-valued diff in an investigation is a place where that happens silently.
+
+## §156 — TS1100 needs no strict-mode tracking at all, and the baselines say so
+
+§105 priced TS1100 as *"`b.inStrictMode` plus a three-way message split"*, and
+§137 confirmed by `grep` that **no strict-mode tracking exists in this binder**,
+which made the row look like a subsystem rather than a rule. §137's grep was
+right and its conclusion was drawn one layer too early: it verified that *this*
+port has no strict-mode state without checking whether *upstream* has any.
+
+**It does not.** `binder.Binder` (`binder.go:83-113`) has no `inStrictMode`
+field, and `grep -rn "inStrictMode\|InStrictMode" internal/` over the pinned tree
+returns nothing. Every one of the seven `checkStrictModeEvalOrArguments` call
+sites is dispatched unconditionally from `bind` (`binder.go:617-640`,
+`:1165`, `:1194`, `:1369`), and `checkStrictModeEvalOrArguments`
+(`binder.go:1449`) tests only *"is this identifier `eval` or `arguments`"*.
+
+The falsifier was already in the corpus, and it is decisive:
+
+```
+conformance/parserStrictMode3-negative.ts   →   eval = 1;
+  parserStrictMode3-negative.ts(1,1): error TS1100: Invalid use of 'eval' in strict mode.
+```
+
+One line, **no `"use strict"` prologue, no `export`, no class, not a module** —
+and upstream reports TS1100 anyway. The fixture's own name says it was written
+to be the *negative* of `parserStrictMode3`, i.e. the case that should stay
+quiet, and upstream is not quiet. That is bug-compatibility this port owes,
+because [ADR-0006](../adr/0006-conformance-oracle.md) makes the generated Go the
+oracle. `alwaysStrict` / `alwaysStrictES6` / `alwaysStrictModule` set the option
+and it changes nothing about which line is reported — the option is an *emit*
+concern here, not a binder one.
+
+**So the rule needs no option, no prologue scan, and no strict-mode state.** It
+is a syntactic walk with a three-way message choice, which is the same shape as
+§103's TS1029 and §104's TS1163 — the seam §105 declared exhausted.
+
+### The three-way choice, and why only two arms have a population
+
+`getStrictModeEvalOrArgumentsMessage` (`binder.go:1457`) picks in order:
+
+| test | code |
+|---|---|
+| `GetContainingClass(contextNode) != nil` | **TS1210** |
+| `b.file.ExternalModuleIndicator != nil` | **TS1215** |
+| otherwise | **TS1100** |
+
+`diagmissing` over the corpus:
+
+```
+TS1100   13 missing lines   12 cases blocked on it alone
+TS1210    3 missing lines    3 cases blocked on it alone
+TS1215    0 missing lines    0 cases
+```
+
+TS1215 has **zero** missing lines, which does not make it optional: a port that
+emits TS1100 where upstream emits TS1215 is wrong at the right position, and
+every such line is a new false positive. The arm is built for the wrong column,
+not for the right one — the same reason §103 ported all four `_0_modifier_must_precede_1_modifier`
+orderings when only two had cases.
+
+### The bar
+
+**Off the CASE count, per §79's rule.** Sole-obstacle cases: **12 + 3 = 15**.
+Concentration is 16 lines / 15 cases = **1.07**, the best shape measured on this
+board since §104's 1.0 — and unlike §82's `reachabilityChecks1…11`, the fifteen
+have fifteen distinct file-name stems (`parserStrictMode8/9/10/11/13` share a
+stem but are five separate fixtures with different bodies, not one file re-run
+under options). So the count is not inflated the way §82's was.
+
+```
+bar:  +13 cases,  0 LOST,  WRONG ≤ 5
+```
+
+The bar is set below the 15-case ceiling because two of the fifteen
+(`plainJSReservedStrict` at two lines, `jsFileCompilationBindErrors` at four
+diagnostics of which TS1100 is one) need every other line in the case to be
+right already.
+
+### Falsifiers — what would say this reasoning is wrong
+
+1. **`WRONG` exceeds 5.** Then the unconditional reading is wrong somewhere the
+   corpus disagrees with `parserStrictMode3-negative`, and the first place to
+   look is a call site whose upstream guard was dropped (`bindParameter` and
+   `checkStrictModeFunctionName` both gate on `NodeFlagsAmbient`, and this port
+   has no such flag — §94's list).
+2. **`LOST` is non-zero.** The rule only adds diagnostics, so a loss means a
+   case that was exact gained a line — which would mean a call site fires where
+   upstream has none.
+3. **`binder_symbols` moves.** It must not: this build is in `crate::check` and
+   touches no symbol table. If it moves, the change leaked.
+4. **A wrong line carries TS1100 where the baseline carries TS1210 or TS1215.**
+   That falsifies the *split*, not the rule, and `diag2307`'s wrong column
+   prints the code so it is distinguishable from a wrong *position*.
+
+## §157 — §156 built: +15 cases at ZERO wrong, the whole ceiling
+
+The bar was `+13 cases, 0 LOST, WRONG ≤ 5`. Measured with
+`RULE_CODES = [1100, 1210, 1215]` isolated, at the build:
+
+```
+judged cases          5488
+CONVERTS                15
+LOST                     0
+STILL SHORT             13
+diagnostics RIGHT       45
+diagnostics WRONG        0
+```
+
+`coverage` confirms it end to end: `diagnostics` **1,451 → 1,466**, and
+`checker_types` (3,937 · 84.47%), `binder_symbols` (8,459/8,459) and
+`printer_round_trip` (11,762/11,762) all unmoved. Every one of §156's four
+falsifiers came back negative.
+
+**All fifteen sole-obstacle cases converted** — the twelve TS1100 and the three
+TS1210 — which is the first build on this board to take a row's entire ceiling.
+The bar was set at 13 because `plainJSReservedStrict` and
+`jsFileCompilationBindErrors` needed every other line in their case to be right
+already; both were, so the discount was unnecessary.
+
+### The two numbers worth carrying forward
+
+**`RIGHT` is 45 against 16 missing lines.** Twenty-nine correct TS1100 lines
+land in cases that still fail for something else (`STILL SHORT` 13). The row's
+*population* was nearly three times its *conversion*, which is §142's point
+restated from the other side: a rule's yield is not its row, in both directions.
+
+**`WRONG` is 0 across all three codes**, including TS1215, which had no missing
+line to earn and could only have cost. The three-way split is therefore verified
+in the only way it can be — no case in the corpus disagrees with it at any
+position. §144's rule held: the arm built for the wrong column is the one that
+proves the split.
+
+### What this retires
+
+**§105's "the cheap-grammar seam is now exhausted" is retired**, and so is the
+reason it was believed. §105 priced TS1100 as a subsystem because it read
+`checkStrictModeEvalOrArguments`'s *name* and inferred a strict-mode gate;
+§137's `grep` then confirmed the gate was missing *in this port* and stopped.
+Neither read upstream's `Binder` struct, and neither opened
+`parserStrictMode3-negative`, which is 24 characters long and settles it.
+
+**The rule that would have caught it two sessions earlier is already written in
+this file** — §131's *read the fixture before the fourth hypothesis*. This row
+had two hypotheses and no fixture read. Extend it: **read the fixture before the
+FIRST refusal, not the fourth hypothesis.** A refusal is the most expensive
+output this workstream produces — §13's survived thirteen sessions — and it is
+the one produced with the least evidence.
+
+### What is still not built, named so it is not mistaken for done
+
+`checkStrictModeIdentifier` (`binder.go:1303`, TS1212–TS1214 and their class and
+module variants), `checkStrictModeWithStatement` (TS1101),
+`checkStrictModeDeleteExpression` (TS1102),
+`checkStrictModeLabeledStatement` (TS1344, already built at §104's sibling) and
+`checkStrictModeFunctionDeclaration`'s block-scope arm (TS1250–TS1252) are all
+untouched. **TS1101 and TS1102 are the same shape as this build and read no
+state at all** — `parserStrictMode14` and `15` are their fixtures, and §7's
+"TS1212 needs `alwaysStrict` inside `tsr_binder::bind`" in `TASK-diagnostics.md`
+is now suspect for the same reason §105 was: it names an option upstream's
+binder does not read.

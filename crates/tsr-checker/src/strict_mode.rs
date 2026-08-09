@@ -1,0 +1,207 @@
+//! TS1100 / TS1210 / TS1215 — `eval` and `arguments` as a binding name or an
+//! assignment target.
+//!
+//! `checkStrictModeEvalOrArguments` (`binder.go:1449`) and its message chooser
+//! `getStrictModeEvalOrArgumentsMessage` (`binder.go:1457`).
+//!
+//! # This rule has no strict-mode gate, and that is upstream's shape
+//!
+//! The name says otherwise and so did this workstream's own pricing: §105 read
+//! the row as *"`b.inStrictMode` plus a three-way message split"* and §137
+//! confirmed by `grep` that no strict-mode tracking exists in `tsr_binder`.
+//! Both were reasoning about the wrong side. `binder.Binder`
+//! (`binder.go:83-113`) has **no `inStrictMode` field**, and every one of the
+//! seven call sites is dispatched unconditionally from `bind`
+//! (`binder.go:617-640`, `:1165`, `:1194`, `:1369`).
+//!
+//! The corpus carries the falsifier: `parserStrictMode3-negative.ts` is the
+//! single line `eval = 1;` with no `"use strict"` prologue, no `export`, no
+//! class and no module indicator, and its baseline records
+//! `TS1100: Invalid use of 'eval' in strict mode.` all the same. Under
+//! [ADR-0006](../../../docs/adr/0006-conformance-oracle.md) the generated Go is
+//! the oracle, so that is the behaviour this port owes.
+//!
+//! `alwaysStrict`, `alwaysStrictES6` and `alwaysStrictModule` set the compiler
+//! option and none of them changes which line is reported — the option is an
+//! *emit* concern here, not a binder one, which is why this rule reads no
+//! options at all.
+//!
+//! # Where the rule lives
+//!
+//! In `crate::check`'s walk rather than in `tsr_binder`, because it needs
+//! nothing the binder has: no symbol table, no container chain, no flow. Every
+//! input is the finished tree. Keeping it out of the binder also keeps the
+//! `binder_symbols` rail out of the blast radius, which §156 registered as a
+//! falsifier before this was written.
+//!
+//! `docs/architecture/checker-notes-diag2.md` §156.
+
+use tsr_ast::{Expression, Node, NodeId, SyntaxKind};
+use tsr_diagnostics::{Diagnostic, messages};
+
+use crate::checker::Checker;
+
+impl Checker<'_, '_> {
+    /// The seven `checkStrictModeEvalOrArguments` call sites, dispatched from
+    /// one place.
+    ///
+    /// A single entry point rather than seven additions to `check_node`'s two
+    /// `match` blocks: §140 recorded a rule deleted outright by an earlier arm
+    /// claiming its kind, and `BinaryExpression`, `ParameterDeclaration`,
+    /// `FunctionDeclaration` and the two unary kinds are all already claimed
+    /// there by guards this rule must not be filtered through.
+    pub(crate) fn check_strict_mode_eval_or_arguments_sites(
+        &mut self,
+        node: NodeId,
+        typed: Node<'_>,
+        ambient: bool,
+    ) {
+        let name = match typed {
+            // `bindVariableDeclarationOrBindingElement` (`binder.go:1164`),
+            // called unconditionally and before any of its own branching.
+            //
+            // **This arm also covers `checkStrictModeCatchClause`**
+            // (`binder.go:1393`). Upstream reaches `catch (eval)` twice — once
+            // through the catch clause and once through the same
+            // `VariableDeclaration` node under `bind` — and its final
+            // `SortAndDeduplicateDiagnostics` collapses the pair. §151 verified
+            // that `Checker::report` is a plain `push` with no dedup, and the
+            // suite compares sorted *multisets*, so a second report here would
+            // be an extra line. The catch clause's variable declaration is a
+            // `VariableDeclaration` in this tree too and the walk reaches it,
+            // so the single arm is both sufficient and duplicate-free.
+            Node::VariableDeclaration(declaration) => declaration.name.and_then(|n| n.node_id()),
+            Node::BindingElement(element) => element.name.and_then(|n| n.node_id()),
+            // `bindParameter` (`binder.go:1188`) — gated on
+            // `node.Flags&ast.NodeFlagsAmbient == 0`. This port declares
+            // `NodeFlags::AMBIENT` and sets it nowhere (§94's list), so the
+            // gate is the walk-threaded `ambient`.
+            Node::ParameterDeclaration(parameter) if !ambient => {
+                parameter.name.and_then(|n| n.node_id())
+            }
+            // `checkStrictModeFunctionName` (`binder.go:1366`), from
+            // `bindFunctionDeclaration` (`:1215`) and `bindFunctionExpression`
+            // (`:913`) — the same ambient gate, and the expression form is
+            // reached only when it has a name.
+            Node::FunctionDeclaration(declaration) if !ambient => {
+                declaration.name.and_then(|n| n.node_id)
+            }
+            Node::FunctionExpression(declaration) if !ambient => {
+                declaration.name.and_then(|n| n.node_id)
+            }
+            // `checkStrictModeBinaryExpression` (`binder.go:1384`) — the
+            // left-hand side of an assignment, and only when it is one:
+            // `eval == 1` is a comparison and reports nothing.
+            Node::BinaryExpression(binary) => {
+                let operator = binary.operator_token.map(|token| token.kind);
+                let assignment = operator.is_some_and(SyntaxKind::is_assignment_operator);
+                if assignment && binary.left.is_some_and(is_left_hand_side_expression) {
+                    binary.left.and_then(|left| left.node_id())
+                } else {
+                    None
+                }
+            }
+            // `checkStrictModePostfixUnaryExpression` (`binder.go:1412`) —
+            // unconditional, because `++` and `--` are the only postfix
+            // operators.
+            Node::PostfixUnaryExpression(unary) => unary.operand.and_then(|e| e.node_id()),
+            // `checkStrictModePrefixUnaryExpression` (`binder.go:1420`) — the
+            // operator test is upstream's, and it excludes `!eval`, `-eval`
+            // and the rest.
+            Node::PrefixUnaryExpression(unary)
+                if matches!(
+                    unary.operator.kind,
+                    SyntaxKind::PlusPlusToken | SyntaxKind::MinusMinusToken
+                ) =>
+            {
+                unary.operand.and_then(|e| e.node_id())
+            }
+            _ => None,
+        };
+        let Some(name) = name else { return };
+        self.check_strict_mode_eval_or_arguments(node, name);
+    }
+
+    /// `checkStrictModeEvalOrArguments` (`binder.go:1449`).
+    ///
+    /// `contextNode` is the node the *message* is chosen from and `name` is the
+    /// node the diagnostic is placed on — upstream passes two arguments for
+    /// exactly that reason, and they differ at every call site.
+    fn check_strict_mode_eval_or_arguments(&mut self, context: NodeId, name: NodeId) {
+        // `isEvalOrArgumentsIdentifier` (`binder.go:1440`): an `Identifier`
+        // whose text is one of the two. A binding *pattern*, a string literal
+        // name and a property access all fail it.
+        let Some(text) = self.identifier_text(name) else { return };
+        if text != "eval" && text != "arguments" {
+            return;
+        }
+        let text = text.to_string();
+        let Some(file) = self.source_file_of_for_diagnostics(name) else { return };
+        // `errorOnNode` takes the node's own `Loc`, not `GetErrorRangeForNode`
+        // — and for an identifier the two agree, so this is the same span
+        // `error_span` would give. Written as the node's span to match the call
+        // upstream actually makes; §48's centralisation is for the sites that
+        // route through `GetErrorRangeForNode`, and this is not one.
+        let span = self.nodes.span(name);
+        let message = self.strict_mode_eval_or_arguments_message(context, file);
+        self.report(file, Diagnostic::with_args(message, span, [text]));
+    }
+
+    /// `getStrictModeEvalOrArgumentsMessage` (`binder.go:1457`) — a three-way
+    /// choice, in order.
+    ///
+    /// TS1215 has **zero** missing lines in the corpus, which is not a reason
+    /// to leave it out: a port that emitted TS1100 in a module would be wrong
+    /// at the right position on every one of those lines. The arm is built for
+    /// the wrong column rather than the right one (§156).
+    fn strict_mode_eval_or_arguments_message(
+        &self,
+        context: NodeId,
+        file: NodeId,
+    ) -> &'static tsr_diagnostics::Message {
+        if self.containing_class_of(context).is_some() {
+            return &messages::CODE_CONTAINED_IN_A_CLASS_IS_EVALUATED_IN_JAVASCRIPT_S_STRICT_MODE_WHICH_DOES_NOT_ALLOW_THIS_USE_OF_0_FOR_MORE_INFORMATION_SEE_HTTPS_COLON_SLASH_SLASHDEVELOPER_MOZILLA_ORG_SLASHEN_US_SLASHDOCS_SLASHWEB_SLASHJAVASCRIPT_SLASHREFERENCE_SLASHSTRICT_MODE;
+        }
+        // `b.file.ExternalModuleIndicator != nil`. The parser records the
+        // indicator upstream; this port recomputes it from the top-level
+        // statements in `tsr_binder::is_external_module`, which is the same
+        // question and is documented there.
+        if let Some(Node::SourceFile(source)) = self.node_map.get(file) {
+            if tsr_binder::is_external_module(source) {
+                return &messages::INVALID_USE_OF_0_MODULES_ARE_AUTOMATICALLY_IN_STRICT_MODE;
+            }
+        }
+        &messages::INVALID_USE_OF_0_IN_STRICT_MODE
+    }
+
+    /// `ast.GetContainingClass` — `FindAncestor(node.Parent, IsClassLike)`.
+    ///
+    /// It crosses function boundaries, which is deliberate upstream: a
+    /// `function` nested in a method body is still *code contained in a class*
+    /// and takes TS1210.
+    fn containing_class_of(&self, node: NodeId) -> Option<NodeId> {
+        self.nodes.ancestors(node).find(|ancestor| {
+            matches!(
+                self.node_map.get(*ancestor),
+                Some(Node::ClassDeclaration(_) | Node::ClassExpression(_))
+            )
+        })
+    }
+}
+
+/// `ast.IsLeftHandSideExpression`, bounded to what an assignment target can be.
+///
+/// The full predicate lives in `tsr_binder::narrowing` and is crate-private
+/// there. Only the kinds that can carry the name `eval` or `arguments` matter
+/// here, because `isEvalOrArgumentsIdentifier` rejects everything else a line
+/// later — so the two agree on every input this rule can see.
+fn is_left_hand_side_expression(expression: Expression<'_>) -> bool {
+    matches!(
+        expression,
+        Expression::Identifier(_)
+            | Expression::PropertyAccessExpression(_)
+            | Expression::ElementAccessExpression(_)
+            | Expression::ParenthesizedExpression(_)
+            | Expression::NonNullExpression(_)
+    )
+}
