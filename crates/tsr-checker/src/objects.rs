@@ -297,6 +297,29 @@ impl Checker<'_, '_> {
     /// porting first because it recurses through enclosing literals.
     pub(crate) fn check_object_literal(&mut self, node: &ObjectLiteralExpression<'_>) -> TypeId {
         let error = self.intrinsics.error;
+        // §105 slice 2a (`checker-notes-narrow.md`): a literal in a const
+        // context (`isConstContext`, `checker.go:13615`) answers readonly
+        // regular members — gated to literals with NO single-quoted string
+        // member VALUE, because the value-spelling carriage is unbuilt and a
+        // wrong quote is worse than the gap.
+        let const_context = node.node_id.is_some_and(|id| self.is_const_context(id));
+        if const_context
+            && node.properties.iter().any(|property| {
+                matches!(
+                    property,
+                    tsr_ast::ObjectLiteralElementLike::PropertyAssignment(assignment)
+                        if matches!(
+                            assignment.initializer,
+                            Some(tsr_ast::Expression::StringLiteral(literal))
+                                if literal
+                                    .token_flags
+                                    .contains(tsr_ast::TokenFlags::SINGLE_QUOTE)
+                        )
+                )
+            })
+        {
+            return error;
+        }
         let mut members = Vec::with_capacity(node.properties.len());
         for property in node.properties {
             // `checker.go:13223` dispatches over three member kinds. Only two are
@@ -355,6 +378,18 @@ impl Checker<'_, '_> {
                         return error;
                     };
                     for member in spread_members {
+                        // §105 slice 2a fired leg (B): `{ ...o } as const`
+                        // marks the SPREAD-contributed members readonly too
+                        // (constAssertions o5, 0:147-153); their types stay
+                        // as the source held them.
+                        let member = match member {
+                            Member::Property { name, optional, readonly: _, printed }
+                                if const_context =>
+                            {
+                                Member::Property { name, optional, readonly: true, printed }
+                            }
+                            other => other,
+                        };
                         upsert_member(&mut members, member);
                     }
                     continue;
@@ -396,6 +431,24 @@ impl Checker<'_, '_> {
                     // Found by `bd tsr-tgov`'s residual — the arm made 40
                     // `objectTypesIdentityWithGenericConstructSignatures*` lines
                     // computable and they printed unquoted. Exposed, not minted.
+                    // §105 slice 2a fired leg (C): in a const context a
+                    // method member prints as a readonly PROPERTY with the
+                    // arrow form — `{ d() {} } as const` is
+                    // `{ readonly d: () => void; }` (constAssertions o2/o8,
+                    // 0:161-163), never the `d(): void` method spelling.
+                    if const_context {
+                        let arrow = self.signature_to_string(&signature);
+                        upsert_member(
+                            &mut members,
+                            Member::Property {
+                                name: name.text.to_string(),
+                                optional: false,
+                                readonly: true,
+                                printed: arrow,
+                            },
+                        );
+                        continue;
+                    }
                     let printed = if name.text == "new" {
                         format!("\"new\"{}", signature_member_text(self, &signature))
                     } else {
@@ -454,6 +507,13 @@ impl Checker<'_, '_> {
                 _ => return error,
             };
             let member_type = match value {
+                // Const context first — upstream's own order in
+                // `checkExpressionForMutableLocation`: `isConstContext` wins
+                // before any contextual retention question is asked.
+                PropertyValue::Initializer(initializer) if const_context => {
+                    let checked = self.check_expression(initializer);
+                    self.get_regular_type_of_literal_type(checked)
+                }
                 PropertyValue::Initializer(initializer) => {
                     // §56 (`checker-notes-narrow.md`): the PRINT road moves
                     // WITH the symbol road — a fresh literal under a
@@ -495,7 +555,7 @@ impl Checker<'_, '_> {
                 Member::Property {
                     name,
                     optional: false,
-                    readonly: false,
+                    readonly: const_context,
                     printed: self.type_to_string(member_type),
                 },
             );

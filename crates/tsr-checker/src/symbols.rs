@@ -2219,6 +2219,14 @@ impl<'a> Checker<'a, '_> {
                     return self.intrinsics.error;
                 };
                 match assignment.initializer {
+                    // §105 slice 2a: const context beats retention — the
+                    // member symbol's type is the initializer's REGULAR type
+                    // (`isConstContext`, `checker.go:13615`), matching what
+                    // the object literal's own print now says.
+                    Some(initializer) if self.is_const_context(declaration) => {
+                        let checked = self.check_expression(initializer);
+                        self.get_regular_type_of_literal_type(checked)
+                    }
                     Some(initializer) => {
                         // §56 (`checker-notes-narrow.md`): a fresh literal
                         // RETAINS its literal form when the annotation's

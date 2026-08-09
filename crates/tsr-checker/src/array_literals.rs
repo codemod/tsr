@@ -297,6 +297,36 @@ impl Checker<'_, '_> {
             }
             false
         });
+        // §105 slice 2a fired leg (A): the literal's OWN line in a const
+        // context answers the readonly tuple (`checkArrayLiteral` under
+        // `isConstContext`, `checker.go:8021`) — the slice-1 mint lived only
+        // in the assertion arm, so `[10] as const`'s literal line kept
+        // printing `number[]` (constAssertions 0:184/0:190).
+        if node.node_id.is_some_and(|id| self.is_const_context(id)) && !has_tuple_spread {
+            let mut elements = Vec::with_capacity(node.elements.len());
+            let mut clean = true;
+            for element in node.elements {
+                match element {
+                    Expression::SpreadElement(_) | Expression::OmittedExpression(_) => {
+                        clean = false;
+                        break;
+                    }
+                    other => {
+                        let checked = self.check_expression(*other);
+                        let regular = self.get_regular_type_of_literal_type(checked);
+                        if regular == error {
+                            clean = false;
+                            break;
+                        }
+                        elements.push(regular);
+                    }
+                }
+            }
+            if clean {
+                return self.create_tuple_type(elements, true);
+            }
+            return error;
+        }
         // §63 (`checker-notes-arrays.md`): a PLAIN literal under a TUPLE
         // context mints the tuple too — `const y: [number, number] = [0, 0]`
         // prints the literal as `[number, number]` (~170 corpus lines);

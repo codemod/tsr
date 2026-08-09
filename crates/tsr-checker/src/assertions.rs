@@ -130,9 +130,6 @@ impl<'a> Checker<'a, '_> {
                 None => return self.intrinsics.error,
             }
         }
-        if matches!(inner, Expression::ObjectLiteralExpression(_)) {
-            return self.intrinsics.error;
-        }
         // §105 slice 1: an ARRAY operand mints the readonly tuple of its
         // elements' regular types — `checkArrayLiteral`'s const-context
         // answer (`checker.go:8021` under `isConstContext`), reached here
@@ -152,7 +149,6 @@ impl<'a> Checker<'a, '_> {
                     | Expression::ParenthesizedExpression(_)) => {
                         self.check_const_assertion(*nested)
                     }
-                    Expression::ObjectLiteralExpression(_) => return self.intrinsics.error,
                     other => {
                         let checked = self.check_expression(*other);
                         self.get_regular_type_of_literal_type(checked)
@@ -167,6 +163,37 @@ impl<'a> Checker<'a, '_> {
         }
         let operand_type = self.check_expression(operand);
         self.get_regular_type_of_literal_type(operand_type)
+    }
+}
+
+impl Checker<'_, '_> {
+    /// `isConstContext` (`checker.go:13615`), minus the const-type-variable
+    /// arm (that is §103's inference subsystem): a node is in a const context
+    /// when its parent chain reaches a const assertion through parens, array
+    /// literals, spreads, property assignments (through their object literal),
+    /// shorthand assignments, or template spans.
+    pub(crate) fn is_const_context(&self, node: tsr_ast::NodeId) -> bool {
+        let Some(parent) = self.nodes.parent(node) else { return false };
+        match self.node_map.get(parent) {
+            Some(Node::AsExpression(assertion)) => {
+                assertion.r#type.is_some_and(is_const_type_reference)
+            }
+            Some(Node::TypeAssertion(assertion)) => {
+                assertion.r#type.is_some_and(is_const_type_reference)
+            }
+            Some(
+                Node::ParenthesizedExpression(_)
+                | Node::ArrayLiteralExpression(_)
+                | Node::SpreadElement(_)
+                | Node::SpreadAssignment(_),
+            ) => self.is_const_context(parent),
+            Some(
+                Node::PropertyAssignment(_)
+                | Node::ShorthandPropertyAssignment(_)
+                | Node::TemplateSpan(_),
+            ) => self.is_const_context(parent),
+            _ => false,
+        }
     }
 }
 

@@ -111,16 +111,20 @@ fn const_is_recognised_before_the_type_node_is_resolved() {
 }
 
 #[test]
-fn a_const_assertion_on_an_object_literal_is_a_gap() {
-    // `{ a: 1 } as const` is `{ readonly a: 1; }`, and this port would answer
-    // `{ a: number; }`: the readonly-and-unwidened members come from
-    // `isConstContext` inside `checkObjectLiteral`, not from here, and even with
-    // that ported a string member would print with the wrong quotes — upstream
-    // preserves the source's quote style inside an object type while
-    // normalising it everywhere else. `bd tsr-7ja` owns both halves.
-    assert_eq!(type_of_initialiser("let x = { a: 1 } as const;"), "error");
-    // Without `as const` the same literal is answered, so the guard is specific
-    // rather than a blanket refusal of object literals.
+fn a_const_assertion_on_an_object_literal_is_readonly_and_unwidened() {
+    // §105 slice 2a: `isConstContext` is ported into `checkObjectLiteral`,
+    // so the members are readonly and keep their regular literals. This test
+    // previously pinned the pre-slice GAP ("error") and went red the day the
+    // slice landed — the failure was the feature arriving.
+    assert_eq!(type_of_initialiser("let x = { a: 1 } as const;"), "{ readonly a: 1; }");
+    // The remaining gap is deliberate: a SINGLE-QUOTED string member value
+    // needs the written-spelling carriage (upstream prints `'lookup'` inside
+    // the object type), so the literal declines whole rather than mis-quote.
+    assert_eq!(type_of_initialiser("let x = { a: 'b' } as const;"), "error");
+    // A double-quoted member has no spelling question and answers.
+    assert_eq!(type_of_initialiser("let x = { a: \"b\" } as const;"), "{ readonly a: \"b\"; }");
+    // Without `as const` the same literal widens, so the const arm is
+    // specific rather than a new default.
     assert_eq!(type_of_initialiser("let x = { a: 1 };"), "{ a: number; }");
     // A non-const assertion *to* an object type is unaffected too.
     assert_eq!(type_of_initialiser("let x = { a: 1 } as { a: number };"), "{ a: number; }");

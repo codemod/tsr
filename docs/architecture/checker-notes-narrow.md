@@ -4197,6 +4197,29 @@ widening (the 2,500-line boundary objects.rs documents), slice 1's
 the build outright — that is exactly what the single-quote gate
 exists to make impossible.
 
+**§105 slice 2a score — LANDED at ~9.6:1 with two open traces.**
+right 407,500 → **407,654**: **+64 G→R +90 W→R against 16 G→W and
+12 W→G, zero R→W/R→G** (controlFlowAssignmentPatternOrder 18,
+constAssertions 27 combined, constantEnumAssert 10, binding-pattern
+family). Bar predicted +40–120; measured 154 — over in the
+favorable direction again, same cause as slice 1 (destructuring
+reach). THREE fired legs, each from the filtered pair's adverse:
+(A) the literal's OWN line needs the const arm in
+check_array_literal itself — the slice-1 assertion-side mint was
+the wrong placement and left `[10] as const`'s literal line at
+`number[]`; (B) spread-contributed members inherit readonly
+(`{ ...o4 } as const`); (C) a const-context METHOD prints as a
+readonly PROPERTY in arrow form, never `d(): void`.
+OPEN TRACES, mandatory next-window entries:
+  1. ts-expect-error 8 — `{ a: true } as const` member lines answer
+     `boolean`: the member-symbol const arm provably exists and the
+     shape provably reaches it, so something earlier owns the
+     answer (suspect: an annotation-side member road or a memo).
+     One TSR_CONST_DEBUG print at the symbols.rs const arm decides.
+  2. computedPropertiesNarrowed 4 — computed-name shapes under the
+     new array arm.
+The single-quote value gate held: zero wrong-quote lines anywhere.
+
 ## §107 — nested signatures shadow through the RENDER scope [claimed: checker-1]
 
 §102's shadow test consults the reference SITE; the handed-off
