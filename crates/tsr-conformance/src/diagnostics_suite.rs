@@ -152,9 +152,37 @@ impl Suite for Diagnostics {
 #[must_use]
 pub fn reported_for(test: &crate::TestCase) -> Vec<BaselineDiagnostic> {
     let mut actual: Vec<BaselineDiagnostic> = Vec::new();
+    // `getAllowJS()` — `allowJs ?? checkJs ?? false` (`core/compileroptions.go`).
+    // Read here rather than from the resolved `CompilerOptions` because this
+    // half of the function deliberately builds no program; ADR-0042's rule
+    // about reading directives by hand applies to options with *defaulting
+    // ladders*, and this one has two explicit keys and no fallback.
+    let allow_js = ["allowjs", "checkjs"]
+        .iter()
+        .any(|key| test.options.get(*key).is_some_and(|value| value != "false"));
     for unit in &test.files {
         let kind = tsr_parser::ScriptKind::from_file_name(&unit.name);
         if kind == tsr_parser::ScriptKind::Json {
+            continue;
+        }
+        // **A JavaScript file is not a program input without `allowJs`.** The
+        // check half already agrees with the program — it skips any unit
+        // `program.source_file` does not return — and this half did not, so it
+        // parsed and diagnosed files upstream never reads.
+        //
+        // `extendsUntypedModule` is the shape: its two
+        // `/node_modules/**/index.js` units contain the literal text
+        // *"This file is not read."*, which is not JavaScript and is not meant
+        // to be, and this port emitted nine parse errors across them. The rule
+        // is already ported in `tsr_tsoptions::file_names` and pinned by
+        // `without_allow_js_a_javascript_file_is_not_a_root`; only this loop
+        // was missing it. `checker-notes-diag2.md` §197.
+        // Asked of the **extension**, because `ScriptKind` does not separate
+        // JavaScript from TypeScript — `.js` and `.ts` are both `TypeScript`,
+        // `.jsx` and `.tsx` both `Tsx`; the enum is a *dialect* flag.
+        let is_javascript =
+            [".js", ".jsx", ".mjs", ".cjs"].iter().any(|extension| unit.name.ends_with(extension));
+        if !allow_js && is_javascript {
             continue;
         }
         let parsed = ParsedFile::parse_with_script_kind(unit.content.clone(), kind);

@@ -13281,3 +13281,53 @@ recovery — errors this parser invents where upstream produces none, rather tha
 a second error where upstream produces one. That is a different defect and needs
 the recovery paths read one at a time; `parserErrorRecovery_*`,
 `extendsUntypedModule` and `scannerUnexpectedNullCharacter1` are the families.
+
+## §197 — a JavaScript file is not a program input without `allowJs`, and one half of the suite knew
+
+`extraonly` after §196 still carried 14 lines in `node_modules`, all from one
+shape:
+
+```
+// @Filename: /node_modules/foo/index.js
+This file is not read.
+```
+
+The fixture says so in the file. `extendsUntypedModule` declares two untyped JS
+modules whose *content is prose*, and upstream never parses them because
+`allowJs` is off — `getAllowJS()` is `allowJs ?? checkJs ?? false`, and without
+it a `.js` file is not a program input at all.
+
+**This port already knows that**, twice over:
+
+- `tsr_tsoptions::file_names` implements the rule and pins it with
+  `without_allow_js_a_javascript_file_is_not_a_root`;
+- `from_check_traversal` skips any unit `program.source_file` does not return,
+  so the **check** half already agreed with the program.
+
+`reported_for`'s parser/binder half did not. It walked `test.files` directly and
+parsed everything that was not JSON, so it produced nine parse errors across two
+files upstream does not read.
+
+```
+diagnostics    1,611 → 1,613  (+2)
+extraonly         34 → 29 cases
+every rail unmoved
+```
+
+### The shape, which is the third of its kind this session
+
+§192 found a divergence in a **sink** every producer feeds. §195 found the same
+sink had a second list it could not see. This is the same again at the level of
+*which files exist*: two halves of one function disagreeing about the program,
+where each half is individually defensible.
+
+> **When a harness function has two halves that build the world separately, the
+> question is never "is this half right" but "do they agree".** `reported_for`'s
+> two halves have disagreed about the file set since they were written; nothing
+> compares them, and the only symptom was diagnostics in files whose contents
+> are an English sentence.
+
+A cheap standing check falls out of that and is worth writing down for whoever
+next touches this file: **the set of units the parser/binder half walks must
+equal the set `from_check_traversal` walks.** They are computed independently
+today and there is no test.
