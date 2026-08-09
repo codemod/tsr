@@ -645,6 +645,14 @@ impl Checker<'_, '_> {
                 }
                 substituted.push(image);
             }
+            // §91 (`checker-notes-narrow.md`): a CONDITIONAL alias body
+            // evaluates at the rebuild when its keys are computable — the
+            // resolved branch does not carry the alias
+            // (`getConditionalTypeInstantiation`; chain1/chain3 pin the
+            // plain/conditional split). Any refusal falls back to the name.
+            if let Some(evaluated) = self.evaluate_conditional_alias(symbol, &substituted) {
+                return evaluated;
+            }
             return self.create_type_reference(symbol, substituted);
         }
         if let TypeData::Union { types, .. } = &self.store.get(id).data {

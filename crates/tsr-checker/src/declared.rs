@@ -109,6 +109,20 @@ impl<'a> Checker<'a, '_> {
                 self.unique_symbol_nodes.insert(id, minted);
                 minted
             }
+            // §91: `keyof T` EVALUATES — but only inside a conditional-alias
+            // evaluation (the env gate); everywhere else the §35 deferred
+            // print and the error fall-through keep their old answers.
+            TypeNode::TypeOperatorNode(node)
+                if node.operator.kind == SyntaxKind::KeyOfKeyword
+                    && !self.alias_evaluation_bindings.is_empty() =>
+            {
+                let Some(inner) = node.r#type else { return self.intrinsics.error };
+                let target = self.get_type_from_type_node(inner);
+                match self.keys_of(target) {
+                    Some(keys) => self.literal_key_union(&keys),
+                    None => self.intrinsics.error,
+                }
+            }
             // §28 (`checker-notes-callres.md`): `this` in type position is
             // the enclosing class/interface declaration's one `this` type.
             TypeNode::ThisTypeNode(node) => {
@@ -432,6 +446,17 @@ impl<'a> Checker<'a, '_> {
         else {
             return self.unresolved_type_reference(node);
         };
+        // §91: inside a conditional-alias evaluation, a bound type parameter
+        // answers its binding — the node-level substitution the evaluator
+        // runs on the alias body.
+        if let Some(bound) = self
+            .alias_evaluation_bindings
+            .iter()
+            .rev()
+            .find_map(|frame| frame.get(&symbol).copied())
+        {
+            return bound;
+        }
         let parameters = self.local_type_parameters_of(symbol).len();
         if parameters == 0 {
             // `checkNoTypeArguments` (`checker.go:23157`): arguments on a type
@@ -787,6 +812,15 @@ impl<'a> Checker<'a, '_> {
         // consumers (§89.1).
         if let [single] = types[..] {
             return single;
+        }
+        // §91, env-gated: an intersection of literal-key unions reduces by
+        // set intersection — upstream's `intersectUnionsOfPrimitiveTypes` +
+        // the two-unit-types-are-never rule, applied only where the
+        // conditional-alias evaluator needs it (`keyof base & keyof props`).
+        if !self.alias_evaluation_bindings.is_empty()
+            && let Some(reduced) = self.intersect_literal_key_unions(&types)
+        {
+            return reduced;
         }
         match node.node_id.and_then(|id| self.alias_symbol_for_type_node(id)) {
             None => self.get_intersection_type(&types, None),
@@ -2204,6 +2238,182 @@ impl<'a> Checker<'a, '_> {
     /// (`checker.go`), without the merging across declarations: a symbol with two
     /// declarations takes the first, which is where upstream would find the same
     /// list in every case this slice reaches.
+    /// §91 (`checker-notes-narrow.md`): evaluate a CONDITIONAL alias body
+    /// over the given arguments, or `None` when any part is not computable —
+    /// the caller falls back to the named reference, so a refusal here costs
+    /// a name print, never a wrong line.
+    ///
+    /// Only the `extends never` form is admitted; the check must evaluate to
+    /// a literal-key union (empty → true branch, upstream's
+    /// `getConditionalTypeInstantiation` resolution for a concrete check).
+    pub(crate) fn evaluate_conditional_alias(
+        &mut self,
+        symbol: SymbolId,
+        arguments: &[TypeId],
+    ) -> Option<TypeId> {
+        if !self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS) {
+            return None;
+        }
+        let declaration = self.binder.symbols().get(symbol).declarations.first().copied()?;
+        let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration) else {
+            return None;
+        };
+        let Some(TypeNode::ConditionalTypeNode(conditional)) = alias.r#type else { return None };
+        if !matches!(conditional.extends_type, Some(TypeNode::KeywordTypeNode(keyword))
+            if keyword.kind == SyntaxKind::NeverKeyword)
+        {
+            return None;
+        }
+        let parameters = self.local_type_parameters_of(symbol);
+        if parameters.len() != arguments.len() {
+            return None;
+        }
+        let mut frame = rustc_hash::FxHashMap::default();
+        for (parameter, &argument) in parameters.iter().zip(arguments) {
+            let parameter = parameter.node_id.and_then(|id| self.binder.symbol_of(id))?;
+            frame.insert(parameter, argument);
+        }
+        // The same guard as `instantiate_type`: a self-recursive conditional
+        // alias re-enters here through the branch's own references.
+        if self.instantiation_depth == 100 {
+            return None;
+        }
+        self.instantiation_depth += 1;
+        self.alias_evaluation_bindings.push(frame);
+        let error = self.intrinsics.error;
+        let mut result = None;
+        if let Some(check_node) = conditional.check_type {
+            let check = self.get_type_from_type_node(check_node);
+            if check != error
+                && let Some(keys) = self.literal_key_texts(check)
+            {
+                let branch =
+                    if keys.is_empty() { conditional.true_type } else { conditional.false_type };
+                if let Some(branch) = branch {
+                    let evaluated = self.get_type_from_type_node(branch);
+                    if evaluated != error {
+                        result = Some(evaluated);
+                    }
+                }
+            }
+        }
+        self.alias_evaluation_bindings.pop();
+        self.instantiation_depth -= 1;
+        result
+    }
+
+    /// The literal-key texts of a string-literal union (or single literal, or
+    /// `never` = empty), `None` for anything else.
+    fn literal_key_texts(&self, id: TypeId) -> Option<Vec<String>> {
+        let ty = self.store.get(id);
+        if ty.flags.contains(TypeFlags::NEVER) {
+            return Some(Vec::new());
+        }
+        match &ty.data {
+            crate::types::TypeData::StringLiteral(text) => Some(vec![text.clone()]),
+            crate::types::TypeData::Union { types, .. } => {
+                let mut keys = Vec::with_capacity(types.len());
+                for &constituent in types {
+                    let crate::types::TypeData::StringLiteral(text) =
+                        &self.store.get(constituent).data
+                    else {
+                        return None;
+                    };
+                    keys.push(text.clone());
+                }
+                Some(keys)
+            }
+            _ => None,
+        }
+    }
+
+    /// §91: the set intersection of literal-key unions, in the FIRST
+    /// operand's order; `None` when any constituent is not a literal-key
+    /// union, which sends the caller to the ordinary intersection.
+    fn intersect_literal_key_unions(&mut self, types: &[TypeId]) -> Option<TypeId> {
+        let mut sets = Vec::with_capacity(types.len());
+        for &id in types {
+            sets.push(self.literal_key_texts(id)?);
+        }
+        let (first, rest) = sets.split_first()?;
+        let surviving: Vec<String> =
+            first.iter().filter(|key| rest.iter().all(|set| set.contains(key))).cloned().collect();
+        Some(self.literal_key_union(&surviving))
+    }
+
+    /// A union of REGULAR string-literal types over `keys` — `never` when
+    /// empty, the single literal when one.
+    fn literal_key_union(&mut self, keys: &[String]) -> TypeId {
+        let literals: Vec<TypeId> = keys
+            .iter()
+            .map(|key| {
+                self.store.intern_literal(
+                    TypeFlags::STRING_LITERAL,
+                    crate::types::TypeData::StringLiteral(key.clone()),
+                    false,
+                )
+            })
+            .collect();
+        match literals.as_slice() {
+            [] => self.intrinsics.never,
+            [one] => *one,
+            many => self.get_union_type(many),
+        }
+    }
+
+    /// §91: the property-name set of a type, in declaration order, or `None`
+    /// where enumeration is not computable. Covers member-table types,
+    /// intersections (the union of both sides' keys), and `Omit<T, K>` by its
+    /// global symbol (keys of `T` minus `K`'s literals — the §45 Record
+    /// precedent for special-casing one lib alias).
+    fn keys_of(&mut self, id: TypeId) -> Option<Vec<String>> {
+        if id == self.intrinsics.error {
+            return None;
+        }
+        if let Some((target, arguments)) = self.type_reference_targets.get(&id).cloned()
+            && self.global_type_symbol("Omit") == Some(target)
+            && arguments.len() == 2
+        {
+            let base = self.keys_of(arguments[0])?;
+            let removed = self.literal_key_texts(arguments[1])?;
+            return Some(base.into_iter().filter(|key| !removed.contains(key)).collect());
+        }
+        if let crate::types::TypeData::Intersection { types, .. } = &self.store.get(id).data {
+            let types = types.clone();
+            let mut keys: Vec<String> = Vec::new();
+            for constituent in types {
+                for key in self.keys_of(constituent)? {
+                    if !keys.contains(&key) {
+                        keys.push(key);
+                    }
+                }
+            }
+            return Some(keys);
+        }
+        let owner = match &self.store.get(id).data {
+            crate::types::TypeData::Named { members: Some(owner), .. } => *owner,
+            crate::types::TypeData::Anonymous { symbol, .. } => *symbol,
+            _ => return None,
+        };
+        // Declaration order, not table order: the members table is an
+        // unordered map, and a printed key union must be deterministic.
+        let mut named: Vec<(Option<tsr_ast::NodeId>, String)> = self
+            .binder
+            .symbols()
+            .get(owner)
+            .members
+            .iter()
+            .map(|(name, &member)| {
+                (
+                    self.binder.symbols().get(member).declarations.first().copied(),
+                    (*name).to_string(),
+                )
+            })
+            .collect();
+        named.sort();
+        Some(named.into_iter().map(|(_, name)| name).collect())
+    }
+
     pub(crate) fn local_type_parameters_of(
         &self,
         symbol: SymbolId,

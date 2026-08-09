@@ -376,6 +376,10 @@ pub struct Checker<'a, 'n> {
     pub(crate) non_null_type_variables: FxHashMap<(TypeId, String), TypeId>,
     /// §85's reverse map: mint → (base type variable, refinement kind).
     pub(crate) non_null_mint_bases: FxHashMap<TypeId, (TypeId, crate::flow::NonNullKind)>,
+    /// §91: the conditional-alias evaluator's binding frames — type-parameter
+    /// symbol → the argument it is bound to during one body evaluation. Empty
+    /// outside evaluation, which is the gate on the evaluator's node arms.
+    pub(crate) alias_evaluation_bindings: Vec<FxHashMap<tsr_binder::SymbolId, TypeId>>,
     /// §89: signature types whose baked text is an ALIAS NAME — the site
     /// renderer's composite re-render must not rebuild them structurally.
     pub(crate) alias_named_signature_types: rustc_hash::FxHashSet<TypeId>,
@@ -673,6 +677,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             alias_inline_level: 0,
             non_null_type_variables: FxHashMap::default(),
             non_null_mint_bases: FxHashMap::default(),
+            alias_evaluation_bindings: Vec::new(),
             alias_named_signature_types: rustc_hash::FxHashSet::default(),
             no_unused_locals: false,
             no_unused_parameters: false,

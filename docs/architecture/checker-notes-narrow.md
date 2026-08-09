@@ -3460,3 +3460,14 @@ there fires this leg); (b) the keyof/intersection arms leaking
 outside the env gate — any adverse in §35.1's old population fires
 it; (c) next-round `keys_of` through `Omit` mis-set — shows as
 wrong-not-gap in chain3's own later rounds.
+
+**§91 score — LANDED.** right 405,060 → **405,277 (84.61%)**: chain3
+WHOLE (+166 W→R, every merge-name line), +51 G→R bonus
+(moduleAssignmentCompat1-3 and friends — positions the env-consult
+and key machinery unblocked), ZERO adverse on the full pair. The bar
+(≥140 at 10:1) met at ∞:1. Residue for later slices: general extends
+forms (only NeverKeyword admitted), keys through index signatures and
+mapped types, `get_property_of_type`'s missing Intersection arm (the
+evaluated results answer no property reads yet — chain1's 34-line
+gap family), and the §36 alias-declared entry (templateLiteralTypes3
+still declines).
