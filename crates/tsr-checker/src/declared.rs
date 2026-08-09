@@ -687,7 +687,12 @@ impl<'a> Checker<'a, '_> {
             // the same gate as the parameter carriage, at the mint.
             None => {
                 let mut single_quoted = false;
-                match crate::signatures::written_type_literal_text(node, &mut single_quoted) {
+                let mut array_headed = false;
+                match crate::signatures::written_type_literal_text(
+                    node,
+                    &mut single_quoted,
+                    &mut array_headed,
+                ) {
                     Some(text) if single_quoted => text,
                     _ => crate::objects::render_object_type(&members),
                 }

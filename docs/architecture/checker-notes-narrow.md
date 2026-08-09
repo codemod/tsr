@@ -4350,3 +4350,14 @@ Array-written text no longer denotes the substituted type (the §36
 node-reuse rule — written_text is DROPPED on substitution, which the
 existing instantiate road already does); (c) `T[]`-written
 annotations must be byte-identical (no flag, no change).
+
+**§108 score — LANDED at +407/0.** The isolated pair: **407 W→R,
+ZERO adverse in any column** — the objectTypesIdentity/subtyping
+constraint families whole (30+30+24+24+24+28...),
+recursiveTypeReferences1's Array-spelling rows, rest spread over 40+
+cases. The bar (≥300 at 10:1) met at infinity. §77's admission
+principle held exactly: a spelling the fresh render cannot reproduce
+is safe to reuse, and the Array head is the quote's sibling. The
+generic-reference arm in `written_type_text` also carries any OTHER
+name<args> spelling nested under an admitted subtree — no adverse
+appeared, so the arm stands as written.

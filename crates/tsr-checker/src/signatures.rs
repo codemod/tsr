@@ -1713,8 +1713,10 @@ impl<'a> Checker<'a, '_> {
         // double-quoted annotation keeps the fresh-render road untouched.
         {
             let mut single_quoted = false;
-            if let Some(text) = Self::written_type_text(annotation, &mut single_quoted)
-                && single_quoted
+            let mut array_headed = false;
+            if let Some(text) =
+                Self::written_type_text(annotation, &mut single_quoted, &mut array_headed)
+                && (single_quoted || array_headed)
             {
                 return Some(text);
             }
@@ -1788,6 +1790,7 @@ impl<'a> Checker<'a, '_> {
     pub(crate) fn written_type_text(
         annotation: TypeNode<'_>,
         single_quoted: &mut bool,
+        array_headed: &mut bool,
     ) -> Option<String> {
         match annotation {
             TypeNode::KeywordTypeNode(keyword) => match keyword.kind {
@@ -1822,9 +1825,25 @@ impl<'a> Checker<'a, '_> {
                     _ => None,
                 }
             }
+            // §108: a GENERIC reference spells name<args> as written; an
+            // `Array`/`ReadonlyArray` head sets the admission flag — the
+            // fresh render shortens to `T[]` and cannot reproduce it.
+            TypeNode::TypeReferenceNode(reference) => {
+                let Some(tsr_ast::EntityName::Identifier(identifier)) = reference.type_name else {
+                    return None;
+                };
+                if matches!(identifier.text, "Array" | "ReadonlyArray") {
+                    *array_headed = true;
+                }
+                let mut parts = Vec::with_capacity(reference.type_arguments.len());
+                for argument in reference.type_arguments {
+                    parts.push(Self::written_type_text(*argument, single_quoted, array_headed)?);
+                }
+                Some(format!("{}<{}>", identifier.text, parts.join(", ")))
+            }
             TypeNode::ArrayTypeNode(array) => {
                 let element = array.element_type?;
-                let inner = Self::written_type_text(element, single_quoted)?;
+                let inner = Self::written_type_text(element, single_quoted, array_headed)?;
                 if matches!(element, TypeNode::UnionTypeNode(_)) {
                     Some(format!("({inner})[]"))
                 } else {
@@ -1834,7 +1853,7 @@ impl<'a> Checker<'a, '_> {
             TypeNode::UnionTypeNode(union) => {
                 let mut parts = Vec::with_capacity(union.types.len());
                 for constituent in union.types {
-                    parts.push(Self::written_type_text(*constituent, single_quoted)?);
+                    parts.push(Self::written_type_text(*constituent, single_quoted, array_headed)?);
                 }
                 (parts.len() > 1).then(|| parts.join(" | "))
             }
@@ -1865,7 +1884,8 @@ impl<'a> Checker<'a, '_> {
                     };
                     let optional =
                         property.postfix_token.is_some_and(|t| t.kind == SyntaxKind::QuestionToken);
-                    let inner = Self::written_type_text(property.r#type?, single_quoted)?;
+                    let inner =
+                        Self::written_type_text(property.r#type?, single_quoted, array_headed)?;
                     parts.push(format!("{name}{}: {inner};", if optional { "?" } else { "" }));
                 }
                 if parts.is_empty() {
@@ -2639,8 +2659,9 @@ fn apply_renames(text: &str, renames: &[(String, String)]) -> String {
 pub(crate) fn written_type_literal_text(
     node: &tsr_ast::TypeLiteralNode<'_>,
     single_quoted: &mut bool,
+    array_headed: &mut bool,
 ) -> Option<String> {
-    Checker::written_type_text(TypeNode::TypeLiteralNode(node), single_quoted)
+    Checker::written_type_text(TypeNode::TypeLiteralNode(node), single_quoted, array_headed)
 }
 
 #[cfg(test)]
