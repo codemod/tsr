@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; scanner, parser and binder only, with no checker (bd tsr-4sc)
-Passed         : 1925/5488 (35.08%)
-Failed         : 3563
+Passed         : 1933/5488 (35.22%)
+Failed         : 3555
 Skipped        : 6956 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -11,15 +11,11 @@ Skipped        : 6956 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 3563 failures:
+First 100 of 3555 failures:
 compiler/ClassDeclaration26
   2 unexpected (first TS1005 at ClassDeclaration26.ts(2,22)), 5 missing
 compiler/ClassDeclarationWithInvalidConstOnPropertyDeclaration
   1 missing (first TS1248 at ClassDeclarationWithInvalidConstOnPropertyDeclaration.ts(2,16))
-compiler/ExportAssignment7
-  1 missing (first TS2309 at ExportAssignment7.ts(4,1))
-compiler/ExportAssignment8
-  1 missing (first TS2309 at ExportAssignment8.ts(1,1))
 compiler/ParameterList13
   1 missing (first TS7013 at ParameterList13.ts(2,5))
 compiler/ParameterList5
@@ -212,3 +208,7 @@ compiler/assignmentToAnyArrayRestParameters
   2 missing (first TS2339 at assignmentToAnyArrayRestParameters.ts(15,25))
 compiler/assignmentToInstantiationExpression
   3 unexpected (first TS1109 at assignmentToInstantiationExpression.ts(2,16)), 4 missing
+compiler/assignmentToObject
+  1 missing (first TS2322 at assignmentToObject.ts(3,5))
+compiler/assignmentToObjectAndFunction
+  3 missing (first TS2322 at assignmentToObjectAndFunction.ts(1,24))

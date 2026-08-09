@@ -23940,3 +23940,78 @@ proposed.
 
 The rule that follows and costs nothing: when a note proposes a sweep, either
 run it in the same turn or record it **without a number**.
+
+## §432 — TS2309: `export =` beside other exports
+
+Fresh table (the previous one was six builds stale — §406's lesson applied
+before picking, not after). **TS2309: 8 blocked, all single-line,
+`occupied 0/8`.**
+
+```ts
+export = B;
+export class C { }   // TS2309 at the `export =`
+```
+
+`checkExportsOnMergedDeclarations`' export-equals arm (`checker.go:5703`):
+
+```go
+if exportEqualsSymbol != nil && (c.hasExportedMembersOfKind(moduleSymbol, SymbolFlagsValue)
+                                 || c.hasShadowedNamespace(exportEqualsSymbol)) {
+```
+
+### The bound
+
+Only branch **(a)** — the module exports a *value* member besides the
+`export =`. Branch (b), `hasShadowedNamespace`, needs the exported entity's own
+type/namespace members and is the type-side read §424 named as this toolkit's
+boundary.
+
+Branch (a) is decidable from syntax: a top-level statement carrying an `export`
+modifier that declares a value (`class`, `function`, `var`/`let`/`const`,
+`enum`), or an `export { … }` clause. `isTopLevelInExternalModuleAugmentation`
+declines a `declare module "x" { export = … }`, which is the one shape upstream
+exempts.
+
+### The bar
+
+```
+bar:  +4 of 8,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **A file with `export =` and only `export type`/`export interface` reports.**
+   Those are not value members; branch (a) requires a value and branch (b) is
+   not ported.
+2. **A `declare module "x" { export = Y }` augmentation reports.** Upstream
+   exempts it explicitly.
+
+## §433 — §432 built: **+8**, double the bar
+
+```
+diagnostics   1,925 → 1,933   (bar was +4;  +8, 0 LOST)   35.22%
+every other suite unmoved — both falsifiers negative
+```
+
+Second-largest build of the session, from a row that had been sitting in plain
+sight at `8 blocked / 8 single-line / occupied 0/8` — the cleanest possible
+signature — and had never been looked at because the table it sits in was
+**six builds stale** every time I read it.
+
+> **§406 said instrument output expires; §432 is the first row picked after
+> refreshing rather than before.** The refresh cost one corpus run and surfaced
+> TS2309, TS2351, TS2507, TS2417, TS7013 and TS18014 — six rows at
+> `occupied 0/n` with *every* case single-line, none of which appear on any
+> table this session worked from.
+
+That is worth more than the eight cases: **the last thirty builds were choosing
+from a list whose top had already been taken.** The rows that stay at the top of
+a stale table are exactly the ones a session has already converted, so the
+survivors sink out of view precisely as they become workable.
+
+### The rule
+
+**Re-run `diagslice` after any build that moves the board by more than about
+five**, not once a session. It is one corpus run against a rewrite of the
+ranking, and this session paid for the lesson twice — §406 in a `+0` and here in
+thirty builds of a narrowed field.

@@ -581,6 +581,9 @@ impl Checker<'_, '_> {
         }
         // `this` is a keyword node rather than a `Node` variant, so it is asked
         // here rather than from a match arm. §392.
+        if matches!(typed, Node::ExportAssignment(_)) {
+            self.check_export_assignment_alone(node);
+        }
         if self.nodes.kind(node) == SyntaxKind::ThisKeyword {
             self.check_this_in_module_body(node);
             self.check_implicit_this(node);
@@ -966,6 +969,60 @@ impl Checker<'_, '_> {
             file,
             Diagnostic::new(
                 &messages::AUGMENTATIONS_FOR_THE_GLOBAL_SCOPE_CAN_ONLY_BE_DIRECTLY_NESTED_IN_EXTERNAL_MODULES_OR_AMBIENT_MODULE_DECLARATIONS,
+                span,
+            ),
+        );
+    }
+
+    /// TS2309 — `An export assignment cannot be used in a module with other
+    /// exported elements.`
+    ///
+    /// `checkExportsOnMergedDeclarations`' export-equals arm
+    /// (`checker.go:5703`), **branch (a) only**: the module exports a *value*
+    /// member besides the `export =`. Branch (b), `hasShadowedNamespace`, needs
+    /// the exported entity's own members and is the type-side read §424 named
+    /// as this toolkit's boundary.
+    ///
+    /// `isTopLevelInExternalModuleAugmentation` is the one exempt shape —
+    /// `declare module "x" { export = Y }`. §432.
+    fn check_export_assignment_alone(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let Some(Node::ExportAssignment(assignment)) = self.node_map.get(node) else { return };
+        if !assignment.is_export_equals {
+            return;
+        }
+        let Some(parent) = self.nodes.parent(node) else { return };
+        let Some(Node::SourceFile(source)) = self.node_map.get(parent) else { return };
+        let exports_a_value = source.statements.iter().any(|statement| {
+            let Some(id) = statement.node_id() else { return false };
+            if id == node {
+                return false;
+            }
+            let Some(typed) = self.node_map.get(id) else { return false };
+            let exported = modifiers_of(typed)
+                .is_some_and(|modifiers| has_modifier(modifiers, SyntaxKind::ExportKeyword));
+            match typed {
+                Node::ClassDeclaration(_)
+                | Node::FunctionDeclaration(_)
+                | Node::VariableStatement(_)
+                | Node::EnumDeclaration(_) => exported,
+                // `export { a }` names whatever it lists; a clause-less
+                // `export *` re-exports and is not an own member.
+                Node::ExportDeclaration(declaration) => declaration.export_clause.is_some(),
+                _ => false,
+            }
+        });
+        if !exports_a_value {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let span = self.nodes.span(node);
+        self.report(
+            file,
+            Diagnostic::new(
+                &messages::AN_EXPORT_ASSIGNMENT_CANNOT_BE_USED_IN_A_MODULE_WITH_OTHER_EXPORTED_ELEMENTS,
                 span,
             ),
         );
