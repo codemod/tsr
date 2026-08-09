@@ -17333,3 +17333,101 @@ the slice declines (a property with an initialiser, needing real widening).
 
 `TS2464` — 13 cases, 9 of them single-line — has not been examined this
 session and does not appear in the ranked gap's head.
+
+## §274 — TS2464: the relation declines, and an object type does not need it
+
+First row taken off `diagslice` (§273): 13 cases, 9 of them single-line, absent
+from the ranked gap's head all session.
+
+`computed_name.rs` already holds the whole of `checkComputedPropertyName`
+(`checker.go:26802`), including §52's union repair. The misses are not a missing
+rule — they are the last guard:
+
+```rust
+if self.relate_ternary(named, allowed, Relation::Assignable) != Ternary::NotRelated {
+    return;                       // "an undecidable relation is silence"
+}
+```
+
+`symbolProperty59` is `interface I { [Symbol.keyFor]: string; }`. Probed against
+the real pipeline, this port types the expression **identically to upstream**:
+
+```
+>Symbol.keyFor : (sym: symbol) => string | undefined
+>Symbol : SymbolConstructor
+```
+
+So the type is right and the *relation* cannot decide it against
+`string | number | symbol`, and the silence policy — correct in general — costs
+the row.
+
+### The decidable case
+
+**No object type is assignable to a union of `string`, `number` and `symbol`.**
+Not one with a call signature, not one with an index signature, not an
+intersection of them. `any` and `unknown` are excluded two guards earlier and
+enum and literal types carry `STRING_LIKE`/`NUMBER_LIKE` and are allowed by
+`ALLOWED_KINDS` above.
+
+So a source carrying `TypeFlags::OBJECT` at that point is decidably **not
+related**, without asking the relation at all. This is §268's shape a third
+time: the relation is missing, and the *answer* for this fragment is not.
+
+### The bar
+
+```
+bar:  +6 cases of 13,  0 LOST,  WRONG delta <= +2
+```
+
+`diagslice` says 9 of the 13 want a single line, which is the necessary
+condition; whether that line is an object-typed name is what the build measures.
+
+### Falsifiers
+
+1. **A legal `[x]` where `x: string` reports.** `ALLOWED_KINDS` runs first and
+   must keep catching it.
+2. **`checker_types` moves.** This adds a diagnostic, not a type.
+
+## §275 — §274 built: +7, `WRONG 0`, and `diagslice`'s first recommendation paid
+
+```
+diagnostics   1,728 → 1,735   (+7, bar was +6)
+CONVERTS 10 · LOST 0 · STILL SHORT 4 · RIGHT 34 · WRONG 0
+every other suite unmoved — falsifiers 1 and 2 negative
+```
+
+Thirty-four right lines, none wrong, ten cases.
+
+### What the build actually changed
+
+One conjunct:
+
+```rust
+if !self.type_of(named).flags.intersects(TypeFlags::OBJECT)
+    && self.relate_ternary(named, allowed, Relation::Assignable) != Ternary::NotRelated
+```
+
+The rule was already complete. What was missing was the observation that **the
+relation is not needed for an object source**, and the silence policy — right in
+general — was declining a question whose answer is not in doubt.
+
+> **A missing relation is a reason to decline, not a reason to stop asking
+> whether the answer is decidable.** §258 (identity), §267 (return flags), §269
+> (await context) and this are four instances in one session, and the two that
+> cleared their bars are the two where the missing machinery summarised
+> something the tree or the flags still contained.
+
+### `diagslice` earned its build
+
+§273 surfaced TS2464 as *13 cases, 9 single-line, unexamined and absent from the
+ranked gap's head*. It had been invisible all session because `diaggap` orders
+by case count and thirteen is nowhere near TS2322's 487.
+
+The instrument's stated limit held exactly as written: it said the row was
+**capable** of conversion by a fragment, not that this fragment would convert
+it. Ten of thirteen did.
+
+### The residue
+
+`STILL SHORT 4` — cases wanting a TS2464 line the object test does not decide.
+Those are type parameters and unresolved shapes, and they need the relation.

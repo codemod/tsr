@@ -81,7 +81,21 @@ impl Checker<'_, '_> {
             let number = self.intrinsics.number;
             let symbol = self.intrinsics.es_symbol;
             let allowed = self.get_union_type_unprinted(&[string, number, symbol]);
-            if self.relate_ternary(named, allowed, Relation::Assignable) != Ternary::NotRelated {
+            // **An object type does not need the relation.** No object type is
+            // assignable to a union of `string`, `number` and `symbol` — not
+            // one with a call signature, not one with an index signature. `any`
+            // and `unknown` were excluded two guards above, and enum and
+            // literal types carry `STRING_LIKE`/`NUMBER_LIKE` and were allowed
+            // by `ALLOWED_KINDS`.
+            //
+            // The guard below is right in general and is what costs this row:
+            // `symbolProperty59`'s `[Symbol.keyFor]` types **identically to
+            // upstream** here — `(sym: symbol) => string | undefined` — and the
+            // relation cannot decide it, so the silence policy declines a case
+            // whose answer is not in doubt. §274.
+            if !self.type_of(named).flags.intersects(TypeFlags::OBJECT)
+                && self.relate_ternary(named, allowed, Relation::Assignable) != Ternary::NotRelated
+            {
                 return;
             }
         }
