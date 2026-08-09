@@ -11216,3 +11216,69 @@ The refused source is not in the tree. It was four arms transcribed from
 heritage-clause message variants, and it is straightforward to write again —
 **the expensive part was never the code, it was learning that the row is
 blocked two layers below it.**
+
+## §165 — §164's attribution CORRECTED: `is_value_reference` is right, the cascade was wrong
+
+§164 named `Checker::is_value_reference` as the row's blocker and filed fixing
+it as prerequisite (1), on the strength of one condition removing 232 wrong
+lines. **That inference was wrong, and the fix measures negative.**
+
+The arm already excluded `implements` — it requires the heritage token to be
+`ExtendsKeyword` — so the claimed defect was narrower than §164 stated: an
+*interface*'s `extends` uses the same keyword as a class's, and both were
+admitted. Adding the owner test (`ClassDeclaration | ClassExpression`) and
+measuring it **alone**, `RULE_CODES = [2304, 2552, 2583]`:
+
+| | before | after |
+|---|---:|---:|
+| CONVERTS | 235 | **234** |
+| LOST | 2 | 2 |
+| RIGHT | 2,428 | **2,425** |
+| WRONG | 409 | 408 |
+
+**One case lost, three correct lines lost, one wrong line removed.** Reverted.
+
+### Why, and what the row actually needs
+
+Upstream reports `Cannot find name` for an unresolvable name in an interface's
+`extends` too — through the *type* resolver's own `onFailedToResolveSymbol`
+rather than the expression path, but at the same position with the same code.
+So the position is one this port is **right** to visit; what it must not do
+there is treat a `TYPE` hit as a *value* meaning mismatch.
+
+The current code already does the right thing: the ladder's `TYPE` arm returns
+silently, which is correct for an interface heritage name and correct for a
+class's `extends B` where `B` is a type-only name that upstream reports
+differently. §163's cascade broke it by making that silent arm speak.
+
+**Corrected prerequisite list for the meaning-mismatch row**, replacing §164's:
+
+1. ~~Fix `is_value_reference`~~ — **it is not broken.** The bound belongs in the
+   *cascade*, which must ask what kind of position it is standing in before
+   deciding that a `TYPE` hit is a mismatch. `interface I extends A` and
+   `class C implements I` are type positions that the value rule legitimately
+   walks for TS2304's sake.
+2. **Re-take TS2709's and TS2749's positions.** Unchanged and still first in
+   practice: both type-position arms measured **0 wrong and 0 converts** —
+   correct and unreached. `check_type_reference_name` is bounded to the
+   `type_name` slot of a bare `TypeReferenceNode`; `diagcase` on
+   `moduleWithNoValuesAsType` will say what the missing lines actually sit on.
+3. Re-bar the cascade after (2).
+
+### The rule this row produced, at a cost of two wrong attributions
+
+§163 priced by reading upstream. §164 attributed by reading three fixtures.
+**Both were wrong, and the thing that settled it was running the fix on its own
+and reading four numbers.**
+
+> **A bound that removes wrong lines is not thereby a fix.** Removing 232 wrong
+> lines proved the *cascade* should not fire there. It said nothing about
+> whether the *position test* was correct, because both hypotheses predict the
+> same 232. Separating them cost one measurement and the two-line experiment was
+> available from the start.
+
+That is the same defect of instrument as §152's set-valued diff and §118's
+early-return silence: **a measurement that cannot distinguish the two
+hypotheses it is being used to choose between.** Third instance recorded on this
+board, and the cheapest tell is that the confirming number was *large* — 232 of
+238 — which reads as certainty and is actually just a shared prediction.

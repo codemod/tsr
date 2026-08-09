@@ -11,9 +11,9 @@ FIRST: git pull. Then read, in this order:
   the metric), then **§86–§90** — the thirteenth session, five sections, four
   builds.
 
-STATE AT HANDOFF, fourteenth session, at `bda3fde` (verify with a fresh run):
-  diagnostics    1,476/5,488 = 26.90%   (+25 over TWO builds, zero lost, and
-                 the wrong column did not move on either — §156-§160)
+STATE AT HANDOFF, fourteenth session, at `7d5c718` (verify with a fresh run):
+  diagnostics    1,508/5,488 = 27.48%   (+57 over THREE builds, zero lost, and
+                 the wrong column did not move on any — §156-§162)
   binder_symbols 8,459/8,459 = 100%     — held across a build that changed
                  `merge_symbol`'s behaviour
   checker_types  3,937/9,538 · 84.47% — the other workstream's, and it moves
@@ -170,8 +170,21 @@ TS2540      12         9
    `else if` **order is the specification**.
 
 0. **Run `diagreach.rs`, `diaggap.rs` and `extraonly.rs` and pick from them.**
-   Everything below is that list read at §90's commit, and four builds have
-   moved it.
+   Everything below is that list read at §90's commit, and seven builds have
+   moved it. The board re-taken at `58b5ed2` is in §161/§163.
+
+0z. **THE MEANING-MISMATCH ROW — read §163-§165 before touching it.** TS2693 (9),
+   TS2709 (9), TS2661 (9), TS2749 (4) are four arms of `onFailedToResolveSymbol`
+   (`checker.go:1564`). It was built in full, measured at **+2 cases for 238
+   wrong lines**, bounded to +6, and **refused**. Do not re-derive it: the code
+   is described arm by arm in §163 and the two wrong attributions are in §164
+   and §165. **The next action is measurement, not code** — both type-position
+   arms measure 0 wrong AND 0 converts, which means the row is blocked on
+   *position*, not on the cascade. `diagcase moduleWithNoValuesAsType` first.
+
+0y. **TS7026 (28 cases) is the largest relation-free row and it is a JSX
+   build** — `jsx.go:1253`, the `JSX.IntrinsicElements` lookup. Six sessions
+   filed it as `declare global` merging. Nothing has priced it as what it is.
 
 1. **TS2554's remaining families — the row is ALREADY DIAGNOSED in §90.** It was
    18 sole-obstacle cases over 29 missing lines, a **concentration of 1.6**,
