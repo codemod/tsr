@@ -171,6 +171,89 @@ impl Checker<'_, '_> {
         true
     }
 
+    /// TS2661 from `checkExportSpecifier` (`checker.go:5565`) — the **second**
+    /// site for this code, and the one the corpus wants.
+    ///
+    /// `export { X }` with no module specifier, where `X` resolves to a
+    /// declaration whose container is a **global source file** (a script, not
+    /// an external module), or to `undefined`/`globalThis`.
+    ///
+    /// `GetDeclarationContainer` walks past variable-declaration wrappers;
+    /// `IsGlobalSourceFile` asks whether the container is a non-module source
+    /// file. A declaration inside a namespace has that namespace as its
+    /// container and upstream does not report it, so this declines whenever the
+    /// walk to the `SourceFile` passes a `ModuleDeclaration` or a function.
+    /// §375.
+    pub(crate) fn check_export_specifier_is_local(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let Some(Node::ExportSpecifier(specifier)) = self.node_map.get(node) else { return };
+        // `PropertyNameOrName`, and a string literal is skipped outright.
+        let named = specifier
+            .property_name
+            .and_then(|name| name.node_id())
+            .or_else(|| specifier.name.and_then(|name| name.node_id()));
+        let Some(named) = named else { return };
+        let Some(Node::Identifier(identifier)) = self.node_map.get(named) else { return };
+        // `hasModuleSpecifier := node.Parent.Parent.ModuleSpecifier() != nil`
+        let declaration = self
+            .nodes
+            .parent(node)
+            .and_then(|list| self.nodes.parent(list))
+            .and_then(|declaration| self.node_map.get(declaration));
+        let Some(Node::ExportDeclaration(export)) = declaration else { return };
+        if export.module_specifier.is_some() {
+            return;
+        }
+        let text = identifier.text;
+        let global = if text == "undefined" || text == "globalThis" {
+            true
+        } else {
+            let Some(symbol) = self.binder.resolve_name(
+                self.nodes,
+                self.node_map,
+                named,
+                text,
+                SymbolFlags::VALUE | SymbolFlags::TYPE | SymbolFlags::MODULE | SymbolFlags::ALIAS,
+            ) else {
+                return;
+            };
+            let symbol = self.binder.merged_symbol(symbol);
+            let Some(&first) = self.binder.symbols().get(symbol).declarations.first() else {
+                return;
+            };
+            self.declaration_container_is_a_script(first)
+        };
+        if !global {
+            return;
+        }
+        self.report_at(
+            named,
+            &messages::CANNOT_EXPORT_0_ONLY_LOCAL_DECLARATIONS_CAN_BE_EXPORTED_FROM_A_MODULE,
+            text,
+        );
+    }
+
+    /// `IsGlobalSourceFile(GetDeclarationContainer(declaration))` — the walk
+    /// reaches a `SourceFile` that is not an external module, without passing a
+    /// namespace or a function on the way. §375.
+    fn declaration_container_is_a_script(&self, declaration: NodeId) -> bool {
+        for ancestor in self.nodes.ancestors(declaration) {
+            match self.node_map.get(ancestor) {
+                Some(Node::SourceFile(source)) => {
+                    return !tsr_binder::is_external_module(source);
+                }
+                Some(Node::ModuleDeclaration(_)) => return false,
+                _ => {}
+            }
+            if self.is_function_like_or_static_block(ancestor) {
+                return false;
+            }
+        }
+        false
+    }
+
     /// `checkAndReportErrorForExportingPrimitiveType` (`checker.go:1629`).
     fn report_exporting_primitive_type(&mut self, node: NodeId, text: &str) -> bool {
         if !is_primitive_type_name(text) {

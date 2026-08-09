@@ -477,6 +477,7 @@ impl Checker<'_, '_> {
             Node::ImportSpecifier(_) | Node::ExportSpecifier(_) => {
                 self.report_missing_module_export(node);
                 self.check_alias_symbol(node);
+                self.check_export_specifier_is_local(node);
             }
             // `checkImportBinding` (`checker.go:5287`-`:5303`, `:5473`) and
             // `checkExportDeclaration`'s clause (`:5534`).
@@ -5539,7 +5540,7 @@ impl Checker<'_, '_> {
     }
 
     /// `ast.IsFunctionLikeOrClassStaticBlockDeclaration`.
-    fn is_function_like_or_static_block(&self, node: NodeId) -> bool {
+    pub(crate) fn is_function_like_or_static_block(&self, node: NodeId) -> bool {
         matches!(
             self.nodes.kind(node),
             SyntaxKind::FunctionDeclaration

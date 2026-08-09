@@ -21582,3 +21582,93 @@ what surfaced the half-applied change. That is §283's failure mode caught by a
 different mechanism: §284 added `git diff --stat` to `measure` for exactly this,
 and here the dead-code lint got there first. Two independent detectors for
 "the edit did not land" is the right number.
+
+## §375 — TS2661: exporting a global
+
+Third application of §374's filter — a row behind *"needs the whole rule"* whose
+rule is small.
+
+```ts
+// a.d.ts  (a script, not a module)
+declare class X { }
+// b.ts
+export {X};      // TS2661 — Only local declarations can be exported
+```
+
+This port emits TS2661 only for **primitive type names**
+(`meaning_mismatch.rs:174`, `checkAndReportErrorForExportingPrimitiveType`,
+`checker.go:1629`). Upstream has a **second site** — `checkExportSpecifier`
+(`checker.go:5565`) — and it is the one the corpus wants:
+
+```go
+symbol := c.resolveName(exportedName, …, SymbolFlagsValue|Type|Namespace|Alias, …)
+if symbol != nil && (symbol == c.undefinedSymbol || symbol == c.globalThisSymbol ||
+    symbol.Declarations != nil && ast.IsGlobalSourceFile(ast.GetDeclarationContainer(symbol.Declarations[0]))) {
+    c.error(exportedName, diagnostics.Cannot_export_0_Only_local_declarations_can_be_exported_from_a_module, …)
+}
+```
+
+> **One code, two upstream sites, and the port had the smaller one.** §360's
+> lesson said codes listed together do not share a guard; this is its converse —
+> *a code this port already emits may still be missing most of its sites.*
+> `diagdeepen` calls TS2661 UNDER-FIRES and is right, but "widen where the rule
+> is asked" understates it: the second site is not a widening of the first, it
+> is a different function.
+
+### The bound
+
+`GetDeclarationContainer` walks past variable-declaration wrappers to the
+declaration's container, and `IsGlobalSourceFile` asks whether that container is
+a source file that is **not** an external module. This port checks that the
+declaration's ancestors reach the `SourceFile` without passing a
+`ModuleDeclaration` or a function — a declaration inside a namespace has that
+namespace as its container and upstream does not report it, so declining there
+is the reporting-direction-safe reading.
+
+### The bar
+
+```
+bar:  +2 of 9,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **`export { y }` where `y` is declared in the same module reports.** The
+   module's own file is an external module and must be excluded.
+2. **A re-export with a module specifier reports.** `hasModuleSpecifier` gates
+   the whole branch upstream.
+
+## §376 — §375 built: **+1** of a bar of +2
+
+```
+diagnostics   1,875 → 1,876   (bar was +2;  +1, 0 LOST)   34.18%
+every other suite unmoved — both falsifiers negative
+```
+
+Kept: positive, nothing lost, and the second site is upstream's own code rather
+than a bound this port invented.
+
+### The finding, which outlives the case
+
+> **A code this port already emits may still be missing most of its sites.**
+
+`diagdeepen` classifies TS2661 as UNDER-FIRES, and its prescription — *widen
+where the rule is asked* — is what the last ten builds have been doing. It is
+wrong here in a way worth naming: `checkAndReportErrorForExportingPrimitiveType`
+(`checker.go:1629`) and `checkExportSpecifier` (`checker.go:5565`) are two
+**different functions** that emit one code. The second is not a widening of the
+first; nothing about the first suggests the second exists.
+
+That means the ABSENT/UNDER-FIRES split is really three-way:
+
+```
+the code has no rule                        port it
+the rule is asked in too few positions      widen the predicate      §335, §347
+the code has upstream sites this port        port the missing site   §375
+  has never had a rule for at all
+```
+
+The third is invisible to every instrument here, because instruments see codes
+and this distinction lives in upstream's *function* structure. `grep -n
+"<Message_name>" vendor/typescript-go/internal/checker/*.go | wc -l` is the
+whole detector, and it costs one command per code.
