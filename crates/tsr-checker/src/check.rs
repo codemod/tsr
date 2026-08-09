@@ -1923,6 +1923,22 @@ impl Checker<'_, '_> {
             keyword.kind,
             SyntaxKind::StringKeyword | SyntaxKind::NumberKeyword | SyntaxKind::SymbolKeyword
         ) {
+            // TS1021 — the **fifth** guard of `checkGrammarIndexSignature`,
+            // immediately after this one: the signature itself must carry a
+            // return annotation. §230's rule — the remaining branch of a
+            // half-ported function. §496.
+            if signature.r#type.is_none()
+                && let Some(file) = self.source_file_of_for_diagnostics(node)
+            {
+                let span = self.error_span(node);
+                self.report(
+                    file,
+                    Diagnostic::new(
+                        &messages::AN_INDEX_SIGNATURE_MUST_HAVE_A_TYPE_ANNOTATION,
+                        span,
+                    ),
+                );
+            }
             return;
         }
         let Some(name) = parameter.name.and_then(|name| name.node_id()) else { return };

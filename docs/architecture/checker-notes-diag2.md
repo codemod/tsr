@@ -26398,3 +26398,93 @@ TS1188 TS1189 TS2404 TS2483 TS2491 §491+§493 · TS7011 TS7013 §438
 ```
 
 **Twelve**, of which five came from one block once its kind test was correct.
+
+## §496 — TS1155 and TS1021: the last two clean rows
+
+The fresh table now holds **two** rows at the clean signature (≥3 cases, all
+single-line, `occupied 0/n`), and both are shape tests:
+
+```
+TS1155  3   '{0}' declarations must be initialized.
+TS1021  3   An index signature must have a type annotation.
+```
+
+### TS1155 — `checkGrammarVariableDeclaration` (`grammarchecks.go:1569`)
+
+```go
+if node.Parent.Parent.Kind != KindForInStatement && node.Parent.Parent.Kind != KindForOfStatement {
+    if nodeFlags&NodeFlagsAmbient != 0 { … } else if node.Initializer == nil {
+        if IsBindingPattern(node.Name()) && !IsBindingPattern(node.Parent) { … A_destructuring_declaration_must_have_an_initializer }
+        switch blockScopeKind {
+        case NodeFlagsAwaitUsing: … "await using"
+        case NodeFlagsUsing:      … "using"
+        case NodeFlagsConst:      … "const"
+```
+
+**§494's differential falsifier applies directly**: three message arguments
+selected by a flag test, and the block-scope flags `USING`/`CONST` are ones this
+port *does* set (`flags.rs:40`–`44`), unlike the `AWAIT_CONTEXT` family §452
+refused. `await using` is `USING` plus the statement's `await`, as §395 already
+established for TS1156 — reusing that reading rather than inventing a second.
+
+### TS1021 — the guard immediately after §472's
+
+```go
+if node.Type == nil { c.grammarErrorOnNode(node.AsNode(), An_index_signature_must_have_a_type_annotation) }
+```
+
+§472 ported the fourth guard of `checkGrammarIndexSignature` and stopped; this
+is the fifth, and §230's rule says the remaining branch of a function already
+half-ported is the cheapest kind of build there is.
+
+### The bar
+
+```
+bar:  +4 of 6,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **`for (const x of [])` reports TS1155.** The for-in/for-of exemption is
+   upstream's outermost conjunct.
+2. **`const` and `using` produce the same message argument.** §494's
+   differential check — three arguments, and a flag test that collapses them is
+   exactly the defect §491 shipped.
+
+## §497 — §496 split: TS1021 **+3**, TS1155 **−5**, reverted
+
+```
+both together    2,018 → 2,016   (−2)
+TS1021 alone     2,018 → 2,021   (+3, 0 LOST)   36.83%
+⇒ TS1155 alone   −5
+```
+
+Shipping two rules in one build hid a `+3` behind a `−5`, and one extra
+measurement separated them. **That is the whole argument for the one-rule-per-
+build rule this session has otherwise followed**: §491 shipped six messages
+together and a dead branch survived a green measurement; here two independent
+rules were bundled for convenience and the net looked like a small loss rather
+than a good build and a bad one.
+
+> **Bundle only what shares a guard.** §230 says ship every branch of *one*
+> guard together, and §491/§496 are the two failure modes of getting that
+> boundary wrong: §491 under-bundled the *check* (one arm of a kind test) and
+> §496 over-bundled the *build* (two unrelated guards). The rule is about the
+> guard, not about the file or the session.
+
+### Why TS1155 over-reports
+
+Not isolated, and deliberately so — §131 after two hypotheses. The candidates,
+recorded for the next attempt:
+
+- `declaration_is_in_an_ambient_context` is not upstream's
+  `nodeFlags & NodeFlagsAmbient`, which is the parser flag §446 measured this
+  port never sets;
+- the for-in/for-of exemption tests `parent.parent`, and this port's
+  `VariableDeclarationList` nesting may differ by a level;
+- `const` with no initialiser in a **declaration file** is legal and the ambient
+  test is what excludes it — the same shape §446 broke.
+
+**Owner: the `NodeFlagsAmbient` family again (§452), now with a third row.**
+TS1155's 3 cases join TS1038's 6 and TS1359's 7 — **sixteen cases behind one
+parser change.**
