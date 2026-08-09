@@ -486,6 +486,7 @@ impl Checker<'_, '_> {
                 self.check_readonly_identifier_assignment(node, ambient);
                 self.check_value_identifier(node, identifier.text);
                 self.check_type_reference_name(node, identifier.text);
+                self.check_await_as_binding_name(node);
                 self.check_umd_global_reference(node, identifier.text);
                 self.check_used_before_assigned(node, identifier.text);
                 self.check_used_before_its_declaration(node, identifier.text);
@@ -2384,6 +2385,62 @@ impl Checker<'_, '_> {
                 &messages::_0_DECLARATIONS_MUST_BE_INITIALIZED,
                 span,
                 [keyword.to_string()],
+            ),
+        );
+    }
+
+    /// TS1359 — `Identifier expected. '{0}' is a reserved word that cannot be
+    /// used here.`
+    ///
+    /// `binder.go:1314`'s `await` arm, whose test is `node.Flags &
+    /// NodeFlagsAwaitContext`. That flag is unset in this parser — and it
+    /// records a **context**, which is a property of the ancestor chain, so the
+    /// walk answers it: is there an enclosing function-like carrying `async`?
+    /// The same substitution §508 made for `NodeFlagsAmbient`. A function's own
+    /// `async` counts for its own name (`asyncFunctionDeclaration12`).
+    ///
+    /// The top-level-module arm above it is a different code and is not ported
+    /// here (§501). §513.
+    fn check_await_as_binding_name(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        if self.identifier_text(node) != Some("await") {
+            return;
+        }
+        // A binding-name position, not an expression.
+        let Some(parent) = self.nodes.parent(node) else { return };
+        let named = match self.node_map.get(parent) {
+            Some(Node::ParameterDeclaration(p)) => {
+                p.name.as_ref().and_then(tsr_ast::BindingName::node_id) == Some(node)
+            }
+            Some(Node::VariableDeclaration(v)) => {
+                v.name.as_ref().and_then(tsr_ast::BindingName::node_id) == Some(node)
+            }
+            Some(Node::FunctionExpression(f)) => f.name.and_then(|n| n.node_id) == Some(node),
+            Some(Node::FunctionDeclaration(f)) => f.name.and_then(|n| n.node_id) == Some(node),
+            _ => false,
+        };
+        if !named {
+            return;
+        }
+        let in_async = self.nodes.ancestors(node).any(|ancestor| {
+            self.node_map
+                .get(ancestor)
+                .and_then(modifiers_of)
+                .is_some_and(|modifiers| has_modifier(modifiers, SyntaxKind::AsyncKeyword))
+        });
+        if !in_async {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let span = self.error_span(node);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::IDENTIFIER_EXPECTED_0_IS_A_RESERVED_WORD_THAT_CANNOT_BE_USED_HERE,
+                span,
+                ["await".to_string()],
             ),
         );
     }

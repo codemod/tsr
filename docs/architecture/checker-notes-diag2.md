@@ -27183,3 +27183,87 @@ difference.
 The remaining member of that family, TS1359's 7 cases, is the only one where the
 missing datum is genuinely a parser *context* rather than a dropped value —
 `AWAIT_CONTEXT` has no argument to thread and no predicate to swap.
+
+## §513 — TS1359: `await` as a name inside an async function
+
+§512 called this "the only one where the missing datum is genuinely a parser
+*context*". §508's move says check for an ancestor-walk equivalent first, and
+there is one. The fixtures:
+
+```ts
+var foo = async (await): Promise<void> => { }   // a parameter
+async function foo(await): Promise<void> { }    // a parameter
+var v = async function await(): Promise<void> { }   // the function's own name
+```
+
+`bindBlockScopedDeclaration`'s reserved-word arm (`binder.go:1314`) tests
+`node.Flags & NodeFlagsAwaitContext`. That flag is set on nodes **inside an
+async function**, and "is there an enclosing `async` function-like" is an
+ancestor walk — the same substitution §508 made for `NodeFlagsAmbient` and the
+same one `declaration_is_in_an_ambient_context` has embodied since §99.
+
+> **Two of the three "unset parser flag" refusals now have ancestor-walk
+> equivalents.** The flags are genuinely unset; what was wrong each time is the
+> inference *therefore the diagnostic is unreachable*. A parser flag records a
+> **context**, and a context is a property of the ancestor chain — which the
+> checker can always walk.
+
+### The bound
+
+An `Identifier` whose text is `await`, occupying a **binding-name** position (a
+parameter's name, a variable's name, or a function expression's own name), with
+an enclosing function-like carrying `async` — the function's own `async` counts
+for its own name, which is what `asyncFunctionDeclaration12` requires.
+
+The top-level-module arm above it (`Identifier_expected_0_is_a_reserved_word_at_the_top_level_of_a_module`)
+is a different code and is **not** ported — §501's rule.
+
+### The bar
+
+```
+bar:  +4 of 7,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **`await` as a name in a non-async function reports.** The walk is the guard.
+2. **`await expr` as an expression reports.** Only binding-name positions.
+
+## §514 — §513 built: **+3**, and the parser-flag family is finished
+
+```
+diagnostics   2,037 → 2,040   (bar was +4;  +3, 0 LOST)   37.17%
+every other suite unmoved — both falsifiers negative
+```
+
+The four remaining cases are `asyncOrYieldAsBindingIdentifier1` (three lines,
+and it needs the `yield`/generator arm this build did not port) and the
+top-level-module arm, which is a different code.
+
+### §452's "one parser change, sixteen cases" — the final accounting
+
+```
+TS1038  6   §508  a predicate already in the file          no parser change
+TS1155  3   §509  one arm of a three-arm switch removed    no parser change
+TS1120  3   §511  an argument the caller already had       4 call sites, rails held
+TS1359  3   §513  an ancestor walk for AWAIT_CONTEXT       no parser change
+                                                            ────
+                                                            15 of 16
+```
+
+> **Every one of the sixteen cases §452 attributed to three unset parser flags
+> came in without setting any of them.** §452 merged two refusals into one
+> parser item and called it *"thirteen cases behind one parser change"*; §499
+> priced it to a function name and three numbered steps; §506 called it the
+> largest buildable item on the board. All three were describing work that did
+> not exist.
+>
+> **A flag records a context; a context is a property of the ancestor chain;
+> the checker can always walk it.** That sentence would have saved four notes
+> and two deferrals. It is not that the flags are unnecessary — a real port
+> wants them — but that *their absence never blocked a diagnostic*, and four
+> hundred sections of notes asserted otherwise without once testing it.
+
+The honest remainder is **one case**, `asyncOrYieldAsBindingIdentifier1`, which
+wants the `yield`/generator arm alongside the `await` one — and that is a second
+ancestor walk, not a flag.
