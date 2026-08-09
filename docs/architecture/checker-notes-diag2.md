@@ -25346,3 +25346,82 @@ The second question is §460's, and it is the one that costs a `diagmissing`.
 rejected: §460 TS2349 (types absent)
 reverted: §338 (domain widened) −3
 ```
+
+## §468 — TS2466: `super` in a computed property name
+
+§467's search, second row. **4 blocked, all single-line, `occupied 0/4`.**
+
+```ts
+class C extends Base {
+    [(super(), "prop")]() { }   // TS2466 at `super`
+}
+```
+
+`checkSuperExpression` (`checker.go:7903`), the **first** arm of a three-way
+switch:
+
+```go
+switch {
+case current != nil && ast.IsComputedPropertyName(current):
+    c.error(node, X_super_cannot_be_referenced_in_a_computed_property_name)
+case isCallExpression: …
+case container == nil || …: …
+}
+```
+
+Purely syntactic: a `super` keyword with a `ComputedPropertyName` ancestor. The
+other two arms need the container walk and are not attempted — §103's rule that
+the branch order is the specification applies, and this is the branch that runs
+first.
+
+### The bar
+
+```
+bar:  +3 of 4,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **`super.x()` in an ordinary method reports.** No computed-property-name
+   ancestor.
+2. **`super` in a computed name of an *object literal* reports.** Upstream's
+   arm tests the name, not the container, so this must fire there too — the
+   falsifier confirms the arm is about position rather than about classes.
+
+## §469 — §468 built: **+4**, above bar. The search is the technique now
+
+```
+diagnostics   1,980 → 1,984   (bar was +3;  +4, 0 LOST)   36.15%
+every other suite unmoved — both falsifiers negative
+```
+
+Two rows in a row from §467's message-text search (`TS2358 +4`, `TS2466 +4`),
+and the procedure has stopped being a metaphor:
+
+```
+1. refresh diagslice                       (§433, after any build over ~5)
+2. filter: cases >= 3, all single-line, occupied 0/n   (§273, §293)
+3. grep the message text for a restriction  ("must be", "cannot be referenced",
+                                             "is not a", "can only be")
+4. read upstream's arm                      (§391 — it is nine lines half the time)
+5. read this port for what already exists   (§383 — stops over-scoping)
+6. bar, falsify, build, measure, keep or revert whole
+```
+
+**Steps 1–3 cost one corpus run and one `grep`, and they produced the last two
+builds and eight of the last twenty cases.** Nothing in that list is new; what
+is new is that they are in an order that can be followed without judgement,
+which is what a session hands to the next one.
+
+> **A technique becomes a procedure when its steps can be run by someone who
+> was not there for the reasoning.** Forty-two refusals, twenty-one reverts and
+> six instruments are the reasoning; this list is what survives it.
+
+### The remaining message-text candidates
+
+```
+TS2376  3 cases  a `super` call must be the first statement in the constructor
+TS1268  3 cases  an index signature parameter type must be string/number/symbol
+TS2851  3 cases  an `await using` initializer must have `[Symbol.asyncDispose]`
+TS2413  3 cases  index type not assignable to index type          — the relation
+```

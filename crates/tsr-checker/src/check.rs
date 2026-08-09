@@ -608,6 +608,9 @@ impl Checker<'_, '_> {
         if matches!(typed, Node::ExportAssignment(_)) {
             self.check_export_assignment_alone(node);
         }
+        if self.nodes.kind(node) == SyntaxKind::SuperKeyword {
+            self.check_super_in_computed_name(node);
+        }
         if self.nodes.kind(node) == SyntaxKind::ThisKeyword {
             self.check_this_in_module_body(node);
             self.check_implicit_this(node);
@@ -1596,6 +1599,35 @@ impl Checker<'_, '_> {
             file,
             Diagnostic::new(
                 &messages::THE_LEFT_HAND_SIDE_OF_AN_INSTANCEOF_EXPRESSION_MUST_BE_OF_TYPE_ANY_AN_OBJECT_TYPE_OR_A_TYPE_PARAMETER,
+                span,
+            ),
+        );
+    }
+
+    /// TS2466 — `'super' cannot be referenced in a computed property name.`
+    ///
+    /// `checkSuperExpression`'s **first** arm (`checker.go:7903`), which tests
+    /// the *position* and not the container: a `super` keyword with a
+    /// `ComputedPropertyName` ancestor. The switch's other two arms need the
+    /// container walk and are not attempted — §103's rule that the branch order
+    /// is the specification, and this is the branch that runs first. §468.
+    fn check_super_in_computed_name(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        if !self
+            .nodes
+            .ancestors(node)
+            .any(|ancestor| self.nodes.kind(ancestor) == SyntaxKind::ComputedPropertyName)
+        {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let span = self.nodes.span(node);
+        self.report(
+            file,
+            Diagnostic::new(
+                &messages::SUPER_CANNOT_BE_REFERENCED_IN_A_COMPUTED_PROPERTY_NAME,
                 span,
             ),
         );
