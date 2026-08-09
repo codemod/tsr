@@ -1319,10 +1319,11 @@ Without them every later guard reports at a position upstream never reaches —
 ***An ordered guard sequence cannot be ported in fragments.***
 
 The third measurement is the one worth keeping: **the syntactic guards alone
-move zero cases.** *A cluster of no-producer codes in a syntactic function is not
-evidence that the cases are reachable* — only that this port does not emit those
-codes, which it may be covering with different ones. §287's parameter-list family
-looked identical from the gap and was `+9`.
+move zero cases** — and **§293 corrected why**. It is not that this port covers
+them with other codes (the `occupied` column shows those positions empty). It is
+that **their codes have no blocked cases at all**: TS1017/1018/1019/1020/1022/1096
+are absent from all 442 rows. *Before porting a rule, check that **its code** is
+in the gap — not its function, not its neighbours.*
 
 ### New, this session, TS7005 — variable implicitly has an 'any' type, 7 cases
 
@@ -2284,6 +2285,7 @@ holds only the numbers.
 | 2026-08-09 | HEAD | **32.29%** | **1,772** | **+9, `WRONG 0`, after one over-wide predicate** | **The parameter-list and accessor grammar families** — eight codes across two loops, one of which this port already had a single arm of. Every one of the six first-measurement wrong lines was `isOptionalDeclaration`, which is **`HasQuestionToken` alone**: an initialiser does not make a parameter optional, so `f(a = 1, b: number)` is legal. ***The name of a predicate is not its definition*** — `isOptionalParameter` sits four lines below it and *does* count the initialiser. Nothing in the gap could distinguish them; reading the call site did. §287–§288 |
 | 2026-08-09 | HEAD | **32.42%** | **1,779** | **+7 of a ceiling of 7, `WRONG 0`** | **The heritage-clause family** — five codes, two walks, the whole row. Four builds into the `grammarchecks.go` seam: **+27 across fifteen codes**, every one purely syntactic and `WRONG 0`. ***A file can be a seam*** — it has no types, no relation, no flow, so its rules are decidable by construction, and **none of the fifteen was visible to a ranking by case count** (the largest is 8 cases; seven are 1). Thirty-nine still-missing codes remain in it. §289–§290 |
 | 2026-08-09 | HEAD | 32.42% | 1,779 | **seventh build reverted; three measurements** | **The index-signature sequence.** ***An ordered guard sequence cannot be ported in fragments*** — its two type-reading guards sit in the middle, and without them every later guard reports where upstream never does. The third measurement is the keeper: **the syntactic guards alone move zero cases**, so *a cluster of no-producer codes in a syntactic function is not evidence the cases are reachable*. §287's family looked identical from the gap and was `+9`. §291–§292 |
+| 2026-08-09 | HEAD | 32.42% | 1,779 | **§292's explanation retracted; `diagslice` grows a column** | **§292 said the syntactic guards were "already covered by another code". Wrong** — the new `occupied` column shows those positions **empty**. The real reason: **their codes have zero blocked cases**, absent from all 442 rows. ***Before porting a rule, check that its code is in the gap — not its function, not its neighbours.*** One `grep` would have saved §291 and §292. The column **failed the case it was built for** and is kept for the different question it does answer, said plainly. §293 |
 
 ## 8. Updating this file
 
