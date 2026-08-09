@@ -4652,3 +4652,17 @@ doubleUnderscoreExportStar 2, spread). The admission principle's
 third confirmation: quote, Array head, void position — each a
 spelling the fresh render cannot reproduce, each landing at zero
 adverse.
+
+**§111 slice 2 — built, ZERO-FIRE, parked on the branch with the
+probe queued.** The arm (predicate-carrying `[Symbol.hasInstance]`
+narrows both branches through the extracted §22 ladder) plus the
+declaration-scan lookup (late-bound members are `__computed`,
+binder.rs:4136 — the member table cannot answer; the well-known name
+reads off the owner's declarations) both built, and the pair is
+byte-identical: the arm is NEVER REACHED. The next probe (one
+eprintln at the instanceof narrowing entry on the filtered case)
+must answer whether the flow walk reaches instanceof conditions for
+`unknown`-declared references at all — the wrongs' `any` gots
+suggest the unknown-receiver road answers before narrowing runs.
+WIP on worktree-checker-1-printing (81 lines incl. the neutral
+ladder extraction); nothing on main.
