@@ -16831,3 +16831,63 @@ pragma hook or the compiler option. Both are built; one is not arriving.
 That is a *smaller* and more testable owner than "port TS2874", and it is worth
 more than the row: `jsx_namespace_name` is also what §255's TS7026 and §221's
 `getJsxNamespaceAt` read, so the same defect is upstream of three rules.
+
+## §263 — the road that was not arriving, and TS2874 with it
+
+§262 refused TS2874 and named an owner it could not resolve: one of the two
+`jsxFactory` roads was not reaching `Checker::jsx_namespace`. It is neither of
+them — **the option never left the test harness.**
+
+`jsxFactoryAndJsxFragmentFactory`'s directives, read straight off the case:
+
+```
+{"jsx": "react", "jsxfactory": "h", "jsxfragmentfactory": "Frag", "target": "es2015"}
+```
+
+`apply_test_directives` (`trace_case.rs:375`) maps `jsx` and `jsximportsource`
+and **not** `jsxfactory`, `jsxfragmentfactory` or `reactnamespace`. So
+`options.jsx_factory` stayed empty, `Checker::apply_compiler_options` took its
+`React` default, and TS2874 reported a name the file never mentions.
+
+Three lines in the harness:
+
+```rust
+jsx_factory: get("jsxfactory").map_or(base.jsx_factory, str::to_string),
+jsx_fragment_factory: get("jsxfragmentfactory").map_or(base.jsx_fragment_factory, str::to_string),
+react_namespace: get("reactnamespace").map_or(base.react_namespace, str::to_string),
+```
+
+### The same rule, before and after
+
+```
+before the harness fix   diagnostics +2   CONVERTS 6 · LOST 4 · RIGHT 17 · WRONG 36
+after                    diagnostics +5   CONVERTS 5 · LOST 0 · RIGHT 15 · WRONG  2
+```
+
+**Identical checker code.** The build that §262 correctly refused as
+unshippable is shippable, and nothing about the rule changed.
+
+> **When every wrong line names the same wrong value, suspect the input before
+> the rule.** §262 got that far — *"the rule was never the variable"* — and
+> then looked in the two places the value is *consumed* rather than the one
+> place it is *produced*. The harness is part of the compiler under test, and
+> it is the part with no conformance suite of its own.
+
+### What else this unblocks
+
+`jsx_factory` and `react_namespace` feed `jsx_namespace_name`, which §255's
+TS7026 and §221's `getJsxNamespaceAt` also read. Neither moved on this corpus —
+measured, not assumed — but both were reading a default where a configured name
+existed, and would have been wrong the moment a case exercised it.
+
+### The residue
+
+```
+jsxFactoryIdentifierWithAbsentParameter   test.tsx(9,17)
+jsxFactoryQualifiedNameResolutionError    test.tsx(9,17)
+```
+
+Both a **qualified** `jsxFactory` (`a.b.c`), where upstream resolves the entity
+rather than its first identifier. `getJsxNamespace` returns the root for the
+namespace test but `markJsxAliasReferenced` resolves the whole entity; this port
+has only the root. Two lines, named, not fixed.

@@ -164,6 +164,49 @@ impl Checker<'_, '_> {
     }
 
     /// Road 2: the JSX namespace hanging off `getJsxNamespace`'s name.
+    /// TS2874 — `This JSX tag requires '{0}' to be in scope, but it could not
+    /// be found.`
+    ///
+    /// `markJsxAliasReferenced` (`checker.go:28502`): resolve the JSX factory
+    /// namespace as a **value** at the tag name, and report if it is not in
+    /// scope. Only under [`tsr_core::JsxEmit::React`] — `preserve` emits the
+    /// tag as written and the automatic runtime imports its factory.
+    ///
+    /// **Fragments are not ported.** Upstream resolves those through
+    /// `getJsxFactoryEntity` and `jsxFragmentFactory` (`checker.go:28533`), a
+    /// second lookup with its own entity and its own `null` exemption;
+    /// `jsx_namespace_name` answers the *element* factory and is the wrong name
+    /// for a `<>`. §262 measured that at 49 wrong lines.
+    pub(crate) fn check_jsx_factory_in_scope(&mut self, typed: Node<'_>) {
+        if self.jsx_emit != tsr_core::JsxEmit::React || self.file_has_parse_errors {
+            return;
+        }
+        let location = match typed {
+            Node::JsxOpeningElement(element) => element.tag_name.and_then(|t| t.node_id()),
+            Node::JsxSelfClosingElement(element) => element.tag_name.and_then(|t| t.node_id()),
+            _ => return,
+        };
+        let Some(location) = location else { return };
+        let Some(name) = self.jsx_namespace_name(location) else { return };
+        if self
+            .binder
+            .resolve_name(self.nodes, self.node_map, location, &name, SymbolFlags::VALUE)
+            .is_some()
+        {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(location) else { return };
+        let span = self.nodes.span(location);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::THIS_JSX_TAG_REQUIRES_0_TO_BE_IN_SCOPE_BUT_IT_COULD_NOT_BE_FOUND,
+                span,
+                [name],
+            ),
+        );
+    }
+
     fn jsx_namespace_symbol(&mut self, location: NodeId) -> Option<SymbolId> {
         let name = self.jsx_namespace_name(location)?;
         let container = self.binder.resolve_name(

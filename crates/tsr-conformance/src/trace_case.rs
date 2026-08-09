@@ -414,6 +414,16 @@ pub fn apply_test_directives(
             .and_then(parse_module_resolution)
             .unwrap_or(base.module_resolution),
         jsx: get("jsx").and_then(JsxEmit::parse).unwrap_or(base.jsx),
+        // §263 — the three names `getJsxNamespace` reads. Their absence here is
+        // what §262 could not identify: `jsxFactoryAndJsxFragmentFactory` sets
+        // `@jsxFactory: h`, this map dropped it, `Checker::jsx_namespace`
+        // defaulted to `React`, and TS2874 reported a name the file never
+        // mentions. The same value is read by `jsx_namespace_name`, which
+        // §255's TS7026 and §221's `getJsxNamespaceAt` also consult.
+        jsx_factory: get("jsxfactory").map_or(base.jsx_factory, str::to_string),
+        jsx_fragment_factory: get("jsxfragmentfactory")
+            .map_or(base.jsx_fragment_factory, str::to_string),
+        react_namespace: get("reactnamespace").map_or(base.react_namespace, str::to_string),
         allow_js: tristate("allowjs", base.allow_js),
         check_js: tristate("checkjs", base.check_js),
         strict: tristate("strict", base.strict),

@@ -389,6 +389,9 @@ pub struct Checker<'a, 'n> {
     /// (`getLocalJsxNamespace`), is not ported — see
     /// [`Checker::jsx_namespace_symbol`].
     pub(crate) jsx_namespace: String,
+    /// What JSX compiles to. TS2874 is reported **only** under
+    /// [`tsr_core::JsxEmit::React`] (`checker.go:28508`). §261.
+    pub(crate) jsx_emit: tsr_core::JsxEmit,
     /// `exactOptionalPropertyTypes` (`checker.go:987`): a `?:` property's
     /// optionality is `missingType`, removed at write positions.
     pub(crate) exact_optional_property_types: bool,
@@ -713,6 +716,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             preserve_const_enums: false,
             no_implicit_any: false,
             jsx_namespace: "React".to_string(),
+            jsx_emit: tsr_core::JsxEmit::None,
             exact_optional_property_types: false,
             alias_inline_level: 0,
             non_null_type_variables: FxHashMap::default(),
@@ -809,6 +813,7 @@ impl<'a, 'n> Checker<'a, 'n> {
         // unless `jsxFactory` names an entity — in which case its **first**
         // identifier, so `h.createElement` gives `h` — or `reactNamespace`
         // names one outright. `jsxFactory` wins over `reactNamespace`.
+        self.jsx_emit = options.jsx;
         self.jsx_namespace = if options.jsx_factory.is_empty() {
             if options.react_namespace.is_empty() {
                 "React".to_string()
