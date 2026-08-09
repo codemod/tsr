@@ -4960,3 +4960,32 @@ gaps beyond) is now the loader head's SHARPENED price: parsing
 tsconfig units in `program_for_case` would both convert those
 corpora and retire this build's largest adverse class. Still
 parked; re-priced upward in usefulness.
+
+## §120 — the §92 written-intersection gate re-measured post-§98 [claimed: checker-1]
+
+**The candidate stale refusal.** §92 gated intersection member
+distribution to ALIAS-EVALUATED intersections because the written
+form "answering confidently here measured 134 G→W in the
+discriminated-union family (union order, un-narrowed members)". That
+price predates §98 (the retention roots + upstream's ternary
+discrimination algorithm, checker-2's lane) and the §5x discriminant
+family's completion — the very machinery whose absence made
+un-narrowed members print wrong. Same shape as §119: the rule
+(upstream's `getUnionOrIntersectionProperty` reads an intersection
+member from ANY constituent that has it) was never in doubt; the
+world it was priced in has changed twice.
+
+**The arm.** In `property_type_via_shape` (`members.rs:742`): drop
+the `alias_evaluated_types` membership test — every
+`TypeData::Intersection` distributes. Hit-combination unchanged
+(single hit answers it; multiple hits intersect). Candidates:
+mixinAccessModifiers 60 (`Protected & Public` receivers wanting
+`string` members), the `Window & typeof globalThis` 26, spread
+intersection tail — the member_shapes WouldFind bucket's
+intersection half.
+
+**Bar.** ≥60 G→R at ≥5:1. Falsifier: if the discriminated-union
+G→W class recurs at material size (§92's 134, or any structured
+fraction of it), the gate goes back verbatim and this section
+records the second price with its case names — two priced refusals
+would make the gate load-bearing, not provisional.
