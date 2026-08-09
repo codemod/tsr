@@ -617,6 +617,16 @@ impl Suite for BinderSymbols {
                                 &unit.name,
                                 |d| file.contains(d),
                             )
+                        })
+                        .or_else(|| {
+                            import_specifier_target(
+                                &program,
+                                bound,
+                                nodes,
+                                symbol,
+                                &unit.name,
+                                |d| file.contains(d),
+                            )
                         });
                     let Some(target) = target else {
                         continue;
@@ -924,7 +934,9 @@ fn assigned_name(
     // initializer under the variable.
     (matches!(
         nodes.kind(parent),
-        SyntaxKind::VariableDeclaration | SyntaxKind::BindingElement | SyntaxKind::PropertyAssignment
+        SyntaxKind::VariableDeclaration
+            | SyntaxKind::BindingElement
+            | SyntaxKind::PropertyAssignment
     ))
     .then(|| bound.symbol_of(parent))?
 }
@@ -1355,6 +1367,61 @@ fn namespace_import_target(
     }
     let root = resolve_specifier(program, importing_unit, specifier.text)?.source_file().node_id?;
     bound.symbol_of(root)
+}
+
+/// Resolve `import { Keys as UKeys } from "spec"` to the named export of the
+/// module the specifier reaches — the checker prints the alias with the
+/// target's declarations (`ramdaToolsNoInfinite2`).
+fn import_specifier_target(
+    program: &tsr_compiler::Program<'_>,
+    bound: &BindResult<'_>,
+    nodes: &NodeTable,
+    symbol: &tsr_binder::Symbol<'_>,
+    importing_unit: &str,
+    in_file: impl Fn(tsr_ast::NodeId) -> bool,
+) -> Option<tsr_binder::SymbolId> {
+    let declaration = symbol
+        .declarations
+        .iter()
+        .copied()
+        .find(|d| in_file(*d) && nodes.kind(*d) == SyntaxKind::ImportSpecifier)?;
+    let Some(tsr_ast::Node::ImportSpecifier(specifier)) = program.node_map().get(declaration)
+    else {
+        return None;
+    };
+    let imported = match specifier.property_name {
+        Some(tsr_ast::ModuleExportName::Identifier(identifier)) => identifier.text,
+        Some(tsr_ast::ModuleExportName::StringLiteral(literal)) => literal.text,
+        None => specifier.name?.text,
+    };
+    let mut import = declaration;
+    for _ in 0..5 {
+        if nodes.kind(import) == SyntaxKind::ImportDeclaration {
+            break;
+        }
+        import = nodes.parent(import)?;
+    }
+    let Some(tsr_ast::Node::ImportDeclaration(node)) = program.node_map().get(import) else {
+        return None;
+    };
+    let Some(tsr_ast::Expression::StringLiteral(spec)) = node.module_specifier else {
+        return None;
+    };
+    let module = if let Some(found) = bound.globals().get(spec.text).copied() {
+        let found = bound.merged_symbol(found);
+        bound
+            .symbols()
+            .get(found)
+            .flags
+            .intersects(tsr_binder::SymbolFlags::MODULE)
+            .then_some(found)
+    } else {
+        resolve_specifier(program, importing_unit, spec.text)
+            .and_then(|target| target.source_file().node_id)
+            .and_then(|root| bound.symbol_of(root))
+    }?;
+    let exported = *bound.symbols().get(module).exports.get(imported)?;
+    Some(bound.merged_symbol(exported))
 }
 
 /// The program file a relative specifier names, matched against unit names.

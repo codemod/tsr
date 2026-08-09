@@ -2250,9 +2250,8 @@ impl<'a> Checker<'a, '_> {
                 let mask = self.tuple_optional_masks.get(&parameter.r#type).cloned();
                 let mut pieces = Vec::with_capacity(elements.len());
                 for (position, &element) in elements.iter().enumerate() {
-                    let optional = mask
-                        .as_ref()
-                        .is_some_and(|m| m.get(position).copied().unwrap_or(false));
+                    let optional =
+                        mask.as_ref().is_some_and(|m| m.get(position).copied().unwrap_or(false));
                     pieces.push(format!(
                         "{}_{position}{}: {}",
                         parameter.name,
