@@ -420,6 +420,7 @@ impl Checker<'_, '_> {
         // is the statement-level shape and is declined, §103.
         match typed {
             Node::YieldExpression(_) => self.check_yield_grammar(node),
+            Node::AwaitExpression(_) => self.check_await_in_parameter_initializer(node),
             // `NodeCanBeDecorated` rejects every one of these outright.
             Node::EnumDeclaration(n) => self.check_illegal_decorator(n.modifiers),
             Node::ClassDeclaration(_) => self.check_type_parameter_lists_identical(node),
@@ -2691,6 +2692,70 @@ impl Checker<'_, '_> {
             file,
             Diagnostic::new(&messages::PARAMETER_CANNOT_HAVE_QUESTION_MARK_AND_INITIALIZER, span),
         );
+    }
+
+    /// TS2524 — `'await' expressions cannot be used in a parameter initializer.`
+    ///
+    /// `checkGrammarAwaitOrAwaitUsing`'s last arm (`grammarchecks.go:1768`):
+    ///
+    /// ```go
+    /// if ast.IsAwaitExpression(node) && c.isInParameterInitializerBeforeContainingFunction(node) {
+    ///     // NOTE: We report this regardless as to whether there are parse diagnostics.
+    ///     c.error(node, diagnostics.X_await_expressions_cannot_be_used_in_a_parameter_initializer)
+    /// }
+    /// ```
+    ///
+    /// The comment is upstream's own and is the reason this rule does not take
+    /// the `file_has_parse_errors` guard every neighbouring grammar check takes.
+    fn check_await_in_parameter_initializer(&mut self, node: NodeId) {
+        if !self.is_in_parameter_initializer_before_containing_function(node) {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let span = self.nodes.span(node);
+        self.report(
+            file,
+            Diagnostic::new(
+                &messages::AWAIT_EXPRESSIONS_CANNOT_BE_USED_IN_A_PARAMETER_INITIALIZER,
+                span,
+            ),
+        );
+    }
+
+    /// `Checker.isInParameterInitializerBeforeContainingFunction`
+    /// (`checker.go:12235`).
+    ///
+    /// Walks up to the first function-like parent — which is what makes
+    /// `function f(a = async () => await x)` legal — and answers whether the
+    /// climb passed through a parameter's initializer. `inBindingInitializer`
+    /// is upstream's sticky bit: once inside a **binding element's**
+    /// initializer, reaching *any* enclosing parameter counts, because the
+    /// destructuring pattern is itself part of the parameter's initialisation.
+    fn is_in_parameter_initializer_before_containing_function(&self, node: NodeId) -> bool {
+        let mut node = node;
+        let mut in_binding_initializer = false;
+        while let Some(parent) = self.nodes.parent(node) {
+            if self.is_function_like_or_static_block(parent) {
+                return false;
+            }
+            match self.node_map.get(parent) {
+                Some(Node::ParameterDeclaration(parameter)) => {
+                    if in_binding_initializer
+                        || parameter.initializer.and_then(|e| e.node_id()) == Some(node)
+                    {
+                        return true;
+                    }
+                }
+                Some(Node::BindingElement(element))
+                    if element.initializer.and_then(|e| e.node_id()) == Some(node) =>
+                {
+                    in_binding_initializer = true;
+                }
+                _ => {}
+            }
+            node = parent;
+        }
+        false
     }
 
     /// The offending shape TS1015 reports on, asked of one parameter.

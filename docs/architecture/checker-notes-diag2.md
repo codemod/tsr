@@ -14962,3 +14962,88 @@ be the *only* thing several of them wanted.
 The middle arm's `TokenFlagsContainsLeadingZero` is not set — this port has no
 such flag and nothing reads one. Recorded because the flag is upstream's signal
 to the *emitter*, and a `.js` output that reprints `09` as `09` needs it.
+
+## §226 — applying §225: which other codes have no producer at all?
+
+§225 claimed a row with no producer bars high. That claim is only useful if
+there *are* others, so the whole gap was re-scanned for codes this port never
+emits — cross-referencing `diaggap`'s sole-obstacle column against a grep for
+each code's `messages.rs` constant across the four producing crates:
+
+```
+TS2403  32   subsequent variable declarations must have the same type
+TS2769  23   no overload matches this call
+TS2678  15   type is not comparable to type
+TS2305  15   module has no exported member
+TS2349  14   this expression is not callable
+TS2729  11   property is used before its initialization
+TS2303  10   circular definition of import alias
+TS2524   8   await expressions cannot be used in a parameter initializer
+TS2335   8   super can only be referenced in a derived class
+```
+
+**Sixteen codes, ≥5 cases each, and none of them has a single line of code
+here.** Most are relation-owned (2403, 2769, 2678, 2349) and belong to the
+`.types` workstream. Two are *purely syntactic*:
+
+### The one taken, and the one declined
+
+**TS2524** is one predicate — `IsAwaitExpression(node) &&
+isInParameterInitializerBeforeContainingFunction(node)`
+(`grammarchecks.go:1768`), reported *regardless of parse diagnostics*, with the
+predicate an upward walk carrying one sticky bit (`checker.go:12235`).
+
+**TS2335 is declined**, and the reason is §183's exactly. It sits at
+`checker.go:7924`, deep inside `checkSuperExpression`, *after* arms that report
+`super can only be referenced in members of derived classes` and `super property
+access is permitted only in a constructor…`. Porting the last arm alone reports
+TS2335 everywhere upstream reports one of the earlier ones — a rule that trades
+missing lines for wrong ones. **Owner: `checkSuperExpression`'s container
+classification, whole.**
+
+### The bar
+
+```
+bar:  +5 cases of 8,  0 LOST,
+      binder_symbols / printer_round_trip / scanner_clean_files UNMOVED
+```
+
+Barred at 5 of 8 rather than §225's near-total: TS1121 was a *scanner* rule
+whose cases were otherwise clean, and these eight are checker fixtures that may
+want other codes too.
+
+### Falsifiers
+
+1. **A nested function's `await` reports.** `function f(a = async () => await x)`
+   is legal; the walk must stop at the first function-like parent.
+2. **`diagnostics` falls.**
+
+## §227 — §226 built: +8 of a ceiling of 8
+
+```
+diagnostics   1,625 → 1,633   (+8, bar was +5, ceiling was 8)
+checker_types / binder_symbols / printer_round_trip /
+scanner_clean_files / parser_typescript   all unmoved
+```
+
+Every case `diagmissing` named. **The second no-producer row in a row to hit
+or exceed its ceiling**, which upgrades §225 from an observation to a
+prediction: for a code this port never emits, `diagmissing`'s sole-obstacle
+count *is* the estimate, and the conservative correction that is right for
+deepening an existing rule is wrong here.
+
+### The falsifier the corpus cannot run
+
+Falsifier 1 was "a nested function's `await` must not report", and **all eight
+corpus cases report** — not one contains the negative. A version of this rule
+that never stopped climbing would have scored exactly the same `+8`.
+
+So the boundary is pinned in `tests/await_in_parameter_initializer.rs`, and the
+test was **mutated to confirm it can fail**: replacing the function-like guard
+with `if false && …` turns both nested-function tests red and leaves the other
+three green. That is the whole content of the rule, and the conformance suites
+are blind to it.
+
+> **A row that hits its ceiling is exactly when to ask what the ceiling did not
+> measure.** `+8 of 8` reads like completeness; here it certified one half of a
+> two-sided predicate, because the corpus only ever exercises the positive side.
