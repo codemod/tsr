@@ -3538,6 +3538,17 @@ impl Checker<'_, '_> {
     /// text (ADR-0034). Those keep the node's own span; §48 records the
     /// omission rather than hiding it, because a displaced `return` diagnostic
     /// is the symptom it would produce.
+    /// [`Checker::error_span`], exposed for probes.
+    ///
+    /// A diagnostic's position is `error_span(anchor)`, so joining a baseline
+    /// line back to the node that would carry it needs this and nothing else.
+    /// §172's split reports *positions*; §173 needs the node **kind** at each
+    /// one, and the join is by span. Read-only and allocation-free.
+    #[must_use]
+    pub fn error_span_of(&self, node: NodeId) -> tsr_core::Span {
+        self.error_span(node)
+    }
+
     pub(crate) fn error_span(&self, node: NodeId) -> tsr_core::Span {
         self.declaration_name_of(node).map_or_else(
             || self.nodes.span(node),
@@ -3619,6 +3630,12 @@ impl Checker<'_, '_> {
     }
 
     /// `ast.GetSourceFileOfNode`, reachable from this module.
+    /// [`Checker::source_file_of_for_diagnostics`], exposed for probes (§173).
+    #[must_use]
+    pub fn source_file_of_diagnostics(&self, node: NodeId) -> Option<NodeId> {
+        self.source_file_of_for_diagnostics(node)
+    }
+
     pub(crate) fn source_file_of_for_diagnostics(&self, node: NodeId) -> Option<NodeId> {
         let mut current = node;
         loop {

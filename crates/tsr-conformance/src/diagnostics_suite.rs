@@ -316,6 +316,56 @@ pub fn assignability_probe_for(test: &crate::TestCase) -> Vec<ProbedPosition> {
     out
 }
 
+/// The node kind at every position in the case's own files, keyed the way a
+/// baseline line is keyed.
+///
+/// A diagnostic sits at `error_span(anchor)`, so a baseline line and the node
+/// that would carry it join on `(file, line, column)`. Several nodes share one
+/// position — `error_span` narrows a declaration to its name, and a name is
+/// inside its declaration — so every kind at a position is returned and the
+/// caller decides which to believe. §173.
+#[must_use]
+pub fn node_kinds_by_position_for(
+    test: &crate::TestCase,
+) -> Vec<(String, u32, u32, tsr_ast::SyntaxKind, Option<tsr_ast::SyntaxKind>)> {
+    let arena = tsr_core::Arena::new();
+    let program = program_for_case(&arena, test);
+    let checker = tsr_checker::Checker::with_module_host(
+        program.binder(),
+        program.nodes(),
+        program.node_map(),
+        Some(&program),
+    );
+    let mut units = Vec::new();
+    for unit in &test.files {
+        if tsr_parser::ScriptKind::from_file_name(&unit.name) == tsr_parser::ScriptKind::Json {
+            continue;
+        }
+        let Some(file) = program.source_file(&unit.name) else { continue };
+        let Some(id) = file.source_file().node_id else { continue };
+        units.push((id, unit.name.clone(), file.text()));
+    }
+    let nodes = program.nodes();
+    let mut out = Vec::new();
+    for index in 0..nodes.len() {
+        let id = <tsr_ast::NodeId as tsr_core::Idx>::from_usize(index);
+        let Some(file) = checker.source_file_of_diagnostics(id) else { continue };
+        let Some((_, unit_name, source)) = units.iter().find(|(unit, _, _)| *unit == file) else {
+            continue;
+        };
+        let span = checker.error_span_of(id);
+        let (line, character) = line_and_character(source, span.start);
+        out.push((
+            unit_name.clone(),
+            line + 1,
+            character + 1,
+            nodes.kind(id),
+            nodes.parent(id).map(|parent| nodes.kind(parent)),
+        ));
+    }
+    out
+}
+
 /// Every diagnostic `Checker::check_source_file` reports for the case's own
 /// units.
 ///

@@ -42,6 +42,13 @@ use tsr_conformance::{
     repo_root,
 };
 
+/// §173: the node kinds at the never-reached positions, which decide whether
+/// 132 cases is one build or eight.
+type Anchors = Vec<(String, Option<String>)>;
+
+/// A baseline line's key: the file it is in and its 1-based line and column.
+type Position = (String, u32, u32);
+
 /// The bucket a wanted-but-unemitted TS2322 line falls in.
 #[derive(Default)]
 struct Split {
@@ -77,7 +84,7 @@ fn main() {
     );
     let corpus = Corpus::from_repo_root(&repo_root());
     let cases = corpus.discover().expect("corpus");
-    let rows: Vec<(String, Split, bool)> = cases.par_iter().filter_map(measure).collect();
+    let rows: Vec<(String, Split, bool, Anchors)> = cases.par_iter().filter_map(measure).collect();
 
     let mut lines = Split::default();
     // A case counts in a bucket if ANY of its missing TS2322 lines lands there;
@@ -86,7 +93,7 @@ fn main() {
     let mut cases_by_bucket: BTreeMap<&str, usize> = BTreeMap::new();
     let mut sole_obstacle_never_reached = 0usize;
     let mut sole_obstacle_relation = 0usize;
-    for (_, split, sole) in &rows {
+    for (_, split, sole, _) in &rows {
         lines.add(split);
         for (name, n) in [
             ("NEVER REACHED", split.never_reached),
@@ -133,17 +140,17 @@ fn main() {
     // an anchor prerequisite. §142's rule: a rule's yield is not its row.
     let pure_anchor = rows
         .iter()
-        .filter(|(_, split, sole)| *sole && split.never_reached == split.total())
+        .filter(|(_, split, sole, _)| *sole && split.never_reached == split.total())
         .count();
     let pure_relation = rows
         .iter()
-        .filter(|(_, split, sole)| {
+        .filter(|(_, split, sole, _)| {
             *sole && (split.relation_declined + split.pair_not_reportable) == split.total()
         })
         .count();
     let mixed = rows
         .iter()
-        .filter(|(_, split, sole)| {
+        .filter(|(_, split, sole, _)| {
             *sole
                 && split.never_reached > 0
                 && (split.relation_declined + split.pair_not_reportable) > 0
@@ -153,9 +160,90 @@ fn main() {
     println!("  wholly NEVER REACHED  (this workstream can convert alone): {pure_anchor}");
     println!("  wholly relation-gated (`checker_types` alone)            : {pure_relation}");
     println!("  MIXED (needs both)                                       : {mixed}");
+
+    // §173. Every never-reached position, by the anchor a build would have to
+    // add. Reported over the WHOLE never-reached population and again over the
+    // 132 cases that convert on it alone, because a kind that dominates the
+    // lines and is absent from the convertible cases is a build that measures
+    // nothing.
+    let mut all: BTreeMap<String, usize> = BTreeMap::new();
+    let mut convertible: BTreeMap<String, usize> = BTreeMap::new();
+    for (_, split, sole, anchors) in &rows {
+        let pure = *sole && split.never_reached == split.total();
+        for (kind, parent) in anchors {
+            let label = parent
+                .as_ref()
+                .map_or_else(|| kind.clone(), |parent| format!("{kind} in {parent}"));
+            *all.entry(label.clone()).or_default() += 1;
+            if pure {
+                *convertible.entry(label).or_default() += 1;
+            }
+        }
+    }
+    println!("\n-- §173: anchors at the NEVER REACHED positions --");
+    println!("{:<52} {:>7} {:>12}", "anchor (node in parent)", "lines", "of which in");
+    println!("{:<52} {:>7} {:>12}", "", "", "the 132");
+    let mut ranked: Vec<_> = all.iter().collect();
+    ranked.sort_by(|a, b| b.1.cmp(a.1).then(a.0.cmp(b.0)));
+    for (label, n) in ranked.iter().take(25) {
+        let c = convertible.get(*label).copied().unwrap_or(0);
+        println!("{label:<52} {n:>7} {c:>12}");
+    }
+    println!("  … {} distinct anchors in total", all.len());
+
+    // **The number that decides "one build or eight".** A case converts only
+    // when every anchor it needs exists, so the plannable quantity is set
+    // COVERAGE over the 132, not a per-line histogram: an anchor carrying many
+    // lines that are each one of several a case needs converts nothing on its
+    // own. Greedy, and greedy is the right shape here because the question is
+    // "what does the next build buy", asked repeatedly.
+    let mut pending: Vec<std::collections::BTreeSet<String>> = rows
+        .iter()
+        .filter(|(_, split, sole, _)| *sole && split.never_reached == split.total())
+        .map(|(_, _, _, anchors)| {
+            anchors
+                .iter()
+                .map(|(kind, parent)| {
+                    parent
+                        .as_ref()
+                        .map_or_else(|| kind.clone(), |parent| format!("{kind} in {parent}"))
+                })
+                .collect()
+        })
+        .collect();
+    let total_pure = pending.len();
+    println!("\n-- §173: cumulative conversion, greedy over the {total_pure} cases --");
+    let mut built: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    let mut cumulative = 0usize;
+    for _ in 0..10 {
+        let candidates: std::collections::BTreeSet<&String> =
+            pending.iter().flat_map(|case| case.difference(&built)).collect();
+        let mut best: Option<(String, usize)> = None;
+        for anchor in candidates {
+            let mut with = built.clone();
+            with.insert(anchor.clone());
+            let n = pending.iter().filter(|case| case.is_subset(&with)).count();
+            if best.as_ref().is_none_or(|(_, b)| n > *b) {
+                best = Some((anchor.clone(), n));
+            }
+        }
+        let Some((anchor, newly)) = best else { break };
+        if newly == 0 {
+            println!("  (no single further anchor completes another case)");
+            break;
+        }
+        built.insert(anchor.clone());
+        cumulative += newly;
+        pending.retain(|case| !case.is_subset(&built));
+        println!("  +{anchor:<50} +{newly:<4} cumulative {cumulative:>4} of {total_pure}");
+        if pending.is_empty() {
+            break;
+        }
+    }
+    println!("  anchors built: {}", built.len());
 }
 
-fn measure(case: &CaseEntry) -> Option<(String, Split, bool)> {
+fn measure(case: &CaseEntry) -> Option<(String, Split, bool, Anchors)> {
     if case.has_varied_errors() || case.has_known_divergence() || !case.has_any_baseline() {
         return None;
     }
@@ -170,12 +258,12 @@ fn measure(case: &CaseEntry) -> Option<(String, Split, bool)> {
 
     // The TS2322 lines the baseline wants and this port does not emit — as a
     // multiset difference, because a case can want two at one position.
-    let mut have: HashMap<(String, u32, u32), usize> = HashMap::new();
+    let mut have: HashMap<Position, usize> = HashMap::new();
     for diagnostic in actual.iter().filter(|d| d.code == 2322) {
         *have.entry((diagnostic.file.clone(), diagnostic.line, diagnostic.column)).or_default() +=
             1;
     }
-    let mut missing: Vec<(String, u32, u32)> = Vec::new();
+    let mut missing: Vec<Position> = Vec::new();
     for diagnostic in expected.iter().filter(|d| d.code == 2322) {
         let key = (diagnostic.file.clone(), diagnostic.line, diagnostic.column);
         match have.get_mut(&key) {
@@ -188,7 +276,7 @@ fn measure(case: &CaseEntry) -> Option<(String, Split, bool)> {
     }
 
     let probe = tsr_conformance::diagnostics_suite::assignability_probe_for(&test);
-    let mut by_position: HashMap<(String, u32, u32), Vec<u8>> = HashMap::new();
+    let mut by_position: HashMap<Position, Vec<u8>> = HashMap::new();
     for position in probe {
         by_position
             .entry((position.file, position.line, position.column))
@@ -196,10 +284,33 @@ fn measure(case: &CaseEntry) -> Option<(String, Split, bool)> {
             .push(position.verdict);
     }
 
+    // §173: the node kinds at each position, so a never-reached one can be
+    // named by the anchor a build would have to add.
+    let kinds = tsr_conformance::diagnostics_suite::node_kinds_by_position_for(&test);
+    let mut kinds_at: HashMap<Position, Anchors> = HashMap::new();
+    for (file, line, column, kind, parent) in kinds {
+        kinds_at
+            .entry((file, line, column))
+            .or_default()
+            .push((format!("{kind:?}"), parent.map(|parent| format!("{parent:?}"))));
+    }
+
+    let mut anchors: Anchors = Vec::new();
     let mut split = Split::default();
     for key in missing {
         let Some(verdicts) = by_position.get(&key) else {
             split.never_reached += 1;
+            // Several nodes share a position — `error_span` narrows a
+            // declaration to its name, so the name and the declaration report
+            // at the same place. The **last** registered is the innermost, and
+            // the innermost is what upstream anchors on.
+            if let Some(candidates) = kinds_at.get(&key)
+                && let Some(anchor) = candidates.last()
+            {
+                anchors.push(anchor.clone());
+            } else {
+                anchors.push(("<no node at position>".to_string(), None));
+            }
             continue;
         };
         // A position can be asked about more than once. Attribute it to the
@@ -241,5 +352,5 @@ fn measure(case: &CaseEntry) -> Option<(String, Split, bool)> {
         extra == 0 && !missing_codes.is_empty() && missing_codes.iter().all(|&c| c == 2322)
     };
 
-    Some((case.name.clone(), split, sole))
+    Some((case.name.clone(), split, sole, anchors))
 }

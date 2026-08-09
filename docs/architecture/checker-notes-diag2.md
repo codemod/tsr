@@ -11959,3 +11959,79 @@ rule and are rewritten against upstream's, including every rung of the ladder.
 fail for the right reason at the worst possible time, and cannot tell you which.
 `the_target_chooses_the_default_lib` sat beside all four loader tests, doing the
 same thing correctly, the whole time.
+
+## §175 — the anchor distribution: four builds, not one and not eight
+
+§172 left the question *"which anchors carry the 691 never-reached lines, and
+is 132 cases one build or eight"*. The same probe extended with the node kind
+at each position — joined on `(file, line, column)`, because a diagnostic sits
+at `error_span(anchor)` and that is exactly what a baseline line records.
+
+**66 distinct anchors.** By lines, the head:
+
+```
+PropertyAssignment in ObjectLiteralExpression            101
+ExpressionStatement in SourceFile                         78
+JsxAttributes in JsxSelfClosingElement                    62
+ExpressionStatement in Block                              42
+NumericLiteral in ArrayLiteralExpression                  41
+VariableDeclaration in VariableDeclarationList            36
+StringLiteral in ArrowFunction                            29
+Identifier in BinaryExpression                            28
+ReturnStatement in Block                                  28
+```
+
+### A line histogram is the wrong instrument here, and the probe says so
+
+`NumericLiteral in ArrayLiteralExpression` carries 41 lines and appears in only
+5 that belong to a convertible case. `StringLiteral in ArrowFunction` carries
+29 and 25 of them do. **A case converts only when every anchor it needs
+exists**, so an anchor with many lines that are each one of several a case
+needs converts *nothing on its own*. The plannable quantity is set coverage
+over the 132, not a histogram — §142's *"a rule's yield is not its row"*, in its
+sharpest form yet on this board.
+
+Greedy coverage, which is the right shape because the question ("what does the
+*next* build buy") is asked repeatedly:
+
+```
++PropertyAssignment in ObjectLiteralExpression   +19   cumulative  19 of 132
++ExpressionStatement in SourceFile               +12              31
++JsxAttributes in JsxSelfClosingElement          +10              41
++ReturnStatement in Block                        +10              51
++ExpressionStatement in Block                    + 9              60
++Identifier in JsxSelfClosingElement             + 6              66
++JsxAttribute in JsxAttributes                   + 5              71
++Identifier in ForOfStatement                    + 4              75
++Identifier in ArrowFunction                     + 3              78
++Identifier in JsxOpeningElement                 + 3              81
+```
+
+### The answer: four coherent builds reach 81 of the 132
+
+The ten anchors are not ten builds — they group by the upstream mechanism that
+would introduce them:
+
+| build | anchors | cases |
+|---|---|---:|
+| **`elaborateObjectLiteral`** | `PropertyAssignment in ObjectLiteralExpression` | **19** |
+| **statement-level expression checking** | `ExpressionStatement` in `SourceFile` and in `Block` | **21** |
+| **JSX attribute checking** | `JsxAttributes`, `JsxAttribute`, `Identifier in Jsx*Element` | **24** |
+| **return / arrow-body / for-of** | `ReturnStatement in Block`, `Identifier in ArrowFunction`, `Identifier in ForOfStatement` | **17** |
+
+Each is 17–24 cases — **any one of them is a bigger single build than anything
+§156–§169 landed**, and the largest, JSX, is the *second* time this session the
+board's biggest opportunity turned out to be JSX-shaped (§158/§171 was the
+first, and it is blocked on `file_loader`).
+
+### What this retires and what it does not
+
+**`bd tsr-6re`'s 15-then-89 pricing is retired.** It counted what a *bounded
+emitter* could speak about; the binding quantity was which positions the walk
+visits, and the two are unrelated. **STATUS §5's refusal of the assignability
+family stands** and is now sized honestly from the other side: 335 of the
+TS2322-only cases are relation-gated and no anchor reaches them.
+
+The 51 cases the greedy pass does not reach in ten steps sit in the 56-anchor
+tail — that is where "eight builds" would have been true, and it is where to
+stop rather than where to continue.
