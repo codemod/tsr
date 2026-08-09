@@ -14539,3 +14539,60 @@ one cause, and the remaining seven measured as not worth doing today** — which
 is a result, not a deferral. The `1,150` invented lines are therefore *not* in
 the list loops, and finding where they are is the next question rather than an
 assumed answer.
+
+## §220 — where the invented parser lines are: a long tail, and that is the answer
+
+§219 ended on an open question — `extragap` counts ~1,150 invented parser lines
+by **code**, `extraonly` lists 25 cases blocked by an extra **alone**, and
+neither says *where* the lines are. Four list loops were fixed and seven
+measured as unwanted, so they are somewhere else.
+
+New instrument, `examples/parserextra.rs`: per case, every parser diagnostic the
+baseline has **no** entry for at that position.
+
+```
+cases with an invented parser diagnostic: 383
+invented parser lines: 1288
+
+-- cases by how many lines they invent --
+  1 line    165 cases
+  2-4       161 cases
+  5-9        32 cases
+  10-29      21 cases
+  30+         4 cases
+```
+
+**326 of 383 cases invent one to four lines.** That is the answer, and it is a
+shape rather than a place.
+
+> **A long tail and a short head are different problems and want different
+> work.** Four enormous cases would have meant four recovery paths and a week's
+> payoff; 326 cases at one-to-four lines each means the parser's error behaviour
+> differs from upstream's in *many small ways*, and each is its own upstream
+> function. §200, §204, §218 and §219 each bought one to two cases, and that was
+> not bad luck — **it is the distribution.**
+
+### The head, for whoever wants it anyway
+
+```
+40  templateLiteralEscapeSequence        TS1125×40
+38  expressionWithJSDocTypeArguments     TS1109×26 TS1110×6 TS1012×4 TS1005×2
+34  arrowFunctionsMissingTokens          TS1005×20 TS1012×9 TS1109×5
+33  commonMissingSemicolons              TS1005×24 TS1012×5 TS1131×3
+24  bigintPropertyName                   TS1003×15 TS1131×4 TS1005×3
+24  giant                                TS1131×16 TS1005×8
+```
+
+`templateLiteralEscapeSequence` is the one concentration worth a look — **forty
+lines, one code, one case**: `TS1125 Hexadecimal digit expected`, which is the
+scanner's escape-sequence handling, not a recovery path at all. `extragap` also
+shows it at 40 displaced, so the scanner is producing roughly double what it
+should for one construct.
+
+### What this settles for the extra column
+
+The extra column is **not** reachable by a small number of structural fixes.
+§216 established that for its TS2322 half (the relation, not a bound) and this
+establishes it for the parser half (a long tail, not a few loops). Together with
+§172/§177 for the *missing* column, all three of this board's populations are
+now sized by measurement rather than by inference.
