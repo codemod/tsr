@@ -18503,3 +18503,91 @@ One lookup serving two questions, and the second question needed the wider one.
 TS2503 showed 6 sole-obstacle cases in `diaggap` and 11 in reach once its
 partner column was read. It converted 3 and left `STILL SHORT 6` — the partners
 are real but want TS2304 lines this port still misses.
+
+## §303 — TS2353 through a type assertion
+
+`diagpair`'s first use also produced a **false positive**, and it is worth
+recording before the build it led to. The scan looked for no-producer codes
+whose partners are all emitted, and reported TS2353 and TS2769. Both **are**
+emitted — the name lookup in the scan failed on a formatting variant in
+`messages.rs` and read "no constant" as "no producer".
+
+> **A scan that answers a question by *failing to find* something must be
+> checked against a known positive.** §273's `diagslice` was validated against
+> three codes this session had already moved; this scan was not validated at
+> all, and its two hits were both wrong.
+
+TS2353 is emitted (`assignreport.rs:440`) and its 33 sole-obstacle cases are
+missing **lines**. `arrayCast` is the shape:
+
+```ts
+<{ id: number; }[]>[{ foo: "s" }];
+//                    ~~~ TS2353
+```
+
+An excess property inside an object literal that is inside an **array literal**
+that is the operand of a **type assertion**. Upstream reports it from the
+relation itself (`relater.go:2779`), so every context that relates an object
+literal to a target gets it. This port calls `check_excess_properties` from
+assignment sites only — an annotated initialiser, a return, a call argument —
+and an assertion is not among them.
+
+### The bar
+
+```
+bar:  +5 cases of 33,  0 LOST,  WRONG delta <= +2
+```
+
+Well under the count: the assertion path is one of several contexts the 33 span,
+and `check_excess_properties` already declines a literal containing a spread.
+
+### Falsifiers
+
+1. **A legal `<T>{ … }` reports.** The assertion's own type is the target and a
+   matching literal must stay silent.
+2. **`checker_types` moves.** This adds a diagnostic, not a type.
+
+## §304 — §303 measured zero and reverted, and the scan that chose it was wrong
+
+```
+assertion arm, object + array hops   diagnostics 1,789 → 1,789   (+0)
+```
+
+Reverted per §248.
+
+### The probe that named the owner
+
+The types are correct — this port agrees with upstream on every line of the
+fixture:
+
+```
+><{ id: number; }[]>[{ foo: "s" }] : { id: number; }[]
+>[{ foo: "s" }]                    : { foo: string; }[]
+```
+
+So `get_type_from_type_node` answers, and the arm still fired on nothing. The
+element hop is `array_spread_element_type` (`array_literals.rs:588`), which is
+keyed on `type_reference_targets` naming the **global `Array`** symbol. An array
+*type node* — `T[]` — does not produce that entry, so the lookup declines and
+the array hop never runs. Zero movement is the proof: had it resolved, the rule
+would have converted or produced wrong lines.
+
+**Owner: an element-type accessor that works for an array type node**, not only
+for a `type_reference_targets` entry naming global `Array`.
+
+### The scan was also wrong, and that is the more useful half
+
+`diagpair`'s partner data was read through a scan for *no-producer codes whose
+partners are all emitted*. It reported TS2353 and TS2769. **Both are emitted.**
+The scan's `emitted()` helper looked the constant up with a regex that missed a
+formatting variant in `messages.rs` and read "no constant found" as "no
+producer".
+
+> **A scan whose answer is "I could not find it" must be validated against a
+> known positive before it is trusted.** §273's `diagslice` was checked against
+> three codes this session had already moved and matched all three. This scan
+> was not checked at all, and both of its hits were false.
+
+That is the second instrument this session to fail its first real use (§293's
+`occupied` was the first), and the difference between them is that `occupied`
+was validated and reported honestly, while this one was believed.
