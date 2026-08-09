@@ -903,7 +903,25 @@ impl Checker<'_, '_> {
         }
         if self
             .binder
-            .resolve_name(self.nodes, self.node_map, node, text, SymbolFlags::VALUE)
+            // `getResolvedSymbol` (`checker.go:13890`) resolves an identifier at
+            // `SymbolFlagsValue | SymbolFlagsExportValue`. **`EXPORT_VALUE` is
+            // part of the meaning, not a separate question.** An exported
+            // declaration leaves a local carrying `EXPORT_VALUE` and nothing
+            // else (`declareModuleMember`, `binder.go:403`, which this port
+            // matches line for line), so without it that local never matches
+            // and the name resolves nowhere.
+            //
+            // `export class A` hides this — its export entry is *also* named
+            // `A`, so a later arm recovers it. `export default class A` does
+            // not: the export is named `default`, and the written name exists
+            // **only** as the flagless local. §251.
+            .resolve_name(
+                self.nodes,
+                self.node_map,
+                node,
+                text,
+                SymbolFlags::VALUE | SymbolFlags::EXPORT_VALUE,
+            )
             .is_some_and(|value| {
                 // …unless it resolved to an alias that is type-only somewhere
                 // along its chain: `resolveNameEx` (`checker.go:1860`) tests
@@ -1620,7 +1638,14 @@ impl Checker<'_, '_> {
             return;
         }
         let Some(symbol) =
-            self.binder.resolve_name(self.nodes, self.node_map, node, text, SymbolFlags::VALUE)
+            // `getResolvedSymbol`'s meaning, per §251 — `EXPORT_VALUE` included.
+            self.binder.resolve_name(
+                self.nodes,
+                self.node_map,
+                node,
+                text,
+                SymbolFlags::VALUE | SymbolFlags::EXPORT_VALUE,
+            )
         else {
             return;
         };
@@ -1940,7 +1965,14 @@ impl Checker<'_, '_> {
             return;
         }
         let Some(symbol) =
-            self.binder.resolve_name(self.nodes, self.node_map, node, text, SymbolFlags::VALUE)
+            // `getResolvedSymbol`'s meaning, per §251 — `EXPORT_VALUE` included.
+            self.binder.resolve_name(
+                self.nodes,
+                self.node_map,
+                node,
+                text,
+                SymbolFlags::VALUE | SymbolFlags::EXPORT_VALUE,
+            )
         else {
             return;
         };

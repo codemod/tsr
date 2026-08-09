@@ -16282,3 +16282,106 @@ The table was correct on its first write. **Everything after it was about
 finding what else had to change for it to be reachable** — which is the shape
 §247's own note anticipated one build too late: *a rule and its decline are one
 change*.
+
+## §251 — TS2783 refused, and a one-word divergence found underneath it
+
+TS2783 (`'{0}' is specified more than once…`) is **refused**.
+`checkSpreadPropOverrides` (`checker.go:13371`) tests
+`right.Flags&ast.SymbolFlagsOptional == 0`, and `SymbolFlags::OPTIONAL` is a
+flag this port declares, **reads in three places, and sets in none**. Without
+it every property of a spread type looks required and the rule over-reports on
+exactly the optional ones. Owner: `SymbolFlags::OPTIONAL`, unset since the
+binder was written.
+
+### What the `extraonly` board turned up instead
+
+`exportDefaultAbstractClass` reports a **wrong** TS2304 at `a.ts(3,17)` — the
+`A` in `class B extends A {}`, where line 1 is
+`export default abstract class A { … }`.
+
+Three candidates checked in order, and the first two were wrong:
+
+1. **The binder does not declare `A`.** Probed: `LOCALS=["A", "B"]`,
+   `EXPORTS=["default"]`. It does.
+2. **The local carries the wrong flags.** Read `declareModuleMember`
+   (`binder.go:373`): upstream's local gets `exportKind`, which is
+   `SymbolFlagsExportValue` and nothing else. **This port matches upstream
+   exactly.**
+3. **The lookup asks for the wrong meaning.** `getResolvedSymbol`
+   (`checker.go:13890`):
+
+```go
+symbol = c.resolveName(node, node.Text(),
+    ast.SymbolFlagsValue|ast.SymbolFlagsExportValue, ...)
+```
+
+**`ExportValue` is part of the meaning upstream resolves an identifier at.**
+This port passes `SymbolFlags::VALUE` alone, so the flagless local an exported
+declaration leaves behind never matches, `lookup_scoped` declines it, and the
+name resolves nowhere.
+
+For `export class A` the export table entry is *also* named `A`, so a later arm
+recovers it and nothing looks wrong. For `export default class A` the export is
+named `default` — **the written name exists only as the flagless local**, and
+that is the shape where the missing meaning becomes visible.
+
+> **A bug that two of three plausible causes do not explain is worth the third
+> probe.** The binder was correct and matched upstream line for line; the defect
+> was one flag missing from a *lookup*, two layers away from where it showed up.
+
+### The bar
+
+```
+bar:  +4 cases,  0 LOST,  WRONG delta <= +2
+```
+
+Modest because `resolve_name`'s meaning is read by every identifier in the
+corpus — §166 moved 8 cases by changing this same function and unblocked three
+later builds.
+
+### Falsifiers
+
+1. **`checker_types` falls.** A name that now resolves gets a type printed where
+   a gap stood; if the resolution is wrong the line is wrong.
+2. **`binder_symbols` moves.** It must not — this is checker-side.
+3. **`diagnostics` falls.**
+
+## §252 — §251 built: +1 against a bar of +4
+
+```
+value-identifier site      diagnostics 1,686 → 1,687   (+1)
++ the other two call sites             → 1,687   (no further change)
+binder_symbols / checker_types / printer_round_trip / scanner_clean_files /
+parser_typescript   all unmoved — falsifiers 1, 2 and 3 negative
+```
+
+**Under the bar and recorded as such.** §251 priced this at +4 by analogy with
+§166, which moved 8 cases by changing the same function. The analogy was wrong
+in a way worth naming: §166 fixed a lookup that was consulted for *every global*,
+while this fixes a meaning that only matters when the written name exists
+**solely** as an exported declaration's flagless local — which is
+`export default class A` and almost nothing else.
+
+> **"Same function" is not "same blast radius."** §166 and §251 are one line
+> apart in `resolve_name`'s contract and two orders of magnitude apart in what
+> they reach.
+
+### Two of three call sites measured zero, and stayed
+
+`check_used_before_its_declaration` and the reference-marking site moved
+nothing. They are kept — not as new surface, but because they are three call
+sites of **one** upstream function (`getResolvedSymbol`, `checker.go:13890`) and
+leaving two of them asking for a meaning upstream does not use is the
+inconsistency, not the fix.
+
+That is a different judgement from §248's, and the difference is real: there the
+table was a **new** construct that had never selected anything, here the calls
+already existed and were already wrong. Correcting a wrong call that happens to
+be unobservable is not the same as adding an unobservable one.
+
+### What the build actually bought
+
+The +1 is `exportDefaultAbstractClass`. The finding is the anchor: this port
+resolves identifiers at a **narrower meaning than upstream**, and now does not.
+Every future rule that resolves a value name inherits the correction whether or
+not the corpus can see it today.
