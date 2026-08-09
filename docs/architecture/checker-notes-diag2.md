@@ -17609,3 +17609,82 @@ TS1038 appeared in the group with 8 cases and is **already emitted**
 (`check.rs:2536`). Its cases want missing *lines*, not a missing rule. The sweep
 groups by where a code is *reported upstream*; whether this port already reports
 it is a separate question that costs one `grep`.
+
+## §280 — two more arms of the function §278 opened
+
+`checkGrammarModifiers` still carried four missing codes after §279. Two are
+purely syntactic and are taken here; the third is declined and the fourth was
+already emitted.
+
+**TS1319** (`grammarchecks.go:423`) — a `default` modifier whose *container* is
+a non-ambient `ModuleDeclaration`:
+
+```go
+case ast.KindDefaultKeyword:
+    var container *ast.Node
+    if node.Parent.Kind == ast.KindSourceFile { container = node.Parent } else { container = node.Parent.Parent }
+    if container.Kind == ast.KindModuleDeclaration && !ast.IsAmbientModule(container) {
+        return c.grammarErrorOnNode(modifier, A_default_export_can_only_be_used_in_an_ECMAScript_style_module)
+```
+
+The two-step container is the whole rule: a statement inside a namespace has the
+`ModuleBlock` as its parent and the `ModuleDeclaration` as its grandparent, and
+at file scope the parent *is* the container.
+
+**TS1248** (`:301`) — a `const` modifier on anything that is not an
+`EnumDeclaration` or a `TypeParameter`.
+
+**TS1206 is declined**: `Decorators_are_not_valid_here` is reported from two
+places in this function, and the first is gated on `NodeCanBeDecorated`
+(`c.legacyDecorators`, the node, its parent *and* its grandparent). That is a
+predicate, not a lookup, and porting half of it would put the message where
+upstream reports `A_decorator_can_only_decorate_a_method_implementation_not_an_overload`.
+
+### The bar
+
+```
+bar:  +3 cases of 5,  0 LOST
+```
+
+### Falsifiers
+
+1. **`export default` at file scope reports.** The container test is the whole
+   guard, and the corpus is full of them.
+2. **`declare module "x" { export default … }` reports.** `IsAmbientModule` is
+   the exemption.
+3. **`const enum E {}` reports TS1248.**
+
+## §281 — §280 built: +2, `WRONG 0`, `STILL SHORT 0`
+
+```
+diagnostics   1,757 → 1,759   (+2, bar was +3)
+CONVERTS 2 · LOST 0 · STILL SHORT 0 · RIGHT 4 · WRONG 0
+every other suite unmoved — falsifiers 1, 2 and 3 negative
+```
+
+Under the bar and **`STILL SHORT 0`**, which is the interesting number: the two
+codes had 5 cases between them and every case this rule reaches, it finishes.
+The three it did not reach want the *other* codes in the function — TS1206, and
+TS1038's residual lines.
+
+> **`STILL SHORT 0` is what a complete arm looks like.** §272's TS7008 posted
+> `STILL SHORT 9` from a bounded slice, §275's TS2464 posted 4, and §279 posted
+> 7. This arm is the whole of its two upstream cases, and the counter says so.
+
+That makes `STILL SHORT` the readback for the question §272 opened: a bar can be
+missed because the row was smaller than the count suggested (here) or because
+the slice was partial (there), and the two look identical in the case delta
+alone.
+
+### `checkGrammarModifiers` after four builds
+
+Seven missing codes when §278 opened it. TS1187, TS1317, TS1244 (§279), TS1319,
+TS1248 (this) — five ported. TS1038 was already emitted. **TS1206 declined**:
+`Decorators_are_not_valid_here` is reported from two sites, the first gated on
+`NodeCanBeDecorated(c.legacyDecorators, node, node.Parent, node.Parent.Parent)`,
+a four-argument predicate rather than a lookup. Porting half of it would put the
+message where upstream reports
+`A_decorator_can_only_decorate_a_method_implementation_not_an_overload`.
+
+The function is now closed except for that one predicate, and the sweep's other
+four groups (25–67 cases each) are untouched.

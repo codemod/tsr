@@ -2886,6 +2886,71 @@ impl Checker<'_, '_> {
             }
             _ => {}
         }
+        self.check_grammar_default_and_const_modifiers(node, typed);
+    }
+
+    /// `checkGrammarModifiers`' `KindDefaultKeyword` and `KindConstKeyword`
+    /// arms (`grammarchecks.go:423`, `:301`). §280.
+    fn check_grammar_default_and_const_modifiers(&mut self, node: NodeId, typed: Node<'_>) {
+        let Some(modifiers) = modifiers_of(typed) else { return };
+        for modifier in modifiers {
+            let tsr_ast::ModifierLike::Token(token) = modifier else { continue };
+            let message = match token.kind {
+                SyntaxKind::DefaultKeyword => {
+                    // `container = node.Parent.Kind == SourceFile ? node.Parent
+                    // : node.Parent.Parent`. A statement inside a namespace has
+                    // the `ModuleBlock` as its parent and the
+                    // `ModuleDeclaration` as its grandparent; at file scope the
+                    // parent *is* the container.
+                    let Some(parent) = self.nodes.parent(node) else { continue };
+                    let container = if self.nodes.kind(parent) == SyntaxKind::SourceFile {
+                        parent
+                    } else {
+                        let Some(grandparent) = self.nodes.parent(parent) else { continue };
+                        grandparent
+                    };
+                    if self.nodes.kind(container) != SyntaxKind::ModuleDeclaration
+                        || self.module_declaration_is_ambient(container)
+                    {
+                        continue;
+                    }
+                    &messages::A_DEFAULT_EXPORT_CAN_ONLY_BE_USED_IN_AN_ECMASCRIPT_STYLE_MODULE
+                }
+                SyntaxKind::ConstKeyword => {
+                    if matches!(typed, Node::EnumDeclaration(_) | Node::TypeParameterDeclaration(_))
+                    {
+                        continue;
+                    }
+                    &messages::A_CLASS_MEMBER_CANNOT_HAVE_THE_0_KEYWORD
+                }
+                _ => continue,
+            };
+            let Some(token_id) = token.node_id else { continue };
+            let Some(file) = self.source_file_of_for_diagnostics(token_id) else { continue };
+            // `grammarErrorOnNode(modifier, …)` — the modifier, not the
+            // declaration.
+            let span = self.nodes.span(token_id);
+            let diagnostic = if token.kind == SyntaxKind::ConstKeyword {
+                Diagnostic::with_args(message, span, ["const".to_string()])
+            } else {
+                Diagnostic::new(message, span)
+            };
+            self.report(file, diagnostic);
+            // `checkGrammarModifiers` returns on the first offender.
+            return;
+        }
+    }
+
+    /// `ast.IsAmbientModule` — a module with a string-literal name, or one
+    /// carrying `declare`.
+    fn module_declaration_is_ambient(&self, node: NodeId) -> bool {
+        let Some(Node::ModuleDeclaration(module)) = self.node_map.get(node) else { return false };
+        if matches!(module.name, Some(tsr_ast::ModuleName::StringLiteral(_))) {
+            return true;
+        }
+        module.modifiers.iter().any(|modifier| {
+            matches!(modifier, tsr_ast::ModifierLike::Token(t) if t.kind == SyntaxKind::DeclareKeyword)
+        })
     }
 
     /// `checkTypeNameIsReserved` (`checker.go:6901`) — the eleven predefined
@@ -5173,6 +5238,30 @@ const NODE_CORE_MODULES: &[&str] = &[
 /// measured zero. §249.
 /// `isInitializerStringOrNumberLiteralExpression` plus the `true`/`false` and
 /// `BigInt` arms (`grammarchecks.go:1978`).
+/// Every declaration kind that carries modifiers, for the grammar checks that
+/// scan them rather than asking about one. §280.
+fn modifiers_of(typed: Node<'_>) -> Option<&[tsr_ast::ModifierLike<'_>]> {
+    Some(match typed {
+        Node::ClassDeclaration(n) => n.modifiers,
+        Node::ClassExpression(n) => n.modifiers,
+        Node::InterfaceDeclaration(n) => n.modifiers,
+        Node::TypeAliasDeclaration(n) => n.modifiers,
+        Node::EnumDeclaration(n) => n.modifiers,
+        Node::ModuleDeclaration(n) => n.modifiers,
+        Node::FunctionDeclaration(n) => n.modifiers,
+        Node::VariableStatement(n) => n.modifiers,
+        Node::ImportDeclaration(n) => n.modifiers,
+        Node::ImportEqualsDeclaration(n) => n.modifiers,
+        Node::ExportDeclaration(n) => n.modifiers,
+        Node::ExportAssignment(n) => n.modifiers,
+        Node::PropertyDeclaration(n) => n.modifiers,
+        Node::MethodDeclaration(n) => n.modifiers,
+        Node::ParameterDeclaration(n) => n.modifiers,
+        Node::TypeParameterDeclaration(n) => n.modifiers,
+        _ => return None,
+    })
+}
+
 fn is_simple_literal_initializer(initializer: tsr_ast::Expression<'_>) -> bool {
     match initializer {
         tsr_ast::Expression::StringLiteral(_)
