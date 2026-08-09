@@ -17869,3 +17869,96 @@ and `convert_auto_to_any` are both unported.
 The declaration arm is correct and is *in* that path's shadow: it cannot be
 shipped alone, because every variable it would report on is one the evolving
 path claims first.
+
+## §287 — the parameter-list family, five codes in one loop
+
+Listing every still-missing code whose upstream site is in `grammarchecks.go`
+— the purely syntactic file that has paid four times this session — turns up
+**fifty-four**, and they cluster by upstream function exactly as §278 predicted.
+
+The largest cluster with no producer at all is the parameter list:
+
+```
+TS1014   5 cases (2 single)   A rest parameter must be last in a parameter list
+TS1016   3 cases (3 single)   A required parameter cannot follow an optional parameter
+TS1047   1 case              A rest parameter cannot be optional
+TS1049   1 case              A set accessor must have exactly one parameter
+TS1051   1 case              A set accessor cannot have an optional parameter
+```
+
+`checkGrammarParameterList` (`grammarchecks.go:691`) is one loop with a
+`seenOptionalParameter` flag, and this port already has **one arm of it** —
+§103's TS1015, which is why `parameters_of` and the once-per-list discipline
+already exist:
+
+```go
+for i := range parameterCount {
+    if parameter.DotDotDotToken != nil {
+        if i != parameterCount-1 { … A_rest_parameter_must_be_last_in_a_parameter_list }
+        if parameter.QuestionToken != nil { … A_rest_parameter_cannot_be_optional }
+        if parameter.Initializer != nil { … A_rest_parameter_cannot_have_an_initializer }
+    } else if isOptionalDeclaration(parameter) {
+        seenOptionalParameter = true
+        if parameter.QuestionToken != nil && parameter.Initializer != nil { … TS1015 }
+    } else if seenOptionalParameter && parameter.Initializer == nil {
+        … A_required_parameter_cannot_follow_an_optional_parameter
+    }
+}
+```
+
+**It returns on the first offender**, which §266 already paid to learn on a
+different loop and which §103 recorded for this one.
+
+The accessor pair (`:1332`, `:1349`) is a separate function with the same shape.
+
+### The bar
+
+```
+bar:  +7 cases of 11,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **A legal `(a, ...rest)` reports.** The index test is the whole of TS1014.
+2. **A legal `(a?, b?)` reports TS1016.** `seenOptionalParameter` only fires for
+   a *required* parameter after an optional one.
+3. **A `get`ter reports TS1049.** That branch is the `set` half of a ternary.
+
+## §288 — §287 built: +9, `WRONG 0`, after one over-wide predicate
+
+```
+first measurement    diagnostics 1,763 → 1,769   LOST 2 · RIGHT 35 · WRONG 6
+`isOptionalDeclaration` narrowed  → 1,772   LOST 0 · RIGHT 35 · WRONG 0
+```
+
+`+9` against a bar of `+7`, and every wrong line was one predicate:
+
+```go
+func isOptionalDeclaration(declaration *ast.Node) bool {
+	return ast.HasQuestionToken(declaration)          // checker/utilities.go:299
+}
+```
+
+**A `?` alone.** An initialiser does *not* make a parameter optional for this
+loop, so `function f(a = 1, b: number)` is legal — and reading the predicate as
+"`?` or initialiser" reported TS1016 on every defaulted parameter followed by a
+required one. Six wrong lines, all the same shape.
+
+> **The name of a predicate is not its definition, and `isOptionalParameter`
+> sits four lines below `isOptionalDeclaration` and *does* count the
+> initialiser.** Two functions, near-identical names, opposite answers for the
+> case that matters — and the one this loop calls is the narrower.
+
+`checker/utilities.go:303` is the other one, and it is a `Checker` method with a
+JSDoc TODO on it. Nothing in the gap could have distinguished them; reading the
+call site did.
+
+### What landed
+
+Five arms of `checkGrammarParameterList` beside §103's TS1015 — TS1014, TS1016,
+TS1047, TS1048 — and three of `checkGrammarAccessor` — TS1049, TS1051, TS1053,
+TS1054. The loop returns on its first offender, which §103 had already recorded
+for this function.
+
+`STILL SHORT 12` — the remaining cases want other arms of the same two
+functions, or codes elsewhere.

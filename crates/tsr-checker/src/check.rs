@@ -491,6 +491,10 @@ impl Checker<'_, '_> {
         // must not be filtered through, and §140 recorded a rule silently
         // deleted by exactly that. §156.
         self.check_reserved_declaration_name(typed);
+        if matches!(typed, Node::GetAccessorDeclaration(_) | Node::SetAccessorDeclaration(_)) {
+            self.check_grammar_accessor(node, typed);
+        }
+        self.check_grammar_parameter_list(node);
         self.check_grammar_modifier_shapes(node, typed);
         self.check_jsx_intrinsic_element(node, typed);
         self.check_jsx_factory_in_scope(typed);
@@ -3249,6 +3253,112 @@ impl Checker<'_, '_> {
     /// be optional`), so the rest test is the arm's guard rather than a bound
     /// this port chose — §103's rule that the `else if` order is the
     /// specification. §180.
+    /// `checkGrammarParameterList` (`grammarchecks.go:691`) — the arms beside
+    /// §103's TS1015.
+    ///
+    /// One loop with a `seenOptionalParameter` flag, returning on the **first**
+    /// offender, which is why this runs once per *list* and not once per
+    /// parameter. §287.
+    fn check_grammar_parameter_list(&mut self, owner: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let parameters = self.parameters_of(owner);
+        let count = parameters.len();
+        let mut seen_optional = false;
+        for (index, parameter) in parameters.into_iter().enumerate() {
+            let Some(Node::ParameterDeclaration(declaration)) = self.node_map.get(parameter) else {
+                continue;
+            };
+            let name = declaration.name.as_ref().and_then(tsr_ast::BindingName::node_id);
+            if let Some(rest) = declaration.dot_dot_dot_token {
+                let (at, message) = if index != count - 1 {
+                    (rest.node_id, &messages::A_REST_PARAMETER_MUST_BE_LAST_IN_A_PARAMETER_LIST)
+                } else if let Some(question) = declaration.question_token {
+                    (question.node_id, &messages::A_REST_PARAMETER_CANNOT_BE_OPTIONAL)
+                } else if declaration.initializer.is_some() {
+                    (name, &messages::A_REST_PARAMETER_CANNOT_HAVE_AN_INITIALIZER)
+                } else {
+                    continue;
+                };
+                self.report_grammar_at(at, message);
+                return;
+            }
+            // `isOptionalDeclaration` is **`ast.HasQuestionToken` alone**
+            // (`checker/utilities.go:299`) — an initialiser does *not* make a
+            // parameter optional for this loop, so `f(a = 1, b: number)` is
+            // legal. Reading it as "`?` or initialiser" was six wrong TS1016
+            // lines, every one of them a defaulted parameter. §288.
+            if declaration.question_token.is_some() {
+                seen_optional = true;
+                // TS1015 is §103's, reported once per list from its own arm.
+                continue;
+            }
+            if seen_optional {
+                self.report_grammar_at(
+                    name,
+                    &messages::A_REQUIRED_PARAMETER_CANNOT_FOLLOW_AN_OPTIONAL_PARAMETER,
+                );
+                return;
+            }
+        }
+    }
+
+    /// `checkGrammarAccessor`'s parameter arms (`grammarchecks.go:1332`,
+    /// `:1345`, `:1349`).
+    fn check_grammar_accessor(&mut self, node: NodeId, typed: Node<'_>) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let is_set = matches!(typed, Node::SetAccessorDeclaration(_));
+        let name = match typed {
+            Node::SetAccessorDeclaration(accessor) => accessor.name.node_id(),
+            Node::GetAccessorDeclaration(accessor) => accessor.name.node_id(),
+            _ => return,
+        };
+        let parameters = self.parameters_of(node);
+        let wanted = usize::from(is_set);
+        if parameters.len() != wanted {
+            let message = if is_set {
+                &messages::A_SET_ACCESSOR_MUST_HAVE_EXACTLY_ONE_PARAMETER
+            } else {
+                &messages::A_GET_ACCESSOR_CANNOT_HAVE_PARAMETERS
+            };
+            self.report_grammar_at(name, message);
+            return;
+        }
+        if !is_set {
+            return;
+        }
+        let Some(&parameter) = parameters.first() else { return };
+        let Some(Node::ParameterDeclaration(declaration)) = self.node_map.get(parameter) else {
+            return;
+        };
+        if let Some(rest) = declaration.dot_dot_dot_token {
+            self.report_grammar_at(
+                rest.node_id,
+                &messages::A_SET_ACCESSOR_CANNOT_HAVE_REST_PARAMETER,
+            );
+        } else if let Some(question) = declaration.question_token {
+            self.report_grammar_at(
+                question.node_id,
+                &messages::A_SET_ACCESSOR_CANNOT_HAVE_AN_OPTIONAL_PARAMETER,
+            );
+        }
+    }
+
+    /// `grammarErrorOnNode` at an optional node id.
+    fn report_grammar_at(
+        &mut self,
+        node: Option<NodeId>,
+        message: &'static tsr_diagnostics::Message,
+    ) {
+        let Some(node) = node else { return };
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let span = self.nodes.span(node);
+        self.report(file, Diagnostic::new(message, span));
+    }
+
     fn check_optional_parameter_initializer(&mut self, node: NodeId) {
         if self.file_has_parse_errors || !self.parameter_has_question_and_initializer(node) {
             return;
