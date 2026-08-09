@@ -919,3 +919,21 @@ shape). The family is flow-machine work, not a contextual arm;
 it stays with the §50-family board entry, and the "our roads add
 undefined" reading from the §114 triage is CORRECTED — our answer
 matches the declared type; upstream's narrowing is what we lack.
+
+## §115 — the dispatch's ConditionalExpression arm [checker-2, bar]
+
+The §114 rounds PROVED the arm absent (round 8's zero grep). The
+arm is upstream's one-line recursion: a ternary BRANCH answers the
+conditional's own context, the CONDITION answers nil
+(`getContextualTypeForConditionalOperand`, `checker.go:30022`) —
+the §94 nil-ladder already models the condition side in
+has_no_contextual_type; this is the positive twin. Risk, named from
+§114's fixture: OVERLOAD-ambiguous callee ternaries want `any`
+upstream (the inference-phase skip) — if the arm re-creates the six
+artifact positions as REAL adverse, the §114 artifact test
+distinguishes them in one dump, and an overloaded-callee gate (the
+arm declines when the transmitted context arrives from a
+multi-candidate callee) is the priced fallback. Predict +10–40
+(annotated-ternary spillover: `var x: F = cond ? arrow : arrow`
+family); must NOT move: §114's converts, §68's return-position
+family. Adverse over 1:5 refuses per standard.
