@@ -18120,3 +18120,52 @@ its two type-reading guards sit in the middle: without them every later guard
 reports at a position upstream never reaches. **An ordered guard sequence cannot
 be ported in fragments** — that is a new refusal shape and worth more than the
 seven cases.
+
+## §293 — correcting §292, and an instrument that failed its own validation
+
+§292 explained its `+0` like this:
+
+> "Every tree-decidable check in `checkGrammarIndexSignature` … is already
+> covered by something this port reports, and porting them again moved zero
+> cases."
+
+**That was a guess and it is wrong.** The `occupied` column added to `diagslice`
+for exactly this question reports `0/4` for TS1021 and TS1268 — the positions
+are **empty**, not taken.
+
+The real reason is simpler and was checkable before the build:
+
+```
+TS1017 TS1018 TS1019 TS1020 TS1022 TS1096   0 blocked cases each
+                                             (442 codes are listed; these six are not)
+```
+
+**The six syntactic guards' codes have no blocked cases at all.** I built guards
+for codes nobody was waiting for. The `+4` came from the two type arms because
+they were the only arms whose codes were in the gap.
+
+> **Before porting a rule, check that its code is in the gap.** Not that its
+> *function* is, not that its *neighbours* are — the code itself. §278's sweep
+> ranks by function and is right to; it groups a code with its siblings, and a
+> sibling with zero blocked cases is free to port and worth nothing.
+
+That check costs one `grep` of `diagslice`'s output and would have saved §291
+and §292 entirely.
+
+### The instrument's honest verdict
+
+`occupied` was built to catch §292 and **does not catch it**. It answers a real
+and different question — *is this code's missing line at a position this port
+already fills with something else* — which is the displaced-vs-absent
+distinction §286 said nothing connected. It is kept for that, not for the reason
+it was written.
+
+Across the whole board the answer is mostly `0`: **the missing column is
+genuinely missing, not displaced.** TS2304's `5/43` and TS2300's `3/71` are the
+only rows where it is worth anything, and both are codes this port already
+emits.
+
+> **An instrument that fails the case it was built for should be judged on what
+> it does answer, and said so plainly.** The alternative — quietly keeping it
+> and citing it later as though it had worked — is how a measurement stops
+> meaning anything.

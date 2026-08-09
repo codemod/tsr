@@ -25,7 +25,24 @@
 //! partial rule; one whose cases want four is not, and no amount of
 //! *correctness* in a fragment changes that.
 //!
-//! `docs/architecture/checker-notes-diag2.md` §272, §273.
+//! # The third column, and what §292 paid to learn
+//!
+//! §292 built seven of `checkGrammarIndexSignature`'s guards and measured
+//! **`+0`**: every tree-decidable check in it is *already covered by a different
+//! code this port emits*, so porting the missing codes moved nothing. §287's
+//! parameter-list family looked identical from the gap and was `+9`.
+//!
+//! > A cluster of no-producer codes in a syntactic function is not evidence
+//! > that the cases are reachable — only that this port does not emit those
+//! > particular codes.
+//!
+//! `occupied` is the pre-check that separates them: of a code's missing lines,
+//! how many sit at a `(file, line, column)` where this port **already emits
+//! something else**? A high count means the position is taken and porting the
+//! code will add a second diagnostic rather than convert a case. A low one
+//! means the position is empty and the rule is genuinely absent.
+//!
+//! `docs/architecture/checker-notes-diag2.md` §272, §273, §293.
 
 use std::collections::BTreeMap;
 
@@ -36,38 +53,48 @@ use tsr_conformance::{
     repo_root,
 };
 
-/// One blocked case: the code it is blocked on, and how many lines it wants.
-type Row = (u32, usize);
+/// One blocked case: the code, how many lines it wants, and how many of those
+/// sit at a position this port already fills with a different code.
+type Row = (u32, usize, usize);
 
 fn main() {
     let corpus = Corpus::from_repo_root(&repo_root());
     let cases = corpus.discover().expect("corpus");
     let rows: Vec<Row> = cases.par_iter().filter_map(measure).collect();
 
-    let mut by_code: BTreeMap<u32, Vec<usize>> = BTreeMap::new();
-    for (code, lines) in rows {
-        by_code.entry(code).or_default().push(lines);
+    let mut by_code: BTreeMap<u32, Vec<(usize, usize)>> = BTreeMap::new();
+    for (code, lines, occupied) in rows {
+        by_code.entry(code).or_default().push((lines, occupied));
     }
 
-    let mut ranked: Vec<(u32, Vec<usize>)> = by_code.into_iter().collect();
+    let mut ranked: Vec<(u32, Vec<(usize, usize)>)> = by_code.into_iter().collect();
     ranked.sort_by(|a, b| b.1.len().cmp(&a.1.len()).then(a.0.cmp(&b.0)));
 
     println!(
-        "{:<8} {:>6} {:>7} {:>7} {:>7}   convertible by a partial rule?",
-        "code", "cases", "1 line", "2-3", "4+"
+        "{:<8} {:>6} {:>7} {:>7} {:>7} {:>9}   convertible by a partial rule?",
+        "code", "cases", "1 line", "2-3", "4+", "occupied"
     );
     for (code, counts) in &ranked {
-        let one = counts.iter().filter(|&&n| n == 1).count();
-        let few = counts.iter().filter(|&&n| (2..=3).contains(&n)).count();
-        let many = counts.iter().filter(|&&n| n >= 4).count();
+        let one = counts.iter().filter(|&&(n, _)| n == 1).count();
+        let few = counts.iter().filter(|&&(n, _)| (2..=3).contains(&n)).count();
+        let many = counts.iter().filter(|&&(n, _)| n >= 4).count();
+        let lines: usize = counts.iter().map(|&(n, _)| n).sum();
+        let occupied: usize = counts.iter().map(|&(_, o)| o).sum();
         // A partial rule converts a case only if it supplies EVERY line, so a
-        // one-line case is the only kind a fragment reliably reaches.
-        let verdict = if one * 2 >= counts.len() {
+        // one-line case is the only kind a fragment reliably reaches — and only
+        // if the position is not already filled by a different code (§293).
+        let verdict = if occupied * 2 >= lines {
+            "NO — positions already taken"
+        } else if one * 2 >= counts.len() {
             "yes — mostly single-line"
         } else {
             "no — needs the whole rule"
         };
-        println!("TS{code:<6} {:>6} {one:>7} {few:>7} {many:>7}   {verdict}", counts.len());
+        let share = format!("{occupied}/{lines}");
+        println!(
+            "TS{code:<6} {:>6} {one:>7} {few:>7} {many:>7} {share:>9}   {verdict}",
+            counts.len()
+        );
     }
 }
 
@@ -93,11 +120,11 @@ fn measure(case: &CaseEntry) -> Option<Row> {
     for d in &actual {
         *got.entry((d.file.clone(), d.line, d.column, d.code)).or_default() += 1;
     }
-    let mut missing: Vec<u32> = Vec::new();
+    let mut missing: Vec<(String, u32, u32, u32)> = Vec::new();
     for (key, n) in &want {
         let have = got.get(key).copied().unwrap_or(0);
         for _ in have..*n {
-            missing.push(key.3);
+            missing.push(key.clone());
         }
     }
     let extra: usize =
@@ -107,9 +134,20 @@ fn measure(case: &CaseEntry) -> Option<Row> {
     }
     // Blocked on exactly one code — `diaggap`'s population, re-derived so the
     // two instruments cannot drift.
-    let code = missing[0];
-    if missing.iter().any(|&it| it != code) {
+    let code = missing[0].3;
+    if missing.iter().any(|it| it.3 != code) {
         return None;
     }
-    Some((code, missing.len()))
+    // §293 — how many of those lines sit where this port already emits a
+    // *different* code. A taken position means porting the code adds a second
+    // diagnostic rather than converting the case.
+    let occupied = missing
+        .iter()
+        .filter(|key| {
+            got.keys().any(|other| {
+                (&other.0, other.1, other.2) == (&key.0, key.1, key.2) && other.3 != key.3
+            })
+        })
+        .count();
+    Some((code, missing.len(), occupied))
 }
