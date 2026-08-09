@@ -381,6 +381,12 @@ impl Checker<'_, '_> {
                 self.check_implicit_any_parameters(node, ambient);
                 ambient
             }
+            Node::ElementAccessExpression(_) => {
+                // §326 — `M["x"] = 1` is the same readonly question as
+                // `M.x = 1`, and the rule was reached from one arm only.
+                self.check_readonly_assignment_target(node, ambient);
+                ambient
+            }
             Node::PropertyAccessExpression(_) => {
                 self.check_nonexistent_property(node, ambient);
                 self.check_readonly_assignment_target(node, ambient);

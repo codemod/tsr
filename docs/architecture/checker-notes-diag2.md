@@ -19464,3 +19464,74 @@ Net `−34` measured, `+16` kept. The seam's rules are **older**, which cuts bot
 ways: their conditions have been measured before (§43's decline was right and
 needed splitting, not removing), and their blast radius is larger because other
 rules have been built around them.
+
+## §326 — TS2540 and the second access form
+
+Fourth row off the deepening seam, and §321's mechanism again: the rule is
+complete and the dispatch is narrow.
+
+`constDeclarations-access3` writes the same assignment thirteen ways:
+
+```ts
+namespace M { export const x = 0; }
+M.x = 1;  M.x += 2;  …  M.x ^= 12;   // all reported
+M["x"] = 0;                          // missed — line 26
+```
+
+`check_readonly_assignment_target` matches `Node::PropertyAccessExpression` and
+nothing else. Upstream's `checkReferenceExpression` reaches an
+`ElementAccessExpression` too, and a string-literal argument names a property
+exactly as a dotted name does.
+
+The report lands on the **argument** — `constDeclarations-access3.ts(26,3)` is
+the `"x"`, not the `M`.
+
+### Bounded to a literal name
+
+`M[k]` with a computed key names no particular property and declines; only a
+string literal is a name this rule can resolve. That is the same bound
+`excess_property_name_node` and `nonexistent_property` already take.
+
+### The bar
+
+```
+bar:  +4 cases of 10,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **`M[k] = 1` with a computed key reports.** Only string literals.
+2. **A writable `M["y"] = 1` reports.** The readonly test is unchanged.
+
+## §327 — §326 built: +4, `LOST 0 · WRONG 0`, and §321's lesson repeated one build later
+
+```
+function widened, dispatch untouched   diagnostics 1,837 → 1,837   (+0)
++ the `ElementAccessExpression` arm                  → 1,841   (+4, bar was +4)
+```
+
+**The first measurement was `+0`, and the reason is the finding §321 published
+two builds ago:** the rule was extended and the dispatch was not.
+`check_readonly_assignment_target` is reached from one arm —
+`Node::PropertyAccessExpression` — so widening the *function* to accept an
+element access changed nothing until the arm existed.
+
+> **§321's lesson survived being written down and did not survive being
+> needed.** *"A rule can be complete and still never fire"* was the headline of
+> a `+12` build, and two builds later the same author widened a rule's body and
+> measured `+0` before remembering it.
+
+The `+0` cost one measurement rather than a build, because §284's `git diff
+--stat` line made the edit's scope visible and the isolation was the next thing
+run. That is the difference between a repeated lesson and a repeated failure.
+
+### What landed
+
+`M["x"] = 1` is the same readonly question as `M.x = 1`, and
+`constDeclarations-access3` writes the assignment thirteen ways to make the
+point. Bounded to a **string-literal** key: a computed key names no particular
+property, the same bound `nonexistent_property` takes.
+
+```
+CONVERTS · LOST 0 · WRONG 0
+```

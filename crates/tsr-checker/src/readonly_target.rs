@@ -38,11 +38,36 @@ impl Checker<'_, '_> {
         if self.assignment_target_kind(node) == AssignmentTargetKind::None {
             return;
         }
-        let Some(Node::PropertyAccessExpression(access)) = self.node_map.get(node) else { return };
-        let (Some(receiver), Some(member)) = (access.expression, access.name) else { return };
-        let tsr_ast::MemberName::Identifier(name) = member else { return };
-        let Some(name_id) = name.node_id else { return };
-        if access.question_dot_token.is_some() {
+        // §326 — upstream's `checkReferenceExpression` reaches an
+        // `ElementAccessExpression` too, and `M["x"]` names a property exactly
+        // as `M.x` does. A **computed** key names no particular property and
+        // declines, the same bound `nonexistent_property` takes.
+        let (receiver, name_id, name_text, optional) = match self.node_map.get(node) {
+            Some(Node::PropertyAccessExpression(access)) => {
+                let (Some(receiver), Some(tsr_ast::MemberName::Identifier(name))) =
+                    (access.expression, access.name)
+                else {
+                    return;
+                };
+                let Some(id) = name.node_id else { return };
+                (receiver, id, name.text, access.question_dot_token.is_some())
+            }
+            Some(Node::ElementAccessExpression(access)) => {
+                let (Some(receiver), Some(argument)) =
+                    (access.expression, access.argument_expression)
+                else {
+                    return;
+                };
+                let Some(tsr_ast::Expression::StringLiteral(literal)) = Some(argument) else {
+                    return;
+                };
+                let Some(id) = literal.node_id else { return };
+                (receiver, id, literal.text, access.question_dot_token.is_some())
+            }
+            _ => return,
+        };
+        let name = name_text;
+        if optional {
             return;
         }
         let receiver_type = self.check_expression(receiver);
@@ -55,7 +80,7 @@ impl Checker<'_, '_> {
         {
             return;
         }
-        let Some(property) = self.get_property_of_type(receiver_type, name.text) else { return };
+        let Some(property) = self.get_property_of_type(receiver_type, name) else { return };
         if !self.is_readonly_symbol(property) && !self.property_signature_is_readonly(property) {
             return;
         }
@@ -69,7 +94,7 @@ impl Checker<'_, '_> {
             Diagnostic::with_args(
                 &messages::CANNOT_ASSIGN_TO_0_BECAUSE_IT_IS_A_READ_ONLY_PROPERTY,
                 span,
-                [name.text.to_string()],
+                [name.to_string()],
             ),
         );
     }
