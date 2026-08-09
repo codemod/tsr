@@ -1307,6 +1307,25 @@ its whole deliverable and accept that it converts nothing until finished.
 
 ## 5. Refused, with the number that refused it
 
+### New, this session, TS2303 — circular import alias, 10 cases
+
+Refused by **§237**, after being built and reverted. All ten are
+`namespace M { import A = B; import B = A; }` — an **entity-name
+`ImportEqualsDeclaration`**, which `resolve_alias` (`symbols.rs:568`) does not
+dispatch at all. The diagnostic cannot fire because the resolution that would
+cycle never runs.
+
+§236 also claimed the missing cycle guard was a latent hang. **Two mutations
+disproved it**: a unit test for two files re-exporting each other passed with the
+guard disabled, first without a `ModuleHost` and then with one. A pure re-export
+cycle cannot form — `get_export_of_module` answers `None` at the first hop
+because neither file declares the name. *"There is no guard" and "a cycle can
+happen" are two claims, and only the first was checked.*
+
+**Owner: entity-name `ImportEqualsDeclaration` resolution
+(`getTargetOfImportEqualsDeclaration` → `resolveEntityName`).** Ten cases sit
+behind it, and the cycle guard should be built *with* that arm, not before it.
+
 ### New, this session, TS2335 — `super` outside a derived class, 8 cases
 
 Refused by **§226**. It sits at `checker.go:7924`, deep inside
@@ -2158,6 +2177,7 @@ holds only the numbers.
 | 2026-08-09 | HEAD | **30.07%** | **1,650** | **+1, and §231's cross-build claim retracted** | **§231 said three consecutive builds' wrong lines were all merge divergence and called the merge layer the largest named owner in the wrong column. Built on a line nobody had read.** The baseline says column 13; this port said column 8 — right code, right line, wrong column, `getErrorSpanForNode` rather than merging. TS2440's wrong column is now **empty**. *A cross-build pattern needs every member verified, not the newest one assumed into the shape the older ones made.* Corrected claim: the merge table owns **two** wrong lines, not five. §232 |
 | 2026-08-09 | HEAD | **30.12%** | **1,653** | **+3; new instrument `diagcolumn`; a −22 attempt reverted** | **A wrong column appears in BOTH the missing and extra columns at once, so no existing instrument could name it.** `diagcolumn` pairs them: 107 lines, **9 cases blocked by column alone** — needing no rule ported. The first attempt cost 22 cases: `GetErrorRangeForNode` switches on a **closed** list (and comments that it does), while `GetNameOfDeclaration` is a *different* function with an open tail. *Two functions both named for "the name of a declaration", one closed and one open.* Fix belongs in the binder's `name_node_of`; a checker-side twin measured **exactly zero** and was reverted. §233–§234 |
 | 2026-08-09 | HEAD | 30.12% | 1,653 | **no code change — a claim retracted** | **§234 called TS1005's 53 column-only lines "the next head". Running the fixtures through this port's parser shows a different token, a different message and a different recovery** — `'export' expected` at col 1 upstream vs `';' expected` at col 9 here. `diagcolumn` could not see it because **the suite compares the tuple and not the message text, and the instrument is built on the same tuple**: *an instrument built on the suite's key can only ever be as discriminating as the suite.* Now splits by producer — parser 68 (assume recovery divergence), checker 17. **TS1005's 53 lines are not cheap.** *A measurement licenses a count, never a cause.* §235 |
+| 2026-08-09 | HEAD | 30.12% | 1,653 | **built, mutated twice, reverted** | **TS2303.** The rule is unreachable — all ten cases are entity-name `import A = B`, a form `resolve_alias` does not dispatch. §236 also claimed the absent cycle guard was a latent hang; **two mutations disproved it**, since a pure re-export cycle fails to find the symbol at the first hop. *"There is no guard" and "a cycle can happen" are two claims, and only the first was checked.* Reverted for §234's reason with more force: **unreachable infrastructure reads as tested-and-working to everyone who finds it later.** §236–§237 |
 
 ## 8. Updating this file
 

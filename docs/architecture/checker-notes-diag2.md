@@ -15543,3 +15543,115 @@ they rested on was real; only the interpretation was invented.
 > **A measurement licenses a count, never a cause.** Every claim about *why* in
 > this workstream has had to be bought separately, and the two that were not
 > were both wrong.
+
+## §236 — TS2303, and the guard this port never had
+
+Tenth build off §226's no-producer list. `Circular definition of import alias`,
+10 cases, reported by `resolveAlias` (`checker.go:16286`):
+
+```go
+links.aliasTarget = core.OrElse(target, c.unknownSymbol)
+if !c.popTypeResolution() {
+    c.error(node, diagnostics.Circular_definition_of_import_alias_0, c.symbolToString(symbol))
+    links.aliasTarget = c.unknownSymbol
+}
+```
+
+The diagnostic is a *by-product*. The load-bearing part is
+`pushTypeResolution`/`popTypeResolution` — upstream's resolution stack —
+and **this port's `resolve_alias` (`symbols.rs:568`) has no cycle guard of any
+kind.** That it does not hang on the corpus's ten circular fixtures is luck of
+which arms recurse, not design.
+
+So this build is not really "port a diagnostic". It is "add the guard, and take
+the diagnostic that falls out". That ordering matters for the bar: the guard
+changes what `resolve_alias` returns on cycles from *whatever it happens to
+return today* to `None`, and everything downstream of alias resolution sees it.
+
+### The model
+
+`pushTypeResolution` returns false and marks **every frame from the re-entry
+point upward** as failed, so `popTypeResolution` answers false for all of them
+— not just the innermost. Ported as a stack plus a `cycle_floor`: on re-entry,
+the floor is set to the index of the existing entry, and any frame popping at or
+above the floor reports the cycle.
+
+A single boolean would report only the innermost frame and miss the outer
+aliases in a three-link cycle.
+
+### The bar
+
+```
+bar:  +5 cases of 10,  0 LOST
+```
+
+Half the ceiling, not §225's near-total, because the guard is infrastructure
+that every alias consumer sees — `checker_types` at 4,004 is as much at risk as
+`diagnostics`.
+
+### Falsifiers
+
+1. **`checker_types` falls.** Alias resolution feeds type printing; a guard that
+   returns `None` too eagerly turns resolved aliases into gaps.
+2. **`binder_symbols` moves.** It must not — the guard is checker-side.
+3. **`diagnostics` falls.**
+
+## §237 — §236 reverted: the guard protects against nothing reachable
+
+Built, measured, mutated twice, reverted.
+
+```
+diagnostics / checker_types / binder_symbols / printer_round_trip
+  identical to the digit before and after. The guard never fires.
+```
+
+### Why TS2303 is unreachable, which §236 should have established first
+
+The corpus's ten cases are all one shape:
+
+```ts
+namespace M {
+    import A = B;   // TS2303: Circular definition of import alias 'A'.
+    import B = A;
+}
+```
+
+An **entity-name `ImportEqualsDeclaration`**, which `resolve_alias`
+(`symbols.rs:568`) does not handle at all — it dispatches `ExportSpecifier`,
+`ImportSpecifier`, `ExportAssignment`, `ImportClause`, `NamespaceImport` and
+`NamespaceExport`, and falls through for this one. The diagnostic cannot fire
+because the resolution that would cycle never runs.
+
+### §236's other claim was also wrong, and two mutations proved it
+
+§236 asserted that the absence of a cycle guard was "luck of which arms
+recurse". A unit test was written for the cycle it predicted — two files
+re-exporting each other — and it passed **with the guard disabled**. First
+diagnosis: no `ModuleHost`, so `./b` never resolved. Rewritten with the host
+from `jsx_namespace.rs`; it passed with the guard disabled *again*.
+
+The reason is structural, not accidental: in `export { x } from "./b"` where
+neither file declares `x`, `get_export_of_module` answers `None` at the **first**
+hop. A pure re-export cycle cannot form, because there is no symbol to carry
+around it. Upstream's cycle forms through entity names, where both symbols exist
+locally and each resolves to the other.
+
+> **"There is no guard" and "a cycle can happen" are two claims, and only the
+> first was checked.** The guard was written to protect a path that cannot
+> reach it. Both mutations are on the record so the next attempt does not
+> re-buy them.
+
+### What actually blocks the row
+
+**TS2303 is refused, owner named: entity-name `ImportEqualsDeclaration`
+resolution in `resolve_alias`** — `getTargetOfImportEqualsDeclaration` →
+`resolveEntityName` (`checker.go`), already a documented gap for
+`import a = foo.bar.baz`. Ten cases sit behind it, and so does the cycle guard,
+which should be built *with* that arm rather than before it.
+
+### Why the revert rather than "keep it, it is harmless"
+
+§234 reverted a checker-side `getAdjustedNodeForError` for measuring exactly
+zero. This is the same call with more reason: that one duplicated a path that
+worked, this one guards a path that cannot be entered. Unreachable
+infrastructure reads as tested-and-working to everyone who finds it later.
