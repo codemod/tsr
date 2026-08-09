@@ -179,6 +179,26 @@ pub struct LoadOptions {
 /// the loader is what fills them: it parses every file it reaches to find that
 /// file's imports, so parsing again into fresh tables would be both a second
 /// pass over 3.9 MB of lib text and a second, incompatible set of ids.
+/// One diagnostic the **loader** produced, positioned in the file that caused it.
+///
+/// Upstream's loader reports several (`fileloader.go:395`-`:425`): a reference
+/// to a file that does not exist, one with an unsupported extension, one to a
+/// JavaScript file without `allowJs`, and a file referencing itself. This port
+/// dropped all of them for want of anywhere to put them — see §240, which built
+/// the channel and sent the first through it.
+#[derive(Debug, Clone)]
+pub struct LoaderDiagnostic {
+    /// The file containing the reference, as the loader names it.
+    pub file_name: String,
+    /// The quoted value's span, from [`tsr_parser::pragma::FileReference`].
+    pub span: tsr_core::Span,
+    /// The message, already anchored upstream.
+    pub message: &'static tsr_diagnostics::Message,
+    /// Substitution arguments, in order.
+    pub args: Vec<String>,
+}
+
+/// Everything one walk of the file graph produced.
 #[derive(Debug, Default)]
 pub struct LoadedFiles<'a> {
     /// Every file the walk reached, **lib files first**.
@@ -202,6 +222,8 @@ pub struct LoadedFiles<'a> {
     /// [`LoadedFiles::file_names`]: it is upstream's `missingFiles`, which is a
     /// diagnostic rather than a member of the program.
     pub files: Vec<ProgramFile<'a>>,
+    /// What the walk could not resolve. See [`LoaderDiagnostic`].
+    pub loader_diagnostics: Vec<LoaderDiagnostic>,
     /// Kind, span and parent for every node of **every** file, in load order.
     pub nodes: tsr_ast::NodeTable,
     /// The typed node behind each id, over the same shared numbering.
@@ -315,6 +337,8 @@ pub struct FileLoader<'host, 'a> {
     resolver: Resolver<'host>,
     tasks: Vec<ParseTask<'a>>,
     root_tasks: Vec<usize>,
+    /// See [`LoaderDiagnostic`].
+    loader_diagnostics: Vec<LoaderDiagnostic>,
     /// The task that claimed each path. Upstream's `taskDataByPath`, minus the
     /// per-casing map: see [`FileLoader::process_task`].
     claimed: FxHashMap<Path, usize>,
@@ -349,6 +373,7 @@ impl<'host, 'a> FileLoader<'host, 'a> {
             tsr_tsoptions::file_names::supported_extensions_with_json(&options);
 
         let mut loader = Self {
+            loader_diagnostics: Vec::new(),
             resolver: Resolver::new(host, options.clone()),
             host,
             arena,
@@ -589,6 +614,17 @@ impl<'host, 'a> FileLoader<'host, 'a> {
                     self.resolve_tripleslash_path_reference(&reference.file_name, &file_name)
                 {
                     self.add_sub_task(index, &resolved);
+                } else {
+                    // `File_0_not_found` (`fileloader.go:407`). The argument is
+                    // the reference text with slashes normalised
+                    // (`diagnosticFileName`), **not** the resolved candidate —
+                    // upstream reports what the author wrote.
+                    self.loader_diagnostics.push(LoaderDiagnostic {
+                        file_name: file_name.clone(),
+                        span: reference.span,
+                        message: &tsr_diagnostics::messages::FILE_0_NOT_FOUND,
+                        args: vec![tsr_path::normalize_slashes(&reference.file_name)],
+                    });
                 }
             }
             self.resolve_type_reference_directives(index, &file);
@@ -1136,6 +1172,7 @@ impl<'host, 'a> FileLoader<'host, 'a> {
         libs.sort_by_key(|index| self.lib_file_priority(*index));
 
         result.lib_file_count = libs.len();
+        result.loader_diagnostics.clone_from(&self.loader_diagnostics);
         let order: Vec<usize> = libs.into_iter().chain(rest).collect();
         result.file_names = order.iter().map(|i| self.tasks[*i].file_name.clone()).collect();
         (result, order)

@@ -162,12 +162,19 @@ pub struct Program<'a> {
     /// [`Program::source_file`].
     current_directory: String,
     use_case_sensitive_file_names: bool,
+
     /// How many leading entries of `files` are bundled lib files.
     ///
     /// Upstream keeps `libFiles` as a separate slice and concatenates it in
     /// front (`filesparser.go:518`); the boundary is kept rather than the two
     /// slices, because everything else about a lib file is ordinary.
     lib_file_count: usize,
+    /// What the **loader** could not resolve — see
+    /// [`loader::LoaderDiagnostic`] and `checker-notes-diag2.md` §240. Kept on
+    /// the program because that is where upstream keeps them
+    /// (`program.fileProcessingDiagnostics`): they belong to no checker and to
+    /// no binder, and before §240 this port had nowhere to put them at all.
+    loader_diagnostics: Vec<loader::LoaderDiagnostic>,
     /// Kind, span and parent for every node of **every** file
     /// ([ADR-0034](../../../docs/adr/0034-a-program-needs-one-identity-space.md)).
     nodes: NodeTable,
@@ -297,6 +304,7 @@ impl<'a> Program<'a> {
             current_directory,
             use_case_sensitive_file_names,
             lib_file_count: 0,
+            loader_diagnostics: Vec::new(),
             nodes,
             node_map,
             binder: BindResult::empty(),
@@ -350,6 +358,7 @@ impl<'a> Program<'a> {
             current_directory,
             use_case_sensitive_file_names,
             lib_file_count: loaded.lib_file_count,
+            loader_diagnostics: loaded.loader_diagnostics,
             nodes: loaded.nodes,
             node_map: loaded.node_map,
             binder: BindResult::empty(),
@@ -486,6 +495,16 @@ impl<'a> Program<'a> {
     #[must_use]
     pub fn source_file(&self, file_name: &str) -> Option<&ProgramFile<'a>> {
         self.source_file_by_path(&self.to_path(file_name))
+    }
+
+    /// Diagnostics the **loader** produced, in walk order.
+    ///
+    /// `program.fileProcessingDiagnostics` (`compiler/program.go`). Separate
+    /// from the binder's and the checker's because they are produced before
+    /// either runs — see `checker-notes-diag2.md` §240.
+    #[must_use]
+    pub fn loader_diagnostics(&self) -> &[loader::LoaderDiagnostic] {
+        &self.loader_diagnostics
     }
 
     /// The file `import "<specifier>"` in `importing_file` resolved to.

@@ -15756,3 +15756,111 @@ local `seen` sets, so they *silently absorb* the cycle that upstream reports.
 Reaching TS2303 means moving cycle detection out of the individual walkers and
 into a shared resolution stack — a real refactor of alias resolution, not an arm.
 That is the owner, and it is bigger than the one §237 named.
+
+## §240 — TS6053, and the loader's missing diagnostic channel
+
+`File '{0}' not found`, 8 cases blocked on it alone, no producer.
+
+Upstream reports it from `fileloader.go:407` when a `/// <reference path="…" />`
+names a file that does not exist. This port's loader (`loader.rs:582`) *follows*
+those references and its own comment records what it does with the failures:
+
+> "A name the table does not know is a diagnostic upstream and is dropped here,
+> **as every other loader diagnostic is.**"
+
+So this is not a missing rule. **There is no channel for a loader diagnostic to
+travel on**, and every one of them — TS6053, the unsupported-extension message,
+the self-reference message, the unknown `lib` name — has been dropped for the
+same reason.
+
+### Why this is worth building for eight cases
+
+The channel is the deliverable; TS6053 is the first passenger. The position is
+already there: `FileReference.span` (`pragma.rs:62`) exists and its doc says
+*"so a diagnostic can point at it"* — written by whoever built the pragma parser
+for exactly this, and unused since.
+
+### Scope, deliberately narrow
+
+Only the **path** reference's not-found case. The unsupported-extension and
+JavaScript-file arms depend on `supportedExtensions`, and the self-reference arm
+on canonical-path comparison; each is a separate condition and none is measured
+here. `/// <reference types="…" />` resolves through a different function
+(`resolve_type_reference_directives`) and is left alone.
+
+### The bar
+
+```
+bar:  +6 cases of 8,  0 LOST,
+      every other suite UNMOVED
+```
+
+Not the ceiling despite §225's rule, because the risk here is not the rule — it
+is a new diagnostic reaching files that never had one.
+
+### Falsifiers
+
+1. **`binder_symbols` / `printer_round_trip` / `checker_types` move.** A loader
+   diagnostic must not change what is bound, printed or typed.
+2. **A resolvable reference reports.** The corpus is full of working
+   `/// <reference path>`; any false positive would be enormous, not subtle.
+3. **`diagnostics` falls.**
+
+## §241 — §240 built: +8, the whole ceiling, and the channel is the deliverable
+
+```
+diagnostics   1,654 → 1,662   (+8, bar was +6, ceiling was 8)
+scanner_clean_files / parser_typescript / binder_symbols /
+printer_round_trip / checker_types   all unmoved — falsifier 1 negative
+```
+
+Falsifier 2 negative too: the corpus is full of working
+`/// <reference path>` and none of them reports.
+
+**Third no-producer row to hit its ceiling** (§225 TS1121, §227 TS2524, this),
+which is now enough of a pattern to state plainly: for a code this port never
+emits, `diagmissing`'s sole-obstacle count *is* the estimate.
+
+### What was actually built
+
+Not a rule — a **channel**. `LoaderDiagnostic` on `LoadedFiles`, carried onto
+`Program` as `loader_diagnostics` (upstream's `fileProcessingDiagnostics`), and
+collected by the one half of the suite that builds a program.
+
+Before this, the loader's own comment read:
+
+> "A name the table does not know is a diagnostic upstream and is dropped here,
+> **as every other loader diagnostic is.**"
+
+Every one of them: the unsupported-extension message, the JavaScript-file
+message, the self-reference message, the unknown `lib` name. **They were not
+refused, they were unroutable** — and nothing in the notes distinguished the two.
+
+> **"Not ported" and "has nowhere to go" look identical from the gap, and only
+> one of them is fixed by writing the rule.** Four codes shared one missing
+> field.
+
+`FileReference.span` (`pragma.rs:62`) was already there, carrying the doc
+comment *"so a diagnostic can point at it"* — written by whoever built the
+pragma parser, for a consumer that did not exist until now.
+
+### Scope held deliberately narrow
+
+Only the not-found arm. The unsupported-extension and JavaScript-file arms need
+`supportedExtensions`, the self-reference arm needs canonical-path comparison,
+and `/// <reference types="…" />` resolves through a different function. Each is
+a separate condition, none is measured, and all four can now be added without
+touching plumbing.
+
+### Two lint failures worth recording
+
+`cargo clippy` caught both edits where a Python string insertion landed
+*between* a doc comment and the item it documented — once orphaning
+`LoadedFiles`'s `#[derive]` onto the new struct, once splitting `source_file`'s
+docs around the new accessor. The first was a hard compile error; the second was
+only a missing-docs lint.
+
+**Editing by textual anchor puts the insertion point one line from the wrong
+side of an attribute**, and the compiler catches the derive case while only
+`-D missing-docs` catches the other. §231's rule — clippy before coverage on any
+structural edit — earned its keep twice in one build.

@@ -404,6 +404,26 @@ pub fn node_kinds_by_position_for(
 fn from_check_traversal(test: &crate::TestCase) -> Vec<BaselineDiagnostic> {
     let arena = tsr_core::Arena::new();
     let program = program_for_case(&arena, test);
+    // The **loader's** diagnostics, which are produced before any binder or
+    // checker runs and which this port had nowhere to put until §240. Collected
+    // here because this is the one half of the suite that builds a program.
+    let mut from_loader: Vec<BaselineDiagnostic> = Vec::new();
+    for diagnostic in program.loader_diagnostics() {
+        // The loader names files by their program path; the baselines name them
+        // as the case wrote them.
+        let Some(unit) = test.files.iter().find(|unit| {
+            diagnostic.file_name.trim_start_matches('/') == unit.name.trim_start_matches('/')
+        }) else {
+            continue;
+        };
+        let (line, character) = line_and_character(&unit.content, diagnostic.span.start);
+        from_loader.push(BaselineDiagnostic {
+            file: unit.name.clone(),
+            line: line + 1,
+            column: character + 1,
+            code: diagnostic.message.code(),
+        });
+    }
     let mut checker = tsr_checker::Checker::with_module_host(
         program.binder(),
         program.nodes(),
@@ -478,6 +498,7 @@ fn from_check_traversal(test: &crate::TestCase) -> Vec<BaselineDiagnostic> {
             code: diagnostic.message.code(),
         });
     }
+    out.extend(from_loader);
     out
 }
 
