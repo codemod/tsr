@@ -25947,3 +25947,37 @@ fourth mechanical search this session to end on a measured total (§421 zero,
 > recommendation is unchanged and now has eight builds behind it: **search the
 > artefact that describes the target.** The options catalogue (§479) is the one
 > such artefact not yet swept.
+
+## §484 — the options catalogue swept, and priced at a long tail
+
+§479 proposed it and §483 called it the last unswept upstream artefact. Run:
+**109 of `CompilerOptions`' 127 fields are never read by `tsr-checker`**, and
+joining the option-gated upstream diagnostics against still-blocked rows gives
+
+```
+TS1029   3 cases   VerbatimModuleSyntax        TS7028   1   AllowUnusedLabels
+TS2748   2 cases   VerbatimModuleSyntax        TS1111   1   CheckJs
+TS2806   2 cases   CheckJs                     TS4111   1   NoPropertyAccessFromIndexSignature
+TS2834   2 cases   GetResolveJsonModule        TS2591   1   UsesWildcardTypes
+TS17016  1 case    GetJSXTransformEnabled      TS18055  1   IsolatedModules
+TS2686   1 case    AllowUmdGlobalAccess        TS2474   1   IsolatedModules
+```
+
+**Every row is one to three cases.** The message catalogue's rows were three to
+seven and eight of them paid `+21`; this one's largest is three, and the
+distribution is a long tail rather than a head.
+
+> **The two upstream catalogues are not equivalent.** Messages enumerate
+> *conditions*, and a condition with no rule here is a missing behaviour worth
+> a build. Options enumerate *switches*, and a switch this port does not read
+> usually gates a behaviour that is **rare in the corpus by construction** —
+> the fixtures that set `verbatimModuleSyntax` or `resolveJsonModule` are the
+> few written to test those flags.
+>
+> **Sweep yield tracks what the artefact enumerates, not how upstream-ish it
+> is.** §473's rule — *search the artefact that describes the target* — needs
+> that qualifier, and this is the measurement that supplies it.
+
+Not declined, and not worth a build at the head of a queue that still holds
+three- to seven-case rows elsewhere. **Recorded with its distribution** so the
+next session can price it in one read rather than re-running the join.
