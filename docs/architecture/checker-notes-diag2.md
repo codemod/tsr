@@ -22197,3 +22197,64 @@ bar it, falsify it, build it, measure both sides, keep or revert whole
 Every step after the first is a `grep`. The instruments narrow the search; they
 have never once decided a build. What decided the last twelve was reading nine
 lines of Go and four of Rust.
+
+## §390 — TS18016 in a type member
+
+TS18016's third case is `privateNameAndPropertySignature`, nine lines:
+
+```ts
+type A = { #foo: string; #bar(): string; }
+interface B { #foo: string; … }
+```
+
+Same code, same reason — a type literal and an interface body are no more class
+bodies than an object literal is — and the same judgement as §371/§373/§388: one
+loop supplies every line the case wants, so the nine-line count is not §273's
+refusal.
+
+### The bar
+
+```
+bar:  +1 (the case),  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **`class C { #foo: string }` reports.** A class body is the legal home.
+2. **An object literal double-reports.** The two arms must be disjoint by node
+   kind.
+
+## §391 — §390 built: **+1**, bar met. TS18016 is closed
+
+```
+diagnostics   1,889 → 1,890   (bar was +1;  +1, 0 LOST)   34.44%
+every other suite unmoved — both falsifiers negative
+```
+
+All three of TS18016's blocked cases now convert. The row is closed, which is
+rare enough to note: of the thirty-odd rows worked this session, this is the
+first taken to zero, and it happened because the code was small enough that
+"the whole rule" and "one arm" were the same thing.
+
+### The four-build pattern that closed it
+
+```
+§371  +1   T extends T                       a complete four-line rule
+§373  +1   TS7031 on pattern elements        a loop over `elements`
+§388  +2   TS18016 in an object literal      a loop over `properties`
+§390  +1   TS18016 in a type member          the same loop, two more node kinds
+```
+
+Every one was labelled *"no — needs the whole rule"* by `diagslice`, and in
+every one the whole rule was under fifteen lines.
+
+> **`diagslice`'s verdict is about the case, not the rule, and the two are
+> asymmetric.** A case wanting nine lines cannot be converted by a fragment —
+> true, and the column is right. But nine lines wanted by one syntactic pattern
+> is a `for` loop, and nothing in this port's own output distinguishes that from
+> nine lines wanting a cycle detector. Only upstream's source does, and it is
+> the cheapest read in the loop.
+
+That is now four builds' worth of evidence for a rule of thumb: **when
+`diagslice` says "needs the whole rule", go read the whole rule.** It is nine
+lines of Go about half the time.

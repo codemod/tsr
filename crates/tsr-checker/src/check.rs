@@ -246,6 +246,7 @@ impl Checker<'_, '_> {
                 ambient
             }
             Node::InterfaceDeclaration(_) => {
+                self.check_private_name_in_object_literal(node);
                 self.check_heritage_conformance(node);
                 self.check_index_constraints(node);
                 self.check_duplicate_index_signatures(node);
@@ -446,6 +447,10 @@ impl Checker<'_, '_> {
             }
             Node::TypeParameterDeclaration(_) => {
                 self.check_circular_type_parameter_constraint(node);
+                ambient
+            }
+            Node::TypeLiteralNode(_) => {
+                self.check_private_name_in_object_literal(node);
                 ambient
             }
             Node::QualifiedName(_) => {
@@ -775,6 +780,36 @@ impl Checker<'_, '_> {
     /// is the name. §388.
     fn check_private_name_in_object_literal(&mut self, node: NodeId) {
         if self.file_has_parse_errors {
+            return;
+        }
+        // A **type literal** and an **interface body** are no more class bodies
+        // than an object literal is, and upstream reports the same code for a
+        // `#name` member of either. §390.
+        if let Some(members) = match self.node_map.get(node) {
+            Some(Node::TypeLiteralNode(literal)) => Some(literal.members),
+            Some(Node::InterfaceDeclaration(declaration)) => Some(declaration.members),
+            _ => None,
+        } {
+            for member in members {
+                let name = match member {
+                    tsr_ast::TypeElement::PropertySignatureDeclaration(property) => property.name,
+                    tsr_ast::TypeElement::MethodSignatureDeclaration(method) => method.name,
+                    tsr_ast::TypeElement::GetAccessorDeclaration(accessor) => accessor.name,
+                    tsr_ast::TypeElement::SetAccessorDeclaration(accessor) => accessor.name,
+                    _ => continue,
+                };
+                let tsr_ast::PropertyName::PrivateIdentifier(private) = name else { continue };
+                let Some(id) = private.node_id else { continue };
+                let Some(file) = self.source_file_of_for_diagnostics(id) else { continue };
+                let span = self.nodes.span(id);
+                self.report(
+                    file,
+                    Diagnostic::new(
+                        &messages::PRIVATE_IDENTIFIERS_ARE_NOT_ALLOWED_OUTSIDE_CLASS_BODIES,
+                        span,
+                    ),
+                );
+            }
             return;
         }
         let Some(Node::ObjectLiteralExpression(literal)) = self.node_map.get(node) else { return };
