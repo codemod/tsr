@@ -19535,3 +19535,95 @@ property, the same bound `nonexistent_property` takes.
 ```
 CONVERTS · LOST 0 · WRONG 0
 ```
+
+## §328 — the dispatch sweep comes back empty, and TS6133's self-reference
+
+§321 and §327 both turned on dispatch breadth, so it was made systematic: every
+`check_*` helper, its number of call sites, and how many node kinds its body
+mentions.
+
+**No new instance.** The helpers reached from one arm are either called from the
+unconditional section — where one call site *is* every node — or correctly
+bounded. `check_yield_grammar` looked like a candidate at ten kinds and one
+call site; its ten are the container walk and upstream also calls it from
+exactly one place (`checker.go:10953`).
+
+> **A mechanism that paid twice is worth making systematic once, and worth
+> believing when it comes back empty.** The sweep cost one scan and closes a
+> lead that would otherwise have been re-guessed each time a row under-fired.
+
+## §329 — TS6133, a self-reference is not a use
+
+Next deepening row: 8 blocked cases, 6 single-line.
+`noUnusedLocals_selfReference_skipsBlockLocations` is the shape:
+
+```ts
+namespace n {
+    function f() { f; }          // TS6133 — f is never read
+    switch (0) {
+        case 0: function g() { g; }
+        default: function h() { h; }
+    }
+}
+```
+
+A function whose only reference is inside its own body is unused. Upstream does
+this in the **resolver**, not the unused pass (`nameresolver.go:314`):
+
+```go
+if isUse && result != nil && (lastSelfReferenceLocation == nil || result != lastSelfReferenceLocation.Symbol()) {
+    // mark referenced
+}
+```
+
+`isSelfReferenceLocation` (`:489`) is a node-kind list —
+`FunctionDeclaration`, `ClassDeclaration`, `InterfaceDeclaration`,
+`EnumDeclaration`, `TypeAliasDeclaration`, `ModuleDeclaration` — recorded while
+walking outward. The decidable equivalent: **when marking a reference to `S`,
+skip it if the reference is inside one of `S`'s own declarations** and that
+declaration is one of those kinds.
+
+### The bar
+
+```
+bar:  +4 cases of 8,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **A recursive function used elsewhere reports.** The skip is per-reference,
+   not per-symbol — an outside use still marks it.
+2. **A parameter reports.** Upstream's `KindParameter` arm needs
+   `lastLocation == node.Name()` and is not ported; parameters decline.
+
+## §330 — §329 built: +2, `LOST 0`
+
+```
+diagnostics   1,841 → 1,843   (+2, bar was +4)
+diag2307 [6133] (whole rule): CONVERTS 86 · LOST 0 · RIGHT 233 · WRONG 5
+every other suite unmoved — falsifiers 1 and 2 negative
+```
+
+Under the bar, at zero lost. Per §325 the isolation is TS6133's **entire**
+history — the rule decides 86 cases — and the board's `+2` is this edit.
+
+The self-reference skip is per-*reference*, not per-symbol, so a recursive
+function used from outside still marks: falsifier 1 negative. Parameters decline
+as §329 bounded them.
+
+### The deepening seam, five builds in
+
+```
+§321  TS1038 + eleven modifier codes   +12   a dispatch, not a rule
+§323  TS2694's depth bound             −50   reverted
+§325  TS2564's `is_error` conflation    +4
+§327  TS2540 through element access     +4   (+0 until the dispatch arm)
+§330  TS6133's self-reference           +2
+                                       −28 measured, +22 kept
+```
+
+The seam is real and its yields are smaller than the no-producer seam's were,
+which is what an older rule looks like: the easy half was taken when it was
+built, and what remains is the conditions its author bounded deliberately.
+Three of these five turned on **where a rule is called from** rather than what
+it decides.

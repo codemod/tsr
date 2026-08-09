@@ -206,9 +206,42 @@ impl Checker<'_, '_> {
                 self.binder.resolve_name(self.nodes, self.node_map, node, text, meaning)
             {
                 let symbol = self.binder.merged_symbol(symbol);
+                // **A self-reference is not a use.** `resolveNameHelper` marks
+                // only when the result is not the enclosing self-reference
+                // location's own symbol (`nameresolver.go:314`), and
+                // `isSelfReferenceLocation` (`:489`) is a node-kind list. So a
+                // `function f() { f; }` leaves `f` unread. §329.
+                if self.reference_is_inside_own_declaration(node, symbol) {
+                    continue;
+                }
                 *self.symbol_reference_kinds.entry(symbol).or_default() |= meaning;
             }
         }
+    }
+
+    /// Is this reference inside one of the symbol's own declarations?
+    ///
+    /// `isSelfReferenceLocation`'s kind list (`nameresolver.go:489`), minus its
+    /// `KindParameter` arm — that one needs `lastLocation == node.Name()`,
+    /// which is a walk state this port does not keep. §329.
+    fn reference_is_inside_own_declaration(&self, node: NodeId, symbol: SymbolId) -> bool {
+        let declarations: Vec<NodeId> =
+            self.binder.symbols().get(symbol).declarations.iter().copied().collect();
+        if declarations.is_empty() {
+            return false;
+        }
+        self.nodes.ancestors(node).any(|ancestor| {
+            declarations.contains(&ancestor)
+                && matches!(
+                    self.nodes.kind(ancestor),
+                    tsr_ast::SyntaxKind::FunctionDeclaration
+                        | tsr_ast::SyntaxKind::ClassDeclaration
+                        | tsr_ast::SyntaxKind::InterfaceDeclaration
+                        | tsr_ast::SyntaxKind::EnumDeclaration
+                        | tsr_ast::SyntaxKind::TypeAliasDeclaration
+                        | tsr_ast::SyntaxKind::ModuleDeclaration
+                )
+        })
     }
 
     /// Record a member name for the by-name marking private class members need.
