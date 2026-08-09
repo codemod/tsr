@@ -719,10 +719,22 @@ impl Checker<'_, '_> {
             };
             instantiated.push(image);
         }
+        // §90.1 (`checker-notes-narrow.md`): the TEXT renders from a
+        // print-renamed clone — upstream's `instantiateSignature` clones
+        // retained own type parameters (`checker.go:19654`) and the node
+        // builder prints the clones disambiguated (`r_1`). The rename is
+        // print-only: `signature_types` keeps the un-renamed signatures,
+        // because call-side inference identifies own parameters by the
+        // declaration's TypeIds and a semantic rename severs that link
+        // (measured: 182 conversions lost).
+        let printed: Vec<Signature> = instantiated
+            .iter()
+            .map(|signature| self.rename_own_type_parameters_for_print(signature.clone()))
+            .collect();
         // Re-rendered exactly as the bake sites render: one signature is a
         // `FunctionTypeNode`, several are the type-literal form. An empty list
         // is unreachable (neither site records one) and refuses.
-        let (text, signature_node) = match instantiated.as_slice() {
+        let (text, signature_node) = match printed.as_slice() {
             [] => return error,
             [signature] => (self.signature_to_string(signature), true),
             many => {
@@ -738,14 +750,100 @@ impl Checker<'_, '_> {
         let TypeData::Anonymous { symbol, .. } = self.store.get(id).data else {
             return error;
         };
+        // §90.1's second half: when the rename changed the print, the §89
+        // keep-text set stops `type_to_string_at`'s composite re-render from
+        // rebuilding the STORED (un-renamed) structure at assertion sites —
+        // the same trap §89 closed for alias names, one bake further in.
+        let renamed_print = printed.iter().zip(&instantiated).any(|(printed, stored)| {
+            printed
+                .type_parameters
+                .iter()
+                .map(|p| &p.name)
+                .ne(stored.type_parameters.iter().map(|p| &p.name))
+        });
         let minted =
             self.store.new_anonymous(crate::flags::TypeFlags::OBJECT, text, symbol, signature_node);
+        if renamed_print {
+            self.alias_named_signature_types.insert(minted);
+        }
         // Recorded in `signature_types` too, so an instantiated signature can
         // be instantiated again — `C<T>` inside `D<U>` reaches that.
         self.signature_types.insert(minted, instantiated);
         self.instantiated_signatures.insert(key, minted);
         self.minted_signature_types.insert(minted);
         minted
+    }
+
+    /// §90.1's print-only clone: own type parameters respelled `name_1` and
+    /// every occurrence substituted to a fresh mint carrying the new text.
+    /// Falls back to the input unchanged when the own parameters cannot be
+    /// identified or any part refuses — an un-renamed print is the old
+    /// behaviour, not an error.
+    fn rename_own_type_parameters_for_print(&mut self, signature: Signature) -> Signature {
+        if signature.type_parameters.is_empty() {
+            return signature;
+        }
+        // The gate is EMPIRICAL, not upstream-derived: the corpus renames
+        // instantiated own parameters only when the signature lives in a TYPE
+        // ALIAS body AND its return references that same alias — the
+        // recursive-container print (`longObjectInstantiationChain2`'s
+        // `Type<t>` member returning `Type<merge<t, r>>`). Interface members
+        // keep plain names (the promise family — 1,276 R→W measured on the
+        // alias-less gate), and so do alias members returning OTHER aliases
+        // (`nonInferrableTypePropagation1` — 4 R→W measured on the
+        // alias-only gate). Upstream's `typeParameterToName` byText/shadow
+        // mechanics (`nodebuilderimpl.go:1404`) need a print-context study
+        // to port faithfully — the §20.1 refusal's territory.
+        let mut containing_alias = None;
+        let mut current = self.nodes.parent(signature.declaration);
+        while let Some(id) = current {
+            if matches!(self.nodes.kind(id), tsr_ast::SyntaxKind::TypeAliasDeclaration) {
+                containing_alias = self.binder.symbol_of(id);
+                break;
+            }
+            current = self.nodes.parent(id);
+        }
+        let Some(containing_alias) = containing_alias else { return signature };
+        let returns_container = self
+            .type_reference_targets
+            .get(&signature.r#type)
+            .is_some_and(|(target, _)| *target == containing_alias);
+        if !returns_container {
+            return signature;
+        }
+        // A METHOD member (`pipe<A, B>(...): Thing<B>`) keeps plain names in
+        // the same recursive-container shape (`nonInferrableTypePropagation1`,
+        // 4 R→W measured); only the property-typed FunctionTypeNode form
+        // renames in the corpus.
+        if !matches!(self.nodes.kind(signature.declaration), tsr_ast::SyntaxKind::FunctionType) {
+            return signature;
+        }
+        let Some(own) = self.type_parameter_types(&signature) else { return signature };
+        if own.len() != signature.type_parameters.len() {
+            return signature;
+        }
+        let mut map = Vec::with_capacity(own.len());
+        let mut fresh_names = Vec::with_capacity(own.len());
+        for (parameter, &own_type) in signature.type_parameters.iter().zip(&own) {
+            let fresh_name = format!("{}_1", parameter.name);
+            let fresh = self.store.new_named(
+                crate::flags::TypeFlags::TYPE_PARAMETER,
+                fresh_name.clone(),
+                None,
+            );
+            map.push((own_type, fresh));
+            fresh_names.push(fresh_name);
+        }
+        let names: Vec<&str> =
+            signature.type_parameters.iter().map(|parameter| parameter.name.as_str()).collect();
+        let Some(mut renamed) = self.instantiate_signature(signature.clone(), &map, &own, &names)
+        else {
+            return signature;
+        };
+        for (parameter, fresh_name) in renamed.type_parameters.iter_mut().zip(fresh_names) {
+            parameter.name = fresh_name;
+        }
+        renamed
     }
 
     /// One signature with every carried type substituted, or `None` when any

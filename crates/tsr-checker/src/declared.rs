@@ -1610,6 +1610,21 @@ impl<'a> Checker<'a, '_> {
         self.create_type_reference(target, arguments)
     }
 
+    /// §46/§90's shared admission: the symbol of a TYPE_ALIAS's TypeLiteral
+    /// body, if it has one. The member table an instantiated alias reference
+    /// answers property lookups from.
+    fn alias_body_literal_symbol(&self, symbol: SymbolId) -> Option<SymbolId> {
+        if !self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS) {
+            return None;
+        }
+        let declaration = self.binder.symbols().get(symbol).declarations.first().copied()?;
+        let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration) else {
+            return None;
+        };
+        let Some(TypeNode::TypeLiteralNode(literal)) = alias.r#type else { return None };
+        self.binder.symbol_of(literal.node_id?)
+    }
+
     /// `createTypeReference(target, typeArguments)` (`checker.go`).
     ///
     /// Interned on the `(target, arguments)` pair, which is what makes
@@ -1623,6 +1638,11 @@ impl<'a> Checker<'a, '_> {
             return cached;
         }
         let printed = self.type_reference_text(symbol, &arguments);
+        // §90 (`checker-notes-narrow.md`): a TYPE_ALIAS target with a
+        // TypeLiteral body mints the BODY's symbol — §46's admission, one
+        // road lower, so `instantiate_type`'s arm-3 rebuilds keep their
+        // members and `o2.merge` resolves like `o1.merge` did.
+        let member_symbol = self.alias_body_literal_symbol(symbol).unwrap_or(symbol);
         // `OBJECT` even when the target is a type alias, where upstream\'s
         // instantiated type carries the flags of the alias\'s *body*. The flags
         // are consulted by the arithmetic and `+` arms, and claiming
@@ -1641,7 +1661,7 @@ impl<'a> Checker<'a, '_> {
         // three consumers (property access, element access, the relater) landed
         // first and separately (`8fa6a3e`) so that this flip and the seam's
         // instantiation could be one commit.
-        let id = self.store.new_named(TypeFlags::OBJECT, printed, Some(symbol));
+        let id = self.store.new_named(TypeFlags::OBJECT, printed, Some(member_symbol));
         self.instantiations.insert((symbol, arguments.clone()), id);
         // The same pair, the other way round. Substitution starts from a
         // `TypeId` and needs the pair, which only exists here as a key — see

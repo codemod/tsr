@@ -3403,3 +3403,25 @@ substituted prints; the §46 road's round-1 evidence says the
 get_type_of_property_of_type seam substitutes, so zero expected;
 (c) non-literal alias bodies (chain1/3's `merge` itself is an
 intersection body) must fall through unchanged.
+
+**§90 findings and score.** The body-symbol mint alone measured
++182 G→R against 96 G→W (1.9:1) — the bar's stated 10:1 MISSED, and
+the 96 were ONE token each: upstream renames the instantiated
+signature's own type parameter (`r` → `r_1`). §90.1 chased that
+rename through three wrong placements: (1) a SEMANTIC rename (fresh
+types in the map) killed all 182 conversions — call-side inference
+identifies own parameters by declaration TypeIds; (2) print-only
+rename at the mint rendered right but the §89 composite re-render
+REBUILT the un-renamed structure at every site — the §89 keep-text
+set closed it (same trap, one bake further in); (3) un-gated, the
+rename hit 1,276 R→W (the promise family wants plain names). The
+landed gate is EMPIRICAL, three conditions: inside a type-alias
+body, return references the CONTAINING alias, declaration is a
+FunctionTypeNode (method members keep plain names —
+`nonInferrableTypePropagation1`). Upstream's true rule is
+`typeParameterToName`'s byText/shadow context
+(`nodebuilderimpl.go:1404`) — the §20.1 print-context study, still
+owed; underscoreTest1's 149 stay with it.
+
+**§90 + §90.1 score — LANDED.** right 404,780 → **405,060 (84.57%)**,
++278 G→R and +2 W→R, ZERO adverse on the full pair.
