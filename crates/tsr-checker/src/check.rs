@@ -430,12 +430,12 @@ impl Checker<'_, '_> {
             Node::ModuleDeclaration(n) => self.check_illegal_decorator(n.modifiers),
             Node::ImportDeclaration(n) => self.check_illegal_decorator(n.modifiers),
             Node::ExportDeclaration(n) => self.check_illegal_decorator(n.modifiers),
-            Node::PropertyDeclaration(n) => self.check_modifier_order(n.modifiers),
-            Node::MethodDeclaration(n) => self.check_modifier_order(n.modifiers),
-            Node::GetAccessorDeclaration(n) => self.check_modifier_order(n.modifiers),
-            Node::SetAccessorDeclaration(n) => self.check_modifier_order(n.modifiers),
-            Node::ConstructorDeclaration(n) => self.check_modifier_order(n.modifiers),
-            Node::ParameterDeclaration(n) => self.check_modifier_order(n.modifiers),
+            Node::PropertyDeclaration(n) => self.check_modifier_order(node, n.modifiers),
+            Node::MethodDeclaration(n) => self.check_modifier_order(node, n.modifiers),
+            Node::GetAccessorDeclaration(n) => self.check_modifier_order(node, n.modifiers),
+            Node::SetAccessorDeclaration(n) => self.check_modifier_order(node, n.modifiers),
+            Node::ConstructorDeclaration(n) => self.check_modifier_order(node, n.modifiers),
+            Node::ParameterDeclaration(n) => self.check_modifier_order(node, n.modifiers),
             Node::IndexSignatureDeclaration(n) => {
                 self.check_index_signature_modifiers(node, n.modifiers);
             }
@@ -2258,7 +2258,10 @@ impl Checker<'_, '_> {
     /// The `else if` **order is the specification**: `static public async`
     /// reports *"public must precede static"* because `static` is tested before
     /// `async`. It is ported in upstream's order for that reason.
-    fn check_modifier_order(&mut self, modifiers: &[ModifierLike<'_>]) {
+    fn check_modifier_order(&mut self, node: NodeId, modifiers: &[ModifierLike<'_>]) {
+        if self.file_has_parse_errors {
+            return;
+        }
         let mut seen: Vec<SyntaxKind> = Vec::new();
         for modifier in modifiers {
             let ModifierLike::Token(token) = modifier else { continue };
@@ -2316,6 +2319,124 @@ impl Checker<'_, '_> {
                 .map(|(_, name)| name),
                 _ => None,
             };
+            // The arms below are the rest of each keyword's `else if` chain,
+            // in upstream's order. Every one ends in `return`, which is why a
+            // node gets at most one grammar diagnostic. §183.
+            let parent_is_module_or_file = self.nodes.parent(node).is_some_and(|parent| {
+                matches!(self.nodes.kind(parent), SyntaxKind::ModuleBlock | SyntaxKind::SourceFile)
+            });
+            let parent_is_class_like = self.nodes.parent(node).is_some_and(|parent| {
+                matches!(
+                    self.nodes.kind(parent),
+                    SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
+                )
+            });
+            let is_parameter = self.nodes.kind(node) == SyntaxKind::Parameter;
+            let is_property = self.nodes.kind(node) == SyntaxKind::PropertyDeclaration;
+            let accessibility = |seen: &[SyntaxKind]| {
+                seen.iter().any(|k| {
+                    matches!(
+                        k,
+                        SyntaxKind::PublicKeyword
+                            | SyntaxKind::ProtectedKeyword
+                            | SyntaxKind::PrivateKeyword
+                    )
+                })
+            };
+            let _ = accessibility;
+            let text = modifier_keyword_text(kind);
+            // `X_0_modifier_already_seen` — the head of the `override`,
+            // `static`, `export`, `declare`, `abstract`, `accessor` and
+            // `readonly` chains, and the one arm every keyword shares.
+            if matches!(
+                kind,
+                SyntaxKind::OverrideKeyword
+                    | SyntaxKind::StaticKeyword
+                    | SyntaxKind::ExportKeyword
+                    | SyntaxKind::DeclareKeyword
+                    | SyntaxKind::AbstractKeyword
+                    | SyntaxKind::AccessorKeyword
+                    | SyntaxKind::ReadonlyKeyword
+            ) && seen.contains(&kind)
+                && let Some(text) = text
+            {
+                self.report_modifier_error(
+                    token,
+                    &messages::_0_MODIFIER_ALREADY_SEEN,
+                    &[text.to_string()],
+                );
+                return;
+            }
+            // `X_0_modifier_cannot_appear_on_a_module_or_namespace_element` —
+            // in the accessibility chain **after** the must-precede arms below
+            // and in the `static` chain after them too, so it is tested here
+            // only for `static`; the accessibility case falls through to
+            // `precede` first and is handled after it.
+            if kind == SyntaxKind::StaticKeyword
+                && parent_is_module_or_file
+                && let Some(text) = text
+            {
+                self.report_modifier_error(
+                    token,
+                    &messages::_0_MODIFIER_CANNOT_APPEAR_ON_A_MODULE_OR_NAMESPACE_ELEMENT,
+                    &[text.to_string()],
+                );
+                return;
+            }
+            // `X_0_modifier_cannot_appear_on_a_parameter` — `static`, `export`
+            // and `declare`.
+            if matches!(
+                kind,
+                SyntaxKind::StaticKeyword | SyntaxKind::ExportKeyword | SyntaxKind::DeclareKeyword
+            ) && is_parameter
+                && let Some(text) = text
+            {
+                self.report_modifier_error(
+                    token,
+                    &messages::_0_MODIFIER_CANNOT_APPEAR_ON_A_PARAMETER,
+                    &[text.to_string()],
+                );
+                return;
+            }
+            // `X_0_modifier_cannot_appear_on_class_elements_of_this_kind` —
+            // `export` on any class element, `declare` on any that is not a
+            // property declaration.
+            if ((kind == SyntaxKind::ExportKeyword && parent_is_class_like)
+                || (kind == SyntaxKind::DeclareKeyword && parent_is_class_like && !is_property))
+                && let Some(text) = text
+            {
+                self.report_modifier_error(
+                    token,
+                    &messages::_0_MODIFIER_CANNOT_APPEAR_ON_CLASS_ELEMENTS_OF_THIS_KIND,
+                    &[text.to_string()],
+                );
+                return;
+            }
+            // `A_declare_modifier_cannot_be_used_in_an_already_ambient_context`
+            // — the SIXTH arm of the `declare` chain (`grammarchecks.go:459`),
+            // and the row §179 declined to build alone. `node.Parent.Flags &
+            // NodeFlagsAmbient != 0 && node.Parent.Kind == ModuleBlock`: this
+            // parser has no ambient flag, so the walk-threaded `ambient` and
+            // the parent's kind stand in for it, which is §99's substitute.
+            //
+            // **The `using` / `await using` arms sit between the parameter arm
+            // above and this one and cannot fire here** — this port has no
+            // block-scope kind for them. §183 records that as the reason this
+            // build is barred below its ceiling.
+            if kind == SyntaxKind::DeclareKeyword
+                && self.file_is_ambient
+                && self
+                    .nodes
+                    .parent(node)
+                    .is_some_and(|parent| self.nodes.kind(parent) == SyntaxKind::ModuleBlock)
+            {
+                self.report_modifier_error(
+                    token,
+                    &messages::A_DECLARE_MODIFIER_CANNOT_BE_USED_IN_AN_ALREADY_AMBIENT_CONTEXT,
+                    &[],
+                );
+                return;
+            }
             if let Some(after) = precede {
                 // `visibilityToString` — the keyword's own text.
                 let text = match kind {
@@ -2337,8 +2458,63 @@ impl Checker<'_, '_> {
                 );
                 return;
             }
+            // The accessibility chain's module-or-namespace arm, which sits
+            // **after** its five must-precede arms (`grammarchecks.go:402`).
+            if matches!(
+                kind,
+                SyntaxKind::PublicKeyword
+                    | SyntaxKind::ProtectedKeyword
+                    | SyntaxKind::PrivateKeyword
+            ) && parent_is_module_or_file
+                && let Some(text) = text
+            {
+                self.report_modifier_error(
+                    token,
+                    &messages::_0_MODIFIER_CANNOT_APPEAR_ON_A_MODULE_OR_NAMESPACE_ELEMENT,
+                    &[text.to_string()],
+                );
+                return;
+            }
+            // `private` with `abstract` is TS1243; the other two spellings take
+            // the must-precede arm above (`grammarchecks.go:405-409`).
+            if kind == SyntaxKind::PrivateKeyword && seen.contains(&SyntaxKind::AbstractKeyword) {
+                self.report_modifier_error(
+                    token,
+                    &messages::_0_MODIFIER_CANNOT_BE_USED_WITH_1_MODIFIER,
+                    &["private".to_string(), "abstract".to_string()],
+                );
+                return;
+            }
+            // `declare` with `accessor`, the last arm of the `declare` chain.
+            if kind == SyntaxKind::DeclareKeyword && seen.contains(&SyntaxKind::AccessorKeyword) {
+                self.report_modifier_error(
+                    token,
+                    &messages::_0_MODIFIER_CANNOT_BE_USED_WITH_1_MODIFIER,
+                    &["declare".to_string(), "accessor".to_string()],
+                );
+                return;
+            }
             seen.push(kind);
         }
+    }
+
+    /// `grammarErrorOnNode(modifier, …)` — every arm of
+    /// `checkGrammarModifiers` reports on the modifier token itself.
+    fn report_modifier_error(
+        &mut self,
+        token: &tsr_ast::Token<'_>,
+        message: &'static tsr_diagnostics::Message,
+        args: &[String],
+    ) {
+        let Some(id) = token.node_id else { return };
+        let Some(file) = self.source_file_of_for_diagnostics(id) else { return };
+        let span = self.error_span(id);
+        let diagnostic = if args.is_empty() {
+            Diagnostic::new(message, span)
+        } else {
+            Diagnostic::with_args(message, span, args.to_vec())
+        };
+        self.report(file, diagnostic);
     }
 
     /// TS1071 — `'{0}' modifier cannot appear on an index signature.`

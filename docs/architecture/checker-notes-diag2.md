@@ -12493,3 +12493,125 @@ it, so `file_has_parse_errors` cannot see it. **Owner: `tsr_parser`** — the
 third row this session to end at that owner (§162's two, §179's two, these
 four), and together they are now a measurable argument that the parse-error set
 is incomplete rather than that the gate is misplaced.
+
+## §183 — `checkGrammarModifiers` taken WHOLE, which is the only way TS1038 is not a wrong code
+
+§179 left TS1038 unbuilt with a reason: it is the **sixth** arm of the `declare`
+chain, and porting it alone reports it where upstream reports one of the five
+ahead of it. The answer to that is not a bound — it is the other five arms.
+
+Priced across the chain:
+
+```
+TS1038   10 lines    7 cases   A 'declare' modifier cannot be used in an already ambient context.
+TS1044   31 lines    6 cases   '{0}' modifier cannot appear on a module or namespace element.
+TS1030   18 lines    5 cases   '{0}' modifier already seen.
+TS1031    4 lines    4 cases   '{0}' modifier cannot appear on class elements of this kind.
+TS1090    4 lines    4 cases   '{0}' modifier cannot appear on a parameter.
+TS1243    2 lines    1 case    '{0}' modifier cannot be used with '{1}' modifier.
+                    ── 27 cases
+TS18019   0 lines    0 cases   (measured, and off the board)
+```
+
+### What the shape actually is, now that the whole function is read
+
+`checkGrammarModifiers` (`grammarchecks.go:260-520`) is **a `flags` accumulator
+over a left-to-right walk, plus a per-keyword `switch` whose every arm is a
+chain of `else if` ending in `return`**. §103 ported the *must-precede* slice of
+two arms; §179 added the accessibility-already-seen head of one. This ports the
+arms whole:
+
+| keyword | arms carrying corpus cases |
+|---|---|
+| `public`/`protected`/`private` | already-seen (TS1028 ✓), module-or-namespace-element (TS1044), `private` with `abstract` (TS1243) |
+| `static` | already-seen (TS1030), module-or-namespace-element (TS1044), on a parameter (TS1090) |
+| `export` | already-seen (TS1030), on a class element (TS1031), on a parameter (TS1090) |
+| `declare` | already-seen (TS1030), on a class element (TS1031), on a parameter (TS1090), **ambient module block (TS1038)**, with `accessor` (TS1243) |
+
+`this port has no `blockScopeKind`, so the `using` / `await using` arms of each
+chain cannot fire — and they sit **between** the parameter arm and TS1038 in the
+`declare` chain. That is a real gap in the ordering and it is why the build is
+barred below its ceiling rather than at it.
+
+### The `Reparsed` guard, still vacuous
+
+Six arms carry `modifier.Flags&ast.NodeFlagsReparsed == 0`. §178 recorded why
+that is vacuous here — no modifier in this tree can be reparsed — and it stays
+recorded rather than silently dropped.
+
+### The bar
+
+```
+bar:  +16 cases,  0 LOST,  WRONG delta ≤ +8
+```
+
+Under 27 for two reasons, both structural: the missing `using` arms sit ahead of
+TS1038, and TS1044's 31 lines over 6 cases (concentration **5.2**, the worst
+this session has taken on) mean most of that row needs every other line in its
+case too.
+
+### Falsifiers
+
+1. **`WRONG` above +8 concentrated on TS1044.** Then the
+   `ModuleBlock || SourceFile` parent test is admitting positions upstream's
+   earlier arms claim — most likely `abstract`, which precedes it in the
+   accessibility chain and follows it in the static one.
+2. **A TS1030 line where the baseline has TS1029.** The already-seen and
+   must-precede arms are adjacent in every chain and this port already emits the
+   second.
+3. **`LOST` non-zero.** `check_modifier_order` currently reports at most one
+   diagnostic per node; adding arms must not change *which* one for any node
+   that already gets it right.
+
+## §184 — §183 built: +8 cases at ZERO wrong, and the case bar missed by half
+
+The bar was `+16 cases, 0 LOST, WRONG delta ≤ +8`.
+
+```
+RULE_CODES = [1028, 1029, 1030, 1031, 1038, 1044, 1090, 1243]
+CONVERTS 25 · LOST 0 · STILL SHORT 11 · RIGHT 46 · WRONG 0
+```
+
+**That 25 is not the delta.** The set includes TS1028 and TS1029, which this
+port already emitted, so the counterfactual reconstructs a state before *those*
+too. `coverage` gives the build's own number: `diagnostics` **1,566 → 1,574,
++8**, at 28.68%.
+
+> **A counterfactual over a code set is a delta only when the port emits none of
+> the set.** §162 said so from the happy side — *"no other producer emits them,
+> so the counterfactual is the delta"* — and this is the same statement from the
+> unhappy one. When an existing code shares the rule being extended, `coverage`
+> is the only honest measurement.
+
+### Verdict: wrong bar beaten, case bar missed by half
+
+`WRONG` is **0** against a ceiling of 8, `LOST` is 0, and the ratio is the best
+of the session. `CONVERTS` is 8 against 16.
+
+Both reasons were written into §183's bar before the code, which is the point of
+writing them there: the `using` / `await using` arms sit **between** the
+parameter arm and TS1038 in the `declare` chain and cannot fire here, and
+TS1044's 31 lines over 6 cases is a concentration of 5.2. `STILL SHORT` is 11 —
+the row's cases mostly want something else as well, exactly as forecast. The
+build is kept: it is a faithful transcription of a chain that pays again every
+time an arm ahead of it lands.
+
+### The parse-error gate, measured a fifth time and free
+
+The single wrong line was `ClassDeclaration26.ts`:
+
+```
+public const var export foo = 10;
+!!! error TS1440: Variable declaration not allowed at this location.
+```
+
+Upstream's **parser** refuses that declaration; this one builds it and the
+`export` arm fires. Gating the whole of `check_modifier_order` on
+`file_has_parse_errors` — which the TS1029 half had never carried — took the
+wrong column to **0 at zero cost to conversions** (1,574 either way).
+
+That is the **fifth** per-rule measurement of this gate (§40.3 +6, §50.1 −6,
+§79 absent-is-right, §179 −20/+0, here −1/+0) and the **fourth** row this
+session whose residue is a construct upstream's parser rejects and this one
+accepts. The parse-error *set* being incomplete is now the single most
+frequently named owner on this board.
