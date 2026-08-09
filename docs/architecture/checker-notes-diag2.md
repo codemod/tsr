@@ -24726,3 +24726,54 @@ maps that are each incomplete cannot prove a difference.
 > failed extension (§338) went the other way — it kept the unit and admitted a
 > new member to the domain. That is the distinction worth carrying: **narrowing
 > the unit preserves the proof; widening the domain re-opens it.**
+
+## §452 — three unset parser flags, one owner, thirteen cases
+
+TS1359 (7 blocked, 6 single-line) turns out to need
+`NodeFlagsAwaitContext` / `NodeFlagsYieldContext` — `binder.go:1314` and
+`:1317`:
+
+```go
+} else if originalKeywordKind == ast.KindAwaitKeyword {
+    …
+    } else if node.Flags&ast.NodeFlagsAwaitContext != 0 {
+        b.errorOnNode(node, Identifier_expected_0_is_a_reserved_word_that_cannot_be_used_here, …)
+} else if originalKeywordKind == ast.KindYieldKeyword && node.Flags&ast.NodeFlagsYieldContext != 0 {
+```
+
+```ts
+var foo = async (await): Promise<void> => { }    // TS1359 on `await`
+```
+
+Both flags are **declared in `tsr-ast/src/flags.rs` (lines 40, 44) and never set
+by `tsr-parser`** — the same condition §446 found for `AMBIENT` (line 68).
+
+### The consolidation
+
+Two rows this session bottomed out here, and they are the same build:
+
+```
+TS1038   6 cases   NodeFlags::AMBIENT          §446
+TS1359   7 cases   AWAIT_CONTEXT / YIELD_CONTEXT   §452
+                   ─────
+                   13 cases, one owner: tsr-parser sets none of the three
+```
+
+> **Two refusals naming the same unset flag family are one item, not two.**
+> Recorded separately they read as two small dead rows; recorded together they
+> are a thirteen-case parser change with a single acceptance test. This session
+> has priced dozens of rows and this is the first time two owners **merged** —
+> which is an argument for naming owners precisely enough that merging is
+> possible at all (§441's claim, arriving from a new direction).
+
+### Why it is not built here
+
+Setting a parser flag changes the tree every suite reads. `parser_typescript`
+and `printer_round_trip` are both at **100%**, and §? recorded the earlier
+estimate that `AWAIT_CONTEXT` alone risks them for two wrong lines. That
+estimate was made against one flag and one row; against **thirteen cases and
+three flags** it deserves re-measuring rather than inheriting — but the
+measurement belongs in a session that can afford a parser regression, and the
+falsifier is unambiguous: **both rails must stay at 100%.**
+
+**Owner: `tsr-parser` — `AMBIENT`, `AWAIT_CONTEXT`, `YIELD_CONTEXT`. 13 cases.**
