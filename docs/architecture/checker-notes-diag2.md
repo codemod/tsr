@@ -24412,3 +24412,114 @@ TS2355  §440  +4      TS2397  §442  +4
 **+28 across six rows**, all of them at `occupied 0/n` with every case
 single-line — the signature §433's refresh exposed and the previous hundred
 builds never saw.
+
+## §444 — the setup-path class, closed at zero
+
+§443 named a class of diagnostics that traversal-based sweeps cannot see: those
+emitted **outside any `check*` function**, while the global table or the symbol
+merge is assembled. Swept — every `diagnostics.X` reference in `checker.go` and
+`binder.go` whose enclosing function is not `check*`, joined against blocked
+rows with a measured emit count of zero:
+
+```
+(0 rows)
+```
+
+**TS2669 (§418) and TS2397 (§442) were the entire class**, worth `+7` between
+them, and it is now empty.
+
+> Third lead this session to close at a measured zero (§421, §431, §444). The
+> three have a shape in common worth naming: **each was a sweep over
+> *upstream's* source rather than over this port's**, and each was exhausted
+> within two builds of being proposed. Sweeps over *this port* — §386's
+> destructures, §377's multi-site codes — still have unworked members after ten
+> builds.
+>
+> The asymmetry is not mysterious: **upstream is finite and already written, so
+> a sweep over it terminates. This port is what changes, so a sweep over it goes
+> stale instead** — which is §406 and §433's lesson arriving from a third
+> direction.
+
+## §445 — TS1038: ambient is a *context*, not a file
+
+```ts
+declare namespace M {
+  declare class C {      // TS1038 — already in an ambient context
+  }
+}
+```
+
+The arm exists (`check.rs:3727`) and is guarded on **`self.file_is_ambient`**.
+Its own comment names the substitute correctly —
+
+> *"this parser has no ambient flag, so the walk-threaded `ambient` and the
+> parent's kind stand in for it, which is §99's substitute"*
+
+— and then reads `file_is_ambient`, which is a **different predicate**:
+`parserClassDeclaration7.ts` is a `.ts` file, and the ambient context comes from
+the enclosing `declare namespace`, not from the file. Upstream's test is
+`node.Parent.Flags & NodeFlagsAmbient`, a *node* flag.
+
+> §342 and §429's family a third time: **a guard whose comment states the right
+> predicate and whose code reads a nearby, cheaper one.** `file_is_ambient` was
+> to hand; the walk's `ambient` was not, because `check_modifier_order` does not
+> take it. **The parameter list is what made the wrong predicate the convenient
+> one** — which is a design observation, not an excuse: §99 threaded `ambient`
+> through the whole traversal precisely so this substitution would be available.
+
+### The fix
+
+Thread `ambient` into `check_modifier_order` and read it instead. Both call
+sites already have it.
+
+### The bar
+
+```
+bar:  +4 of 6,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **A `declare` at file top level in a `.ts` reports.** The parent-kind test
+   (`ModuleBlock`) is unchanged and excludes it.
+2. **A `.d.ts` file's top-level `declare` reports.** Same guard; only the
+   *source* of ambience changes, not the position test.
+
+## §446 — §445 measured **−14**, reverted
+
+```
+diagnostics   1,953 → 1,939   (bar was +4;  −14)
+```
+
+The largest single regression this session, and the argument in §445 was sound
+about upstream while wrong about the substitute.
+
+`node.Parent.Flags & NodeFlagsAmbient` is set by the **parser**, for a node
+under an explicit `declare`. The walk-threaded `ambient` is *not* that: it is
+`true` for every node in a `.d.ts` file, because `file_is_ambient` feeds it.
+Swapping one for the other therefore did not narrow the predicate from "file" to
+"context" — **it widened it from "the file is ambient" to "the file is ambient
+*or* any enclosing declaration is"**, and every `declare` member of every
+`ModuleBlock` in every declaration file started reporting.
+
+> **`file_is_ambient` and the walk's `ambient` are not the same predicate and
+> neither is upstream's node flag.** §99 introduced `ambient` as a substitute
+> for the flag and the substitution is *lossy in the direction that matters
+> here*: the flag distinguishes "this node is under a `declare`" from "this file
+> is a declaration file", and `ambient` conflates them by construction.
+
+That is a third distinct meaning of "ambient" in this port, and the three are
+now worth listing because the next attempt at this row will meet all of them:
+
+```
+file_is_ambient        the file is a .d.ts
+ambient (threaded)     file_is_ambient OR an enclosing `declare`
+NodeFlagsAmbient       upstream's parser flag — under an explicit `declare`
+```
+
+**TS1038's remaining six cases need the third**, which this parser does not set
+(it is one of §? 's three declared-and-unset flags). **Owner: `NodeFlagsAmbient`
+in `tsr-parser`** — and §445's fixture shows why the substitute cannot stand in:
+`declare namespace M { declare class C {} }` in a **`.ts`** file needs a flag
+that says *this node*, in a file where `file_is_ambient` is false and `ambient`
+is true for the wrong reason.
