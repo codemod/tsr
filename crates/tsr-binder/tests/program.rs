@@ -51,6 +51,25 @@ fn resolve(
     result.resolve_name(nodes, node_map, file.root, name, SymbolFlags::VALUE)
 }
 
+/// The same lookup at **type** meaning.
+///
+/// Two tests below name an `interface`, whose symbol carries `INTERFACE` and
+/// no value flag. They asked through [`resolve`] — i.e. at `VALUE` — and passed
+/// anyway, because `resolve_name`'s final `globals` lookup ignored `meaning`
+/// entirely until §166. Fixing that filter turned both red, which is the
+/// intended behaviour: an interface is not a value. The assertions those tests
+/// actually make (a merged member table is complete) are unchanged.
+/// See `docs/architecture/checker-notes-diag2.md` §166.
+fn resolve_type(
+    result: &BindResult<'_>,
+    nodes: &NodeTable,
+    node_map: &NodeMap<'_>,
+    file: &File,
+    name: &str,
+) -> Option<SymbolId> {
+    result.resolve_name(nodes, node_map, file.root, name, SymbolFlags::TYPE)
+}
+
 #[test]
 fn a_name_declared_in_one_script_file_resolves_from_another() {
     // The point of the whole issue. Before this, `a.ts` and `b.ts` were bound
@@ -465,7 +484,7 @@ fn two_declarations_of_a_global_interface_merge_their_members() {
         &mut node_map,
     );
 
-    let symbol = resolve(&result, &nodes, &node_map, &files[2], "I").expect("resolves");
+    let symbol = resolve_type(&result, &nodes, &node_map, &files[2], "I").expect("resolves");
     let data = result.symbols().get(symbol);
     assert_eq!(data.declarations.len(), 2, "both interface declarations");
     let mut members: Vec<&str> = data.members.keys().copied().collect();
@@ -495,7 +514,7 @@ fn a_member_declared_in_both_halves_merges_rather_than_taking_the_first() {
         &mut node_map,
     );
 
-    let symbol = resolve(&result, &nodes, &node_map, &files[2], "I").expect("resolves");
+    let symbol = resolve_type(&result, &nodes, &node_map, &files[2], "I").expect("resolves");
     let member = *result.symbols().get(symbol).members.get("m").expect("`m` is a member");
     assert_eq!(
         result.symbols().get(member).declarations.len(),

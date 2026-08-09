@@ -11282,3 +11282,99 @@ early-return silence: **a measurement that cannot distinguish the two
 hypotheses it is being used to choose between.** Third instance recorded on this
 board, and the cheapest tell is that the confirming number was *large* — 232 of
 238 — which reads as certainty and is actually just a shared prediction.
+
+## §166 — the probe at the rule's entry found a ONE-LINE resolver defect
+
+§165 left the row's next action as *"re-take TS2709's and TS2749's positions"*.
+`diagcase compiler/moduleWithNoValuesAsType` says the expected lines are
+
+```
+namespace A { }
+var a: A;      // TS2709 at (2,8) — and this port reports NOTHING
+```
+
+which is a bare identifier in the `type_name` slot of a bare
+`TypeReferenceNode` — precisely what `check_type_reference_name` claims to
+cover. So the position was not the answer either, and rather than a fourth
+attribution the rule's entry got an `eprintln` behind an env var (§76/§80's
+instrument, now paying for the seventh time across three sessions).
+
+**Two runs, and the second one settles it:**
+
+```
+PROBE A: under SymbolFlags(… CLASS | INTERFACE | … | TYPE_ALIAS) -> Some(SymbolFlags(NAMESPACE_MODULE))
+```
+
+A symbol whose flags are `NAMESPACE_MODULE` **and nothing else** is returned by
+a lookup asking for `TYPE`. Every scoped arm of `BindResult::resolve_name`
+filters — `lookup_scoped` tests `flags.intersects(meaning)`, the namespace-
+exports arm tests `intersects(meaning & mask)` — and then the walk ends:
+
+```rust
+self.globals.get(name).copied().map(|found| self.merged_symbol(found))
+```
+
+**The globals fallback ignored `meaning` entirely.** One line, and it means
+every name in `globals` — which includes all of `lib.*.d.ts` — answered *every*
+meaning query in the program.
+
+### What that one line was hiding
+
+This is why §163's cascade converted nothing and why §164 and §165 each
+attributed the row to the wrong layer. The checker's meaning ladder is written
+as *"if it resolves under another meaning, that hit tells you the code"*; with
+an unfiltered globals lookup, **the first arm of every ladder hits for every
+global name**, so the ladder always returned at `TYPE` and the arms below it
+were unreachable by construction. Three sections of analysis were spent above a
+defect that no amount of reading the arms could reveal.
+
+Fixed by routing the fallback through the same helper every other arm uses,
+which also inherits `lookup_scoped`'s documented alias behaviour (an `ALIAS` is
+accepted whatever its own flags say, because resolving the target needs the
+checker).
+
+### Measured whole, and it is positive in the other workstream's suite
+
+| suite | before | after |
+|---|---:|---:|
+| `diagnostics` | 1,508 | 1,508 |
+| **`checker_types`** | **3,942 · 84.51%** | **3,955 · 84.52%** |
+| `binder_symbols` | 8,459/8,459 | 8,459/8,459 |
+| `printer_round_trip` | 11,762/11,762 | 11,762/11,762 |
+
+`diagnostics` does not move, and that is the **correct** outcome: with the
+filter in place, `var a: A` no longer hits `TYPE`, falls to the `NAMESPACE` arm,
+and returns silently — which is right until TS2709 is ported. **This build is
+the precondition that makes §163's cascade reachable, not the conversion
+itself.**
+
+`checker_types` moving is deliberate and is flagged for the `.types`
+workstream, as §95 was: the revert is one line. It moved **up** by 13 cases.
+
+### Two tests were passing because of the bug
+
+`a_member_declared_in_both_halves_merges_rather_than_taking_the_first` and
+`two_declarations_of_a_global_interface_merge_their_members` both look up an
+`interface` at `SymbolFlags::VALUE` and expect it to resolve. They went red, and
+they were **right to**: an interface is not a value. Corrected to ask at `TYPE`
+via a new `resolve_type` helper; the assertions they actually make are
+untouched.
+
+> **A test that passes through the defect it does not name is not evidence.**
+> Both were written to check member merging and neither cared about meaning, so
+> each picked `VALUE` arbitrarily and the unfiltered lookup made the arbitrary
+> choice work. That is the same shape as §100's *"when a consumer's faithful
+> test gives an unfaithful answer, suspect the flag before the test"*, one
+> layer down: **when a test's incidental argument turns out to matter, the
+> defect is usually older than the test.**
+
+### The instrument note, because this row is now three-for-three
+
+§163 priced by reading upstream and was wrong. §164 attributed by reading
+fixtures and was wrong. §165 disproved §164 by measuring a fix alone. **§166
+found it by printing what the rule actually got, at its entry, in two runs.**
+
+The board's standing rule was already *"probe at the rule's ENTRY, not at a
+branch"*. Strengthen it with what this row demonstrates: **when two successive
+attributions fail, stop attributing and print the inputs.** The cost was one
+`eprintln` and about five minutes, against three sections of analysis.

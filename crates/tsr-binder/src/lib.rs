@@ -500,7 +500,17 @@ impl<'a> BindResult<'a> {
         //
         // Empty unless several files were bound into one result
         // ([`bind_into`]), so a file bound alone behaves exactly as before.
-        self.globals.get(name).copied().map(|found| self.merged_symbol(found))
+        //
+        // **Meaning-filtered, through the same helper every other arm uses.**
+        // This lookup ignored `meaning` entirely until §166, which made every
+        // global name answer *every* query: `namespace A {}` resolved under
+        // `SymbolFlags::TYPE` even though its symbol carries only
+        // `NAMESPACE_MODULE`, and since `lib.*.d.ts` is bound into `globals`,
+        // so did every name in it. That is why `var a: A` reported nothing —
+        // the checker's meaning ladder saw a `TYPE` hit and fell silent, which
+        // is the correct response to a hit and the wrong answer here.
+        // `checker-notes-diag2.md` §166.
+        self.lookup_scoped(Some(&self.globals), name, meaning)
     }
 
     /// Every name a lookup from `start` could reach, in no particular order.
