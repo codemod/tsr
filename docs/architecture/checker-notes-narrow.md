@@ -4424,3 +4424,20 @@ constraints that don't parse keep the current gap, not a partial
 list (the partial-map rule every identity road states); (c) the
 `const` modifier form (Tag6's `<const T>` wants) prints only if the
 tag carries it — no invented modifiers.
+
+**§110 implementation map (read before building).** All three layers
+verified by read: (1) the parser materializes REAL
+`TypeParameterDeclaration` nodes inside `JSDocTemplateTag`
+(nodes.rs:4318 — so §102/§107's identity roads work unchanged);
+(2) the binder FILES their symbols
+(`bind_jsdoc_declarations`' template arm, binder.rs:2943 — note it
+declares at ROOT scope via `declare_jsdoc_symbol`, a scope
+divergence to watch when resolution questions arrive); (3) the
+missing link is only PLUMBING: the jsdoc side table
+(`&[(NodeId, &[&JSDoc])]`) reaches `bind_into_with_jsdoc` and stops
+— the checker never sees it. Build: a
+`jsdoc_templates: FxHashMap<NodeId, &[&TypeParameterDeclaration]>`
+field populated at checker construction from the same table the
+producer already holds, consulted by `signature_parts_of` (and the
+JS-gate) when `type_parameters` is empty. Touches the checker
+constructor + producer call sites; no new parsing, no new binding.
