@@ -3711,3 +3711,10 @@ falsifiers: (a) declaration-site prints of the same overloaded
 members must not change (their chains resolve bare — the §95
 precedent held); (b) the §89/§90.1 keep-text set members stay
 excluded.
+
+**§99 score — LANDED.** Clean-main pair: **+55 W→R, ZERO adverse**
+(overload1 15, underscoreTest1 14 — the double-refused case's second
+partial conversion — temporal 16). Measured atop the held §97 the
+same arm reads +99 (temporal 60): 44 of temporal's rows need §97's
+un-errored union types to exist before this renderer can touch them —
+that composition is §97's to state when it lands after §98 retention.
