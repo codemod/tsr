@@ -572,3 +572,20 @@ b), then test (c) by printing the arrow's TypeId before/after
 eviction — same id means the intern table answered. The survivor
 is one of two; TRACE3's "foo" print remains the win condition, the
 head-23's conversion the proof, the twin sets the landing bar.
+
+**Enumeration round 3 — candidate (b) CLEAR (no memos on the
+contextual road; only type-data lookups), get_signatures_of_symbol
+CLEAR (no cache) — and a verification hole in round 2's own
+verdict, recorded before it misleads:** the "node_types
+insufficient" measurement ran WITHOUT the trace prints (they are
+manual edits, lost in that reassembly), so it shows the head-23
+still failing but CANNOT show whether the arrow still freezes or
+fails newly downstream. Round 4's harness is therefore: the
+whole-file snapshots + the four prints RE-ADDED AND KEPT IN THE
+SNAPSHOTS, one filtered run, read TRACE3. If it prints "foo" the
+freeze is over and the 23's residual is a new (younger) question;
+if T, the survivor is the one remaining candidate — the Named-type
+creation path — probed by printing the arrow's TypeId across the
+eviction. The chain of custody on every claim in this study is now
+explicit; three of its corrections caught this window's own
+errors, which is the method working on its author.
