@@ -7052,7 +7052,6 @@ impl Checker<'_, '_> {
         if self.file_has_parse_errors {
             return;
         }
-        let Some(Node::QualifiedName(qualified)) = self.node_map.get(node) else { return };
         // Only as the `type_name` of a bare type reference — the same slot
         // `check_type_reference_name` claims, so the two are disjoint.
         let Some(parent) = self.nodes.parent(node) else { return };
@@ -7060,11 +7059,28 @@ impl Checker<'_, '_> {
         if reference.type_name.and_then(|name| name.node_id()) != Some(node) {
             return;
         }
+        self.check_qualified_type_name_at(node, true);
+    }
+
+    /// The rule proper, reachable from the entry above **and from itself**.
+    ///
+    /// `D.inner.Class1` parses as `QualifiedName(QualifiedName(D, inner),
+    /// Class1)` and upstream reports on `inner` — the inner qualified name,
+    /// whose parent is the outer one and which the entry guard therefore never
+    /// admits. §529.
+    fn check_qualified_type_name_at(&mut self, node: NodeId, outermost: bool) {
+        let Some(Node::QualifiedName(qualified)) = self.node_map.get(node) else { return };
         let Some(left) = qualified.left.and_then(|left| left.node_id()) else { return };
         let Some(right) = qualified.right.and_then(|right| right.node_id) else { return };
-        // Two deep: `A.B`, not `A.B.C`. A deeper chain is upstream's
-        // `canSuggestTypeof` and type-but-not-namespace arms, which carry
-        // TS2749 and TS2713.
+        // **A deeper chain reports its innermost failure.** §187 declined
+        // `A.B.C` outright; the corpus wants the middle segment, which is the
+        // `right` of the inner qualified name. The outer level — `A.B` resolving
+        // cleanly with `C` missing — needs `resolveEntityName` over a qualified
+        // left and is **not built** (§501). §529.
+        if self.nodes.kind(left) == SyntaxKind::QualifiedName {
+            self.check_qualified_type_name_at(left, false);
+            return;
+        }
         if self.nodes.kind(left) != SyntaxKind::Identifier {
             return;
         }
@@ -7152,7 +7168,12 @@ impl Checker<'_, '_> {
                 .nodes
                 .parent(node)
                 .is_some_and(|parent| self.nodes.kind(parent) == SyntaxKind::TypeQuery);
-            if value_only
+            // **The `canSuggestTypeof` arm belongs to the whole name.** Its
+            // error node is the entire type reference and its message prints
+            // `A.B`; asked of an inner segment it reported TS2749 at three
+            // positions upstream leaves alone — §529's falsifier 2, fired.
+            if outermost
+                && value_only
                 && !in_type_query
                 && let Some(file) = self.source_file_of_for_diagnostics(node)
             {

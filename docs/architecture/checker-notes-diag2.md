@@ -27861,3 +27861,96 @@ When a rule is a **switch over a discriminator** (an extension, a kind, a flag),
 the falsifier should assert that two *adjacent* discriminator values produce
 **different** codes — §494 wrote the same test for `for…in`/`for…of` and it is
 the test that would have caught all three of these.
+
+## §529 — TS2694: a qualified name deeper than two
+
+§187's rule declines `A.B.C` in one line:
+
+```rust
+// Two deep: `A.B`, not `A.B.C`.
+if self.nodes.kind(left) != SyntaxKind::Identifier {
+    return;
+}
+```
+
+The corpus's shape is `innerAliases.ts(19,10)`:
+
+```ts
+var c: D.inner.Class1;   // reported on `inner`, column 10 — the MIDDLE segment
+```
+
+**The column names the arm.** `D.inner.Class1` parses as
+`QualifiedName(QualifiedName(D, inner), Class1)`, and upstream reports at
+`inner` — so the failure is at the *inner* qualified name, which this rule never
+visits because its entry guard demands a `TypeReferenceNode` parent and the
+inner name's parent is the outer `QualifiedName`.
+
+That is the same instrument §521 misused and §528 named: **a baseline column is
+evidence about which node upstream was looking at**, and it is cheaper than any
+amount of reasoning about the recursion.
+
+### What is built and what is not
+
+Built: **the innermost failure**. When the left is itself a qualified name the
+rule recurses into it and returns.
+
+Not built (§501): the case where `A.B` resolves cleanly and `C` is the missing
+member. That needs `resolveEntityName` over a *qualified* left — resolving a
+symbol through a chain rather than a single `resolve_name` — which this port
+does not have. Named, not attempted.
+
+### The bar
+
+```
+bar:  +2 of 10,  0 LOST,  WRONG delta <= +1
+```
+
+Two rather than ten because only the innermost arm is built, and the ten include
+import-alias namespaces whose exports this port does not fill (§186's empty-table
+decline, which stands).
+
+### Falsifiers
+
+1. **A two-deep `A.B` changes.** The recursion must be reached only when the
+   left is a `QualifiedName`; the existing arm is untouched.
+2. **TS2749/TS2713 lines appear.** The deeper chain was declined *to* those
+   codes; if the recursion reports TS2694 where upstream reports TS2749, the
+   position is right and the code is wrong — §185's exact failure mode.
+
+## §530 — §529 built: **+4**, double its bar, after falsifier 2 fired and was paid
+
+```
+first form    2,050 → 2,049   (−1)   three wrong TS2749 lines
+gated form    2,050 → 2,052   (+4)   zero wrong lines in TS2694/TS2749/TS2713
+```
+
+The recursion was right and the arm it recursed *through* was not. The
+`canSuggestTypeof` block reports on the **whole** type reference — its error
+node is the entire name and its message prints `A.B` — so asked of an inner
+segment it produced TS2749 at three positions upstream leaves alone. One
+`outermost: bool` and the row doubled its bar.
+
+> **A rule reached by recursion is two rules: the one that recurses and the one
+> that reports on the whole.** §529's first form assumed a rule visited from a
+> new place answers the same question there. Every arm whose error node is the
+> *node the entry was called with* rather than the node under test changes
+> meaning when the entry changes.
+
+This is the same class as §527's ordering defect and §522's domain widening —
+three different ways a correct predicate ends up in the wrong place — and the
+cheap test for all three is now written down:
+
+```
+§528   switch-shaped:   adjacent discriminator values must give DIFFERENT codes
+§530   recursion-shaped: the arms that report on the WHOLE must be gated to the entry
+§522   loop-shaped:      the domain is the iteration, not the guard
+```
+
+Falsifier 2 was written in the same breath as the build and named the exact
+mechanism — *"if the recursion reports TS2694 where upstream reports TS2749, the
+position is right and the code is wrong"* — which is what a falsifier is for and
+is why the diagnosis cost one `extraonly` run instead of a bisect.
+
+**Not built and named**: `A.B` resolving cleanly with `C` missing, which needs
+`resolveEntityName` over a qualified left. TS2694 keeps six cases behind that
+and §186's empty-exports decline.
