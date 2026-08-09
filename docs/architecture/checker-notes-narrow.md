@@ -4020,3 +4020,32 @@ underscore's last 14 (the flipped-order pairs whose sites our
 resolve_name reads differently — trace before touching), and §90.1's
 chain2 `r_1` family stays on its empirical gate (a THIRD mechanism,
 still undecoded).
+
+## §105 — readonly MINTING (bar, sized) [checker-2]
+
+Post-§104 census: **1,044 lines want `readonly` somewhere** — 569
+tuple-shaped (`readonly [...]`: 116 WRONG / 453 GAP), 475
+member/array-shaped (123 / 352). WRITTEN annotations are
+EXONERATED: `readonly string[]` and `readonly [string, string]`
+annotations already answer RIGHT (readonlyArraysAndTuples2 verified
+line-by-line; the TypeOperatorNode arms exist in declared.rs). The
+residue is MINTING — types this port must create:
+  1. as-const ARRAYS → `readonly [regular elements]` tuples
+     (constAssertions ~77; check_const_assertion's array gate is
+     the entry, §104's parens-climb already in place);
+  2. as-const OBJECTS → `{ readonly a: 1; }` members with the §77
+     single-quote written-spelling reuse inside member positions
+     (the assertions.rs doc's second blocker — §77's machinery
+     exists now, wiring unverified);
+  3. inference/tuple-machinery shapes (variadicTuples1 44,
+     spreadsAndContextualTupleTypes 51, excessivelyLargeTupleSpread
+     70) — NOT this slice's; they need the §86-family variadic
+     element-list modeling first;
+  4. typeParameterConstModifiers 88 — §103's, blocked on this slice
+     plus inference plumbing.
+Slice = (1)+(2). Bar prediction DEFERRED to the build window — the
+per-case convert estimate needs the object-member quote-reuse
+question answered first (one probe: does a §77-spelled member
+literal survive the object type's text computation?). Must NOT
+move: the written-annotation rights just verified, §104's 232, §55
+enum values.
