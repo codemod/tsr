@@ -4693,3 +4693,25 @@ undecidables — the case's remaining rows fail past the predicate
 road entirely (the narrowed prints still mismatch on shapes the
 probe places downstream of the ladder); priced as the case's deep
 residue, not a §22 rung.
+
+## §117 — the lib-member residue: decomposition opens [claimed: checker-1]
+
+[The subsystem split's my-lane half; checker-2 opens generic-overload
+resolution in callres2.]
+
+The family: "property access, the receiver has no such property" —
+4,406 gap lines / ~270+265 near-miss cases at the day's close. The
+top three cases name three distinct branches before any instrumented
+census: (1) strictBindCallApply1 113 — `bind`/`call`/`apply` members
+of FUNCTION types (upstream: the callable's apparent type through
+the strict-bind-call-apply globals — a lib-interface road our
+function types never take); (2) uncalledFunctionChecksInConditional2
+112 — reads through conditional-checked callables (the truthiness
+family's receivers); (3) doYouNeedToChangeYourTargetLibraryES2016Plus
+98 — TARGET-LIB VERSION members (`includes` and friends: whether the
+@lib/@target directive mounts the ES2016+ libs at all — possibly a
+harness mounting question, not a checker one, and the cheapest
+branch if so). NEXT: the instrumented receiver-shape census
+(one probe at the miss site classifying receiver TypeData + apparent
+road taken), then the design doc with measured entries. No slice
+before the census.
