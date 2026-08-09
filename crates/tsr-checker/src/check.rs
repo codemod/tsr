@@ -423,6 +423,12 @@ impl Checker<'_, '_> {
             Node::AwaitExpression(_) => self.check_await_in_parameter_initializer(node),
             Node::ImportSpecifier(_) | Node::ExportSpecifier(_) => {
                 self.report_missing_module_export(node);
+                self.check_alias_symbol(node);
+            }
+            // `checkImportBinding` (`checker.go:5287`-`:5303`, `:5473`) and
+            // `checkExportDeclaration`'s clause (`:5534`).
+            Node::ImportClause(_) | Node::NamespaceImport(_) | Node::NamespaceExport(_) => {
+                self.check_alias_symbol(node);
             }
             // `NodeCanBeDecorated` rejects every one of these outright.
             Node::EnumDeclaration(n) => self.check_illegal_decorator(n.modifiers),
@@ -434,7 +440,10 @@ impl Checker<'_, '_> {
             }
             Node::TypeAliasDeclaration(n) => self.check_illegal_decorator(n.modifiers),
             Node::VariableStatement(n) => self.check_illegal_decorator(n.modifiers),
-            Node::ImportEqualsDeclaration(n) => self.check_illegal_decorator(n.modifiers),
+            Node::ImportEqualsDeclaration(n) => {
+                self.check_illegal_decorator(n.modifiers);
+                self.check_alias_symbol(node);
+            }
             Node::ModuleDeclaration(n) => self.check_illegal_decorator(n.modifiers),
             Node::ImportDeclaration(n) => self.check_illegal_decorator(n.modifiers),
             Node::ExportDeclaration(n) => self.check_illegal_decorator(n.modifiers),

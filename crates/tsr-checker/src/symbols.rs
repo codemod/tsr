@@ -1045,6 +1045,50 @@ impl<'a> Checker<'a, '_> {
         None
     }
 
+    /// TS2440 — `Import declaration conflicts with local declaration of '{0}'.`
+    /// TS2441 — `Export declaration conflicts with exported declaration of '{0}'.`
+    ///
+    /// `checkAliasSymbol` (`checker.go:6736`). An alias's **local** symbol
+    /// merges any other local declaration of the same name, so its flags are
+    /// the union of every meaning that name already carries; the rule asks
+    /// whether the imported target claims one of them.
+    ///
+    /// Upstream's `IsInJSFile` arm above this is unreachable rather than
+    /// declined — §197 excludes `allowJs` cases from the diagnostics suite.
+    pub(crate) fn check_alias_symbol(&mut self, node: NodeId) -> Option<()> {
+        let declared = self.binder.symbol_of(node)?;
+        let target = self.resolve_alias(declared)?;
+        // `symbol.ExportSymbol ?? symbol`, then merged: an exported alias has a
+        // separate export symbol carrying the real flags (`declareModuleMember`).
+        let local = self.binder.symbols().get(declared).export_symbol.unwrap_or(declared);
+        let local = self.binder.merged_symbol(local);
+        let flags = self.binder.symbols().get(local).flags;
+        let target_flags = self.get_symbol_flags(target);
+        let mut excluded = SymbolFlags::empty();
+        if flags.intersects(SymbolFlags::VALUE | SymbolFlags::EXPORT_VALUE) {
+            excluded |= SymbolFlags::VALUE;
+        }
+        if flags.intersects(SymbolFlags::TYPE) {
+            excluded |= SymbolFlags::TYPE;
+        }
+        if flags.intersects(SymbolFlags::NAMESPACE) {
+            excluded |= SymbolFlags::NAMESPACE;
+        }
+        if !target_flags.intersects(excluded) {
+            return None;
+        }
+        let name = self.binder.symbols().get(local).name.to_string();
+        let file = self.source_file_of_for_diagnostics(node)?;
+        let span = self.nodes.span(node);
+        let message = if self.nodes.kind(node) == SyntaxKind::ExportSpecifier {
+            &messages::EXPORT_DECLARATION_CONFLICTS_WITH_EXPORTED_DECLARATION_OF_0
+        } else {
+            &messages::IMPORT_DECLARATION_CONFLICTS_WITH_LOCAL_DECLARATION_OF_0
+        };
+        self.report(file, Diagnostic::with_args(message, span, [name]));
+        None
+    }
+
     /// The `ImportDeclaration` or `ExportDeclaration` a specifier belongs to.
     fn import_or_export_declaration_of(&self, specifier: NodeId) -> Option<NodeId> {
         let mut current = specifier;

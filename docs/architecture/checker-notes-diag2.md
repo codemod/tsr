@@ -15162,3 +15162,129 @@ TS2460 and the `export =` variant — are declined rather than mis-emitted. The
 `is_empty()` decline (§186) and the locals test are both load-bearing: without
 them a module whose table this port never filled answers "no member" for every
 import in the file.
+
+## §230 — TS2440, an import that collides with a local of the same meaning
+
+Ninth build off §226's no-producer list. `checkAliasSymbol`
+(`checker.go:6736`), and the rule is six lines:
+
+```go
+symbol      = c.getMergedSymbol(core.OrElse(symbol.ExportSymbol, symbol))
+targetFlags = c.getSymbolFlags(target)
+excludedMeanings := IfElse(symbol.Flags&(Value|ExportValue) != 0, Value, 0) |
+                    IfElse(symbol.Flags&Type      != 0, Type,      0) |
+                    IfElse(symbol.Flags&Namespace != 0, Namespace, 0)
+if targetFlags&excludedMeanings != 0 {
+    message := IfElse(ast.IsExportSpecifier(node),
+        Export_declaration_conflicts_with_exported_declaration_of_0,   // TS2441
+        Import_declaration_conflicts_with_local_declaration_of_0)      // TS2440
+    c.error(node, message, c.symbolToString(symbol))
+}
+```
+
+The comment upstream puts above it is the whole idea: **an alias's local symbol
+merges any other local declaration of that name**, so its flags are the union,
+and `excludedMeanings` asks "does the imported target claim a meaning this name
+already has locally?"
+
+Every piece exists here. `export_symbol` is a field on
+`tsr_binder::Symbol` (`symbol.rs:323`), `get_symbol_flags` already walks alias
+chains with a cycle guard (`symbols.rs:424`), `resolve_alias` and
+`merged_symbol` are both ported.
+
+### Both arms, not one
+
+TS2441 is not in the gap at ≥5 cases, and it is still ported — it is a ternary
+on the same condition, and shipping only the branch the corpus rewards is how a
+port acquires shapes nobody can explain later.
+
+### Call sites
+
+`checkImportBinding` reaches it for `ImportClause`, `NamespaceImport` and
+`ImportSpecifier` (`checker.go:5287`–`:5303`), plus `ImportEqualsDeclaration`
+(`:5473`); `checkExportDeclaration` for a `NamespaceExport` clause (`:5534`) and
+`checkExportSpecifier` for an `ExportSpecifier` (`:5552`).
+
+The `IsInJSFile` arm above the rule is skipped: §197 already excludes `allowJs`
+cases from this suite, so it is unreachable rather than declined.
+
+### The bar
+
+```
+bar:  +6 cases of 9,  0 LOST,  WRONG delta <= +2
+```
+
+Not the ceiling. §229 is the reason: this rule reads *merged* symbol flags, and
+§229's four wrong lines were all a merge this port builds differently from
+upstream.
+
+### Falsifiers
+
+1. **A plain `import { x }` with no local `x` reports.** The rule needs the
+   local declaration; without one `excludedMeanings` is empty.
+2. **An `import type` reports.** A type-only import contributes no value
+   meaning, so the target's `Value` cannot collide.
+3. **`diagnostics` falls, or WRONG rises past +2.**
+
+## §231 — §230 built: +5, and §140's trap fired on me
+
+```
+diagnostics   1,644 → 1,649   (+5, bar was +6)   ← the board crosses 30%
+every other suite unmoved
+
+diag2307, RULE_CODES = [2440, 2441] in isolation:
+  CONVERTS 5 · LOST 0 · STILL SHORT 4 · RIGHT 10 · WRONG 1
+```
+
+Under the case bar, well inside the quality bar.
+
+### The first measurement was contaminated, and clippy said so
+
+The new dispatch arm listed `Node::ImportEqualsDeclaration`, which **already had
+an arm further down** running `check_illegal_decorator`. Rust takes the first
+match, so that rule was silently deleted — and the first coverage run,
+`1,647`, was taken *with an existing rule switched off*.
+
+`cargo clippy` reported `unreachable pattern` and pointed at both arms. Merging
+them and re-measuring gives **1,649**: the shadow was costing **2 cases**, so
+the reported gain would have been `+3` instead of the true `+5`, with a
+regression hidden inside it.
+
+> **§140 is not a lesson about `match` — it is a lesson about running clippy
+> *before* believing a coverage number.** The gate was scheduled after the
+> measurement, which is exactly backwards for any change that touches a
+> dispatch. The number that came back was plausible, self-consistent, and
+> wrong in two directions at once.
+
+The build order is corrected for the rest of this workstream: **a change to a
+dispatch gets `clippy` before `coverage`**, not after.
+
+### Falsifiers, and why these needed no unit test
+
+Falsifier 1 was "a plain `import { x }` with no local `x` reports" and
+falsifier 2 "an `import type` reports". Both are answered by `WRONG 1` across
+the corpus: ordinary imports are everywhere in these 5,488 cases, and a rule
+firing on them would produce hundreds of wrong lines rather than one.
+
+This is the **opposite** of §227's situation and worth the contrast. There the
+corpus contained no negative instance at all, so `+8 of 8` certified nothing
+about the boundary and a mutation-checked unit test was the only way to pin it.
+Here the corpus is saturated with negatives, so the corpus *is* the falsifier.
+
+> **Ask whether the corpus contains the negative before deciding whether a unit
+> test is redundant.** Same question, opposite answers, one build apart.
+
+### The one wrong line, and a pattern across three builds
+
+```
+1  compiler/namespaceMergedWithImportAliasNoCrash  file2.ts(1,8) TS2440
+```
+
+A namespace merged with an import alias. That is the **third** consecutive build
+whose residual wrong lines are all one family — §229's three were a `declare
+module` augmentation, and this is a namespace/alias merge. Five wrong lines
+across two builds, all of them this port's merge table differing from upstream's.
+
+Recorded as a cross-build observation rather than three separate footnotes: the
+next build that reads merged symbol flags should expect to pay here, and the
+merge layer is now the single largest named owner in the *wrong* column.
