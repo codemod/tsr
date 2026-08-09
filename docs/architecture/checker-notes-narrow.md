@@ -3841,3 +3841,13 @@ corpus tail. Must NOT move: §24's existing all-literal folds and
 §55's enum values (untouched module). Any adverse from number
 SPELLING divergence is priced per line and refuses the formatting
 arm (not the fold) if it exceeds 1:5.
+
+**§100 score — LANDED, count leg missed and stated.** Isolated
+stash pair: **+24 W→R, ZERO adverse** (inferTypePredicates 20,
+returnTagTypeGuard 4). The bar's ≥40 missed at 24: the case's other
+~130 lines are (a) predicate CONSUMPTION — `.filter(isNonNull)`
+element narrowing through the inferred predicate, the §22-callres
+consumer road, and (b) narrowing shapes `narrow_type` declines
+(instanceof-false, `in`-negative, custom guards through aliases) —
+each an owned follow-up, none a defect of the admission. Falsifier
+(c) held: multi-return and implicit-return functions byte-identical.

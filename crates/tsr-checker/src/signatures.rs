@@ -584,10 +584,23 @@ impl<'a> Checker<'a, '_> {
         // `getTypePredicateOfSignature`'s `typeNode != nil` arm
         // (`relater.go:2029`): a return annotation that *is* a predicate node
         // builds one, and nothing else does.
-        let predicate = match return_annotation {
+        let mut predicate = match return_annotation {
             Some(TypeNode::TypePredicateNode(node)) => Some(self.type_predicate_of(node)?),
             _ => None,
         };
+        // §100 (`checker-notes-narrow.md`): with no annotation at all and a
+        // BOOLEAN inferred return, a single-return body may refine a
+        // parameter (`getTypePredicateFromBody`, `checker.go:20535`).
+        if predicate.is_none() && return_annotation.is_none() {
+            predicate = self.infer_type_predicate_from_body(
+                declaration,
+                parameter_nodes,
+                body,
+                modifiers,
+                asterisk,
+                r#type,
+            );
+        }
         Some(Signature {
             declaration,
             kind: self.signature_kind_of(declaration),
@@ -648,6 +661,108 @@ impl<'a> Checker<'a, '_> {
             out.push_str(&self.type_to_string(id));
         }
         out
+    }
+
+    /// §100: `getTypePredicateFromBody` (`checker.go:20535`) — an unannotated
+    /// function whose body is ONE `return <expr>` of boolean type may refine
+    /// a parameter: trueType = the declared type narrowed by the expression
+    /// TRUE; the predicate holds iff narrowing trueType by the expression
+    /// FALSE reduces to `never` (`checkIfExpressionRefinesParameter`,
+    /// `:20586`). The admission slice here is conservative on upstream's
+    /// "no implicit return": a block body qualifies only when its statement
+    /// list IS the single return, which cannot fall through.
+    fn infer_type_predicate_from_body(
+        &mut self,
+        declaration: NodeId,
+        parameter_nodes: &[&tsr_ast::ParameterDeclaration<'a>],
+        body: Option<Body<'a>>,
+        modifiers: &[ModifierLike<'_>],
+        asterisk: bool,
+        return_type: TypeId,
+    ) -> Option<TypePredicate> {
+        if !self.store.get(return_type).flags.contains(crate::flags::TypeFlags::BOOLEAN) {
+            return None;
+        }
+        if asterisk
+            || modifiers.iter().any(|modifier| {
+                matches!(modifier, ModifierLike::Token(token)
+                    if token.kind == SyntaxKind::AsyncKeyword)
+            })
+            || self.signature_kind_of(declaration) != SignatureKind::Call
+        {
+            return None;
+        }
+        let single_return = match body? {
+            Body::Expression(expression) => expression,
+            Body::Block(block) => {
+                let Some(Node::Block(block)) = self.node_map.get(block) else { return None };
+                let [statement] = block.statements else { return None };
+                let tsr_ast::Statement::ReturnStatement(statement) = statement else {
+                    return None;
+                };
+                statement.expression?
+            }
+        };
+        // `ast.SkipParentheses(expr)` (`:20566`).
+        let mut expr = single_return;
+        while let tsr_ast::Expression::ParenthesizedExpression(inner) = expr {
+            expr = inner.expression?;
+        }
+        let condition = expr.node_id()?;
+        let error = self.intrinsics.error;
+        for node in parameter_nodes {
+            if node.dot_dot_dot_token.is_some() {
+                continue;
+            }
+            let Some(tsr_ast::BindingName::Identifier(name)) = node.name else { continue };
+            if name.text == "this" {
+                continue;
+            }
+            let symbol = node.node_id.and_then(|id| self.binder.symbol_of(id))?;
+            let declared = self.get_type_of_symbol(symbol);
+            let flags = self.store.get(declared).flags;
+            // "Refining `x: boolean` to `x is true` isn't useful" (`:20573`);
+            // an unknowable declared type refines nothing honestly.
+            if declared == error || flags.contains(crate::flags::TypeFlags::BOOLEAN) {
+                continue;
+            }
+            // `isSymbolAssigned` (`:20573`): a reassigned parameter's facts
+            // don't survive to the return.
+            if self.is_symbol_assigned_definitely(symbol)
+                || self.last_assignment_pos.contains_key(&symbol)
+            {
+                continue;
+            }
+            let reference = name.node_id?;
+            let true_type = self.narrow_reference_by_condition(
+                reference,
+                Some(symbol),
+                declared,
+                declared,
+                condition,
+                true,
+            );
+            if true_type == declared || true_type == error {
+                continue;
+            }
+            let false_subtype = self.narrow_reference_by_condition(
+                reference,
+                Some(symbol),
+                declared,
+                true_type,
+                condition,
+                false,
+            );
+            if !self.store.get(false_subtype).flags.contains(crate::flags::TypeFlags::NEVER) {
+                continue;
+            }
+            return Some(TypePredicate {
+                asserts: false,
+                parameter_name: Some(name.text.to_string()),
+                r#type: Some(true_type),
+            });
+        }
+        None
     }
 
     /// `getReturnTypeOfSignature`'s `default` arm (`checker.go:20013`) and the

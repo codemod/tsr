@@ -2375,6 +2375,36 @@ impl Checker<'_, '_> {
         self.get_union_type(&replaced)
     }
 
+    /// §100's door into the narrowing ladder: narrow `initial` (declared as
+    /// `declared`) for `reference` under `condition`, outside any flow walk.
+    /// The predicate-inference pair (`checkIfExpressionRefinesParameter`,
+    /// `checker.go:20586`) is the one caller — it synthesises its own
+    /// true/false condition nodes upstream too.
+    pub(crate) fn narrow_reference_by_condition(
+        &mut self,
+        reference: NodeId,
+        symbol: Option<SymbolId>,
+        declared: TypeId,
+        initial: TypeId,
+        condition: NodeId,
+        assume_true: bool,
+    ) -> TypeId {
+        let mut state = FlowState {
+            reference,
+            symbol,
+            declared_type: declared,
+            initial_type: initial,
+            is_auto: false,
+            is_auto_array: false,
+            outer_reference: false,
+            discriminant_pattern: None,
+            flow_container: None,
+            shared_flow_start: self.shared_flows.len(),
+            depth: 0,
+        };
+        self.narrow_type(&mut state, initial, condition, assume_true)
+    }
+
     fn narrow_type(
         &mut self,
         state: &mut FlowState,
