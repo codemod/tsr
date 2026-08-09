@@ -4240,3 +4240,22 @@ consults the stack before site resolution; wired into
 composition with §90.1's mint-time gate (watch chain2/TupleUnionFunc
 for `r_1_1`); (c) the §102 multi-sig layouts must be byte-identical
 — the stack augments, never replaces, the site test.
+
+**§107 first measurement — REFUSED at 13:4, target missed.** The
+render-scope stack + single-signature site test measured +13 W→R
+(instanceMemberInitialization, awaitedTypeStrictNull,
+subclassWithPolymorphicThis — real, but NOT the handed 6: the
+declarationEmit case never moved, so its nested prints do not route
+through `signature_to_string_at` at all — suspect the §89 keep-text
+set or the function_types bake) against 4 R→W (computed-name sites:
+`[e<T>()]` positions where the site test resolves the printed
+signature's own name to an ENCLOSING type parameter; an
+inside-own-declaration identity gate did NOT clear them — the
+containment test never fired, meaning the reference node is outside
+the signature's declaration span there, and upstream's shadow
+resolves from the PRINTED DECLARATION's context, not the assertion
+node). Two prerequisites now named: (a) find where the handed 6's
+prints bake (probe, one eprintln); (b) the single-signature site
+test must resolve from the printed declaration, which is a different
+reference plumbing than the composite arm's. Reverted whole; the
+multi-sig §102 arm is untouched and stands.
