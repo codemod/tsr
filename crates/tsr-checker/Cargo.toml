@@ -12,6 +12,7 @@ authors.workspace = true
 bitflags = { workspace = true }
 rustc-hash = { workspace = true }
 tsr-ast = { workspace = true }
+tsr-scanner = { workspace = true }
 tsr-binder = { workspace = true }
 tsr-core = { workspace = true }
 tsr-diagnostics = { workspace = true }

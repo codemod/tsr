@@ -205,3 +205,112 @@ fn is_left_hand_side_expression(expression: Expression<'_>) -> bool {
             | Expression::NonNullExpression(_)
     )
 }
+
+impl Checker<'_, '_> {
+    /// TS1212 / TS1213 / TS1214 — a future reserved word used as an identifier.
+    ///
+    /// `checkContextualIdentifier` (`binder.go:1303`), whose own comment says
+    /// why it lives where it does: *"the binder visits every node in the syntax
+    /// tree so it is a convenient place to perform a single localized check for
+    /// reserved words used as identifiers in strict mode code"*. The check
+    /// traversal is this port's equivalent of that visit.
+    ///
+    /// # It has no strict-mode gate either
+    ///
+    /// `TASK-diagnostics.md` §7 carried *"TS1212 needs `alwaysStrict` inside
+    /// `tsr_binder::bind`"* for four handoffs. The gate is parse errors,
+    /// `NodeFlagsAmbient`, `NodeFlagsJSDoc` and `IsIdentifierName` — and
+    /// nothing else. `letIdentifierInElementAccess01.ts` is `var let: any = {};`
+    /// with no prologue, no export and no class, and upstream reports TS1212 on
+    /// it twice. See `checker-notes-diag2.md` §161.
+    ///
+    /// # The arm that is not ported
+    ///
+    /// `originalKeywordKind == KindAwaitKeyword` (`binder.go:1312`) needs
+    /// `NodeFlags::AWAIT_CONTEXT`, which this port declares and never sets —
+    /// the same shape §104 hit with `YIELD_CONTEXT`. **Owner: `tsr_parser`'s
+    /// await-context tracking.** Upstream's *third* arm, `KindYieldKeyword`
+    /// under `YieldContext`, is dead code there: `KindYieldKeyword` **is**
+    /// `LastFutureReservedWord`, so the first arm always claims it.
+    pub(crate) fn check_contextual_identifier(&mut self, node: NodeId, ambient: bool) {
+        // `len(b.file.Diagnostics()) == 0` — stated explicitly upstream, so
+        // ported rather than measured. §161's third falsifier is the re-measure
+        // if the wrong column turns out to concentrate in recovered trees.
+        if self.file_has_parse_errors || ambient {
+            return;
+        }
+        let Some(Node::Identifier(identifier)) = self.node_map.get(node) else { return };
+        // `NodeFlagsJSDoc` is a fifth declared-and-never-set flag and needs no
+        // derivation: this parser keeps JSDoc out of the tree, so the walk
+        // never reaches a `@param` name.
+        //
+        // `scanner.GetIdentifierToken` — the generated keyword table, reused
+        // rather than re-listed so that a codegen change cannot silently
+        // desynchronise the two.
+        let Some(keyword) = tsr_scanner::keyword_kind(identifier.text) else { return };
+        if (keyword as u16) < (SyntaxKind::FIRST_FUTURE_RESERVED_WORD as u16)
+            || (keyword as u16) > (SyntaxKind::LAST_FUTURE_RESERVED_WORD as u16)
+        {
+            return;
+        }
+        if self.is_identifier_name(node) {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        // `errorOnNode` — the identifier's own span, as in
+        // `check_strict_mode_eval_or_arguments`.
+        let span = self.nodes.span(node);
+        // `getStrictModeIdentifierMessage` (`binder.go:1332`), the same
+        // three-way choice as `getStrictModeEvalOrArgumentsMessage` and in the
+        // same order.
+        let message = if self.containing_class_of(node).is_some() {
+            &messages::IDENTIFIER_EXPECTED_0_IS_A_RESERVED_WORD_IN_STRICT_MODE_CLASS_DEFINITIONS_ARE_AUTOMATICALLY_IN_STRICT_MODE
+        } else if matches!(self.node_map.get(file), Some(Node::SourceFile(source)) if tsr_binder::is_external_module(source))
+        {
+            &messages::IDENTIFIER_EXPECTED_0_IS_A_RESERVED_WORD_IN_STRICT_MODE_MODULES_ARE_AUTOMATICALLY_IN_STRICT_MODE
+        } else {
+            &messages::IDENTIFIER_EXPECTED_0_IS_A_RESERVED_WORD_IN_STRICT_MODE
+        };
+        // `scanner.DeclarationNameToString` — the identifier's text.
+        self.report(file, Diagnostic::with_args(message, span, [identifier.text.to_string()]));
+    }
+
+    /// `ast.IsIdentifierName` (`utilities.go:292`) — is this identifier a
+    /// *name* rather than a reference?
+    ///
+    /// Transcribed arm for arm. The three groups are not interchangeable: the
+    /// first nine kinds ask whether the identifier is the parent's `name`, the
+    /// next three ask about a *different* field, and the last five are true for
+    /// any identifier child at all.
+    fn is_identifier_name(&self, node: NodeId) -> bool {
+        let Some(parent) = self.nodes.parent(node) else { return false };
+        let Some(typed) = self.node_map.get(parent) else { return false };
+        let field = match typed {
+            // `parent.Name() == node`.
+            Node::PropertyDeclaration(n) => n.name.node_id(),
+            Node::PropertySignatureDeclaration(n) => n.name.node_id(),
+            Node::MethodDeclaration(n) => n.name.node_id(),
+            Node::MethodSignatureDeclaration(n) => n.name.node_id(),
+            Node::GetAccessorDeclaration(n) => n.name.node_id(),
+            Node::SetAccessorDeclaration(n) => n.name.node_id(),
+            Node::EnumMember(n) => n.name.node_id(),
+            Node::PropertyAssignment(n) => n.name.node_id(),
+            Node::PropertyAccessExpression(n) => n.name.and_then(|name| name.node_id()),
+            // `parent.AsQualifiedName().Right == node` — the LEFT of a
+            // qualified name is a reference and is deliberately not covered.
+            Node::QualifiedName(n) => n.right.and_then(|right| right.node_id),
+            // `parent.PropertyName() == node` — the `a` of `{ a: b }`, whose
+            // `name` half (`b`) is a real binding and stays reportable.
+            Node::BindingElement(n) => n.property_name.and_then(|name| name.node_id()),
+            Node::ImportSpecifier(n) => n.property_name.and_then(|name| name.node_id()),
+            // `return true` for any identifier child.
+            Node::ExportSpecifier(_)
+            | Node::JsxAttribute(_)
+            | Node::JsxSelfClosingElement(_)
+            | Node::JsxOpeningElement(_)
+            | Node::JsxClosingElement(_) => return true,
+            _ => return false,
+        };
+        field == Some(node)
+    }
+}

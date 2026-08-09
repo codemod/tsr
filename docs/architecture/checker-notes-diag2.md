@@ -10848,3 +10848,182 @@ Four of TS2451's ten sole-obstacle cases did not convert:
 UMD `export as namespace` merging or module augmentation — the subsystem §5
 refuses — and this build deliberately added neither. **That is the honest
 residue of the "merge item": four cases, not fifty-two.**
+
+## §161 — TS1101 and TS1102 measure zero; TS1212's family is 34 cases
+
+`diaggap` re-taken at `bee709e`, after §157 named TS1101 and TS1102 as *"the
+same shape as §156 and reading no state at all"*. They are — and they are also
+**off the board**:
+
+```
+TS1101   0 missing lines   0 cases      TS1102   0 missing lines   0 cases
+```
+
+`parserStrictMode14` and `15` are their fixtures and both already pass for
+other reasons. Same outcome as §105's TS1183: a rule can be correct, cheap and
+worth nothing. **Measure before building, even when the shape is proven** — §157
+recommended these two on shape alone and the recommendation was empty.
+
+### What the same re-take found instead
+
+`checkContextualIdentifier` (`binder.go:1303`), whose three message variants
+are the largest cheap row on the board:
+
+```
+TS1212   41 lines   24 cases     Identifier expected. '{0}' is a reserved word in strict mode.
+TS1213    8 lines    8 cases     … Class definitions are automatically in strict mode.
+TS1214    4 lines    2 cases     … Modules are automatically in strict mode.
+                    ── 34 cases, one rule
+```
+
+§7 of `TASK-diagnostics.md` has carried *"TS1212 needs `alwaysStrict` inside
+`tsr_binder::bind`"* for four handoffs. **It does not**, and the reason is
+§156's exactly: `checkContextualIdentifier`'s gate is
+
+```go
+len(b.file.Diagnostics()) == 0 && node.Flags&NodeFlagsAmbient == 0 &&
+    node.Flags&NodeFlagsJSDoc == 0 && !ast.IsIdentifierName(node)
+```
+
+— parse errors, ambient, JSDoc and name-position. **No strict-mode test.** The
+corpus agrees: `letIdentifierInElementAccess01.ts` is `var let: any = {};` with
+no `"use strict"`, no export and no class, and both its lines are TS1212.
+
+### §136's rule pays for the fourth time this session
+
+Everything the rule needs is already in the tree:
+
+| upstream | here |
+|---|---|
+| `KindFirstFutureReservedWord`…`Last` | `SyntaxKind::FIRST_FUTURE_RESERVED_WORD` / `LAST_FUTURE_RESERVED_WORD` (`kind.rs:811`) |
+| `scanner.GetIdentifierToken` | `tsr_scanner::keyword_kind` (`generated/keywords.rs:16`) |
+| `len(b.file.Diagnostics()) == 0` | `Checker::file_has_parse_errors` |
+| `NodeFlagsAmbient` | the walk-threaded `ambient` |
+
+Both ranges were compared member by member and are the same nine keywords:
+`implements interface let package private protected public static yield`.
+
+`NodeFlagsJSDoc` is the **fifth** declared-and-never-set flag, after
+`AMBIENT`, `JAVASCRIPT_FILE`, `YIELD_CONTEXT` and `SymbolFlags::OPTIONAL`. It
+needs no derivation here: this parser keeps JSDoc in a side table rather than
+in the tree (`bind_jsdoc_declarations`, `binder.rs:500`), so the check walk
+never reaches a JSDoc-sourced identifier at all. If that ever changes, this is
+the rule that starts reporting on `@param` names.
+
+### The arm that is NOT ported, and the dead branch upstream
+
+`checkContextualIdentifier`'s second arm is `originalKeywordKind ==
+KindAwaitKeyword`, gated on `NodeFlags::AWAIT_CONTEXT` — another unset flag.
+**Declined, owner `tsr_parser`'s await-context tracking**, the same owner
+§104/§106 gave the yield half.
+
+Its *third* arm (`KindYieldKeyword` under `YieldContext`) is **dead code
+upstream**: `KindYieldKeyword` is `LastFutureReservedWord`, so the first arm
+always claims it. Worth recording because a port that reads the arms in order
+and "faithfully" adds a `YIELD_CONTEXT` derivation for the third would be
+building a branch upstream never executes.
+
+### The bar
+
+Off the CASE count. Sole-obstacle: 24 + 8 + 2 = **34**. Concentration is 53
+lines / 34 cases = 1.56, and the case names are 34 distinct stems (the
+`parserComputedPropertyName36/37/38/39` group is four separate fixtures with
+different bodies), so §82's discount does not apply.
+
+```
+bar:  +20 cases,  0 LOST,  WRONG delta ≤ +15
+```
+
+Set well below 34 because this rule fires on **every** identifier in the corpus
+whose text is one of nine common words, and `private`/`public`/`protected`/
+`static`/`interface` are ordinary identifiers in a great deal of TypeScript.
+The bound that decides it is `IsIdentifierName` — nine parent kinds — and
+whether this parser produces an `Identifier` node where upstream's produces a
+keyword token.
+
+### Falsifiers
+
+1. **`WRONG` delta exceeds +15.** First suspect is `IsIdentifierName`'s parent
+   list, second is a parser divergence: upstream's parser emits a *keyword*
+   token in positions where this one emits an `Identifier`, and this rule only
+   ever sees the latter.
+2. **`LOST` is non-zero.** The rule only adds diagnostics, so a loss is a
+   report at a position upstream reaches and declines.
+3. **The parse-error gate measures wrong in either direction.** §40.3/§50.1/§79
+   established that this gate is a *per-rule* measurement. Upstream states it
+   explicitly here, so it is ported — but if the wrong column is concentrated in
+   recovered trees, re-measure it rather than assuming the port was right.
+4. **`binder_symbols` moves.** It must not; this is `crate::check` only.
+
+## §162 — §161 built: +32 cases at ZERO wrong, the largest single build on this board
+
+The bar was `+20 cases, 0 LOST, WRONG delta ≤ +15`. `RULE_CODES =
+[1212, 1213, 1214]`, and for once the counterfactual **is** the delta: no other
+producer in this port emits any of the three codes, so removing them from the
+suite's set reconstructs the exact pre-build state.
+
+```
+judged cases          5488
+CONVERTS                32
+LOST                     0
+STILL SHORT             16
+diagnostics RIGHT      132
+diagnostics WRONG        0
+```
+
+`coverage`: `diagnostics` **1,476 → 1,508 (27.48%)**. `binder_symbols`
+8,459/8,459, `checker_types` 3,942 · 84.51%, `printer_round_trip`
+11,762/11,762 — unmoved. All four of §161's falsifiers negative.
+
+**32 of the 34 sole-obstacle cases, and 132 correct lines against 53 missing
+ones.** The two that did not convert are in `STILL SHORT`'s 16 — cases that gain
+a correct TS1212 and still fail for something else.
+
+### The wrong column is zero, and that is the surprising part
+
+§161 set the bar 14 cases below the ceiling on an explicit worry: the rule fires
+on every identifier in the corpus whose text is one of nine words, and
+`private`, `public`, `protected`, `static` and `interface` are ordinary
+identifiers in a great deal of TypeScript. **Not one false positive.**
+
+The reason is the one §161 named as the deciding bound, and it turns out to be
+load-bearing in the *opposite* direction from the worry: upstream's parser and
+this one both emit a **keyword token**, not an `Identifier` node, wherever those
+words are used as modifiers or contextual keywords. `private x: number` in a
+class body never reaches this rule because `private` is not an identifier there.
+`IsIdentifierName`'s nine parent kinds then remove the remaining name positions.
+So the population the rule can even see is already almost exactly the population
+upstream reports on.
+
+**That is worth stating as a bound on future pricing on this board:** a rule
+gated on *what kind of node the parser built* is much safer than one gated on
+text, and the two are easy to confuse when the rule reads `node.Text()` — this
+one does, on the last line, after the kind test has already done the work.
+
+### Three negatives banked in the same re-take
+
+- **TS1101 and TS1102 measure zero.** §157 recommended both on shape alone,
+  correctly, and the recommendation was worth nothing. Same as §105's TS1183.
+- **`NodeFlags::JSDOC` is a fifth declared-and-never-set flag** and needed no
+  derivation, because this parser keeps JSDoc out of the tree. The running list
+  is now `AMBIENT`, `JAVASCRIPT_FILE`, `YIELD_CONTEXT`, `JSDOC` and
+  `SymbolFlags::OPTIONAL`.
+- **`checkContextualIdentifier`'s third arm is dead code upstream.**
+  `KindYieldKeyword` is `LastFutureReservedWord`, so the first arm always claims
+  it and the `YieldContext` branch never runs. A port adding a `YIELD_CONTEXT`
+  derivation "for fidelity" would be building a branch upstream never executes.
+
+### The strict-mode family, now closed except for one arm
+
+| upstream | codes | state |
+|---|---|---|
+| `checkStrictModeEvalOrArguments` | 1100/1210/1215 | **DONE** §157, +15, 0 wrong |
+| `checkContextualIdentifier`, reserved-word arm | 1212/1213/1214 | **DONE** here, +32, 0 wrong |
+| `checkContextualIdentifier`, `await` arm | 1262 and siblings | declined — `NodeFlags::AWAIT_CONTEXT` unset, owner `tsr_parser` |
+| `checkStrictModeWithStatement` | 1101 | measures **zero** |
+| `checkStrictModeDeleteExpression` | 1102 | measures **zero** |
+| `checkStrictModeLabeledStatement` | 1344 | built, §104's sibling |
+
+**+47 cases across two builds, both at exactly zero wrong lines**, out of a
+family four handoffs described as blocked on `alwaysStrict` in the binder. The
+option was never read by any of it.
