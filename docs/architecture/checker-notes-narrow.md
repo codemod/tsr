@@ -3975,3 +3975,27 @@ twin, (b) get_widened_literal_type widening a REGULAR literal where
 upstream widens only FRESH ones — as-const's whole point is that
 regular survives `let`. Candidate (b) is testable with one
 eprintln at get_widened_literal_type's fresh test; start there.
+
+**§104 slice 0 score — LANDED at 39:1.** The mandatory trace found
+a TWO-CONTRACT SEAM, not a widening bug: the parser's ConstKeyword
+arm encodes `as const` as a `TypeReferenceNode` with NO name
+(`tsr-parser/src/types.rs:471`, its only None-named site) while
+`is_const_type_reference` demanded the identifier spelling — every
+const assertion in the corpus took the error road, exactly as the
+assertions.rs module doc had recorded (and blamed on `bd tsr-0ao`;
+the None encoding was later made deliberate and the checker test
+never updated — the doc's history is corrected in place). Accepting
+None-with-no-arguments as the assertion: right 406,491 → **406,724**
+— **+232 G→R +1 W→R against 6 G→W, zero R→W** (constAssertions 72,
+controlFlowBindingElement 24, indexSignatures1 24, wide tail). The
+object gate stays; ARRAYS gained the same gate (readonly tuples
+unported — the direct-shape test leaked `([10]) as const`, 2 G→W,
+fixed by climbing parens). The three `#[ignore]`d tests now run:
+one expectation was stale twice over (`as consts` wrote `error`
+pre-§31; now the minted name) and the `const<number>` arity claim
+is UNASSERTABLE — the parser errors where upstream reads a
+reference to a type named `const`; a parse-level divergence on a
+pathological shape, recorded in the test. Residues: the 6 G→W are
+index-signature/narrowing shapes behind as-const receivers (their
+own roads' work), and readonly tuple/object minting stays the
+subsystem's next slice.

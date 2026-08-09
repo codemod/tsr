@@ -75,10 +75,6 @@ fn an_assertion_resolves_its_target_through_the_full_type_node_machinery() {
 }
 
 #[test]
-#[ignore = "blocked on bd tsr-0ao: the parser rejects `const` as a type reference name, \
-            so `is_const_type_reference` can never match. The checker arm is ported and \
-            correct; this turns green when the parser does. Deliberately NOT rewritten to \
-            assert today's `error`, which would pin the inferior answer."]
 fn a_const_assertion_takes_the_operand_and_makes_it_regular() {
     // The opposite rule: no type node to resolve, and the operand's type is the
     // answer. `1 as const` stays `1` where `const n = 1` would too, but
@@ -93,22 +89,28 @@ fn a_const_assertion_takes_the_operand_and_makes_it_regular() {
 }
 
 #[test]
-#[ignore = "blocked on bd tsr-0ao, as above"]
 fn const_is_recognised_before_the_type_node_is_resolved() {
     // The ordering is the rule. If `const` were resolved as a name first there
     // is no type called `const`, so every const assertion in the corpus would
     // answer `error`. This is the assertion that distinguishes the two orders —
     // `1 as const` is `1`, and a genuinely unresolvable name is `error`.
     assert_eq!(type_of_initialiser("let x = 1 as const;"), "1");
-    assert_eq!(type_of_initialiser("let x = 1 as consts;"), "error");
-    // …and a type *named* `const` with arguments is a reference, not an
-    // assertion. `isConstTypeReference` tests the arity for this reason.
-    assert_eq!(type_of_initialiser("let x = 1 as const<number>;"), "error");
+    // Written as `error` while this test was `#[ignore]`d, before §31 landed
+    // unresolved-name minting: `consts` now answers its minted name, the same
+    // rule `an_assertion_answers_the_asserted_type` pins for `Unresolvable`.
+    // The distinguishing claim is unchanged — the answer is not `1`.
+    assert_eq!(type_of_initialiser("let x = 1 as consts;"), "consts");
+    // …and a type *named* `const` with arguments would be a reference, not an
+    // assertion — `isConstTypeReference` tests the arity for this reason. That
+    // claim is unassertable here: the parser's ConstKeyword arm consumes the
+    // keyword without ever parsing type arguments, so `1 as const<number>`
+    // fails to PARSE ("Expression expected") where upstream reads a reference
+    // to a type named `const`. A parse-level divergence on a pathological
+    // shape, recorded rather than silently dropped; the checker-side arity
+    // gate stays for the identifier-spelled encoding.
 }
 
 #[test]
-#[ignore = "blocked on bd tsr-0ao: every const assertion is already a gap for the parser's \
-            reason, so this guard cannot be observed until that lands"]
 fn a_const_assertion_on_an_object_literal_is_a_gap() {
     // `{ a: 1 } as const` is `{ readonly a: 1; }`, and this port would answer
     // `{ a: number; }`: the readonly-and-unwidened members come from

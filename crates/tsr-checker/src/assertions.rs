@@ -18,22 +18,19 @@
 //! special case so that the `const` in a const assertion is never resolved
 //! (`utilities.go:134`).
 //!
-//! # The `const` arm is ported and **currently unreachable**, for a parser reason
+//! # The `const` arm was unreachable for 16 sessions — a two-contract seam, closed by §104
 //!
-//! `crates/tsr-parser/src/types.rs:981` parses a type reference's entity name
-//! with `parse_identifier`, where upstream uses
-//! `parseEntityName(allowReservedWords: true)` (`parser.go:2897`). So `x as const`
-//! parses to a `TypeReferenceNode` whose `type_name` is `None` — **with no
-//! diagnostic** — and [`is_const_type_reference`] can never match. Every const
-//! assertion in the corpus is a gap today, and 257 of them exist.
-//!
-//! Mutating the order of the two arms below therefore turns **no test red**, and
-//! that is stated here rather than covered by a test that could not bite. The
-//! arm is kept because it is upstream's behaviour and becomes load-bearing the
-//! instant `bd tsr-0ao` lands; its tests exist and are `#[ignore]`d naming that
-//! issue, so they turn green on their own rather than needing to be remembered.
-//! They are deliberately **not** rewritten to assert today's `errorType`, which
-//! would pin the inferior answer.
+//! The parser's `ConstKeyword` arm (`tsr-parser/src/types.rs:471`, its only
+//! `TypeReferenceNode::new(None, ..)` site) deliberately encodes `x as const`
+//! as a reference with **no name**, while [`is_const_type_reference`] demanded
+//! the identifier spelling — two halves of one feature written to different
+//! contracts, and every const assertion in the corpus gapped on the mismatch
+//! (257 at the time of the original note; the §104 pair converted 72 in
+//! `constAssertions` alone). The history above this paragraph previously
+//! blamed `bd tsr-0ao` (the parser producing None **with no diagnostic**) and
+//! was half right: the None encoding was later made deliberate, and this test
+//! was never updated to match it. §104's slice 0 accepts None-with-no-arguments
+//! as the const assertion; the once-`#[ignore]`d tests now run.
 //!
 //! # Nothing here checks that the assertion is legal
 //!
@@ -115,10 +112,28 @@ impl<'a> Checker<'a, '_> {
     /// a wrong line for every string, which is worse than a gap and much harder
     /// to spot. `bd tsr-7ja` owns both halves together.
     ///
-    /// An **array literal** operand needs no guard: array literals are unported,
-    /// so the operand's type is already `errorType` and it propagates.
+    /// An **array literal** operand IS guarded (below): array literals type
+    /// fine now, and `['a'] as const` wants a readonly tuple this port cannot
+    /// mint — the earlier claim that the operand's error propagates predated
+    /// `check_array_literal`.
     fn check_const_assertion(&mut self, operand: Expression<'a>) -> TypeId {
-        if matches!(operand, Expression::ObjectLiteralExpression(_)) {
+        // Objects for the two documented reasons above; arrays because
+        // `['a'] as const` is a READONLY TUPLE and this port has no readonly
+        // tuple type yet (§104) — answering the widened array would be a
+        // confident wrong where a gap belongs. Parens looked through: the
+        // fired leg was `([10]) as const` slipping a direct-shape test
+        // (constAssertions 0:182/0:183, 2 G→W on §104's first pair).
+        let mut inner = operand;
+        while let Expression::ParenthesizedExpression(node) = inner {
+            match node.expression {
+                Some(next) => inner = next,
+                None => return self.intrinsics.error,
+            }
+        }
+        if matches!(
+            inner,
+            Expression::ObjectLiteralExpression(_) | Expression::ArrayLiteralExpression(_)
+        ) {
             return self.intrinsics.error;
         }
         let operand_type = self.check_expression(operand);
@@ -135,9 +150,19 @@ impl<'a> Checker<'a, '_> {
 /// silently answer the operand's type.
 fn is_const_type_reference(node: TypeNode<'_>) -> bool {
     let TypeNode::TypeReferenceNode(reference) = node else { return false };
-    reference.type_arguments.is_empty()
-        && matches!(
-            reference.type_name,
-            Some(tsr_ast::EntityName::Identifier(name)) if name.text == "const"
-        )
+    if !reference.type_arguments.is_empty() {
+        return false;
+    }
+    match reference.type_name {
+        Some(tsr_ast::EntityName::Identifier(name)) => name.text == "const",
+        // §104's slice 0: the parser's ConstKeyword arm encodes `as const`
+        // as a reference with NO name (`tsr-parser/src/types.rs:471`, its
+        // only None-named creation site), while this test demanded the
+        // identifier spelling — the two halves of one feature written to
+        // different contracts, and every `as const` in the corpus gapped
+        // on the mismatch. A None name with no arguments IS the const
+        // assertion.
+        None => true,
+        _ => false,
+    }
 }
