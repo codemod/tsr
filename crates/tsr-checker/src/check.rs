@@ -397,12 +397,14 @@ impl Checker<'_, '_> {
                 ambient
             }
             Node::ElementAccessExpression(_) => {
+                self.check_null_or_undefined_receiver(node);
                 // §326 — `M["x"] = 1` is the same readonly question as
                 // `M.x = 1`, and the rule was reached from one arm only.
                 self.check_readonly_assignment_target(node, ambient);
                 ambient
             }
             Node::PropertyAccessExpression(_) => {
+                self.check_null_or_undefined_receiver(node);
                 self.check_nonexistent_property(node, ambient);
                 self.check_readonly_assignment_target(node, ambient);
                 self.check_property_used_before_initialization(node);
@@ -948,6 +950,70 @@ impl Checker<'_, '_> {
                 _ => return,
             }
         }
+    }
+
+    /// TS18050 — `The value '{0}' cannot be used here.`
+    ///
+    /// The two syntactic arms at the head of
+    /// `reportObjectPossiblyNullOrUndefinedError` (`checker.go:7455`): a literal
+    /// `null` receiver, and the global `undefined` as a receiver. Everything
+    /// after them is `TypeFacts` and stays unported.
+    ///
+    /// Neither arm is gated on `strictNullChecks` — `nullKeyword.ts` sets no
+    /// directive and upstream reports anyway, because `null.foo` is wrong under
+    /// every flag. §397.
+    fn check_null_or_undefined_receiver(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let receiver = match self.node_map.get(node) {
+            Some(Node::PropertyAccessExpression(access)) => access.expression,
+            Some(Node::ElementAccessExpression(access)) => access.expression,
+            _ => return,
+        };
+        let Some(receiver) = receiver.and_then(|e| e.node_id()) else { return };
+        let text = match self.nodes.kind(receiver) {
+            SyntaxKind::NullKeyword => "null",
+            SyntaxKind::Identifier => {
+                let Some(name) = self.identifier_text(receiver) else { return };
+                if name != "undefined" {
+                    return;
+                }
+                // A shadowed `undefined` is legal; the arm is about the global.
+                if self
+                    .binder
+                    .resolve_name(
+                        self.nodes,
+                        self.node_map,
+                        receiver,
+                        "undefined",
+                        SymbolFlags::VALUE,
+                    )
+                    .is_some_and(|symbol| {
+                        !self
+                            .binder
+                            .symbols()
+                            .get(self.binder.merged_symbol(symbol))
+                            .declarations
+                            .is_empty()
+                    })
+                {
+                    return;
+                }
+                "undefined"
+            }
+            _ => return,
+        };
+        let Some(file) = self.source_file_of_for_diagnostics(receiver) else { return };
+        let span = self.nodes.span(receiver);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::THE_VALUE_0_CANNOT_BE_USED_HERE,
+                span,
+                [text.to_string()],
+            ),
+        );
     }
 
     /// TS2307 — `Cannot find module '{0}' or its corresponding type declarations.`

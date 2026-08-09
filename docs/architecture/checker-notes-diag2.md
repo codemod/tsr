@@ -22451,3 +22451,84 @@ The detector remains one command, and **ten codes on §377's list are unworked**
 > are measuring the wrong unit for that class of gap. `grep -c` on a message
 > name is measuring the right one, which is why nine lines of shell found more
 > per build than six instruments did.
+
+## §397 — TS18050: `null.foo` and `undefined[a]`
+
+§377's list, next code. Three upstream sites, none ported.
+
+```ts
+null.foo;                 // TS18050 — The value 'null' cannot be used here
+null.toBAZ();
+var t = undefined[a][a];  // same, "undefined"
+```
+
+`reportObjectPossiblyNullOrUndefinedError` (`checker.go:7455`) opens with two
+arms that need no type at all:
+
+```go
+if node.Kind == ast.KindNullKeyword {
+    c.error(node, diagnostics.The_value_0_cannot_be_used_here, "null")
+    return
+}
+… if ast.IsIdentifier(node) && nodeText == "undefined" { … "undefined" … }
+```
+
+Everything after them is `TypeFacts`, which is the nullability machinery this
+port gates on `strict_null_checks` (`nullable_operand.rs:31`). **These two are
+not gated** — `nullKeyword.ts` sets no `@strict` directive and upstream reports
+anyway, because a literal `null` receiver is wrong under every flag.
+
+> §393's shape a second time: the syntactic arms sit at the *top* of a function
+> whose body is type machinery, and reading past the first `if` is what finds
+> them. Three functions read this way now, three with a liftable head.
+
+The `undefined` arm asks resolution rather than trusting the text — a shadowed
+`undefined` is legal and §254 is the note about assuming otherwise.
+
+### The bar
+
+```
+bar:  +3 of 7,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **`x.foo` where `x: null` reports.** That is the `TypeFacts` path and stays
+   unported; only a literal `null` *keyword* receiver is in scope.
+2. **A locally-declared `undefined` reports.** Resolution must find it and
+   decline.
+
+## §398 — §397 built: **+4**, above bar
+
+```
+diagnostics   1,894 → 1,898   (bar was +3;  +4, 0 LOST)   34.58%
+every other suite unmoved — both falsifiers negative
+```
+
+### §140 fired, for the fourth time this session
+
+The first dispatch attempt added a `Node::PropertyAccessExpression(_) |
+Node::ElementAccessExpression(_)` arm below existing ones and the compiler said
+`unreachable pattern — no value can reach this`. That warning has now caught a
+shadowed arm four times (§231, §244, §320, §397), and it is the only automatic
+detector in this workstream that finds a *silently deleted rule* rather than a
+missing one.
+
+> Worth restating because §244's version cost a contaminated `−590`
+> measurement: **`cargo xtask measure` refuses to run coverage while clippy is
+> red for this exact reason.** The gate paid for itself again here — the arm
+> would have compiled as dead code, the build would have measured `+0`, and the
+> diagnosis would have been "the rule is wrong" rather than "the rule never
+> runs".
+
+### §377's list, six builds
+
+```
+TS2661 +1 · TS1042 +4 · TS7008 +4 · TS6133 +2 · TS1156 +2 · TS18050 +4
+```
+
+**+17 from six reads.** Nine codes on the list remain unworked, and the two
+functions read for this build (`reportObjectPossiblyNullOrUndefinedError`,
+`checkGrammarForDisallowedBlockScopedVariableStatement`) both had their
+syntactic arms at the *head*, ahead of the type machinery — which is now three
+of three for that shape.
