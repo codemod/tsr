@@ -306,11 +306,23 @@ impl Checker<'_, '_> {
                 self.check_annotated_initializer(node, ambient);
                 ambient
             }
-            Node::PropertyDeclaration(_) => {
+            Node::PropertyDeclaration(property) => {
+                self.check_ambient_initializer(
+                    node,
+                    property.initializer,
+                    property.r#type,
+                    ambient,
+                );
                 self.check_annotated_initializer(node, ambient);
                 ambient
             }
             Node::VariableDeclaration(declaration) => {
+                self.check_ambient_initializer(
+                    node,
+                    declaration.initializer,
+                    declaration.r#type,
+                    ambient,
+                );
                 self.check_subsequent_declaration_type(node, declaration);
                 self.check_variable_like_declaration(node, declaration, ambient);
                 self.check_const_is_initialized(node, declaration, ambient);
@@ -2725,6 +2737,95 @@ impl Checker<'_, '_> {
         );
     }
 
+    /// TS1039 — `Initializers are not allowed in ambient contexts.`
+    /// TS1254 — `A 'const' initializer in an ambient context must be a string
+    /// or numeric literal or literal enum reference.`
+    ///
+    /// `checkGrammarVariableLikeDeclaration`'s tail (`grammarchecks.go:1963`):
+    ///
+    /// ```go
+    /// isInvalidInitializer := !(isInitializerStringOrNumberLiteralExpression(initializer) ||
+    ///     c.isInitializerSimpleLiteralEnumReference(initializer) ||
+    ///     initializer.Kind == ast.KindTrueKeyword || initializer.Kind == ast.KindFalseKeyword ||
+    ///     isInitializerBigIntLiteralExpression(initializer))
+    /// isConstOrReadonly := isDeclarationReadonly(node) || ast.IsVariableDeclaration(node) && c.isVarConstLike(node)
+    /// if isConstOrReadonly && typeNode == nil {
+    ///     if isInvalidInitializer { … A_const_initializer_in_an_ambient_context… }
+    /// } else {
+    ///     … Initializers_are_not_allowed_in_ambient_contexts
+    /// }
+    /// ```
+    ///
+    /// **The annotation is what decides which message.** `declare const x = 1`
+    /// is legal, `declare const x: number = 1` is TS1039, and the difference is
+    /// the presence of `typeNode` rather than anything about the initialiser.
+    ///
+    /// `isInitializerSimpleLiteralEnumReference` is **not** ported: it resolves
+    /// the reference to a literal enum member, and without it a
+    /// `declare const x = E.A` takes the invalid-initialiser branch. A *wrong
+    /// line* rather than a missing one, so the enum-reference shape declines
+    /// instead — see the `QualifiedName`/`PropertyAccess` arm below. §259.
+    fn check_ambient_initializer(
+        &mut self,
+        node: NodeId,
+        initializer: Option<tsr_ast::Expression<'_>>,
+        annotation: Option<tsr_ast::TypeNode<'_>>,
+        ambient: bool,
+    ) {
+        if !ambient || self.file_has_parse_errors {
+            return;
+        }
+        let Some(initializer) = initializer else { return };
+        let Some(initializer_id) = initializer.node_id() else { return };
+        // `isVarConstLike` — the `const` flag is on the **list**, not the
+        // declaration, exactly as `check_const_is_initialized` reads it.
+        let is_const_like = self.nodes.kind(node) == SyntaxKind::VariableDeclaration
+            && self
+                .nodes
+                .parent(node)
+                .is_some_and(|list| self.nodes.flags(list).intersects(tsr_ast::NodeFlags::CONST));
+        let is_const_or_readonly = self.declaration_is_readonly(node) || is_const_like;
+        let Some(file) = self.source_file_of_for_diagnostics(initializer_id) else { return };
+        let span = self.nodes.span(initializer_id);
+        if is_const_or_readonly && annotation.is_none() {
+            // A reference — `E.A` — needs `isInitializerSimpleLiteralEnumReference`
+            // to judge, which is not ported. Declining is a missing line; the
+            // alternative is a wrong one.
+            if matches!(
+                initializer,
+                tsr_ast::Expression::PropertyAccessExpression(_)
+                    | tsr_ast::Expression::Identifier(_)
+            ) {
+                return;
+            }
+            if !is_simple_literal_initializer(initializer) {
+                self.report(
+                    file,
+                    Diagnostic::new(
+                        &messages::A_CONST_INITIALIZER_IN_AN_AMBIENT_CONTEXT_MUST_BE_A_STRING_OR_NUMERIC_LITERAL_OR_LITERAL_ENUM_REFERENCE,
+                        span,
+                    ),
+                );
+            }
+            return;
+        }
+        self.report(
+            file,
+            Diagnostic::new(&messages::INITIALIZERS_ARE_NOT_ALLOWED_IN_AMBIENT_CONTEXTS, span),
+        );
+    }
+
+    /// `isDeclarationReadonly` — a `readonly` modifier on the declaration.
+    fn declaration_is_readonly(&self, node: NodeId) -> bool {
+        let modifiers = match self.node_map.get(node) {
+            Some(Node::PropertyDeclaration(property)) => property.modifiers,
+            _ => return false,
+        };
+        modifiers.iter().any(|modifier| {
+            matches!(modifier, tsr_ast::ModifierLike::Token(m) if m.kind == SyntaxKind::ReadonlyKeyword)
+        })
+    }
+
     /// TS2403 — `Subsequent variable declarations must have the same type.`
     ///
     /// `checkVariableLikeDeclaration`'s secondary-declaration arm
@@ -4737,6 +4838,24 @@ const NODE_CORE_MODULES: &[&str] = &[
 /// Reaching this needed [`is_specially_diagnosed_name`] narrowed in the same
 /// change: it declined these fourteen names outright, which is why §247
 /// measured zero. §249.
+/// `isInitializerStringOrNumberLiteralExpression` plus the `true`/`false` and
+/// `BigInt` arms (`grammarchecks.go:1978`).
+fn is_simple_literal_initializer(initializer: tsr_ast::Expression<'_>) -> bool {
+    match initializer {
+        tsr_ast::Expression::StringLiteral(_)
+        | tsr_ast::Expression::NumericLiteral(_)
+        | tsr_ast::Expression::BigIntLiteral(_)
+        | tsr_ast::Expression::NoSubstitutionTemplateLiteral(_) => true,
+        // `-1` is `isInitializerStringOrNumberLiteralExpression`'s second arm:
+        // a prefix minus over a numeric literal, and nothing else.
+        tsr_ast::Expression::PrefixUnaryExpression(unary) => {
+            unary.operator.kind == SyntaxKind::MinusToken
+                && matches!(unary.operand, Some(tsr_ast::Expression::NumericLiteral(_)))
+        }
+        _ => false,
+    }
+}
+
 fn cannot_find_name_message(name: &str) -> Option<&'static tsr_diagnostics::Message> {
     Some(match name {
         "document" | "console" => {

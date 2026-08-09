@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; scanner, parser and binder only, with no checker (bd tsr-4sc)
-Passed         : 1703/5488 (31.03%)
-Failed         : 3785
+Passed         : 1707/5488 (31.10%)
+Failed         : 3781
 Skipped        : 6956 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -11,7 +11,7 @@ Skipped        : 6956 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 3785 failures:
+First 100 of 3781 failures:
 compiler/ClassDeclaration24
   1 missing (first TS2414 at ClassDeclaration24.ts(1,7))
 compiler/ClassDeclaration26
@@ -72,8 +72,6 @@ compiler/allowJscheckJsTypeParameterNoCrash
   2 unexpected (first TS2300 at app.js(6,7)), 1 missing
 compiler/ambientEnum1
   1 missing (first TS1066 at ambientEnum1.ts(7,13))
-compiler/ambientErrors1
-  1 missing (first TS1039 at ambientErrors1.ts(1,17))
 compiler/ambientExportDefaultErrors
   4 missing (first TS2714 at foo.d.ts(1,16))
 compiler/ambientExternalModuleInAnotherExternalModule
@@ -84,8 +82,6 @@ compiler/ambientExternalModuleWithRelativeModuleName
   2 missing (first TS2436 at ambientExternalModuleWithRelativeModuleName.ts(1,16))
 compiler/ambientPropertyDeclarationInJs
   4 missing (first TS2322 at /test.js(3,9))
-compiler/ambientStatement1
-  1 missing (first TS1039 at ambientStatement1.ts(4,22))
 compiler/ambiguousGenericAssertion1
   4 unexpected (first TS2304 at ambiguousGenericAssertion1.ts(4,12)), 1 missing
 compiler/ambiguousOverload
@@ -212,3 +208,7 @@ compiler/assignmentCompatability39
   1 missing (first TS2322 at assignmentCompatability39.ts(9,1))
 compiler/assignmentCompatability40
   1 missing (first TS2322 at assignmentCompatability40.ts(9,1))
+compiler/assignmentCompatability41
+  1 missing (first TS2322 at assignmentCompatability41.ts(9,1))
+compiler/assignmentCompatability42
+  1 missing (first TS2322 at assignmentCompatability42.ts(9,1))

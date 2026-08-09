@@ -16647,3 +16647,51 @@ as idle rather than as working.
 `isTypeRelatedTo(source, target, c.identityRelation)`, a third relation beside
 assignability and comparability, and all three are the `.types` workstream's.
 The 22 cases this build does not reach are behind it.
+
+## §259 — TS1039 / TS1254: initialisers in an ambient context
+
+Found by re-ranking the gap with the relation-owned codes filtered out, per
+§256. Six cases, no producer, and purely syntactic.
+
+`checkGrammarVariableLikeDeclaration`'s tail (`grammarchecks.go:1963`) —
+**the annotation decides which message**, not the initialiser:
+
+```
+declare const x = 1          legal
+declare const x: number = 1  TS1039
+declare const x = f()        TS1254
+declare var x = 1            TS1039
+```
+
+`isConstOrReadonly && typeNode == nil` takes the const branch, which only
+complains if the initialiser is not a simple literal; everything else is TS1039.
+
+```
+diagnostics   1,703 → 1,707   (+4, bar was +4)
+CONVERTS 5 · LOST 1 · STILL SHORT 6 · RIGHT 40 · WRONG 1
+every other suite unmoved
+```
+
+### One arm declined rather than approximated
+
+`isInitializerSimpleLiteralEnumReference` resolves a reference to a literal enum
+member. It is not ported, so `declare const x = E.A` cannot be judged — and the
+*wrong* answer here is TS1254, a wrong line. The `PropertyAccessExpression` and
+`Identifier` shapes therefore decline outright. A missing line where the
+alternative was a wrong one.
+
+### §244's trap, attempted a second time
+
+Clippy and coverage were again put in **one** shell invocation, and the coverage
+number was again read first — with `3` clippy errors three lines above it,
+unread. The lint was cosmetic this time (`doc_markdown` on `BigInt`) and the
+number happened to be right.
+
+> **Knowing the rule is not the same as having the rule.** §244 wrote *"clippy
+> is now its own invocation and coverage does not run until it prints 0"* and
+> the very next multi-part build broke it, because batching the two into one
+> command is the ergonomic default and the correction lived only in prose.
+
+The measurement was retaken after the lint was fixed and is unchanged at 1,707.
+Recording the near-miss because the first time this pattern cost a 590-case
+misreading, and the second time it cost nothing purely by luck.
