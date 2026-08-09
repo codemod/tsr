@@ -606,6 +606,9 @@ impl Checker<'_, '_> {
         ) {
             self.check_builtin_global_redeclaration(node);
         }
+        if matches!(typed, Node::IndexSignatureDeclaration(_)) {
+            self.check_index_signature_key_type(node);
+        }
         if matches!(typed, Node::ExportAssignment(_)) {
             self.check_export_assignment_alone(node);
         }
@@ -1747,6 +1750,46 @@ impl Checker<'_, '_> {
             !self.is_function_like_or_static_block(child)
                 && self.subtree_references_super_or_this(child)
         })
+    }
+
+    /// TS1268 — `An index signature parameter type must be 'string', 'number',
+    /// 'symbol', or a template literal type.`
+    ///
+    /// `checkGrammarIndexSignature`'s fourth guard (`grammarchecks.go:831`),
+    /// bounded to a **written keyword** annotation: the literal/generic guard
+    /// (TS1337) runs before it, so a keyword reaches here only by being neither.
+    /// Anything else — a reference, a template literal, a union — declines,
+    /// because `isValidIndexKeyType` walks the type and this port would guess.
+    ///
+    /// §292 built seven of this function's guards for `+0`; this row's
+    /// `occupied` is `0/4` where those were taken, which is the difference.
+    /// §472.
+    fn check_index_signature_key_type(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let Some(Node::IndexSignatureDeclaration(signature)) = self.node_map.get(node) else {
+            return;
+        };
+        let [parameter] = signature.parameters else { return };
+        let Some(annotation) = parameter.r#type.and_then(|t| t.node_id()) else { return };
+        let Some(Node::KeywordTypeNode(keyword)) = self.node_map.get(annotation) else { return };
+        if matches!(
+            keyword.kind,
+            SyntaxKind::StringKeyword | SyntaxKind::NumberKeyword | SyntaxKind::SymbolKeyword
+        ) {
+            return;
+        }
+        let Some(name) = parameter.name.and_then(|name| name.node_id()) else { return };
+        let Some(file) = self.source_file_of_for_diagnostics(name) else { return };
+        let span = self.error_span(name);
+        self.report(
+            file,
+            Diagnostic::new(
+                &messages::AN_INDEX_SIGNATURE_PARAMETER_TYPE_MUST_BE_STRING_NUMBER_SYMBOL_OR_A_TEMPLATE_LITERAL_TYPE,
+                span,
+            ),
+        );
     }
 
     fn check_this_in_module_body(&mut self, node: NodeId) {

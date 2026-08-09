@@ -25510,3 +25510,73 @@ TS2376  §470  +3   `super()` not first, with initialized state
 ```
 
 Two candidates remain on that list: TS1268 and TS2851, three cases each.
+
+## §472 — TS1268: an index signature parameter that is not a key type
+
+§469's list, next row. **3 blocked, `occupied 0/4`.**
+
+```ts
+interface I {
+  [a: boolean]      // TS1268 at `a`
+}
+```
+
+`checkGrammarIndexSignature` (`grammarchecks.go:831`), the fourth of its five
+sequential guards. **§292 built seven of that function's guards and measured
+`+0`**, which is the reason this needs its `occupied` column read before
+anything else — and it reads `0/4`, so the positions are free, unlike §292's.
+
+The order matters and is §103's rule: the literal/generic guard (TS1337) runs
+**before** this one, so a keyword type reaches TS1268 only because it is neither
+literal nor generic. `boolean` is exactly that.
+
+### The bound
+
+The parameter's written annotation is a `KeywordTypeNode` naming something other
+than `string`, `number` or `symbol`. A type reference, a template literal, a
+union — all decline: `isValidIndexKeyType` walks the type for those, and this
+port would be guessing.
+
+### The bar
+
+```
+bar:  +2 of 3,  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **`[a: string]` reports.** The three valid keywords must be excluded.
+2. **A missing annotation reports TS1268.** That is the guard *above* — TS1096
+   territory — and the annotation test must come first, as upstream's does.
+
+## §473 — §472 built: **+1** of a bar of +2
+
+```
+diagnostics   1,987 → 1,988   (bar was +2;  +1, 0 LOST)   36.22%
+every other suite unmoved — both falsifiers negative
+```
+
+Kept. The other two cases are `parserIndexSignature8` (two lines) and
+`declarationEmitIndexTypeNotFound`, whose annotation is a **type reference** —
+declined by the bound, and correctly: `isValidIndexKeyType` resolves the
+reference and this port would be guessing at its constituents.
+
+### §467's search, four rows, closed
+
+```
+TS2358  §466  +4      TS2376  §470  +3
+TS2466  §468  +4      TS1268  §472  +1      = +12
+```
+
+TS2851 remains, and is the `await using` initializer's
+`[Symbol.asyncDispose]` — a member lookup on a well-known symbol, which is the
+type-side read §424 named. **The search is exhausted at +12 across four builds**,
+which is the third mechanical sweep this session to end with a measured total
+rather than a guess (§421, §444, §473).
+
+> Three sweeps, three measured endings, and the totals differ by an order of
+> magnitude: **§421 closed at zero, §444 at zero, §473 at +12.** The difference
+> is not luck — §421 and §444 searched *this port's* text, and §467 searched
+> **upstream's message catalogue**, which is the one artefact that describes
+> behaviour this port has not written yet. §444 predicted exactly this: sweeps
+> over upstream terminate and pay; sweeps over the port go stale.
