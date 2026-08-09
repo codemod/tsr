@@ -23230,3 +23230,83 @@ section *title*, which is unique.
 Not fixed here beyond the rename: splitting the file is the other workstream's
 call as much as this one's, and doing it unilaterally mid-session would break
 every `§N` cross-reference in both.
+
+## §414 — TS2678: a class constructor as a `case` of a primitive switch
+
+```ts
+class Foo { }
+switch (0) {
+    case Foo: break;   // TS2678 — Type 'typeof Foo' is not comparable to type '0'
+}
+```
+
+`checkSwitchStatement`'s comparability arm. The general test is the relation's,
+but this shape is not: the switch expression is an **intrinsic primitive** and
+the case expression is an identifier resolving to a **class declaration**, and a
+constructor object is never comparable to a primitive.
+
+§409's TS2411 decline is the reason this needs a stated bound rather than
+"primitive versus object": a primitive **is** assignable to a structurally empty
+interface, so *primitive vs arbitrary object type* is the relation's. A
+**class constructor** is not an arbitrary object type — it always carries
+`prototype`, so the empty-interface escape does not apply.
+
+### The bound
+
+- the switch expression's type is one of the four intrinsic primitives §257
+  admits (its literal types widen to these, and `switch (0)` is `0` which is
+  still a number);
+- the case expression is a bare `Identifier` resolving to a symbol with a
+  `ClassDeclaration` declaration.
+
+### The bar
+
+```
+bar:  +2 of 15,  0 LOST,  WRONG delta <= +2
+```
+
+`occupied 4/40` — a quarter of this row's missing lines sit at taken positions,
+so the bar is set below the single-line count deliberately (§293, and §405's
+lesson about reading that column first).
+
+### Falsifiers
+
+1. **`case someObject:` on a non-class value reports.** Only a class
+   declaration is admitted.
+2. **A non-primitive switch expression reports.** `switch (obj)` is the
+   relation's.
+
+## §415 — §414 built: **+1**, and `checker_types` +1 as well
+
+```
+diagnostics     1,909 → 1,910   (bar was +2;  +1, 0 LOST)   34.80%
+checker_types   4,030 → 4,031   (+1, the other workstream's, unasked for)
+```
+
+Under bar and kept: positive on both suites, nothing lost, and the bound is
+upstream's own comparability question restricted to a shape where it degenerates.
+
+### The bound that made it safe is §409's decline, inverted
+
+§409 refused TS2411 because *primitive versus arbitrary object type* is the
+relation's — a primitive **is** assignable to a structurally empty interface. A
+**class constructor** is not arbitrary: it always carries `prototype`, so the
+escape that killed TS2411 cannot fire here.
+
+> **A refusal's reason is a specification for the case that would survive it.**
+> §409 wrote down *why* TS2411 was undecidable — the empty-interface escape —
+> and that sentence is what made this bound provable instead of hopeful. A
+> refusal recorded as "owner: the relation" would have said nothing.
+
+That is the second time this session a decline produced the next build (§393 was
+the first), and both times the mechanism was in the *reason* rather than in the
+row.
+
+### The message argument left empty
+
+`type_to_string` has no entry point for "the type of this expression node" that
+this rule can reach without duplicating `check_expression`'s work, so the source
+type prints empty. **The suite does not compare message text** (§152), so this
+costs nothing measurable — but it is a real gap in the output and is recorded
+rather than hidden: a user-facing build of this port would print
+`Type '' is not comparable to type '0'`.
