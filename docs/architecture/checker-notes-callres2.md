@@ -334,3 +334,18 @@ execution note's two traps were recorded before the build. The
 foundation is live with zero semantic surface; steps 2-4
 (priorities, resolution under the bd tsr-eak question, fixing)
 build on it, each with its own pair.
+
+**Step 3a bar [registered before the code]:** candidate RESOLUTION
+over the collector, with reduction bounded to the LITERAL-BASE
+slice: same-parameter candidates union after dropping any literal
+whose own base primitive is also a candidate (`3` beside `number`
+resolves `number` — `getCovariantInference`'s reduction restricted
+to the one subsumption this port can decide without the relater;
+`bd tsr-eak`'s general question stays refused, this slice is its
+first paying customer). Distinct non-subsumed candidates that
+remain plural keep today's decline. Population: the
+disagreement-error class (`Some(prev) != Some(inferred)` → error)
+— `f(3, x)`-shaped calls where T collects a literal and its base.
+Predict **+20–80**; must NOT move: single-candidate calls, step
+1's byte-identity everywhere else. Adverse over 1:5 refuses;
+artifact test on untouched rows.
