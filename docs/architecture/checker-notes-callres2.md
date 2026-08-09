@@ -251,3 +251,25 @@ wrong mechanism. ITERATION 4's unit, three small arms:
       (patch118's text) — arrows now type, so it fires.
 Falsifier unchanged: the +361-class wins must appear; §70/§75
 populations must hold (no deferral touches them).
+
+**Iteration 4 — REFUSED at 193:407; the arc CONCLUDES with the
+foundation named.** The three-arm memo-free unit (each arm
+upstream-anchored from the priority read) measured +130 G→R +63
+W→R — temporal 58 AGAIN (its third appearance across the arc's
+fires: the win population is stable and real) — against 330 G→W +
+58 R→G + 19 R→W concentrated in inference-ANSWER quality
+(typeArgumentInference*, constraint families): the arrows now
+type, their shapes feed candidates, and the port's candidate model
+(one candidate per parameter, first disagreement → error) drowns
+in exactly the inputs upstream's machinery exists to rank.
+THE SUBSYSTEM'S FOUNDATION, four iterations and one full read
+deep: **port `inference.go`'s InferenceInfo model FIRST** —
+per-parameter candidate LISTS with priorities
+(InferencePriorityReturnType < arguments), `getCovariantInference`'s
+union (re-opening `bd tsr-eak`'s subtype-reduction question with
+this arc as its payer), and constraint fixing — then iteration 4's
+three arms land ON it, unchanged. Nothing smaller converts this
+owner: four measured shapes (361:424, mixed, 9:73, 193:407) all
+died on the same missing floor from four directions. The stable
++temporal-58 win class is the falsifier every future attempt must
+reproduce. All shapes preserved (patches 119-122).
