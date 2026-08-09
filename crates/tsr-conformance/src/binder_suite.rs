@@ -182,17 +182,16 @@ impl Suite for BinderSymbols {
             // compiled (`autoAccessorNoUseDefineForClassFields`).
             let unit_total =
                 parsed.files.iter().filter(|unit| unit.name == expected_file.file).count();
-            let occurrence =
-                if unit_total > 1 {
-                    // Even with several sections, each one's `Decl` positions
-                    // are the LAST unit's (`autoAccessorNoUseDefineForClassFields`
-                    // prints `Decl(file3.ts, 0, 10)` under both): tsgo compiles
-                    // last-wins and stamps every section with the winner.
-                    let _ = section_totals.get(expected_file.file.as_str());
-                    unit_total
-                } else {
-                    occurrence
-                };
+            let occurrence = if unit_total > 1 {
+                // Even with several sections, each one's `Decl` positions
+                // are the LAST unit's (`autoAccessorNoUseDefineForClassFields`
+                // prints `Decl(file3.ts, 0, 10)` under both): tsgo compiles
+                // last-wins and stamps every section with the winner.
+                let _ = section_totals.get(expected_file.file.as_str());
+                unit_total
+            } else {
+                occurrence
+            };
             let Some(unit) = parsed
                 .files
                 .iter()
@@ -1322,6 +1321,9 @@ fn declared_property_name(node: tsr_ast::Node<'_>) -> Option<tsr_ast::PropertyNa
         Node::SetAccessorDeclaration(n) => Some(n.name),
         Node::EnumMember(n) => Some(n.name),
         Node::PropertyAssignment(n) => Some(n.name),
+        // `{ [e] }` recovers as a shorthand with a computed name
+        // (`parserComputedPropertyName1`).
+        Node::ShorthandPropertyAssignment(n) => Some(n.name),
         _ => None,
     }
 }
