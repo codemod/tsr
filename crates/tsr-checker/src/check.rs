@@ -1096,6 +1096,22 @@ impl Checker<'_, '_> {
             return;
         }
         let Some(Node::ExportAssignment(assignment)) = self.node_map.get(node) else { return };
+        // TS1120 — `An export assignment cannot have modifiers.`
+        // `checkExportAssignment` (`checker.go:5607`), on the **first token**:
+        // `declare export = x` errors at `declare`, column 1. §481 measured this
+        // at `+0` because the parser handed the node an empty modifier slice;
+        // §511 threads the caller's modifiers through, so the list is real now.
+        // Upstream tests `IsExportAssignment`, covering both spellings. §512.
+        if let Some(tsr_ast::ModifierLike::Token(first)) = assignment.modifiers.first()
+            && let Some(id) = first.node_id
+            && let Some(file) = self.source_file_of_for_diagnostics(id)
+        {
+            let span = self.nodes.span(id);
+            self.report(
+                file,
+                Diagnostic::new(&messages::AN_EXPORT_ASSIGNMENT_CANNOT_HAVE_MODIFIERS, span),
+            );
+        }
         if !assignment.is_export_equals {
             return;
         }

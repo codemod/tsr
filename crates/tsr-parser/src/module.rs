@@ -174,13 +174,18 @@ impl<'a> Parser<'a> {
     /// but not on an `ExportDeclaration` or `ExportAssignment`, where the keyword
     /// is part of the node's own syntax rather than a modifier of it. That is
     /// upstream's split too.
+    ///
+    /// **The modifiers are the caller's**, not an empty slice: `declare export =
+    /// value` is the recovery shape `statement.rs`'s comment already names, and
+    /// discarding them here lost TS1120 — *an export assignment cannot have
+    /// modifiers* — which has nothing to report without them. For a plain
+    /// `export = x` the slice is empty and the node is unchanged. §511.
     pub(crate) fn parse_export(
         &mut self,
         start: u32,
         export_token: &'a Token<'a>,
+        modifiers_slice: &'a [ModifierLike<'a>],
     ) -> Statement<'a> {
-        let modifiers_slice: &'a [ModifierLike<'a>] = &[];
-
         // `export as namespace N;` declares a UMD global — the name the module
         // takes when it is loaded as a script rather than imported. It is not an
         // export assignment: `export default N` and `export as namespace N` mean
@@ -241,7 +246,8 @@ impl<'a> Parser<'a> {
                 let mut modifiers =
                     vec![ModifierLike::Token(export_token), ModifierLike::Token(default_token)];
                 modifiers.extend(self.parse_modifiers());
-                return self.parse_declaration_after_modifiers(start, &modifiers);
+                let modifiers = self.arena.alloc_slice(&modifiers);
+                return self.parse_declaration_after_modifiers(start, modifiers);
             }
             let expression = self.parse_assignment_expression();
             self.parse_semicolon();
@@ -355,7 +361,8 @@ impl<'a> Parser<'a> {
         // Anything else is a modifier on a declaration: `export const x = 1`.
         let mut all = vec![ModifierLike::Token(export_token)];
         all.extend(self.parse_modifiers());
-        self.parse_declaration_after_modifiers(start, &all)
+        let all = self.arena.alloc_slice(&all);
+        self.parse_declaration_after_modifiers(start, all)
     }
 
     /// `namespace N { … }` and `module "m" { … }`.

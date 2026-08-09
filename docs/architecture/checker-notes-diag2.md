@@ -27095,3 +27095,91 @@ TS1359  7         genuinely needs AWAIT_CONTEXT / YIELD_CONTEXT
 the honest parser item, and §499's implementation sketch stands for those —
 with the estimate corrected from sixteen to **seven**, which is the number the
 next session should weigh against a day of parser risk.
+
+## §511 — TS1120: the parser had the modifiers and dropped them
+
+§510's move, third application. §481 measured TS1120 at `+0`, named two
+candidates and left it: *"the parse-error gate, or the parser not attaching
+`declare` to the `ExportAssignment`'s modifier list"*, owner
+**`tsr-parser`'s modifier attachment**.
+
+Read rather than owned:
+
+```rust
+// module.rs:182
+let modifiers_slice: &'a [ModifierLike<'a>] = &[];
+```
+
+`parse_export` **hardcodes an empty slice**, and its caller
+(`statement.rs:441`) has the real `modifiers` in hand — with a comment naming
+this exact shape:
+
+> *"Recovery for misplaced modifiers before a second `export`, such as `declare
+> export = value` and `export declare export = value`."*
+
+The caller knows about `declare export = value`, parses its modifiers, and then
+calls a function that discards them.
+
+### The change
+
+Thread `modifiers` into `parse_export` and give them to `ExportAssignment::new`.
+For a normal `export = x` the slice is empty and nothing changes; only the
+recovery shape — a modifier *before* `export` — is affected.
+
+> **Three subsystem-named refusals, three local fixes** (§508 a predicate,
+> §509 an arm, §511 an argument). The pattern is now strong enough to state as a
+> rule: **when a refusal names a subsystem, read the ten lines where the datum
+> is produced before believing it.** All three were within one `grep` of the
+> note that pointed elsewhere.
+
+### The bar
+
+```
+bar:  +2 of 3,  0 LOST
+parser_typescript and printer_round_trip MUST stay at 100% — this is a parser
+change, and the first this session has made.
+```
+
+### Falsifiers
+
+1. **Either parser rail moves.** A tree change is out of scope regardless of the
+   diagnostics gain.
+2. **A plain `export = x` gains a modifier.** The slice is empty there and the
+   node must be identical.
+
+## §512 — §511 built: **+3**, and the session's first parser change
+
+```
+diagnostics        2,034 → 2,037   (bar was +2;  +3, 0 LOST)   37.12%
+parser_typescript  100.00%   printer_round_trip  100.00%   — both falsifiers negative
+```
+
+TS1120's three cases all convert. The parser change was four call sites
+arena-allocating a slice they already had, and **neither rail moved**, because
+the slice is empty for every legal `export = x` — only the recovery shape
+(`declare export = value`, which `statement.rs`'s own comment names) sees a
+difference.
+
+### Three subsystem-named refusals, three local fixes, `+11`
+
+```
+§508  TS1038  "the parser's unset flags"        → a predicate in the file   +5
+§509  TS1155  "the parser's unset flags"        → one arm of three          +3
+§511  TS1120  "the parser's modifier attachment" → an argument dropped       +3
+```
+
+> **When a refusal names a subsystem, read the ten lines where the datum is
+> produced before believing it.** Three for three, and the third is the sharpest:
+> §481 named *"the parser not attaching `declare`"* as a candidate and stopped,
+> and the parser's own comment two files away said **"Recovery for misplaced
+> modifiers before a second `export`, such as `declare export = value`"**. The
+> code that dropped the modifiers knew exactly which case would need them.
+>
+> §441 claimed a refusal's value is proportional to how specifically it states
+> what it cannot do. These three refine it: **a refusal that names a *subsystem*
+> is not specific — it is a guess about where the work lives, and this session
+> has now measured that guess wrong three times running.**
+
+The remaining member of that family, TS1359's 7 cases, is the only one where the
+missing datum is genuinely a parser *context* rather than a dropped value —
+`AWAIT_CONTEXT` has no argument to thread and no predicate to swap.

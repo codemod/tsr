@@ -99,7 +99,7 @@ impl<'a> Parser<'a> {
                     SyntaxKind::ExportKeyword,
                     tsr_core::Span::new(modifier_start, self.pos()),
                 );
-                Some(self.parse_export(start, token))
+                Some(self.parse_export(start, token, &[]))
             }
             SyntaxKind::NamespaceKeyword | SyntaxKind::ModuleKeyword
                 if self.next_starts_module_name() =>
@@ -141,11 +141,13 @@ impl<'a> Parser<'a> {
             }
             SyntaxKind::AtToken => {
                 let modifiers = self.parse_modifiers();
-                Some(self.parse_declaration_after_modifiers(start, &modifiers))
+                let modifiers = self.arena.alloc_slice(&modifiers);
+                Some(self.parse_declaration_after_modifiers(start, modifiers))
             }
             _ if self.at_modifier_starting_declaration() && self.next_starts_declaration() => {
                 let modifiers = self.parse_modifiers();
-                Some(self.parse_declaration_after_modifiers(start, &modifiers))
+                let modifiers = self.arena.alloc_slice(&modifiers);
+                Some(self.parse_declaration_after_modifiers(start, modifiers))
             }
             _ => self.parse_expression_statement(),
         }
@@ -421,7 +423,7 @@ impl<'a> Parser<'a> {
     pub(crate) fn parse_declaration_after_modifiers(
         &mut self,
         start: u32,
-        modifiers: &[ModifierLike<'a>],
+        modifiers: &'a [ModifierLike<'a>],
     ) -> Statement<'a> {
         match self.token.kind {
             SyntaxKind::VarKeyword | SyntaxKind::LetKeyword | SyntaxKind::ConstKeyword => {
@@ -440,7 +442,7 @@ impl<'a> Parser<'a> {
             // the recovery tree unstable under printing.
             SyntaxKind::ExportKeyword => {
                 let export_token = self.take_token();
-                self.parse_export(start, export_token)
+                self.parse_export(start, export_token, modifiers)
             }
             // `declare global { … }` augments the global scope; `global` is a
             // contextual keyword standing in for the module name.
