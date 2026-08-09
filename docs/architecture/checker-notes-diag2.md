@@ -20930,3 +20930,83 @@ them is this build's third `ModuleHost` method, and ADR-0041's cap explicitly
 allows it: *"one method rather than eighteen"* is a rule against porting
 `Program` speculatively, not against answering the third question a real caller
 asks.
+
+## §359 — the dead branch's other two members
+
+§358's arm has three members and `diagslice` prices the other two:
+
+```
+TS2306   2 blocked, 2 single, occupied 0/2   File '{0}' is not a module.
+TS6142   2 blocked, 1 single, occupied 0/3   Module '{0}' was resolved to '{1}', but '--jsx' is not set.
+```
+
+Both are the *same* resolved-but-no-module-symbol population §357 opened, split
+by the resolved file's extension — which is now available, so these cost an
+`else` each rather than a design:
+
+```
+.js .jsx .cjs .mjs                       TS7016   (§357)
+.tsx  and  jsx_emit == JsxEmit::None     TS6142
+anything else that resolved              TS2306
+```
+
+`requireOfAnEmptyFile1` is the shape TS2306 wants: a `.ts` file that resolved,
+is in the program, and exports nothing, so it is not a module.
+
+> Worth stating because it is the reason to finish a branch rather than a
+> member: **the third code was free once the discriminator existed.** §357's
+> cost was the `ModuleHost` method and the extension dispatch; §359 spends
+> neither.
+
+### The bar
+
+```
+bar:  +3 of 4,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **A real module import reports.** `resolve_external_module_name` answering
+   `Some` still returns first — the guard §357 put in.
+2. **A `.tsx` reports TS2306 when `--jsx` *is* set.** The order matters: TS6142
+   is tested on the flag, and a `.tsx` under `--jsx` that is not a module is
+   TS2306's.
+
+## §360 — §359 built: **+1** of a bar of +3. One arm paid, one never fires
+
+```
+diagnostics   1,867 → 1,868   (bar was +3;  +1, 0 LOST)   34.04%
+requireOfAnEmptyFile1: TS2306 now matches exactly
+TS6142: still 2 missing — the arm is unreachable
+```
+
+Kept: positive, no losses, and the TS2306 arm is correct. But the TS6142 arm
+**cannot fire**, and the reason is the more useful half of this build.
+
+### Why TS6142 is not in this population after all
+
+§357's guard is *`resolve_external_module_name` answered `None`* — the module
+resolved to a file but produced no module symbol. §359 assumed TS6142's cases
+sit in that population because upstream lists the three codes together.
+`moduleResolutionWithExtensions_notSupported` shows they do not: the `.tsx`
+**does** resolve to a module with exports. Upstream reports TS6142 anyway,
+because the complaint is not *there is no module* but *this file will not be
+compiled without `--jsx`*.
+
+> **Codes listed together in one upstream function do not share a
+> precondition.** The doc table §358 mined said "the specifier resolves to a
+> file → TS2306, TS7016, the `node16` family", and that is true of all of them;
+> it is not the *same* branch of `resolveExternalModule` for each. I read a
+> table of codes as a table of guards.
+
+The corrected split:
+
+```
+resolved, NO module symbol, .js         TS7016   §357   fires
+resolved, NO module symbol, otherwise   TS2306   §359   fires
+resolved, module symbol present, .tsx, no --jsx   TS6142   a DIFFERENT guard
+```
+
+TS6142's 2 cases stay open with that owner stated. The dead arm is left in
+place with this note rather than deleted, because deleting it would lose the
+distinction and the next session would re-derive it from the same table.

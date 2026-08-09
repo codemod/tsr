@@ -680,9 +680,6 @@ impl Checker<'_, '_> {
     /// `--jsx` is TS6142 and a resolved `.ts` that is not a module is TS2306,
     /// both different codes at the same position. §357.
     fn check_untyped_module_import(&mut self, declaration: NodeId, specifier: NodeId) {
-        if !self.no_implicit_any {
-            return;
-        }
         if !self.external_import_is_positioned_for_resolution(declaration) {
             return;
         }
@@ -697,18 +694,33 @@ impl Checker<'_, '_> {
         let Some(host) = self.module_host else { return };
         let Some(path) = host.resolved_module_path(importing, text) else { return };
         let lowered = path.to_ascii_lowercase();
-        if ![".js", ".jsx", ".cjs", ".mjs"].iter().any(|ext| lowered.ends_with(ext)) {
-            return;
-        }
+        let extension = lowered.rsplit('.').next().unwrap_or_default().to_string();
         let span = self.error_span(specifier);
-        self.report(
-            importing,
+        // The three members of the branch, split by the resolved extension —
+        // the one thing that distinguishes them, and available only because
+        // §357 added `resolved_module_path`. §359.
+        let diagnostic = if ["js", "jsx", "cjs", "mjs"].contains(&extension.as_str()) {
+            if !self.no_implicit_any {
+                return;
+            }
             Diagnostic::with_args(
                 &messages::COULD_NOT_FIND_A_DECLARATION_FILE_FOR_MODULE_0_1_IMPLICITLY_HAS_AN_ANY_TYPE,
                 span,
                 [text.to_string(), path],
-            ),
-        );
+            )
+        } else if extension == "tsx" && self.jsx_emit == tsr_core::JsxEmit::None {
+            Diagnostic::with_args(
+                &messages::MODULE_0_WAS_RESOLVED_TO_1_BUT_JSX_IS_NOT_SET,
+                span,
+                [text.to_string(), path],
+            )
+        } else {
+            // A file that resolved, is in the program, and exports nothing —
+            // `requireOfAnEmptyFile1`. Upstream's argument is the resolved file
+            // name, not the specifier.
+            Diagnostic::with_args(&messages::FILE_0_IS_NOT_A_MODULE, span, [path])
+        };
+        self.report(importing, diagnostic);
     }
 
     /// The boolean core of the TS2307 emitter, shared with
