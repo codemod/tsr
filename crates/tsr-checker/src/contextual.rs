@@ -171,9 +171,19 @@ impl<'a> Checker<'a, '_> {
         // same line repairs; here it is a gap instead, so the two indices are
         // the same index or there is no answer.
         let index = parameters.iter().position(|p| p.node_id == Some(parameter))?;
-        if parameters.iter().any(|p| p.dot_dot_dot_token.is_some() || is_this_parameter(p)) {
+        if parameters.iter().any(|p| is_this_parameter(p)) {
             return None;
         }
+        // §86.1: the function's OWN trailing rest no longer bails the whole
+        // list — `(a, b, ...rest)` under `(...args: [number, boolean,
+        // ...string[]]) => void` types `a: number` positionally and `rest:
+        // string[]` from the tail. A rest anywhere but last still declines.
+        let own_rest = parameters.iter().position(|p| p.dot_dot_dot_token.is_some());
+        match own_rest {
+            Some(position) if position + 1 != parameters.len() => return None,
+            _ => {}
+        }
+        let asking_for_rest = own_rest == Some(index);
 
         let signature = self.contextual_signature(function)?;
         // §86 (`checker-notes-narrow.md`): a SINGLE REST parameter over
@@ -193,6 +203,11 @@ impl<'a> Checker<'a, '_> {
             let mut positional = Vec::with_capacity(constituents.len());
             for constituent in constituents {
                 if let Some((elements, _)) = self.tuple_element_lists.get(&constituent) {
+                    if asking_for_rest {
+                        // A plain-tuple slice as the own-rest's type needs
+                        // tuple minting from an offset — declined for now.
+                        return None;
+                    }
                     positional.push(*elements.get(index)?);
                     continue;
                 }
@@ -207,6 +222,21 @@ impl<'a> Checker<'a, '_> {
                 let [prefix @ .., tsr_ast::TypeNode::RestTypeNode(rest)] = tuple.elements else {
                     return None;
                 };
+                if asking_for_rest {
+                    // The own rest takes the WHOLE tail array when it sits at
+                    // or past the prefix boundary; a rest that would swallow
+                    // prefix elements needs slice minting — declined.
+                    if index < prefix.len() {
+                        return None;
+                    }
+                    let tail_node = rest.r#type?;
+                    let resolved = self.get_type_from_type_node(tail_node);
+                    if resolved == self.intrinsics.error {
+                        return None;
+                    }
+                    positional.push(resolved);
+                    continue;
+                }
                 let member = if let Some(member) = prefix.get(index) {
                     *member
                 } else {

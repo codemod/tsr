@@ -3291,3 +3291,17 @@ fresh signature — two types, two prints, no site-sensitivity needed.
 **+22, ZERO adverse** (`genericRestParameters2` 20).
 
 **§88.1 score — LANDED.** right 404,472 → **404,494 (84.48%)**.
+
+## §86.1 — the function's own trailing rest stops bailing the list
+
+`(a, b, ...rest)` under a rest-tuple contextual signature: positional
+parameters index as §86 does, and the OWN rest — trailing only —
+takes the whole tail array when it sits at or past the prefix
+boundary (`rest: string[]`). Slices that would swallow prefix
+elements, and plain-tuple slices, stay declined (tuple-slice minting
+is the next machine). **+26 net, zero adverse**
+(`restTuplesFromContextualTypes` 19, `genericRestTypes` 4).
+
+**§86.1 score — LANDED.** right 404,494 → **404,520 (84.48%)** on a
+population that grew 3 lines (the JSX flake's neighborhood — see
+§87's caveat).
