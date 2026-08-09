@@ -4271,3 +4271,15 @@ member-symbol const check answered false. The instrumented arm
 Adding the object-literal parent to the recurse group: right
 407,654 → **407,727 (+73 W→R, 6 W→G, ZERO adverse in any column)**.
 Trace 2 (computedPropertiesNarrowed 4) remains the open entry.
+
+**§107 routing probe (queued prerequisite (a)) — ANSWERED.** The
+handed 6's prints DO route through the single-signature composite arm
+(`route: sigs=1 composite_guard=false keep_text=false`, 7 hits on
+the filtered case) — the §89 keep-text suspect is ELIMINATED and
+prerequisite (a) closes. The §107 failure therefore sits INSIDE
+`rename_type_parameters_for_site` for the nested-arrow shape; the
+next probe (one eprintln) is whether `binder.symbol_of` files an
+ARROW function's type-parameter declarations at all — a None there
+silences the shadow test exactly as observed (own_symbol gates every
+arm). If arrows' type params are unfiled, the fix is the binder's,
+and the §107 retry needs nothing else.
