@@ -561,3 +561,16 @@ NEXT HEADS (checker-2 lane): the as-const object slice (unlocks
 §103); the evaluate-entity slice (const refs into §101's fold);
 §98's one-line attributes2 residue; the §68/ctx dispatch arms into
 CallExpression/ArrowFunction own-roots (still the largest owner).
+
+TWO ATTRIBUTION LESSONS from the classAbstractManyKeywords:0:5
+dispute (both sessions were wrong about the owner; the line predates
+both builds — full chain in checker-1's 4b9fafc):
+  - A REVERT TEST needs a verified recompile: cargo clean -p on the
+    crate, count the 'Compiling' lines, and grep the reverted arm
+    absent from the tree — a conflicted or stale revert measures the
+    unreverted binary and reads exactly like a confirmed bisect.
+  - A PULL-DIFF R→W needs the PRE-WINDOW CHECKOUT before it names an
+    owner: a baseline that silently absorbed a standing wrong makes
+    an old defect surface as "new" in whichever pull happens to
+    re-expose it. `git worktree add --detach <dir> <pre-window-sha>`
+    and one filtered run answers it in under a minute.
