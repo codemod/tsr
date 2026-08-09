@@ -759,3 +759,22 @@ received contextual signature and the arrow's parameter types.
 NEXT: one instrumented run at contextual.rs:161's road on the head
 case; the consumer between CTX-SIG Some and the `any` print is the
 family's whole remaining question.
+
+**§114 family-1, trace round 3 (banked; instrumentation reverted):**
+point 3 is EXONERATED end to end — the P3 zero was my own
+instrumentation asymmetry (the print covered only the None side; a
+zero from an instrument that cannot see success is not a zero — the
+conventions' own rule, self-applied), and reading the extraction
+shows the road answers: contextualisable_parameters passes,
+contextual_signature receives FuncType (10× measured), and the
+positional extraction (`parameters.get(index)`, non-optional
+non-rest) returns the callback type. EVERY stage of the contextual
+chain now measures or reads as working — so the `any` wrongs must
+sit in a CONSUMER this trace has not yet identified. Round 4's task
+is position identification, not mechanism theory: dump the case
+WITH walker position indices, name which node each want-`<T>(p: T)
+=> T`/got-`any` line belongs to (the arrow? its parameter's
+REFERENCE inside the body? the call result?), and instrument THAT
+node's road. The §116 lesson candidate if it lands: four rounds of
+mechanism theory, and the family's blocker was never once in the
+roads the sizing named.
