@@ -42,7 +42,13 @@ dead code into §167's +8, and §171's 65 wrong into §189's 9.
 WHAT IS ACTUALLY LEFT, with fresh numbers:
   · relation + members — TS2322's split re-run after §166 and unchanged:
     335 wholly relation-gated, 132 anchor-gated (an UPPER bound, §177), 14 mixed
-  · the parse-error set — four rows' residues (§162, §179, §182, §184)
+  · **NOT the parse-error set** — §190/§191 checked it. `tsr_parser` emits
+    TS1005; what it lacks is the `IsLeftHandSideExpression` conjunct in
+    `parse_assignment_expression`. **One line, and it works** — four right
+    lines appear immediately. Refused only because recovery emits a spurious
+    TS1012 beside each and the newly-erroring files lose rules to §179's gate:
+    `checker_types` +6, `diagnostics` −6. Fix the recovery double-report first,
+    then re-run the one line
   · partial symbol tables — TS2694's residual 4 (§187): an empty export table
     can be declined and a partial one cannot
   binder_symbols 8,459/8,459 = 100%     — held across a build that changed
