@@ -308,3 +308,18 @@ THE PORT'S FOUNDATION, sized to what the corpus arc measured:
 Build order: the struct + writer migration (measured no-op), then
 resolution, then fixing, then the arms — four measurable steps,
 each with its own pair.
+
+**Step 1's execution note (recorded; the build is the next
+window's):** the migration threads `&mut [InferenceInfo]` through
+`infer_from_types`' recursion in place of the flat pair vector,
+with the consumer flattening at the boundary. THE ORDER SUBTLETY,
+named before it bites: the flat writer interleaves pairs ACROSS
+parameters in add order; grouping by parameter preserves order
+only WITHIN each parameter — which is sufficient because the sole
+consumer scans per-parameter (first-candidate + disagreement over
+a filtered view) — but any future consumer reading cross-parameter
+order would silently change behavior, so the flattener's doc must
+forbid it. A struct landed WITHOUT the writer migration is dead
+code the clippy gate refuses — do not stage it separately (this
+window drafted exactly that and held it). Falsifier unchanged:
+step 1's full pair must be BYTE-IDENTICAL.
