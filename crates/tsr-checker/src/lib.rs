@@ -127,6 +127,7 @@ pub mod intrinsics;
 pub mod literals;
 pub mod member_completeness;
 pub mod members;
+pub mod merge_conflicts;
 pub mod nonexistent_property;
 pub mod nullable_operand;
 pub mod objects;

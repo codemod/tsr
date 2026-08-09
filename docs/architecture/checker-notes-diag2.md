@@ -10631,3 +10631,220 @@ state at all** — `parserStrictMode14` and `15` are their fixtures, and §7's
 "TS1212 needs `alwaysStrict` inside `tsr_binder::bind`" in `TASK-diagnostics.md`
 is now suspect for the same reason §105 was: it names an option upstream's
 binder does not read.
+
+## §158 — TS7026 is not a merge row, and the "~52-case owner" is really ~23
+
+§141 assembled a single owner out of four rows and called it *"the largest
+single owner on this board"*, at ~52 cases. `diagmissing` on each row
+individually — which §141 ran only for TS2451 — does not support that.
+
+**TS7026 (28 cases, more than half the total) is JSX.** The message is
+`JSX element implicitly has type 'any' because no interface 'JSX.{0}' exists`,
+and upstream emits it from `jsx.go:1253`, not from anything in `binder.go`.
+Every one of its 110 missing lines is in a `.tsx` file:
+`tsxNamespacedTagName1`, `tsxElementResolution5/13/14/16/18`,
+`reactNamespaceJSXEmit`, `keywordInJsxIdentifier`. The row wants the `JSX`
+namespace and its `IntrinsicElements` interface resolved — **a JSX build**, and
+it has nothing to do with `declare global`.
+
+**TS1362 (5 cases) is `export type *`.** `exportNamespace4`'s baseline is
+`'A' cannot be used as a value because it was exported using 'export type'`
+over `export type * from './a'` — type-only re-export propagation through a
+star. §130 reached it by tracing `mergeSymbolRexportFunction` and filed it as a
+missing merge, which is true of the *mechanism* and misleading about the
+*subsystem*: it is the export-star pipeline, not global merging.
+
+Corrected constituency:
+
+| row | cases | actually wants |
+|---|---:|---|
+| TS7026 | 28 | JSX intrinsic elements (`jsx.go:1253`) |
+| TS2451 | 10 | cross-file / global merging ✔ |
+| TS2454's share | ~13 | unverified; §85's attribution is the same kind of inference |
+| TS1362 | 5 | `export type *` propagation |
+
+**So the merge item is ~10 cases with a verified attribution, not 52.** §13's
+thirteen-session-old refusal was quoted for a row that is not even in the
+family, which is the second time this board has carried a number attached to the
+wrong subsystem (§88/§89 was the first).
+
+### The rule this is the third instance of
+
+§136: *when a row will not move, grep the crate for the function upstream
+reports from.* §157: *read the fixture before the first refusal.* Both are
+special cases of one thing, and it is now cheap enough to state as a standing
+step: **`diagmissing <code>` prints case names, and a row's case names are its
+attribution.** Twenty-eight case names beginning `tsx` were sitting in front of
+every session that quoted §13, and reading them costs one command.
+
+## §159 — the TS2451 build: the merge exists, only the error branch is missing
+
+The corrected row is 10 cases, and six of them are one shape:
+
+```
+letDeclarations-scopes-duplicates2 … 7
+  file1.ts:  let var1 = 0;
+  file2.ts:  let var1 = 0;   (or const, or var)
+  → TS2451 on BOTH names, one per file
+```
+
+**The cross-file merge is already built.** `Binder::merge_globals`
+(`binder.rs:597`) unions each *script* file's top-level locals into
+`self.globals`, calling `merge_symbol(target, source, 0)` when the name is
+already there. `merge_symbol` then returns early at
+
+```rust
+if (source_flags | target_flags).intersects(SymbolFlags::ALIAS)
+    || source_flags.excludes().intersects(target_flags)
+{ return; }
+```
+
+which is precisely `checker.go:14147`'s guard — and upstream's `else` arm there
+is `reportMergeSymbolError` (`checker.go:14201`). The port's own doc comment on
+`merge_symbol` has said so since it was written: *"Upstream reports a
+diagnostic and does not merge; this does not merge, and **has no diagnostics to
+report**"*. §137's rule found the answer already in the tree for the third time
+this session.
+
+### Why the report cannot be pushed onto the binder's own list
+
+`diagnostics_suite::reported_for` (`diagnostics_suite.rs:153`) runs the binder
+**once per unit, on that unit alone**, and stamps every diagnostic it returns
+with that unit's file name. The cross-file bind happens somewhere else entirely
+— inside `program_for_case`, whose binder diagnostics **nothing collects**. A
+diagnostic pushed from `merge_globals` would therefore either never be seen or
+be attributed to whichever file happened to be binding.
+
+That is not a harness defect to route around; it is the layering upstream
+already has. `mergeSymbol` is a **checker** function (`checker.go:14146`), and
+the checker's diagnostics carry an explicit file node id which the suite maps
+per unit (`diagnostics_suite.rs:304`). So: **the binder records the conflict,
+the checker reports it.**
+
+### The bar
+
+Off the CASE count. Sole-obstacle TS2451 cases: 10, of which the six
+`letDeclarations-scopes-duplicates` are plain global redeclaration and the other
+four (`checkMergedGlobalUMDSymbol`, `umdGlobalAugmentationNoCrash`,
+`umdNamespaceMergedWithGlobalAugmentationIsNotCircular`,
+`duplicateIdentifierRelatedSpans_moduleAugmentation`) additionally want UMD
+`export as namespace` or module augmentation, which this build does not add.
+
+```
+bar:  +5 cases,  0 LOST,  WRONG delta ≤ +10
+```
+
+**The wrong column is reported as a DELTA, never a total** — §142's rule, and it
+matters more here than anywhere: this branch also selects TS2300, whose wrong
+column was already 61 lines at §88. Measured with
+`RULE_CODES = [2451, 2300, 2567]` isolated on both sides.
+
+### Falsifiers
+
+1. **`WRONG` delta exceeds +10.** Then the conflict branch fires on merges
+   upstream permits, and the first suspect is the `ALIAS` disjunct: upstream
+   does not return there, it calls `resolveSymbol` and re-tests, so anything
+   this build reports through an alias is a position upstream never reaches.
+2. **`LOST` is non-zero.** Six of the ten cases already fail, so a loss means
+   the branch fired on a case that was exact — a permitted declaration merge.
+3. **`binder_symbols` moves.** It must not. Recording a conflict changes no
+   symbol table, and this is the first build of the session to touch
+   `tsr-binder` at all, so the rail is the measurement that says whether the
+   recording leaked into the merge itself. §141's handoff called this out
+   specifically and it fired six times last session.
+4. **The six `letDeclarations` cases do not convert.** Then `merge_globals` is
+   not reached for them, and the reason will be `is_module`/`commonjs_module`
+   — the two conditions guarding the union — rather than anything in the
+   branch.
+
+## §160 — §159 built: +10 cases for ZERO new wrong lines, and the four fixes it took
+
+The bar was `+5 cases, 0 LOST, WRONG delta ≤ +10`. Both sides measured on the
+same checkout by commenting out the single `report_merge_conflicts()` call —
+**not** by `git stash`, for a reason recorded below. `RULE_CODES =
+[2451, 2300, 2567, 2649]`:
+
+| | before | after | delta |
+|---|---:|---:|---:|
+| CONVERTS | 49 | 59 | **+10** |
+| LOST | 0 | 0 | 0 |
+| STILL SHORT | 41 | 42 | +1 |
+| RIGHT | 490 | 515 | +25 |
+| WRONG | 82 | 82 | **0** |
+
+`coverage`: `diagnostics` **1,466 → 1,476**. `binder_symbols` 8,459/8,459,
+`checker_types` 3,937 · 84.47%, `printer_round_trip` 11,762/11,762 — all
+unmoved. §159's falsifiers 1, 2 and 3 all came back negative; falsifier 4 (the
+six `letDeclarations-scopes-duplicates` not converting) also did — they
+converted.
+
+### The first measurement failed the bar, and each of the four causes was named
+
+The build as first written measured **+9 converts, +1 LOST, +33 wrong**. The
+wrong column was read as a **multiset delta** against the before-state rather
+than as a total, which is the only reading that works here: the same run's
+absolute wrong column contains `giant.ts` and `reservedWords2` lines that
+predate this build entirely, and reading the total would have attributed 82
+pre-existing lines to it. §152's lesson, applied prospectively for once.
+
+The 33 came apart into four causes, three of which were *unported upstream code*
+rather than judgement calls:
+
+1. **22 lines — the `SymbolFlagsAssignment` disjunct** (`checker.go:14147`).
+   `mergeSymbol`'s condition is `target.Flags&getExcludedSymbolFlags(source.Flags) == 0
+   || (source.Flags|target.Flags)&ast.SymbolFlagsAssignment != 0`, and this port
+   had only the first half. A JS expando (`ExpandoMerge.p1 = 111`) is a
+   declaration and a value at once, so it collides with everything it merges
+   into; upstream lets it through by name. All 22 were
+   `typeFromPropertyAssignment32`/`33`.
+2. **1 line and the LOST — the plain-JS suppression** (`checker.go:14216-14219`).
+   `reportMergeSymbolError` skips reporting *per side* for a symbol declared in
+   a plain JS file. `plainJSReservedStrict`'s `const eval` collides with the
+   `eval` this port synthesises into globals; upstream's silence there is this
+   guard, not an absent collision.
+3. **5 lines — `undefined` is not a merge target upstream.**
+   `addUndefinedToGlobalsOrErrorOnRedeclaration` (`checker.go:1452`) puts
+   `c.undefinedSymbol` into `c.globals` **only if nothing else declared the
+   name**; when a file does, it reports TS2397 and leaves globals alone, so
+   `mergeSymbol` is never reached. This port seeds the symbol per file bind, so
+   a later file's `var undefined` merges into it. Declined, with the owner
+   named: TS2397/TS2414/TS2427 are three unported checker collision rules.
+4. **3 lines — the arm between the merge and the error.**
+   `checker.go:14188`: `target.Flags&ast.SymbolFlagsNamespaceModule != 0` is
+   TS2649 `Cannot augment module '{0}' with value exports…`, reported **once**,
+   on the source's first declaration. `noSymbolForMergeCrash` is
+   `interface A {} namespace A {}` in one file and `type A = {}` in another.
+   Porting it turned three wrong lines into one right one and converted the
+   case — the +10th.
+
+**Three of the four were code upstream had written and this port had not.**
+That is the same ratio §157 found and §136 first named: on this board, a wrong
+column is more often an unread branch than a wrong judgement. Reading
+`mergeSymbol` end to end *before* writing the report would have cost one file
+read and saved two measurement rounds.
+
+### The `git stash` trap fired, and this is the safer instrument
+
+The handoff prescribes `git stash push <your files>` → coverage → `git stash
+pop` for before/after. It failed here and was worth recording: the new file was
+**untracked**, so `git stash push` refused the pathspec, the `&&` chain
+short-circuited — and the unconditional `git stash pop` that followed popped an
+**unrelated stash from a previous session**, conflicting `PLAN.md` and
+`.beads/interactions.jsonl` into the working tree.
+
+Nothing was lost (both old stashes survived; `git checkout HEAD --` on the two
+files cleaned it up), but the instrument is sharper than it needs to be.
+**Comment out the single call site instead.** It compares two states of the same
+checkout — which is what the handoff actually wanted — has no interaction with
+the stash stack, and cannot fail differently for a tracked and an untracked
+file. Used four times in this build with no incident.
+
+### What the row still wants
+
+Four of TS2451's ten sole-obstacle cases did not convert:
+`checkMergedGlobalUMDSymbol`, `umdGlobalAugmentationNoCrash`,
+`umdNamespaceMergedWithGlobalAugmentationIsNotCircular` and
+`duplicateIdentifierRelatedSpans_moduleAugmentation`. All four additionally want
+UMD `export as namespace` merging or module augmentation — the subsystem §5
+refuses — and this build deliberately added neither. **That is the honest
+residue of the "merge item": four cases, not fifty-two.**

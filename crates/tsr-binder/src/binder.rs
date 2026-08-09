@@ -259,6 +259,8 @@ pub(crate) struct Binder<'a, 'n> {
     /// mutates in place where upstream clones, and the redirect has to be
     /// recorded where the merge happens.
     merged: rustc_hash::FxHashMap<SymbolId, SymbolId>,
+    /// Merges the excludes masks forbade; see [`BindResult::merge_conflicts`].
+    merge_conflicts: Vec<(SymbolId, SymbolId)>,
     globals: SymbolTable<'a>,
     /// The synthesised `undefined` symbol, if this bind created one.
     undefined_symbol: Option<SymbolId>,
@@ -347,6 +349,7 @@ impl<'a, 'n> Binder<'a, 'n> {
             global_exports,
             globals,
             merged,
+            merge_conflicts,
             undefined_symbol,
             computed_names,
             diagnostics,
@@ -408,6 +411,7 @@ impl<'a, 'n> Binder<'a, 'n> {
             global_exports,
             globals,
             merged,
+            merge_conflicts,
             flow,
             node_flow,
             current_flow: unreachable,
@@ -509,6 +513,7 @@ impl<'a, 'n> Binder<'a, 'n> {
             global_exports: self.global_exports,
             globals: self.globals,
             merged: self.merged,
+            merge_conflicts: self.merge_conflicts,
             undefined_symbol: self.undefined_symbol,
             symbols: self.symbols,
             node_symbols: self.node_symbols,
@@ -686,9 +691,34 @@ impl<'a, 'n> Binder<'a, 'n> {
         self.merged.insert(source, target);
         let (source_flags, target_flags) =
             (self.symbols.get(source).flags, self.symbols.get(target).flags);
-        if (source_flags | target_flags).intersects(SymbolFlags::ALIAS)
-            || source_flags.excludes().intersects(target_flags)
-        {
+        if (source_flags | target_flags).intersects(SymbolFlags::ALIAS) {
+            // Upstream does **not** stop here: `mergeSymbol` calls
+            // `resolveSymbol` on a non-transient target and re-tests the
+            // excludes against what the alias resolves to
+            // (`checker.go:14153-14164`), so it can reach either the merge or
+            // the error. Nothing here follows aliases (`bd tsr-y4u.12`), so
+            // this stays a decline — and, deliberately, an *unreported* one:
+            // a diagnostic issued at a position upstream may never reach is a
+            // false positive, which §159 records as this build's first
+            // falsifier.
+            return;
+        }
+        // `(source.Flags|target.Flags)&ast.SymbolFlagsAssignment != 0`
+        // (`checker.go:14147`) — the *second* disjunct of the merge condition,
+        // and it bypasses the excludes masks entirely. A JavaScript
+        // static-property assignment (`ExpandoMerge.p1 = 111`) is a declaration
+        // and a value at once, so it collides with anything it merges into;
+        // upstream lets it through by name. Twenty-two of §159's first
+        // measurement's thirty-three new wrong lines were this one disjunct,
+        // all in `typeFromPropertyAssignment32` and `33`.
+        if (source_flags | target_flags).intersects(SymbolFlags::ASSIGNMENT) {
+            // Fall through to the union below, which is what upstream does.
+        } else if source_flags.excludes().intersects(target_flags) {
+            // `checker.go:14199`'s `else` arm — `reportMergeSymbolError`. The
+            // report itself is the checker's, because only the checker knows
+            // which *file* each declaration is in and only its diagnostics are
+            // collected across files (§159).
+            self.merge_conflicts.push((target, source));
             return;
         }
 

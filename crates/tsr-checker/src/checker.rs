@@ -342,6 +342,14 @@ pub struct Checker<'a, 'n> {
     /// a node one parser invented is reporting about a program the other never
     /// saw. `crate::check` measures what this refusal costs.
     pub(crate) file_has_parse_errors: bool,
+    /// Whether [`Checker::report_merge_conflicts`] has already run.
+    ///
+    /// The binder's cross-file merge conflicts belong to the *program*, not to
+    /// any one file, but the only hook the consumer calls is per-file
+    /// `check_source_file`. Reporting on the first call and never again is what
+    /// makes the set program-scoped without adding a second entry point.
+    /// See `docs/architecture/checker-notes-diag2.md` §159.
+    pub(crate) merge_conflicts_reported: bool,
     /// `compilerOptions.allowUnreachableCode`, read as `IsTrue()`
     /// (`checker.go:12534`) — so unset is `false` and the comma-operator
     /// diagnostic is on by default.
@@ -656,6 +664,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             use_unknown_in_catch_variables: false,
             strict_property_initialization: true,
             file_has_parse_errors: false,
+            merge_conflicts_reported: false,
             allow_unreachable_code: false,
             unreachable_code_is_error: false,
             preserve_const_enums: false,

@@ -113,6 +113,10 @@ impl Checker<'_, '_> {
     /// **every property of every `declare class` in the corpus**, ~25 of the 86
     /// wrong lines that measurement produced.
     pub fn check_source_file(&mut self, file: NodeId, context: FileContext) {
+        // Program-scoped, not file-scoped: the binder's cross-file merge
+        // conflicts are reported once, on whichever file is checked first, and
+        // each diagnostic carries its own declaration's file. §159.
+        self.report_merge_conflicts();
         self.file_has_parse_errors = context.has_parse_errors;
         self.file_is_ambient = context.ambient;
         self.reset_unused_state();

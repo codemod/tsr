@@ -122,6 +122,9 @@ pub struct BindResult<'a> {
     /// Source-to-target redirects from declaration merging; see
     /// [`BindResult::merged_symbol`].
     merged: FxHashMap<SymbolId, SymbolId>,
+    /// `(target, source)` for every merge the excludes masks forbade; see
+    /// [`BindResult::merge_conflicts`].
+    merge_conflicts: Vec<(SymbolId, SymbolId)>,
     /// The synthesised `undefined` global, if this bind created one.
     ///
     /// `None` when the program declared its own `undefined`, which must keep
@@ -155,6 +158,7 @@ impl<'a> BindResult<'a> {
             global_exports: SymbolTable::default(),
             globals: SymbolTable::default(),
             merged: FxHashMap::default(),
+            merge_conflicts: Vec::new(),
             undefined_symbol: None,
             computed_names: FxHashMap::default(),
             diagnostics: Vec::new(),
@@ -568,6 +572,26 @@ impl<'a> BindResult<'a> {
         }
         push(&mut names, &self.globals);
         names
+    }
+
+    /// Every declaration merge the excludes masks forbade, as `(target, source)`.
+    ///
+    /// Upstream calls `reportMergeSymbolError` (`checker.go:14201`) inline at
+    /// the point `mergeSymbol` refuses the union. This port cannot: the merge
+    /// happens in the binder and the *only* binder diagnostics anything
+    /// collects are the ones from `diagnostics_suite`'s per-unit bind, which
+    /// binds each file alone and so never sees a cross-file collision at all.
+    /// Recording the pair and letting `Checker::report_merge_conflicts` issue
+    /// the diagnostics restores upstream's own layering — `mergeSymbol` is a
+    /// checker function there — and gets the per-declaration **file** right,
+    /// which is the whole difficulty: the two declarations are in different
+    /// files by construction.
+    ///
+    /// Order is the order the merges were attempted, which is file order.
+    /// See `docs/architecture/checker-notes-diag2.md` §159.
+    #[must_use]
+    pub fn merge_conflicts(&self) -> &[(SymbolId, SymbolId)] {
+        &self.merge_conflicts
     }
 
     /// The synthesised `undefined` symbol, if this bind created one.
