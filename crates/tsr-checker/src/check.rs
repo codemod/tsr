@@ -814,6 +814,16 @@ impl Checker<'_, '_> {
         if !self.is_value_reference(node) || is_specially_diagnosed_name(text) {
             return;
         }
+        // **In a JavaScript file the CommonJS names are not unresolved.**
+        // `require`, `module` and friends are globals upstream supplies through
+        // machinery this port does not have, so §249's table would report on
+        // every one of them: `modulePreserve4`, `maxNodeModuleJsDepthDefaults…`
+        // and `jsdocReferenceGlobalTypeInCommonJs` were 27 wrong lines, all
+        // `.js`/`.cjs`. Declining there is what this file did for *all* files
+        // before §249, kept exactly where it was right.
+        if self.in_js_file(node) && cannot_find_name_message(text).is_some() {
+            return;
+        }
         // Inside a `with` block upstream reports TS2410 — *"All symbols in a
         // 'with' block will have type 'any'"* — and resolves nothing
         // (`NodeFlagsInWithStatement`, read at `checker.go:29344` and four other
@@ -989,10 +999,12 @@ impl Checker<'_, '_> {
             );
             return;
         }
-        self.report(
-            file,
-            Diagnostic::with_args(&messages::CANNOT_FIND_NAME_0, span, [text.to_string()]),
-        );
+        // `getCannotFindNameDiagnosticForName`'s remaining rows, which are
+        // upstream's `nameNotFoundMessage` and therefore the **fallback** —
+        // reported only once the lib and suggestion arms above have declined.
+        // §247, reachable since §249.
+        let message = cannot_find_name_message(text).unwrap_or(&messages::CANNOT_FIND_NAME_0);
+        self.report(file, Diagnostic::with_args(message, span, [text.to_string()]));
     }
 
     /// TS2304 / TS2552 / TS2583 for a name in a **type** position.
@@ -1315,10 +1327,10 @@ impl Checker<'_, '_> {
             );
             return;
         }
-        self.report(
-            file,
-            Diagnostic::with_args(&messages::CANNOT_FIND_NAME_0, span, [text.to_string()]),
-        );
+        // The same fallback as the value site — upstream reaches the table from
+        // a **type** position too (`checker.go:15784`, via `GetFirstIdentifier`).
+        let message = cannot_find_name_message(text).unwrap_or(&messages::CANNOT_FIND_NAME_0);
+        self.report(file, Diagnostic::with_args(message, span, [text.to_string()]));
     }
 
     /// Does any ancestor introduce `text` as a type parameter — a declaration's
@@ -4589,6 +4601,40 @@ const NODE_CORE_MODULES: &[&str] = &[
 /// Upstream reports the missing lib **before** the spelling suggestion
 /// (`checker.go:1584` versus `:1590`), which is why this is asked first: `Map`
 /// has near neighbours in most scopes, so the two arms are not commutative.
+/// `getCannotFindNameDiagnosticForName` (`checker.go:13915`) — the name table
+/// behind `Cannot find name`, minus the rows handled above it.
+///
+/// Each row upstream is a pair chosen by `UsesWildcardTypes()`
+/// (`slices.Contains(options.Types, "*")`, `core/compileroptions.go:326`). This
+/// corpus sets no `types`, so the slice is empty, the test is false and every
+/// case takes the second variant — see §247. The wildcard halves (TS2580,
+/// TS2581, TS2582, TS2867) are unreachable until `types` is resolved and are
+/// deliberately absent rather than guessed at.
+///
+/// Reaching this needed [`is_specially_diagnosed_name`] narrowed in the same
+/// change: it declined these fourteen names outright, which is why §247
+/// measured zero. §249.
+fn cannot_find_name_message(name: &str) -> Option<&'static tsr_diagnostics::Message> {
+    Some(match name {
+        "document" | "console" => {
+            &messages::CANNOT_FIND_NAME_0_DO_YOU_NEED_TO_CHANGE_YOUR_TARGET_LIBRARY_TRY_CHANGING_THE_LIB_COMPILER_OPTION_TO_INCLUDE_DOM
+        }
+        "$" => {
+            &messages::CANNOT_FIND_NAME_0_DO_YOU_NEED_TO_INSTALL_TYPE_DEFINITIONS_FOR_JQUERY_TRY_NPM_I_SAVE_DEV_TYPES_SLASHJQUERY_AND_THEN_ADD_JQUERY_TO_THE_TYPES_FIELD_IN_YOUR_TSCONFIG
+        }
+        "beforeEach" | "describe" | "suite" | "it" | "test" => {
+            &messages::CANNOT_FIND_NAME_0_DO_YOU_NEED_TO_INSTALL_TYPE_DEFINITIONS_FOR_A_TEST_RUNNER_TRY_NPM_I_SAVE_DEV_TYPES_SLASHJEST_OR_NPM_I_SAVE_DEV_TYPES_SLASHMOCHA_AND_THEN_ADD_JEST_OR_MOCHA_TO_THE_TYPES_FIELD_IN_YOUR_TSCONFIG
+        }
+        "process" | "require" | "Buffer" | "module" | "NodeJS" => {
+            &messages::CANNOT_FIND_NAME_0_DO_YOU_NEED_TO_INSTALL_TYPE_DEFINITIONS_FOR_NODE_TRY_NPM_I_SAVE_DEV_TYPES_SLASHNODE_AND_THEN_ADD_NODE_TO_THE_TYPES_FIELD_IN_YOUR_TSCONFIG
+        }
+        "Bun" => {
+            &messages::CANNOT_FIND_NAME_0_DO_YOU_NEED_TO_INSTALL_TYPE_DEFINITIONS_FOR_BUN_TRY_NPM_I_SAVE_DEV_TYPES_SLASHBUN_AND_THEN_ADD_BUN_TO_THE_TYPES_FIELD_IN_YOUR_TSCONFIG
+        }
+        _ => return None,
+    })
+}
+
 fn suggested_lib_for(name: &str) -> Option<&'static str> {
     LIB_FEATURE_NAMES
         .binary_search_by_key(&name, |(feature, _)| *feature)
@@ -4764,31 +4810,18 @@ pub(crate) fn has_modifier(modifiers: &[ModifierLike<'_>], keyword: SyntaxKind) 
 fn is_specially_diagnosed_name(name: &str) -> bool {
     matches!(
         name,
-        // Not one of upstream's fourteen: `arguments` is *synthesised* by
-        // `resolveName`'s own `arguments` arm (`nameresolver.go`) for every
-        // function-like container, and this binder declares no such symbol. So
-        // every `arguments` reference in the corpus would resolve to nothing
-        // here and to `IArguments` upstream. `bd tsr-o9tl`; the row is 399 lines
-        // of the `.types` gradient too (STATUS §4.3).
-        "arguments"
-            // `globalThis` is a *synthesised* global upstream declares in
-            // `initializeGlobals`; this binder declares no symbol for it, so
-            // every reference would be reported. A refusal, not a resolution.
-            | "globalThis"
-            | "document"
-            | "console"
-            | "$"
-            | "beforeEach"
-            | "describe"
-            | "suite"
-            | "it"
-            | "test"
-            | "process"
-            | "require"
-            | "Buffer"
-            | "module"
-            | "NodeJS"
-            | "Bun"
+        // Both are **synthesised** upstream and declared by no symbol here, so
+        // every reference would report where upstream reports none. A refusal
+        // about *resolution*, which is why §249 narrowed this list to these two
+        // rather than deleting it: the other fourteen were declined only
+        // because this port had no message for them, and §247 built those.
+        //
+        // `arguments` is synthesised by `resolveName`'s own arm
+        // (`nameresolver.go`) for every function-like container. `bd tsr-o9tl`;
+        // the row is 399 lines of the `.types` gradient too (STATUS §4.3).
+        //
+        // `globalThis` is synthesised by `initializeGlobals`.
+        "arguments" | "globalThis"
     )
 }
 

@@ -16186,3 +16186,99 @@ confirming it was dead.
 > **Three builds this session found their real defect while reading code for a
 > different reason** (§232's column, §244's shadowed arm, this). The gap tells
 > you which function to open; it does not tell you what you will find there.
+
+## §249 — the guard §248 could not name: `is_specially_diagnosed_name`
+
+§248 left one question open — which of `check_value_identifier`'s five guards
+declines for `module`. It is the **first** one (`check.rs:814`):
+
+```rust
+if !self.is_value_reference(node) || is_specially_diagnosed_name(text) {
+    return;
+}
+```
+
+and `is_specially_diagnosed_name` (`check.rs:4764`) is:
+
+```
+arguments · globalThis · document · console · $ · beforeEach · describe ·
+suite · it · test · process · require · Buffer · module · NodeJS · Bun
+```
+
+**Fourteen of those sixteen are exactly
+`getCannotFindNameDiagnosticForName`'s table** — the very names §247 ported
+messages for. The list was written to decline them *because this port had no
+message to report*, and §247 added the messages without touching the decline. So
+the table was unreachable by construction, and the "0 lines" it measured was the
+guard's answer rather than the table's.
+
+> **A rule and its decline are one change.** §247 shipped half of a two-part
+> edit and measured the half that could not move — and the two halves were
+> 3,900 lines apart in one file, which is why the decline never came up while
+> the table was being written.
+
+`arguments` and `globalThis` **stay declined**, and for a different reason: both
+are *synthesised* by upstream (`resolveName`'s `arguments` arm;
+`initializeGlobals`) and this binder declares no symbol for either, so every
+reference would report where upstream reports none. That is a refusal about
+resolution, not about messages, and it is why the list must be narrowed rather
+than deleted.
+
+### The bar
+
+```
+bar:  +7 cases,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **`console` and `document` detonate.** Fourteen names stop being silent at
+   once; if `lib.dom` is mounted anywhere the corpus expects, every reference
+   becomes a wrong line.
+2. **`diagnostics` falls.**
+
+## §250 — §249 built: +12, and one bound the corpus asked for
+
+```
+narrow the decline + §247's table   diagnostics 1,674 → 1,685   WRONG 27
++ decline in JavaScript files                     → 1,686   WRONG 1
+
+diag2307, RULE_CODES = [2584, 2591, 2592, 2593, 2868]:
+  CONVERTS 12 · LOST 0 · STILL SHORT 9 · RIGHT 40 · WRONG 1
+```
+
+Falsifier 1 was "`console` and `document` detonate" — negative. Fourteen names
+stopped being silent at once and the corpus took it.
+
+### The 27 wrong lines were all one file kind
+
+`modulePreserve4`, `maxNodeModuleJsDepthDefaultsToZero`,
+`jsdocReferenceGlobalTypeInCommonJs` — every one `.js` or `.cjs`, every one
+`require` or `module`. In a JavaScript file those are CommonJS globals upstream
+supplies through machinery this port does not have, so they are **not**
+unresolved names there.
+
+The bound is one line and it is exactly what the file did before §249 — decline
+these names — kept in the one place it was right:
+
+```rust
+if self.in_js_file(node) && cannot_find_name_message(text).is_some() {
+    return;
+}
+```
+
+> **A blanket decline that is wrong in general can still be right somewhere, and
+> removing it wholesale spends that.** `is_specially_diagnosed_name` was doing
+> two jobs under one name — "no message for this" and "not actually unresolved
+> here" — and only the first was obsolete.
+
+### What the three-build arc cost and bought
+
+§247 built the table and measured zero. §248 reverted it, disproved the parser
+hypothesis, and found a dead call while reading. §249 found the guard 3,900
+lines away in the same file and narrowed it. §250 bounded it to TypeScript.
+
+The table was correct on its first write. **Everything after it was about
+finding what else had to change for it to be reachable** — which is the shape
+§247's own note anticipated one build too late: *a rule and its decline are one
+change*.
