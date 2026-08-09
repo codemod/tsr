@@ -26934,3 +26934,39 @@ a long tail.
 > flag is now the largest single buildable item on the board** — larger than any
 > remaining checker row, and the only one where a day's work has a
 > double-digit payoff.
+
+## §507 — §499's sixteen verified: **fifteen sole-obstacle, one is three lines**
+
+§506 called §499's parser flag the largest buildable item on the board and
+handed forward the number **sixteen**. §486's lesson says a row's case count and
+its *convertible* count differ, so the number was checked before the next
+session spends a day on it:
+
+```
+TS1038   6 cases   all 1-line, all sole-obstacle
+TS1155   3 cases   all 1-line, all sole-obstacle   ("blocked on TS1155 alone: 3")
+TS1359   7 cases   six 1-line; asyncOrYieldAsBindingIdentifier1 wants 3 lines
+```
+
+**Fifteen of the sixteen convert on the flag alone.** The sixteenth
+(`asyncOrYieldAsBindingIdentifier1`) needs three TS1359 lines, which one correct
+rule supplies — so it converts too, and the honest number is **sixteen with one
+caveat**: that case is the only one where the rule must fire three times rather
+than once, which is a test of the *walk*, not of the flag.
+
+> **A handoff number should be checked by the session that writes it, not the
+> one that receives it.** §486 established that `diagslice`'s case count is not
+> a conversion count, and §499's "sixteen" was written without that check. It
+> survived — but the check cost one command and the alternative was a next
+> session discovering the discrepancy after building the flag.
+>
+> Two sessions this one has now audited its own forward-looking numbers (§420's
+> false positives, §431's "eleven", and this): **every time the number was
+> wrong or unverified, and twice it changed.** The rule that follows is §431's,
+> restated for handoffs rather than sweeps: **do not hand forward a count you
+> have not measured.**
+
+`asyncOrYieldAsBindingIdentifier1` is also the case that exercises
+`YIELD_CONTEXT` as well as `AWAIT_CONTEXT` — the only one in the sixteen that
+needs both flags, which makes it the acceptance test for the whole change rather
+than an outlier to be excluded.
