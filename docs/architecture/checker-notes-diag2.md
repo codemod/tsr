@@ -14596,3 +14596,151 @@ The extra column is **not** reachable by a small number of structural fixes.
 establishes it for the parser half (a long tail, not a few loops). Together with
 §172/§177 for the *missing* column, all three of this board's populations are
 now sized by measurement rather than by inference.
+## §221 — TS7026's 1,642 false positives: the pragma road is not the DEFAULT road
+
+**Written concurrently with §211 and merged with it.** §211 built the `@jsx`
+pragma half of road 2 and moved TS7026's corpus wrong column 9 → 3. This is the
+other half of the same road, found from the other end — by pointing the binary
+at a repository — and the two compose into one lookup rather than sitting beside
+each other.
+
+§189 landed TS7026 for +14 conformance cases. On a 22-package repository the
+same rule reports **1,642 diagnostics where `tsc` reports zero** — one per JSX
+element in the build.
+
+### What upstream does
+
+`getJsxNamespaceAt` (`internal/checker/jsx.go:1306`) is three roads:
+
+1. **the implicit-import container** — `react/jsx-runtime` via `jsxImportSource`,
+   under `jsx: react-jsx` (`getJsxNamespaceContainerForImplicitImport`, `:1451`);
+2. **`getJsxNamespace(location)` resolved as a namespace, then its `JSX`
+   export** (`:1317-1321`);
+3. **the global `JSX`** (`:1334`).
+
+And road 2's *name* is **one choice, not a sequence of attempts**
+(`getJsxNamespace`, `:1341-1387`): the file's `@jsx` pragma if it has one, else
+`c._jsxNamespace` — initialised to **`"React"`** (`:1372`) and only then
+overridden by `jsxFactory`'s first identifier or by `reactNamespace`.
+
+That distinction is what the merge fixes. §211 read the pragma and fell back to
+the *global* when there was none; the rule's original rustdoc said the same —
+"through the `jsxFactory`/`jsxFragmentFactory` pragma when one is set, otherwise
+the global `JSX`". **There is no "otherwise".** An unconfigured build already
+resolves `React.JSX`, and a pragma-or-global reading skips exactly the case
+every real React project is in.
+
+That matters now in a way it did not five years ago: **`@types/react` 19 has no
+global `JSX` namespace at all.** `namespace JSX` sits inside
+`declare namespace React` (`index.d.ts:4063`), reachable only by step 2.
+
+### Why no suite here could see it
+
+Byte-identical corpus results, measured on four separate bases — including one
+that already carries §211:
+
+| | base | with the fix |
+|---|---:|---:|
+| `checker_types` | 3,982 / 406,491 | 3,982 / 406,491 |
+| `diagnostics` | 1,615/5,488 | 1,615/5,488, **no case changed verdict** |
+| `binder_symbols` | 8,458/8,458 | 8,458/8,458 |
+
+Because the corpus declares JSX the *old* way. Counted over its JSX cases:
+82 `declare namespace JSX` at global scope, 24 more nested, 15
+`declare global { … }` — and essentially nothing on the `React.JSX` road. Steps
+1 and 2 are **unexercised by the corpus**, so the suite scores the rule at +14
+and cannot see the 1,642.
+
+This is the third instance this session of a defect no suite here can reach
+(§200's ambient-module key, §202's unquoted collision, this). All three were
+found by pointing the binary at a real repository. **That is now a pattern
+rather than a coincidence, and it is an argument about instruments**: the corpus
+is a compiler test suite, not a sample of how TypeScript is written.
+
+### What was built
+
+Steps 2 and 3, in upstream's order, plus the alias hops step 2 needs to reach
+`React` in the three ways real code spells it:
+
+| spelling | hop | upstream |
+|---|---|---|
+| no import at all | UMD global → parent → `export =` | `getTargetOfNamespaceExportDeclaration` (`checker.go:15011`) |
+| `import * as React from "react"` | module → `export =` | `getTargetOfNamespaceImport` (`:15053`) |
+| `import React from "react"` | module → `export =` | `getTargetOfImportClause` (`:15020`), synthetic-default arm |
+
+and then `export = React` itself, which is an alias to a *local* namespace
+(`getTargetOfExportAssignment`, `:14976`) — without following it the export
+table read is the module's, which holds only `export=`.
+
+The namespace-import hop is one [`Checker::resolve_alias`] declines by design:
+its rustdoc records that resolving it there would make the symbol *print* under
+the target's stripped file path where upstream prints the alias's own name
+(`bd tsr-4jk`). That argument is about rendering. This rule never prints what it
+finds — it asks whether it exists — so the decline does not reach it, and the
+hop is made locally rather than by widening a function whose contract is about
+something else.
+
+### Step 1 is still not ported, and the direction of that is the whole safety argument
+
+The implicit-import container needs a module resolution with no specifier node
+to hang it on; upstream synthesises the reference from the first JSX tag in the
+file. Every step here is a **lookup**, and the rule fires only when all of them
+miss — so an unported step can make this rule *report where upstream is silent*,
+never the reverse. Same for the `@jsx` pragma, a qualified `export = A.B`, and a
+module with a real `default` export.
+
+That one-directional property is what makes it landable without step 1, and it
+is worth stating because it is also the property §170 relied on when it shipped
+with only step 3 — correctly identifying the risk and pricing it as "a falsifier
+for the wrong column". **The falsifier fired.** What it cost was not the
+reasoning but the measurement: the wrong column was never taken against
+anything but the corpus, and the corpus cannot express the case.
+
+### The number, and the cleanest statement of why the corpus is not enough
+
+22 packages, `@types/react` 19, mixed `jsx: preserve` and `jsx: react-jsx`.
+The base measured here is **§211 already landed**, so this attributes the two
+halves against each other:
+
+| | corpus TS7026 wrong column | the repository |
+|---|---:|---:|
+| before both | 9 | 1,642 |
+| §211, the `@jsx` pragma road | **3** | **1,642** — unmoved |
+| + this, the default road | 3 | **0** |
+
+**§211 moved the corpus and did not move the repository by a single
+diagnostic**, because no real project writes an `@jsx` pragma — they all take
+the default. This half moves the repository to zero and does not move the
+corpus by a single line. The two measurements are each other's blind spot, and
+neither instrument could have found both.
+
+```
+TS7026   1,642  ->  0
+total    3,082  ->  1,440
+```
+
+`tsc` on those packages reports **zero** TS7026, which is the oracle this was
+scored against. The remaining 1,440 are unrelated and pre-existing.
+
+### A rule with no reachable oracle gets unit tests
+
+`crates/tsr-checker/tests/jsx_namespace.rs`, six of them, each mirroring the
+shape `@types/react` ships and each confirmed red under the arm it exists for —
+five mutations applied one at a time. Two things the mutation table is worth
+reading for:
+
+- **The measured column corrected the predicted one.** An earlier draft claimed
+  that deleting step 2 reddened "all four positive tests"; it reddens three.
+  The fourth exercises the global road those mutations do not touch, which is
+  what makes it a *pair* to them rather than a duplicate.
+- **The control is the important test.** A change whose whole purpose is to make
+  a rule report *less* can be faked by making it never report at all, so
+  `nothing_declares_jsx_so_the_rule_still_reports` is what stops the other five
+  passing vacuously.
+
+The harness needed a `ModuleHost` and did not have one at first. That failure
+was informative rather than annoying: the UMD test passed while both import
+tests failed, because `import * as React from "react"` reaches the namespace
+through *module resolution* and the UMD global does not. A harness gap and a
+rule gap looked identical for one run, which is the same confusion §200's two
+non-equivalent lookups produced — worth noticing twice in one session.

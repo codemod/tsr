@@ -376,6 +376,19 @@ pub struct Checker<'a, 'n> {
     /// (`checker.go:922`) — it follows `strict` when unset, like
     /// `strictNullChecks`.
     pub(crate) no_implicit_any: bool,
+    /// The identifier the JSX namespace hangs off, `getJsxNamespace`'s
+    /// `c._jsxNamespace` (`internal/checker/jsx.go:1372-1382`).
+    ///
+    /// **Defaults to `React`**, and that default is load-bearing rather than a
+    /// convenience: with a modern `@types/react` the `JSX` namespace lives at
+    /// `React.JSX` and there is no global one, so this name is the whole road
+    /// to `JSX.IntrinsicElements`. Overridden by the first identifier of
+    /// `jsxFactory` (`h` for `h.createElement`), else by `reactNamespace`.
+    ///
+    /// The per-file `@jsx` pragma, which upstream consults first
+    /// (`getLocalJsxNamespace`), is not ported — see
+    /// [`Checker::jsx_namespace_symbol`].
+    pub(crate) jsx_namespace: String,
     /// `exactOptionalPropertyTypes` (`checker.go:987`): a `?:` property's
     /// optionality is `missingType`, removed at write positions.
     pub(crate) exact_optional_property_types: bool,
@@ -691,6 +704,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             unreachable_code_is_error: false,
             preserve_const_enums: false,
             no_implicit_any: false,
+            jsx_namespace: "React".to_string(),
             exact_optional_property_types: false,
             alias_inline_level: 0,
             non_null_type_variables: FxHashMap::default(),
@@ -780,6 +794,22 @@ impl<'a, 'n> Checker<'a, 'n> {
         self.use_unknown_in_catch_variables =
             options.strict_option_value(options.use_unknown_in_catch_variables);
         self.no_implicit_any = options.strict_option_value(options.no_implicit_any);
+
+        // `getJsxNamespace`'s three-way default (`jsx.go:1372-1382`): `React`,
+        // unless `jsxFactory` names an entity — in which case its **first**
+        // identifier, so `h.createElement` gives `h` — or `reactNamespace`
+        // names one outright. `jsxFactory` wins over `reactNamespace`.
+        self.jsx_namespace = if options.jsx_factory.is_empty() {
+            if options.react_namespace.is_empty() {
+                "React".to_string()
+            } else {
+                options.react_namespace.clone()
+            }
+        } else {
+            // `GetFirstIdentifier(parseIsolatedEntityName(…))`. The entity is a
+            // dotted name and only its root is the namespace.
+            options.jsx_factory.split('.').next().unwrap_or("React").to_string()
+        };
 
         // `== TSTrue` (`checker.go:6115`) — `strict` does not reach it.
         self.no_unchecked_indexed_access = options.no_unchecked_indexed_access.is_true();

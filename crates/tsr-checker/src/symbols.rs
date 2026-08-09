@@ -1073,7 +1073,7 @@ impl<'a> Checker<'a, '_> {
     /// `resolveSymbolEx(…, dontResolveAlias)` is applied by upstream to the
     /// `export=` symbol; with `dontResolveAlias = true` it is the identity, and
     /// the only caller here passes `true`.
-    fn resolve_external_module_symbol(&self, module_symbol: SymbolId) -> SymbolId {
+    pub(crate) fn resolve_external_module_symbol(&self, module_symbol: SymbolId) -> SymbolId {
         // `ast.InternalSymbolNameExportEquals` (`internal/ast/symbol.go:66`).
         // Spelled here rather than imported because the binder's constant is
         // `pub(crate)`; both are anchored to the same upstream line, and a test
@@ -1132,7 +1132,7 @@ impl<'a> Checker<'a, '_> {
     /// checker answers `errorType` for every cross-file alias, which is exactly
     /// what it answered before — the arm is additive by construction rather than
     /// by test.
-    fn resolve_external_module_name(
+    pub(crate) fn resolve_external_module_name(
         &mut self,
         location: NodeId,
         module_specifier: NodeId,
