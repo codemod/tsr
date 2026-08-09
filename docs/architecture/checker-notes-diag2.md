@@ -17771,3 +17771,101 @@ same half-port §253 was written about.
 Per §281's reading, that is the row saying its remaining cases want more of
 these two codes than this arm produces — the property-access half of TS2540 and
 the `readonly` shapes `is_readonly_symbol` does not decide.
+
+## §285 — TS7005, and the one place `diagslice` sent me away
+
+Two rows from `reportImplicitAny`'s group were candidates. `diagslice` answered
+one of them before any code was written:
+
+```
+TS7031    3 cases   0 single-line   no — needs the whole rule
+TS7005    7 cases   5 single-line   yes — mostly single-line
+```
+
+TS7031 is the binding-element arm `implicit_any.rs` explicitly defers to
+(*"a binding pattern parameter reports TS7031 per element, which is its own
+row"*), and every one of its blocked cases wants more than one line. **A
+fragment converts none of them**, and that is a build not taken rather than a
+build reverted.
+
+### TS7005's shape
+
+Reported from two sites. `reportImplicitAny`'s `KindVariableDeclaration` arm
+(`checker.go:18347`) is the one the corpus wants:
+
+```
+parserVariableStatement2.d.ts(1,5): error TS7005: Variable 'v' implicitly has an 'any' type.
+downlevelLetConst2.ts(1,7):        error TS7005: Variable 'a' implicitly has an 'any' type.
+```
+
+`var v;` and `const a;` — **no annotation and no initialiser**, reported at the
+**name**. The other site (`:11186`) is the evolving-`auto` path, which reports at
+a *use* and pairs with TS7034 at the declaration; not ported.
+
+### One guard that must **not** be copied from TS7008
+
+`parserVariableStatement2.d.ts` is a `.d.ts` and upstream reports TS7005 in it.
+§271's member slice declines when `ambient`, and copying that here would decline
+the case the row is named for. Implicit-any is about the *declaration's* type,
+which an ambient context does not supply.
+
+### The bar
+
+```
+bar:  +4 cases of 7,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **`var x = 1;` reports.** The initialiser test is the whole guard.
+2. **`var x; x = 1; use(x)` reports at the declaration** where upstream reports
+   at the use — the evolving path, which this does not port and must not
+   pre-empt.
+
+## §286 — §285 measured twice and reverted: TS7005 belongs to the evolving path
+
+```
+declaration arm, unbounded        diagnostics 1,763 → 1,728   (−35)
++ bounded to `const` and ambient              → 1,759   (−4)
+```
+
+Reverted. Two bounds, both measured, neither positive.
+
+### What the corpus actually wants
+
+`reportImplicitAny`'s `KindVariableDeclaration` arm (`checker.go:18347`) is a
+real site and the two fixtures I read — `parserVariableStatement2.d.ts` and
+`downlevelLetConst2` — are genuinely its shape. **They are not where the row's
+mass is.** The other 5 cases want TS7005 from `checker.go:11186`, the
+evolving-`auto` path, which reports at a **use** and pairs with TS7034 at the
+declaration.
+
+Reporting at the declaration for those is a *wrong position*, and a wrong
+position costs a case exactly as much as a missing line — §152's multiset again.
+
+### The addition this makes to §273's stated limit
+
+`diagslice` said `TS7005  7 cases  5 single-line  yes — mostly single-line`, and
+that was **true and not sufficient**, in a way §273 did not anticipate:
+
+> §273: *"whether **this** fragment converts it depends on the line being one
+> the slice decides."*
+
+It also depends on the line being at a **position** the fragment produces. A
+one-line blocked case is convertible in principle; a fragment that emits that
+line *somewhere else* converts nothing and loses the cases it displaces.
+
+**`diagslice` counts lines per case. It does not know where they are.**
+`diagcolumn` (§233) knows about positions and only for diagnostics this port
+already emits. Nothing connects the two, and this row is what that gap costs.
+
+### Refused, owner named
+
+**TS7005, 7 cases — refused.** Owner: the **evolving-`auto`** path
+(`checker.go:11182`), which needs `autoType`/`autoArrayType`, the flow type at
+each reference, and TS7034 as its partner. `is_evolving_array_operation_target`
+and `convert_auto_to_any` are both unported.
+
+The declaration arm is correct and is *in* that path's shadow: it cannot be
+shipped alone, because every variable it would report on is one the evolving
+path claims first.
