@@ -26362,3 +26362,39 @@ stayed failing, with a wrong code at a right position instead of nothing.
                                   ────
                                   +12 for the block, once it works
 ```
+
+## §495 — the differential check §494 asked for, run
+
+§494 said every message-splitting build needs a **`for…in` fixture and a
+`for…of` fixture asserted to produce different codes**, and named §439's
+two-code `switch` as the other build that selects by a kind test and was never
+checked.
+
+Run against a fresh `diagslice`, as *"does the row still have blocked cases"*:
+
+```
+TS1188  for…in, >1 declaration     0 blocked      TS7013  construct signature  0 blocked
+TS1189  for…of, >1 declaration     0 blocked      TS7011  call signature       0 blocked
+TS2404  for…in, type annotation    0 blocked      TS1114  duplicate label      0 blocked
+TS2483  for…of, type annotation    0 blocked      TS1141  import type argument 0 blocked
+TS2491  for…in, destructuring      0 blocked
+```
+
+**Every arm of both message-splitting builds fires**, and **nine rows are closed
+to zero** — the `for…in`/`for…of` block accounting for five of them.
+
+> The check cost one corpus run and it is the one §492 should have made.
+> **A row at zero blocked cases is the strongest per-arm evidence available
+> here**, because it is the only signal that distinguishes *this arm reported*
+> from *this arm reported the other arm's code*: a dead branch leaves its own
+> row untouched while the sibling's row falls, which is exactly the pattern
+> §491 produced and §492 read as success.
+
+### Rows closed to zero this session
+
+```
+TS18016 §391 · TS2331 §393 · TS1114 §476 · TS1141 §489
+TS1188 TS1189 TS2404 TS2483 TS2491 §491+§493 · TS7011 TS7013 §438
+```
+
+**Twelve**, of which five came from one block once its kind test was correct.
