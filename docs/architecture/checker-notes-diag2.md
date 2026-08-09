@@ -12799,3 +12799,69 @@ The four are singles in four cases — `moduleAugmentationEnumClassMergeOfReexpo
 all four are §186's one surviving insight, which stands: **an empty export table
 can be declined and a partial one cannot.** Module augmentation and export-star
 both produce partial tables here.
+
+## §188 — §171's attribution is wrong too, and that is now a pattern with three instances
+
+§187 reversed §186 by grepping for the function upstream calls by name. The same
+grep, run against the *other* refusal this session filed against a subsystem:
+
+§171 refused TS7026 and named the blocker:
+
+> *"`file_loader` must follow `/// <reference path="/.lib/react16.d.ts" />`.
+> Every wrong line in the measured build is that one missing file."*
+
+**Both halves of that are false.**
+
+```
+crates/tsr-compiler/src/loader.rs:582
+    // `/// <reference path="…" />` — a file, not a module: no resolver, no …
+crates/tsr-compiler/src/loader.rs:1416
+    fn a_triple_slash_path_reference_adds_a_file_without_a_resolution() { … }
+
+crates/tsr-conformance/src/types_producer.rs:52
+    /// The files of `tests/lib`, mounted under `/.lib` — upstream's `testLibFolder`
+```
+
+The loader follows path references **and has a test pinning it**, and
+`/.lib/react16.d.ts` is mounted by the same function that mounts every other
+test lib. §171 inferred the cause from the fixture's first line — a
+`/// <reference>` to a file whose contents were plainly not visible — and never
+asked which of the three links in that chain was broken.
+
+### What is actually unknown
+
+`react16.d.ts` declares `declare namespace JSX { … }` at global scope in a
+*script* `.d.ts`, so it should reach `globals` through `merge_globals`. Three
+candidate links remain and **none has been probed**:
+
+1. the reference is followed but the file is not bound into the program's binder;
+2. it is bound but `declare namespace JSX` does not reach `globals`;
+3. it reaches `globals` and the rule's `resolve_name(…, "JSX", MODULE)` misses
+   — plausible only since §166 made that lookup meaning-filtered, which is
+   *after* §171 measured.
+
+**Candidate (3) did not exist when §171 ran.** That row's 45 residual wrong
+lines were measured against a resolver that answered every meaning, so like
+§164's 238 they are not a current number.
+
+### The pattern, stated because it now has three instances
+
+| § | refusal blamed | actually |
+|---|---|---|
+| 164 | `is_value_reference` | not broken (§165) |
+| 186 | alias resolution unported | ported, in the checker (§187) |
+| 171 | `file_loader` ignores `<reference path>` | followed, and tested (here) |
+
+> **Every one was filed after reading a symptom and matching it to a plausible
+> named gap, and every one named a gap that exists somewhere in the project.**
+> That is what made them convincing. The distinguishing move is always the same
+> and always cheap: **grep for the upstream function by name and read whether
+> this port has it** — §136's rule, which this board has now paid for four times
+> and skipped three.
+
+A refusal that names a subsystem is a claim about *this* codebase, not about the
+symptom, and it needs the same evidence any other claim about the codebase does.
+
+**TS7026 is therefore re-opened**, and its next step is a probe rather than a
+build: print whether `JSX` resolves at one `jsxIntrinsicElementsTypeArgumentErrors`
+element, which distinguishes all three candidates in one run.
