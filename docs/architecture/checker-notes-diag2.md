@@ -14865,3 +14865,100 @@ which had *improved* (1,237 → 1,209) in the same run.
 `42 expected, 32 actual` — ten missing `TS1121` (*Octal literals are not
 available…*) on `` tag`0${00}` ``, a different rule about octal escapes in
 substitutions. Named, not fixed.
+
+## §224 — TS1121, a legacy octal literal: five cases and no producer
+
+§223 left `templateLiteralEscapeSequence` at ten missing `TS1121` lines and
+named them as a different rule. Priced:
+
+```
+TS1121   16 missing lines   5 cases blocked on it alone
+grep for a producer in tsr-scanner / tsr-parser / tsr-checker → nothing
+```
+
+`Octal literals are not allowed. Use the syntax '{0}'.` — `00`, `012`, the
+pre-ES5 form. `scanNumber` (`scanner.go:1944`):
+
+```go
+digits, isOctal := s.scanDigits()
+if digits == "" { fixedPart = "0" }
+else if !isOctal { s.tokenFlags |= ContainsLeadingZero; fixedPart = digits }
+else {
+    val, _ := strconv.ParseInt(digits, 8, 64)
+    literal := core.IfElse(withMinus, "-", "") + "0o" + strconv.FormatInt(val, 8)
+    s.errorAt(Octal_literals_are_not_allowed_Use_the_syntax_0, start, s.pos-start, literal)
+    return ast.KindNumericLiteral
+}
+```
+
+Three arms after a leading `0`, and the distinction is exact: **all digits
+octal** is the error; **any 8 or 9** is a decimal with a leading zero and no
+diagnostic (`09` is legal). This port has no arm at all — `scan_digits(10, …)`
+consumes them and says nothing.
+
+### The bound taken
+
+`withMinus` prefixes `-` to the suggestion and extends the span left, by reading
+`s.token` — the *previous* token. This port's scanner does not keep it at that
+point, so a negated octal gets `0o…` without the sign. **A wrong argument, not a
+wrong position or code**, and the suite compares neither — recorded because it
+would be invisible in every measurement this board takes.
+
+### The bar
+
+```
+bar:  +3 cases,  0 LOST,
+      scanner_clean_files / parser_typescript / binder_symbols /
+      printer_round_trip UNMOVED at 100%
+```
+
+Under 5 because `templateLiteralEscapeSequence` needs its other 32 lines right
+as well, and `strictModeOctalLiterals` is a strict-mode fixture whose other
+diagnostics are unmeasured here.
+
+### Falsifiers
+
+1. **`scanner_clean_files` moves.** `09`, `0`, `0.5`, `0x1f` and `0n` must be
+   untouched; only an all-octal run after a leading zero may change.
+2. **`diagnostics` falls.** The rule only adds.
+
+## §225 — §224 built: +6, twice the bar
+
+```
+diagnostics          1,619 → 1,625  (+6, bar was +3)
+checker_types        4,000 → 4,002  (+2)
+scanner_clean_files  5,031/5,031    unmoved — falsifier 1 negative
+parser_typescript    5,031/5,031    unmoved
+binder_symbols / printer_round_trip  100%, denominators shifted by the files
+                                     that now carry a scanner error
+```
+
+Both falsifiers negative. `09` and `0` and `0x1f` are untouched; only an
+all-octal run after a leading zero reports.
+
+### Why it beat its bar
+
+§224 set `+3` on the assumption that `templateLiteralEscapeSequence` and
+`strictModeOctalLiterals` would still fail for other reasons. Neither
+assumption held for the other three cases in the row, and the rule turns out to
+be the *only* thing several of them wanted.
+
+> **A row with no producer at all is the one place a bar should be set high.**
+> Every conservative bar this session was set on a rule that already existed and
+> was being deepened, where the residue is genuinely unknown. A code this port
+> **never emits** has a cleaner prediction: the missing lines are exactly the
+> ones the rule would produce, and `diagmissing`'s sole-obstacle count is close
+> to the truth. §162 (TS1212, +32 against a ceiling of 34) and this are the two
+> instances, and both undershot.
+
+### The two arms this port now has and the third it does not
+
+| after a leading `0` | upstream | here |
+|---|---|---|
+| nothing | plain zero | same |
+| a run containing 8 or 9 | `ContainsLeadingZero`, silent | silent, no flag |
+| an all-octal run | **TS1121** | **TS1121** |
+
+The middle arm's `TokenFlagsContainsLeadingZero` is not set — this port has no
+such flag and nothing reads one. Recorded because the flag is upstream's signal
+to the *emitter*, and a `.js` output that reprints `09` as `09` needs it.

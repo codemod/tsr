@@ -366,6 +366,20 @@ impl<'a> Scanner<'a> {
         self.diagnostics.push(Diagnostic::new(message, span));
     }
 
+    /// `errorAt` with substitution arguments.
+    fn error_with(
+        &mut self,
+        message: &'static tsr_diagnostics::Message,
+        span: Span,
+        args: &[&str],
+    ) {
+        self.diagnostics.push(Diagnostic::with_args(
+            message,
+            span,
+            args.iter().map(|a| (*a).to_string()),
+        ));
+    }
+
     // ---- scanning ------------------------------------------------------
 
     /// Scan the next token and return it.
@@ -791,7 +805,32 @@ impl<'a> Scanner<'a> {
             }
         }
 
+        // `scanNumber`'s leading-zero arms (`scanner.go:1947-1972`). After a
+        // `0`, upstream splits three ways: nothing follows (plain zero), the
+        // run contains an 8 or a 9 (a decimal with a leading zero, legal and
+        // silent), or every digit is octal — the pre-ES5 literal, which is
+        // `Octal literals are not allowed`.
+        //
+        // `withMinus` prefixes `-` to the suggested spelling and widens the
+        // span left by reading the *previous* token; this scanner does not keep
+        // one here, so a negated octal is suggested without its sign. A wrong
+        // **argument**, never a wrong code or position — the suite compares
+        // neither, so it is recorded in §224 rather than measured.
+        let leading_zero = self.peek() == Some('0');
+        let digits_start = self.pos;
         self.scan_digits(10, flags);
+        if leading_zero && self.pos > digits_start + 1 {
+            let digits = &self.source[digits_start as usize + 1..self.pos as usize];
+            if !digits.is_empty() && digits.bytes().all(|b| (b'0'..=b'7').contains(&b)) {
+                let value = u64::from_str_radix(digits, 8).unwrap_or(0);
+                self.error_with(
+                    &messages::OCTAL_LITERALS_ARE_NOT_ALLOWED_USE_THE_SYNTAX_0,
+                    Span::new(digits_start, self.pos),
+                    &[&format!("0o{value:o}")],
+                );
+                return SyntaxKind::NumericLiteral;
+            }
+        }
 
         if self.eat('n') {
             return SyntaxKind::BigIntLiteral;
