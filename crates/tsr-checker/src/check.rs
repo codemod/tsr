@@ -1182,7 +1182,21 @@ impl Checker<'_, '_> {
         if text.is_empty() || span.start == span.end {
             return;
         }
-        for meaning in [SymbolFlags::TYPE, SymbolFlags::VALUE, SymbolFlags::NAMESPACE] {
+        // A `TYPE` hit is a correct resolution and stays silent. §167: the
+        // other two are TS2709 and TS2749, which the cascade now selects —
+        // reachable only since §166 stopped the globals fallback from
+        // answering every meaning.
+        if self
+            .binder
+            .resolve_name(self.nodes, self.node_map, node, text, SymbolFlags::TYPE)
+            .is_some()
+        {
+            return;
+        }
+        if self.report_meaning_mismatch_in_type_position(node, text) {
+            return;
+        }
+        for meaning in [SymbolFlags::VALUE, SymbolFlags::NAMESPACE] {
             if self.binder.resolve_name(self.nodes, self.node_map, node, text, meaning).is_some() {
                 return;
             }

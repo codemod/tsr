@@ -11378,3 +11378,92 @@ The board's standing rule was already *"probe at the rule's ENTRY, not at a
 branch"*. Strengthen it with what this row demonstrates: **when two successive
 attributions fail, stop attributing and print the inputs.** The cost was one
 `eprintln` and about five minutes, against three sections of analysis.
+
+## §167 — the cascade re-barred on top of §166, type-position arms only
+
+§166 removed the reason §163's arms were unreachable. Re-taking the row, and
+**narrowed to what measured clean**: §163's type-position arms measured
+`0 CONVERTS, 0 LOST, 0 WRONG` — correct and starved. The value-position arm
+measured 238 wrong lines and is **not** part of this build; §165's corrected
+prerequisite list still stands for it.
+
+Ported: `checkAndReportErrorForUsingNamespaceAsTypeOrValue`'s type branch
+(TS2709) and `checkAndReportErrorForUsingValueAsType` (TS2749), from
+`checker.go:1641` and `:1722`, called from `check_type_reference_name` between
+its `TYPE` arm and the rest of its ladder.
+
+```
+bar:  +6 cases,  0 LOST,  WRONG delta ≤ +6
+```
+
+Sole-obstacle population is TS2709's 9 plus TS2749's 4. The bar is under half
+because §163 measured `RIGHT` at 8 lines against 19 missing for these two codes
+even when the arms fired — most of the row wanted something else — and because
+§166 has just changed what every meaning query in the program answers, so the
+arms are firing against a resolver nobody has measured them against.
+
+### Falsifiers
+
+1. **`WRONG` delta above +6.** First suspect is the `MODULE` mask: a symbol that
+   is a namespace *and* a value (`namespace N {}` plus `const N = 1`) is a legal
+   type-position reference in neither direction, and upstream's arm order
+   decides which message it gets.
+2. **`LOST` non-zero.** The site returns silently today, so every line is
+   additive.
+3. **`checker_types` moves.** §166 moved it deliberately; this build is
+   `crate::check` only and must not.
+
+## §168 — §167 built: +8 at zero wrong, and it is §166's payoff not the cascade's
+
+The bar was `+6 cases, 0 LOST, WRONG delta ≤ +6`. `RULE_CODES = [2709, 2749]`;
+no other producer emits either code, so the counterfactual is the delta:
+
+```
+CONVERTS   8      LOST   0      STILL SHORT   5      RIGHT   24      WRONG   0
+```
+
+`coverage`: `diagnostics` **1,508 → 1,516 (27.62%)**. `checker_types` 3,955 ·
+84.52%, `binder_symbols` 8,459/8,459, `printer_round_trip` 11,762/11,762 — all
+unmoved, including the one §166 deliberately moved.
+
+### The same code, twice, with one line of the binder different
+
+| | §163, before §166 | §167, after §166 |
+|---|---:|---:|
+| CONVERTS | 0 | **8** |
+| RIGHT | 8 | **24** |
+| WRONG | 0 | 0 |
+
+**The arms are character-for-character the same.** What changed is that
+`resolve_name`'s globals fallback stopped answering `TYPE` for every name in the
+program, so the ladder above these arms stopped returning before reaching them.
+
+That is the whole lesson of §163–§168, and it is worth stating as the row's
+epitaph:
+
+> **A rule that measures `0 wrong AND 0 converts` is not a weak rule; it is an
+> unreached one.** Zero wrong is what a correct rule and a dead rule have in
+> common, and the two are told apart by `RIGHT`, not by `WRONG`. §163 had that
+> number — 8 correct lines against 19 missing — and read it as "the population
+> wants something else" instead of "something above me is eating the calls".
+
+### The chain, and what each step actually bought
+
+| § | move | result |
+|---|---|---|
+| 163 | priced the cascade by reading upstream, built all four arms | +2 for 238 wrong — **failed** |
+| 164 | attributed the 238 to `is_value_reference`, from three fixtures | bound removed 232 — **right effect, wrong cause** |
+| 165 | measured that fix **alone** | it loses a case — **attribution disproved** |
+| 166 | printed the rule's inputs at its entry | one-line resolver defect — **cause** |
+| 167/168 | re-ran §163's type arms unchanged | **+8, zero wrong** |
+
+Four sections and two reverts to move one line of `tsr-binder` and re-apply code
+that already existed. The cheap step was available at §163: **`RIGHT` was
+already telling the truth.**
+
+### What is still open on this row
+
+The **value-position arm** (TS2693/TS2708, plus TS2661) is not built. §164's 238
+wrong lines were measured against the pre-§166 resolver and are **no longer a
+valid measurement** — the ladder they came through has changed. Re-measure
+before quoting them, which is §142's rule applied to this board's own numbers.
