@@ -662,3 +662,21 @@ is claimed: callWithMissingVoid, taggedTemplateContextualTyping1,
 dependentDestructuredVariables, and contextuallyTypeAsyncFunction-
 ReturnType each carry their own shape. §113 stays a bar-in-triage;
 no prediction registered, no code owed against it yet.
+
+**§113 triage, second case (callWithMissingVoid, 5+ lines):** NOT
+the contextual-parameter machine either — two families:
+  1. WRITTEN UNION ORDER WITH VOID (the 4 WRONGs): want
+     `x: number | void` as written, we print `void | number` — the
+     fresh sort puts void first. This is §108's admission principle
+     verbatim ("a spelling the fresh render cannot reproduce") on
+     the printing lane; flagged to checker-1 as its §108 family's
+     next candidate rather than claimed here.
+  2. GENERIC INSTANTIATION AT void (the GAPs): `f<void>(...)`-class
+     explicit-argument instantiation producing `(t: void) =>
+     { a: void; }` — the §35-family deferred-instantiation road.
+The 87-line bucket is now measured HETEROGENEOUS across its top
+three cases (overload+generic dispatch / union order / void
+instantiation) — the "one road" reading of the calleegap bucket was
+level-1 bucketing and the bar stays in triage; remaining cases
+(dependentDestructuredVariables 8, taggedTemplate 5) owe their
+looks before any §113 mechanism is claimed.
