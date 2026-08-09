@@ -123,6 +123,41 @@ impl<'a> Checker<'a, '_> {
                     None => self.intrinsics.error,
                 }
             }
+            // §110 slice 2c: the census's one line — EVERY `@param`/`@returns`
+            // annotation arrives as this transparent wrapper, and it had no
+            // arm, so 186/186 failed before any grammar question.
+            TypeNode::JSDocTypeExpression(node) => node
+                .r#type
+                .map_or(self.intrinsics.error, |inner| self.get_type_from_type_node(inner)),
+            // The JSDoc grammar's simple wrappers (upstream's
+            // `getTypeFromJSDoc*` family).
+            TypeNode::JSDocAllType(_) => self.intrinsics.any,
+            TypeNode::JSDocNullableType(node) => {
+                let Some(inner) = node.r#type else { return self.intrinsics.error };
+                let inner = self.get_type_from_type_node(inner);
+                if inner == self.intrinsics.error {
+                    return self.intrinsics.error;
+                }
+                let null = self.intrinsics.null;
+                self.get_union_type(&[inner, null])
+            }
+            TypeNode::JSDocNonNullableType(node) => node
+                .r#type
+                .map_or(self.intrinsics.error, |inner| self.get_type_from_type_node(inner)),
+            TypeNode::JSDocOptionalType(node) => node
+                .r#type
+                .map_or(self.intrinsics.error, |inner| self.get_type_from_type_node(inner)),
+            TypeNode::JSDocVariadicType(node) => {
+                let Some(inner) = node.r#type else { return self.intrinsics.error };
+                let element = self.get_type_from_type_node(inner);
+                if element == self.intrinsics.error {
+                    return self.intrinsics.error;
+                }
+                match self.global_type_symbol("Array") {
+                    Some(array) => self.create_type_reference(array, vec![element]),
+                    None => self.intrinsics.error,
+                }
+            }
             // §28 (`checker-notes-callres.md`): `this` in type position is
             // the enclosing class/interface declaration's one `this` type.
             TypeNode::ThisTypeNode(node) => {

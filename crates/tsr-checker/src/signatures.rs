@@ -527,7 +527,9 @@ impl<'a> Checker<'a, '_> {
         // §110 (`checker-notes-narrow.md`): a JS declaration's type
         // parameters live in its JSDoc `@template` tags — a side table the
         // module host carries; the node's own list is empty there.
-        if parts.type_parameters.is_empty() && self.in_js_file(declaration) {
+        let mut param_types: Vec<(&str, TypeNode<'a>)> = Vec::new();
+        let mut return_tag: Option<TypeNode<'a>> = None;
+        if self.in_js_file(declaration) {
             // The DOC HOST for an arrow/function expression is the enclosing
             // statement (`/** @template T */ const f = (x) => x` attaches to
             // the VariableStatement) — walk out through expression-position
@@ -557,13 +559,35 @@ impl<'a> Checker<'a, '_> {
                 if let Some(docs) = self.jsdoc_entries.get(host_node) {
                     for doc in *docs {
                         for tag in doc.tags {
-                            if let tsr_ast::JSDocTag::JSDocTemplateTag(template) = tag {
-                                from_jsdoc.extend(template.type_parameters.iter().copied());
+                            match tag {
+                                tsr_ast::JSDocTag::JSDocTemplateTag(template) => {
+                                    from_jsdoc.extend(template.type_parameters.iter().copied());
+                                }
+                                // §110 slice 2: `@param {T} x` supplies the
+                                // parameter's type; `@returns {T}` the return.
+                                tsr_ast::JSDocTag::JSDocParameterOrPropertyTag(parameter)
+                                    if matches!(
+                                        parameter.tag_name.text,
+                                        "param" | "parameter" | "arg" | "argument"
+                                    ) =>
+                                {
+                                    if let (
+                                        Some(tsr_ast::EntityName::Identifier(name)),
+                                        Some(annotation),
+                                    ) = (parameter.name, parameter.type_expression)
+                                    {
+                                        param_types.push((name.text, annotation));
+                                    }
+                                }
+                                tsr_ast::JSDocTag::JSDocReturnTag(tag) if return_tag.is_none() => {
+                                    return_tag = tag.type_expression;
+                                }
+                                _ => {}
                             }
                         }
                     }
                 }
-                if !from_jsdoc.is_empty() {
+                if !from_jsdoc.is_empty() || !param_types.is_empty() || return_tag.is_some() {
                     break;
                 }
             }
@@ -582,7 +606,7 @@ impl<'a> Checker<'a, '_> {
                     );
                 }
             }
-            if !from_jsdoc.is_empty() {
+            if !from_jsdoc.is_empty() && parts.type_parameters.is_empty() {
                 parts.type_parameters = from_jsdoc;
             }
         }
@@ -605,7 +629,18 @@ impl<'a> Checker<'a, '_> {
         let mut parameters: Vec<Parameter> = Vec::with_capacity(parameter_nodes.len());
         let mut min_argument_count = 0;
         for (index, node) in parameter_nodes.iter().enumerate() {
-            let parameter = self.parameter_of(node)?;
+            let mut parameter = self.parameter_of(node)?;
+            // §110 slice 2: an unannotated JS parameter takes its `@param`
+            // type; a doc type that does not compute keeps the implicit any.
+            if node.r#type.is_none()
+                && let Some((_, annotation)) =
+                    param_types.iter().find(|(name, _)| *name == parameter.name)
+            {
+                let typed = self.get_type_from_type_node(*annotation);
+                if typed != self.intrinsics.error {
+                    parameter.r#type = typed;
+                }
+            }
             if index == 0 && parameter.name == "this" {
                 this_parameter = Some(parameter);
                 continue;
@@ -635,6 +670,15 @@ impl<'a> Checker<'a, '_> {
             }
         }
 
+        // §110 slice 2: `@returns {T}` is the annotation a JS declaration
+        // lacks in syntax; a doc return that does not compute keeps the
+        // body-inference road.
+        let return_annotation = return_annotation.or_else(|| {
+            return_tag.filter(|&node| {
+                let computed = self.get_type_from_type_node(node);
+                computed != self.intrinsics.error
+            })
+        });
         let r#type = self.return_type_of(
             declaration,
             return_annotation,

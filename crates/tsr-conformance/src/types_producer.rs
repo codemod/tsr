@@ -985,6 +985,9 @@ fn render_case(
     // have no program, and they are the control that a call site without a host
     // is unchanged.
     let mut checker = tsr_checker::Checker::with_module_host(bound, nodes, node_map, Some(program));
+    for file in program.root_and_referenced_files() {
+        checker.set_jsdoc(file.jsdoc().iter().map(|(host, docs)| (host, docs)));
+    }
     // `GetStrictOptionValue(strictNullChecks)` (`checker.go:919`) over the
     // case's directives: the explicit flag wins, `@strict` is the fallback.
     // **The default is `true`, measured off the baselines rather than

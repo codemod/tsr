@@ -4484,3 +4484,21 @@ dotted `module:` names, record types). The third attempt's
 PRECONDITION is a census probe: dump the distinct annotation node
 KINDS the consult sees on the jsdoc family, and port the top of that
 list — not another guess. Everything reverted; slice 1 stands.
+
+**§110 slice 2c — LANDED at +85 net (99:14, 7.1:1), ratio leg
+missed and stated.** The kind census earned its keep in ONE line:
+all 186 @param annotations arrive as the `JSDocTypeExpression`
+WRAPPER, which had no `get_type_from_type_node` arm — every prior
+failure was at the entry, not the grammar. With the wrapper arm +
+the five simple wrappers + the guarded consult: +86 W→R
+(jsDeclarationsGetterSetter 23, checkJsdocSatisfies 6, spread over
+25+ JS cases) + 13 G→R against 11 R→W + 3 R→G, 11 W→G honest. The
+bar's ≥80-family leg met; the 10:1 leg missed at 7.1:1 with three
+named residues: returnTagTypeGuard 6 (a doc `@returns {boolean}`
+suppresses §100's predicate admission; the annotation-eligibility
+fix was tried and measured WORSE −4 — the true interplay needs the
+predicate to run off the RESOLVED type with the doc annotation
+retained, a §100-side change), jsFileMethodOverloads3 4 (doc types
+on JS overload lists), inferThis 3+3 (`@this` tag unported). The
+JSDoc family's remaining ~150 wait on those three plus the
+non-wrapper grammar forms.
