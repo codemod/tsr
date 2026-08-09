@@ -2160,6 +2160,12 @@ impl Checker<'_, '_> {
         {
             return;
         }
+        // `exportDefaultSymbol == nil && !hasSyntheticDefault && !hasDefaultOnly`
+        // (`checker.go:14566`) — the report is the **third** conjunct, and only
+        // the first was ported.
+        if self.can_have_synthetic_default(symbol) {
+            return;
+        }
         let printed = self.binder.symbols().get(symbol).name.to_string();
         let Some(file) = self.source_file_of_for_diagnostics(name) else { return };
         let span = self.error_span(name);
@@ -2167,6 +2173,75 @@ impl Checker<'_, '_> {
             file,
             Diagnostic::with_args(&messages::MODULE_0_HAS_NO_DEFAULT_EXPORT, span, [printed]),
         );
+    }
+
+    /// `canHaveSyntheticDefault` (`checker.go:14818`), the two arms this port
+    /// can ask.
+    ///
+    /// A module with no `default` export is still importable as one when the
+    /// importer may synthesise it, and **`esModuleInterop` makes that the
+    /// normal case**. Every `@types` package is written
+    ///
+    /// ```ts
+    /// declare namespace React { … }
+    /// export = React;
+    /// ```
+    ///
+    /// and `import React from "react"` is how every consumer writes it, so
+    /// omitting this conjunct reported TS1192 on essentially every default
+    /// import in a React codebase — 12 in one package.
+    ///
+    /// # The two arms
+    ///
+    /// - **A declaration file, or an ambient module with no file at all**
+    ///   (`:14850`): a synthetic default is available unless the module
+    ///   declares a syntactic `default` or an `__esModule` marker. Upstream's
+    ///   comment is explicit that this is the *permissive* branch — there is no
+    ///   marker at hand saying whether the accompanying JavaScript is ESM.
+    /// - **Any other file** (`:14869`): TypeScript sources are emitted with an
+    ///   `__esModule` marker, so a synthetic default exists only through
+    ///   `export =` — `hasExportAssignmentSymbol`.
+    ///
+    /// # What is not ported, and which way it fails
+    ///
+    /// The `node16`/`nodenext` block (`:14823-14848`) compares the *usage*
+    /// module format against the target's implied format, and needs
+    /// `GetImpliedNodeFormatForEmit` per file. Its two early returns are one
+    /// `true` and one `false`, so skipping it can fail in either direction —
+    /// but only under those module kinds, which this port does not resolve
+    /// per-file at all.
+    ///
+    /// The JavaScript arm (`:14874`) needs `ExternalModuleIndicator`; omitting
+    /// it sends a `.js` module down the `export =` test, which is stricter, so
+    /// the rule reports **more** there. `isOnlyImportableAsDefault` — the
+    /// fourth conjunct at the call site — is not ported either, and is also a
+    /// suppressor, so the same direction.
+    ///
+    /// Each of those is a **false positive** rather than a missed diagnostic,
+    /// which is the direction this rule is already too loud in; they are
+    /// recorded here so the next reading of its wrong column starts with them.
+    fn can_have_synthetic_default(&self, module: tsr_binder::SymbolId) -> bool {
+        let file = self
+            .binder
+            .symbols()
+            .get(module)
+            .declarations
+            .iter()
+            .copied()
+            .find(|&declaration| self.nodes.kind(declaration) == SyntaxKind::SourceFile);
+        // `file == nil || file.AsSourceFile().IsDeclarationFile`. `None` is an
+        // ambient module — `declare module "x"` has no source file of its own —
+        // which upstream folds into the same arm.
+        let declaration_file = match file {
+            None => true,
+            Some(file) => self.module_host.is_some_and(|host| host.is_declaration_file(file)),
+        };
+        let exports = &self.binder.symbols().get(module).exports;
+        if declaration_file {
+            return !exports.contains_key("default") && !exports.contains_key("__esModule");
+        }
+        // `hasExportAssignmentSymbol(moduleSymbol)`.
+        exports.contains_key("export=")
     }
 
     /// TS1141 — `String literal expected.`

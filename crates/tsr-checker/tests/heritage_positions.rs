@@ -38,6 +38,40 @@ use tsr_ast::{NodeId, NodeMap, NodeTable};
 use tsr_binder::BindResult;
 use tsr_checker::Checker;
 use tsr_checker::check::FileContext;
+use tsr_checker::resolution::ModuleHost;
+
+/// Resolves `"./stem"` to the fixture whose file name has that stem, and
+/// answers `is_declaration_file` from the fixture's own name.
+///
+/// Both are needed and neither is decoration: without `resolved_module` the
+/// TS1192 tests report nothing at all — the rule returns before it can — and
+/// the control passed vacuously on the first run. That is the **third** time
+/// this session a missing host in a fixture harness first showed up as a green
+/// test that should have been red.
+struct Fixtures {
+    files: Vec<(String, NodeId)>,
+}
+
+impl ModuleHost for Fixtures {
+    fn resolved_module(&self, _importing_file: NodeId, specifier: &str) -> Option<NodeId> {
+        let want = specifier.trim_start_matches("./");
+        self.files
+            .iter()
+            .find(|(path, _)| path.trim_start_matches('/').split('.').next() == Some(want))
+            .map(|&(_, id)| id)
+    }
+
+    fn module_resolution_found(&self, importing_file: NodeId, specifier: &str) -> bool {
+        self.resolved_module(importing_file, specifier).is_some()
+    }
+
+    fn is_declaration_file(&self, file: NodeId) -> bool {
+        self.files
+            .iter()
+            .find(|&&(_, id)| id == file)
+            .is_some_and(|(path, _)| tsr_binder::is_declaration_file(path))
+    }
+}
 
 /// Every diagnostic code the last fixture produces, sorted and deduplicated.
 fn codes(files: &[(&str, &str)]) -> Vec<String> {
@@ -60,8 +94,11 @@ fn codes(files: &[(&str, &str)]) -> Vec<String> {
     }
     let mut bound = BindResult::empty();
     let mut roots: Vec<(&str, NodeId)> = Vec::new();
+    let mut host = Fixtures { files: Vec::new() };
     for (name, source, source_file) in parsed {
-        roots.push((name, source_file.node_id.expect("a parsed file has an id")));
+        let id = source_file.node_id.expect("a parsed file has an id");
+        roots.push((name, id));
+        host.files.push((name.to_string(), id));
         bound = tsr_binder::bind_into(
             bound,
             &arena,
@@ -70,7 +107,8 @@ fn codes(files: &[(&str, &str)]) -> Vec<String> {
             tsr_binder::FileInfo { name, text: source },
         );
     }
-    let mut checker = Checker::new(&bound, &nodes, &node_map);
+    let module_host: Option<&dyn ModuleHost> = Some(&host);
+    let mut checker = Checker::with_module_host(&bound, &nodes, &node_map, module_host);
     let (name, root) = *roots.last().expect("at least one file");
     checker.check_source_file(
         root,
@@ -178,5 +216,97 @@ fn a_typeof_inside_heritage_type_arguments_is_still_a_value_position() {
             ),
         ]),
         vec!["TS2304".to_string()]
+    );
+}
+
+// ---------------------------------------------------------------------------
+// TS1192 and the synthetic default
+//
+// `canHaveSyntheticDefault` (`checker.go:14818`) is the second of three
+// conjuncts guarding the report (`:14566`); only the first was ported, so
+// `import React from "react"` against `export = React` — the shape every
+// `@types` package ships and every consumer writes — reported *"Module has no
+// default export"*. 78 of them on a 22-package repository, 12 in one package.
+//
+// The conformance suites are **byte-identical** with and without this: the
+// corpus has no `.d.ts` package written `export =` and imported as a default.
+//
+// | mutation | reddens |
+// |---|---|
+// | delete the `can_have_synthetic_default` conjunct | [`a_default_import_of_an_export_equals_module_is_silent`] |
+// | make the declaration-file arm answer `false` | [`a_default_import_of_a_declaration_file_with_no_default_is_silent`] |
+// | drop the `__esModule` escape hatch | [`a_declaration_file_that_declares_es_module_has_no_synthetic_default`] |
+//
+// One test per arm, and [`a_default_import_of_a_module_with_neither_still_reports`]
+// is the control: a plain `.ts` with neither still reports, so none of the
+// three can pass by the rule falling silent.
+//
+// `docs/architecture/checker-notes-diag2.md` §531.
+// ---------------------------------------------------------------------------
+
+/// A `.d.ts`-shaped module: `export =` and no `default`, like `@types/react`.
+const EXPORT_EQUALS: (&str, &str) =
+    ("/lib.d.ts", "declare namespace Lib {\n    const x: number;\n}\nexport = Lib;\n");
+
+#[test]
+fn a_default_import_of_an_export_equals_module_is_silent() {
+    // `hasExportAssignmentSymbol` (`checker.go:14869`). Red under: deleting the
+    // `can_have_synthetic_default` conjunct.
+    assert_eq!(
+        codes(&[EXPORT_EQUALS, ("/a.ts", "import Lib from \"./lib\";\nexport const q = Lib;\n")]),
+        Vec::<String>::new()
+    );
+}
+
+#[test]
+fn a_default_import_of_a_module_with_neither_still_reports() {
+    // The control. A source file with no `default` and no `export =` has no
+    // synthetic default, so TS1192 is exactly right — and without it the two
+    // tests above could pass by the rule never firing.
+    //
+    // `/plain.ts` rather than `.d.ts`: the declaration-file arm is permissive
+    // by design (`:14850`) and would grant a synthetic default here.
+    assert_eq!(
+        codes(&[
+            ("/plain.ts", "export const x: number = 1;\n"),
+            ("/a.ts", "import P from \"./plain\";\nexport const q = P;\n"),
+        ]),
+        vec!["TS1192".to_string()]
+    );
+}
+
+#[test]
+fn a_default_import_of_a_declaration_file_with_no_default_is_silent() {
+    // The **declaration-file arm** (`checker.go:14850`), which the `export =`
+    // arm does not cover: a `.d.ts` exporting only named declarations still
+    // grants a synthetic default, because nothing in a `.d.ts` says whether the
+    // JavaScript beside it sets `__esModule`. Upstream's own comment calls this
+    // the permissive branch.
+    //
+    // Red under: making `can_have_synthetic_default`'s declaration-file arm
+    // answer `false`, which leaves `export =` as the only road.
+    assert_eq!(
+        codes(&[
+            ("/named.d.ts", "export declare function f(): void;\n"),
+            ("/a.ts", "import N from \"./named\";\nexport const q = N;\n"),
+        ]),
+        Vec::<String>::new()
+    );
+}
+
+#[test]
+fn a_declaration_file_that_declares_es_module_has_no_synthetic_default() {
+    // The escape hatch inside that arm: an explicit `__esModule` export means
+    // someone said outright that this is an ES module, so there is no synthetic
+    // default and TS1192 stands.
+    assert_eq!(
+        codes(&[
+            (
+                "/esm.d.ts",
+                "export declare const __esModule: true;\nexport declare function f(): void;\n"
+            ),
+            ("/a.ts", "import E from \"./esm\";\nexport const q = E;\n"),
+        ]),
+        vec!["TS1192".to_string()]
     );
 }

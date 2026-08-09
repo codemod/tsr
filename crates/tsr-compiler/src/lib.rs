@@ -647,6 +647,13 @@ impl tsr_checker::resolution::ModuleHost for Program<'_> {
             .jsx_factory_namespace
             .clone()
     }
+
+    fn is_declaration_file(&self, file: tsr_ast::NodeId) -> bool {
+        self.root_and_referenced_files()
+            .iter()
+            .find(|candidate| candidate.source_file().node_id == Some(file))
+            .is_some_and(|candidate| tsr_binder::is_declaration_file(candidate.file_name()))
+    }
 }
 
 /// Each file's `SourceFile` node id to its index in `files`.

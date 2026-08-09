@@ -156,6 +156,24 @@ pub trait ModuleHost {
     fn jsx_factory_namespace(&self, _file: NodeId) -> Option<String> {
         None
     }
+
+    /// Is this file a `.d.ts`?
+    ///
+    /// `SourceFile.IsDeclarationFile`, which the checker reads in
+    /// `canHaveSyntheticDefault` (`checker.go:14850`) among other places. It is
+    /// a *host* question here for the reason
+    /// [ADR-0016](../../../docs/adr/0016-file-info-not-a-file-name.md) gives:
+    /// nothing on the AST carries a file name, and the checker learns its
+    /// **own** file's ambience from `FileContext` — which says nothing about
+    /// the module on the other end of an import.
+    ///
+    /// Defaulted to `false`, which is the conservative answer: it sends
+    /// `canHaveSyntheticDefault` down the source-file arm, where only an
+    /// `export =` grants one. A host that cannot tell therefore reports TS1192
+    /// where upstream might not, rather than the reverse. §531.
+    fn is_declaration_file(&self, _file: NodeId) -> bool {
+        false
+    }
 }
 
 /// Which lazily-computed property of an entity is being resolved.

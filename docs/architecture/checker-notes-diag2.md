@@ -27954,3 +27954,95 @@ is why the diagnosis cost one `extraonly` run instead of a bisect.
 **Not built and named**: `A.B` resolving cleanly with `C` missing, which needs
 `resolveEntityName` over a qualified left. TS2694 keeps six cases behind that
 and §186's empty-exports decline.
+## §531 — TS1192: the synthetic default, and two conjuncts that were never ported
+
+`import React from "react"` reported *"Module has no default export"* — 78 times
+on a 22-package repository, 12 in one package. `@types/react` is written
+
+```ts
+declare namespace React { … }
+export = React;
+```
+
+which is how every `@types` package ships and `import React from "react"` is how
+every consumer writes it.
+
+### Three conjuncts, one ported
+
+`getTargetOfModuleDefault` (`checker.go:14566`):
+
+```go
+if exportDefaultSymbol == nil && !hasSyntheticDefault && !hasDefaultOnly {
+    if ast.IsImportClause(node) {
+        c.reportNonDefaultExport(moduleSymbol, node)
+```
+
+This port had `exportDefaultSymbol == nil` and neither of the others.
+`canHaveSyntheticDefault` (`:14818`) is the one that matters, and it has two
+arms this port can ask:
+
+- **a declaration file, or an ambient module with no file at all** (`:14850`) —
+  a synthetic default is available unless the module declares a syntactic
+  `default` or an `__esModule` marker. Upstream's comment says outright that
+  this is the *permissive* branch: nothing in a `.d.ts` reveals whether the
+  JavaScript beside it sets `__esModule`;
+- **any other file** (`:14869`) — TypeScript sources are emitted with an
+  `__esModule` marker, so a synthetic default exists only through `export =`.
+
+Both arms answer `true` for `@types/react`, which is why the fix removes all 78.
+
+### `IsDeclarationFile` had to become a host question
+
+Nothing on the AST carries a file name
+([ADR-0016](../adr/0016-file-info-not-a-file-name.md)), and the checker learns
+its **own** file's ambience from `FileContext` — which says nothing about the
+module on the other end of an import. So `ModuleHost` grows
+`is_declaration_file`, the same shape §211 used for `jsx_factory_namespace`, and
+`tsr-compiler` answers it from the file name.
+
+It defaults to `false`, and the direction is deliberate: a host that cannot tell
+sends the module down the `export =` arm, so it reports TS1192 where upstream
+might not, rather than the reverse.
+
+**The predicate itself already existed.** `tsr_binder::is_declaration_file` — the
+same suffix test the binder uses to decide a file is an ambient context, covering
+`.d.ts`, `.d.mts`, `.d.cts` and the `.d.*.ts` form — was private; it is now `pub`
+and `tsr-compiler` calls it. Third time this session that reading the tree beat
+writing the four-line version (§202's `IsExternalModuleNameRelative`, §400's
+`type_only_alias_declaration`).
+
+### What is still not ported, and which way each fails
+
+- The `node16`/`nodenext` block (`:14823-14848`) compares the usage module
+  format against the target's implied format and needs
+  `GetImpliedNodeFormatForEmit` per file. Its two early returns are one `true`
+  and one `false`, so skipping it can fail either way — but only under module
+  kinds this port does not resolve per-file at all.
+- The JavaScript arm (`:14874`) needs `ExternalModuleIndicator`; omitting it
+  sends a `.js` module down the `export =` test, which is stricter.
+- `isOnlyImportableAsDefault` — the third conjunct at the call site — is not
+  ported, and it is also a suppressor.
+
+The last two are **false positives** rather than missed diagnostics, which is
+the direction this rule is already too loud in. They are named here so the next
+reading of its wrong column starts with them rather than rediscovering them.
+
+### The measurement
+
+| | base | after |
+|---|---:|---:|
+| `binder_symbols` | 8,456/8,456 | 8,456/8,456 |
+| `checker_types` | 4,074 / 85.49% | **snapshot byte-identical** |
+| `diagnostics` | 2,023/5,488 | **snapshot byte-identical** |
+| the 22-package repository | **162** | **84** |
+| `packages/ui` | 17 | **5** |
+
+TS1192 78 → 0, and **not one line of either conformance snapshot moved**: the
+corpus contains no `.d.ts` package written `export =` and imported as a default.
+The fifth defect this session that the suites cannot see, and the fifth found by
+pointing the binary at a real repository.
+
+Four tests in `crates/tsr-checker/tests/heritage_positions.rs`, one per arm plus
+a control, each confirmed red under the mutation it exists for. The harness
+needed a `ModuleHost` again — the **third** time this session a fixture harness
+without one first showed up as a green test that should have been red.

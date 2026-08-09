@@ -4475,7 +4475,8 @@ fn is_module_exports_access(expression: Expression<'_>) -> bool {
 /// Upstream reads `file.IsDeclarationFile`, which the parser sets from the same
 /// suffix test. `.d.ts`, `.d.mts`, `.d.cts`, and the `.d.*.ts` form used by
 /// generated libraries all count.
-fn is_declaration_file(file_name: &str) -> bool {
+#[must_use]
+pub fn is_declaration_file(file_name: &str) -> bool {
     let Some(stem) = file_name
         .strip_suffix(".ts")
         .or_else(|| file_name.strip_suffix(".mts"))
