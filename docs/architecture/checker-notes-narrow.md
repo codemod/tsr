@@ -4019,10 +4019,17 @@ across 20+ cases). Bar met (≥50 at 10:1 → 86 at ∞).
 **Correction to the composed count's "+1 benign interaction line"
 (the adjective was not a price):** the line is an R→W —
 `classAbstractManyKeywords:0:5`, want `D`, printing `typeof D` on the
-error-recovery fixture `import abstract class D {}`. BISECTED: it
-survives a local revert of §102, so §102 is exonerated; it arises
-from §104's as-const arm composing with the pre-§102 tree, and the
-trace is handed to that build's owner. Residues:
+error-recovery fixture `import abstract class D {}`. RE-BISECTED
+TWICE, and the second correction is loud: the line PREDATES BOTH
+BUILDS — at `ab315ce` (before §104 and §102 both) it already prints
+`typeof D`. The first bisect's §104 attribution was wrong (built on
+one unverified revert plus a misread pull-diff); the verified chain
+was: revert-with-forced-recompile (cargo clean, 'Compiling' counted)
+still wrong → pre-both checkout still wrong. NEITHER build owns it;
+it is a standing wrong in the class-static print at error-recovery
+import sites, filed with the §31-family import-machinery boundary.
+The "+1 interaction line" in §102's composed arithmetic was a
+different (positive) line and carried no R→W at all. Residues:
 underscore's last 14 (the flipped-order pairs whose sites our
 resolve_name reads differently — trace before touching), and §90.1's
 chain2 `r_1` family stays on its empirical gate (a THIRD mechanism,
