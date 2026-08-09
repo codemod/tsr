@@ -15288,3 +15288,58 @@ across two builds, all of them this port's merge table differing from upstream's
 Recorded as a cross-build observation rather than three separate footnotes: the
 next build that reads merged symbol flags should expect to pay here, and the
 merge layer is now the single largest named owner in the *wrong* column.
+
+## §232 — correcting §231: that wrong line was a column, not a merge
+
+§231 closed by generalising across three builds:
+
+> "the third consecutive build whose residual wrong lines are all one family …
+> the merge layer is now the single largest named owner in the *wrong* column."
+
+**That generalisation was built on a line nobody had read.** Reading
+`namespaceMergedWithImportAliasNoCrash.errors.txt`:
+
+```
+file2.ts(1,13): error TS2440: Import declaration conflicts with local declaration of 'Lib'.
+```
+
+Upstream reports at **column 13** — `Lib` in `import * as Lib from './file1'`.
+This port reported column **8**, the `*` that starts the `NamespaceImport`.
+Right code, right line, **wrong column**. Nothing to do with merging.
+
+`c.error(node, …)` runs the node through `getErrorSpanForNode`, which narrows a
+*named* declaration to its name. `check_alias_symbol` used `self.nodes.span(node)`;
+`self.error_span(node)` is the port of that rule and was already available.
+
+```
+diagnostics   1,649 → 1,650   (+1)
+checker_types 4,002 → 4,004   (+2)
+diag2307 [2440, 2441]:  CONVERTS 6 · LOST 0 · RIGHT 11 · WRONG 0
+```
+
+**The rule's wrong column is now empty.**
+
+### What was actually wrong with the reasoning
+
+The three-build pattern needed three verified members and had one. §229's three
+lines *are* genuine — `mergeSymbolReexportInterface`'s baseline contains no
+TS2305 at that position at all, so that report is invented rather than
+displaced, and the augmentation reading stands. §231's single line was a
+different defect entirely, and the only thing the two shared was that both
+fixtures have "merge" in the name.
+
+> **A cross-build pattern needs every member verified, not the newest one
+> assumed into the shape the older ones made.** One unread line was enough to
+> promote a real but two-case observation into a "largest named owner" claim
+> that would have sent the next session hunting in the binder.
+
+§229's finding is unchanged and stands on its own two lines. The corrected
+claim is: **the merge table is a named owner of two wrong lines, not five.**
+
+### The cheaper check that was skipped
+
+The whole correction cost one `sed` of a baseline file. §143 already says *read
+the existing rule before assuming the missing arm* and §131 *read the fixture
+before the fourth hypothesis*; neither says **read the fixture before writing
+the summary**, which is where this went wrong. The wrong column was visible in
+the first line of the file.

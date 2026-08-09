@@ -1079,7 +1079,12 @@ impl<'a> Checker<'a, '_> {
         }
         let name = self.binder.symbols().get(local).name.to_string();
         let file = self.source_file_of_for_diagnostics(node)?;
-        let span = self.nodes.span(node);
+        // `c.error(node, …)`, and upstream's `error` runs the node through
+        // `getErrorSpanForNode`, which for a *named* declaration narrows to the
+        // name. `import * as Lib from './f'` reports at `Lib` (column 13), not
+        // at the `*` that starts the `NamespaceImport` (column 8) — see §232,
+        // where reading the baseline overturned this line's first attribution.
+        let span = self.error_span(node);
         let message = if self.nodes.kind(node) == SyntaxKind::ExportSpecifier {
             &messages::EXPORT_DECLARATION_CONFLICTS_WITH_EXPORTED_DECLARATION_OF_0
         } else {

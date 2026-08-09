@@ -181,14 +181,15 @@ impl Checker<'_, '_> {
             Some(Node::TypeAssertion(assertion)) => {
                 assertion.r#type.is_some_and(is_const_type_reference)
             }
+            // Upstream lists these in two groups — the expression positions and
+            // the member/span positions — and both recur into the parent, so
+            // they are one arm here.
             Some(
                 Node::ParenthesizedExpression(_)
                 | Node::ArrayLiteralExpression(_)
                 | Node::SpreadElement(_)
-                | Node::SpreadAssignment(_),
-            ) => self.is_const_context(parent),
-            Some(
-                Node::PropertyAssignment(_)
+                | Node::SpreadAssignment(_)
+                | Node::PropertyAssignment(_)
                 | Node::ShorthandPropertyAssignment(_)
                 | Node::TemplateSpan(_),
             ) => self.is_const_context(parent),
