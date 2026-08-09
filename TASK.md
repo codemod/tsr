@@ -587,3 +587,13 @@ findability machinery; RE-PRICE before believing it), ArrowFunction
 269+264 (post-§110 lib/member residue). The §112 refusal's two
 const-T prerequisites and the §98 DISCRIM mask-pairing trace stand
 as recorded entries.
+
+CALLEEGAP RE-READ (at 85.25%): 5,830 admitted lines / 952 cases
+across the funnel's two unexplored gates, and the cross-tab settles
+their question — TWO mechanisms: `callee type is not an object
+type` rides the NEW side (613 vs 4), `identifier: symbol types as
+a non-object` rides the CALL side (494 vs 0). The small-bucket tail
+is single-case mountains (controlFlowSelfReferentialLoop 68 of the
+generic-candidate 90); the near-miss aim favors the spread rows.
+NEXT WINDOW'S SIZING INPUT: pair this against the 770 one-row
+near-miss CallExpression cases — the intersection names the bar.
