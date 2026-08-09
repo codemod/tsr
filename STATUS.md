@@ -1307,6 +1307,23 @@ its whole deliverable and accept that it converts nothing until finished.
 
 ## 5. Refused, with the number that refused it
 
+### New, this session, TS7005 — variable implicitly has an 'any' type, 7 cases
+
+Refused by **§286**, after two measured bounds (`−35`, then `−4`). The
+declaration arm (`checker.go:18347`) is real and two fixtures are its shape, but
+the row's mass is the **evolving-`auto`** path (`:11186`), which reports at a
+**use** and pairs with TS7034 at the declaration. Reporting at the declaration is
+a *wrong position*, which costs a case exactly as much as a missing line.
+
+**Owner: the evolving-`auto` path** — `autoType`/`autoArrayType`, the flow type
+at each reference, and TS7034 as partner; `is_evolving_array_operation_target`
+and `convert_auto_to_any` both unported. The declaration arm cannot ship alone
+because every variable it would report on is one that path claims first.
+
+**This sharpened `diagslice`'s limit (§273):** it counts *lines per case* and
+does not know **where** they are. `diagcolumn` knows about positions, and only
+for codes this port already emits. Nothing connects the two.
+
 ### New, this session, TS2783 — spread overwrites a property, 9 cases
 
 Refused by **§251**. `checkSpreadPropOverrides` (`checker.go:13371`) tests
@@ -2246,6 +2263,7 @@ holds only the numbers.
 | 2026-08-09 | HEAD | **32.02%** | **1,757** | **+9, `WRONG 0`; a sweep that ranks by upstream *function*** | **Seven still-missing codes live in `checkGrammarModifiers` alone**, and nothing that ranks by code puts them near each other — three are 2 cases or fewer. Four other functions carry groups of 25–67 cases. ***The unit of porting is the upstream function; the unit of measurement is the code — nothing here connected the two until now.*** Fourteen sessions of ranking by case count have been ranking the wrong noun. §278–§279 |
 | 2026-08-09 | HEAD | **32.05%** | **1,759** | **+2, `WRONG 0`, `STILL SHORT 0`** | **TS1319/TS1248**, closing `checkGrammarModifiers` except for one predicate. ***`STILL SHORT 0` is what a complete arm looks like*** — §272's TS7008 posted 9 from a bounded slice, §275's TS2464 posted 4, §279 posted 7. That makes `STILL SHORT` the readback for §272's question: a bar can be missed because the row was smaller than its count suggested, or because the slice was partial, **and the two look identical in the case delta alone**. TS1206 declined — `NodeCanBeDecorated` is a four-argument predicate, not a lookup. §280–§281 |
 | 2026-08-09 | HEAD | **32.12%** | **1,763** | **+4; `RIGHT 92 · WRONG 1`; an edit that silently did not apply** | **TS2588/TS2540**, `checkIdentifier`'s second assignment arm, four lines below §243's and mutually exclusive with it. **One of three edits asserted and did not apply, and the run still produced a plausible `+4`.** ***An edit that fails its own assertion is a silent partial build, and the measurement cannot tell you*** — §207 recorded the shape for when the number does *not* move; here it moved, so the failure was invisible in the measurement and visible only in the shell output above it. §282–§283 |
+| 2026-08-09 | HEAD | 32.12% | 1,763 | **sixth build reverted; `xtask measure` now prints its own diff** | **TS7005** measured `−35` then `−4` across two bounds. `diagslice` said *7 cases, 5 single-line, convertible* — **true and not sufficient**: conversion also needs the line to be at a **position** the fragment produces. ***`diagslice` counts lines per case; it does not know where they are.*** §284 added `git diff --stat` to `xtask measure`, which caught this build's dispatch edit failing to apply before any number was produced — the §283 failure mode, now visible. §284–§286 |
 
 ## 8. Updating this file
 
