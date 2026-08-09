@@ -600,6 +600,7 @@ impl Checker<'_, '_> {
         if matches!(typed, Node::MethodDeclaration(_)) {
             self.check_abstract_method_has_no_body(node);
         }
+        self.check_abstract_modifier_position(node, typed);
         if matches!(typed, Node::FunctionDeclaration(_) | Node::MethodDeclaration(_)) {
             self.check_empty_body_returns_value(node);
         }
@@ -2279,6 +2280,48 @@ impl Checker<'_, '_> {
                 &messages::METHOD_0_CANNOT_HAVE_AN_IMPLEMENTATION_BECAUSE_IT_IS_MARKED_ABSTRACT,
                 span,
                 [text],
+            ),
+        );
+    }
+
+    /// TS1242 — `'abstract' modifier can only appear on a class, method, or
+    /// property declaration.`
+    ///
+    /// `checkGrammarModifiers`' `abstract` arm (`grammarchecks.go:471`), the
+    /// **outer** of two nested kind tests: six permitted kinds, everything else
+    /// an error at the modifier. The inner test — an abstract member outside an
+    /// abstract class — carries a different code and is **not ported here**
+    /// (§501's rule: name the arm you did not take). §505.
+    fn check_abstract_modifier_position(&mut self, node: NodeId, typed: Node<'_>) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let Some(modifiers) = modifiers_of(typed) else { return };
+        let Some(tsr_ast::ModifierLike::Token(token)) = modifiers
+            .iter()
+            .find(|m| matches!(m, tsr_ast::ModifierLike::Token(t) if t.kind == SyntaxKind::AbstractKeyword))
+        else {
+            return;
+        };
+        if matches!(
+            self.nodes.kind(node),
+            SyntaxKind::ClassDeclaration
+                | SyntaxKind::ConstructorType
+                | SyntaxKind::MethodDeclaration
+                | SyntaxKind::PropertyDeclaration
+                | SyntaxKind::GetAccessor
+                | SyntaxKind::SetAccessor
+        ) {
+            return;
+        }
+        let Some(id) = token.node_id else { return };
+        let Some(file) = self.source_file_of_for_diagnostics(id) else { return };
+        let span = self.nodes.span(id);
+        self.report(
+            file,
+            Diagnostic::new(
+                &messages::ABSTRACT_MODIFIER_CAN_ONLY_APPEAR_ON_A_CLASS_METHOD_OR_PROPERTY_DECLARATION,
+                span,
             ),
         );
     }

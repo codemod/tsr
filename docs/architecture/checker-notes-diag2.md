@@ -26865,3 +26865,72 @@ first time in this path. Whatever `checker_types` reads there now runs.
 > The practical form: **`checker_types` moving is information, not noise, and
 > its direction is not the falsifier — `passing→failing` is.** This session has
 > moved it `+89` in total without once aiming at it.
+
+## §505 — TS1242: `abstract` on a kind that cannot carry it
+
+**2 blocked, `occupied 0/4`.** `checkGrammarModifiers`' `abstract` arm
+(`grammarchecks.go:471`), the outer of two nested kind tests:
+
+```go
+if node.Kind != KindClassDeclaration && node.Kind != KindConstructorType {
+    if node.Kind != KindMethodDeclaration && node.Kind != KindPropertyDeclaration
+       && node.Kind != KindGetAccessor && node.Kind != KindSetAccessor {
+        return c.grammarErrorOnNode(modifier, X_abstract_modifier_can_only_appear_on_a_class_method_or_property_declaration)
+    }
+    // the inner test is Abstract_properties_can_only_appear_within_an_abstract_class — a different code
+```
+
+```ts
+abstract interface I { }        // TS1242 at `abstract`
+class C { abstract constructor() { } }   // same
+```
+
+**Six permitted kinds, everything else an error**, reported at the modifier. The
+*inner* test — an abstract member outside an abstract class — is a different
+code and is **not** ported here; §501's rule applies and it is named now rather
+than left implicit.
+
+`grep AbstractKeyword` over `check.rs` first (§140): six hits, none of them a
+kind test on this modifier, so no arm is shadowed.
+
+### The bar
+
+```
+bar:  +2 of 2,  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **`abstract class C {}` reports.** `ClassDeclaration` is the first permitted
+   kind.
+2. **`abstract foo(): void` in a class reports TS1242.** A method is permitted
+   by the outer test; if it is outside an abstract class that is the *inner*
+   test's code, which this build does not emit.
+
+## §506 — §505 built: **+1** of 2
+
+```
+diagnostics   2,025 → 2,026   (bar was +2;  +1, 0 LOST)   36.92%
+every other suite unmoved — both falsifiers negative
+```
+
+Kept. `classAbstractConstructor` wants a second line as well (§486).
+
+### Where the 2-case tier stands
+
+Six builds have now come from rows of two to three cases (§496, §500, §503,
+§505 and two earlier), totalling `+9`. The tier below that — single-case rows —
+has **not** been entered, and should not be without a reason: a one-case row
+costs the same read as a five-case row and §484 already measured that shape as
+a long tail.
+
+> **The queue's head is now three cases.** At the session's start it was
+> forty-six (TS2741), and every row above three has been either converted,
+> closed, or given a named owner. That is a different kind of milestone from a
+> percentage: **the cheap-and-large rows are gone, and what remains is cheap-
+> and-small or large-and-owned.**
+>
+> The practical consequence for the next session: **§499's sixteen-case parser
+> flag is now the largest single buildable item on the board** — larger than any
+> remaining checker row, and the only one where a day's work has a
+> double-digit payoff.
