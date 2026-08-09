@@ -273,3 +273,38 @@ owner: four measured shapes (361:424, mixed, 9:73, 193:407) all
 died on the same missing floor from four directions. The stable
 +temporal-58 win class is the falsifier every future attempt must
 reproduce. All shapes preserved (patches 119-122).
+
+## The InferenceInfo foundation — design (from the model read)
+
+Upstream's unit (`checker.go:288-318`, read whole): per type
+parameter — covariant `candidates` (decreasing depth), separate
+`contraCandidates`, an eleven-bit PRIORITY ladder where a
+lower-priority inference set REPLACES nothing and a higher one
+CLEARS the set (inferTypes' priority gate), `isFixed` (the fixing
+rule: once a parameter's inferred type is consumed for a contextual
+instantiation, its set freezes — the typeParameterFixing* family's
+whole content), `topLevel`, and `impliedArity`.
+
+THE PORT'S FOUNDATION, sized to what the corpus arc measured:
+  1. `InferenceInfo { candidates: Vec<TypeId>, contra: Vec<TypeId>,
+     priority: u16, fixed: bool }` per parameter — replacing the
+     flat `(param, candidate)` pairs everywhere `infer_from_types`
+     writes.
+  2. TWO priority bits first: None (arguments) and ReturnType (the
+     outer-context inference the read showed) — the mapped/keyof
+     bits join with their subsystems.
+  3. RESOLUTION: same-priority candidates UNION under
+     `getCovariantInference`'s rules — re-opening `bd tsr-eak`'s
+     subtype-reduction refusal WITH this arc as the payer; until
+     reduction exists, a multi-candidate union that would need it
+     DECLINES (the honest boundary, measured to matter in
+     iteration 4's constraint families).
+  4. FIXING: consume-freezes — the rule the
+     typeParameterFixingWithContextSensitiveArguments family (every
+     iteration's R→W lines!) exists to test.
+  5. Iteration 4's three arms land ON this, unchanged, as the
+     first client; the +temporal-58 falsifier and the four refused
+     pairs are the acceptance suite.
+Build order: the struct + writer migration (measured no-op), then
+resolution, then fixing, then the arms — four measurable steps,
+each with its own pair.
