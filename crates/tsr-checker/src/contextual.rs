@@ -202,11 +202,19 @@ impl<'a> Checker<'a, '_> {
             };
             let mut positional = Vec::with_capacity(constituents.len());
             for constituent in constituents {
-                if let Some((elements, _)) = self.tuple_element_lists.get(&constituent) {
+                if let Some((elements, readonly)) = self.tuple_element_lists.get(&constituent) {
                     if asking_for_rest {
-                        // A plain-tuple slice as the own-rest's type needs
-                        // tuple minting from an offset — declined for now.
-                        return None;
+                        // §86.2: the own rest takes the tuple SLICE from its
+                        // position — `(a, ...rest)` under `(...args:
+                        // [number, string, boolean])` types `rest: [string,
+                        // boolean]` (`getRestTypeAtPosition`'s slice).
+                        let (elements, readonly) = (elements.clone(), *readonly);
+                        if index > elements.len() {
+                            return None;
+                        }
+                        let slice = elements[index..].to_vec();
+                        positional.push(self.create_tuple_type(slice, readonly));
+                        continue;
                     }
                     positional.push(*elements.get(index)?);
                     continue;

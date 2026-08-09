@@ -3305,3 +3305,13 @@ is the next machine). **+26 net, zero adverse**
 **§86.1 score — LANDED.** right 404,494 → **404,520 (84.48%)** on a
 population that grew 3 lines (the JSX flake's neighborhood — see
 §87's caveat).
+
+## §86.2 — the own rest takes the tuple slice
+
+`(a, ...rest)` under `(...args: [number, string, boolean])` types
+`rest: [string, boolean]` — `getRestTypeAtPosition`'s slice, one
+`create_tuple_type(elements[index..])` through the interned road.
+**+7, zero adverse.** The variadic slice (prefix remainder + tail)
+still declines — it needs the §40 print-only shape minted from parts.
+
+**§86.2 score — LANDED.** right 404,520 → **404,527 (84.49%)**.
