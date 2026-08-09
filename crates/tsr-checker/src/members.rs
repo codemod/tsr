@@ -832,7 +832,11 @@ impl Checker<'_, '_> {
     /// the instance side: a namespace's `exports` holds its exported *types* too,
     /// so without it `namespace M { export interface I {} }` would answer `M.I`
     /// with an interface symbol in a value position.
-    fn get_property_of_anonymous_symbol(&self, symbol: SymbolId, name: &str) -> Option<SymbolId> {
+    fn get_property_of_anonymous_symbol(
+        &mut self,
+        symbol: SymbolId,
+        name: &str,
+    ) -> Option<SymbolId> {
         let data = self.binder.symbols().get(symbol);
         if !data.flags.intersects(
             SymbolFlags::FUNCTION
@@ -843,7 +847,14 @@ impl Checker<'_, '_> {
         ) {
             return None;
         }
-        let found = *data.exports.get(name)?;
+        // An own export first, then the module's `export *` re-exports. Reading
+        // the table alone is what made every member of a barrel module missing:
+        // `import * as z from "zod"` names a module whose entire surface arrives
+        // through `export *`, so `z.string` found nothing.
+        let found = match data.exports.get(name).copied() {
+            Some(found) => found,
+            None => self.get_export_from_star(symbol, name)?,
+        };
         self.symbol_is_value(found).then_some(found)
     }
 

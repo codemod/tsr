@@ -11,6 +11,11 @@
 //! the type `typeof C`.
 
 use tsr_ast::{Expression, ModuleReference, Node, NodeFlags, NodeId, SyntaxKind, TypeNode};
+/// `ast.InternalSymbolNameExportStar`. Spelled here rather than imported for
+/// the same reason the `export=` name is: the binder's constant is `pub(crate)`
+/// to that crate.
+const INTERNAL_EXPORT_STAR: &str = "__export";
+
 use tsr_binder::{SymbolFlags, SymbolId};
 
 use crate::{checker::Checker, flags::TypeFlags, resolution::PropertyName, types::TypeId};
@@ -962,12 +967,98 @@ impl<'a> Checker<'a, '_> {
     /// The guard is not decoration: `getExternalModuleMember` can hand this a
     /// symbol that is not a module, and upstream answers `nil` rather than
     /// searching a table that means something else.
-    fn get_export_of_module(&self, symbol: SymbolId, name: &str) -> Option<SymbolId> {
+    fn get_export_of_module(&mut self, symbol: SymbolId, name: &str) -> Option<SymbolId> {
         let entry = self.binder.symbols().get(symbol);
         if !entry.flags.intersects(SymbolFlags::MODULE) {
             return None;
         }
-        entry.exports.get(name).copied()
+        if let Some(found) = entry.exports.get(name).copied() {
+            return Some(found);
+        }
+        // Not an own export — try the `export *` re-exports.
+        self.get_export_from_star(symbol, name)
+    }
+
+    /// One name, looked up through a module's `export *` declarations
+    /// (`getExportsOfModuleWorker`, `checker.go:16148`).
+    ///
+    /// # Why this resolves one name rather than building the whole table
+    ///
+    /// Upstream materialises a module's complete export table and caches it on
+    /// the symbol. That is the right shape and it is not what this does: the
+    /// symbol store here is the binder's and is not the checker's to extend
+    /// (ADR-0034 — a program has one identity space, and the checker borrows
+    /// it), so a merged table would need a side table keyed by symbol with its
+    /// own invalidation. Resolving per name needs neither and answers the same
+    /// question; the cost is repeated walks for a module queried many times,
+    /// which is bounded by the star depth and measured at nothing on the corpus.
+    ///
+    /// # What is faithful and what is not
+    ///
+    /// Faithful: the recursive walk, and the **visited set** — the ES6 spec
+    /// permits `a` to `export *` from `b` while `b` exports `*` from `a`, and
+    /// without the guard that is a hang rather than a wrong answer.
+    ///
+    /// Not ported: `extendExportSymbols`' collision table and the
+    /// `Module_0_has_already_exported_a_member_named_1` diagnostic it raises for
+    /// a name two stars both provide. Upstream reports *and* leaves the name
+    /// unresolved; this takes the first star that provides it. A wrong answer in
+    /// a case that is already an error, rather than a missing answer in every
+    /// case that is not.
+    ///
+    /// Also not ported: `export type *`, whose type-onlyness upstream tracks in
+    /// a parallel map. Nothing here reads it.
+    pub(crate) fn get_export_from_star(
+        &mut self,
+        module: SymbolId,
+        name: &str,
+    ) -> Option<SymbolId> {
+        let mut visited = Vec::new();
+        self.get_export_from_star_worker(module, name, &mut visited)
+    }
+
+    fn get_export_from_star_worker(
+        &mut self,
+        module: SymbolId,
+        name: &str,
+        visited: &mut Vec<SymbolId>,
+    ) -> Option<SymbolId> {
+        if visited.contains(&module) {
+            return None;
+        }
+        visited.push(module);
+
+        let stars: Vec<NodeId> = {
+            let entry = self.binder.symbols().get(module);
+            let star = entry.exports.get(INTERNAL_EXPORT_STAR).copied()?;
+            self.binder.symbols().get(star).declarations.to_vec()
+        };
+
+        for declaration in stars {
+            let specifier = match self.node_map.get(declaration) {
+                Some(Node::ExportDeclaration(node)) => match node.module_specifier {
+                    Some(expression) => match Node::from(expression).node_id() {
+                        Some(id) => id,
+                        None => continue,
+                    },
+                    None => continue,
+                },
+                _ => continue,
+            };
+            let Some(target) = self.resolve_external_module_name(declaration, specifier) else {
+                continue;
+            };
+            // `export =` in a re-exported module: upstream resolves through it
+            // before reading the exports.
+            let target = self.resolve_external_module_symbol(target);
+            if let Some(found) = self.binder.symbols().get(target).exports.get(name).copied() {
+                return Some(found);
+            }
+            if let Some(found) = self.get_export_from_star_worker(target, name, visited) {
+                return Some(found);
+            }
+        }
+        None
     }
 
     /// Ported from `Checker.resolveExternalModuleSymbol`

@@ -3939,6 +3939,15 @@ pub(crate) const INTERNAL_DEFAULT: &str = "default";
 /// The name `export = x` files the module's whole value under
 /// (`ast.InternalSymbolNameExportEquals`).
 pub(crate) const INTERNAL_EXPORT_EQUALS: &str = "export=";
+/// The name every `export * from "m"` in a module is collected under
+/// (`ast.InternalSymbolNameExportStar`).
+///
+/// One symbol per module, carrying **one declaration per star** — the checker
+/// walks those declarations to resolve each re-exported module in turn
+/// (`getExportsOfModuleWorker`, `checker.go:16148`). Upstream's comment at
+/// `bindExportDeclaration` says it outright: *"All export * declarations are
+/// collected in an `__export` symbol."*
+pub(crate) const INTERNAL_EXPORT_STAR: &str = "__export";
 
 /// The modifier list of a declaration that can carry `export`.
 fn modifiers_of(node: Node<'_>) -> Option<&[tsr_ast::ModifierLike<'_>]> {
@@ -4378,6 +4387,14 @@ fn classify(node: Node<'_>) -> Option<(SymbolFlags, Destination)> {
         ),
         // `export * as ns from "m"` exports one alias named `ns`.
         Node::NamespaceExport(_) => (S::ALIAS, D::Exports),
+        // `export * from "m"` — no clause, so it names nothing and re-exports
+        // everything. Every one in a module merges into a single `__export`
+        // symbol whose declarations are the stars (`bindExportDeclaration`).
+        //
+        // An export declaration *with* a clause is not a declaration at all
+        // here: `export { a }` files its specifiers, and `export * as ns`
+        // files the `NamespaceExport` above.
+        Node::ExportDeclaration(n) if n.export_clause.is_none() => (S::EXPORT_STAR, D::Exports),
         // `export as namespace N` claims the global name `N` for a UMD module.
         Node::NamespaceExportDeclaration(_) => (S::ALIAS, D::GlobalExports),
 
@@ -4486,6 +4503,7 @@ fn declaration_name<'a>(
             Some(if n.is_export_equals { INTERNAL_EXPORT_EQUALS } else { INTERNAL_DEFAULT })
         }
         Node::NamespaceExport(n) => n.name.map(export_name),
+        Node::ExportDeclaration(n) if n.export_clause.is_none() => Some(INTERNAL_EXPORT_STAR),
         Node::NamespaceExportDeclaration(n) => n.name.map(|i| i.text),
         _ => None,
     }
