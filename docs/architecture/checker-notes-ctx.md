@@ -949,3 +949,20 @@ Above the +10–40 prediction — the conditional-operator BCT families
 were not in the sizing, the §96-lesson shape again (favorable
 direction). One dispatch arm, ten minutes, +98: the §114 nine-round
 archive is what made it ten minutes.
+
+**§114 attribution addendum, round 2 — e42c32d9 EXONERATED by the
+worktree dump.** The four §108.1-family keys read RIGHT at
+e42c32d9 (`number | void` written order intact), WRONG at
+e6a7b2a7^ (my attested baseline): the regression window narrows to
+e42c32d9..e6a7b2a7^, whose checker-code commits are the four
+remaining third-session diagnostics landings (856e3a09 TS2313,
+7e9236c3 TS7031, ac112aae TS2661, d53b8a03 TS1042) plus any
+checker-1 commits in the span. TWO INSTRUMENT SEAMS caught en
+route, both conventions-grade: the worktree dump first judged
+NOTHING (TOTAL 0) because `ln -sfn` into an EXISTING directory
+creates the link INSIDE it — the `git worktree`/submodule seam's
+`ln` sibling, now recorded; and rtk swallowed the empty result's
+distinction from a no-output success twice. Bisect continues at the
+narrowed range's midpoint; the conventions entry (re-pair ledger
+disputes against the last known-good attestation) is confirmed
+earned and should land with the bisect's conclusion.
