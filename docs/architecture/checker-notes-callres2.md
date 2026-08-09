@@ -205,3 +205,24 @@ resumes with them as registered gates and this pair's numbers as
 the falsifier (the +361 must survive; the 424 must fall under
 1:5). Reverted whole per the bar; the build's full text is
 patch119+patch120+the disjunct in the scratchpad history.
+
+**The reunion, iterations 2-3 — REFUSED for this window at 9:73;
+the three-iteration record IS the resumption spec.** Gate 1 + gate
+2 applied (sentinel memo positions, memo-only un-gate): the mixed
+read still held 29 R→G; the fall-through fix (sentinel positions
+falling to the stateless roads) then GUTTED the wins
+(parenthesized 59 → 3) while the same 29 R→G persisted. Three
+measurements triangulate the truth: the damage is in the PASS
+STRUCTURE — full deferral withholds candidates upstream still
+collects, because SkipContextSensitive does NOT mean "skip the
+argument": upstream's inferTypeArguments still infers from a
+context-sensitive argument's NON-CONTEXTUAL parts (the return
+type's concrete half, annotated parameters among unannotated ones)
+and uses the skip for PRIORITY, not exclusion. RESUMPTION
+REQUIRES: read inferTypeArguments (checker.go:9390) + inference.go's
+priority machinery FIRST, and model partial inference from
+context-sensitive arguments — the deferral-as-exclusion shortcut is
+now three-times-measured wrong (361:424, mixed, 9:73). The +361
+first-fire wins remain the falsifier the correct build must
+reproduce. All code reverted; patches 119/120/121 in scratchpad
+history carry the three shapes.
