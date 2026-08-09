@@ -421,3 +421,48 @@ symbols.rs ~1390, get_regular_type_of_literal_type, or an
 earlier-resolution cache). Three TupleUnionFunc rows + p18's probe
 reproduce it. Worth one focused trace next session; §72's +39 came
 from OTHER positions.
+
+
+ADDENDUM AFTER BUILD 155 (§92, 84.63%, commit 88d0e63):
+
+The FIFTEENTH session's block — the generic-alias instantiation
+subsystem opened, four seams landed (+796 right, six builds):
+  - §89 keep-text set closed the open trace (+178); §89.1 degenerate
+    leading-operator unions kept as real nodes across parser/checker/
+    printer (+8/0 — printer_round_trip fell to 99.97% mid-build and
+    was restored; all four 100% suites verified after).
+  - §90/§90.1 instantiated alias references carry their body's
+    members (+280/0). The r_1 rename is PRINT-ONLY (semantic rename
+    measured −182: inference maps params by declaration TypeIds) and
+    EMPIRICALLY gated (alias body + returns-container +
+    FunctionTypeNode). The faithful rule is typeParameterToName's
+    byText/shadow context (nodebuilderimpl.go:1404) — §20.1's owed
+    print-context study; underscoreTest1's 149 still hang there.
+  - §91 conditional alias bodies EVALUATE at arm-3 rebuilds (+217/0,
+    chain3 whole): env-stack bindings, env-gated keyof/key-set-
+    intersection arms, extends-never only, computability is the gate.
+    chain1 pins the other half: PLAIN aliases keep their name.
+  - §92 the shape property road (+113 at 9.4:1): intersection
+    constituents (gated to evaluator-produced types — written
+    intersections measured 134 G→W), Omit<T,K> via
+    global_type_symbol_with_arity("Omit", 2) (the arity-1 default
+    answers None — trap), evaluate_alias_body for non-literal bodies
+    (TypeLiteral spines refused — they must stay with §90's
+    instantiating road or members print WRITTEN types).
+
+NEXT HEADS in this subsystem: §92's 12 priced residues
+(exactOptional through the Omit arm 6, discriminated alias-name
+variants 4, dependentDestructured 2); general extends forms beyond
+NeverKeyword (templateLiteralTypes3's §36 decline is the annotation
+entry); keys through index signatures/mapped types; ramdaTools +
+jsxGenericComponent singles. THE BIGGER BOARD UNCHANGED: contextual
+inference arc (CallExpression 5,200 + ArrowFunction 3,705 gap
+roots), per-site printing (3 heads incl. temporal), predicate
+inference 158, JSDoc generics 127.
+
+PROCESS NOTE: an aborted python batch edit (assert mid-script) left
+its EARLIER replacements unwritten too — the script writes at the
+end, so nothing landed, but the follow-up fix re-applied only the
+edit that raised. A TypeId-printing probe found the missing
+registration two hours later. Re-verify every edit in an aborted
+batch, not the one that errored.
