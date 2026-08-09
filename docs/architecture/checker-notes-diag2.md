@@ -27775,3 +27775,89 @@ measurements, rather than left as a standing "cheap wins here" note that would
 have cost someone a day.
 
 Recorded as **priced and closed**, not as refused-for-now.
+
+## §527 — TS6142: `.jsx` asks `needJsx` before `needAllowJs`
+
+§143 applied *first* this time, and the rule was already there. §359 split
+`check_untyped_module_import` by resolved extension and put `jsx` in the
+JavaScript arm beside `js`, `cjs`, `mjs`. Upstream does not:
+
+```go
+case tspath.ExtensionJsx:
+    if message := needJsx(); message != nil { return message }   // TS6142 first
+    return needAllowJs()                                         // TS7016 second
+case tspath.ExtensionJs, tspath.ExtensionMjs, tspath.ExtensionCjs:
+    return needAllowJs()
+```
+
+`.tsx` gets `needJsx()` alone; **`.jsx` gets both, in that order**. §359 had the
+`tsx` arm right and folded `jsx` into the group it shares an *extension family*
+with rather than the one it shares a *check sequence* with.
+
+```
+import jsx from "./jsx";   // resolves to /jsx.jsx, --jsx unset → TS6142, not TS7016
+```
+
+> **The third ordering defect in ten builds** — §517 inserted a guard above one
+> ported nine builds earlier, §524 deleted a guard that ran before all of them,
+> and this one runs two checks in the wrong sequence. §518's rule generalises:
+> *a function's guards are a sequence*, and every one of these three was a
+> sequence read as a set.
+
+Note the failure is invisible without `--noImplicitAny`: the JavaScript arm
+returns early when `no_implicit_any` is false, so the wrong grouping produced
+**silence** here rather than a wrong code. A row at zero, not a row at negative
+— which is why it survived §359's measurement.
+
+### The bar
+
+```
+bar:  +2 of 2,  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **A `.jsx` import with `--jsx` set stops reporting TS7016.** The `needJsx`
+   arm must fall *through* when jsx is set, not return.
+2. **`.tsx` changes.** It has no `needAllowJs` and must keep only `needJsx`.
+
+## §528 — §527 built: **+2**, bar met, row closed
+
+```
+diagnostics   2,048 → 2,050   (bar was +2;  +2, 0 LOST)   37.35%
+```
+
+TS6142 is at zero. Both falsifiers negative: `.tsx` is unchanged and the `.jsx`
+arm falls through to TS7016 when `--jsx` is set.
+
+### Three ordering defects in ten builds
+
+```
+§517   a guard inserted ABOVE one ported nine builds earlier      +2
+§524   a guard deleted that ran BEFORE all of them                +4
+§527   two checks run in the wrong SEQUENCE                       +2
+```
+
+**Eight cases, all from order rather than logic**, in rules whose predicates
+were already correct and already measured. §518 named it from one instance —
+*a function's guards are a sequence, and porting them out of order is only safe
+if you re-establish the order each time* — and three instances now say
+something sharper:
+
+> **A ported guard that measured `+n` is evidence about the guard, not about
+> its position.** Every one of these three passed its own bar when it landed.
+> The order was never measured because nothing in the loop measures it: a bar
+> is a count of cases, and a mis-ordered guard that silences rather than
+> misfires costs zero.
+
+§527's is the clean example — the wrong grouping produced **silence**, not a
+wrong code, because the arm it landed in returns early without
+`--noImplicitAny`. A row sitting at zero looks exactly like a row nobody has
+tried.
+
+### The falsifier this suggests, for future ports
+
+When a rule is a **switch over a discriminator** (an extension, a kind, a flag),
+the falsifier should assert that two *adjacent* discriminator values produce
+**different** codes — §494 wrote the same test for `for…in`/`for…of` and it is
+the test that would have caught all three of these.

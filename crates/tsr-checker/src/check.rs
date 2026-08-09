@@ -3068,7 +3068,20 @@ impl Checker<'_, '_> {
         // The three members of the branch, split by the resolved extension —
         // the one thing that distinguishes them, and available only because
         // §357 added `resolved_module_path`. §359.
-        let diagnostic = if ["js", "jsx", "cjs", "mjs"].contains(&extension.as_str()) {
+        // **`.jsx` asks `needJsx` before `needAllowJs`** (`module/util.go:161`),
+        // and falls through to it when `--jsx` *is* set. `.tsx` has only
+        // `needJsx`. §359 grouped `jsx` with the extension family it looks like
+        // rather than the check sequence it belongs to, and the defect was
+        // invisible without `--noImplicitAny` because the JavaScript arm returns
+        // early. §527.
+        let jsx_unset = self.jsx_emit == tsr_core::JsxEmit::None;
+        let diagnostic = if extension == "jsx" && jsx_unset {
+            Diagnostic::with_args(
+                &messages::MODULE_0_WAS_RESOLVED_TO_1_BUT_JSX_IS_NOT_SET,
+                span,
+                [text.to_string(), path],
+            )
+        } else if ["js", "jsx", "cjs", "mjs"].contains(&extension.as_str()) {
             if !self.no_implicit_any {
                 return;
             }
@@ -3077,7 +3090,7 @@ impl Checker<'_, '_> {
                 span,
                 [text.to_string(), path],
             )
-        } else if extension == "tsx" && self.jsx_emit == tsr_core::JsxEmit::None {
+        } else if extension == "tsx" && jsx_unset {
             Diagnostic::with_args(
                 &messages::MODULE_0_WAS_RESOLVED_TO_1_BUT_JSX_IS_NOT_SET,
                 span,
