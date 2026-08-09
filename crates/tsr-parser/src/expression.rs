@@ -1831,7 +1831,9 @@ impl<'a> Parser<'a> {
         // A `this` parameter is the one reserved word a parameter name admits:
         // upstream's `parseParameter` reads it with `parseIdentifierName`
         // (`parser.go`, the `KindThisKeyword` arm).
-        let name = if self.at(SyntaxKind::ThisKeyword) {
+        // Only as the plain first parameter: `...this` is upstream's missing
+        // identifier plus an error (`thisTypeInFunctionsNegative`).
+        let name = if self.at(SyntaxKind::ThisKeyword) && dot_dot_dot.is_none() {
             BindingName::Identifier(self.parse_identifier_name())
         } else {
             self.parse_binding_name()
