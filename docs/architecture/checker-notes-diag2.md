@@ -23792,3 +23792,38 @@ that paid — never the verdict.
 80 → 1,924 across fourteen sessions, 24.05×
 this session: +473 over ninety-nine builds, 0 lost
 ```
+
+## §428 — TS2713 scoped; the neighbour check on §426's function
+
+§393's neighbour check, run on `resolveEntityName`'s failure path now that §426
+had it open. Two codes sit beside TS2749 there:
+
+```
+TS2694  Namespace_0_has_no_exported_member_1                  PORTED (check.rs:5513)
+TS2713  Cannot_access_0_1_because_0_is_a_type_but_not_a_namespace   NOT PORTED
+```
+
+```ts
+namespace Test1 {
+    function foo<T extends { abc: number }>(x: T) {
+        let a: T.abc = x.abc;    // TS2713
+    }
+}
+```
+
+**1 blocked case, 1 line, `occupied 0/1`.** The position is already a silent
+return in `check_qualified_type_name` — §302's decline, whose note records that
+*"reporting TS2503 there was 60 wrong lines"*. That silence is exactly TS2713's
+slot.
+
+**Scoped, not built.** Upstream's guard reports only when the left type *has* a
+member named `right` (`exportedTypeSymbol`), and for a type parameter that means
+reading the **constraint's** member table — the type-side read §424 named as the
+toolkit's boundary. One case does not justify crossing it at the end of a
+session; the row is real, small, and now written down with its guard.
+
+> The neighbour check has now been run on four functions, with an honest
+> denominator: **`checkThisExpression` (§393) and `resolveEntityName` (§428)
+> yielded a build and a scoped row; `getIndexedAccessType` (§394) and
+> `checkGrammarObjectLiteral` yielded nothing.** Two of four is the rate to
+> expect, not "reading upstream always finds something".
