@@ -44,13 +44,22 @@ impl Checker<'_, '_> {
         // declines, the same bound `nonexistent_property` takes.
         let (receiver, name_id, name_text, optional) = match self.node_map.get(node) {
             Some(Node::PropertyAccessExpression(access)) => {
-                let (Some(receiver), Some(tsr_ast::MemberName::Identifier(name))) =
-                    (access.expression, access.name)
-                else {
-                    return;
+                let Some(receiver) = access.expression else { return };
+                // A **private name** is a separate `MemberName` variant, and
+                // `this.#roProp = ""` on a getter-only accessor is TS2540
+                // exactly as `this.roProp = ""` is. §385.
+                let (id, text) = match access.name {
+                    Some(tsr_ast::MemberName::Identifier(name)) => {
+                        let Some(id) = name.node_id else { return };
+                        (id, name.text)
+                    }
+                    Some(tsr_ast::MemberName::PrivateIdentifier(name)) => {
+                        let Some(id) = name.node_id else { return };
+                        (id, name.text)
+                    }
+                    None => return,
                 };
-                let Some(id) = name.node_id else { return };
-                (receiver, id, name.text, access.question_dot_token.is_some())
+                (receiver, id, text, access.question_dot_token.is_some())
             }
             Some(Node::ElementAccessExpression(access)) => {
                 let (Some(receiver), Some(argument)) =

@@ -22006,3 +22006,65 @@ reverted, mechanism recorded  §338 §339 §341 §351 §368                     
 The second row did not exist as a category until §375, and it is now the larger
 producer per build. Its detector is one command (§376), and fifteen codes on
 that list are unworked.
+
+## §385 — TS2540 on a private-name accessor
+
+```ts
+class A1 {
+    get #roProp() { return ""; }
+    constructor() { this.#roProp = ""; }   // TS2540 — read-only
+}
+```
+
+`check_readonly_property_assignment` destructures
+`MemberName::Identifier(name)`, so `#roProp` declines — §379's arm, in a
+different rule. Two of TS2540's six blocked cases are private accessors
+(`privateNameAccessors`, `privateNameStaticAccessors`).
+
+The open question the measurement answers rather than the reading: whether
+`get_property_of_type` resolves a private name at all. If it does not, the
+widening is a no-op and this is §351 again — which is why the bar is stated
+against a shape rather than a count.
+
+### The bar
+
+```
+bar:  +2 of 6,  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **`this.#prop = ""` with both accessors reports.** The getter/setter pair is
+   writable and the existing accessor test must still see it.
+2. **A private *field* assignment reports.** `#x = 1` on a plain field is legal.
+
+## §386 — §385 built: **+1** of 2
+
+```
+diagnostics   1,886 → 1,887   (bar was +2;  +1, 0 LOST)   34.38%
+every other suite unmoved — both falsifiers negative
+```
+
+`get_property_of_type` does resolve a private name, so the widening was not
+§351's shape. One of the two private-accessor cases converts; the static one
+(`privateNameStaticAccessors`) wants the receiver to be the class rather than
+`this`, which the readonly rule reaches through a different path.
+
+### `MemberName::Identifier` / `PropertyName::Identifier`, three instances
+
+```
+§271 → §379   check_implicit_any_member        PropertyName::Identifier    (+0 alone)
+§385          check_readonly_property_assignment  MemberName::Identifier   +1
+§373          the binding-pattern arm             BindingName::Identifier  +1
+```
+
+> **A `let X::Identifier(name) = … else { return }` is a decline nobody wrote on
+> purpose.** It is the shape you get from destructuring the common case while
+> writing the rule, and the compiler never complains because the `else` is
+> syntactically required. Three of them found this session; the AST has an
+> `Identifier` variant in eight `…Name` enums, and `grep -n "Name::Identifier(.*) = .* else"`
+> over `crates/tsr-checker/src` is the whole sweep.
+
+That sweep is stated with §381's caveat attached: it finds candidates, and the
+semantic condition — *does upstream report for the other variant here* — is what
+turns one into a defect.
