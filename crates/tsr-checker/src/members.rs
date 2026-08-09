@@ -471,7 +471,7 @@ impl Checker<'_, '_> {
                         info.value
                     }
                 } else if node_id.is_some_and(|id| !self.in_js_file(id))
-                    && self.named_walk_is_complete(receiver_type)
+                    && self.miss_is_established(receiver_type, name)
                 {
                     // §123 (`checker-notes-narrow.md`): the walk COMPLETED —
                     // every base on the chain was followed and the name is
@@ -1133,6 +1133,29 @@ impl Checker<'_, '_> {
     /// unknown. A cycle answers `false` (decline, honest gap) — upstream
     /// reports a base-cycle diagnostic there, a channel this port lacks.
     fn named_walk_is_complete(&mut self, receiver: TypeId) -> bool {
+        // §124: the Anonymous side's analogue. A CLASS owner establishes
+        // absence through the same extends-chain walk §122 reads; a FUNCTION
+        // or ENUM owner's exports are single-declaration-set and whole by
+        // construction. VALUE_MODULE is NOT admitted — `export *` can carry
+        // surface this port cannot see (the merged-symbol read happens first,
+        // so `function f` merged with `namespace f` is excluded with it).
+        if let TypeData::Anonymous { symbol, .. } = self.store.get(receiver).data {
+            let merged = self.binder.merged_symbol(symbol);
+            let flags = self.binder.symbols().get(merged).flags;
+            if flags.contains(SymbolFlags::VALUE_MODULE) {
+                return false;
+            }
+            if flags.contains(SymbolFlags::CLASS) {
+                let mut visiting = Vec::new();
+                return self.walk_completes(merged, &mut visiting)
+                    && !self.chain_declares_index_signature(merged);
+            }
+            // FUNCTION owners measured 24 G→W (strictBindCallApply1): a
+            // "missing" function member may live on the CallableFunction /
+            // Function wrapper interfaces with a specialized type this
+            // port's fallback answers differently — absence not established.
+            return flags.intersects(SymbolFlags::ENUM);
+        }
         let TypeData::Named { members: Some(owner), .. } = self.store.get(receiver).data else {
             return false;
         };
@@ -1159,6 +1182,79 @@ impl Checker<'_, '_> {
         }
         let mut visiting = Vec::new();
         self.walk_completes(owner, &mut visiting)
+    }
+
+    /// §123/§124's combined question: is this name's absence ESTABLISHED?
+    /// A CONST_ENUM owner skips the Function-family gate — upstream
+    /// deliberately withholds the prototype road there (TS2748-family, the
+    /// §117 fallback's own recorded gate), so `E.toString`'s error-any IS
+    /// the established answer (constEnumNoObjectPrototypePropertyAccess 14).
+    fn miss_is_established(&mut self, receiver: TypeId, name: &str) -> bool {
+        let const_enum = if let TypeData::Anonymous { symbol, .. } = self.store.get(receiver).data {
+            let merged = self.binder.merged_symbol(symbol);
+            self.binder.symbols().get(merged).flags.contains(SymbolFlags::CONST_ENUM)
+        } else {
+            false
+        };
+        if !const_enum && self.function_family_declares(name) {
+            return false;
+        }
+        self.named_walk_is_complete(receiver)
+    }
+
+    /// §124 iteration 3: a name any of the Function-family or Object globals
+    /// declares is never an established absence — the §117 fallback family
+    /// may answer it with a type this port computes differently or not at
+    /// all (`C.bind` under strictBindCallApply wants the specialized
+    /// signature; strictBindCallApply1 measured 24 G→W through two
+    /// iterations before this gate named the mechanism).
+    fn function_family_declares(&mut self, name: &str) -> bool {
+        for global in ["CallableFunction", "NewableFunction", "Function", "Object"] {
+            if let Some(interface) = self.global_type_symbol_with_arity(global, 0) {
+                let mut visiting = Vec::new();
+                if self.get_property_of_declared_symbol(interface, name, &mut visiting).is_some() {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// §124: whether any class declaration on the extends chain declares an
+    /// index signature — a member this port's static index road cannot
+    /// answer, so a miss beside one is not an established absence
+    /// (staticIndexSignature4's 20 G→W on the ungated pair).
+    fn chain_declares_index_signature(&mut self, owner: SymbolId) -> bool {
+        let mut visiting = Vec::new();
+        self.chain_declares_index_signature_worker(owner, &mut visiting)
+    }
+
+    fn chain_declares_index_signature_worker(
+        &mut self,
+        owner: SymbolId,
+        visiting: &mut Vec<SymbolId>,
+    ) -> bool {
+        if visiting.contains(&owner) {
+            return true;
+        }
+        visiting.push(owner);
+        let declarations: Vec<_> =
+            self.binder.symbols().get(owner).declarations.iter().copied().collect();
+        for declaration in declarations {
+            if let Some(Node::ClassDeclaration(class)) = self.node_map.get(declaration)
+                && class.members.iter().any(|member| {
+                    matches!(member, tsr_ast::ClassElement::IndexSignatureDeclaration(_))
+                })
+            {
+                return true;
+            }
+        }
+        match self.base_symbols_of(owner) {
+            None => true,
+            Some(bases) => bases
+                .into_iter()
+                .any(|base| self.chain_declares_index_signature_worker(base, visiting)),
+        }
     }
 
     fn walk_completes(&mut self, owner: SymbolId, visiting: &mut Vec<SymbolId>) -> bool {

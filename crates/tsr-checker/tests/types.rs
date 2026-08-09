@@ -1510,12 +1510,15 @@ fn a_type_query_answers_from_exports_and_never_from_members() {
     // `checker.go:20672`), so the two assertions have come apart, which is
     // exactly what the original comment predicted should happen.
 
-    // Still `error`, and this is now the *load-bearing* half: `x` is an instance
-    // member, so `typeof C` has no `x`. `tests/members.rs` reddens this by
-    // swapping `exports` for `members` in that arm.
+    // **Flipped by §124** (`checker-notes-narrow.md`; the thirty-third
+    // stand-in): `x` is an instance member, so `typeof C` has no `x`, and the
+    // ESTABLISHED miss now answers upstream's TS2339 error-any rather than
+    // the gap sentinel. The pin's load-bearing claim is UNCHANGED and still
+    // discriminates: repointing the arm at `members` would answer the
+    // instance's `number` here, and `any` is not `number`.
     assert_eq!(
         type_of_declaration("class C { static s: string; x: number; }\nconst v = C.x;", "v"),
-        "error"
+        "any"
     );
     // No longer `error`. `submodule/conformance/
     // protectedStaticClassPropertyAccessibleWithinSubclass.types:14` records

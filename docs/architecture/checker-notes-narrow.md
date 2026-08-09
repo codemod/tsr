@@ -5200,3 +5200,29 @@ held — JS-gated but TS `namespace f` merges exist: a FUNCTION owner
 merged with a namespace carries real exports; the merged-symbol
 read must happen before the kind test); (b) the §122 `#`-exclusion
 class — a missing `#` static wants any and IS admitted here.
+
+**§124 MEASURED AND LANDED at iteration 4 — +83 G→R / 2 G→W /
+0 R→W (41:1), right 410,129 → 410,213 = 85.64%.** Four iterations,
+each converting a named adverse class into a gate:
+  1. CLASS(walk)+FUNCTION+ENUM: +95/52 — strictBindCallApply1 24
+     (wrapper-interface members answered specially) and
+     staticIndexSignature* 26 (static index signatures unported).
+  2. FUNCTION dropped, index-signature chain scan added: +84/28 —
+     strictBindCallApply persisted via CLASS owners (`C.bind` reads
+     NewableFunction).
+  3. the Function-family/Object name gate (a name those globals
+     declare is never established-absent): +69/2 — over-excluded
+     the const-enum class.
+  4. CONST_ENUM owners skip the family gate (upstream withholds the
+     prototype road there deliberately, the §117 fallback's own
+     recorded exclusion): +83/2.
+derivedClassWithPrivateInstanceShadowingPublicInstance 20 whole,
+constEnumNoObjectPrototypePropertyAccess 14; the typeof-query pin
+(types.rs) came due as the THIRTY-THIRD stand-in — its load-bearing
+half (never repoint at members) still discriminates, any is not
+number. VALUE_MODULE stays
+un-admitted (export-star surface unverifiable) — its rows go with
+the §31-family, recorded not guessed. The 2 residual: 
+typeReferenceDirectives9 (type-directive resolution, different
+owner). Gates: four 100% suites held (coverage at 85.64%, 4,114
+cases), tests/clippy in the landing commit's log.
