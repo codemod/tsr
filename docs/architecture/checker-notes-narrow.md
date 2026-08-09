@@ -3648,3 +3648,15 @@ re-render must keep `array_element_text`'s parenthesisation;
 (c) baked-right references re-rendering DIFFERENTLY at their own
 declaration sites (the §89/§90.1 keep-text family) — any R→W whose
 want equals the old baked text fires it.
+
+**§95 score — LANDED, one leg missed and stated.** Measured by the
+stash/accept/pop pair (the §85.1 rule, followed this time):
+right 405,698-line clean base at `219efd6` → **+146 W→R with ZERO
+adverse in any column**. temporal 112, propTypeValidatorInference
+10, declFileGenericType 6, remainder spread. The bar's ≥150-temporal
+leg MISSED at 112: the residue is reference prints whose baked text
+is not `name<args>`-shaped at the outer level (signature-embedded
+positions §10.13 already owns route separately) plus the GAP half
+(399 lines: `Temporal.ZonedDateTime[]` method results through lib
+generics — resolution, not printing). The ratio leg (10:1) met at
+infinity.

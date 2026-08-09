@@ -1773,8 +1773,15 @@ impl<'a> Checker<'a, '_> {
     /// `Union`/`IntersectionTypeNode` to upstream's builder, so neither is
     /// parenthesised anywhere.
     fn array_element_text(&self, element: TypeId) -> String {
+        let text = crate::printing::type_to_string(self.store.get(element));
+        self.wrap_array_element_text(element, &text)
+    }
+
+    /// The parenthesisation half of [`Checker::array_element_text`], shared
+    /// with §95's site-aware reference rebuild so both roads wrap by the same
+    /// rules whatever text the element rendered as.
+    pub(crate) fn wrap_array_element_text(&self, element: TypeId, text: &str) -> String {
         let ty = self.store.get(element);
-        let text = crate::printing::type_to_string(ty);
         let wrap = (ty.flags.intersects(TypeFlags::UNION | TypeFlags::INTERSECTION)
             && !crate::printing::prints_as_a_single_token(ty))
             || text.starts_with("typeof ")
@@ -1782,8 +1789,8 @@ impl<'a> Checker<'a, '_> {
             // unwrapped — `keyof T[]` is keyof-of-array
             // (`keyofIsLiteralContexualType` wants `(keyof T)[]`).
             || text.starts_with("keyof ")
-            || has_top_level_arrow(&text);
-        if wrap { format!("({text})") } else { text }
+            || has_top_level_arrow(text);
+        if wrap { format!("({text})") } else { text.to_string() }
     }
 
     /// The type a *type* symbol declares.

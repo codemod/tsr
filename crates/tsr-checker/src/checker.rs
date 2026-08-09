@@ -1046,10 +1046,68 @@ impl<'a, 'n> Checker<'a, 'n> {
                 self.rendering_composites.remove(&id);
                 return Some(out);
             }
+            // §95 (`checker-notes-narrow.md`): a GENERIC reference re-renders
+            // its ARGUMENT slots at the site — the baked argument text was
+            // minted at creation (inside-view), and `split_around_name`'s
+            // qualifier only ever touches the outer name
+            // (`Temporal.PartialTemporalLike<ZonedDateTimeLikeObject>` wanting
+            // the argument qualified too). Any piece declining falls back to
+            // the baked road below.
+            if let Some((target, arguments)) = self.type_reference_targets.get(&id).cloned()
+                && !arguments.is_empty()
+                && !self.rendering_composites.contains(&id)
+            {
+                self.rendering_composites.insert(id);
+                let rebuilt = self.reference_text_at(target, &arguments, reference);
+                self.rendering_composites.remove(&id);
+                if let Some(out) = rebuilt {
+                    return Some(out);
+                }
+            }
             let printed = self.type_to_string(id);
             return self.qualified_name_at(id, printed, reference);
         };
         self.module_name_at(module, reference).map(|name| format!("typeof {name}"))
+    }
+
+    /// §95's rebuild: the reference's print from `(target, arguments)` with
+    /// every argument rendered AT THE SITE, the target named exactly as
+    /// [`Checker::qualified_name_at`]'s tail names it (rename, else chain
+    /// qualifier, else bare), and the `Array`/`ReadonlyArray` shorthands
+    /// preserved. `None` when any argument cannot be site-rendered.
+    fn reference_text_at(
+        &mut self,
+        target: tsr_binder::SymbolId,
+        arguments: &[TypeId],
+        reference: NodeId,
+    ) -> Option<String> {
+        let mut printed_arguments = Vec::with_capacity(arguments.len());
+        for &argument in arguments {
+            printed_arguments.push(self.type_to_string_at(argument, reference)?);
+        }
+        if let [element_text] = printed_arguments.as_slice() {
+            if self.global_type_symbol("Array") == Some(target) {
+                let element = self.wrap_array_element_text(arguments[0], element_text);
+                return Some(format!("{element}[]"));
+            }
+            if self.global_type_symbol("ReadonlyArray") == Some(target) {
+                let element = self.wrap_array_element_text(arguments[0], element_text);
+                return Some(format!("readonly {element}[]"));
+            }
+        }
+        let target_name = self.binder.symbols().get(target).name;
+        let named = if let Some(better) = self.best_name(target, reference, false)
+            && better != target_name
+        {
+            better.to_string()
+        } else if let Some(qualifier) =
+            self.symbol_chain(target, reference, SymbolFlags::TYPE | SymbolFlags::VALUE, 0)
+        {
+            format!("{qualifier}{target_name}")
+        } else {
+            target_name.to_string()
+        };
+        Some(format!("{named}<{}>", printed_arguments.join(", ")))
     }
 
     /// **Design P** — prepend the namespace qualifier a name needs to be read
