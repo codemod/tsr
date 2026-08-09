@@ -18630,3 +18630,64 @@ tight.
 measured at `+0`, and the reason unattributed. The next attempt should
 instrument `check_excess_properties`' four returns before touching the call
 sites.
+
+## §306 — instrumented, and the answer was none of the three guesses
+
+§305 said the next attempt should instrument `check_excess_properties`' returns
+before touching the call sites. Doing that took four probes and produced an
+answer no amount of reading would have given:
+
+```
+PROBE assertion reached: operand_kind=ArrayLiteralExpression target_error=false
+PROBE array: element_resolved=true
+PROBE element kind=ObjectLiteralExpression
+PROBE excess: known=["id"]
+(no decline printed)
+```
+
+**Every step works.** The arm is reached, the element type resolves, the
+property table is built, and the rule reports. `diagcase` on the actual fixture:
+
+```
+-- expected --
+  arrayCast.ts(3,23) TS2353
+-- actual --
+  arrayCast.ts(3,23) TS2353
+  arrayCast.ts(6,23) TS2353      ← extra
+```
+
+It produces the wanted line **and one more**. Line 6 is the fixture's own
+control, with the comment written above it:
+
+```ts
+// Should succeed, as the {} element causes the type of the array to be {}[]
+<{ id: number; }[]>[{ foo: "s" }, {}];
+```
+
+A second element widens the array literal's *own* type, and upstream's excess
+check runs inside the relation of the whole array — so when the array type is
+`{}[]`, no element is related to `{ id: number }` and nothing is excess. This
+port's element-by-element hop has no such notion.
+
+> **The `+0` was a right line and a wrong line cancelling, and every one of the
+> three attributions before this assumed it was a decline.** §303 blamed the
+> call sites, §304 blamed the element hop, §305 blamed "something". The rule was
+> firing the whole time.
+
+`diagslice`'s `occupied` column (§293) is the instrument that *should* have said
+this — a `+0` composed of one convert and one loss is exactly what it measures —
+and it was not consulted, because §303 read the row from `diagpair` and stopped
+there.
+
+### Refused, owner named
+
+**TS2353 through an assertion — refused.** Owner: **excess-property checking
+belongs inside the relation**, where the array literal's own widened type is
+known. An element-by-element hop is right for a single-element array and wrong
+the moment a second element changes the array's type, and no bound short of the
+relation separates those.
+
+The arm is kept out of the tree; the probes are removed. This is the first time
+this session an instrumented probe has been run *before* the third guess rather
+than after it, and it cost four cheap steps to replace three wrong published
+claims with a measured one.
