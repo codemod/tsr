@@ -3333,3 +3333,24 @@ positions wanting parenthesized or structural spellings — the §xm9
 parenthesisation family's door.
 
 **§89 score — LANDED.** right 404,594 → **404,772 (84.51%)**.
+## §89.1 — degenerate leading-operator unions are real nodes
+
+§89's 7 R→W diagnosed: `type U3 = | () => number` wants the
+STRUCTURAL print while `type U1 = string | () => void` wants the
+name. Upstream's parser keeps the `UnionTypeNode` whenever a leading
+operator was consumed — even with ONE constituent
+(`parser.go:2649`, `p.token == operator || hasLeadingOperator`) —
+and that node is exactly what blocks `getAliasSymbolForTypeNode`'s
+one-hop parent test, so the alias never attaches and the print stays
+structural. Our `parse_union_type`/`parse_intersection_type` eat the
+leading bar and then RETURN THE CONSTITUENT BARE, so the function
+node's parent is the alias declaration and §72 names it.
+
+The fix is the parser's, not the checker's: build the node when a
+leading operator was eaten. **Bar:** the 7 §89 R→W convert back;
+zero adverse elsewhere. **Falsifiers:** (a) parser_typescript /
+printer_round_trip / binder_symbols must hold 100% — a new tree
+shape at a leading-bar alias could disturb any of them; (b) other
+degenerate-union corpus sites may want the OLD shape — if the pair
+shows unrelated R→W concentrated on leading-bar files, the checker
+consumers need the union-hop instead.
