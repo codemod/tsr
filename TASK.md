@@ -392,3 +392,21 @@ mint. longObjectInstantiationChain3 166 + Omit/merge 142 hang off it.
 Session window closes at build 144: 23 landed builds (122-144),
 +1,807 right, 84.07% → 84.46%, ten priced refusals, one false
 refusal corrected loudly. Everything pushed.
+
+
+ADDENDUM AFTER BUILD 148 (84.48%):
+
+The tuple/rest seam block, builds 144-148: §86 rest-tuple contextual
+parameters (+33/0), §87 variadic tails consumable lazily (+3/0 after
+the eager version appeared to cost 16 lines that turned out to be
+unicodeEscapesInJsxtags' NONDETERMINISTIC alignment — instrument
+caveat on record: any single-case ±16 there is noise), §88/§88.1 rest
+expansion in signature prints (+50 across two shards — written reuse
+wins at annotation signatures, expansion at fresh value signatures;
+NO site-sensitivity needed, two types two prints), §86.1 the
+function's own trailing rest (+26/0 — tail array at/past the prefix
+boundary; tuple-SLICE minting is the next machine in this seam).
+
+restTuplesFromContextualTypes fell 117 → ~85; genericRestParameters
+1/2 largely converted. Remaining in-seam: tuple slices, TupleUnionFunc
+alias prints, the union-of-variadic contextual forms.

@@ -289,7 +289,13 @@ to re-run scorepair on the clean tree before pricing any adverse) =
 **404,423 — builds 25–143 (84.45%)**; then + 33 (§86: rest-tuple
 contextual parameters expand positionally, ZERO adverse — and §50's
 destructured-discriminant narrowing composes with it for free) =
-**404,456 — builds 25–144 (84.46%)**. §81 (blunt
+**404,456 — builds 25–144 (84.46%)**; then + 3 (§87: variadic tails
+consumable lazily; the `unicodeEscapesInJsxtags` alignment
+NONDETERMINISM found and recorded as an instrument caveat) + 28 (§88:
+rest parameters over plain tuples expand, written reuse winning) +
+22 (§88.1: the variadic half) + 26 (§86.1: the function's own
+trailing rest) = **404,520 — builds 25–148 (84.48%)** against
+470,651. §81 (blunt
 qualified names) REFUSED at 114:6,769 — the qualifier is decided by
 the VIEWER's position; per-site printing context now owns THREE heads
 (import-spelling, qualified names, `temporal`'s 400). §77.2 (union written order) refused TWICE — 35:249, then
