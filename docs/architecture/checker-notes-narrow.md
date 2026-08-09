@@ -4056,3 +4056,14 @@ question answered first (one probe: does a §77-spelled member
 literal survive the object type's text computation?). Must NOT
 move: the written-annotation rights just verified, §104's 232, §55
 enum values.
+
+**§105 probe answer (same window):** the §77 machinery covers
+member NAMES (§77.3, objects.rs — `'1.0'` keeps its quote) but NOT
+member VALUE types: a value-position `'lookup'` literal interns
+double-quoted, and no written-spelling carriage exists from a
+property assignment's initializer node to the member's printed
+type. So slice (2) needs that carriage built (the §77 seam extended
+to const-context member values), while slice (1) — as-const ARRAY →
+readonly tuple — needs only the tuple mint plus a readonly flag on
+the existing tuple printer. BUILD ORDER therefore: (1) first, its
+own pair; (2) behind the carriage, separately measured.
