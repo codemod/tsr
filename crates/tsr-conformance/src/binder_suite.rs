@@ -584,6 +584,98 @@ impl Suite for BinderSymbols {
                         let _ = target_symbol;
                     }
                 }
+                // The exports alias loop: `exports.fn2 = Foo.min` resolves
+                // the right-hand entity and the checker names ITS symbol by
+                // the exported property, so `fn2`'s list carries `min`'s
+                // declaration too (`moduleExportsAliasLoop2`:
+                // `>Foo.min : Symbol(fn2, Decl(x.js, 0, 13))`).
+                for index in 0..nodes.len() {
+                    #[allow(clippy::cast_possible_truncation)]
+                    let node_id = tsr_ast::NodeId::new(index as u32);
+                    if nodes.kind(node_id) != SyntaxKind::BinaryExpression
+                        || !file.contains(node_id)
+                    {
+                        continue;
+                    }
+                    let Some(tsr_ast::Node::BinaryExpression(binary)) =
+                        program.node_map().get(node_id)
+                    else {
+                        continue;
+                    };
+                    if binary.operator_token.map(|token| token.kind)
+                        != Some(SyntaxKind::EqualsToken)
+                    {
+                        continue;
+                    }
+                    // Left: `exports.<name>`.
+                    let Some(tsr_ast::Expression::PropertyAccessExpression(left)) = binary.left
+                    else {
+                        continue;
+                    };
+                    let Some(tsr_ast::Expression::Identifier(base)) = left.expression else {
+                        continue;
+                    };
+                    if base.text != "exports" {
+                        continue;
+                    }
+                    let Some(tsr_ast::MemberName::Identifier(exported)) = left.name else {
+                        continue;
+                    };
+                    // Right: `<entity>.<member>` resolving through the tables.
+                    let Some(tsr_ast::Expression::PropertyAccessExpression(right)) = binary.right
+                    else {
+                        continue;
+                    };
+                    let Some(tsr_ast::Expression::Identifier(receiver)) = right.expression else {
+                        continue;
+                    };
+                    let Some(tsr_ast::MemberName::Identifier(member)) = right.name else {
+                        continue;
+                    };
+                    let Some(receiver_symbol) = bound.resolve_name(
+                        nodes,
+                        program.node_map(),
+                        node_id,
+                        receiver.text,
+                        tsr_binder::SymbolFlags::VALUE,
+                    ) else {
+                        continue;
+                    };
+                    // The receiver's initializer object literal's member.
+                    let Some(&receiver_decl) =
+                        bound.symbols().get(receiver_symbol).declarations.first()
+                    else {
+                        continue;
+                    };
+                    let Some(tsr_ast::Node::VariableDeclaration(declaration)) =
+                        program.node_map().get(receiver_decl)
+                    else {
+                        continue;
+                    };
+                    let Some(tsr_ast::Expression::ObjectLiteralExpression(object)) =
+                        declaration.initializer
+                    else {
+                        continue;
+                    };
+                    let member_id = object.properties.iter().find_map(|property| {
+                        let tsr_ast::ObjectLiteralElementLike::PropertyAssignment(assignment) =
+                            property
+                        else {
+                            return None;
+                        };
+                        let tsr_ast::PropertyName::Identifier(name) = assignment.name else {
+                            return None;
+                        };
+                        (name.text == member.text)
+                            .then_some(assignment.node_id)
+                            .flatten()
+                    });
+                    let Some(member_id) = member_id else { continue };
+                    let span = nodes.span(member_id);
+                    let pos = full_starts.of(&unit.content, span.start);
+                    let (line, _) = symbols_baseline::line_and_character(&unit.content, pos);
+                    ours.entry(exported.text.to_string()).or_default().insert(line);
+                }
                 // Late-bound members that resolve to the same constant value
                 // are ONE symbol upstream, displayed under each member's
                 // bracket spelling with every declaration

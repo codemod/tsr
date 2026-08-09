@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 binder_symbols Summary:
 What a pass means: every symbol in the .symbols baseline exists with the same declaration lines
-Passed         : 8457/8459 (99.98%)
-Failed         : 2
+Passed         : 8458/8459 (99.99%)
+Failed         : 1
 Skipped        : 3985 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -12,7 +12,5 @@ Skipped        : 3985 (excluded from the denominator)
   924  skipped: upstream recorded no .symbols baseline
   450  skipped: upstream records a known divergence from TypeScript (.diff baseline)
 
-conformance/moduleExportsAliasLoop2
-  1 symbol(s): fn2: declared on {1}, expected to include {0, 1}
 conformance/noUncheckedIndexedAccessDestructuring
   2 symbol(s): q.__index: no symbol; t2.__index: no symbol
