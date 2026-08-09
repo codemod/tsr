@@ -4015,7 +4015,14 @@ different builds (naive claim-set, then shadow+byText) and
 shadow-only converts the same rows at zero cost. **+269 W→R, ZERO
 adverse** on the isolated pair (underscoreTest1 86/100,
 typeParametersAreIdenticalToThemselves 33, genericCall 9, spread
-across 20+ cases). Bar met (≥50 at 10:1 → 86 at ∞). Residues:
+across 20+ cases). Bar met (≥50 at 10:1 → 86 at ∞).
+**Correction to the composed count's "+1 benign interaction line"
+(the adjective was not a price):** the line is an R→W —
+`classAbstractManyKeywords:0:5`, want `D`, printing `typeof D` on the
+error-recovery fixture `import abstract class D {}`. BISECTED: it
+survives a local revert of §102, so §102 is exonerated; it arises
+from §104's as-const arm composing with the pre-§102 tree, and the
+trace is handed to that build's owner. Residues:
 underscore's last 14 (the flipped-order pairs whose sites our
 resolve_name reads differently — trace before touching), and §90.1's
 chain2 `r_1` family stays on its empirical gate (a THIRD mechanism,
