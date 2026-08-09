@@ -25239,3 +25239,39 @@ kind mismatch     §463 TS2417 +4   a method against a property
 **+30 from five arguments, none of which consults the relation.** That is the
 session's largest single seam and it was opened by §407 asking whether *absent*
 needed a comparison at all.
+
+## §465 — TS2416 re-checked for the kind argument, and rejected
+
+§463's falsifier named TS2416 as the *instance* sibling of the static
+kind-mismatch rule, and §464's lesson says a declined row deserves re-checking
+for a different argument. Both point here. Checked:
+
+```ts
+class BaseEvent { target: {}; }
+class MyEvent<T> extends BaseEvent { target: T; }   // TS2416
+```
+
+**Not a kind mismatch** — `target` is a property on both sides. It is a *type*
+mismatch on a **generic** class, which §405's bound excluded for the reason
+generics are always excluded here: the written annotation is not the member's
+type once `T` is instantiated.
+
+So TS2416 keeps both of its declines and gains a third, more precisely stated
+than the first two:
+
+```
+§405   occupied 15/34 — 44% of its lines sit at taken positions
+§409   its cases are not primitive-versus-primitive
+§465   its cases are not kind mismatches either
+```
+
+> **Two prospective rejections in five builds (§460, §465) against two
+> prospective successes (§461, §463).** That is the honest rate for "re-check a
+> declined row with a new argument", and it is worth having rather than the
+> impression the successes leave: **half the time the argument does not reach,
+> and the check costs one `diagmissing` either way.**
+
+The remaining rows on the clean list — TS2694, TS2354, TS1359, TS1344, TS1038,
+TS1005, TS18014, TS8010, TS8006 — are held by owners already named: the depth
+bound (§323), the emit-helper list (§453), the parser's unset flags (§452), and
+parser recovery (§355).
