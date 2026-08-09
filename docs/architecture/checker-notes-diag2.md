@@ -19627,3 +19627,90 @@ which is what an older rule looks like: the easy half was taken when it was
 built, and what remains is the conditions its author bounded deliberately.
 Three of these five turned on **where a rule is called from** rather than what
 it decides.
+
+## §331 — TS7006's candidate list, §321's mechanism a third time
+
+Largest remaining deepening row: 16 blocked cases, 13 single-line.
+
+`ParameterList6` wants two diagnostics at one position and this port emits one:
+
+```
+-- expected --   ParameterList6.ts(2,19) TS2369
+                 ParameterList6.ts(2,19) TS7006
+-- actual --     ParameterList6.ts(2,19) TS2369
+```
+
+The source is `constructor(C: (public A) => any)` — the parameter `A` lives in a
+**`FunctionTypeNode`**, and `implicit_any_candidates` (`implicit_any.rs:356`)
+lists five kinds:
+
+```
+FunctionDeclaration · MethodDeclaration · ConstructorDeclaration
+FunctionExpression · ArrowFunction
+```
+
+All of them have **bodies**. A parameter in a signature — a function type, a
+call or construct signature, a method signature, an index signature — is
+implicitly `any` exactly as one in a declaration is, and upstream's
+`reportImplicitAny` reaches all of them.
+
+> **§321 was a narrow *dispatch*, §327 a narrow *dispatch* again, and this is a
+> narrow *input list* inside a rule that is dispatched correctly.** The
+> mechanism is the same one level down: the rule decides right and is asked
+> about too little. §328's sweep looked at call sites and could not have seen
+> this.
+
+### The bar
+
+```
+bar:  +6 cases of 16,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **An annotated signature parameter reports.** The annotation test is
+   unchanged and runs per parameter.
+2. **`binder_symbols` or `printer_round_trip` moves.** Neither reads this.
+
+## §332 — §331 measured zero, and the reason is a gate, not the list
+
+```
+candidate list + dispatch widened   diagnostics 1,843 → 1,843   (+0)
+```
+
+Reverted per §248, and the diagnosis is worth more than the row.
+
+The widening is **faithful**: `implicit_any_candidates` listed five kinds, all
+with bodies, and `reportImplicitAny` reaches signature parameters too. Both the
+list and the dispatch were widened (§327's lesson applied first this time, not
+after a zero). The probe still shows nothing:
+
+```
+-- expected --   ParameterList6.ts(2,19) TS2369
+                 ParameterList6.ts(2,19) TS7006
+-- actual --     ParameterList6.ts(2,19) TS2369
+```
+
+`ParameterList6`'s options are `{"target": "es2015"}` — **no `noImplicitAny`,
+no `strict`** — and this port's rule opens with `if !self.no_implicit_any {
+return }`. TS7006 is upstream's `c.noImplicitAny` arm of `reportImplicitAny`, so
+on the face of it upstream should not report an error either, and it does.
+
+**Three readings, and which one is true is not established:**
+
+1. upstream reaches TS7006 for a *signature* parameter through a path that does
+   not consult `noImplicitAny`;
+2. the harness supplies `noImplicitAny` for this suite in a way §263's
+   `apply_test_directives` does not reproduce — the same class of defect, which
+   cost that build a refusal;
+3. `reportImplicitAny`'s caller here is not `errorOrSuggestion`.
+
+> **A `+0` from a faithful widening is a question about the *gate*, not the
+> widening.** §306 spent three published attributions before instrumenting;
+> this one stops at three *candidates* and instruments nothing, because the
+> next step is a baseline survey — does TS7006 appear in other cases that set
+> no `noImplicitAny`? — and that is a measurement, not a guess.
+
+Recorded open: **TS7006's 16 cases, gated on `no_implicit_any`, with the gate's
+correctness unverified.** If reading (2) is right it is a harness defect in
+§263's family and will be worth more than this row.
