@@ -452,6 +452,7 @@ impl Checker<'_, '_> {
                 self.check_readonly_identifier_assignment(node, ambient);
                 self.check_value_identifier(node, identifier.text);
                 self.check_type_reference_name(node, identifier.text);
+                self.check_umd_global_reference(node, identifier.text);
                 self.check_used_before_assigned(node, identifier.text);
                 self.check_used_before_its_declaration(node, identifier.text);
                 self.mark_identifier_reference(node, identifier.text);
@@ -601,6 +602,52 @@ impl Checker<'_, '_> {
         };
         matches!(declaration.name, Some(tsr_ast::ModuleName::StringLiteral(_)))
             || declaration.keyword.kind == SyntaxKind::GlobalKeyword
+    }
+
+    /// TS2686 — `'{0}' refers to a UMD global, but the current file is a
+    /// module. Consider adding an import instead.`
+    ///
+    /// `checkIdentifier`'s UMD arm. A UMD global is *meant* to resolve in a
+    /// script file — the binder files `export as namespace N` into the file's
+    /// `global_exports` (`binder.rs:4620`, upstream `binder.go:820`) precisely
+    /// so it can. What makes it an error is resolving it from a **module**,
+    /// which is the only thing this rule adds to machinery already in place.
+    /// §361.
+    fn check_umd_global_reference(&mut self, node: NodeId, text: &str) {
+        if self.file_has_parse_errors || !self.is_value_reference(node) {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let Some(Node::SourceFile(source)) = self.node_map.get(file) else { return };
+        if !tsr_binder::is_external_module(source) {
+            return;
+        }
+        let Some(symbol) = self.binder.resolve_name(
+            self.nodes,
+            self.node_map,
+            node,
+            text,
+            SymbolFlags::VALUE | SymbolFlags::EXPORT_VALUE,
+        ) else {
+            return;
+        };
+        let symbol = self.binder.merged_symbol(symbol);
+        // The declaration kind, not `ALIAS`: a plain `import * as Bar` is an
+        // alias too and must stay silent.
+        if !self.binder.symbols().get(symbol).declarations.iter().any(|&declaration| {
+            self.nodes.kind(declaration) == SyntaxKind::NamespaceExportDeclaration
+        }) {
+            return;
+        }
+        let span = self.error_span(node);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::_0_REFERS_TO_A_UMD_GLOBAL_BUT_THE_CURRENT_FILE_IS_A_MODULE_CONSIDER_ADDING_AN_IMPORT_INSTEAD,
+                span,
+                [text.to_string()],
+            ),
+        );
     }
 
     /// TS2307 — `Cannot find module '{0}' or its corresponding type declarations.`

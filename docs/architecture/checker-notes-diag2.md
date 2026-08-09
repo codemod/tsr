@@ -21010,3 +21010,88 @@ resolved, module symbol present, .tsx, no --jsx   TS6142   a DIFFERENT guard
 TS6142's 2 cases stay open with that owner stated. The dead arm is left in
 place with this note rather than deleted, because deleting it would lose the
 distinction and the next session would re-derive it from the same table.
+
+## §361 — TS2686: a UMD global referenced from a module
+
+```ts
+// foo.d.ts
+export as namespace Foo;
+// a.ts
+import * as Bar from './foo';
+let z = Foo;                    // TS2686 — a.ts is a module
+```
+
+Everything this needs is already built and nothing consumes it:
+
+- the binder **already** files `export as namespace N` into the file's
+  `global_exports` with `SymbolFlags::ALIAS` (`binder.rs:4620`), a faithful port
+  of `bindNamespaceExportDeclaration` (`binder/binder.go:820`);
+- name resolution **already** finds it — `occupied 0/3` and `umd5`'s actual
+  column is empty, so this port emits no TS2304 either; the name resolves
+  cleanly;
+- `tsr_binder::is_external_module` **already** exists and is used twice in
+  `strict_mode.rs`.
+
+A UMD global is *meant* to resolve in a script file. What upstream adds is that
+resolving it from a **module** is an error, and that arm was never written.
+
+> Third instance this session of the same thing at three different layers:
+> §345 a value computed and discarded, §357 a trait method whose second answer
+> had no consumer, and now **a binder fact recorded, resolved against, and never
+> asked about.** The port's habit is to build the datum and stop before the
+> diagnostic — which is exactly what a *port* would do, since upstream's
+> diagnostic lives in a function nobody has needed yet.
+
+### The bar
+
+```
+bar:  +2 of 3,  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **A script (non-module) file referencing `Foo` reports.** That is the case
+   UMD globals exist for; `is_external_module` is the whole guard.
+2. **`Bar.Thing` reports.** `Bar` is a normal import alias in the same fixture
+   and must stay silent — the declaration test is `NamespaceExportDeclaration`,
+   not `ALIAS`.
+
+## §362 — §361 built: **+2**, bar met
+
+```
+diagnostics   1,868 → 1,870   (bar was +2;  +2, 0 LOST)   34.07%
+every other suite unmoved — both falsifiers negative
+```
+
+### The session's dominant shape, stated for the handoff
+
+Ten builds now, and every one of them found cases in machinery that **already
+existed**:
+
+```
+§335 +7  a position two correct predicates both declined
+§343 +1  a `?` merging *absent* with *unresolvable*
+§345 +2  a computed answer discarded by a guard for another case
+§347 +3  a question asked of one node kind and not of two others
+§349 +3  an `all(matches!(…))` encoding the reason, not the condition
+§353 +1  a `matches!` list flattening a condition into a membership
+§357 +6  a discriminator whose second answer had no consumer
+§359 +1  the same discriminator's third member (and a fourth that cannot fire)
+§361 +2  a binder fact recorded, resolved against, and never asked about
+§351  0  the same shape, correct, and never reached
+```
+
+**Twenty-six cases. One structural addition** — §357's third `ModuleHost`
+method. Everything else was a predicate, a guard, a dispatch arm or a branch.
+
+> **A port's characteristic defect is not missing code; it is code that stops
+> one step before the diagnostic.** Upstream's data structures come over because
+> they are load-bearing for the next thing ported. The *error* attached to them
+> does not, because nothing forces it — and the conformance suite is the only
+> consumer that ever asks.
+
+That is why `diagdeepen`'s ABSENT column is empty (§339) and why ranking codes
+found none of these: the code exists, the datum exists, the resolution exists,
+and the report does not. The instrument that would rank this directly is §354's
+— *which decline site do blocked cases reach* — still unbuilt and still the
+best-specified next lead.
