@@ -12731,3 +12731,71 @@ Also unported and required before the row is sound:
 *first*; a near-miss member makes TS2694 the wrong code, and this port's
 spelling machinery is scoped to the scope chain rather than to one symbol's
 exports.
+
+## §187 — §186's refusal REVERSED, and its attribution was wrong
+
+§186 refused TS2694 at `+5 for 14 wrong` and named the blocker:
+
+> *"`resolveAlias(namespace)`. This port does not follow aliases
+> (`bd tsr-y4u.12`) … Re-run the refused source the day aliases resolve."*
+
+**Aliases already resolve.** `Checker::resolve_alias` (`symbols.rs:565`) has
+been in the tree throughout, with ported arms for `ExportSpecifier`,
+`ImportSpecifier`, `ExportAssignment`, `ImportClause`, `NamespaceImport`,
+`NamespaceExport` and `ImportEqualsDeclaration`. §185's code read
+`binder.symbols()` directly and simply never called it; §186 then read the
+symptom, matched it to a known gap, and filed the row behind a subsystem that
+was not missing.
+
+| version | CONVERTS | LOST | WRONG |
+|---|---:|---:|---:|
+| §185 as written | 7 | 5 | 127 |
+| §185 bounded (decline alias namespaces) | 5 | 0 | 14 |
+| **+ `resolve_alias`, upstream's own call** | 5 | 0 | **7** |
+| **+ the TS2724 arm** | **6** | **0** | **4** |
+
+`coverage`: `diagnostics` **1,574 → 1,580 (28.79%)**. Rails unmoved.
+
+### Why the wrong attribution was so easy to make
+
+`bd tsr-y4u.12` is real, `lookup_scoped`'s comment says the *binder* does not
+follow aliases, and both are true — **alias resolution is unported in the
+binder and ported in the checker**, because it needs the checker
+(`resolve_alias` is `&mut self` and reaches module resolution). §186 read a
+binder-level statement and concluded a checker-level absence.
+
+> **A subsystem can be absent at one layer and present at another, and this
+> board's refusals are written at whichever layer the symptom appeared.**
+> §186's evidence was a symbol table with no members — which is what an
+> unresolved alias looks like *and* what not calling the resolver looks like.
+> The distinguishing test costs one `grep` for the function upstream calls by
+> name, which is §136's rule, and §186 did not run it on `resolveAlias`.
+
+Three of this session's rules pointed at the answer and none was applied:
+§136 (grep for the function upstream reports from), §157 (read before the first
+refusal), §166 (print the inputs when two attributions fail).
+
+### The TS2724 arm, which §185 named as its own falsifier
+
+`getSuggestedSymbolForNonexistentModule` (`checker.go:15861`) runs **first** and
+carries TS2724 — `'M' has no exported member named 'num'. Did you mean 'nums'?`
+§185 declined it and listed it as falsifier 1. It fired on four of the seven
+remaining wrong lines, `moduleVisibilityTest3` and `4`, both `M.num` against
+`nums`.
+
+The fix was three lines: `spelling_suggestion` is already ported from
+`core.getSpellingSuggestion` and takes a **candidate list**, so scoping it to one
+symbol's exports is the whole of upstream's variant. §185 called that machinery
+"scoped to the scope chain rather than to one symbol's exports" — true of its
+*caller*, not of the function.
+
+### Verdict and residue
+
+`+6 cases, 0 LOST, 4 WRONG` against a bar of `+9, ≤+5`. **Wrong bar met, case
+bar short by three.** Landed at 1.5 conversions per wrong line.
+
+The four are singles in four cases — `moduleAugmentationEnumClassMergeOfReexportIsError`,
+`exportNamespace11`, `importClause_namespaceImport`, `bluebirdStaticThis` — and
+all four are §186's one surviving insight, which stands: **an empty export table
+can be declined and a partial one cannot.** Module augmentation and export-star
+both produce partial tables here.

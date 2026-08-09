@@ -396,6 +396,10 @@ impl Checker<'_, '_> {
                 self.check_type_argument_arity(node);
                 ambient
             }
+            Node::QualifiedName(_) => {
+                self.check_qualified_type_name(node);
+                ambient
+            }
             Node::PrefixUnaryExpression(_) | Node::PostfixUnaryExpression(_) => {
                 self.check_increment_operand_type(node, ambient);
                 ambient
@@ -2950,6 +2954,120 @@ impl Checker<'_, '_> {
             Diagnostic::new(
                 &messages::A_PARAMETER_INITIALIZER_IS_ONLY_ALLOWED_IN_A_FUNCTION_OR_CONSTRUCTOR_IMPLEMENTATION,
                 span,
+            ),
+        );
+    }
+
+    /// TS2694 — `Namespace '{0}' has no exported member '{1}'.`
+    ///
+    /// `resolveEntityName`'s qualified-name failure arm (`checker.go:15884`),
+    /// the gap `check_type_reference_name`'s own doc comment names.
+    ///
+    /// # `resolveAlias` is the whole rule
+    ///
+    /// Upstream's lookup is one line —
+    /// `getSymbol(getExportsOfSymbol(resolveAlias(namespace)), text, meaning)`
+    /// — and **`resolveAlias` is load-bearing**: an `import A = M.B` names a
+    /// namespace whose exports live on its *target*, not on the alias symbol.
+    /// §185 read `binder.symbols()` directly and measured **127 wrong lines**;
+    /// §186 attributed that to alias resolution being unported and was wrong —
+    /// [`Checker::resolve_alias`] has been in `symbols.rs` throughout, with
+    /// arms for every import and export form including import-equals. §187.
+    fn check_qualified_type_name(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let Some(Node::QualifiedName(qualified)) = self.node_map.get(node) else { return };
+        // Only as the `type_name` of a bare type reference — the same slot
+        // `check_type_reference_name` claims, so the two are disjoint.
+        let Some(parent) = self.nodes.parent(node) else { return };
+        let Some(Node::TypeReferenceNode(reference)) = self.node_map.get(parent) else { return };
+        if reference.type_name.and_then(|name| name.node_id()) != Some(node) {
+            return;
+        }
+        let Some(left) = qualified.left.and_then(|left| left.node_id()) else { return };
+        let Some(right) = qualified.right.and_then(|right| right.node_id) else { return };
+        // Two deep: `A.B`, not `A.B.C`. A deeper chain is upstream's
+        // `canSuggestTypeof` and type-but-not-namespace arms, which carry
+        // TS2749 and TS2713.
+        if self.nodes.kind(left) != SyntaxKind::Identifier {
+            return;
+        }
+        let Some(namespace_name) = self.identifier_text(left).map(str::to_string) else { return };
+        let Some(member) = self.identifier_text(right).map(str::to_string) else { return };
+        // `resolveEntityName(left, SymbolFlagsNamespace)`. `MODULE` rather than
+        // the wider `NAMESPACE` keeps a class or enum from answering — the
+        // message names a *namespace*.
+        let Some(namespace) = self.binder.resolve_name(
+            self.nodes,
+            self.node_map,
+            left,
+            &namespace_name,
+            SymbolFlags::MODULE | SymbolFlags::ALIAS,
+        ) else {
+            return;
+        };
+        // `resolveAlias(namespace)` — upstream's own call, and the one §185
+        // omitted.
+        let namespace = self.binder.merged_symbol(namespace);
+        let namespace = if self.binder.symbols().get(namespace).flags.intersects(SymbolFlags::ALIAS)
+        {
+            let Some(target) = self.resolve_alias(namespace) else { return };
+            self.binder.merged_symbol(target)
+        } else {
+            namespace
+        };
+        // A namespace whose exports this port never filled cannot be asked
+        // whether a member is missing — the answer would be "all of them".
+        // **An empty table can be declined; a partial one cannot** (§186), and
+        // that limit is unchanged by resolving the alias.
+        if self.binder.symbols().get(namespace).exports.is_empty() {
+            return;
+        }
+        let found = self.binder.symbols().get(namespace).exports.get(member.as_str()).is_some_and(
+            |&symbol| {
+                self.binder
+                    .symbols()
+                    .get(symbol)
+                    .flags
+                    .intersects(SymbolFlags::TYPE | SymbolFlags::NAMESPACE | SymbolFlags::ALIAS)
+            },
+        );
+        if found {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(right) else { return };
+        // `c.error(right, …)` — the member, not the whole name.
+        let span = self.nodes.span(right);
+        // `getSuggestedSymbolForNonexistentModule` (`checker.go:15861`) is
+        // tried **first** and carries TS2724, so a near-miss member makes
+        // TS2694 a wrong code at a right position. §185 declined this arm and
+        // named it falsifier 1; it fired, on four of seven wrong lines
+        // (`moduleVisibilityTest3` and `4`, both `M.num` against `nums`).
+        //
+        // The distance function is `spelling_suggestion`, already ported from
+        // `core.getSpellingSuggestion` — it takes a candidate list, so scoping
+        // it to one symbol's exports is the whole of upstream's variant.
+        let candidates: Vec<&str> =
+            self.binder.symbols().get(namespace).exports.keys().copied().collect();
+        if let Some(suggestion) = spelling_suggestion(&member, &candidates) {
+            let suggestion = suggestion.to_string();
+            self.report(
+                file,
+                Diagnostic::with_args(
+                    &messages::_0_HAS_NO_EXPORTED_MEMBER_NAMED_1_DID_YOU_MEAN_2,
+                    span,
+                    [namespace_name, member, suggestion],
+                ),
+            );
+            return;
+        }
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::NAMESPACE_0_HAS_NO_EXPORTED_MEMBER_1,
+                span,
+                [namespace_name, member],
             ),
         );
     }
