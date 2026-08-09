@@ -11,9 +11,19 @@ FIRST: git pull. Then read, in this order:
   the metric), then **§86–§90** — the thirteenth session, five sections, four
   builds.
 
-STATE AT HANDOFF, fourteenth session, at `b427d42` (verify with a fresh run):
-  diagnostics    1,566/5,488 = 28.53%   (+115 over TEN builds, zero lost —
-                 §156-§182; two priced refusals and three self-corrections)
+STATE AT HANDOFF, fourteenth session, at `139d1f6` (verify with a fresh run):
+  diagnostics    1,574/5,488 = 28.68%   (+123 over ELEVEN builds, zero lost —
+                 §156-§186; three priced refusals, three self-corrections)
+
+WHAT IS LEFT IS NOT THIS WORKSTREAM'S, AND THAT IS THE SESSION'S CONCLUSION.
+Every remaining row above ~10 cases is blocked on another subsystem, each now
+MEASURED rather than asserted:
+  · relation + members  — 1,032 cases (§172: 335 of TS2322's alone)
+  · alias resolution    — TS2694's 15 (§186), second measured consumer
+  · the parse-error set — four rows' residues (§162, §179, §182, §184)
+  · JSX / file_loader   — TS7026's 28 (§171)
+The cheap grammar seam is now genuinely worked out; §105 said that once and was
+wrong, so the evidence is listed in 0v rather than the claim repeated.
   binder_symbols 8,459/8,459 = 100%     — held across a build that changed
                  `merge_symbol`'s behaviour
   checker_types  3,937/9,538 · 84.47% — the other workstream's, and it moves
