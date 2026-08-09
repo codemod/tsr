@@ -3962,3 +3962,16 @@ promisePermutations: for one member printed both ways, diff the two
 assertion sites' surroundings — what the builder visited first, and
 whether a written node exists for one and not the other. No code
 before that study names the discriminator.
+
+**Trace state (first window):** the case is NOT whole-gapped —
+168 RIGHT / 166 GAP / 46 WRONG. 0:0 is `let v1 = 'abc' as const`,
+and `check_const_assertion`'s literal arm is sound in isolation, so
+the decline is on the walked road: initializer →
+check_assertion(const) → get_regular_type_of_literal_type →
+`let`-widening in get_widened_literal_type_for_initializer. Two
+candidates, both §77-adjacent: (a) the SINGLE-QUOTED literal's §77
+written-spelling interning answering error through the regular
+twin, (b) get_widened_literal_type widening a REGULAR literal where
+upstream widens only FRESH ones — as-const's whole point is that
+regular survives `let`. Candidate (b) is testable with one
+eprintln at get_widened_literal_type's fresh test; start there.
