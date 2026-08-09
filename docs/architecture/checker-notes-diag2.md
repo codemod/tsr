@@ -12374,3 +12374,122 @@ there, it reports every repeat after the first, and the port matches.
   clash is TS2300 and a get/set clash TS1118, both different codes at the same
   position.
 - All three carry the `file_has_parse_errors` gate §179 measured at −20/+0.
+
+## §181 — three syntactic reference rules: TS2364, TS2703, TS2371
+
+**Bar registered before the code**, which §180 recorded itself for skipping.
+
+```
+TS2364   7 cases   The left-hand side of an assignment expression must be a variable or a property access.
+TS2703   7 cases   The operand of a 'delete' operator must be a property reference.
+TS2371   6 cases   A parameter initializer is only allowed in a function or constructor implementation.
+                  ── 20 cases
+```
+
+None needs a type. All three are `Node.Kind` tests over a skipped-parenthesis
+spine:
+
+- **TS2364** — `checkReferenceExpression` (`checker.go:13130`) from
+  `checkAssignmentOperator` (`:12769`): skip assertions and parentheses, and the
+  result must be an `Identifier` or an access expression.
+- **TS2703** — `checkDeleteExpression` (`:10804`): `SkipParentheses`, then
+  `IsAccessExpression`. Note it skips **parentheses only**, not assertions,
+  where `checkReferenceExpression` skips both — a difference that is upstream's
+  and not worth smoothing.
+- **TS2371** — `checkVariableLikeDeclaration` (`:5851`): a parameter with an
+  initializer whose containing function has **no body**. `NodeIsMissing(body)`
+  is the test, so an overload signature and an ambient declaration both qualify.
+
+### The two bounds that are upstream's ordering, not choices made here
+
+- `checkReferenceExpression`'s **second** arm is TS2779 (optional-property
+  access) and returns before the caller reports anything else. This port has no
+  `NodeFlags::OPTIONAL_CHAIN` — the parser does not set it (`tsr-binder`'s own
+  module docs list it) — so an `a?.b = 1` would take the TS2364 arm here and
+  TS2779 upstream. **Bounded**: the rule declines when the spine contains a
+  `QuestionDotToken`, which is the syntax the flag would have been derived from.
+- TS2703's private-identifier arm (`:10811`) is a *second* report at the same
+  position, not an alternative, and is left unported: it is TS18011's row.
+
+### The bar
+
+```
+bar:  +12 cases,  0 LOST,  WRONG delta ≤ +5
+```
+
+Under 20 because TS2364's and TS2703's fixtures are parser-recovery-heavy —
+`parserRegularExpressionDivideAmbiguity` and the `parserErrorRecovery` family are
+already in `extraonly`'s TS1005/TS1012 column — so the `file_has_parse_errors`
+gate §179 measured will suppress some of the population as well as the noise.
+
+### Falsifiers
+
+1. **`WRONG` above +5 on TS2364.** Then the skip-spine is wrong: upstream skips
+   assertions *and* parentheses for TS2364 and only parentheses for TS2703, and
+   collapsing the two is the easy error.
+2. **TS2371 lines land where the baseline has TS1015 or TS2372.** Those are the
+   neighbouring arms of the same function.
+3. **`LOST` non-zero** — all three only add diagnostics.
+
+## §182 — §181 built: +14 at 4 wrong, and two upstream asymmetries paid for it
+
+The bar was `+12 cases, 0 LOST, WRONG delta ≤ +5`. `RULE_CODES = [2364, 2703, 2371]`:
+
+```
+CONVERTS 14 · LOST 0 · STILL SHORT 17 · RIGHT 104 · WRONG 4
+```
+
+`coverage`: `diagnostics` **1,552 → 1,566 (28.53%)**. Rails unmoved. **Bar met on
+both counts**, after three corrections that were all upstream reading rather
+than judgement.
+
+### The first measurement: +14 for **184** wrong and **6 LOST**
+
+All 184 were TS2364 on **destructuring assignments** — `[a, b] = x`,
+`({ a } = x)`, `computedPropertiesInDestructuring1`. The reason is one line
+above the function this rule ports:
+
+```go
+// checkBinaryLikeExpression, checker.go:12338
+if operator == KindEqualsToken && (left.Kind == KindObjectLiteralExpression || left.Kind == KindArrayLiteralExpression) {
+    return c.checkDestructuringAssignment(...)   // checkAssignmentOperator never runs
+}
+```
+
+`checkReferenceExpression` is not reached at all for a destructuring target.
+**The test is on the unskipped `left.Kind`**, which matters: a parenthesised
+`({a}) = x` does not short-circuit. Adding it took 184 → 13 and all six losses
+to zero.
+
+### The second: the two functions report at *different* nodes
+
+Six more were the `deleteOperatorWith*Type` family, and every one was **off by
+one column**:
+
+```
+expected  deleteOperatorWithEnumType.ts(12,32)
+actual    deleteOperatorWithEnumType.ts(12,31)
+```
+
+`checkReferenceExpression` errors on `expr` — its own parameter, *before*
+skipping (`:13134`). `checkDeleteExpression` reassigns
+`expr = SkipParentheses(node.Expression())` and errors on the **result**
+(`:10806-10808`). So `delete (a)` is reported at the `a` and `(a) = 1` at the
+`(`. Two functions, one paragraph apart, with opposite conventions.
+
+> **A shared helper is not evidence of a shared convention.** Both rules skip a
+> spine and test a kind, which is what made one implementation look right; they
+> differ in *what* they skip **and** in *which* node they report on, and neither
+> difference is visible from the helper.
+
+### The third: a plain JS decline, and the 4 that remain
+
+`plainJSBinderErrors.js` gave three wrong TS2703 and nothing right — declined
+on `in_js_file`, the same bound every other rule in this module carries.
+
+The last four are `incrementAndDecrement`: `x++ = 4;`, where upstream's
+**parser** reports TS1005 and never builds the assignment. This parser accepts
+it, so `file_has_parse_errors` cannot see it. **Owner: `tsr_parser`** — the
+third row this session to end at that owner (§162's two, §179's two, these
+four), and together they are now a measurable argument that the parse-error set
+is incomplete rather than that the gate is misplaced.

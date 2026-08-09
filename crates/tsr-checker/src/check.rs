@@ -301,6 +301,7 @@ impl Checker<'_, '_> {
             }
             Node::ParameterDeclaration(parameter) => {
                 self.check_optional_parameter_initializer(node);
+                self.check_parameter_initializer_needs_body(node);
                 self.check_parameter_property_position(node, parameter.modifiers);
                 self.check_annotated_initializer(node, ambient);
                 ambient
@@ -337,6 +338,7 @@ impl Checker<'_, '_> {
                 if binary.operator_token.is_some_and(|t| t.kind == SyntaxKind::EqualsToken) =>
             {
                 self.check_assignment_operator(binary, ambient);
+                self.check_reference_expression(node);
                 ambient
             }
             Node::MethodDeclaration(_) | Node::ConstructorDeclaration(_) => {
@@ -376,6 +378,10 @@ impl Checker<'_, '_> {
             }
             Node::ObjectLiteralExpression(_) => {
                 self.check_duplicate_object_literal_names(node);
+                ambient
+            }
+            Node::DeleteExpression(_) => {
+                self.check_reference_expression(node);
                 ambient
             }
             Node::CallExpression(_) => {
@@ -2595,6 +2601,181 @@ impl Checker<'_, '_> {
                 ),
             );
         }
+    }
+
+    /// TS2364 / TS2703 — an expression that must be a *reference* and is not.
+    ///
+    /// `checkReferenceExpression` (`checker.go:13130`) and
+    /// `checkDeleteExpression` (`:10804`). Both skip a spine and then test the
+    /// node's kind; they differ in **what** they skip, which is upstream's and
+    /// is kept: TS2364 skips assertions and parentheses, TS2703 parentheses
+    /// only. §181.
+    fn check_reference_expression(&mut self, node: NodeId) {
+        // A plain JavaScript file reaches these positions through a different
+        // path upstream and this port's parser does not agree with it there —
+        // `plainJSBinderErrors.js` is three wrong TS2703 lines and nothing
+        // right. The same decline every other rule in this module carries.
+        if self.file_has_parse_errors || self.in_js_file(node) {
+            return;
+        }
+        let (target, message, skip_assertions) = match self.node_map.get(node) {
+            Some(Node::BinaryExpression(binary))
+                if binary.operator_token.is_some_and(|t| t.kind == SyntaxKind::EqualsToken) =>
+            {
+                let Some(left) = binary.left.and_then(|left| left.node_id()) else { return };
+                // **`checkAssignmentOperator` is never reached for a
+                // destructuring assignment.** `checkBinaryLikeExpression`
+                // (`checker.go:12338`) short-circuits to
+                // `checkDestructuringAssignment` when the operator is `=` and
+                // the left side is an object or array literal, so `[a, b] = x`
+                // and `({ a } = x)` never see `checkReferenceExpression`. The
+                // test is on the **unskipped** left node, as upstream's is —
+                // 184 of §181's first measurement's wrong lines were this one
+                // short-circuit, and all six of its losses.
+                if matches!(
+                    self.nodes.kind(left),
+                    SyntaxKind::ObjectLiteralExpression | SyntaxKind::ArrayLiteralExpression
+                ) {
+                    return;
+                }
+                (
+                    left,
+                    &messages::THE_LEFT_HAND_SIDE_OF_AN_ASSIGNMENT_EXPRESSION_MUST_BE_A_VARIABLE_OR_A_PROPERTY_ACCESS,
+                    true,
+                )
+            }
+            Some(Node::DeleteExpression(delete)) => {
+                let Some(operand) = delete.expression.and_then(|e| e.node_id()) else { return };
+                (
+                    operand,
+                    &messages::THE_OPERAND_OF_A_DELETE_OPERATOR_MUST_BE_A_PROPERTY_REFERENCE,
+                    false,
+                )
+            }
+            _ => return,
+        };
+        let spine = self.skip_reference_spine(target, skip_assertions);
+        // `node.Flags&ast.NodeFlagsOptionalChain != 0` is upstream's *second*
+        // arm and carries its own code (TS2779). This parser does not set
+        // `NodeFlags::OPTIONAL_CHAIN`, so the syntax the flag is derived from
+        // stands in for it and the rule declines rather than emitting the
+        // wrong code. §181.
+        if self.spine_has_optional_chain(target) {
+            return;
+        }
+        let kind = self.nodes.kind(spine);
+        let is_reference = kind == SyntaxKind::Identifier
+            || matches!(
+                kind,
+                SyntaxKind::PropertyAccessExpression | SyntaxKind::ElementAccessExpression
+            );
+        // TS2364 admits an identifier or an access; TS2703 admits an access
+        // only, which is why a bare `delete a` reports and `a = 1` does not.
+        let acceptable = if skip_assertions {
+            is_reference
+        } else {
+            matches!(
+                kind,
+                SyntaxKind::PropertyAccessExpression | SyntaxKind::ElementAccessExpression
+            )
+        };
+        if acceptable {
+            return;
+        }
+        // **The two report at different nodes, and the difference is one
+        // column.** `checkReferenceExpression` errors on `expr`, its own
+        // parameter, *before* skipping (`checker.go:13134`);
+        // `checkDeleteExpression` reassigns `expr = SkipParentheses(...)` and
+        // errors on the result (`:10806-10808`). So `delete (a)` is reported
+        // at the `a` and `(a) = 1` at the `(`. Six of §181's wrong lines were
+        // this one difference, all in the `deleteOperatorWith*Type` family.
+        let at = if skip_assertions { target } else { spine };
+        let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
+        let span = self.nodes.span(at);
+        self.report(file, Diagnostic::new(message, span));
+    }
+
+    /// `SkipOuterExpressions(expr, OEKAssertions|OEKParentheses)`, or
+    /// `SkipParentheses` when `assertions` is false.
+    fn skip_reference_spine(&self, mut node: NodeId, assertions: bool) -> NodeId {
+        for _ in 0..64 {
+            let next = match self.node_map.get(node) {
+                Some(Node::ParenthesizedExpression(inner)) => inner.expression,
+                Some(Node::AsExpression(inner)) if assertions => inner.expression,
+                Some(Node::TypeAssertion(inner)) if assertions => inner.expression,
+                Some(Node::SatisfiesExpression(inner)) if assertions => inner.expression,
+                Some(Node::NonNullExpression(inner)) if assertions => inner.expression,
+                _ => return node,
+            };
+            let Some(next) = next.and_then(|expression| expression.node_id()) else { return node };
+            node = next;
+        }
+        node
+    }
+
+    /// Whether the spine contains a `?.`, which is what
+    /// `NodeFlags::OPTIONAL_CHAIN` would record if this parser set it.
+    fn spine_has_optional_chain(&self, mut node: NodeId) -> bool {
+        for _ in 0..64 {
+            let next = match self.node_map.get(node) {
+                Some(Node::PropertyAccessExpression(access)) => {
+                    if access.question_dot_token.is_some() {
+                        return true;
+                    }
+                    access.expression
+                }
+                Some(Node::ElementAccessExpression(access)) => {
+                    if access.question_dot_token.is_some() {
+                        return true;
+                    }
+                    access.expression
+                }
+                Some(Node::ParenthesizedExpression(inner)) => inner.expression,
+                _ => return false,
+            };
+            let Some(next) = next.and_then(|expression| expression.node_id()) else { return false };
+            node = next;
+        }
+        false
+    }
+
+    /// TS2371 — `A parameter initializer is only allowed in a function or
+    /// constructor implementation.`
+    ///
+    /// `checkVariableLikeDeclaration` (`checker.go:5851`): a parameter with an
+    /// initializer whose containing function has **no body**. An overload
+    /// signature and an ambient declaration are both that. Reported on the
+    /// **parameter**. §181.
+    fn check_parameter_initializer_needs_body(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let Some(Node::ParameterDeclaration(parameter)) = self.node_map.get(node) else { return };
+        if parameter.initializer.is_none() {
+            return;
+        }
+        let Some(owner) = self.nodes.parent(node) else { return };
+        // `NodeIsMissing(GetContainingFunction(node).Body())`. An arrow and a
+        // function expression always have a body, so only the declaration forms
+        // can reach the report.
+        let missing_body = match self.node_map.get(owner) {
+            Some(Node::FunctionDeclaration(function)) => function.body.is_none(),
+            Some(Node::MethodDeclaration(method)) => method.body.is_none(),
+            Some(Node::ConstructorDeclaration(constructor)) => constructor.body.is_none(),
+            _ => return,
+        };
+        if !missing_body {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let span = self.nodes.span(node);
+        self.report(
+            file,
+            Diagnostic::new(
+                &messages::A_PARAMETER_INITIALIZER_IS_ONLY_ALLOWED_IN_A_FUNCTION_OR_CONSTRUCTOR_IMPLEMENTATION,
+                span,
+            ),
+        );
     }
 
     /// TS1163 — `A 'yield' expression is only allowed in a generator body.`
