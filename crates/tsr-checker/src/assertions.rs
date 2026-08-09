@@ -187,6 +187,13 @@ impl Checker<'_, '_> {
             Some(
                 Node::ParenthesizedExpression(_)
                 | Node::ArrayLiteralExpression(_)
+                // A node whose parent is the OBJECT LITERAL is a member;
+                // upstream never sees this shape because it always asks from
+                // the member's INITIALIZER (whose parent is the assignment),
+                // while this port also asks from the assignment node itself —
+                // the §105 slice-2a fired leg (ts-expect-error 8: the arm was
+                // reached with const_context=false, PA-to-object unhandled).
+                | Node::ObjectLiteralExpression(_)
                 | Node::SpreadElement(_)
                 | Node::SpreadAssignment(_)
                 | Node::PropertyAssignment(_)

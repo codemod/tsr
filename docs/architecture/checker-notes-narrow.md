@@ -4259,3 +4259,15 @@ prints bake (probe, one eprintln); (b) the single-signature site
 test must resolve from the printed declaration, which is a different
 reference plumbing than the composite arm's. Reverted whole; the
 multi-sig §102 arm is untouched and stands.
+
+**§105 trace 1 RESOLVED — one arm, +73/0.** The ts-expect-error 8
+(and 22 more constAssertions lines, 8 inferFromNestedSameShapeTuple,
+12 the case whole at 72/72): `is_const_context` asked from the
+PROPERTY ASSIGNMENT node sees parent = ObjectLiteralExpression —
+a shape upstream never sees because it always asks from the
+INITIALIZER one level down — and no arm covered it, so every
+member-symbol const check answered false. The instrumented arm
+("reached, const_context=false", four firings) named it in one run.
+Adding the object-literal parent to the recurse group: right
+407,654 → **407,727 (+73 W→R, 6 W→G, ZERO adverse in any column)**.
+Trace 2 (computedPropertiesNarrowed 4) remains the open entry.
