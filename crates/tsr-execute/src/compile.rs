@@ -306,6 +306,25 @@ pub fn run_compilation(
             let name = file.file_name();
             let ambient =
                 name.ends_with(".d.ts") || name.ends_with(".d.mts") || name.ends_with(".d.cts");
+            // `Program.SkipTypeChecking` (`compiler/program.go:713`).
+            //
+            // **`skipLibCheck` is the difference between a usable tool and an
+            // unusable one on a real repository.** Nearly every TypeScript
+            // project sets it, and without it a package with a normal dependency
+            // tree reports thousands of diagnostics inside `node_modules` that
+            // its author cannot act on. Measured on one pnpm package: 1,740
+            // errors, of which **1,736 were in `node_modules`**.
+            //
+            // `skipDefaultLibCheck` is the narrower form and applies only to the
+            // bundled libraries, which this port identifies by their position in
+            // the program rather than by a `hasNoDefaultLib` flag it does not
+            // carry.
+            if ambient && options.skip_lib_check.is_true() {
+                continue;
+            }
+            if options.skip_default_lib_check.is_true() && is_default_library(&program, file) {
+                continue;
+            }
             checker.check_source_file(
                 id,
                 tsr_checker::check::FileContext {
@@ -424,6 +443,19 @@ fn copy_option(into: &mut CompilerOptions, from: &CompilerOptions, name: &str) {
         "quiet" => quiet,
         "traceResolution" => trace_resolution,
     }
+}
+
+/// Whether a file is one of the bundled `lib.*.d.ts`
+/// (`Program.IsSourceFileDefaultLibrary`).
+///
+/// Identified by membership in the program's lib set rather than by a flag:
+/// this port's parser does not record `hasNoDefaultLib`, and the loader already
+/// keeps the libraries separate from the roots.
+fn is_default_library(
+    program: &tsr_compiler::Program<'_>,
+    file: &tsr_compiler::ProgramFile<'_>,
+) -> bool {
+    program.lib_files().iter().any(|lib| lib.file_name() == file.file_name())
 }
 
 /// The `ResolutionHost` the driver hands to the loader.
