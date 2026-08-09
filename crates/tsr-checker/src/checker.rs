@@ -619,8 +619,11 @@ impl<'a, 'n> Checker<'a, 'n> {
     ///
     /// Passing `None` is [`Checker::new`], and the two share this body so they
     /// cannot drift.
-    #[must_use]
     /// §110: hand the checker a file's JSDoc side table.
+    ///
+    /// The `#[must_use]` that arrived here belonged to `with_module_host`
+    /// below; a doc comment inserted between an attribute and its item moves
+    /// the attribute onto the wrong one, which is §241's shape a second time.
     pub fn set_jsdoc(
         &mut self,
         entries: impl IntoIterator<Item = (NodeId, &'a [&'a tsr_ast::JSDoc<'a>])>,
@@ -629,6 +632,7 @@ impl<'a, 'n> Checker<'a, 'n> {
     }
 
     /// Create a checker that can reach another file through `module_host`.
+    #[must_use]
     pub fn with_module_host(
         binder: &'a BindResult<'a>,
         nodes: &'n NodeTable,

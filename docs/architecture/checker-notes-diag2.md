@@ -17962,3 +17962,84 @@ for this function.
 
 `STILL SHORT 12` — the remaining cases want other arms of the same two
 functions, or codes elsewhere.
+
+## §289 — the heritage-clause family, two loops and five codes
+
+Next cluster off `grammarchecks.go`. `checkGrammarClassLikeDeclaration`
+(`:895`) and `checkGrammarInterfaceDeclaration` (`:953`) are two flag walks over
+`heritageClauses`, and between them they carry five still-missing codes with no
+producer, every one single-line:
+
+```
+TS1172   2 cases   'extends' clause already seen
+TS1176   2 cases   Interface declaration cannot have 'implements' clause
+TS1174   1 case    Classes can only extend a single class
+TS1175   1 case    'implements' clause already seen
+TS1173   1 case    'extends' clause must precede 'implements' clause
+```
+
+The class loop is ordered, and the order is the rule: `extends` after an
+`extends` is TS1172, `extends` after an `implements` is TS1173, a second type in
+one `extends` is TS1174 **reported on `typeNodes[1]`**, and a repeated
+`implements` is TS1175. The interface loop is the same walk with `implements`
+rejected outright.
+
+All report through `grammarErrorOnFirstToken(heritageClauseNode)` — the clause's
+keyword, not the type it names, except TS1174 which names the offending type.
+
+### The bar
+
+```
+bar:  +5 cases of 7,  0 LOST
+```
+
+### Falsifiers
+
+1. **`class C extends B implements I` reports.** That is the legal order and
+   the corpus is full of it.
+2. **`interface I extends A, B` reports TS1174.** A single `extends` clause with
+   several types is legal for an interface and is only TS1174 for a *class*.
+
+## §290 — §289 built: +7 of a ceiling of 7, `WRONG 0`
+
+```
+diagnostics   1,772 → 1,779   (+7, bar was +5, ceiling was 7)
+CONVERTS 7 · LOST 0 · STILL SHORT 9 · RIGHT 17 · WRONG 0
+every other suite unmoved — falsifiers 1 and 2 negative
+```
+
+Five codes, seven cases, the whole row, and no wrong lines. The class and
+interface walks are separate upstream for the reason falsifier 2 names — a
+single `extends` with several types is legal for an interface and TS1174 only
+for a class — and keeping them separate here is what made that falsifier
+negative.
+
+### The `grammarchecks.go` seam, four builds in
+
+```
+§279  TS1187 TS1317 TS1244            +9
+§281  TS1319 TS1248                   +2
+§288  TS1014 TS1016 TS1047 TS1049 …   +9
+§290  TS1172 TS1173 TS1174 TS1175 …   +7
+                                     +27 across 15 codes
+```
+
+Every one purely syntactic, every one `WRONG 0` or corrected to it, and none of
+them visible to a ranking by case count: the largest single code in the four is
+**8 cases** and seven of the fifteen are **one**.
+
+> **A file can be a seam.** `grammarchecks.go` has no types, no relation and no
+> flow — its rules are decidable by construction, which is precisely why they
+> were left until a sweep grouped them. Fourteen sessions of ranking by case
+> count never surfaced a single one of these fifteen codes.
+
+Thirty-nine still-missing codes remain in that file, and the sweep's other four
+groups (25–67 cases each) are untouched.
+
+### Also: main's clippy, third time this session
+
+`checker.rs` arrived red from the concurrent `.types` workstream — a
+`#[must_use]` separated from `with_module_host` by a doc comment inserted
+between them, landing on the unit-returning `set_jsdoc` instead. **That is
+§241's shape exactly**, from a different author: a doc comment placed between an
+attribute and its item moves the attribute.

@@ -491,6 +491,7 @@ impl Checker<'_, '_> {
         // must not be filtered through, and §140 recorded a rule silently
         // deleted by exactly that. §156.
         self.check_reserved_declaration_name(typed);
+        self.check_grammar_heritage_clauses(typed);
         if matches!(typed, Node::GetAccessorDeclaration(_) | Node::SetAccessorDeclaration(_)) {
             self.check_grammar_accessor(node, typed);
         }
@@ -3253,6 +3254,76 @@ impl Checker<'_, '_> {
     /// be optional`), so the rest test is the arm's guard rather than a bound
     /// this port chose — §103's rule that the `else if` order is the
     /// specification. §180.
+    /// `checkGrammarClassLikeDeclaration` and
+    /// `checkGrammarInterfaceDeclaration`'s heritage walks
+    /// (`grammarchecks.go:898`, `:955`).
+    ///
+    /// The class loop is ordered and the order *is* the rule: `extends` after
+    /// an `extends` is TS1172, `extends` after an `implements` is TS1173, a
+    /// second type inside one `extends` is TS1174 — reported on `typeNodes[1]`,
+    /// not the clause — and a repeated `implements` is TS1175. The interface
+    /// loop is the same walk with `implements` rejected outright (TS1176).
+    ///
+    /// A single `extends` naming several types is legal for an *interface* and
+    /// is TS1174 only for a class, which is why the two loops are separate
+    /// upstream and here. §289.
+    fn check_grammar_heritage_clauses(&mut self, typed: Node<'_>) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let (clauses, is_class) = match typed {
+            Node::ClassDeclaration(n) => (n.heritage_clauses, true),
+            Node::ClassExpression(n) => (n.heritage_clauses, true),
+            Node::InterfaceDeclaration(n) => (n.heritage_clauses, false),
+            _ => return,
+        };
+        let mut seen_extends = false;
+        let mut seen_implements = false;
+        for clause in clauses {
+            let at = clause.token.node_id;
+            match clause.token.kind {
+                SyntaxKind::ExtendsKeyword => {
+                    if seen_extends {
+                        self.report_grammar_at(at, &messages::EXTENDS_CLAUSE_ALREADY_SEEN);
+                        return;
+                    }
+                    if is_class {
+                        if seen_implements {
+                            self.report_grammar_at(
+                                at,
+                                &messages::EXTENDS_CLAUSE_MUST_PRECEDE_IMPLEMENTS_CLAUSE,
+                            );
+                            return;
+                        }
+                        if let Some(second) = clause.types.get(1) {
+                            self.report_grammar_at(
+                                second.node_id,
+                                &messages::CLASSES_CAN_ONLY_EXTEND_A_SINGLE_CLASS,
+                            );
+                            return;
+                        }
+                    }
+                    seen_extends = true;
+                }
+                SyntaxKind::ImplementsKeyword => {
+                    if !is_class {
+                        self.report_grammar_at(
+                            at,
+                            &messages::INTERFACE_DECLARATION_CANNOT_HAVE_IMPLEMENTS_CLAUSE,
+                        );
+                        return;
+                    }
+                    if seen_implements {
+                        self.report_grammar_at(at, &messages::IMPLEMENTS_CLAUSE_ALREADY_SEEN);
+                        return;
+                    }
+                    seen_implements = true;
+                }
+                _ => {}
+            }
+        }
+    }
+
     /// `checkGrammarParameterList` (`grammarchecks.go:691`) — the arms beside
     /// §103's TS1015.
     ///
