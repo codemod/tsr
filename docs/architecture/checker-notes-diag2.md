@@ -26638,3 +26638,125 @@ Applied retroactively, the pairs this session shipped apart:
 §470 TS2376  ⇄ §485 TS2377   the constructor branches    root-level arm unbuilt
 §472 TS1268  ⇄ §496 TS1021   the index-signature guards  both now built
 ```
+## §502 — a non-emitting heritage clause, and why one predicate needed two gates
+
+Five diagnostics on `packages/ui`, all on the same syntax and all false:
+
+```ts
+import type { VariantProps } from "class-variance-authority";
+export interface ButtonProps extends ButtonPrimitive.Props, VariantProps<typeof buttonVariants> {}
+//                                                          ~~~~~~~~~~~~ TS1361
+interface LogoProps extends React.SVGProps<SVGSVGElement> {}
+//                          ~~~~~ TS2686
+```
+
+`tsc` reports nothing on either.
+
+### `isIdentifierInNonEmittingHeritageClause`
+
+`ast/utilities.go:3132`:
+
+```go
+parent := node.Parent
+for IsPropertyAccessExpression(parent) || IsExpressionWithTypeArguments(parent) {
+    parent = parent.Parent
+}
+return IsHeritageClause(parent) &&
+    (parent.AsHeritageClause().Token == KindImplementsKeyword || IsInterfaceDeclaration(parent.Parent))
+```
+
+Two heritage positions name a type and emit nothing: a class's `implements`,
+and **either clause of an `interface`**. Only a class's `extends` is a value —
+it is the base constructor and it survives to the output. This port had the
+`implements` half, keyed on the keyword, and the keyword is exactly what fails
+to separate the other two: an interface's clause is spelled `extends` too.
+
+The loop shape is load-bearing. It climbs `PropertyAccessExpression` and
+`ExpressionWithTypeArguments` and nothing else, which keeps the **type
+arguments** out — in `extends VariantProps<typeof buttonVariants>` the inner
+name has a `TypeQueryNode` parent, the loop stops, and `typeof x` stays the
+value position §79 made it.
+
+### The finding: one predicate, three rules, three different gates
+
+The tempting fix is to answer this once in `is_value_reference` and let every
+rule inherit it. **It is wrong, and the corpus said so within one run.**
+
+| rule | upstream's gate | in a non-emitting heritage clause |
+|---|---|---|
+| TS1361 `import type` used as a value | `IsValidTypeOnlyAliasUseSite` (`:3124`), clause 3 | silent |
+| TS2686 UMD global in a module | `meaning&Value == Value` (`checker.go:1841`) | silent |
+| TS2304 `Cannot find name` | none — `resolveEntityName` fails at **type** meaning | **still reports** |
+
+Declining in `is_value_reference` — which TS2304 is keyed on here — silenced all
+three and lost `compiler/protoAssignment`:
+
+```ts
+interface Number extends Comparable<number> { compareTo(other: number); }
+//                       ~~~~~~~~~~ TS2304, which upstream does report
+```
+
+The suite reported that as `1,994 → 1,993`; `examples/casequery.rs` named it.
+So the predicate is ported once and consulted twice — in
+`is_valid_type_only_alias_use_site` (upstream's own clause) and in
+`check_umd_global_reference` (upstream's meaning test, spelled where this port
+makes that choice) — and `is_value_reference` is left alone.
+
+**A shared predicate is not a shared decision.** Three rules asking the same
+syntactic question can want three different answers, and the only thing that
+distinguishes them is which upstream gate each one actually has.
+
+### A second divergence, found by the same fixture: `Every`, not `any`
+
+TS2686's declaration test read `any`, where upstream is `core.Every`
+(`checker.go:1843`):
+
+```go
+core.Every(merged.Declarations, func(d *ast.Node) bool {
+    return ast.IsNamespaceExportDeclaration(d) || ast.IsSourceFile(d) && d.AsSourceFile().GlobalExports != nil
+})
+```
+
+Every UMD declaration file is written `declare namespace React { … }` /
+`export = React` / `export as namespace React`, and those merge into **one**
+symbol whose declarations include both a `ModuleDeclaration` and a
+`NamespaceExportDeclaration`. Under `any` the name is a UMD-only global and
+every reference to it inside its own declaration file is an error; under `Every`
+it is a namespace that also has a UMD name.
+
+The second disjunct is **not** ported — it admits a `SourceFile` declaration
+with non-empty `GlobalExports`, and this binder merges `global_exports` into one
+program-wide table, so "does *this file* have global exports" is not a question
+it can answer. That makes the `Every` stricter than upstream's, so the rule
+reports **less**: a missing diagnostic rather than a wrong one, which is the
+direction to be wrong in while false positives are the problem.
+
+### The measurement
+
+| | base | after |
+|---|---:|---:|
+| `binder_symbols` | 8,456/8,456 | 8,456/8,456 |
+| `diagnostics` | 1,994/5,488 | 1,994 — **no case changed verdict** |
+| `checker_types` | 4,053 / 85.41% | identical |
+| the 22-package repository | **104** | **84** |
+
+TS1361 19 → 3, TS2686 1 → 0. Five tests in
+`crates/tsr-checker/tests/heritage_positions.rs`, two of them red under the two
+mutations that matter — including one red under *the wrong fix*, which is the
+one worth having.
+
+### The residual, recorded rather than groomed
+
+Three TS1361 remain on that repository, all one site:
+
+```ts
+// packages/queue/src/index.ts
+import { JobsOptions, Queue, QueueEvents } from "bullmq";   // NOT type-only
+queueEvents = new QueueEvents(name, { … });                  // TS1361 here
+```
+
+A **plain** import, used as a value, through `bullmq`'s all-`export *` barrel —
+so `type_only_alias_declaration` is concluding type-only somewhere in a chain
+that contains no `export type` at all. That is a different mechanism from this
+section's and it predates it; it is not fixed here and it is not swept under the
+rug. `tsc` reports nothing on that package.

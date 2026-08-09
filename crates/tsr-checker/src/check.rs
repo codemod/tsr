@@ -708,6 +708,23 @@ impl Checker<'_, '_> {
         if self.file_has_parse_errors || !self.is_value_reference(node) {
             return;
         }
+        // Upstream's guard is `meaning&SymbolFlagsValue == SymbolFlagsValue`
+        // (`checker.go:1841`), and a heritage entry that emits nothing is
+        // resolved at **type** meaning — so this rule never sees one.
+        //
+        // It is spelled here rather than in [`Checker::is_value_reference`]
+        // because that predicate is shared with TS2304, which upstream *does*
+        // report in an interface's `extends` (through `resolveEntityName`'s
+        // failure rather than through a value lookup). Declining there instead
+        // lost `compiler/protoAssignment`. One rule's meaning is not another's.
+        //
+        // `interface LogoProps extends React.SVGProps<SVGSVGElement>` is the
+        // shape: `React` is the `expression` of a `PropertyAccessExpression`,
+        // so it is a reference by every slot test, and only the heritage walk
+        // tells it apart from a real value use.
+        if self.identifier_in_non_emitting_heritage_clause(node) {
+            return;
+        }
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
         let Some(Node::SourceFile(source)) = self.node_map.get(file) else { return };
         if !tsr_binder::is_external_module(source) {
@@ -725,9 +742,45 @@ impl Checker<'_, '_> {
         let symbol = self.binder.merged_symbol(symbol);
         // The declaration kind, not `ALIAS`: a plain `import * as Bar` is an
         // alias too and must stay silent.
-        if !self.binder.symbols().get(symbol).declarations.iter().any(|&declaration| {
-            self.nodes.kind(declaration) == SyntaxKind::NamespaceExportDeclaration
-        }) {
+        //
+        // **`Every`, not `any`** — `core.Every` at `checker.go:1843`:
+        //
+        // ```go
+        // if len(merged.Declarations) != 0 && core.Every(merged.Declarations, func(d *ast.Node) bool {
+        //     return ast.IsNamespaceExportDeclaration(d) || ast.IsSourceFile(d) && d.AsSourceFile().GlobalExports != nil
+        // })
+        // ```
+        //
+        // The difference is the whole rule on a real `@types` package. Every UMD
+        // declaration file is written
+        //
+        // ```ts
+        // declare namespace React { … }
+        // export = React;
+        // export as namespace React;
+        // ```
+        //
+        // and those merge into **one** symbol whose declarations are a
+        // `ModuleDeclaration` *and* a `NamespaceExportDeclaration`. Under `any`
+        // the name is a UMD-only global and every reference to it inside its own
+        // declaration file is an error; under `Every` it is a namespace that
+        // *also* has a UMD name, and referring to it is ordinary. `tsc` reports
+        // nothing on `export = React`; this reported TS2686.
+        //
+        // **The second disjunct is not ported.** It admits a `SourceFile`
+        // declaration whose `GlobalExports` is non-empty — the module symbol of
+        // a UMD file — and this binder merges `global_exports` into one
+        // program-wide table, so "does *this file* have global exports" is not a
+        // question it can answer. Omitting it makes the `Every` stricter than
+        // upstream's, so the rule reports **less** where it should report: a
+        // missing diagnostic rather than a wrong one, and the direction this
+        // rule needs while its false positives are what hurt.
+        let declarations = &self.binder.symbols().get(symbol).declarations;
+        if declarations.is_empty()
+            || !declarations.iter().all(|&declaration| {
+                self.nodes.kind(declaration) == SyntaxKind::NamespaceExportDeclaration
+            })
+        {
             return;
         }
         let span = self.error_span(node);
@@ -3312,6 +3365,13 @@ impl Checker<'_, '_> {
         if self.entity_name_root_is_a_type_query(node) {
             return true;
         }
+        // `isIdentifierInNonEmittingHeritageClause` (`:3127`), the clause §123
+        // did not port. `interface P extends VariantProps<T>` over an
+        // `import type { VariantProps }` is the shape every `cva`-style React
+        // component is written in, and it reported TS1361 on all of them.
+        if self.identifier_in_non_emitting_heritage_clause(node) {
+            return true;
+        }
         // `export = types` and `export default types` over a type-only import
         // are **not** reported at the re-exporting file. Upstream's
         // `importEquals1` baseline puts TS1361 on `/d.ts`–`/g.ts`, the
@@ -3359,6 +3419,55 @@ impl Checker<'_, '_> {
                 SyntaxKind::InterfaceDeclaration | SyntaxKind::TypeLiteral
             )
         })
+    }
+
+    /// `isIdentifierInNonEmittingHeritageClause` (`ast/utilities.go:3132`).
+    ///
+    /// ```go
+    /// parent := node.Parent
+    /// for IsPropertyAccessExpression(parent) || IsExpressionWithTypeArguments(parent) {
+    ///     parent = parent.Parent
+    /// }
+    /// return IsHeritageClause(parent) &&
+    ///     (parent.AsHeritageClause().Token == KindImplementsKeyword || IsInterfaceDeclaration(parent.Parent))
+    /// ```
+    ///
+    /// Two heritage positions name a type and emit nothing: a class's
+    /// `implements`, and **either clause of an `interface`**. Only a *class's*
+    /// `extends` is a value — it is the base constructor, and it survives to
+    /// the output.
+    ///
+    /// The `extends` keyword alone does not separate them, which is the bug
+    /// this fixes: `class C extends B` and `interface I extends B` share both
+    /// the keyword and the node kind, and the discriminator is the heritage
+    /// clause's **parent**.
+    ///
+    /// # The loop shape is load-bearing
+    ///
+    /// It climbs `PropertyAccessExpression` and `ExpressionWithTypeArguments`
+    /// and nothing else, which is what keeps the *type arguments* out. In
+    /// `interface P extends VariantProps<typeof buttonVariants>` the inner
+    /// `buttonVariants` has a `TypeQueryNode` parent, the loop stops there, and
+    /// `typeof x` stays the value position §79 made it. Widening this to "any
+    /// ancestor is a heritage clause" would silence that.
+    fn identifier_in_non_emitting_heritage_clause(&self, node: NodeId) -> bool {
+        if self.nodes.kind(node) != SyntaxKind::Identifier {
+            return false;
+        }
+        let Some(mut at) = self.nodes.parent(node) else { return false };
+        while matches!(
+            self.nodes.kind(at),
+            SyntaxKind::PropertyAccessExpression | SyntaxKind::ExpressionWithTypeArguments
+        ) {
+            let Some(parent) = self.nodes.parent(at) else { return false };
+            at = parent;
+        }
+        let Some(Node::HeritageClause(clause)) = self.node_map.get(at) else { return false };
+        clause.token.kind == SyntaxKind::ImplementsKeyword
+            || self
+                .nodes
+                .parent(at)
+                .is_some_and(|owner| self.nodes.kind(owner) == SyntaxKind::InterfaceDeclaration)
     }
 
     /// Does this class member carry its **own** `declare` modifier?
@@ -3791,6 +3900,15 @@ impl Checker<'_, '_> {
             // `class C extends B` resolves `B` as a value; `implements I` does
             // not, and the two share this node kind. The heritage clause's
             // keyword is what separates them.
+            //
+            // **An interface's `extends` stays a reference here, deliberately.**
+            // It is a *type* position — `identifier_in_non_emitting_heritage_clause`
+            // says so, and the rules that care consult it — but upstream still
+            // reports `Cannot find name` for an unresolved one through
+            // `resolveEntityName`'s failure at type meaning, and TS2304 is
+            // keyed on this predicate. `compiler/protoAssignment`
+            // (`interface Number extends Comparable<number>`) is the case, and
+            // declining here silently lost it.
             Node::ExpressionWithTypeArguments(n) => {
                 is(n.expression.and_then(|e| e.node_id()))
                     && self.nodes.parent(parent).is_some_and(|clause| {
