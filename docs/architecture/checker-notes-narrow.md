@@ -4518,3 +4518,23 @@ identity-roads for the §102/§107 renames.
 const MODIFIER first. One parser arm; all four 100% suites verified
 held. jsdocTemplateTag6's remaining rows are the as-const retention
 family (the other lane) and downstream consumers.
+
+## §111 — instanceof through [Symbol.hasInstance] [claimed: checker-1]
+
+instanceofOperatorWithRHSHasSymbolHasInstance's 96 wrongs (gots are
+`any` — the failure is UPSTREAM of narrowing) decompose as two
+slices: (1) the RHS types are object/interface types with the
+COMPUTED member name `[Symbol.hasInstance]` — the member bake must
+file it (upstream binds it late-bound under the well-known symbol;
+the binder's late-bound machinery landed in the fourteenth session's
+display work, so this may be a checker-side read); only then do the
+operands stop answering any. (2) `narrowTypeByInstanceof`'s
+hasInstance half (`flow.go`): when the RHS has a
+`[Symbol.hasInstance]` method whose return is a PREDICATE, narrowing
+uses the predicate's type (the §100 TypePredicate machinery
+consumes); a boolean-returning hasInstance keeps the §83 structural
+road. **Bar:** slice 1 first, alone: operands stop printing any
+(≥30 of the case at 10:1); slice 2 after: ≥40 more. Falsifiers:
+(a) §83's class-identity instanceof byte-identical (the hasInstance
+arm fires only when the member EXISTS); (b) late-bound member reads
+elsewhere unchanged (the binder-display precedent's population).
