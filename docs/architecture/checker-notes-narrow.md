@@ -3905,3 +3905,21 @@ carriage for whole member lists (the §77-family seam at signature
 scale), then the claim set applies only to the built remainder.
 Reverted whole; the bar's ≥50 leg was unreachable under the naive
 form (29 gross).
+
+## §103 — const type-parameter inference SIZED and DEFERRED [checker-2]
+
+typeParameterConstModifiers (41 wrong) traced to its mechanisms:
+`f1(['a', ['b', 'c']])` under `<const T>` wants the ARGUMENT typed
+as an unwidened literal tuple (`["a", ["b", "c"]]`), the INFERRED T
+as its readonly mapping (`readonly ["a", readonly ["b", "c"]]`),
+and object arguments as readonly-membered literals. That is FOUR
+machines: const-context array checking (literal tuples), readonly
+tuple types, readonly member computation+printing (the same gap
+`check_const_assertion` documents for `as const` objects — one
+subsystem serves both), and inference/instantiation plumbing.
+§33's decline measured the naive lift at 70 G→W; it stays until
+the as-const/readonly subsystem is built as a unit. DO NOT lift
+the decline piecemeal — the §33 comment in calls.rs:481 is the
+guard. The as-const object gap (`assertions.rs`) is the natural
+first slice since it needs no inference; its converts unlock this
+head's afterwards.
