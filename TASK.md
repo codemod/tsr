@@ -489,13 +489,18 @@ reference members + the template-literal conditional evaluator
 288 temporal WRONGS after §95's 112: baked outer texts that are not
 name<args>-shaped — signature-embedded slots §10.13 routes.
 
-§96 OPENING PROBE (queued, checker-1): temporal's method-read gaps —
-trace ONE line (`until`'s member print, want
-`(other: Temporal.ZonedDateTimeLike, options?: ...) => Temporal.Duration`)
-through the signature bake. Candidate owners: (a) the §36
-conditional-in-alias-declared-position arm erroring
-`PluralizeUnit<...>` parameter annotations — but temporal WANTS the
-NAME while templateLiteralTypes3 wants the EVALUATION, so if (a) is
-the owner the position split must be found before widening either
-way; (b) an earlier bake failure in the ambient method signature
-road. Do not build before the trace names the arm.
+§96 TRACE COMPLETE (checker-1): temporal's method-read gaps are
+owned by `DateUnit | TimeUnit` — a WRITTEN UNION OF ALIAS-NAMED
+UNIONS as a type argument (lib.esnext.temporal.d.ts:247/:314). The
+union worker answers errorType for named constituents (the
+§42.1-family origin-denormalization gap), which errors the argument,
+the reference, the signature bake, and every downstream read — the
+working `until` overloads (:164/:197/:399) take single names, which
+is the controlled experiment. §96 = the origin-carrying union for
+written unions of named unions, built on §53's rebuild_union_subset
+machinery: flatten the constituents, carry origin text as the
+constituent NAMES, qualify each per-site (§95's road). Candidate
+conversions: the 49 Temporal.Duration results + 60 signature prints
++ downstream reads (~150+); PluralizeUnit was NEVER conditional
+(it is `T | {...}[T]` — indexed access; the §36 speculation in the
+superseded probe note was wrong and is corrected here).
