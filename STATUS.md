@@ -1307,6 +1307,23 @@ its whole deliverable and accept that it converts nothing until finished.
 
 ## 5. Refused, with the number that refused it
 
+### New, this session, the index-signature sequence, 7 cases
+
+Refused by **§292**, after three measurements (`+4/WRONG 22`, `+4/WRONG 21`,
+`+0`). Owner: **`isValidIndexKeyType` and `isGenericType`**
+(`grammarchecks.go:826`–`:832`).
+
+**The sequence is *ordered* and its two type-reading guards sit in the middle.**
+Without them every later guard reports at a position upstream never reaches —
+`arraySigChecking` wants TS1268 at (11,17) and got TS1021 at (11,16).
+***An ordered guard sequence cannot be ported in fragments.***
+
+The third measurement is the one worth keeping: **the syntactic guards alone
+move zero cases.** *A cluster of no-producer codes in a syntactic function is not
+evidence that the cases are reachable* — only that this port does not emit those
+codes, which it may be covering with different ones. §287's parameter-list family
+looked identical from the gap and was `+9`.
+
 ### New, this session, TS7005 — variable implicitly has an 'any' type, 7 cases
 
 Refused by **§286**, after two measured bounds (`−35`, then `−4`). The
@@ -2266,6 +2283,7 @@ holds only the numbers.
 | 2026-08-09 | HEAD | 32.12% | 1,763 | **sixth build reverted; `xtask measure` now prints its own diff** | **TS7005** measured `−35` then `−4` across two bounds. `diagslice` said *7 cases, 5 single-line, convertible* — **true and not sufficient**: conversion also needs the line to be at a **position** the fragment produces. ***`diagslice` counts lines per case; it does not know where they are.*** §284 added `git diff --stat` to `xtask measure`, which caught this build's dispatch edit failing to apply before any number was produced — the §283 failure mode, now visible. §284–§286 |
 | 2026-08-09 | HEAD | **32.29%** | **1,772** | **+9, `WRONG 0`, after one over-wide predicate** | **The parameter-list and accessor grammar families** — eight codes across two loops, one of which this port already had a single arm of. Every one of the six first-measurement wrong lines was `isOptionalDeclaration`, which is **`HasQuestionToken` alone**: an initialiser does not make a parameter optional, so `f(a = 1, b: number)` is legal. ***The name of a predicate is not its definition*** — `isOptionalParameter` sits four lines below it and *does* count the initialiser. Nothing in the gap could distinguish them; reading the call site did. §287–§288 |
 | 2026-08-09 | HEAD | **32.42%** | **1,779** | **+7 of a ceiling of 7, `WRONG 0`** | **The heritage-clause family** — five codes, two walks, the whole row. Four builds into the `grammarchecks.go` seam: **+27 across fifteen codes**, every one purely syntactic and `WRONG 0`. ***A file can be a seam*** — it has no types, no relation, no flow, so its rules are decidable by construction, and **none of the fifteen was visible to a ranking by case count** (the largest is 8 cases; seven are 1). Thirty-nine still-missing codes remain in it. §289–§290 |
+| 2026-08-09 | HEAD | 32.42% | 1,779 | **seventh build reverted; three measurements** | **The index-signature sequence.** ***An ordered guard sequence cannot be ported in fragments*** — its two type-reading guards sit in the middle, and without them every later guard reports where upstream never does. The third measurement is the keeper: **the syntactic guards alone move zero cases**, so *a cluster of no-producer codes in a syntactic function is not evidence the cases are reachable*. §287's family looked identical from the gap and was `+9`. §291–§292 |
 
 ## 8. Updating this file
 
