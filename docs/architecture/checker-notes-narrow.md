@@ -5120,3 +5120,35 @@ future slice, recorded not built. Gates: four 100% suites held,
 diagnostics 2,031 → 2,040, clippy 0 (rtk-masked test failure caught
 by `rtk proxy` — the trap's second firing this session; the full
 run reads 0 FAILED after the pin flip), anchors 2,690.
+
+## §123 — the completed-walk property miss answers TS2339's any [claimed: checker-1]
+
+**§34 re-opened with the discriminator it lacked.** §34's arm
+(literal receivers only) measured zero and reverted, and its record
+parked the interface road as "incomplete-table territory, gapped by
+design". That design claim has never been MEASURED on Named
+receivers, and two §34-era facts changed: the §117 fallback family
+completed the Object/Function tail every lookup now reaches, and
+§122 completed the static side. The bucket is member_shapes' largest:
+907 lines, "receiver has members, name absent (upstream errors
+too)" — doYouNeedToChangeYourTargetLibraryES2016Plus's 26 verified
+want-any (ES2016+ methods against an es5 lib: upstream reads the
+SAME lib text, misses the same name, reports TS2550/TS2339, answers
+errorType printed any).
+
+**The arm.** In `access_member_lookup`, after the index-signature
+miss: a receiver whose lookup WALK COMPLETED — Named owner, every
+`base_symbols_of` on the chain answered (no instantiated-base or
+non-identifier-heritage gap), name found nowhere, no applicable
+index signature — answers `any`. A walk any link of which was
+BLOCKED keeps the honest gap: absence was not established.
+
+**The falsifier, named before the pair.** This port does not merge
+globals across files (`tsr-compiler/src/lib.rs:24`) — an interface
+augmented in a second lib file (String es5 + es2017) may hold its
+member in a declaration this walk never reads. If upstream finds
+such a member, the arm converts an honest gap to a confident any.
+Expected signature: G→W concentrated in high-target lib corpora
+with REAL-type wants. **Bar: ≥200 G→R at ≥5:1**; if the cross-file
+class fires, the next gate is single-declaration-file symbols only,
+and its price gets recorded either way.
