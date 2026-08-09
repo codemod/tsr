@@ -4750,3 +4750,17 @@ lib bake — any adverse concentrated in bind/apply signature texts
 is a §95/§99-family print question, priced separately from the
 lookup; (c) `.prototype` is NOT this slice (it is synthetic on the
 static side, slice 2).
+
+**§117 slice 1 — LANDED at +348 net (348:50, 7:1), ratio leg missed
+and stated.** The two-stage fallback (CallableFunction/
+NewableFunction→Function for signature-bearing receivers, Object
+always) with ONE measured gate: const-enum receivers withheld
+(TS2748 territory, 14 G→W without it; a module-object gate measured
+ZERO and was removed — only measured gates ship). +312 G→R + 36 W→R:
+strictBindCallApply1 32, objectTypePropertyAccess 20,
+typeGuardsInFunctionAndModuleBlock 20+22, spread over 60+ cases. The
+50 residual G→W in six named classes ≤6 each: strictBindCallApply
+signature TEXTS (falsifier (b)'s priced print class),
+multiImportExport/declarationsIndirect alias-object reads (the
+receiver shape needs its own trace — the module-flag hypothesis
+measured zero), typeGuard truthiness interplays, stackDepth 3.

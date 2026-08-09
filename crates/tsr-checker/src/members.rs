@@ -815,13 +815,64 @@ impl Checker<'_, '_> {
             TypeData::Anonymous { symbol, .. } => Owner::Anonymous(*symbol),
             _ => return None,
         };
-        match owner {
+        let found = match owner {
             Owner::Declared(owner) => {
                 let mut visiting = Vec::new();
                 self.get_property_of_declared_symbol(owner, name, &mut visiting)
             }
             Owner::Anonymous(symbol) => self.get_property_of_anonymous_symbol(symbol, name),
+        };
+        if found.is_some() {
+            return found;
         }
+        // §117 slice 1 (`getPropertyOfTypeEx`, `checker.go:18918`): an
+        // OBJECT-flagged receiver's miss falls back to the FUNCTION interface
+        // family when it carries signatures (the strictBindCallApply
+        // interfaces, falling to `Function` when unmounted), then to the
+        // global `Object` — always, which is what makes `.toString` answer
+        // on every object while a genuine `.foo` still misses (Object misses
+        // it too, byte-identical by construction).
+        // Upstream withholds the fallback from CONST-ENUM objects (their
+        // prototype access is TS2748-family territory) —
+        // `constEnumNoObjectPrototypePropertyAccess`'s 14 G→W measured
+        // without this gate.
+        let withheld = match owner {
+            Owner::Declared(owner) | Owner::Anonymous(owner) => self
+                .binder
+                .symbols()
+                .get(self.binder.merged_symbol(owner))
+                .flags
+                .contains(SymbolFlags::CONST_ENUM),
+        };
+        if !withheld && self.store.get(id).flags.contains(TypeFlags::OBJECT) {
+            let mut fallbacks: Vec<&str> = Vec::new();
+            if let Some(signatures) = self.signature_types.get(&id)
+                && !signatures.is_empty()
+            {
+                let all_construct = signatures.iter().all(|signature| {
+                    !matches!(signature.kind, crate::signatures::SignatureKind::Call)
+                });
+                if all_construct {
+                    fallbacks.push("NewableFunction");
+                } else {
+                    fallbacks.push("CallableFunction");
+                }
+                fallbacks.push("Function");
+            }
+            fallbacks.push("Object");
+            for global in fallbacks {
+                let Some(interface) = self.global_type_symbol_with_arity(global, 0) else {
+                    continue;
+                };
+                let mut visiting = Vec::new();
+                if let Some(found) =
+                    self.get_property_of_declared_symbol(interface, name, &mut visiting)
+                {
+                    return Some(found);
+                }
+            }
+        }
+        None
     }
 
     /// A property of `typeof X` — the static side of a class, the exports of a
