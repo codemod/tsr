@@ -4283,3 +4283,14 @@ ARROW function's type-parameter declarations at all — a None there
 silences the shadow test exactly as observed (own_symbol gates every
 arm). If arrows' type params are unfiled, the fix is the binder's,
 and the §107 retry needs nothing else.
+
+**§107 probe 2 — the arrow-filing suspect WEAKENED by read.** The
+binder binds every `TypeParameterDeclaration` (binder.rs:2608, the
+Locals branch covers function-likes including arrows — the same path
+§90.1's chain2 successfully reads symbols through for
+FunctionTypeNode params). So own_symbol None is unlikely; the retry
+must instrument the shadow test IN SITU (re-apply the §107 arm from
+the refusal record's description + one eprintln printing own_symbol,
+render_shadow, and the resolve result per parameter on the filtered
+case). One window, one build, instrumented from the start — not
+three blind probes.
