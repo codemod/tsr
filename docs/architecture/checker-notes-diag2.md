@@ -13935,3 +13935,130 @@ three probes later that the branch turned out never to have been wired. **A
 "no change" result must be confirmed against the source before it is
 interpreted** — the same class as §194's *state what the measurement was taken
 through*, applied to the edit rather than the stack.
+
+## §208 — the empty export table: the binder's ambient test omits "this is a `.d.ts`"
+
+§207 filed *"imported namespace symbols carry no exports"* as a P1 with three
+consumers. It is not about imports at all.
+
+```ts
+// renderer.d.ts
+export namespace dom {
+    namespace JSX {                 // ← no `export` modifier
+        interface IntrinsicElements { … }
+    }
+}
+```
+
+`JSX` is not written `export`, so this port files it in `dom`'s body **locals**
+and `dom`'s `exports` is empty — which is exactly what §207's probe printed.
+Upstream finds it because **every node of a declaration file carries
+`NodeFlagsAmbient`**, and an ambient container exports everything it declares.
+
+`Binder::bind_container` computes:
+
+```rust
+let ambient = self.in_ambient_module
+    || has_declare(module.modifiers)
+    || matches!(module.name, Some(ModuleName::StringLiteral(_)));
+self.export_context = ambient && !has_export_declarations(module);
+```
+
+**`self.in_declaration_file` is not a disjunct**, and it is a field the binder
+already maintains (`binder.rs:467`). This is the same class as §99 and §132: a
+flag upstream's parser sets that this one does not, substituted structurally
+everywhere it was noticed and missed here.
+
+### Why it went unnoticed for so long
+
+`binder_symbols` is at 100%, so the symbol *tables* it checks are right — which
+means the suite's expectations for these files do not distinguish a local from
+an export. The distinction is only visible to a **consumer that reads
+`exports`**, and until §187 and §207 there was none.
+
+> **A rail at 100% bounds what it measures, not what is correct.** Three rows
+> (§186's TS2694 residue, §187's, §207's pragma path) ended at an empty table
+> that `binder_symbols` is blind to by construction.
+
+### The bar
+
+```
+bar:  diagnostics +2,  0 LOST,
+      binder_symbols / printer_round_trip / parser_typescript UNMOVED at 100%
+```
+
+`+2` is deliberately small against three consumers: this changes which table a
+declaration lands in for **every namespace in every `.d.ts` in the corpus**,
+including all of `lib.*.d.ts`, and the first measurement is as likely to be
+about that blast radius as about the three rows.
+
+### Falsifiers
+
+1. **`binder_symbols` moves at all.** It is at 100% and this is a binder change;
+   any movement means the export/local split it *does* check has been disturbed.
+2. **`checker_types` falls.** Every name lookup that walks a namespace's locals
+   is affected.
+3. **`diagnostics` falls.** Names newly visible as exports could satisfy rules
+   that currently report correctly.
+
+## §209 — §208 built: the table changes, no suite moves, and the test is what makes it landable
+
+The bar was `+2 cases`. Measured:
+
+```
+diagnostics          1,615    unchanged
+checker_types        3,974    unchanged
+binder_symbols       8,458/8,458   100%, unmoved
+printer_round_trip  11,760/11,760  100%, unmoved
+parser_typescript    5,031/5,031   100%, unmoved
+```
+
+**Bar missed at +0, and it is landed anyway** — which is the opposite of §207's
+decision two sections ago, so the difference has to be stated.
+
+### What separates this from §207's +0
+
+§207 was reverted because *nothing could observe it*: the pragma path's consumer
+resolved an alias to an empty table, so the machinery sat inert with no evidence
+it did anything at all. This is not that. The change is **directly observable
+and pinned**:
+
+```rust
+// crates/tsr-binder/tests/program.rs
+a_namespace_in_a_declaration_file_exports_what_it_declares
+```
+
+`export namespace dom { namespace JSX { … } }` in a `.d.ts` now puts `JSX` in
+`dom`'s **exports**. The test is red without the disjunct and green with it —
+verified by removing it and re-running, because §208's own argument is that a
+suite at 100% can be blind to the distinction being fixed, and a test that
+passes either way would have been the same blindness one level down.
+
+> **"Unmeasured" and "unobservable" are different, and only the second is a
+> reason to revert.** §207 had no observer at all. §208 has one, it is exact,
+> and no suite happens to consume it *yet* — three rows are queued behind it
+> (§186's TS2694 residue, §187's, §207's pragma path).
+
+### Why no suite moves
+
+Every consumer of the fixed table is currently reverted or blocked:
+`jsx_intrinsic_elements_exists`'s pragma hop went out with §207, and TS2694's
+four residual lines need the *second* half of §186's insight as well. The fix is
+a precondition, and §166 → §167 is the precedent for keeping one: a one-line
+binder change that moved nothing on its own turned §163's dead code into +8 the
+moment its consumer was rebuilt.
+
+### The finding, and it corrects §207's own filing
+
+§207 filed this as *"imported namespace symbols carry no exports"*. **Imports
+have nothing to do with it.** The namespace is written without `export` inside a
+declaration file, where upstream's parser marks every node ambient and an
+ambient container exports what it declares. `Binder::bind_container` had the
+other three disjuncts and not `self.in_declaration_file` — a field it already
+maintains.
+
+That is the **third** site where this port substitutes structurally for
+`NodeFlagsAmbient` (§99, §132, here) and the first where the substitution was
+simply forgotten rather than approximated. Worth a sweep: `grep` for
+`in_ambient_module` and `has_declare` and check each against
+`in_declaration_file`.

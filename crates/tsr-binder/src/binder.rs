@@ -1023,7 +1023,18 @@ impl<'a, 'n> Binder<'a, 'n> {
             }
             // An ambient module exports everything it declares — unless it uses
             // `export` explicitly somewhere, in which case only what it names.
+            // **A declaration file is ambient throughout.** Upstream's parser
+            // sets `NodeFlagsAmbient` on every node of a `.d.ts`
+            // (`parser.go`'s `contextFlags`), so a namespace there exports what
+            // it declares whether or not `export` is written —
+            // `export namespace dom { namespace JSX { … } }` in `renderer.d.ts`
+            // puts `JSX` in `dom`'s **exports** upstream and in its locals here.
+            //
+            // This parser does not set the flag (§99 and §132 substituted it
+            // structurally at two other sites); `in_declaration_file` is the
+            // substitute and was missing from this disjunction. §208.
             let ambient = self.in_ambient_module
+                || self.in_declaration_file
                 || has_declare(module.modifiers)
                 || matches!(module.name, Some(tsr_ast::ModuleName::StringLiteral(_)));
             self.in_ambient_module = ambient;

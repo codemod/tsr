@@ -820,3 +820,27 @@ fn two_global_blocks_in_one_file_merge_once() {
         "and the second block contributes too",
     );
 }
+
+#[test]
+fn a_namespace_in_a_declaration_file_exports_what_it_declares() {
+    let arena = Arena::new();
+    let mut nodes = NodeTable::new();
+    let mut node_map = NodeMap::new();
+    let (result, files) = bind_program(
+        &arena,
+        &[("renderer.d.ts", "export namespace dom { namespace JSX { interface E {} } }")],
+        &mut nodes,
+        &mut node_map,
+    );
+    // `renderer.d.ts` has a top-level `export`, so it is a module: `dom` is an
+    // export of the file's own symbol, not a name in any scope.
+    let file_symbol = result.symbol_of(files[0].root).expect("the module has a symbol");
+    let dom = *result
+        .symbols()
+        .get(file_symbol)
+        .exports
+        .get("dom")
+        .expect("`dom` is exported by the module");
+    let exports: Vec<&str> = result.symbols().get(dom).exports.keys().copied().collect();
+    assert!(exports.contains(&"JSX"), "a .d.ts namespace exports implicitly; got {exports:?}");
+}
