@@ -4176,3 +4176,23 @@ against 14 R→W (18.6:1)** — privacyFunctionCannotNameParameterType
 TRANSITIVE re-export reachability (constEnumNoEmitReexport's A→B→C
 chains) — the gate is direct-mention only; the owner is the resolver's
 re-export walk, priced here at 14 lines.
+
+**§105 slice 2a bar (registered before the code):** as-const OBJECT
+literals answer readonly-membered regular types — but ONLY when no
+member value is a single-quoted string literal (the value-spelling
+carriage stays unbuilt; single-quoted operands keep the error gate,
+so the carriage's absence stays a gap and never a wrong quote). The
+mechanism, upstream-anchored: `isConstContext` (`checker.go:13615`)
+climbs parens/arrays/spreads/property-assignments to a const
+assertion; a const-context member takes its REGULAR unwidened type
+(checked BEFORE the §56/§98 retention road — upstream's own order
+in `checkExpressionForMutableLocation`) and prints `readonly name:
+T;`. Trace anchor: constAssertions 0:115 (`{ x: 10, y: 20 } as
+const` — the literal's own line answers `{ x: number; y: number; }`
+today because `check_object_literal` never learns it is in a const
+context). Predict **+40–120** across constAssertions' object half
+and the slice-1-surfaced 6; must NOT move: non-const object
+widening (the 2,500-line boundary objects.rs documents), slice 1's
+118, §98's discrimination converts. Any wrong-quote line refuses
+the build outright — that is exactly what the single-quote gate
+exists to make impossible.
