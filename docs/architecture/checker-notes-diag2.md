@@ -25800,3 +25800,71 @@ TS1184 +2 · TS1114 +4 · TS1203 +2                 = +20
 ```
 
 Two candidates remain: `TS1120` (3) and `TS2337` (3, §468's second arm).
+
+## §480 — TS1120: an export assignment with modifiers
+
+§479's list, next row. **3 blocked, `occupied 0/3`.**
+
+```ts
+// @module: commonjs
+var x;
+declare export = x;      // TS1120 at `declare`
+```
+
+`checkExportAssignment` (`checker.go:5607`), two lines:
+
+```go
+if !c.checkGrammarModifiers(node) && ast.IsExportAssignment(node) && node.Modifiers() != nil {
+    c.grammarErrorOnFirstToken(node, diagnostics.An_export_assignment_cannot_have_modifiers)
+}
+```
+
+The `!checkGrammarModifiers` conjunct is upstream's short-circuit — a modifier
+that is *already* an error takes its own message first — and this port's
+equivalent is `check_grammar_modifier_shapes`, which does not report for a
+`declare` or `export` on an export assignment. So the guard reduces to
+*the node has modifiers*, and the error node is the **first token**, which for
+`declare export = x` is `declare` at column 1.
+
+### The bar
+
+```
+bar:  +2 of 3,  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **A bare `export = x` reports.** The modifier list must be non-empty.
+2. **`export default x` reports.** Upstream's test is `IsExportAssignment`,
+   which covers both spellings — so this must fire for a modified
+   `export default` too, and the falsifier is that it does not fire for an
+   unmodified one.
+
+## §481 — §480 measured **+0**, reverted
+
+```
+diagnostics   1,996 → 1,996   (bar was +2;  0)
+```
+
+Reverted. The rule is dispatched (§432 added the arm and it fires for every
+`ExportAssignment`) and the insertion sits before every early return except
+`file_has_parse_errors`, so §402's fork narrows to two candidates:
+
+1. **`declare export = x` sets `file_has_parse_errors`** — but the case's
+   *actual* column is empty, with no parse diagnostic reported, which argues
+   against it;
+2. **the parser does not attach `declare` to the `ExportAssignment`'s modifier
+   list** — plausible, since the modifier precedes `export` and the node is
+   built from the `export` token onward.
+
+**Not isolated further.** Distinguishing them is a parser-side read, which §424
+named as this workstream's boundary and §446 measured the cost of crossing on a
+guess (−14). Two candidates, one honest note, no third hypothesis (§131).
+
+**Owner: `tsr-parser`'s modifier attachment on an export assignment.** 3 cases.
+
+> Third `+0` this session whose cause was left unisolated (§424, §412, §481),
+> and the three share a shape: **the checker-side reasoning was complete and the
+> remaining question was about the tree.** That is not a coincidence — it is
+> what a boundary looks like from the inside. Every instrument here measures
+> diagnostics; none measures what the parser built.
