@@ -349,3 +349,18 @@ disagreement-error class (`Some(prev) != Some(inferred)` → error)
 Predict **+20–80**; must NOT move: single-candidate calls, step
 1's byte-identity everywhere else. Adverse over 1:5 refuses;
 artifact test on untouched rows.
+
+**Step 3a — MEASURED ZERO, reverted per §34; the zero refines
+`bd tsr-eak`'s re-opening.** The literal-base resolution was built
+complete and the disagreement site never held that pair: whatever
+reaches `Some(prev) != Some(inferred)` in this corpus is NOT
+literal-beside-base (widening upstream of the site already
+collapses those), so the reduction the resolution step actually
+needs is over STRUCTURED candidates — the general subtype question
+tsr-eak refused, un-shrunk by this slice. Step 3's honest
+precondition is therefore a CENSUS OF THE DISAGREEMENT PAIRS
+(instrument the site, print both TypeIds' shapes over the corpus,
+bucket) BEFORE any further resolution slice — the §98-era
+discipline: name the shapes, then pick the decidable subset. The
+foundation stands (step 1's byte-identity untouched); step 2
+(priorities) still awaits its first writer.
