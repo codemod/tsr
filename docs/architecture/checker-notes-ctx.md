@@ -891,3 +891,19 @@ module doc claimed an existing arm absent (round 7-8 inversion);
 and the transmitting-road hunt ended with NO road — the adverse
 was never semantic. The §114 record is the project's most complete
 trace archive; read it before any future contextual-arc build.
+
+**§114 attribution addendum (open, flagged by checker-1):** the
++34 W→R names callWithMissingVoid 8 + typeGuardTypeOfUndefined 8 —
+the same 16 lines §108.1 (adad333) converted in ITS isolated pair
+hours earlier. Both measurements are attested: RIGHT at adad333
+(checker-1's +22/0 pair) and WRONG at e6a7b2a7^ (this build's
+baseline, accepted clean on post-adad333 main — the pair could not
+otherwise have shown them W→R). If both hold, an UNSEEN R→W
+REGRESSION landed in the intervening range and §114 re-converted
+its lines; the intervening checker-code landings are the bisect
+range (checker-2 landed only docs there — §112 was refused whole).
+The total right 408,346 is measured and unaffected; only the
+per-build names move. Bisect owner: whoever's landing falls in the
+range once enumerated — enumerate first, then the artifact-test
+dump at each candidate. Until resolved, §114's per-case list
+carries this note and §108.1's does too.
