@@ -92,3 +92,23 @@ arity-singular subset; the §33-family cases fun/fn overload pairs
 are the head shapes); must NOT move: single-candidate calls,
 choose_overload's landed selections, §114/§115. Adverse over 1:5
 refuses; artifact test on untouched-case rows mandatory.
+
+**Slice 1 score — LANDED at ~9:1, the largest single build since
+§108.** right 408,450 → **409,173 (+723 net)** on the full pair:
+**+674 G→R +43 W→R against 74 G→W and 4 R→W**
+(strictBindCallApply1 32, jsDeclarationsGetterSetter 27,
+underscoreTest1 26, constructorHasPrototypeProperty 26, wide
+spread). The bar predicted +60–200 of the 547+113 ceiling; the
+3.5× favorable miss is the recurring sizing shape — the ceiling
+was counted from callgate's labeled rows, and the arity-singular
+population reached rows the labels did not name. The 4 R→W are
+REAL and PRICED: `foo(5)` against `(): string / (bar: string):
+number` — the single arity-survivor returns unchecked where
+upstream rejects it on assignability and answers the §21 `never`
+(functionOverloads/27, 2+2). A refinement routing the non-generic
+survivor through the selection loop as a singleton was BUILT AND
+MEASURED: it did not fix the 4 (the loop's undecidable-pair tail
+returns the sole candidate anyway) and cost 25 G→R — reverted,
+recorded so the next window doesn't rebuy it. The 4's true fix
+needs the loop's decidable-rejection tail to distinguish
+fresh-literal pairs — a slice-3-adjacent question, filed with it.

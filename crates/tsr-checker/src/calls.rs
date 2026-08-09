@@ -926,9 +926,30 @@ impl Checker<'_, '_> {
         candidates: &[Signature],
         arguments: &[Expression<'_>],
     ) -> Option<Signature> {
+        // callres2 slice 1: `hasCorrectArity` is upstream's FIRST pass
+        // (checker.go:9107, inside chooseOverload's loop) and it runs here
+        // BEFORE every reduction below - a SINGLE arity-survivor needs no
+        // selection at all, so it returns exactly as a born-single candidate
+        // does (that path imposes none of the guards below; a generic
+        // survivor flows to the caller's check_generic_call like today's
+        // single generics). Spread calls skip the pass - arity is
+        // meaningless there and the spread decline below still fires.
+        // Rest-bearing candidates keep the old declines this slice: their
+        // arity floor differs and the survivor test would lie.
+        if !arguments.iter().any(|a| matches!(a, Expression::SpreadElement(_)))
+            && !candidates
+                .iter()
+                .any(|c| c.this_parameter.is_some() || c.parameters.iter().any(|p| p.rest))
+        {
+            let survivors: Vec<&Signature> =
+                candidates.iter().filter(|c| has_correct_arity(c, arguments.len())).collect();
+            if let [survivor] = survivors.as_slice() {
+                return Some((*survivor).clone());
+            }
+        }
         // The three rejections below were one short-circuiting `any` over the
         // candidates. They are separated so each can be counted, and tested in
-        // the order the doc comment lists them — first match wins, which is why
+        // the order the doc comment lists them - first match wins, which is why
         // a set that is both generic and object-typed reads as generic. The
         // *answer* is unchanged: any one of them still gaps the whole call.
         if candidates.iter().any(|candidate| !candidate.type_parameters.is_empty()) {
