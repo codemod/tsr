@@ -3597,3 +3597,22 @@ type, those become G→W and get priced, not hidden. Must NOT move:
 call-argument positions (§93's, measured 16 lines) and
 const-initializer positions (the existing shape). Adverse over 1:3
 against gains refuses the build.
+
+**§94 score — LANDED at 107:1.** right 405,698 → **405,805** on the
+full pair over the §93-accepted baseline (`45436ae`+): **+93 G→R**
+(fatarrowfunctionsOptionalArgs 76, its Errors1 4, fatarrowfunctions
+2, tail across the corpus) **+14 W→R**
+(parserArrowFunctionExpression11/16/17 — binary-operand arrows that
+had been confidently mistyped) against **1 G→W, zero R→W/R→G**. The
+bar predicted +60–110 in the head case: 76+5 measured, in band. The
+first ExpressionStatement-only cut converted just 21 — the rest of
+the population sat behind ternary branches, `&&`/comma rights,
+ternary conditions, and non-listed binary operators (`+`,
+`instanceof`), which is why the arm is the dispatch's full
+nil-ladder rather than one statement test. The one adverse is
+conformance/parserParameterList11:0:0 — `(...arg?) => 102`, an
+error-recovery optional REST parameter whose want is
+`...arg?: any[] | undefined`: the same strict `?`-adds-`| undefined`
+print residue already priced at §93 (0:457), now with two spellings
+on record. That print is the seam's next candidate and it owns both
+adverse families.

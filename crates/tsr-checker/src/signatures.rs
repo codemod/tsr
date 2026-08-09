@@ -1401,13 +1401,83 @@ impl<'a> Checker<'a, '_> {
     /// `return` expression, an `as`) can supply a contextual type, and this
     /// refuses to guess which.
     pub(crate) fn has_no_contextual_type(&self, declaration: NodeId) -> bool {
-        let Some(parent) = self.nodes.parent(declaration) else { return false };
-        matches!(
-            self.node_map.get(parent),
-            Some(Node::VariableDeclaration(node))
-                if node.r#type.is_none()
-                    && node.initializer.and_then(|i| Node::from(i).node_id()) == Some(declaration)
-        )
+        // §94 (`checker-notes-narrow.md`): a walk over the nil-answering arms
+        // of upstream's `getContextualType` dispatch (`checker.go:29343`).
+        // An expression statement has no arm at all — the default answers
+        // nil; the parenthesized/conditional-branch/`&&`-and-comma-right
+        // arms answer the PARENT's own context, so the walk climbs through
+        // them; a ternary CONDITION and the left operands of `&&`/comma —
+        // and every operator outside the dispatch's four listed groups
+        // (`getContextualTypeForBinaryOperand`, `checker.go:29809`) — answer
+        // nil outright. `||`/`??` right operands are typed by the LEFT
+        // operand's type, so absence is never showable there.
+        let mut position = declaration;
+        loop {
+            let Some(parent) = self.nodes.parent(position) else { return false };
+            match self.node_map.get(parent) {
+                Some(Node::ExpressionStatement(node)) => {
+                    return node.expression.and_then(|e| e.node_id()) == Some(position);
+                }
+                Some(Node::VariableDeclaration(node)) => {
+                    return node.r#type.is_none()
+                        && node.initializer.and_then(|i| Node::from(i).node_id())
+                            == Some(position);
+                }
+                Some(Node::ParenthesizedExpression(node)) => {
+                    if node.expression.and_then(|e| e.node_id()) != Some(position) {
+                        return false;
+                    }
+                }
+                Some(Node::ConditionalExpression(node)) => {
+                    // The condition operand answers nil; the branches answer
+                    // the conditional's own context (`checker.go:30022`).
+                    if node.condition.and_then(|e| e.node_id()) == Some(position) {
+                        return true;
+                    }
+                    if node.when_true.and_then(|e| e.node_id()) != Some(position)
+                        && node.when_false.and_then(|e| e.node_id()) != Some(position)
+                    {
+                        return false;
+                    }
+                }
+                Some(Node::BinaryExpression(node)) => {
+                    use tsr_ast::SyntaxKind::*;
+                    if node.r#type.is_some() {
+                        return false;
+                    }
+                    let Some(operator) = node.operator_token.map(|t| t.kind) else {
+                        return false;
+                    };
+                    let is_right = node.right.and_then(|e| e.node_id()) == Some(position);
+                    match operator {
+                        // Assignment forms contextually type their right
+                        // operand from the left; refuse to guess either side.
+                        EqualsToken
+                        | AmpersandAmpersandEqualsToken
+                        | BarBarEqualsToken
+                        | QuestionQuestionEqualsToken => return false,
+                        // `||`/`??`: the right operand is typed by the left
+                        // operand's TYPE — never a shown absence; the left
+                        // climbs to the expression's own context.
+                        BarBarToken | QuestionQuestionToken => {
+                            if is_right {
+                                return false;
+                            }
+                        }
+                        // `&&`/comma: right climbs, left answers nil.
+                        AmpersandAmpersandToken | CommaToken => {
+                            if !is_right {
+                                return true;
+                            }
+                        }
+                        // Every other operator falls off the dispatch: nil.
+                        _ => return true,
+                    }
+                }
+                _ => return false,
+            }
+            position = parent;
+        }
     }
 
     /// §48/§71/§71.1/§71.2's pattern renderer: the written shape verbatim,
