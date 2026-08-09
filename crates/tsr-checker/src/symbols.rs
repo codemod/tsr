@@ -19,6 +19,9 @@ const INTERNAL_EXPORT_STAR: &str = "__export";
 use tsr_binder::{SymbolFlags, SymbolId};
 
 use crate::{checker::Checker, flags::TypeFlags, resolution::PropertyName, types::TypeId};
+use tsr_diagnostics::{Diagnostic, messages};
+
+use crate::check::spelling_suggestion;
 
 impl<'a> Checker<'a, '_> {
     /// The type of a symbol.
@@ -955,6 +958,115 @@ impl<'a> Checker<'a, '_> {
             return None;
         }
         self.get_export_of_module(module_symbol, name.text)
+    }
+
+    /// TS2305 — `Module '{0}' has no exported member '{1}'.`
+    ///
+    /// `errorNoModuleMemberSymbol` (`checker.go:14883`), reached when
+    /// [`Checker::get_external_module_member`] finds no export for the name.
+    ///
+    /// Upstream chooses between six messages there. This reports two of them —
+    /// TS2724 when the name is a near miss, TS2305 otherwise — and **evaluates
+    /// the other four arms' conditions in order to decline them**. See §228:
+    /// declining to emit TS2613 costs a missing line, whereas emitting TS2305
+    /// in its place would be a wrong one, and the guard is a table lookup
+    /// either way.
+    pub(crate) fn report_missing_module_export(&mut self, specifier: NodeId) -> Option<()> {
+        let declaration = self.import_or_export_declaration_of(specifier)?;
+        let module_specifier = self.external_module_name(declaration)?;
+        let module_symbol = self.resolve_external_module_name(declaration, module_specifier)?;
+        // `export =`: the member lives on the exported type, which
+        // `get_external_module_member` already declines to read.
+        if self.resolve_external_module_symbol(module_symbol) != module_symbol {
+            return None;
+        }
+        let name = match self.node_map.get(specifier)? {
+            Node::ImportSpecifier(node) => {
+                node.property_name.or(node.name.map(tsr_ast::ModuleExportName::Identifier))
+            }
+            Node::ExportSpecifier(node) => node.property_name.or(node.name),
+            _ => return None,
+        }?;
+        let tsr_ast::ModuleExportName::Identifier(name) = name else { return None };
+        let text = name.text;
+        if self.get_export_of_module(module_symbol, text).is_some() {
+            return None;
+        }
+        let entry = self.binder.symbols().get(module_symbol);
+        // §186 — an empty table cannot be asked which member is missing. A
+        // module this port never filled would answer "no member" for every
+        // import in the file.
+        if entry.exports.is_empty() {
+            return None;
+        }
+        // `moduleSymbol.Exports[InternalSymbolNameDefault] != nil` — upstream's
+        // TS2613, `Did you mean to use 'import x from …' instead?`. Declined.
+        let has_default = entry.exports.contains_key("default");
+        let value_declaration = entry.value_declaration;
+        let candidates: Vec<&str> = entry.exports.keys().copied().collect();
+        // `getSuggestedSymbolForNonexistentModule` is tried **first**, so a
+        // near miss makes TS2305 a wrong code at a right position — the failure
+        // §185's falsifier caught for TS2694 on four of seven wrong lines.
+        let suggestion = spelling_suggestion(text, &candidates).map(str::to_string);
+        let span = self.nodes.span(name.node_id?);
+        let file = self.source_file_of_for_diagnostics(specifier)?;
+        let module_name = self.quoted_module_name(module_specifier);
+        if let Some(suggestion) = suggestion {
+            self.report(
+                file,
+                Diagnostic::with_args(
+                    &messages::_0_HAS_NO_EXPORTED_MEMBER_NAMED_1_DID_YOU_MEAN_2,
+                    span,
+                    [module_name, text.to_string(), suggestion],
+                ),
+            );
+            return None;
+        }
+        if has_default {
+            return None;
+        }
+        // `reportNonExportedMember` (`checker.go:14908`) splits again on
+        // whether the module file declares the name **locally**: TS2459
+        // (`exported as`), TS2460 (`not exported`) and the `export =` variant
+        // all live behind that test. Declined, conditions evaluated.
+        if let Some(source_file) = value_declaration
+            && self.binder.locals(source_file).is_some_and(|locals| locals.get(text).is_some())
+        {
+            return None;
+        }
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::MODULE_0_HAS_NO_EXPORTED_MEMBER_1,
+                span,
+                [module_name, text.to_string()],
+            ),
+        );
+        None
+    }
+
+    /// The `ImportDeclaration` or `ExportDeclaration` a specifier belongs to.
+    fn import_or_export_declaration_of(&self, specifier: NodeId) -> Option<NodeId> {
+        let mut current = specifier;
+        while let Some(parent) = self.nodes.parent(current) {
+            match self.nodes.kind(parent) {
+                SyntaxKind::ImportDeclaration | SyntaxKind::ExportDeclaration => {
+                    return Some(parent);
+                }
+                SyntaxKind::SourceFile => return None,
+                _ => current = parent,
+            }
+        }
+        None
+    }
+
+    /// `getFullyQualifiedName` of an external module symbol, which prints the
+    /// specifier **as written, with its quotes** (`checker.go:14888`).
+    fn quoted_module_name(&self, module_specifier: NodeId) -> String {
+        match self.node_map.get(module_specifier) {
+            Some(Node::StringLiteral(literal)) => format!("\"{}\"", literal.text),
+            _ => String::new(),
+        }
     }
 
     /// One export of a module, by name.

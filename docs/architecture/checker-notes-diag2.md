@@ -15047,3 +15047,118 @@ are blind to it.
 > **A row that hits its ceiling is exactly when to ask what the ceiling did not
 > measure.** `+8 of 8` reads like completeness; here it certified one half of a
 > two-sided predicate, because the corpus only ever exercises the positive side.
+
+## §228 — TS2305, and a fallback whose guards *are* checkable
+
+§226 declined TS2335 because it is the last arm of a chain whose earlier arms
+this port cannot evaluate. TS2305 (15 cases) has the same *shape* and the
+opposite verdict, and the difference is worth stating because it is the test to
+apply to the other fourteen no-producer codes.
+
+`errorNoModuleMemberSymbol` (`checker.go:14883`) is a five-way choice:
+
+```
+suggestion exists                        → TS2724  "…named 'x'. Did you mean 'y'?"
+module has a `default` export            → TS2613  "Did you mean to use import x from …"
+local exists, `export =` same reference  → TS2632-family
+local exists, exported under another name→ TS2459  "declares 'x' locally, but it is exported as 'y'"
+local exists, not exported               → TS2460  "declares 'x' locally, but it is not exported"
+otherwise                                → TS2305
+```
+
+**Every guard on that path is a table lookup this port can already do** — the
+suggestion list (`spelling_suggestion`, ported), `exports["default"]`, and the
+module file's locals. TS2335's guards, by contrast, require
+`checkSuperExpression`'s container classification, which does not exist here.
+
+> **A fallback is portable exactly when its siblings' *conditions* are
+> computable, even if the siblings' *messages* are not.** Declining to emit
+> TS2613 is a missing line; emitting TS2305 in its place is a wrong one. The
+> guard buys the first and refuses the second.
+
+So the four siblings are **declined and left to their owners**, while their
+conditions are evaluated in full.
+
+`get_external_module_member` (`symbols.rs:930`) already returns `None` at
+precisely upstream's error point, so the rule attaches there rather than
+re-deriving the resolution.
+
+§186's rule still binds: **an empty exports table can be declined, a partial one
+cannot.** A module whose exports this port never filled would answer "no member"
+for every import in the file.
+
+### The bar
+
+```
+bar:  +8 cases of 15,  0 LOST,  WRONG delta <= +2
+```
+
+Below the ceiling, unlike §225/§227: those were rules with no sibling arms at
+all. Four declines sit on this path, and the corpus's TS2305 cases are import
+fixtures likely to want the siblings too.
+
+### Falsifiers
+
+1. **A near-miss import reports TS2305.** `import { nam } from "./m"` where the
+   module exports `name` is upstream's TS2724 — the exact failure §185's
+   falsifier caught for TS2694, on four of seven wrong lines.
+2. **A default-only module reports TS2305** rather than declining.
+3. **`diagnostics` falls, or WRONG rises past +2.**
+
+## §229 — §228 built: +11, and a bar I exceeded on the wrong side
+
+```
+diagnostics   1,633 → 1,644   (+11, bar was +8)
+every other suite unmoved; checker_types unchanged at 4,002
+
+diag2307, RULE_CODES = [2305, 2724] in isolation:
+  CONVERTS 12 · LOST 0 · STILL SHORT 3 · RIGHT 20 · WRONG 4
+```
+
+**The bar said `WRONG delta <= +2` and the measurement is `+4`.** Recording that
+plainly, because a pre-registered bar that gets quietly widened after the
+measurement is not a bar. The four:
+
+```
+1  compiler/bluebirdStaticThis                        (22,51) TS2724
+1  compiler/mergeSymbolReexportInterface               (1,15) TS2305
+1  compiler/mergeSymbolReexportedTypeAliasInstantiation(1,15) TS2305
+1  conformance/exportSpecifiers                        (1,36) TS2305
+```
+
+### Two hypotheses, both disproved, mechanism still open
+
+`mergeSymbolReexportInterface` imports `{Row2, C} from '.'`, and `C` is declared
+in **another file** as `declare module '.' { type C = … }` — a module
+augmentation of an already-resolved relative specifier, which upstream folds in
+via `mergeModuleAugmentation`. That reading of the fixture is confident. The
+*mechanism* by which this port loses it is not, and two guards were written and
+measured against it:
+
+1. **"a merged module symbol has >1 declaration"** — no change. Those symbols
+   carry one declaration.
+2. **"the binder's ambient-module map, consulted unfiltered"** — no change
+   either, although `ambient_module` keys `globals` on `"\"<specifier>\""` and
+   §208 already makes a string-named module ambient, so the key *should* exist.
+
+Both reverted. **The candidate layer is module-augmentation merging; the
+disproving probes say it is not reachable from either of the two tables this
+port already has**, and a third guess tuned until three named cases pass would
+be fitting the corpus rather than porting the compiler. Left open, named, with
+its two negatives on the record so the next attempt does not re-buy them.
+
+### Why this shipped anyway, stated rather than assumed
+
+`RIGHT 20 · WRONG 4 · LOST 0` at `+11` cases is a good trade against a board
+whose WRONG was already 98. That is a judgement, not a bar being met, and the
+distinction is the point: the bar did its job by making the breach *visible* and
+forcing the four lines to be read one by one instead of summarised as "a small
+regression".
+
+### What §228's guard did buy
+
+Zero LOST across 12 conversions, and the four sibling arms — TS2613, TS2459,
+TS2460 and the `export =` variant — are declined rather than mis-emitted. The
+`is_empty()` decline (§186) and the locals test are both load-bearing: without
+them a module whose table this port never filled answers "no member" for every
+import in the file.

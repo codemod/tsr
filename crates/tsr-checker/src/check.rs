@@ -421,6 +421,9 @@ impl Checker<'_, '_> {
         match typed {
             Node::YieldExpression(_) => self.check_yield_grammar(node),
             Node::AwaitExpression(_) => self.check_await_in_parameter_initializer(node),
+            Node::ImportSpecifier(_) | Node::ExportSpecifier(_) => {
+                self.report_missing_module_export(node);
+            }
             // `NodeCanBeDecorated` rejects every one of these outright.
             Node::EnumDeclaration(n) => self.check_illegal_decorator(n.modifiers),
             Node::ClassDeclaration(_) => self.check_type_parameter_lists_identical(node),
