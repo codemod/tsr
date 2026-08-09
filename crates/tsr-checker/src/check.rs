@@ -1891,6 +1891,21 @@ impl Checker<'_, '_> {
                 came_from = ancestor;
                 continue;
             }
+            // **A condition, not a membership.** Upstream's static-block arm is
+            // `return ToFindAncestorResult(declaration.Pos() < usage.Pos())`
+            // (`checker.go:2018`): a static block runs when the class is
+            // evaluated, so it defers a use only when the declaration already
+            // exists by then. `ToFindAncestorResult(false)` is
+            // `FindAncestorFalse` — *keep walking* — not "deferred", and a
+            // `matches!` list can express neither half. Every other kind below
+            // defers unconditionally and belongs there. §353.
+            if self.nodes.kind(ancestor) == SyntaxKind::ClassStaticBlockDeclaration {
+                if self.nodes.span(declaration).start < self.nodes.span(node).start {
+                    return false;
+                }
+                came_from = ancestor;
+                continue;
+            }
             if matches!(
                 self.nodes.kind(ancestor),
                 SyntaxKind::FunctionDeclaration
@@ -1900,7 +1915,6 @@ impl Checker<'_, '_> {
                     | SyntaxKind::GetAccessor
                     | SyntaxKind::SetAccessor
                     | SyntaxKind::Constructor
-                    | SyntaxKind::ClassStaticBlockDeclaration
                     | SyntaxKind::PropertyDeclaration
                     | SyntaxKind::InterfaceDeclaration
                     | SyntaxKind::TypeAliasDeclaration

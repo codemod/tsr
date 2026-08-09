@@ -20587,3 +20587,161 @@ That is mechanically findable in a way §348's "intersection of predicates" is
 not: **a `matches!` or `all(…)` in a completeness or decidability predicate
 whose pattern tests node *kind* when its documented reason tests a *property*.**
 Recorded as the next sweep with a shape narrow enough to grep for.
+
+## §351 — the sweep §350 predicted, one function down
+
+`declaration_members_are_complete` — the **instance**-side walk, where §349
+fixed the static side — ends:
+
+```rust
+// A class merged with a namespace, an enum, a variable — the symbol's
+// member table is then assembled from somewhere this walk does not read.
+_ => false,
+```
+
+The reason is stated and it is *true of an enum or a variable*. It is **false of
+a namespace**, and for a sharper reason than §349's: a `ModuleDeclaration`
+merged onto a class contributes to the symbol's **exports** — the static side —
+and contributes **nothing at all** to the instance member table. §349 had to
+argue that two tables were each complete; here there is only one table and the
+namespace does not touch it.
+
+> This is §350's predicted shape found on the first try, in the sibling of the
+> function that produced it: **a pattern testing node kind where the documented
+> reason tests a property.** The kind is `ModuleDeclaration`; the property is
+> *does this declaration contribute instance members*, and the answer is no.
+
+### The bar
+
+```
+bar:  +2,  0 LOST,  checker_types MUST NOT regress
+```
+
+This predicate gates `crate::nonexistent_property` (TS2339, 103 blocked cases)
+and the assignability reports, so it reaches the other workstream's suite. §350
+measured the static-side change as `checker_types`-neutral; that is evidence,
+not a guarantee, and the instance side is the half that suite actually reads.
+
+### Falsifiers
+
+1. **An enum or a variable merged onto a class is admitted.** Only
+   `ModuleDeclaration` is added; those still fall to `_ => false`.
+2. **`checker_types` moves down.** A regression there is a revert regardless of
+   what the diagnostics board does — it is the other workstream's rail.
+
+## §352 — §351 measured **+0**. Reverted
+
+```
+diagnostics   1,860 → 1,860   (bar was +2;  0)
+checker_types unmoved
+```
+
+Reverted, as §229's two no-op guards were. The reasoning holds — a
+`ModuleDeclaration` genuinely contributes nothing to the instance member table —
+and it converts nothing, so it is surface without benefit.
+
+**Why it paid on the static side and not here.** §349's clodule cases are
+`Clod.x`: a *static* access through the class object, which is exactly the table
+the merged namespace shares. An instance access on a clodule (`new Clod().x`) is
+not a shape the corpus's blocked cases contain, so the instance walk was never
+the thing declining them.
+
+> **A predicate can be wrong and unreached.** §350 called this sweep
+> "mechanically findable", and it was — the shape was found on the first try, in
+> the first sibling looked at. What the grep cannot tell you is whether anything
+> *asks*. That is the same distinction `diagdeepen` draws between ABSENT and
+> UNDER-FIRES, one level lower: a predicate's defect matters only in proportion
+> to the traffic through it.
+
+Recorded rather than fixed, because the next session's grep will find this exact
+`_ => false` again and should be able to read that it was measured at zero.
+
+## §353 — TS2448: a static block's deferral is a condition, not a membership
+
+```ts
+let getX: (c: C) => number;
+class C {
+  #x = 1
+  static {
+    getX = (obj: C) => obj.#x;
+    getY = (obj: D) => obj.#y;   // TS2448 — `let getY` is declared after C
+  }
+}
+let getY: (c: D) => number;
+```
+
+`use_is_not_deferred`'s walk lists `ClassStaticBlockDeclaration` among the
+node kinds that defer **unconditionally**. Upstream does not
+(`checker.go:2018`):
+
+```go
+if ast.IsClassStaticBlockDeclaration(current) {
+    return ast.ToFindAncestorResult(declaration.Pos() < usage.Pos())
+}
+```
+
+A static block runs **when the class is evaluated**, so it defers a use only
+when the declaration already exists by that point. `ToFindAncestorResult(false)`
+is `FindAncestorFalse` — *keep walking* — not "deferred", which is the second
+half of the reading and the half a membership list cannot express.
+
+> §350's shape once more and the sharpest instance yet: **a `matches!` list
+> flattens a conditional into a membership.** Every other kind in that list
+> defers unconditionally and belongs there; this one carries a predicate, and
+> putting it in the list silently answered `true` for both of its cases.
+
+### The bar
+
+```
+bar:  +1 of 6,  0 LOST,  WRONG delta <= +2
+```
+
+Small deliberately: of TS2448's six blocked cases only this one is a static
+block, and §273 says the eight-line `exportedBlockScopedDeclarations` cannot be
+reached by any single arm.
+
+### Falsifiers
+
+1. **A static block using a variable declared *before* the class reports.**
+   That is `declaration.Pos() < usage.Pos()` and must still defer — the whole
+   point of restoring the condition.
+2. **A use inside a function *inside* a static block reports.** The function
+   arm above still defers it unconditionally, as upstream's `IsFunctionLike`
+   arm does.
+
+## §354 — §353 built: **+1**, bar met
+
+```
+diagnostics   1,860 → 1,861   (bar was +1;  +1, 0 LOST)
+every other suite unmoved — both falsifiers negative
+```
+
+### Six builds, one failure, six spellings
+
+```
+§335  +7   a position two correct predicates both declined
+§343  +1   a `?` merging *absent* with *unresolvable*
+§345  +2   a computed answer discarded by a guard for another case
+§347  +3   a question asked of one node kind and not of two others
+§349  +3   an `all(matches!(…))` encoding the REASON, not the condition
+§353  +1   a `matches!` list flattening a CONDITION into a membership
+§351   0   the same shape, correct, and never reached
+```
+
+**Seventeen cases, no new subsystem**, and one measured zero that is as useful
+as the rest: §351 found §350's predicted shape on the first grep, fixed it
+soundly, and moved nothing.
+
+> **A predicate's defect matters in proportion to the traffic through it.** That
+> is `diagdeepen`'s ABSENT/UNDER-FIRES distinction one level lower, and it is
+> the reason the next sweep should rank *reached* declines rather than *wrong*
+> ones.
+
+### What that instrument would be, stated so it is not re-derived
+
+Not built here — the session's rail is to price a sweep before spending on it,
+and §351 is the evidence that this one needs pricing. It would count, per
+decline site, how many corpus cases reach it *and* still miss a line, which is
+`diagreach.rs`'s shape applied to guards rather than to rules. The cost is a
+corpus run per instrumented site unless the counters are threaded through one
+run, which is the design question.
