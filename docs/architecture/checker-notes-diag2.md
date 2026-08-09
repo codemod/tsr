@@ -20785,3 +20785,61 @@ Not a checker rule at all: `A_label_is_not_allowed_here` appears in
 > in a row here, which suggests the filters have been run down far enough that
 > the remaining single-line rows are mostly parser-owned — a claim §356 should
 > test rather than assume.
+
+## §356 — §355's claim was wrong: the gap is **not** parser-owned
+
+§355 ended by guessing that the remaining single-line rows were "largely
+parser-owned" and explicitly asked for the claim to be tested rather than
+assumed. Tested, and **false**.
+
+### Method
+
+Each code's `Message` symbol is read out of
+`vendor/typescript-go/internal/diagnostics/diagnostics_generated.go`, then
+`grep -rl` finds which `internal/<package>`s reference it. Blocked-case counts
+come from `diagslice`. Reproducible in one shell command; not worth an
+instrument until it is run twice.
+
+### Blocked cases by the upstream package that raises the code
+
+```
+ 1381  checker
+  489  checker+project      (TS2322 alone)
+   91  checker+ls
+   67  checker+compiler
+   25  parser
+   20  binder+checker
+   18  binder+compiler
+   15  transformers
+   12  api+parser
+```
+
+**Parser-only is 25 blocked cases of roughly 2,100 — about 1%.** A `+ls` or
+`+project` tag means the language service also references the message; the rule
+still lives in `checker`. Three consecutive parser-owned rows in §355 were a
+sampling accident of walking the list in descending single-line order, and I
+called it a trend from n=3.
+
+> **A run of three is not a rate.** §355 at least labelled it a claim to test,
+> which is the only reason it cost a paragraph instead of a build. The general
+> form: *when a reason for declining repeats, the repetition is evidence about
+> the ordering of the list, not about the population.*
+
+### What the split actually says
+
+The remaining board is overwhelmingly checker-owned, which means the
+seam §335–§353 has been working — predicates, dispatches and guards inside
+`tsr-checker` — is where the cases are, and it is not near exhaustion for lack
+of *territory*. What it is short of is a ranking: `diagnode` ranks positions,
+`diagdeepen` ranks absent-vs-under-firing, and neither ranks which *decline
+site* the blocked cases actually reach (§354).
+
+Two rows this surfaces that no previous ranking did, both checker-owned and
+single-line:
+
+```
+TS7016   7 blocked, 6 single   checker+module   implicit-any from an untyped import
+TS2552   5 blocked, 4 single   checker+ls       "Did you mean …" — a suggestion, not a lookup
+TS2720   4 blocked, 3 single   checker+ls
+TS2686   3 blocked, 3 single   checker+ls
+```
