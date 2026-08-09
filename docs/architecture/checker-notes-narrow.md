@@ -3923,3 +3923,26 @@ the decline piecemeal — the §33 comment in calls.rs:481 is the
 guard. The as-const object gap (`assertions.rs`) is the natural
 first slice since it needs no inference; its converts unlock this
 head's afterwards.
+
+## §104 — the as-const slice of readonly modeling [checker-2, bar only]
+
+Sized from the §101-era dump: **246 WRONG + 805 GAP lines want
+`readonly` somewhere** — the whole readonly-modeling ceiling.
+The as-const entry (constAssertions 26 WRONG + a large gap share)
+decomposes as: (a) tuple types carry a readonly flag and print
+`readonly [...]`; (b) object members carry per-member readonly and
+print it; (c) `check_const_assertion`'s object/array arms compute
+both (today they gap by documented design). This is slice 1 of the
+§103 subsystem — landing it unlocks const-T inference later.
+
+**MANDATORY FIRST TRACE before any code:** constAssertions:0:0 —
+plain `"abc"` (as-const of a string literal) GAPS today even though
+`check_const_assertion`'s literal arm exists. Something before the
+arm declines (candidate: the variable-declaration road, or the
+case's `<const>`-prefix spelling). One verdictdump print names it;
+do not size the build until it is named, per the §96 lesson (a
+probe that buckets by the answer's spelling missed its mechanism).
+
+Bar to be COMPLETED with row predictions after that trace; this
+section claims the number and records the sizing so the next
+window starts at the trace.
