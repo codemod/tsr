@@ -476,3 +476,15 @@ to the arrow's STANDALONE type instead of erroring the argument.
 Owner: checker-notes-ctx.md's dispatch; the §56.3 argument-position
 retention build is the precedent. ArrowFunction own-root is 3,705
 gap lines; this is its cheapest measurable slice.
+
+§95 RESIDUE CENSUS (temporal, post-§95, checker-1 worktree): the 399
+gaps are METHOD-RESULT resolution, not printing — `.until()`-family
+calls wanting `Temporal.Duration` (49), method signatures embedding
+conditional lib utilities (`Temporal.PluralizeUnit<"day">` 36 — the
+template-literal conditional machine again), and array-of-instance
+results (`string[]`/`Temporal.ZonedDateTime` reads through lib
+generics). Owner split: call resolution through §41-family qualified
+reference members + the template-literal conditional evaluator
+(same blocker as templateLiteralTypes3's §36 decline). The remaining
+288 temporal WRONGS after §95's 112: baked outer texts that are not
+name<args>-shaped — signature-embedded slots §10.13 routes.
