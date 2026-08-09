@@ -1530,8 +1530,55 @@ impl<'a, 'n> Checker<'a, 'n> {
             // (a wrong specifier is worse than the bare name).
             if self.is_module_symbol(parent) {
                 let module_name = tsr_core::strip_quotes(self.binder.symbols().get(parent).name);
-                if !module_name.contains('/') && !module_name.is_empty() {
-                    return Some(format!("import(\"./{module_name}\")."));
+                // The port's module names are ROOT-relative virtual paths
+                // (`/file`); the same-directory slice is a single leading
+                // slash. Deeper structure keeps the decline — a wrong
+                // specifier is worse than the bare name.
+                let stem = module_name.strip_prefix('/').unwrap_or(module_name);
+                // NEVER for the reference's own file: a same-file name that
+                // failed to resolve is a synthetic/evaluated position, and
+                // the bare name is upstream's print there (chain1's 217 R→W
+                // measured without this gate).
+                let same_file = {
+                    let mut current = Some(reference);
+                    let mut reference_file = None;
+                    while let Some(id) = current {
+                        if self.nodes.kind(id) == tsr_ast::SyntaxKind::SourceFile {
+                            reference_file = Some(id);
+                            break;
+                        }
+                        current = self.nodes.parent(id);
+                    }
+                    reference_file.is_some_and(|file| {
+                        self.binder
+                            .symbols()
+                            .get(parent)
+                            .declarations
+                            .first()
+                            .is_some_and(|&declaration| declaration == file)
+                    })
+                };
+                // ...and never when the reference's file IMPORTS the module
+                // under any binding: the name is reachable there and the bare
+                // (or alias) print is upstream's — our resolver just cannot
+                // walk every re-export form yet (exportsAndImports3's 16 R→W
+                // measured without this gate). Only a module the file never
+                // mentions gets the specifier spelling.
+                let imported_here = {
+                    let mut current = Some(reference);
+                    let mut reference_file = None;
+                    while let Some(id) = current {
+                        if self.nodes.kind(id) == tsr_ast::SyntaxKind::SourceFile {
+                            reference_file = Some(id);
+                            break;
+                        }
+                        current = self.nodes.parent(id);
+                    }
+                    reference_file
+                        .is_some_and(|file| self.file_mentions_module_specifier(file, stem))
+                };
+                if !same_file && !imported_here && !stem.contains('/') && !stem.is_empty() {
+                    return Some(format!("import(\"./{stem}\")."));
                 }
             }
             return None;
@@ -1552,6 +1599,30 @@ impl<'a, 'n> Checker<'a, 'n> {
             // The container itself resolves bare here: the chain stops, which
             // is the recursion's base case rather than a refusal.
             None => format!("{parent_name}."),
+        })
+    }
+
+    /// §106's imported-here gate: whether `file`'s import/export-from
+    /// statements mention a module specifier whose stem matches `stem`.
+    fn file_mentions_module_specifier(&self, file: NodeId, stem: &str) -> bool {
+        let Some(Node::SourceFile(source)) = self.node_map.get(file) else { return false };
+        source.statements.iter().any(|statement| {
+            let specifier = match statement {
+                tsr_ast::Statement::ImportDeclaration(node) => node.module_specifier,
+                tsr_ast::Statement::ExportDeclaration(node) => node.module_specifier,
+                tsr_ast::Statement::ImportEqualsDeclaration(node) => match node.module_reference {
+                    Some(tsr_ast::ModuleReference::ExternalModuleReference(external)) => {
+                        external.expression
+                    }
+                    _ => None,
+                },
+                _ => None,
+            };
+            let Some(tsr_ast::Expression::StringLiteral(text)) = specifier else {
+                return false;
+            };
+            let text = text.text.trim_start_matches("./").trim_start_matches('/');
+            text == stem
         })
     }
 

@@ -4159,3 +4159,20 @@ G→W are two named next-rule populations, the §31-chain precedent:
     WRONG through a road the direct object gate does not guard;
     slice 2's population, and its trace should start from 0:115's
     holder chain.
+
+**§106 score — LANDED, the probe's one line paid for the head.** The
+queued eprintln answered everything: the arm fired exactly 128 times
+with `module_name="/…_Widgets"` — a leading VIRTUAL-ROOT slash the
+same-directory guard rejected. Three gates shaped the landing, each
+measured: (1) root-stem acceptance alone regressed 299 (chain1 217 —
+SAME-FILE synthetic positions must keep the bare name); (2) the
+same-file gate left 30 (re-export-reachable names our resolver
+cannot walk — spelled where upstream prints bare); (3) the
+imported-here gate (the reference's file mentions the module's
+specifier in any import/export-from) took those to 14. **+260 W→R
+against 14 R→W (18.6:1)** — privacyFunctionCannotNameParameterType
+128/128, privacyCannotNameVarType 64, privacyFunctionCannotNameReturnType
+64; **the corpus crosses 85%** (right 407,394 = 85.04%). The 14:
+TRANSITIVE re-export reachability (constEnumNoEmitReexport's A→B→C
+chains) — the gate is direct-mention only; the owner is the resolver's
+re-export walk, priced here at 14 lines.
