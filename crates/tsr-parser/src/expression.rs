@@ -120,6 +120,29 @@ fn is_left_hand_side_expression(expression: Expression<'_>) -> bool {
     )
 }
 
+/// The unambiguous half of `isStartOfParameter` (`parser.go:886`).
+///
+/// Upstream's predicate ends in `isStartOfType`, which this port does not have;
+/// omitting it makes this a **subset**, and a subset is safe here because every
+/// token it rejects keeps the caller's `break`. See `checker-notes-diag2.md`
+/// §200 for why the complete predicate is priced separately.
+fn starts_parameter(kind: SyntaxKind) -> bool {
+    matches!(
+        kind,
+        SyntaxKind::DotDotDotToken
+            | SyntaxKind::Identifier
+            | SyntaxKind::OpenBraceToken
+            | SyntaxKind::OpenBracketToken
+            | SyntaxKind::AtToken
+            | SyntaxKind::ThisKeyword
+            | SyntaxKind::PublicKeyword
+            | SyntaxKind::PrivateKeyword
+            | SyntaxKind::ProtectedKeyword
+            | SyntaxKind::ReadonlyKeyword
+            | SyntaxKind::OverrideKeyword
+    )
+}
+
 fn is_assignment_operator(kind: SyntaxKind) -> bool {
     (SyntaxKind::FIRST_ASSIGNMENT as u16..=SyntaxKind::LAST_ASSIGNMENT as u16)
         .contains(&(kind as u16))
@@ -1860,11 +1883,38 @@ impl<'a> Parser<'a> {
         while !self.at(SyntaxKind::CloseParenToken) && !self.at(SyntaxKind::EndOfFile) {
             let before = self.pos();
             parameters.push(self.parse_parameter());
-            if !self.eat(SyntaxKind::CommaToken) {
+            if self.eat(SyntaxKind::CommaToken) {
+                if self.pos() == before {
+                    break;
+                }
+                continue;
+            }
+            // `parseDelimitedList` (`parser.go:664`) reports the missing
+            // separator and **continues the list**; this loop used to leave it,
+            // which turned one recovery into a cascade —
+            // `constructor(...public rest: string[])` is a single `',' expected`
+            // upstream and was four errors here (§198).
+            //
+            // **Continuing is guarded, and the guard is a deliberate SUBSET of
+            // upstream's.** `isListElement` for `PCParameters` is
+            // `isStartOfParameter` (`parser.go:886`), whose last disjunct is
+            // `isStartOfType` — a predicate this port does not have. Porting the
+            // continue *without* any guard was §198, and it invented a parameter
+            // from whatever token was there: 64 valid files gained
+            // `TS1003 Identifier expected`.
+            //
+            // What is admitted here is the unambiguous half. Everything else
+            // falls back to the `break` this loop already did, so the change can
+            // only turn an abort into a continue where a parameter genuinely
+            // follows — it cannot manufacture one. §200.
+            if !starts_parameter(self.token.kind) {
                 break;
             }
+            self.expect(SyntaxKind::CommaToken);
+            // `if startPos == p.nodePos() { p.nextToken() }` (`parser.go:686`):
+            // an element that consumed nothing must not spin the loop.
             if self.pos() == before {
-                break;
+                self.next_token();
             }
         }
         self.expect(SyntaxKind::CloseParenToken);

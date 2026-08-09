@@ -13471,3 +13471,101 @@ This is the fifth refusal of the session and the first that failed on a
 falsifier written before the code rather than on an attribution. That is the
 system working: §198's bar named `parser_typescript` specifically because the
 change was in the parser, and one run settled it.
+
+## §200 — the guard as a SUBSET: continuing only where a parameter clearly starts
+
+§199 priced the parameter-list recovery at `isStartOfParameter`, which needs
+`isStartOfType`, and confirmed by `grep` that neither exists here. That price is
+right for the *complete* predicate. It is the wrong price for the *build*.
+
+Upstream's loop continues when `isListElement` says the next token could be an
+element and aborts otherwise. §198 ported the continue with **no** guard, so it
+invented a parameter from any token — 64 files gained `TS1003`. The old `break`
+was the opposite extreme: it aborted always.
+
+**A subset of the guard sits between them and is safe in one direction.** Admit
+only what unambiguously starts a parameter:
+
+```
+...            KindDotDotDotToken
+an identifier  isBindingIdentifierOrPrivateIdentifierOrPattern
+{  [           the binding-pattern half of the same
+@              a decorator
+a modifier     ast.IsModifierKind
+```
+
+and omit `isStartOfType`. Every token the subset rejects falls back to `break` —
+**the behaviour this port already had** — so the change can only turn an abort
+into a continue where a parameter genuinely follows. It cannot invent one.
+
+That is the same shape as this board's standing rule for rules — *declining is a
+gap, never a wrong answer* — applied to a recovery decision rather than a
+diagnostic.
+
+### What it should reach
+
+`restParamModifier`: `constructor(...public rest: string[])`. After `...public`
+and the reported comma the next token is `rest`, an identifier, so the subset
+admits it, the second parameter parses, and the three cascade errors do not
+happen. The cases needing `isStartOfType` — a parameter list resuming at a type
+— keep the `break` and stay exactly as they are today.
+
+### The bar
+
+```
+bar:  diagnostics +1,  0 LOST,
+      parser_typescript / scanner_clean_files / binder_symbols /
+      printer_round_trip UNMOVED
+```
+
+`+1` and not more: `restParamModifier` is the one case whose shape is verified.
+The rails are the falsifier that mattered last time and they are the falsifier
+again.
+
+### Falsifiers
+
+1. **`parser_typescript` moves at all.** The subset is meant to be strictly
+   narrower than "any token"; if a valid file changes, it is not a subset.
+2. **`diagnostics` falls.** As §198.
+3. **A hang.** The no-progress guard must survive the restructure.
+
+## §201 — §200 built: the subset guard lands, bar met exactly
+
+```
+diagnostics          1,613 → 1,614  (+1, bar was +1)
+extraonly               29 → 28 cases
+parser_typescript    5,031/5,031    unmoved
+scanner_clean_files  5,031/5,031    unmoved
+binder_symbols       8,458/8,458    unmoved
+printer_round_trip  11,760/11,760   unmoved
+checker_types        3,970          unmoved
+```
+
+Every falsifier negative. `restParamModifier` — `constructor(...public rest:
+string[])` — now reports the single `',' expected` upstream reports and none of
+the three cascade errors.
+
+### The three-section arc is the point, not the case
+
+| § | move | result |
+|---|---|---|
+| 198 | ported `parseDelimitedList`'s continue with **no** guard | `parser_typescript` −64, `diagnostics` −12 — refused by its own falsifier |
+| 199 | read the 64 failures, named `isListElement`/`isStartOfParameter`, priced the complete predicate at `isStartOfType` | refused, filed |
+| 200 | admitted the **unambiguous half** and let everything else keep the old `break` | +1, every rail unmoved |
+
+> **When a faithful port is too expensive, the question is not "port less of it"
+> but "which direction does porting less of it fail in".** §198 ported the
+> *action* without the *condition* and failed toward inventing parameters. §200
+> ported the condition as a subset and fails toward the behaviour that was
+> already there. Same amount of missing code, opposite blast radius.
+
+That is this board's standing rule for diagnostics — *declining is a gap, never
+a wrong answer* — transferred to a recovery decision, and it is the first time
+it has been applied outside a rule.
+
+### What the complete predicate is still worth
+
+`isStartOfType` remains unported and `bd` carries it. The cases it would add are
+the ones where a parameter list resumes at a *type* rather than a name, and they
+keep today's `break`. Nothing is wrong at those positions; there is simply less
+recovery than upstream has.
