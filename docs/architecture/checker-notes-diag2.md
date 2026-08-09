@@ -20310,3 +20310,96 @@ mechanical shape: a helper whose body contains more than one `?` or `else
 return None`, called through `?` by a rule that reports. Recorded as the next
 instrument-free sweep; not run here, because §339–§342 spent two builds on
 guesses and the rail is to measure the sweep's yield before pricing it.
+
+## §345 — TS2315: `maximum == 0` is an answer, not a decline
+
+§344's generalisation, applied to its nearest sibling rather than swept for
+blindly. `check_type_argument_arity` has this line:
+
+```rust
+if maximum == 0 || (written >= minimum && written <= maximum) { return }
+```
+
+`declared_type_parameter_arity` already computes `(0, 0)` correctly for a
+non-generic class or interface — `parameters.len()` is 0 and nothing fails. The
+caller then throws that answer away. But **a non-generic type written with type
+arguments is not an arity mismatch upstream reports differently; it is a
+different diagnostic entirely**, `checkNoTypeArguments`
+(`vendor/typescript-go/internal/checker/checker.go:23220`):
+
+```go
+func (c *Checker) checkNoTypeArguments(node *ast.Node, symbol *ast.Symbol) bool {
+	if len(node.TypeArguments()) != 0 {
+		…
+		c.error(node, diagnostics.Type_0_is_not_generic, typeName)
+```
+
+Same error node this rule already uses — `node`, the whole reference, not the
+name. So the span, the resolution, the heritage-clause guard and the alias
+decline are all in place; only the report is missing.
+
+This is §343's shape one more time, and it is worth naming precisely because the
+mechanism differs each time while the failure does not:
+
+```
+§335  a position two correct predicates both declined
+§343  a `?` merging *absent* with *unresolvable*
+§345  a computed answer discarded by a guard written for the mismatch case
+```
+
+> **Three different ways to spell "we have the information and do not use it."**
+
+### The bar
+
+```
+bar:  +3 cases of 4,  0 LOST,  WRONG delta <= +2
+```
+
+`occupied 0/12` — no position is already taken, so nothing here adds a second
+diagnostic to a line that has one.
+
+### Falsifiers
+
+1. **A type *alias* written with arguments reports TS2315 from here.**
+   `declared_type_parameter_arity` declines aliases, and upstream issues TS2558
+   for them from a different function (§18's table).
+2. **`f<number>()` — an instantiation expression — reports.** The
+   `ExpressionWithTypeArguments` guard above already confines this rule to
+   heritage clauses.
+
+## §346 — §345 built: **+2**
+
+```
+diagnostics   1,852 → 1,854   (bar was +3;  +2, 0 LOST)
+every other suite unmoved — both falsifiers negative
+```
+
+The two remaining TS2315 cases are `nonGenericTypeReferenceWithTypeArguments`
+(nine lines, so a partial rule cannot reach it — §273) and
+`declarationEmitExpressionInExtends4`, whose reference is an expression rather
+than an identifier and which `declared_type_parameter_arity` declines at its
+first line by design.
+
+### Three builds, one failure, three spellings
+
+```
+§335  +7   a position two correct predicates both declined
+§343  +1   a `?` merging *absent* with *unresolvable*
+§345  +2   a computed answer discarded by a guard written for the mismatch case
+```
+
+Ten cases from *information this port already had*. None of these needed a new
+subsystem, a relation, or a flow analysis — and none was findable by ranking
+codes, which is what every instrument here did before `diagnode` and
+`diagdeepen`.
+
+The counter-pressure is real and measured: §338 (−3), §339 (−3), §341 (−8) were
+the same *kind* of reasoning applied to guards that turned out to be load-
+bearing. The discriminator, stated after five builds rather than guessed before
+them:
+
+> **Ask what the guard protects against, not what it tests.** §345's `maximum
+> == 0` protects against reporting an arity mismatch that isn't one — and
+> nothing else, so supplying the right diagnostic instead is free. §342's
+> annotation clause protects against this port's flow analysis being wrong,
+> which is not a thing a better message can fix.

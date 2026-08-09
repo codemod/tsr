@@ -64,7 +64,25 @@ impl Checker<'_, '_> {
             return;
         }
         let Some((minimum, maximum)) = self.declared_type_parameter_arity(name) else { return };
-        if maximum == 0 || (written >= minimum && written <= maximum) {
+        // `maximum == 0` is an **answer**, not a failure to compute one: the
+        // class or interface resolved and declares no type parameters. Upstream
+        // does not treat it as an arity mismatch at all — `checkNoTypeArguments`
+        // (`checker.go:23220`) issues a different diagnostic, on the same error
+        // node this rule already uses. §345.
+        if maximum == 0 {
+            if written == 0 {
+                return;
+            }
+            let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+            let span = self.error_span(node);
+            let printed = self.written_type_name(name);
+            self.report(
+                file,
+                Diagnostic::with_args(&messages::TYPE_0_IS_NOT_GENERIC, span, [printed]),
+            );
+            return;
+        }
+        if written >= minimum && written <= maximum {
             return;
         }
         let message = if minimum < maximum {
