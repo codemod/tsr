@@ -21392,3 +21392,47 @@ performed by hand and assumed.
 TS2503's four remaining cases keep their owner: the `parserGenericsInTypeContexts`
 pair sit in a `TypeReferenceNode` and are declined by something not yet
 diagnosed, deliberately not guessed at a second time.
+
+## §370 — `diagnode` gains the join §369 asked for
+
+§360 and §369 were the same failure: **the position was found and the code was
+assumed.** Every instrument here ranks codes; `diagnode` ranks positions;
+nothing joined them. It does now — a `claimed` column counting missing lines
+that sit where this port already emits a *different* code.
+
+```
+node kind at the position              lines  claimed   top codes wanted there
+Identifier in PropertyDeclaration        266  111/266   TS2416×69  TS2411×32  TS2300×26
+<no node at position>                    967  164/967   TS1005×141 TS1128×102 TS1487×86
+Identifier in PropertyAccessExpression  1373   90/1373  TS2339×426 TS2322×99
+Identifier in BinaryExpression          2425   53/2425  TS2322×1026
+Identifier in TypeReference              530    6/530   TS2304×316 TS2313×41
+ReturnStatement in Block                 350    0/350   TS2322×334
+```
+
+### What the column separates
+
+```
+claimed LOW    the position is empty — no rule looks. Widening a predicate can
+               convert; §335, §347, §357, §361 all lived here.
+claimed HIGH   a rule looks and picks a different code. Widening a position
+               ADDS a second diagnostic; §368 was this and cost −2.
+```
+
+`Identifier in PropertyDeclaration` at **111/266** is the densest claimed region
+on the board and would have been the next place to widen a position blindly.
+`Identifier in TypeReference` at **6/530** is the opposite, and is where §335's
+`+7` came from.
+
+> The pairing that matters is not *is this code missing* but *is this position
+> empty*. `diagslice`'s `occupied` answers that per **code** (§293); this
+> answers it per **position**, and §368 is the case where those two disagree —
+> TS2503's row showed `occupied 0/6`, because the positions its cases want are
+> empty *for TS2503* while being full of the codes upstream actually reports
+> there.
+
+### The two builds this would have stopped
+
+`§360` (TS6142) and `§369` (TS2503) both widened a position whose blocked cases
+sit in the claimed column. Neither instrument then existing could show that;
+`diagslice` reported `occupied 0/n` for both, correctly and misleadingly.

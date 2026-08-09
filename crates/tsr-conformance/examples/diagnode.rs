@@ -34,8 +34,16 @@ use tsr_conformance::{
     repo_root,
 };
 
-/// One missing line: the node kind at its position, and its code.
-type Row = (String, u32);
+/// One missing line: the node kind at its position, the code wanted there, and
+/// the code this port emits at that exact position instead — `None` when it
+/// emits nothing at all.
+///
+/// The third field is the **join** §369 said nothing performed. Every
+/// instrument here ranks codes; this file ranks positions; the pair
+/// `(position, wanted, emitted)` is what distinguishes *no rule looks here*
+/// from *a rule looks and picks the wrong code*. §360 and §369 were both builds
+/// spent on the second while assuming the first.
+type Row = (String, u32, Option<u32>);
 
 fn main() {
     let corpus = Corpus::from_repo_root(&repo_root());
@@ -43,8 +51,15 @@ fn main() {
     let rows: Vec<Row> = cases.par_iter().flat_map(measure).collect();
 
     let mut by_kind: BTreeMap<String, BTreeMap<u32, usize>> = BTreeMap::new();
-    for (kind, code) in rows {
-        *by_kind.entry(kind).or_default().entry(code).or_default() += 1;
+    // How many of a kind's missing lines sit at a position this port already
+    // fills with a *different* code — the position is claimed, and porting the
+    // wanted code adds a second diagnostic rather than converting anything.
+    let mut claimed: BTreeMap<String, usize> = BTreeMap::new();
+    for (kind, code, emitted) in rows {
+        *by_kind.entry(kind.clone()).or_default().entry(code).or_default() += 1;
+        if emitted.is_some() {
+            *claimed.entry(kind).or_default() += 1;
+        }
     }
     let mut ranked: Vec<(String, usize, BTreeMap<u32, usize>)> = by_kind
         .into_iter()
@@ -55,12 +70,17 @@ fn main() {
         .collect();
     ranked.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
 
-    println!("{:<34} {:>7}   top codes wanted at this kind", "node kind at the position", "lines");
+    println!(
+        "{:<34} {:>7} {:>8}   top codes wanted at this kind",
+        "node kind at the position", "lines", "claimed"
+    );
     for (kind, total, codes) in ranked.iter().take(28) {
+        let claimed = claimed.get(kind).copied().unwrap_or(0);
         let mut top: Vec<(u32, usize)> = codes.iter().map(|(&c, &n)| (c, n)).collect();
         top.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
         let shown: Vec<String> = top.iter().take(4).map(|(c, n)| format!("TS{c}×{n}")).collect();
-        println!("{kind:<34} {total:>7}   {}", shown.join("  "));
+        let share = format!("{claimed}/{total}");
+        println!("{kind:<34} {total:>7} {share:>8}   {}", shown.join("  "));
     }
 }
 
@@ -110,7 +130,13 @@ fn measure(case: &CaseEntry) -> Vec<Row> {
             .get(&(key.0.clone(), key.1, key.2))
             .cloned()
             .unwrap_or_else(|| "<no node at position>".to_string());
-        rows.push((kind, key.3));
+        let emitted = got
+            .keys()
+            .find(|other| {
+                (&other.0, other.1, other.2) == (&key.0, key.1, key.2) && other.3 != key.3
+            })
+            .map(|other| other.3);
+        rows.push((kind, key.3, emitted));
     }
     rows
 }
