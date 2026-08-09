@@ -23,6 +23,8 @@ use tsr_ast::{Node, NodeId, SyntaxKind};
 use tsr_binder::{SymbolFlags, SymbolId};
 use tsr_diagnostics::{Diagnostic, messages};
 
+use crate::types::TypeId;
+
 use crate::checker::Checker;
 
 impl<'a> Checker<'a, '_> {
@@ -120,9 +122,10 @@ impl<'a> Checker<'a, '_> {
         let Some(parameters) = self.sole_signature_parameters(callee) else { return };
         for (index, argument) in call.arguments.iter().enumerate() {
             let Some(parameter) = parameters.get(index) else { break };
-            let Some(annotation) = *parameter else { continue };
+            let Some((annotation, optional)) = *parameter else { continue };
             let Some(argument_id) = argument.node_id() else { continue };
-            let target = self.get_type_from_type_node(annotation);
+            let declared = self.get_type_from_type_node(annotation);
+            let target = self.add_optionality(declared, optional);
             // An object literal at an argument position is an excess-property
             // site exactly as one at a declaration is — the contextual type is
             // the parameter's. `check_excess_properties` is the same function
@@ -185,9 +188,11 @@ impl<'a> Checker<'a, '_> {
         } else {
             0
         }) {
-            let Some(annotation) = annotations.get(index).copied().flatten() else { break };
+            let Some((annotation, optional)) = annotations.get(index).copied().flatten() else {
+                break;
+            };
             let Some(argument_id) = argument.node_id() else { continue };
-            let Some(target) = self.type_from_annotation_id(annotation) else { continue };
+            let Some(target) = self.parameter_target_type(annotation, optional) else { continue };
             let before = self.diagnostics.len();
             self.check_excess_properties(target, argument_id);
             if self.diagnostics.len() != before {
@@ -359,7 +364,12 @@ impl<'a> Checker<'a, '_> {
             .parameters
             .iter()
             .filter(|parameter| !Self::is_this_parameter_declaration(parameter))
-            .map(|parameter| parameter.r#type.and_then(|annotation| annotation.node_id()))
+            .map(|parameter| {
+                parameter
+                    .r#type
+                    .and_then(|annotation| annotation.node_id())
+                    .map(|annotation| (annotation, Self::parameter_is_optional(parameter)))
+            })
             .collect();
         Some(ConstructorArity { annotations, minimum, maximum, check_argument_types })
     }
@@ -660,13 +670,67 @@ impl<'a> Checker<'a, '_> {
         }
     }
 
+    /// `getTypeOfParameter` (`checker.go:17042`) — the parameter's declared type
+    /// with **optionality added**.
+    ///
+    /// ```go
+    /// declaration := symbol.ValueDeclaration
+    /// return c.addOptionalityEx(c.getTypeOfSymbol(symbol), false,
+    ///     declaration != nil && (declaration.Initializer() != nil || isOptionalDeclaration(declaration)))
+    /// ```
+    ///
+    /// `addOptionalityEx` (`:18633`) unions in `undefined` under
+    /// `strictNullChecks`, and `isOptionalDeclaration` (`utilities.go:299`) is
+    /// `HasQuestionToken`. So **both** spellings of an optional parameter widen
+    /// its type:
+    ///
+    /// ```ts
+    /// function f(a: string, b?: string) {}        // b: string | undefined
+    /// function g(a: string, b: string = "d") {}   // b: string | undefined
+    /// ```
+    ///
+    /// Taking the annotation alone made every `string | undefined` argument at
+    /// such a position a TS2345, which is upstream's answer for a *required*
+    /// parameter and nobody's for an optional one. `getFileLanguage(language,
+    /// fileName)` against `fileName?: string` is the shape; it is what a
+    /// component library is written in.
+    ///
+    /// **`is_property: false`**, upstream's argument here, so the added member
+    /// is `undefined` and not the `missing` type an optional *property* gets.
+    fn parameter_target_type(&mut self, annotation: NodeId, optional: bool) -> Option<TypeId> {
+        let declared = self.type_from_annotation_id(annotation)?;
+        Some(self.add_optionality(declared, optional))
+    }
+
+    /// `addOptionalityEx(t, isProperty: false, isOptional)` (`checker.go:18633`).
+    ///
+    /// `getOptionalType` (`:18640`) short-circuits when the type already leads
+    /// with `undefined`, which `get_union_type` reaches anyway by deduplicating.
+    fn add_optionality(&mut self, declared: TypeId, optional: bool) -> TypeId {
+        if !optional || !self.strict_null_checks {
+            return declared;
+        }
+        let undefined = self.intrinsics.undefined;
+        self.get_union_type(&[declared, undefined])
+    }
+
+    /// Whether a parameter declaration is optional, for
+    /// [`Checker::parameter_target_type`].
+    ///
+    /// `declaration.Initializer() != nil || isOptionalDeclaration(declaration)`.
+    /// A rest parameter never reaches here — both callers stop at the first
+    /// `...`, because its annotation is the array rather than the element.
+    fn parameter_is_optional(parameter: &tsr_ast::ParameterDeclaration<'_>) -> bool {
+        parameter.question_token.is_some() || parameter.initializer.is_some()
+    }
+
     /// The written parameter annotations of the sole signature a callee names,
     /// in order — `None` where [`Checker::sole_signature_arity`] declines, or
     /// where the function is generic.
     fn sole_signature_parameters(
         &mut self,
         callee: NodeId,
-    ) -> Option<Vec<Option<tsr_ast::TypeNode<'a>>>> {
+    ) -> Option<Vec<Option<(tsr_ast::TypeNode<'a>, bool)>>> {
         let symbol = self.callee_symbol(callee)?;
         let entry = self.binder.symbols().get(symbol);
         if !entry.flags.intersects(SymbolFlags::FUNCTION) || entry.declarations.len() != 1 {
@@ -690,7 +754,11 @@ impl<'a> Checker<'a, '_> {
                 // A rest parameter's annotation is the *array*, not the element,
                 // so position `i` no longer names parameter `i`.
                 .take_while(|parameter| parameter.dot_dot_dot_token.is_none())
-                .map(|parameter| parameter.r#type)
+                .map(|parameter| {
+                    parameter
+                        .r#type
+                        .map(|annotation| (annotation, Self::parameter_is_optional(parameter)))
+                })
                 .collect(),
         )
     }
@@ -709,8 +777,10 @@ impl<'a> Checker<'a, '_> {
 /// instantiated parameter list, so the second half declines on its own —
 /// `checker-notes-diag2.md` §90.
 struct ConstructorArity {
-    /// The written annotations of the sole signature, positionally.
-    annotations: Vec<Option<NodeId>>,
+    /// The written annotations of the sole signature, positionally, each with
+    /// whether its parameter is optional — see
+    /// [`Checker::parameter_target_type`].
+    annotations: Vec<Option<(NodeId, bool)>>,
     /// `getMinArgumentCount`, minimised over the overload set.
     minimum: usize,
     /// The parameter count, maximised over the overload set.

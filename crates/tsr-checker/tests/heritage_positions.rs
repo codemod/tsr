@@ -310,3 +310,87 @@ fn a_declaration_file_that_declares_es_module_has_no_synthetic_default() {
         vec!["TS1192".to_string()]
     );
 }
+
+// ---------------------------------------------------------------------------
+// TS2345 and an OPTIONAL parameter
+//
+// `getTypeOfParameter` (`checker.go:17042`) adds optionality to a parameter's
+// declared type:
+//
+//   addOptionalityEx(getTypeOfSymbol(symbol), false,
+//       declaration.Initializer() != nil || isOptionalDeclaration(declaration))
+//
+// so `b?: string` and `b: string = "d"` are both `string | undefined` under
+// strictNullChecks. Taking the written annotation alone made every
+// `string | undefined` argument at such a position a TS2345 — upstream's answer
+// for a *required* parameter and nobody's for an optional one. 22 of them on a
+// 22-package repository, and both conformance snapshots are byte-identical
+// with and without the fix.
+//
+// | mutation | reddens |
+// |---|---|
+// | drop `add_optionality` from the call arm | [`an_optional_parameter_accepts_undefined`] and [`a_defaulted_parameter_accepts_undefined`] |
+// | make `parameter_is_optional` test only `question_token` | [`a_defaulted_parameter_accepts_undefined`] **only** |
+// | drop optionality from the `new` arm | [`a_new_expressions_optional_parameter_accepts_undefined`] **only** |
+//
+// [`a_required_parameter_still_rejects_undefined`] is the control.
+// `docs/architecture/checker-notes-diag2.md` §541.
+// ---------------------------------------------------------------------------
+
+const MAYBE: &str = "declare const maybe: string | undefined;\n";
+
+#[test]
+fn an_optional_parameter_accepts_undefined() {
+    // `isOptionalDeclaration` = `HasQuestionToken` (`utilities.go:299`).
+    assert_eq!(
+        codes(&[(
+            "/a.ts",
+            &format!("{MAYBE}function f(a: string, b?: string): void {{}}\nf(\"x\", maybe);\n")
+        )]),
+        Vec::<String>::new()
+    );
+}
+
+#[test]
+fn a_defaulted_parameter_accepts_undefined() {
+    // The other disjunct — `declaration.Initializer() != nil`. A parameter with
+    // a default is optional at the call site even though it has no `?`.
+    assert_eq!(
+        codes(&[(
+            "/a.ts",
+            &format!(
+                "{MAYBE}function g(a: string, b: string = \"d\"): void {{}}\ng(\"x\", maybe);\n"
+            )
+        )]),
+        Vec::<String>::new()
+    );
+}
+
+#[test]
+fn a_required_parameter_still_rejects_undefined() {
+    // The control, and the reason the two above are not vacuous: without it
+    // they would pass if TS2345 stopped firing altogether.
+    assert_eq!(
+        codes(&[(
+            "/a.ts",
+            &format!("{MAYBE}function h(a: string, b: string): void {{}}\nh(\"x\", maybe);\n")
+        )]),
+        vec!["TS2345".to_string()]
+    );
+}
+
+#[test]
+fn a_new_expressions_optional_parameter_accepts_undefined() {
+    // The `new` arm reaches the same check through `sole_constructor_parameters`
+    // and had the same defect; `resolveNewExpression` shares
+    // `checkApplicableSignature` upstream.
+    assert_eq!(
+        codes(&[(
+            "/a.ts",
+            &format!(
+                "{MAYBE}class C {{ constructor(a: string, b?: string) {{}} }}\nnew C(\"x\", maybe);\n"
+            )
+        )]),
+        Vec::<String>::new()
+    );
+}

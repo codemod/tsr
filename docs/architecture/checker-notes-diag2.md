@@ -27954,7 +27954,6 @@ is why the diagnosis cost one `extraonly` run instead of a bisect.
 **Not built and named**: `A.B` resolving cleanly with `C` missing, which needs
 `resolveEntityName` over a qualified left. TS2694 keeps six cases behind that
 and §186's empty-exports decline.
-<<<<<<< HEAD
 ## §531 — TS1192: the synthetic default, and two conjuncts that were never ported
 
 `import React from "react"` reported *"Module has no default export"* — 78 times
@@ -28047,7 +28046,6 @@ Four tests in `crates/tsr-checker/tests/heritage_positions.rs`, one per arm plus
 a control, each confirmed red under the mutation it exists for. The harness
 needed a `ModuleHost` again — the **third** time this session a fixture harness
 without one first showed up as a green test that should have been red.
-=======
 
 ## §531 — TS2304: `libReplacement`, and four cases the loader never had a chance at
 
@@ -28161,7 +28159,6 @@ The lib-name mapping and the replacement branch are built. Its three
 and emitted at the end of the run, sorted by path key — which is untouched.
 `file_loader` and `module_resolution` both still read 100%, so the replay is
 invisible to them today and the issue stays open on its own terms.
->>>>>>> ed8c57ad (loader: §531/§532 libReplacement resolves @typescript/lib-* (+2))
 
 ## §533 — the diagnostics producer never reads a case's `tsconfig.json`
 
@@ -28564,3 +28561,68 @@ deliberate exception of the current-directory *default*, which differs because
 the two suites' baselines differ (§539).
 
 Back to rules.
+## §541 — an optional parameter's type includes `undefined`
+
+`getTypeOfParameter` (`checker.go:17042`), three lines:
+
+```go
+declaration := symbol.ValueDeclaration
+return c.addOptionalityEx(c.getTypeOfSymbol(symbol), false,
+    declaration != nil && (declaration.Initializer() != nil || isOptionalDeclaration(declaration)))
+```
+
+`addOptionalityEx` (`:18633`) unions in `undefined` under `strictNullChecks`;
+`isOptionalDeclaration` (`utilities.go:299`) is `HasQuestionToken`. So **both**
+spellings widen:
+
+```ts
+function f(a: string, b?: string) {}        // b: string | undefined
+function g(a: string, b: string = "d") {}   // b: string | undefined
+```
+
+The argument check here took the *written annotation* and nothing else, so every
+`string | undefined` argument at such a position drew TS2345 — upstream's answer
+for a **required** parameter and nobody's for an optional one.
+
+### Both call arms had it
+
+`sole_signature_parameters` and `sole_constructor_parameters` each mapped a
+parameter to `parameter.r#type` and discarded the declaration, so the `?` and
+the initializer were both unreachable by the time the target type was built.
+Each now carries `(annotation, optional)` and both go through
+`add_optionality`. `resolveNewExpression` shares `checkApplicableSignature`
+upstream, so it is one defect in two places rather than two.
+
+`is_property: false` is upstream's argument at this call site — the added member
+is `undefined`, not the `missing` type an optional *property* gets.
+
+### The measurement
+
+| | base | after |
+|---|---:|---:|
+| `binder_symbols` | 8,456/8,456 | 8,456/8,456 |
+| `checker_types` | 4,116 / 85.64% | **snapshot byte-identical** |
+| `diagnostics` | 2,054/5,488 | **snapshot byte-identical** |
+| the 22-package repository | **84** | **62** |
+
+TS2345 23 → 1, and **not one line of either snapshot moved**. That is worth
+dwelling on for a change that *widens a type*: the risk here was a lost case,
+because a wider parameter accepts more and could silence a diagnostic the corpus
+expects. It silenced none. The corpus's TS2345 fixtures are written with
+required parameters, which is what a test for TS2345 looks like — and it is the
+sixth defect this session that only a real repository exhibits.
+
+### The survivor, and it is a different gap
+
+One TS2345 remains on that repository:
+
+```ts
+if (rule.htmlDesc?.trim()) {
+    return stripHtml(rule.htmlDesc);   // narrowed by the optional chain
+}
+```
+
+That is optional-chain narrowing, which `docs/architecture/binder.md` already
+records as unbuilt — the parser does not set `NodeFlags::OPTIONAL_CHAIN`, so
+`a?.b` gets the flow graph of `a.b` and the guard narrows nothing. Pre-existing,
+named, and not this row's.
