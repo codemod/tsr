@@ -629,7 +629,11 @@ impl Checker<'_, '_> {
             self.check_super_call_outside_constructor(node);
         }
         if self.nodes.kind(node) == SyntaxKind::ThisKeyword {
-            self.check_this_in_module_body(node);
+            // §103's order: the computed-property arm runs first and excludes
+            // the module arm below. §500.
+            if !self.check_this_in_computed_name(node) {
+                self.check_this_in_module_body(node);
+            }
             self.check_implicit_this(node);
         }
         self.check_truthiness_sites(node, ambient);
@@ -2166,6 +2170,34 @@ impl Checker<'_, '_> {
             };
             self.report(file, Diagnostic::new(message, span));
         }
+    }
+
+    /// TS2465 — `'this' cannot be referenced in a computed property name.`
+    ///
+    /// `checkThisExpression`'s **first** arm (`checker.go:12100`), whose `else`
+    /// branch §392 ported as TS2331. §103's rule makes the dependency explicit:
+    /// a `this` inside a computed property name inside a namespace is TS2465,
+    /// **not** TS2331, so [`Checker::check_this_in_module_body`] declines where
+    /// this fires. Sibling of §468's `super` rule, in upstream's source too.
+    /// §500.
+    fn check_this_in_computed_name(&mut self, node: NodeId) -> bool {
+        if self.file_has_parse_errors {
+            return false;
+        }
+        if !self
+            .nodes
+            .ancestors(node)
+            .any(|ancestor| self.nodes.kind(ancestor) == SyntaxKind::ComputedPropertyName)
+        {
+            return false;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return true };
+        let span = self.nodes.span(node);
+        self.report(
+            file,
+            Diagnostic::new(&messages::THIS_CANNOT_BE_REFERENCED_IN_A_COMPUTED_PROPERTY_NAME, span),
+        );
+        true
     }
 
     fn check_this_in_module_body(&mut self, node: NodeId) {

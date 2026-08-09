@@ -26556,3 +26556,85 @@ modifiers instead.
 > §452's *"the parser's unset flags"* was one. This is the same refusal with a
 > file, a function, and three numbered steps — which is the difference between
 > a boundary and a task.
+
+## §500 — TS2465: `this` in a computed property name
+
+`checkThisExpression` (`checker.go:12100`), and the ordering is the whole build:
+
+```go
+if thisInComputedPropertyName {
+    c.error(node, X_this_cannot_be_referenced_in_a_computed_property_name)   // TS2465 — this
+} else {
+    switch container.Kind {
+    case ast.KindModuleDeclaration: … TS2331                                 // §392
+```
+
+§392 ported the `else` branch's module case sixty sections ago. **This is the
+`if`**, and §103's rule makes the dependency explicit: a `this` inside a computed
+property name inside a namespace must report TS2465, *not* TS2331 — so §392's
+rule has to decline where this one fires.
+
+That is exactly the differential §494 asked for, arriving as a *precondition*
+rather than as a check afterwards: **two arms of one `if/else`, built sixty
+sections apart, and the second cannot be added without amending the first.**
+
+```ts
+class C {
+    [this.x]() { }     // TS2465
+}
+```
+
+### The bound
+
+A `this` keyword with a `ComputedPropertyName` ancestor — the same walk §468
+uses for `super`, and the two are siblings in upstream's source as well
+(`:12101` and `:7904`).
+
+### The bar
+
+```
+bar:  +2 of 2,  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **A `this` in a namespace, not in a computed name, stops reporting TS2331.**
+   §392's row must not regress — the amendment is an *exclusion*, not a
+   replacement.
+2. **A `this` in a computed name inside a namespace reports both codes.** The
+   `if/else` is exclusive upstream and must be here.
+
+## §501 — §500 built: **+1** of 2
+
+```
+diagnostics   2,022 → 2,023   (bar was +2;  +1, 0 LOST)   36.86%
+every other suite unmoved — both falsifiers negative
+```
+
+Kept. The second case wants a further line; §486's finding applies.
+
+### The ordering amendment worked, and it is the point
+
+§392's rule now declines where §500 fires, and `checker_types` and every rail
+are unmoved — meaning **§392's own row did not regress**, which was falsifier
+one and the only real risk in amending a sixty-section-old rule.
+
+> **An `if/else` in upstream is a contract between two builds that may be
+> months apart.** §392 built the `else` and could not have known the `if` was
+> coming; §500 could not add the `if` without amending it. Nothing in the notes
+> flagged §392 as half of a pair — it was recorded as *"TS2331, the module arm"*,
+> which is accurate and does not say *"and the other arm is unbuilt"*.
+>
+> **A build that ports one arm of an exclusive pair should say which arm it did
+> not port.** That is §230's rule stated for the case where the branches are
+> shipped separately on purpose — the discipline is not "always ship both", it
+> is "always record the other one".
+
+Applied retroactively, the pairs this session shipped apart:
+
+```
+§392 TS2331  ⇄ §500 TS2465   the `this` if/else          both now built
+§468 TS2466  ⇄ §482 TS2337   the `super` switch          arm three unbuilt
+§470 TS2376  ⇄ §485 TS2377   the constructor branches    root-level arm unbuilt
+§472 TS1268  ⇄ §496 TS1021   the index-signature guards  both now built
+```
