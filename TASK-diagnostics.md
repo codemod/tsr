@@ -12,8 +12,8 @@ FIRST: git pull. Then read, in this order:
   builds.
 
 STATE AT HANDOFF, fourteenth session (verify with a fresh run):
-  diagnostics    1,613/5,488 = 29.39%   (+162 over SEVENTEEN builds, zero lost —
-                 §156-§197).  `extraonly` fell 50 -> 29 cases.
+  diagnostics    1,614/5,488 = 29.41%   (+163 over EIGHTEEN builds, zero lost —
+                 §156-§201).  `extraonly` fell 50 -> 28 cases.
 
 ## READ THIS FIRST: THREE REFUSALS WERE FILED AND ALL THREE WERE WRONG
 
