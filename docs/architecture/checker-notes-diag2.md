@@ -18857,3 +18857,85 @@ line and a missing conversion were the same defect.**
 Falsifiers 1–3 stayed negative: a property overriding a property, a `static`
 member, and an `implements` clause are all silent. The one-hop restriction and
 the abstract/interface decline are recorded in §309 and untested by this corpus.
+
+## §311 — TS2355, §267's fragment on a second rule
+
+`checkAllCodePathsInNonVoidFunctionReturnOrThrow` (`checker.go:3727`) is
+TS2378's sibling and takes the same two never-set flags:
+
+```go
+if t != nil && (c.maybeTypeOfKind(t, TypeFlagsVoid) || t.flags&(Any|Undefined) != 0) { return }
+if IsMethodSignature(fn) || NodeIsMissing(fn.Body()) || !IsBlock(fn.Body()) || !c.functionHasImplicitReturn(fn) { return }
+hasExplicitReturn := fn.Flags&ast.NodeFlagsHasExplicitReturn != 0
+errorNode := fn.Type()
+…
+case t != nil && !hasExplicitReturn:
+    c.error(errorNode, A_function_whose_declared_type_is_neither_undefined_void_nor_any_must_return_a_value)
+```
+
+§267 established the fragment: **no `return` and no `throw` in the body** makes
+`HasExplicitReturn` certainly false and `HasImplicitReturn` certainly true, and
+`subtree_has_return_or_throw` already implements it, nested function-likes
+excluded.
+
+What this rule adds is a written **return annotation** that is not `void`,
+`any`, `undefined` or `never` — and the error is reported *on the annotation*,
+not on the function.
+
+`never` takes the branch above (`A_function_returning_never_cannot_have_a_reachable_end_point`,
+a different code) and is declined here.
+
+### The bar
+
+```
+bar:  +4 cases of 6,  0 LOST,  WRONG delta <= +2
+```
+
+§267's identical fragment took 6 of 7; this row is 6 with all six single-line.
+
+### Falsifiers
+
+1. **A function with `: void` reports.** The annotation test is the first guard.
+2. **An arrow with an expression body reports.** `!IsBlock(fn.Body())` declines.
+3. **A method *signature* reports.** It has no body at all.
+
+## §312 — §311 measured twice and reverted: the same fragment, a wider population
+
+```
+annotation tested by keyword   diagnostics 1,807 → 1,800   LOST 12 · RIGHT 26 · WRONG 93
+annotation tested by type                    → 1,804   LOST  8 · RIGHT 23 · WRONG 50
+```
+
+Reverted. §267's fragment — *no `return` and no `throw` in the body* — took
+TS2378 to `+6 of 7` at zero wrong. The identical fragment on TS2355 is `−3` at
+fifty.
+
+### The bound that was right independently
+
+Testing the annotation's **keyword** (`void`, `any`, `undefined`, `never`)
+instead of the resolved **type** was 43 of the 93. `maybeTypeOfKind(t, Void)`
+and `t.flags&(Any|Undefined)` are asked of the type, so `type V = void` and a
+type parameter resolving to one both decline upstream and reported here. The
+machinery to ask properly was already present; the syntax shortcut was chosen
+because §308's `extends null` had just made a syntactic test look attractive.
+
+### Why the same fragment failed here
+
+A **getter** with no `return` is unambiguous: it has one shape, always has a
+body, and is never ambient. A **function** has many — overloads, `.js` files
+(there is no `in_js_file` guard on this arm and
+`jsFileCompilationReturnTypeSyntaxOfFunction` is in the residue), declaration
+files, and bodies whose end is unreachable for reasons `functionHasImplicitReturn`
+knows and a `return`/`throw` scan does not.
+
+> **A fragment is sound for a *condition*, not for a *rule*, and the same
+> condition over a wider population meets shapes the narrow one never had.**
+> §267 and §311 share every line of reasoning and differ only in which node
+> kinds they run on; that difference is the whole result.
+
+### Refused, owner named
+
+**TS2355, 6 cases — refused.** Owner: `functionHasImplicitReturn`
+(`checker.go:3739`), which is reachability, not the presence of a `return`. The
+type-based annotation guard is correct and is recorded here for whoever builds
+it properly; the `.js` decline is a second, separate omission.
