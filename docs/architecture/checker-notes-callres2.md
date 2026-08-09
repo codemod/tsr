@@ -454,3 +454,22 @@ only admissible gate. (Also for the record: the reverting edit
 itself broke brace balance and was recovered by checkout-from-HEAD
 — at this depth of session, landed-commit recovery beats
 re-surgery.)
+
+**Arms (a)+(b) solo — the arc's FINAL attribution: (c) was inert.**
+The solo pair reproduces iteration 4's numbers EXACTLY (+130 G→R
++63 W→R / 330+58+19 adverse), so the function-shape inference arm
+contributed nothing in either direction — the whole cost/benefit
+belongs to the CONTEXT ROAD, and its population splits on one
+axis: positions whose wants are the UNINSTANTIATED prints win
+(temporal 58, contextSensitiveReturnTypeInference 22); positions
+whose wants are INSTANTIATED lose (stringLiteralTypesAsType-
+ParameterConstraint01 23, the typeArgumentInference families) —
+and no syntactic gate separates them, because the split IS whether
+upstream's inference succeeds. The investigation is now
+exhaustively measured: every arm solo and combined, every gate
+priced. ONE build remains for this owner and it is whole-or-
+nothing, its parts list final: steps 2+4's fields with the
+consumption rule, the four-stage pipeline, arms (a)+(b) as the
+context side, instantiated-return substitution as the consumer.
+The +193-class and the 330-class are its twin acceptance sets —
+the build must convert BOTH.
