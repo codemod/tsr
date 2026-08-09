@@ -45,23 +45,48 @@ impl Checker<'_, '_> {
         if ambient || self.file_has_parse_errors {
             return;
         }
-        let Some(Node::PropertyAccessExpression(access)) = self.node_map.get(node) else { return };
-        let (Some(receiver), Some(member)) = (access.expression, access.name) else { return };
-        // A private name has its own diagnostics (TS2339 is reported for one,
-        // but so are TS18013 and TS18016 from `crate::members`' own note), and
-        // the corpus's private-name cases are a row of their own.
-        let tsr_ast::MemberName::Identifier(name) = member else { return };
-        let Some(name_id) = name.node_id else { return };
+        // **`a["nope"]` is the same question.** Eight of upstream's twelve
+        // `checker.go` sites for this code are the element-access cluster
+        // (`checker.go:27074`–`:27196`), and this rule saw none of them. Only a
+        // **string-literal** argument is admitted: a computed index names no
+        // particular property, which is the bound §326 took for the readonly
+        // rule and `declared_members_are_complete` takes for index signatures.
+        // §401.
+        let (receiver, name_text, name_id, optional) = match self.node_map.get(node) {
+            Some(Node::PropertyAccessExpression(access)) => {
+                let (Some(receiver), Some(member)) = (access.expression, access.name) else {
+                    return;
+                };
+                // A private name has its own diagnostics (TS2339 is reported for
+                // one, but so are TS18013 and TS18016 from `crate::members`' own
+                // note), and the corpus's private-name cases are a row of their
+                // own.
+                let tsr_ast::MemberName::Identifier(name) = member else { return };
+                let Some(name_id) = name.node_id else { return };
+                (receiver, name.text, name_id, access.question_dot_token.is_some())
+            }
+            Some(Node::ElementAccessExpression(access)) => {
+                let (Some(receiver), Some(argument)) =
+                    (access.expression, access.argument_expression)
+                else {
+                    return;
+                };
+                let Some(id) = argument.node_id() else { return };
+                let Some(Node::StringLiteral(literal)) = self.node_map.get(id) else { return };
+                (receiver, literal.text, id, access.question_dot_token.is_some())
+            }
+            _ => return,
+        };
         // An optional chain strips `null`/`undefined` before the lookup, and
         // this rule reads the receiver's type directly — so the two disagree
         // exactly where `?.` is written.
-        if access.question_dot_token.is_some() {
+        if optional {
             return;
         }
 
         let Some(receiver_id) = receiver.node_id() else { return };
         let receiver_type = self.check_expression(receiver);
-        if self.global_this_member_is_not_reported(receiver_type, name.text) {
+        if self.global_this_member_is_not_reported(receiver_type, name_text) {
             return;
         }
         if !self.receiver_type_is_the_declared_one(receiver_id, receiver_type)
@@ -69,11 +94,11 @@ impl Checker<'_, '_> {
         {
             return;
         }
-        if self.get_property_of_type(receiver_type, name.text).is_some() {
+        if self.get_property_of_type(receiver_type, name_text).is_some() {
             return;
         }
-        if self.is_a_universal_object_member(name.text)
-            || self.other_side_of_class_has(receiver_type, name.text)
+        if self.is_a_universal_object_member(name_text)
+            || self.other_side_of_class_has(receiver_type, name_text)
         {
             return;
         }
@@ -83,7 +108,7 @@ impl Checker<'_, '_> {
         // selects costs one message.
         let candidates = self.property_names_of(receiver_type);
         if let Some(suggestion) = crate::check::spelling_suggestion(
-            name.text,
+            name_text,
             &candidates.iter().map(String::as_str).collect::<Vec<_>>(),
         ) {
             let suggestion = suggestion.to_string();
@@ -95,7 +120,7 @@ impl Checker<'_, '_> {
                 Diagnostic::with_args(
                     &messages::PROPERTY_0_DOES_NOT_EXIST_ON_TYPE_1_DID_YOU_MEAN_2,
                     span,
-                    [name.text.to_string(), printed, suggestion],
+                    [name_text.to_string(), printed, suggestion],
                 ),
             );
             return;
@@ -108,7 +133,7 @@ impl Checker<'_, '_> {
             Diagnostic::with_args(
                 &messages::PROPERTY_0_DOES_NOT_EXIST_ON_TYPE_1,
                 span,
-                [name.text.to_string(), printed],
+                [name_text.to_string(), printed],
             ),
         );
     }

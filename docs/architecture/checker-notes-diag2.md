@@ -22612,3 +22612,86 @@ inventory, not a count.
 
 Recorded as the ordering for the next session: **files first, then
 `diagslice` ∩ `diagdeepen`, then read the function.**
+
+## §401 — TS2339 on an element access
+
+Following §400's own ordering — files first — TS2339's twelve `checker.go` sites
+were inventoried. They cluster:
+
+```
+11340              the `in` operator's right-hand side
+11548/60/83        reportNonexistentProperty's chain (PORTED)
+27074–27196        ELEMENT ACCESS — `obj["missing"]`   NOT PORTED
+```
+
+Eight of the twelve are the element-access cluster, and
+`check_nonexistent_property` opens with
+
+```rust
+let Some(Node::PropertyAccessExpression(access)) = self.node_map.get(node) else { return };
+```
+
+so `a["nope"]` is invisible to it. §347's shape — one question, asked of one node
+kind — and a missing site cluster at the same time, which is the first row where
+both categories name the same edit.
+
+### The bound
+
+Only a **string-literal** argument. A computed index names no particular
+property, which is the bound `crate::readonly_target` took in §326 and
+`declared_members_are_complete` takes for index signatures. Every other guard in
+the rule — the optional chain, `receiver_type_is_the_declared_one`, the
+universal-member list, the spelling-suggestion arm that selects TS2551 — is
+shared unchanged.
+
+### The bar
+
+```
+bar:  +3 of 103,  0 LOST,  WRONG delta <= +4
+```
+
+Deliberately modest against a large row: most of TS2339's 103 blocked cases are
+the relation's, and this build claims only the syntactic subset.
+
+### Falsifiers
+
+1. **`a[k]` with a computed key reports.** Only string literals.
+2. **A receiver with an index signature reports.** `declared_members_are_complete`
+   already declines those and must keep doing so.
+
+## §402 — §401 built: **+2**, and §380's lesson applied within one build
+
+```
+widening the rule alone     1,898 → 1,898   (+0)
+plus the dispatch arm       1,898 → 1,900   (+2, 0 LOST)   34.62%
+```
+
+Exactly §380's sequence, and this time the diagnosis took one `grep` instead of
+a second reading:
+
+```
+grep -n "check_nonexistent_property(node" crates/tsr-checker/src/check.rs
+→ 1 call site
+```
+
+§380 stated that discriminator two builds ago after paying for it; here it was
+applied the moment the widening measured `+0`, which is the first time a rail
+from this session has been used *as a rail* rather than rediscovered.
+
+> **The `+0` is not the failure — reading it as "the rule is wrong" is.** A rule
+> extended to a node kind that nothing dispatches to it is `+0` by construction,
+> and the two-line check separates that from every other reason a widening can
+> measure nothing. §351 is the other branch of the same fork: a rule *is*
+> dispatched, is correct, and still measures `+0` because no case reaches it.
+
+### The board crosses 1,900
+
+```
+80 → 1,900 across fourteen sessions, 23.75×
+this session: +449 over ninety-two builds, 0 lost
+```
+
+TS2339's remaining blocked cases are the relation's. The element-access cluster
+(`checker.go:27074`–`:27196`) is now half-ported — the string-literal subset —
+and the computed-index arms need the index-type machinery, which is the same
+owner as §394's tuple arity.

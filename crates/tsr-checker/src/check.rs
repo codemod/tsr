@@ -398,6 +398,10 @@ impl Checker<'_, '_> {
             }
             Node::ElementAccessExpression(_) => {
                 self.check_null_or_undefined_receiver(node);
+                // §401: the same question as the property-access arm below, and
+                // §380's lesson — a rule that declines and a rule that is never
+                // called are indistinguishable from the outside.
+                self.check_nonexistent_property(node, ambient);
                 // §326 — `M["x"] = 1` is the same readonly question as
                 // `M.x = 1`, and the rule was reached from one arm only.
                 self.check_readonly_assignment_target(node, ambient);
