@@ -2549,18 +2549,27 @@ impl Checker<'_, '_> {
                 // CHAIN keep (true) or drop (false); an undecidable shape
                 // declines whole rather than guessing.
                 if operator.kind == SyntaxKind::InstanceOfKeyword {
-                    // The FALSE branch has NO effect — the baseline is
-                    // unambiguous (`typeGuardOfFormInstanceOf`'s else prints
-                    // the WHOLE union, matching the old-semantics comment in
-                    // the test header); filtering it measured 21 adverse.
-                    if !assume_true {
-                        return t;
-                    }
                     let Some(left_id) = left.node_id() else { return t };
                     if !self.is_matching_reference(state, left_id) {
                         return t;
                     }
                     let callee_type = self.check_expression(right);
+                    // §111 slice 2: an RHS whose `[Symbol.hasInstance]` method
+                    // carries a PREDICATE narrows by the predicate type —
+                    // BOTH branches, exactly as a user guard would
+                    // (`narrowTypeByInstanceof`'s hasInstance half). A
+                    // boolean-returning hasInstance and every other shape keep
+                    // the §83 structural road below.
+                    if let Some(predicate_type) = self.has_instance_predicate_type(callee_type) {
+                        return self.narrow_by_predicate_type(t, predicate_type, assume_true);
+                    }
+                    // The FALSE branch has NO effect on the STRUCTURAL road —
+                    // the baseline is unambiguous (`typeGuardOfFormInstanceOf`'s
+                    // else prints the WHOLE union); filtering it measured 21
+                    // adverse.
+                    if !assume_true {
+                        return t;
+                    }
                     let TypeData::Anonymous { symbol: class_symbol, .. } =
                         self.store.get(callee_type).data
                     else {
@@ -3045,6 +3054,71 @@ impl Checker<'_, '_> {
         {
             return t;
         }
+        self.narrow_by_predicate_type(t, predicate_type, assume_true)
+    }
+
+    /// §111: the PREDICATE a callee's `[Symbol.hasInstance]` method
+    /// declares, when it has exactly one and it is not an assertion. The
+    /// member key is the late-bound written bracket text, which is how this
+    /// binder files well-known-symbol members.
+    fn has_instance_predicate_type(&mut self, callee_type: TypeId) -> Option<TypeId> {
+        // Late-bound members are filed `__computed` OUTSIDE the member
+        // tables (binder.rs:4136) — the well-known name is found by reading
+        // the owner's declarations.
+        let owner = match &self.store.get(callee_type).data {
+            TypeData::Named { members: Some(owner), .. } => *owner,
+            TypeData::Anonymous { symbol, .. } => *symbol,
+            _ => return None,
+        };
+        let declarations = self.binder.symbols().get(owner).declarations.clone();
+        for declaration in declarations {
+            let members: &[tsr_ast::TypeElement<'_>] = match self.node_map.get(declaration) {
+                Some(Node::TypeLiteralNode(node)) => node.members,
+                Some(Node::InterfaceDeclaration(node)) => node.members,
+                _ => continue,
+            };
+            for member in members {
+                let tsr_ast::TypeElement::MethodSignatureDeclaration(method) = member else {
+                    continue;
+                };
+                let tsr_ast::PropertyName::ComputedPropertyName(computed) = method.name else {
+                    continue;
+                };
+                // `Symbol.hasInstance` spelled as a property access.
+                let is_has_instance = matches!(
+                    computed.expression,
+                    Some(tsr_ast::Expression::PropertyAccessExpression(access))
+                        if matches!(access.expression,
+                            Some(tsr_ast::Expression::Identifier(root)) if root.text == "Symbol")
+                            && matches!(access.name,
+                                Some(tsr_ast::MemberName::Identifier(name))
+                                    if name.text == "hasInstance")
+                );
+                if !is_has_instance {
+                    continue;
+                }
+                let symbol = method.node_id.and_then(|id| self.binder.symbol_of(id))?;
+                let member_type = self.get_type_of_symbol(symbol);
+                let signatures = self.signatures_of_type(member_type)?;
+                let [signature] = signatures.as_slice() else { return None };
+                let predicate = signature.predicate.clone()?;
+                if predicate.asserts {
+                    return None;
+                }
+                return predicate.r#type;
+            }
+        }
+        None
+    }
+
+    /// The §22 ladder over a predicate type — shared by call-condition
+    /// narrowing and §111's `[Symbol.hasInstance]` arm.
+    fn narrow_by_predicate_type(
+        &mut self,
+        t: TypeId,
+        predicate_type: TypeId,
+        assume_true: bool,
+    ) -> TypeId {
         // `getNarrowedTypeWorker`'s per-constituent ladder (`flow.go:915`):
         // strictSubtype(t,n) -> t; strictSubtype(n,t) -> n; subtype(t,n) -> t;
         // subtype(n,t) -> n; else drop — the asserted type wins mutual
