@@ -5349,3 +5349,25 @@ arm).
 port resolves to the WRONG overload narrows by the wrong predicate
 — confident wrongs concentrated where arity/overload selection is
 weak; if it fires, gate on single-signature callees.
+
+**§127 MEASURED AND LANDED at iteration 4 — +2 G→R / +15 W→R
+against 2 G→W / 0 R→W (8.5:1), right ~410,279 → 410,294 (85.66%).**
+The count bar missed by a wide margin (17 vs ≥40) and the reasons
+are named per form: the corpus's assertion population is heavily
+`asserts this` (declined by design — needs this-reference matching)
+and `Debug.assert(false)`-style NEVER-RETURN unreachability (a
+different mechanism: flow truncation, not narrowing). Four
+iterations: (1) truthiness-narrowing the reference measured wrong —
+upstream's bare `asserts x` narrows by the ARGUMENT AS A TRUE
+CONDITION (`narrowTypeByAssertion` = `narrowType(arg, true)`),
+which is what makes `assert(typeof x === "number")` work; (2) the
+condition fix; (3) the SYNTACTIC PRE-GATE — typing an arbitrary
+callee mid-walk perturbed creation-order-sensitive prints
+(controlFlowFunctionLikeCircular1's `typeof Date` minted as
+`DateConstructor`, 6 adverse) — only callees whose resolvable
+declaration visibly returns `asserts` enter resolution;
+(4) `Namespace.assert` property callees resolved syntactically
+through exports. controlFlowOptionalChain took 7 W→R — the
+board's item-6 residue moving for the first time. Residue owners
+recorded: asserts-this, never-return unreachability, overloaded
+assertion callees outside the two declaration shapes.

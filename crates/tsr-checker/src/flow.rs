@@ -495,6 +495,25 @@ impl Checker<'_, '_> {
                 break FlowType { t: state.initial_type, incomplete: false };
             } else if flags.contains(FlowFlags::SWITCH_CLAUSE) {
                 break self.get_type_at_switch_clause(state, flow);
+            } else if flags.contains(FlowFlags::CALL) {
+                // §127 (`checker-notes-narrow.md`): `getTypeAtFlowCall` — an
+                // assertion signature (`asserts x is T` / bare `asserts x`)
+                // narrows the matching reference in the statement flow that
+                // follows. `None` = no assertion effect; skip to the
+                // antecedent exactly as before. (The old comment here said
+                // this "needs call resolution this checker lacks" — stale
+                // since callres landed; the condition road below has resolved
+                // signatures for `is` predicates since §100.)
+                if let Some(narrowed) = self.get_type_at_flow_call(state, flow) {
+                    break narrowed;
+                }
+                match binder.flow().antecedent(flow) {
+                    Some(next) => {
+                        flow = next;
+                        continue;
+                    }
+                    None => break FlowType { t: state.declared_type, incomplete: false },
+                }
             } else if flags.contains(FlowFlags::UNREACHABLE) {
                 // Upstream's default arm: unreachable-code errors belong to the
                 // binder, and the checker returns the declared type to avoid
@@ -1485,6 +1504,126 @@ impl Checker<'_, '_> {
 
     /// The type after a condition is known to have gone one way
     /// (`getTypeAtFlowCondition`, `flow.go:340`).
+    /// §127's syntactic pre-gate: the callee is an identifier whose resolved
+    /// symbol has a declaration visibly returning `asserts ...` — a
+    /// FunctionDeclaration's return TypePredicate, or a variable annotated
+    /// with a FunctionTypeNode whose return is one. Overloaded/expression
+    /// forms outside these shapes decline (the walk then skips, today's
+    /// behaviour).
+    fn callee_declares_asserts(&mut self, callee: tsr_ast::Expression<'_>) -> bool {
+        let Some(callee_id) = callee.node_id() else { return false };
+        let symbol = match self.node_map.get(callee_id) {
+            Some(Node::Identifier(identifier)) => self.binder.resolve_name(
+                self.nodes,
+                self.node_map,
+                callee_id,
+                identifier.text,
+                SymbolFlags::VALUE,
+            ),
+            // `Debug.assert(x)`: an identifier base resolved by name, the
+            // member read from its exports — syntactic, no receiver typing.
+            Some(Node::PropertyAccessExpression(access)) => {
+                let base = match access.expression {
+                    Some(tsr_ast::Expression::Identifier(base)) => self.binder.resolve_name(
+                        self.nodes,
+                        self.node_map,
+                        callee_id,
+                        base.text,
+                        SymbolFlags::VALUE,
+                    ),
+                    _ => None,
+                };
+                base.zip(match access.name {
+                    Some(tsr_ast::MemberName::Identifier(name)) => Some(name.text),
+                    _ => None,
+                })
+                .and_then(|(base, member)| {
+                    let merged = self.binder.merged_symbol(base);
+                    self.binder.symbols().get(merged).exports.get(member).copied()
+                })
+            }
+            _ => None,
+        };
+        let Some(symbol) = symbol else { return false };
+        let declarations: Vec<_> =
+            self.binder.symbols().get(symbol).declarations.iter().copied().collect();
+        declarations.into_iter().any(|declaration| {
+            let asserts_return = |annotation: Option<tsr_ast::TypeNode<'_>>| {
+                matches!(
+                    annotation,
+                    Some(tsr_ast::TypeNode::TypePredicateNode(predicate))
+                        if predicate.asserts_modifier.is_some()
+                )
+            };
+            match self.node_map.get(declaration) {
+                Some(Node::FunctionDeclaration(function)) => asserts_return(function.r#type),
+                Some(Node::VariableDeclaration(variable)) => match variable.r#type {
+                    Some(tsr_ast::TypeNode::FunctionTypeNode(function)) => {
+                        asserts_return(function.r#type)
+                    }
+                    _ => false,
+                },
+                _ => false,
+            }
+        })
+    }
+
+    /// `getTypeAtFlowCall` (`flow.go`), the assertion half: a CALL flow
+    /// node whose resolved signature carries an `asserts` predicate narrows
+    /// the matching reference argument. `None` means no assertion effect —
+    /// the walk skips to the antecedent, today's behaviour. Not in this
+    /// slice (§127's bar): `asserts this` (no parameter name),
+    /// never-returning calls, non-reference arguments.
+    fn get_type_at_flow_call(&mut self, state: &mut FlowState, flow: FlowId) -> Option<FlowType> {
+        let binder = self.binder;
+        let call_node = binder.flow().node(flow)?;
+        let Some(Node::CallExpression(call)) = self.node_map.get(call_node) else {
+            return None;
+        };
+        let callee = call.expression?;
+        // Syntactic pre-gate: typing an arbitrary callee mid-walk perturbs
+        // creation-order-sensitive prints elsewhere (the first pair's
+        // controlFlowFunctionLikeCircular1 6 adverse — `typeof Date` minted
+        // as `DateConstructor`); only a callee whose resolvable declaration
+        // VISIBLY declares an `asserts` return enters resolution.
+        if !self.callee_declares_asserts(callee) {
+            return None;
+        }
+        let callee_type = self.check_expression(callee);
+        if callee_type == self.intrinsics.error {
+            return None;
+        }
+        let signature = self.resolve_call_signature(callee_type, Some(call.arguments))?;
+        let predicate = signature.predicate.as_ref()?;
+        if !predicate.asserts {
+            return None;
+        }
+        let name = predicate.parameter_name.clone()?;
+        let predicate_type = predicate.r#type;
+        let index = signature.parameters.iter().position(|parameter| parameter.name == name)?;
+        let argument = call.arguments.get(index).copied()?;
+        let argument_id = tsr_ast::Node::from(argument).node_id()?;
+        // `asserts x is T` narrows the MATCHING reference to T; bare
+        // `asserts x` narrows by the ARGUMENT AS A TRUE CONDITION —
+        // upstream's `narrowTypeByAssertion` is `narrowType(type, arg,
+        // /*assumeTrue*/ true)`, which is what makes
+        // `assert(typeof x === "number")` work: the argument is a condition
+        // expression, not the reference (the first §127 pair's miss).
+        if predicate_type.is_some() && !self.is_matching_reference(state, argument_id) {
+            return None;
+        }
+        let antecedent = binder.flow().antecedent(flow)?;
+        let incoming = self.get_type_at_flow_node(state, antecedent);
+        if self.store.get(incoming.t).flags.contains(TypeFlags::NEVER) {
+            return Some(incoming);
+        }
+        let narrowed = match predicate_type {
+            Some(predicate_type) => self.narrow_by_predicate_type(incoming.t, predicate_type, true),
+            None => self.narrow_type(state, incoming.t, argument_id, true),
+        };
+        Some(FlowType { t: narrowed, incomplete: incoming.incomplete })
+    }
+
     fn get_type_at_flow_condition(&mut self, state: &mut FlowState, flow: FlowId) -> FlowType {
         let binder = self.binder;
         let Some(antecedent) = binder.flow().antecedent(flow) else {
