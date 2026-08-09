@@ -279,7 +279,33 @@ impl<'a> Checker<'a, '_> {
             if hops > 8 {
                 return None;
             }
-            let base = self.sole_extends_class_declaration(class)?;
+            // **Two endings, not one.** `sole_extends_class_declaration`
+            // returns `None` both for *there is no `extends` clause* and for
+            // *there is one this port cannot resolve*, and `?` merges them. The
+            // first is not a failure: a class with no constructor and no base
+            // has the implicit **zero-argument** constructor, which is what
+            // `getSignaturesOfType` yields and what upstream reports `new
+            // Bar(0)` against. The second is genuinely unknown and still
+            // declines. §343.
+            let base = match self.sole_extends_class_declaration(class) {
+                Some(base) => base,
+                None if !class
+                    .heritage_clauses
+                    .iter()
+                    .any(|clause| clause.token.kind == SyntaxKind::ExtendsKeyword) =>
+                {
+                    // No annotations exist to check arguments against, and a
+                    // zero-parameter signature makes every argument an arity
+                    // error rather than a type error.
+                    return Some(ConstructorArity {
+                        annotations: Vec::new(),
+                        minimum: 0,
+                        maximum: 0,
+                        check_argument_types: false,
+                    });
+                }
+                None => return None,
+            };
             if !base.type_parameters.is_empty() {
                 check_argument_types = false;
             }

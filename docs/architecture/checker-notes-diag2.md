@@ -20226,3 +20226,87 @@ was sound about the property and wrong about the port.
 first measuring how often this port's flow type carries `undefined` where
 upstream's does not will cost another build; that measurement is the
 prerequisite, and it does not exist.
+
+## §343 — TS2554: the class with no constructor and no base
+
+With `diagmissing` sorting cheapest-first (§341), TS2554's list opens with five
+one-line cases. `overloadResolutionOnDefaultConstructor1` is the shape:
+
+```ts
+class Bar {
+    public clone() {
+        return new Bar(0);   // Expected 0 arguments, but got 1.
+    }
+}
+```
+
+`sole_constructor_parameters` hops up the `extends` chain until it finds a class
+that declares a constructor — §90's loop, and correct as far as it goes. Its
+terminus is `sole_extends_class_declaration(class)?`, which returns `None` when
+the hop cannot continue. **That conflates two different endings:**
+
+```
+no `extends` clause at all      the class HAS a signature — the implicit
+                                zero-argument constructor
+`extends` this port cannot      unknown; decline
+resolve, or a multi-type clause
+```
+
+The first is not a failure to resolve. `getSignaturesOfType` on a class with no
+constructor and no base yields the default construct signature, arity `(0, 0)`,
+and upstream reports against it. This port declines and says nothing.
+
+> This is the same shape as §335 — a position falling into a *decline* branch
+> that exists for a different reason — but arrived at from the `?` operator
+> rather than from a match arm. **A `?` on a helper that can fail two ways is a
+> silent merge of those two ways.** §140 is the match-arm form of the same
+> hazard; this is the `Option` form, and nothing in the codebase warns about it
+> the way `unreachable pattern` warns about the other.
+
+### The bar
+
+```
+bar:  +2 cases of 12,  0 LOST,  WRONG delta <= +2
+```
+
+Argument-type checking stays **off** for the default constructor: there are no
+annotations to check against, and a zero-parameter signature makes every
+argument an arity error rather than a type error.
+
+### Falsifiers
+
+1. **`class D extends Unresolvable {}` reports.** That ending must still
+   decline — the distinction is the whole point.
+2. **`new Bar()` reports.** Zero arguments against `(0, 0)` is in range.
+
+## §344 — §343 built: **+1**, under bar, kept
+
+```
+diagnostics   1,851 → 1,852   (bar was +2;  +1, 0 LOST)
+every other suite unmoved — both falsifiers negative
+```
+
+Short of the bar and kept: positive, no losses, and the reasoning is a
+correctness fix rather than a heuristic — a class with no base *has* a
+zero-argument construct signature, and the rule was treating "has one" and
+"cannot tell" as the same answer.
+
+The eleven remaining cases are not this shape. TS2554's row stays open; §90's
+overload and rest-parameter declines still stand and still carry their own
+reasons.
+
+### The generalisation worth keeping
+
+> **`?` on a helper that can fail two ways silently merges those two ways.**
+
+§140 is this hazard's match-arm form, and the compiler warns about it —
+`unreachable pattern` is what makes a shadowed arm findable. There is no
+equivalent warning for an `Option` whose `None` means two different things, and
+this port is full of `resolve_*` and `sole_*` helpers that return `None` for
+both *absent* and *unresolvable*.
+
+That is a **grep-able** audit, and unlike §328's call-site sweep it has a
+mechanical shape: a helper whose body contains more than one `?` or `else
+return None`, called through `?` by a rule that reports. Recorded as the next
+instrument-free sweep; not run here, because §339–§342 spent two builds on
+guesses and the rail is to measure the sweep's yield before pricing it.
