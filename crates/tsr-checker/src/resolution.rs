@@ -121,6 +121,20 @@ pub trait ModuleHost {
     /// the `Program` interface speculatively, not a cap. This is the second
     /// question a real caller asks.
     fn module_resolution_found(&self, importing_file: NodeId, specifier: &str) -> bool;
+
+    /// The namespace an `@jsx` pragma names for this file, if it has one.
+    ///
+    /// `getJsxNamespaceAt` (`checker/jsx.go:1306`) resolves the factory's first
+    /// identifier and looks for a `JSX` namespace among **that** symbol's
+    /// exports, so `@jsx dom.createElement` takes its `IntrinsicElements` from
+    /// `dom.JSX` rather than from the global `JSX`.
+    ///
+    /// Defaulted to `None`: a host that is not a real program has no pragmas to
+    /// report, and answering `None` is answering correctly — the checker then
+    /// falls back to the global lookup, which is upstream's own order. §211.
+    fn jsx_factory_namespace(&self, _file: NodeId) -> Option<String> {
+        None
+    }
 }
 
 /// Which lazily-computed property of an entity is being resolved.

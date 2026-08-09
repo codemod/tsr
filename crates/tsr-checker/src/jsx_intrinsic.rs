@@ -113,7 +113,15 @@ impl Checker<'_, '_> {
     /// from the global `JSX` instead. That can only make this rule *report*
     /// where upstream is silent, so it is a falsifier for the wrong column
     /// rather than a silent gap — see §170.
-    fn jsx_intrinsic_elements_exists(&self, location: NodeId) -> bool {
+    fn jsx_intrinsic_elements_exists(&mut self, location: NodeId) -> bool {
+        // `getJsxNamespaceAt` (`jsx.go:1306`) resolves the **pragma's**
+        // namespace first and looks for a `JSX` namespace among its exports;
+        // only with no pragma does it fall back to resolving `JSX` itself.
+        // §211 — and it is reachable only since §208, which made a namespace in
+        // a `.d.ts` export what it declares.
+        if let Some(namespace) = self.jsx_namespace_from_pragma(location) {
+            return self.exports_intrinsic_elements(namespace);
+        }
         let Some(namespace) = self.binder.resolve_name(
             self.nodes,
             self.node_map,
@@ -123,10 +131,46 @@ impl Checker<'_, '_> {
         ) else {
             return false;
         };
-        // `getExportsOfSymbol` — an interface is a TYPE, and asking for the
-        // meaning is what keeps a `const IntrinsicElements` from answering.
+        self.exports_intrinsic_elements(namespace)
+    }
+
+    /// `getSymbol(getExportsOfSymbol(namespace), IntrinsicElements, …)`.
+    ///
+    /// An interface is a TYPE, and asking for the meaning is what keeps a
+    /// `const IntrinsicElements` from answering.
+    fn exports_intrinsic_elements(&self, namespace: tsr_binder::SymbolId) -> bool {
         self.binder.symbols().get(namespace).exports.get(INTRINSIC_ELEMENTS).is_some_and(
             |&member| self.binder.symbols().get(member).flags.intersects(SymbolFlags::TYPE),
         )
+    }
+
+    /// The `JSX` namespace an `@jsx` pragma points at, if the file has one.
+    ///
+    /// Two hops, both upstream's: resolve the factory's namespace, then find
+    /// `JSX` among its exports (`jsx.go:1321`). The factory is routinely
+    /// **imported**, so `resolveSymbol` is applied to the alias — §187 paid for
+    /// the same omission on TS2694.
+    ///
+    /// A pragma this port cannot resolve returns `None` and the caller falls
+    /// back to the global lookup, which is upstream's own order rather than a
+    /// bound chosen here.
+    fn jsx_namespace_from_pragma(&mut self, location: NodeId) -> Option<tsr_binder::SymbolId> {
+        let file = self.source_file_of_for_diagnostics(location)?;
+        let factory = self.module_host?.jsx_factory_namespace(file)?;
+        let container = self.binder.resolve_name(
+            self.nodes,
+            self.node_map,
+            location,
+            &factory,
+            SymbolFlags::MODULE | SymbolFlags::ALIAS,
+        )?;
+        let container = self.binder.merged_symbol(container);
+        let container = if self.binder.symbols().get(container).flags.intersects(SymbolFlags::ALIAS)
+        {
+            self.binder.merged_symbol(self.resolve_alias(container)?)
+        } else {
+            container
+        };
+        self.binder.symbols().get(container).exports.get("JSX").copied()
     }
 }

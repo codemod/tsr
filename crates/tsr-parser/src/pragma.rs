@@ -88,6 +88,14 @@ pub struct FileReferences {
     pub lib_reference_directives: Vec<FileReference>,
     /// The last `@ts-check`/`@ts-nocheck` in the file, which wins.
     pub check_js_directive: Option<CheckJsDirective>,
+    /// The **namespace** of an `@jsx` pragma's factory: `dom` for
+    /// `@jsx dom.createElement`, `h` for `@jsx h`.
+    ///
+    /// `getJsxNamespace` (`checker/jsx.go`) takes the factory's *first*
+    /// identifier and `getJsxNamespaceAt` (`:1306`) then looks for a `JSX`
+    /// namespace among that symbol's exports — so this name replaces the global
+    /// `JSX` for the whole file. See `checker-notes-diag2.md` §211.
+    pub jsx_factory_namespace: Option<String>,
     /// Spans of `<reference />` directives naming none of `path`, `types`, or
     /// `lib`, which the parser reports as invalid syntax.
     pub invalid_reference_directives: Vec<Span>,
@@ -199,9 +207,18 @@ fn process_pragma(pragma: &Pragma, result: &mut FileReferences) {
                     Some(CheckJsDirective { enabled: pragma.name == "ts-check", span });
             }
         }
-        // `jsx`, `jsxfrag`, `jsximportsource`, `jsxruntime` are recognised so
-        // they are not mistaken for anything else, and read by the JSX
-        // transform rather than here.
+        // `@jsx <factory>` names the JSX namespace for the file; only the
+        // factory's first identifier matters, because `getJsxNamespace` splits
+        // on the first `.`. `jsxfrag`, `jsximportsource` and `jsxruntime` are
+        // still recognised only so they are not mistaken for anything else.
+        "jsx" => {
+            if let Some((_, value, _)) = pragma.args.first() {
+                let namespace = value.split('.').next().unwrap_or(value).trim();
+                if !namespace.is_empty() {
+                    result.jsx_factory_namespace = Some(namespace.to_string());
+                }
+            }
+        }
         _ => {}
     }
 }
@@ -490,7 +507,17 @@ mod tests {
         // Recognised so they are not mistaken for something else; read by the
         // JSX transform rather than here.
         let references = parse_file_references("/* @jsx h */\nconst x = 1;\n");
-        assert!(references.is_empty());
+        assert!(references.is_empty(), "no <reference /> directive is contributed");
+        // …but the factory's namespace IS captured: `getJsxNamespaceAt`
+        // resolves it and looks for a `JSX` namespace among its exports, so it
+        // replaces the global `JSX` for the file. §211.
+        assert_eq!(references.jsx_factory_namespace.as_deref(), Some("h"));
+        let qualified = parse_file_references("/* @jsx dom.createElement */\nconst x = 1;\n");
+        assert_eq!(
+            qualified.jsx_factory_namespace.as_deref(),
+            Some("dom"),
+            "only the factory's first identifier is the namespace"
+        );
     }
 
     #[test]

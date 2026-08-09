@@ -14090,3 +14090,48 @@ Five sections (§205–§210) turned one filed P1 — *"imported namespace symbo
 carry no exports"* — into: a corrected diagnosis (nothing to do with imports), a
 one-disjunct fix, a test that pins it, and a swept negative. The P1 is closed
 and what replaced it is a P2 that is already done.
+
+## §211 — §207 rebuilt on §208's table: TS7026's wrong column falls 9 → 3
+
+§207 built the `@jsx` pragma path across three crates, measured `+0` with the
+wrong column stuck at 9, and reverted. §208 then fixed the table its second hop
+reads. **The rule this session has paid for four times — *when a row is
+expensive, check what has landed underneath it since it was priced* — applied to
+a row priced ninety minutes earlier.**
+
+Rebuilt unchanged and re-measured:
+
+| | §207 (before §208) | §211 (after) |
+|---|---:|---:|
+| TS7026 `WRONG` | 9 | **3** |
+| TS7026 `CONVERTS` | 14 | 14 |
+| `LOST` | 0 | 0 |
+| `checker_types` | 3,974 | **3,982 (+8)** |
+| `diagnostics` | 1,615 | 1,615 |
+
+Every rail unmoved. **Six false positives removed and eight `checker_types`
+cases gained**, for code that was in the tree an hour ago and did nothing.
+
+`diagnostics` does not move because all six lines sit in cases with other
+failures (`STILL SHORT` is 35) — the same shape as §166, which also read `+0` on
+this suite while unblocking everything above it.
+
+### What the pair actually demonstrates
+
+§207's probe printed `JSXEXPORTS []` and I filed it as *"imported namespace
+symbols carry no exports"*. §208 found the real cause — a missing
+`in_declaration_file` disjunct, nothing to do with imports — and landed it at
+`+0` **because it was observable and pinned**, over an explicit objection that
+§207 had just been reverted at the same score.
+
+> **That decision is the whole return on this pair.** Had §208 been reverted for
+> scoring zero, §211 would be unreachable and the `@jsx` path would still be
+> filed as blocked. *Unmeasured* and *unobservable* really are different, and
+> the test written at §209 is what made the difference legible at the time
+> rather than in hindsight.
+
+### The three remaining wrong lines
+
+`jsxNamespacePrefixInName` and its React variant — namespaced tag names, which
+§206 already recorded as an open question with the closing-element bound. They
+are unaffected by the pragma and stay filed.

@@ -588,6 +588,14 @@ impl tsr_checker::resolution::ModuleHost for Program<'_> {
     fn module_resolution_found(&self, importing_file: NodeId, specifier: &str) -> bool {
         Program::module_resolution_found(self, importing_file, specifier)
     }
+    fn jsx_factory_namespace(&self, file: tsr_ast::NodeId) -> Option<String> {
+        self.root_and_referenced_files()
+            .iter()
+            .find(|candidate| candidate.source_file().node_id == Some(file))?
+            .file_references()
+            .jsx_factory_namespace
+            .clone()
+    }
 }
 
 /// Each file's `SourceFile` node id to its index in `files`.
