@@ -22258,3 +22258,89 @@ every one the whole rule was under fifteen lines.
 That is now four builds' worth of evidence for a rule of thumb: **when
 `diagslice` says "needs the whole rule", go read the whole rule.** It is nine
 lines of Go about half the time.
+
+## §392 — TS2331: `this` in a namespace body
+
+§391's rule of thumb applied to TS2683 (12 blocked, the largest remaining
+"whole rule" row) says: read the rule. `checkThisExpression`
+(`checker.go:12113`) needs `tryGetThisTypeAtEx` returning `nil` under
+`noImplicitThis` — the `this`-type machinery, not nine lines. **Declined, owner:
+`tryGetThisTypeAtEx`.**
+
+Reading it did hand over its neighbour. The same function's switch, twelve lines
+earlier:
+
+```go
+switch container.Kind {
+case ast.KindModuleDeclaration:
+    c.error(node, diagnostics.X_this_cannot_be_referenced_in_a_module_or_namespace_body)
+```
+
+```ts
+namespace M {
+    var f = () => this;    // TS2331
+}
+```
+
+Purely syntactic — the `this` container is a `ModuleDeclaration` — and this port
+emits TS2331 nowhere. `diagslice`: 2 blocked, both single-line, `occupied 0/2`.
+
+An arrow function is **transparent** to the `this` container, which
+`expressions.rs:932` already documents as a rule rather than an omission, and
+`topLevelLambda` is exactly that shape: the `this` is inside a lambda inside the
+namespace and still reports.
+
+> Second time this session that **reading a declined rule produced a different
+> buildable one** — §388 came out of disproving a hypothesis, this out of
+> pricing a refusal. Both cost one read that was going to happen anyway.
+
+### The bar
+
+```
+bar:  +2 (both cases),  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **`class C { m() { return this } }` inside a namespace reports.** A method is
+   an opaque `this` container and stops the walk.
+2. **Top-level `this` outside any namespace reports.** The container is the
+   source file, not a `ModuleDeclaration`.
+
+## §393 — §392 built: **+2**, bar met. TS2331 closed
+
+```
+diagnostics   1,890 → 1,892   (bar was +2;  +2, 0 LOST)   34.48%
+every other suite unmoved — both falsifiers negative
+```
+
+Both of TS2331's blocked cases convert; second row closed to zero in three
+builds, after TS18016.
+
+### Where the last four rows came from
+
+```
+§388  TS18016   from DISPROVING a sweep hypothesis (§387)
+§390  TS18016   from the same rule, two more node kinds
+§392  TS2331    from PRICING A REFUSAL — TS2683 needs `tryGetThisTypeAtEx`,
+                and reading it surfaced the syntactic arm twelve lines earlier
+```
+
+> **Three of the last four builds came from reads undertaken to say *no*.**
+> Disproving §387's hypotheses, and pricing TS2683's refusal, were both meant to
+> close a door. Each returned a smaller open one twelve lines away — because
+> upstream groups a syntactic guard and a type-machinery check in the *same
+> function*, and this port had neither.
+
+That is a concrete reason to write refusals against upstream's source rather
+than against the gap: a refusal that names `tryGetThisTypeAtEx` required opening
+`checkThisExpression`, and everything else in that function came free. A refusal
+written from the row alone — *"TS2683 is 12 cases of `this`-type work"* — would
+have been just as correct and would have found nothing.
+
+### TS2683 remains refused
+
+**Owner: `tryGetThisTypeAtEx` returning `nil` under `noImplicitThis`.** 12
+cases. The `container` switch this build ported is the part that needs no type
+at all; the rest needs the `this`-type resolution this port answers as `any`
+unconditionally (`expressions.rs:939`, `checker-notes-narrow.md` §39).

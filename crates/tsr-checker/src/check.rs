@@ -566,6 +566,11 @@ impl Checker<'_, '_> {
         self.check_strict_mode_eval_or_arguments_sites(node, typed, ambient);
         self.check_contextual_identifier(node, ambient);
         self.check_type_parameter_list(type_parameters_of(typed));
+        // `this` is a keyword node rather than a `Node` variant, so it is asked
+        // here rather than from a match arm. §392.
+        if self.nodes.kind(node) == SyntaxKind::ThisKeyword {
+            self.check_this_in_module_body(node);
+        }
         self.check_truthiness_sites(node, ambient);
         self.note_member_name_at(node);
         self.register_for_unused_check(node);
@@ -838,6 +843,50 @@ impl Checker<'_, '_> {
                     span,
                 ),
             );
+        }
+    }
+
+    /// TS2331 — `'this' cannot be referenced in a module or namespace body.`
+    ///
+    /// `checkThisExpression`'s container switch (`checker.go:12104`). Purely
+    /// syntactic: the `this` container is a `ModuleDeclaration`.
+    ///
+    /// An **arrow function is transparent** to the container — the rule
+    /// `expressions.rs:932` already states for `this`'s *type* — so
+    /// `namespace M { var f = () => this }` reports, which is `topLevelLambda`.
+    /// Every other function-like kind is opaque and stops the walk. §392.
+    fn check_this_in_module_body(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        for ancestor in self.nodes.ancestors(node) {
+            match self.nodes.kind(ancestor) {
+                SyntaxKind::ArrowFunction => {}
+                SyntaxKind::ModuleDeclaration => {
+                    let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+                    let span = self.nodes.span(node);
+                    self.report(
+                        file,
+                        Diagnostic::new(
+                            &messages::THIS_CANNOT_BE_REFERENCED_IN_A_MODULE_OR_NAMESPACE_BODY,
+                            span,
+                        ),
+                    );
+                    return;
+                }
+                kind if self.is_function_like_or_static_block(ancestor)
+                    || matches!(
+                        kind,
+                        SyntaxKind::SourceFile
+                            | SyntaxKind::ClassDeclaration
+                            | SyntaxKind::ClassExpression
+                            | SyntaxKind::PropertyDeclaration
+                    ) =>
+                {
+                    return;
+                }
+                _ => {}
+            }
         }
     }
 
