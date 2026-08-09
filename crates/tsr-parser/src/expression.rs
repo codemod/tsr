@@ -614,7 +614,7 @@ impl<'a> Parser<'a> {
                 // `` tag`…` `` — a tagged template. The template is an operand of
                 // the tag, not a separate expression.
                 SyntaxKind::NoSubstitutionTemplateLiteral | SyntaxKind::TemplateHead => {
-                    let template = self.parse_template_literal();
+                    let template = self.parse_template_literal(true);
                     let (tag, type_arguments) = match expression {
                         Expression::ExpressionWithTypeArguments(instantiation) => (
                             instantiation.expression.unwrap_or(expression),
@@ -773,6 +773,9 @@ impl<'a> Parser<'a> {
                 Expression::PrivateIdentifier(node)
             }
             SyntaxKind::NoSubstitutionTemplateLiteral => {
+                // Untagged: re-scan reporting invalid escapes, since the first
+                // pass is silent (`scanner.go:522`). §223.
+                self.token = self.scanner.rescan_template(false);
                 let raw = self.token_text();
                 let (text, flags) = self.take_literal();
                 let node = self.finish_node(
@@ -782,7 +785,10 @@ impl<'a> Parser<'a> {
                 );
                 Expression::NoSubstitutionTemplateLiteral(node)
             }
-            SyntaxKind::TemplateHead => self.parse_template_expression(),
+            SyntaxKind::TemplateHead => {
+                self.token = self.scanner.rescan_template(false);
+                self.parse_template_expression()
+            }
             // `<` is a type assertion in `.ts` and a JSX element in `.tsx`. The
             // two readings are mutually exclusive, which is why TypeScript ties
             // them to the file extension rather than to a lookahead.
@@ -1401,7 +1407,19 @@ impl<'a> Parser<'a> {
     /// lexically a close-brace, and only the parser's bracket tracking
     /// distinguishes the two. So each span is driven explicitly, re-scanning the
     /// `}` as template text via [`Parser::rescan_template_continuation`].
-    fn parse_template_literal(&mut self) -> TemplateLiteral<'a> {
+    /// `parseTemplateExpression(isTaggedTemplate)` (`parser.go`).
+    ///
+    /// The scanner's first pass over a template is **silent** about invalid
+    /// escapes (`scanner.go:522`); every such diagnostic comes from
+    /// `ReScanTemplateToken(!isTaggedTemplate)`, and a **tagged** template is
+    /// permitted to contain them — the ES2018 revision, where the cooked value
+    /// is `undefined` and the tag receives the raw text.
+    ///
+    /// This port reported eagerly and never re-scanned, so `` tag`\u` `` was
+    /// four diagnostics upstream has none of. `templateLiteralEscapeSequence`
+    /// invents thirty-two lines that way. §223.
+    fn parse_template_literal(&mut self, is_tagged: bool) -> TemplateLiteral<'a> {
+        self.token = self.scanner.rescan_template(is_tagged);
         if self.at(SyntaxKind::NoSubstitutionTemplateLiteral) {
             let start = self.pos();
             let raw = self.token_text();
@@ -1576,7 +1594,7 @@ impl<'a> Parser<'a> {
                     }
                 }
                 SyntaxKind::NoSubstitutionTemplateLiteral | SyntaxKind::TemplateHead => {
-                    let template = self.parse_template_literal();
+                    let template = self.parse_template_literal(true);
                     // Type arguments belong to the tagged-template node, not
                     // to an `ExpressionWithTypeArguments` wrapper around its
                     // tag (`parseMemberExpressionRest` upstream).

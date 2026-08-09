@@ -14803,3 +14803,65 @@ is a suite the whole project already watches.
 
 `templateLiteralEscapeSequence` still reads 64 actual against 42 expected — the
 two bugs fixed here were not all of it, and the rest is unexamined.
+## §223 — a tagged template may contain an invalid escape, and the first scan is silent
+
+§222 fixed two bugs in `templateLiteralEscapeSequence` and left the case at 64
+actual against 42 expected, unexamined. The remainder is one block:
+
+```
+tag`\u`;  tag`\u0`;  tag`\u00`;  tag`\u000`;  tag`\u{}`;  tag`\u{ffffff}`;  …
+```
+
+**Tagged** templates. The ES2018 revision permits an invalid escape in one: the
+cooked value is `undefined` and the tag receives the raw text. Upstream's whole
+design for this is two lines:
+
+```go
+// scanner.go:522 — the INITIAL scan
+s.token = s.scanTemplateAndSetTokenValue(false /*shouldEmitInvalidEscapeError*/)
+
+// scanner.go:1052 — and every diagnostic comes from here instead
+func (s *Scanner) ReScanTemplateToken(isTaggedTemplate bool) ast.Kind {
+    s.pos = s.tokenStart
+    s.token = s.scanTemplateAndSetTokenValue(!isTaggedTemplate)
+```
+
+**The scanner never reports an invalid escape on its first pass.** The parser
+re-scans once it knows whether a tag precedes the literal. This port reported
+eagerly and never re-scanned, so a tagged template got four diagnostics upstream
+has none of.
+
+Ported: `scan_template` passes `false`, `Scanner::rescan_template(is_tagged)`
+added, and the parser calls it at **all four** template entry points — two
+standalone (reporting) and two tagged (silent). The second tagged site was
+missed on the first attempt and showed up immediately as the case flipping from
+32 extra to 26 *missing*.
+
+```
+templateLiteralEscapeSequence   64 actual → 32   (42 expected)
+invented parser lines        1,237 → 1,209   (1,288 → 1,209 across §222 and §223)
+cases inventing any            371 →   370
+scanner_clean_files / parser_typescript / binder_symbols /
+printer_round_trip — unmoved at 100%
+diagnostics 1,619 · checker_types 4,000 — unchanged
+```
+
+### The over-correction, and why it was caught in one run
+
+The first attempt fixed one tagged site and left the other, and the case went
+**64 → 16 actual against 42 expected** — from over-reporting to under-reporting.
+That is a worse state than the bug, and the only reason it did not ship is that
+`diagcase`'s expected/actual counts were read rather than the corpus total,
+which had *improved* (1,237 → 1,209) in the same run.
+
+> **A corpus aggregate can improve while one case gets worse in a new
+> direction.** §215 had the same shape from the other side — `WRONG` fell while
+> `RIGHT` fell further. Two instruments this session have needed a second column
+> read alongside them, and both times the second column was the one that
+> mattered.
+
+### What is left in the case
+
+`42 expected, 32 actual` — ten missing `TS1121` (*Octal literals are not
+available…*) on `` tag`0${00}` ``, a different rule about octal escapes in
+substitutions. Named, not fixed.

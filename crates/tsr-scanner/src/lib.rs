@@ -166,6 +166,14 @@ pub struct Scanner<'a> {
     /// Only populated when the raw text differs from the value (escapes, numeric
     /// separators), so the common case allocates nothing.
     value: Option<String>,
+    /// Whether a template continuation should report an invalid escape.
+    ///
+    /// Set by [`Scanner::rescan_template`] and read by the continuation rescan,
+    /// which happens once per `}` and cannot be told the tag from its own
+    /// arguments. Upstream passes `isTaggedTemplate` to
+    /// `ReScanTemplateToken` at every call; this port carries it between them.
+    /// §223.
+    report_template_escapes: bool,
     diagnostics: Vec<Diagnostic>,
 }
 
@@ -184,6 +192,7 @@ impl<'a> Scanner<'a> {
             skip_jsdoc_leading_asterisks: 0,
             token: Token::new(SyntaxKind::Unknown, Span::at(0), TokenFlags::empty()),
             value: None,
+            report_template_escapes: true,
             diagnostics: Vec::new(),
         }
     }
@@ -670,6 +679,15 @@ impl<'a> Scanner<'a> {
     /// corpus tests it). A `char` cannot represent one, so the caller decides how
     /// to encode it.
     fn scan_unicode_escape(&mut self) -> Option<u32> {
+        self.scan_unicode_escape_ex(true)
+    }
+
+    /// `scanUnicodeEscape(shouldEmitInvalidEscapeError)` (`scanner.go:1854`).
+    ///
+    /// The flag is `false` inside a **tagged** template, where the ES2018
+    /// revision permits an invalid escape: the cooked value is `undefined` and
+    /// the tag receives the raw text. §223.
+    fn scan_unicode_escape_ex(&mut self, report: bool) -> Option<u32> {
         if !self.eat('u') {
             return None;
         }
@@ -683,7 +701,12 @@ impl<'a> Scanner<'a> {
             }
             let digits = &self.source[digits_start as usize..self.pos as usize];
             if digits.is_empty() {
-                self.error(&messages::HEXADECIMAL_DIGIT_EXPECTED, Span::new(self.pos, self.pos));
+                if report {
+                    self.error(
+                        &messages::HEXADECIMAL_DIGIT_EXPECTED,
+                        Span::new(self.pos, self.pos),
+                    );
+                }
                 return None;
             }
             // `hexValue > 0x10FFFF` (`scanner.go:1877`) is **its own message**
@@ -695,7 +718,7 @@ impl<'a> Scanner<'a> {
             // this fold or the position it reports at.
             let value = u32::from_str_radix(digits, 16).ok();
             let out_of_range = value.is_none_or(|v| v > 0x10_FFFF);
-            if out_of_range {
+            if out_of_range && report {
                 self.error(
                     &messages::AN_EXTENDED_UNICODE_ESCAPE_VALUE_MUST_BE_BETWEEN_0X0_AND_0X10FFFF_INCLUSIVE,
                     Span::new(start + 1, self.pos),
@@ -704,14 +727,18 @@ impl<'a> Scanner<'a> {
             // The closing `}` is checked **after** the range, so
             // `\u{ffffff}` reports the range and not the terminator.
             if self.peek().is_none() {
-                self.error(&messages::UNEXPECTED_END_OF_TEXT, Span::new(self.pos, self.pos));
+                if report {
+                    self.error(&messages::UNEXPECTED_END_OF_TEXT, Span::new(self.pos, self.pos));
+                }
                 return None;
             }
             if !self.eat('}') {
-                self.error(
-                    &messages::UNTERMINATED_UNICODE_ESCAPE_SEQUENCE,
-                    Span::new(self.pos, self.pos),
-                );
+                if report {
+                    self.error(
+                        &messages::UNTERMINATED_UNICODE_ESCAPE_SEQUENCE,
+                        Span::new(self.pos, self.pos),
+                    );
+                }
                 return None;
             }
             if out_of_range {
@@ -722,7 +749,12 @@ impl<'a> Scanner<'a> {
         let digits_start = self.pos;
         for _ in 0..4 {
             if !self.peek().is_some_and(|c| c.is_ascii_hexdigit()) {
-                self.error(&messages::HEXADECIMAL_DIGIT_EXPECTED, Span::new(self.pos, self.pos));
+                if report {
+                    self.error(
+                        &messages::HEXADECIMAL_DIGIT_EXPECTED,
+                        Span::new(self.pos, self.pos),
+                    );
+                }
                 return None;
             }
             self.bump();
@@ -864,7 +896,7 @@ impl<'a> Scanner<'a> {
                 let buffer = decoded.get_or_insert_with(|| {
                     self.source[start as usize..escape_start as usize].to_string()
                 });
-                self.scan_escape_into(buffer);
+                self.scan_escape_into(buffer, true);
                 continue;
             }
             self.bump();
@@ -881,7 +913,7 @@ impl<'a> Scanner<'a> {
     }
 
     /// Decode one escape sequence, appending to `out`. The backslash is consumed.
-    fn scan_escape_into(&mut self, out: &mut String) {
+    fn scan_escape_into(&mut self, out: &mut String, report: bool) {
         let Some(ch) = self.bump() else { return };
         match ch {
             'n' => out.push('\n'),
@@ -901,16 +933,17 @@ impl<'a> Scanner<'a> {
                 let digits = &self.source[start as usize..self.pos as usize];
                 match u32::from_str_radix(digits, 16).ok().and_then(char::from_u32) {
                     Some(c) if digits.len() == 2 => out.push(c),
-                    _ => self.error(
+                    _ if report => self.error(
                         &messages::HEXADECIMAL_DIGIT_EXPECTED,
                         Span::new(self.pos, self.pos),
                     ),
+                    _ => {}
                 }
             }
             'u' => {
                 // Back up so the shared escape scanner sees the `u`.
                 self.pos -= 1;
-                if let Some(cp) = self.scan_unicode_escape() {
+                if let Some(cp) = self.scan_unicode_escape_ex(report) {
                     self.push_code_point(cp, out);
                 }
             }
@@ -963,10 +996,21 @@ impl<'a> Scanner<'a> {
     /// [`Scanner::rescan_template_continuation`].
     fn scan_template(&mut self, flags: &mut TokenFlags) -> SyntaxKind {
         self.bump(); // '`'
-        self.scan_template_body(flags, true)
+        // `s.scanTemplateAndSetTokenValue(false)` (`scanner.go:522`) — the
+        // **initial** scan never reports an invalid escape. Upstream emits them
+        // only from `ReScanTemplateToken(!isTaggedTemplate)`, because a tagged
+        // template is allowed to contain them (the ES2018 revision: the cooked
+        // value is `undefined` and the raw text is what the tag receives).
+        // §223.
+        self.scan_template_body(flags, true, false)
     }
 
-    fn scan_template_body(&mut self, flags: &mut TokenFlags, is_head: bool) -> SyntaxKind {
+    fn scan_template_body(
+        &mut self,
+        flags: &mut TokenFlags,
+        is_head: bool,
+        report_escapes: bool,
+    ) -> SyntaxKind {
         let start = self.pos;
         let mut decoded: Option<String> = None;
 
@@ -1023,7 +1067,7 @@ impl<'a> Scanner<'a> {
                 let buffer = decoded.get_or_insert_with(|| {
                     self.source[start as usize..escape_start as usize].to_string()
                 });
-                self.scan_escape_into(buffer);
+                self.scan_escape_into(buffer, report_escapes);
                 continue;
             }
 
@@ -1038,12 +1082,39 @@ impl<'a> Scanner<'a> {
     ///
     /// The parser calls this after consuming a substitution expression: `}` is
     /// otherwise a close-brace, and only grammatical context distinguishes them.
+    /// `ReScanTemplateToken(isTaggedTemplate)` (`scanner.go:1052`) for the
+    /// **head** of a template.
+    ///
+    /// The initial scan is silent (`scanner.go:522`), so every invalid-escape
+    /// diagnostic in a template comes from here — and none does when the
+    /// template is tagged, which is the ES2018 revision this port did not have.
+    /// §223.
+    pub fn rescan_template(&mut self, is_tagged: bool) -> Token {
+        debug_assert!(matches!(
+            self.token.kind,
+            SyntaxKind::NoSubstitutionTemplateLiteral | SyntaxKind::TemplateHead
+        ));
+        self.report_template_escapes = !is_tagged;
+        self.pos = self.token.span.start;
+        let mut flags = TokenFlags::empty();
+        self.bump(); // '`'
+        let kind = self.scan_template_body(&mut flags, true, !is_tagged);
+        self.token = Token::new(kind, Span::new(self.token.span.start, self.pos), flags);
+        self.token
+    }
+
+    /// `ReScanTemplateToken` for a template **continuation** — the `}` that
+    /// resumes the literal after a substitution.
+    ///
+    /// Whether invalid escapes are reported is carried on the scanner rather
+    /// than passed, because this is called once per `}` from a site that does
+    /// not know the tag. [`Scanner::rescan_template`] sets it. §223.
     pub fn rescan_template_continuation(&mut self) -> Token {
         debug_assert_eq!(self.token.kind, SyntaxKind::CloseBraceToken);
         self.pos = self.token.span.start + 1;
         self.token_start = self.token.span.start;
         let mut flags = TokenFlags::empty();
-        let kind = self.scan_template_body(&mut flags, false);
+        let kind = self.scan_template_body(&mut flags, false, self.report_template_escapes);
         self.token = Token::new(kind, Span::new(self.token_start, self.pos), flags);
         self.token
     }
