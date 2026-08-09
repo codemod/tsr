@@ -112,3 +112,22 @@ returns the sole candidate anyway) and cost 25 G→R — reverted,
 recorded so the next window doesn't rebuy it. The 4's true fix
 needs the loop's decidable-rejection tail to distinguish
 fresh-literal pairs — a slice-3-adjacent question, filed with it.
+
+## Slice 3a bar [checker-2, registered before the code]
+
+`infer_from_types` walks bare positions and same-target reference
+arguments; it has NO FUNCTION-SHAPE arm, so every callback-taking
+generic call gaps at "inference gapped" — the 1,829 summit's heart
+(`inferFromTypes`' signature arm, `checker.go:21287`-family:
+parameters then return, `inferFromSignature`). The arm: when source
+and target each carry EXACTLY ONE signature (signatures_of_type)
+and the inner signatures are themselves non-generic, zip parameter
+types (source param against target param — the candidate direction
+serves collection; upstream's contra/co split matters for PRIORITY,
+which single-candidate collection does not model) and recurse the
+returns. Anything else — overloaded either side, generic inner,
+this/rest — contributes NOTHING (the unmapped-mention decline keeps
+the answer honest). Predict **+150–500** of the 1,829 (the
+map/filter/then callback families are the head shapes); must NOT
+move: slice 1's +723, §70/§75/§114/§115. Adverse over 1:5 refuses;
+artifact test mandatory on untouched-case rows.
