@@ -2072,9 +2072,42 @@ impl Checker<'_, '_> {
             return;
         }
         let Some(Node::ForInOrOfStatement(statement)) = self.node_map.get(node) else { return };
-        let for_in = statement.kind.kind == SyntaxKind::InKeyword;
+        let for_in = self.nodes.kind(node) == SyntaxKind::ForInStatement;
         let Some(initializer) = statement.initializer else { return };
         let Some(list) = initializer.node_id() else { return };
+        // **TS2491, `for…in` only.** `checkForInStatement` (`checker.go:3996`,
+        // `:4008`): one message, two arms — a declaration list whose first name
+        // is a binding pattern, or an initialiser that is an array/object
+        // literal. A pattern is legal in `for…of`, which is why upstream keeps
+        // this guard out of §491's shared grammar block. §493.
+        if for_in {
+            let pattern_name = match self.node_map.get(list) {
+                Some(Node::VariableDeclarationList(declarations)) => declarations
+                    .declarations
+                    .first()
+                    .and_then(|first| first.name.as_ref())
+                    .filter(|name| matches!(name, tsr_ast::BindingName::BindingPattern(_)))
+                    .and_then(tsr_ast::BindingName::node_id),
+                _ => matches!(
+                    self.nodes.kind(list),
+                    SyntaxKind::ArrayLiteralExpression | SyntaxKind::ObjectLiteralExpression
+                )
+                .then_some(list),
+            };
+            if let Some(id) = pattern_name
+                && let Some(file) = self.source_file_of_for_diagnostics(id)
+            {
+                let span = self.error_span(id);
+                self.report(
+                    file,
+                    Diagnostic::new(
+                        &messages::THE_LEFT_HAND_SIDE_OF_A_FOR_IN_STATEMENT_CANNOT_BE_A_DESTRUCTURING_PATTERN,
+                        span,
+                    ),
+                );
+                return;
+            }
+        }
         let Some(Node::VariableDeclarationList(declarations)) = self.node_map.get(list) else {
             return;
         };

@@ -26283,3 +26283,82 @@ different codes and `diagslice` ranks each separately.
 **+13 from guards with no conjunct this port cannot answer**, and two of the
 three rows closed completely — which is §490's claim holding at three data
 points rather than two.
+
+## §493 — TS2491: a destructuring pattern as a `for…in` left-hand side
+
+Same family as §491, different function — `checkForInStatement`
+(`checker.go:3996`, `:4008`). **One message, two arms**, both shape tests:
+
+```go
+if IsVariableDeclarationList(data.Initializer) {
+    if len(declarations) != 0 && ast.IsBindingPattern(declarations[0].Name()) { … at the NAME }
+} else {
+    if ast.IsArrayLiteralExpression(varExpr) || ast.IsObjectLiteralExpression(varExpr) { … at the EXPRESSION }
+}
+```
+
+```ts
+for ([a, b] in {}) { }       // TS2491
+for (var [a, b] in {}) { }   // TS2491
+```
+
+§492's corrected estimate applies in reverse here: **one message, two arms**, so
+counting messages would *under*-price it and counting arms would over-price it.
+The number that matters is neither — it is **how many distinct corpus shapes the
+arms cover**, and here it is two, both present.
+
+### The bound
+
+`for…in` only. The `for…of` form has its own destructuring rules (a pattern is
+legal there) and upstream does not share this guard with it — which is why the
+arm sits in `checkForInStatement` rather than in §491's grammar block.
+
+### The bar
+
+```
+bar:  +2 of 3,  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **`for (var x in {})` reports.** A plain identifier is the legal form.
+2. **`for (const [a] of [])` reports.** `for…of` permits a pattern; the kind
+   test is the whole reason this rule is `for…in`-only.
+
+## §494 — §493 built: **+7**, and it exposes a defect §492 measured as a success
+
+```
+TS2491 alone, with §491's `for_in` flag     2,011 → 2,011   (+0)
+after fixing the flag                       2,011 → 2,018   (+7)   36.77%
+```
+
+§491 wrote `let for_in = statement.kind.kind == SyntaxKind::InKeyword`. That is
+**never true**: `ForInOrOfStatement::kind` is not the `in`/`of` token this port
+exposes, and the node's own `SyntaxKind` — `ForInStatement` vs `ForOfStatement`
+— is what distinguishes them.
+
+So §491 shipped **six messages of which three could never fire**, and emitted
+`for…of` text for every `for…in` statement. **It still measured `+5` and met its
+bar exactly**, because the suite compares `(file, line, column, code)` and every
+converted case was a `for…of` one; the `for…in` cases were already failing and
+stayed failing, with a wrong code at a right position instead of nothing.
+
+> **A bar met exactly is not evidence of a correct build.** §492 read `+5` on a
+> bar of `+5` as confirmation and wrote a rule about estimation from it. The
+> estimate was fine; the *code* had a dead branch, and no falsifier caught it
+> because both falsifiers were about the guards, not about which message each
+> guard selects.
+>
+> **The falsifier that would have caught it: a `for…in` fixture and a `for…of`
+> fixture, asserted to produce *different* codes.** Every message-splitting
+> build from here needs that pair — §439's two-code `switch` and §491's six-
+> message block both selected by a kind test, and only this one was checked.
+
+### Corrected tallies
+
+```
+§491  the for-statement grammar   +5, with three dead arms
+§493  TS2491 + the flag fix       +7
+                                  ────
+                                  +12 for the block, once it works
+```
