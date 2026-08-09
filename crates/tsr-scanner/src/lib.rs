@@ -632,10 +632,10 @@ impl<'a> Scanner<'a> {
                         *flags |= TokenFlags::UNICODE_ESCAPE;
                     }
                 } else {
-                    self.error(
-                        &messages::HEXADECIMAL_DIGIT_EXPECTED,
-                        Span::new(self.pos, self.pos),
-                    );
+                    // `scan_unicode_escape` reports the specific error itself
+                    // now, as upstream's does (`scanner.go:1854`); reporting
+                    // again here was the second half of §222's 22 invented
+                    // lines.
                     break;
                 }
                 continue;
@@ -673,28 +673,61 @@ impl<'a> Scanner<'a> {
         if !self.eat('u') {
             return None;
         }
+        // `start` is the position **after** `\u`, as upstream's is
+        // (`scanner.go:1856`, `s.pos += 2; start := s.pos`).
+        let start = self.pos;
         if self.eat('{') {
-            let start = self.pos;
+            let digits_start = self.pos;
             while self.peek().is_some_and(|c| c.is_ascii_hexdigit()) {
                 self.bump();
             }
-            let digits = &self.source[start as usize..self.pos as usize];
-            if !self.eat('}') || digits.is_empty() {
+            let digits = &self.source[digits_start as usize..self.pos as usize];
+            if digits.is_empty() {
+                self.error(&messages::HEXADECIMAL_DIGIT_EXPECTED, Span::new(self.pos, self.pos));
                 return None;
             }
-            // Values above 0x10FFFF are out of range; upstream reports them
-            // separately, and returning None here reports "digit expected", which
-            // is close enough until the parser distinguishes the two.
-            return u32::from_str_radix(digits, 16).ok().filter(|&v| v <= 0x10_FFFF);
+            // `hexValue > 0x10FFFF` (`scanner.go:1877`) is **its own message**
+            // and its own span — `errorAt(msg, start+1, s.pos-start-1)`, the
+            // digits themselves. This function used to fold it into the caller's
+            // `Hexadecimal digit expected`, with a comment calling that "close
+            // enough until the parser distinguishes the two". §222 measured it:
+            // `templateLiteralEscapeSequence` invents 22 lines, and every one is
+            // this fold or the position it reports at.
+            let value = u32::from_str_radix(digits, 16).ok();
+            let out_of_range = value.is_none_or(|v| v > 0x10_FFFF);
+            if out_of_range {
+                self.error(
+                    &messages::AN_EXTENDED_UNICODE_ESCAPE_VALUE_MUST_BE_BETWEEN_0X0_AND_0X10FFFF_INCLUSIVE,
+                    Span::new(start + 1, self.pos),
+                );
+            }
+            // The closing `}` is checked **after** the range, so
+            // `\u{ffffff}` reports the range and not the terminator.
+            if self.peek().is_none() {
+                self.error(&messages::UNEXPECTED_END_OF_TEXT, Span::new(self.pos, self.pos));
+                return None;
+            }
+            if !self.eat('}') {
+                self.error(
+                    &messages::UNTERMINATED_UNICODE_ESCAPE_SEQUENCE,
+                    Span::new(self.pos, self.pos),
+                );
+                return None;
+            }
+            if out_of_range {
+                return None;
+            }
+            return value;
         }
-        let start = self.pos;
+        let digits_start = self.pos;
         for _ in 0..4 {
             if !self.peek().is_some_and(|c| c.is_ascii_hexdigit()) {
+                self.error(&messages::HEXADECIMAL_DIGIT_EXPECTED, Span::new(self.pos, self.pos));
                 return None;
             }
             self.bump();
         }
-        let digits = &self.source[start as usize..self.pos as usize];
+        let digits = &self.source[digits_start as usize..self.pos as usize];
         u32::from_str_radix(digits, 16).ok()
     }
 
@@ -877,12 +910,8 @@ impl<'a> Scanner<'a> {
             'u' => {
                 // Back up so the shared escape scanner sees the `u`.
                 self.pos -= 1;
-                match self.scan_unicode_escape() {
-                    Some(cp) => self.push_code_point(cp, out),
-                    None => self.error(
-                        &messages::HEXADECIMAL_DIGIT_EXPECTED,
-                        Span::new(self.pos, self.pos),
-                    ),
+                if let Some(cp) = self.scan_unicode_escape() {
+                    self.push_code_point(cp, out);
                 }
             }
             c if is_line_break(c) => {

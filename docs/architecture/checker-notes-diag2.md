@@ -14744,3 +14744,62 @@ tests failed, because `import * as React from "react"` reaches the namespace
 through *module resolution* and the UMD global does not. A harness gap and a
 rule gap looked identical for one run, which is the same confusion §200's two
 non-equivalent lookups produced — worth noticing twice in one session.
+
+## §222 — the escape scanner reported the caller's error, not its own
+
+§220 named `templateLiteralEscapeSequence` as the one concentration in the
+invented-parser-lines tail: **forty lines, one code, one case**. The cause was a
+documented approximation in `Scanner::scan_unicode_escape`:
+
+```rust
+// Values above 0x10FFFF are out of range; upstream reports them
+// separately, and returning None here reports "digit expected", which
+// is close enough until the parser distinguishes the two.
+return u32::from_str_radix(digits, 16).ok().filter(|&v| v <= 0x10_FFFF);
+```
+
+Upstream's `scanUnicodeEscape` (`scanner.go:1854`) reports **four distinct
+errors itself** — `Hexadecimal_digit_expected`,
+`An_extended_Unicode_escape_value_must_be_between_0x0_and_0x10FFFF_inclusive`,
+`Unexpected_end_of_text`, `Unterminated_Unicode_escape_sequence` — each at its
+own span, and returns `-1` without the caller adding anything. This port
+returned `None` for all four and let **three separate callers** each report
+`Hexadecimal digit expected` at whatever position they happened to be at.
+
+Two bugs in one line, both visible in the baseline:
+
+```
+`\u{}`         expected (8,5) TS1125   was (8,6)   ← position, off by one
+`\u{ffffff}`   expected (9,5) TS1198   was (9,12) TS1125   ← wrong code AND position
+```
+
+Ported to upstream's shape: the specific error, at
+`errorAt(msg, start + 1, pos - start - 1)` for the range case, reported inside;
+callers stop reporting.
+
+```
+invented parser lines   1,288 → 1,237   (−51)
+cases inventing any       383 →   371   (−12)
+printer_round_trip     11,760 → 11,770  100%, denominator +10
+scanner_clean_files / parser_typescript / binder_symbols — unmoved at 100%
+diagnostics                     1,619   unchanged
+checker_types                   4,000   unchanged
+```
+
+### Landed at diagnostics +0, and the rail says why
+
+`printer_round_trip`'s **denominator grew by ten**: ten files now scan cleanly
+enough to enter that suite at all. That is the §209 test — *observable, not
+merely unmeasured* — and it is a stronger observer than a unit test, because it
+is a suite the whole project already watches.
+
+> **A comment that says "close enough" is a bar with no number.** This one stood
+> for an unknown number of sessions and cost fifty-one invented lines and two
+> wrong codes. It was honest about being an approximation and said nothing about
+> what the approximation *cost* — which is the thing §194 requires of a refusal
+> and §214 found missing from the standing-loss list. **The third place in this
+> repository where a claim carried no measurement**, and the pattern is now
+> general enough to state plainly: *if it approximates, it needs a number.*
+
+`templateLiteralEscapeSequence` still reads 64 actual against 42 expected — the
+two bugs fixed here were not all of it, and the rest is unexamined.
