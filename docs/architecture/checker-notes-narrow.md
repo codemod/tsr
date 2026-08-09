@@ -4318,3 +4318,15 @@ assertion-anchored standalone positions the declaration anchor
 declines — they need the per-assertion variant §102 has, at
 single-sig scale, without re-firing the computed-name 4; priced at
 ~17 forgone conversions corpus-wide.
+
+**§105 trace 2 — resolved by composition down to ONE priced line.**
+computedPropertiesNarrowed's 4 became 1 under trace 1's member-shape
+arm (three were the same missed const context). The survivor (0:16,
+want `1`, got `0 | 1`) is flow-narrowing of a const-object member
+inside a computed property name — the §5x condition family's
+territory, not the readonly subsystem's; priced here, owner named.
+The §105 subsystem's remaining head is the VALUE-SPELLING CARRIAGE
+(single-quoted member values), and after it §103's const-T
+inference unblocks. Day's arc for the record: the readonly
+subsystem went from "four machines, do not attempt piecemeal" to
+one remaining carriage in five measured slices.
