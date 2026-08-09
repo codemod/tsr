@@ -11,13 +11,42 @@ FIRST: git pull. Then read, in this order:
   the metric), then **§86–§90** — the thirteenth session, five sections, four
   builds.
 
-STATE AT HANDOFF (verify with a fresh coverage run):
-  diagnostics    1,450/5,488 = 26.42%   (was 1,346; +104 over 28 builds and
-                 THREE priced refusals — §94, §96, §97 —
-                 **zero cases lost, and the wrong column FELL in two of them**)
-  checker_types  3,842/9,538 · 84.13% — the other workstream's, and it moves
-                 HOURLY: it changed three times inside this one session. Do not
-                 touch it, and do not compare against this number — remeasure.
+STATE AT HANDOFF, fourteenth session, at `bda3fde` (verify with a fresh run):
+  diagnostics    1,476/5,488 = 26.90%   (+25 over TWO builds, zero lost, and
+                 the wrong column did not move on either — §156-§160)
+  binder_symbols 8,459/8,459 = 100%     — held across a build that changed
+                 `merge_symbol`'s behaviour
+  checker_types  3,937/9,538 · 84.47% — the other workstream's, and it moves
+                 HOURLY. Do not touch it, and do not compare against this
+                 number — remeasure.
+
+## READ THIS BEFORE PICKING ANYTHING OFF THE BOARD BELOW
+
+**Two of this session's two builds were rows the board had already refused or
+priced as a subsystem, and both were wrong for the same reason.** §156-§160 in
+`checker-notes-diag2.md` have the detail; the operational version:
+
+- **`diagmissing <code>` prints case names, and a row's case names are its
+  attribution.** TS7026 was carried for six sessions as `declare global`
+  merging. It is JSX (`jsx.go:1253`), and twenty-eight case names beginning
+  `tsx` said so. §141's "~52-case merge owner" is really ~10.
+- **Read the fixture before the FIRST refusal, not the fourth hypothesis.**
+  TS1100 was priced as needing strict-mode tracking. Upstream's `Binder` struct
+  has no such field, and `parserStrictMode3-negative.ts` — one line, no
+  prologue, no module — reports TS1100 anyway. Twelve cases sat behind an
+  inference nobody spent a `cat` on.
+- **Read the upstream function END TO END before writing the report.** Three of
+  the four causes of the merge build's first (failing) measurement were
+  upstream branches that had simply not been ported: `SymbolFlagsAssignment`,
+  the plain-JS suppression, and the `NamespaceModule`/TS2649 arm.
+- **Do NOT use `git stash` for before/after.** It fired here: the new file was
+  untracked, `git stash push` refused the pathspec, the `&&` chain
+  short-circuited, and the unconditional `git stash pop` popped an unrelated
+  stash from a previous session into the working tree. **Comment out the rule's
+  single call site instead** — same checkout, both states, no stash stack.
+- **Read the wrong column as a multiset DELTA against a before-run**, never as
+  the run's total. The absolute column carries `giant.ts` and `reservedWords2`
+  lines that predate any current build.
 
 ## CHECK BYTE-IDENTITY THE ONLY WAY THAT WORKS
 
@@ -215,14 +244,34 @@ TS2540      12         9
 5. **The rest of `diaggap`'s relation-free single-code column** — re-run it;
    TS2693, TS2364, TS2703, TS2558 were 9/7/7/6 before this session's builds.
 
-6. **TS7026 — still refused**, 28 sole-obstacle cases plus ~13 of TS2454's
-   (§85). Both want binder-level `declare global` / module-augmentation merging.
-   Worth a session on its own the moment that lands.
+6. **TS7026 — 28 sole-obstacle cases, and it is a JSX build, not a merge one**
+   (§158). `JSX element implicitly has type 'any' because no interface
+   'JSX.IntrinsicElements' exists`, `jsx.go:1253`. It wants the `JSX` namespace
+   and its `IntrinsicElements` interface resolved. **The largest single
+   relation-free row on this board**, and nothing has priced it as what it
+   actually is. §85's "~13 of TS2454's" was attributed by the same inference
+   and is unverified — re-run `diagmissing 2454` and read the case names first.
 
-7. **TS1212 (104 lines)** needs `alwaysStrict` inside `tsr_binder::bind`. **But
-   check §82 and §89 first**: the same "binder blocker" sentence was carried for
-   TS7027 across three handoffs and was false — the binder already recorded the
-   answer per node. **Ask what the binder already knows.**
+6b. **What is left of the merge item is FOUR cases** (§160):
+   `checkMergedGlobalUMDSymbol`, `umdGlobalAugmentationNoCrash`,
+   `umdNamespaceMergedWithGlobalAugmentationIsNotCircular`,
+   `duplicateIdentifierRelatedSpans_moduleAugmentation`. All four want UMD
+   `export as namespace` merging or module augmentation. The cross-file global
+   merge itself is DONE and took the other six.
+
+6c. **TS1101 and TS1102 are the same shape as §156 and read no state at all** —
+   `checkStrictModeWithStatement` and `checkStrictModeDeleteExpression`,
+   `parserStrictMode14` and `15` are the fixtures. Both dispatch
+   unconditionally from `bind` (`binder.go:637`, `:631`), like everything else
+   in that family. Measure them with `diaggap` before building — §156's
+   ceiling was real, but it was *measured*, not assumed.
+
+7. **TS1212 (104 lines)** — this item said it "needs `alwaysStrict` inside
+   `tsr_binder::bind`". **That sentence is now suspect for the reason §157
+   gives**: its sibling TS1100 was priced the same way and needed no option and
+   no strict-mode state. `checkStrictModeIdentifier` (`binder.go:1303`) is
+   gated on parse errors, `NodeFlagsAmbient` and `NodeFlagsJSDoc` — **not** on
+   strict mode. Read `binder.go:1303-1331` before pricing it again.
 
 8. **The assignability family** is §5's standing refusal, priced at 947 cases —
    more than half of what the suite passes. A `checker_types` build.
