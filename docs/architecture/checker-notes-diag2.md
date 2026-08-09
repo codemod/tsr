@@ -14428,3 +14428,54 @@ comment stating the design, and the divergence is visible in four lines of Go.
 > rationale in a comment and some encode it in scanner state; the first kind is
 > worth attempting late in a session and the second is not. That distinction is
 > what separated §217 from §215, and it is the more useful half of both.
+
+## §218 — object-literal members: the missing separator, and upstream's `;` skip
+
+`var v = { foo(); }` — one `',' expected` upstream, two diagnostics here.
+`parse_object_literal`'s loop had §198's `break`, and this context has a second
+recovery on top of it (`parser.go:678`):
+
+> *"If the token was a semicolon, and the caller allows that, then skip it and
+> continue. This ensures we get back on track and don't result in tons of parse
+> errors. For example, this can happen when people do things like use a
+> semicolon to delimit object literal members."*
+
+Ported with §200's guard — `isListElement(PCObjectLiteralMembers)`
+(`parser.go:845`) transcribed exactly, including the `.` arm that is *not* a
+member and is there so a trailing dot does not close the literal.
+
+```
+diagnostics          1,616 → 1,617
+checker_types        3,982 → 3,988  (+6)
+parser_typescript    5,031/5,031   unmoved
+scanner_clean_files  5,031/5,031   unmoved
+binder_symbols       8,458/8,458   unmoved
+printer_round_trip  11,760/11,760  unmoved
+```
+
+### `extraonly` went 26 → 27, and that is not a regression
+
+A case that was blocked by *both* a missing and an extra diagnostic lost its
+missing one and now shows as extra-only. `diagnostics` rose in the same run, and
+`LOST` cannot be inferred from `extraonly` at all — it is a *classification* of
+still-failing cases, not a score.
+
+> **`extraonly` moving the wrong way is not evidence of harm.** It counts cases
+> one false positive from passing; a build that removes a *missing* line from a
+> doubly-blocked case increases it. This is the second instrument this session
+> whose direction had to be read against the case count (§215's `RIGHT` column
+> was the first), and both would have misled a build judged on one number.
+
+### The pattern is now three-for-three
+
+`parse_parameter_list` (§200), `parse_object_literal` (here) — and
+`parse_binding_element` (§204) was the same shape one level in. Every
+hand-written list loop in this parser breaks where upstream's single
+`parseDelimitedList` continues, and each fix is: report the separator, apply the
+context's own extra recovery if it has one, then continue **only** behind that
+context's `isListElement`.
+
+Five loops remain with the bare `break` (`declaration.rs:105`, `:551`, `:579`,
+`module.rs:138`, `:320`, `types.rs:780`, `:1150`). None is currently named by
+`extraonly`, so each needs a case before it is worth doing — the discipline
+§216 arrived at for the extra column generally.

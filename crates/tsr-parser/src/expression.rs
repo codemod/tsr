@@ -143,6 +143,26 @@ fn starts_parameter(kind: SyntaxKind) -> bool {
     )
 }
 
+/// `isListElement(PCObjectLiteralMembers)` (`parser.go:845`).
+///
+/// `[`, `*`, `...` and `.` are admitted verbatim from upstream — the last is
+/// *not* a member, and upstream's comment says it is there so a trailing dot
+/// does not close the literal. The rest is `isLiteralPropertyName`: an
+/// identifier or keyword, a string, or a number.
+fn starts_object_literal_member(kind: SyntaxKind) -> bool {
+    matches!(
+        kind,
+        SyntaxKind::OpenBracketToken
+            | SyntaxKind::AsteriskToken
+            | SyntaxKind::DotDotDotToken
+            | SyntaxKind::DotToken
+            | SyntaxKind::StringLiteral
+            | SyntaxKind::NumericLiteral
+            | SyntaxKind::BigIntLiteral
+    ) || kind == SyntaxKind::Identifier
+        || kind.is_keyword()
+}
+
 fn is_assignment_operator(kind: SyntaxKind) -> bool {
     (SyntaxKind::FIRST_ASSIGNMENT as u16..=SyntaxKind::LAST_ASSIGNMENT as u16)
         .contains(&(kind as u16))
@@ -860,11 +880,39 @@ impl<'a> Parser<'a> {
         while !self.at(SyntaxKind::CloseBraceToken) && !self.at(SyntaxKind::EndOfFile) {
             let before = self.pos();
             properties.push(self.parse_object_literal_element());
-            if !self.eat(SyntaxKind::CommaToken) {
+            if self.eat(SyntaxKind::CommaToken) {
+                if self.pos() == before {
+                    break;
+                }
+                continue;
+            }
+            if self.at(SyntaxKind::CloseBraceToken) || self.at(SyntaxKind::EndOfFile) {
+                break;
+            }
+            // `parseDelimitedList` (`parser.go:664`) reports the missing
+            // separator and continues. **And for object-literal members it then
+            // skips a `;`**, with upstream's own reason at `:678`: *"If the
+            // token was a semicolon, and the caller allows that, then skip it
+            // and continue. This ensures we get back on track and don't result
+            // in tons of parse errors. For example, this can happen when people
+            // do things like use a semicolon to delimit object literal
+            // members."*
+            //
+            // `var v = { foo(); }` is exactly that: one `',' expected` upstream,
+            // and two diagnostics here because this loop left the list. §218.
+            self.expect(SyntaxKind::CommaToken);
+            if self.at(SyntaxKind::SemicolonToken) && !self.token.has_preceding_line_break() {
+                self.next_token();
+            }
+            // `isListElement(PCObjectLiteralMembers)` (`parser.go:845`):
+            // `[`, `*`, `...`, `.`, or a literal property name. Continuing
+            // without it is what §198 measured at −64 parser files — the guard
+            // is what makes "recover by continuing" safe (§200).
+            if !starts_object_literal_member(self.token.kind) {
                 break;
             }
             if self.pos() == before {
-                break;
+                self.next_token();
             }
         }
         self.expect(SyntaxKind::CloseBraceToken);
