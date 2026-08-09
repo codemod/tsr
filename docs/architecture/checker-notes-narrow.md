@@ -5324,3 +5324,28 @@ with the false arm), intersectionWithConflictingPrivates net +3,
 instanceofWithStructurallyIdenticalTypes's else whole. Gates: four
 100% suites held, diagnostics 2,044 → 2,056, clippy 0, tests 0
 FAILED, anchors 2,698.
+
+## §127 — assertion calls narrow at CALL flow nodes [claimed: checker-1]
+
+**The stale comment is the bar's argument.** The flow walk's CALL
+arm skips to the antecedent with the note "assertion signatures
+need call resolution this checker lacks" — written before callres
+existed. The condition road three screens down already calls
+`resolve_call_signature` and narrows by non-assert `is` predicates
+(§100). `getTypeAtFlowCall` (flow.go) is the same recipe at a
+statement position: a CALL node whose resolved signature carries an
+`asserts x is T` predicate narrows the matching reference argument
+to T in the flow that follows; bare `asserts x` narrows by
+truthiness. §125's refusal named this leg as the unlock for its
+union-miss class.
+
+**Not this slice**: `asserts this` (no parameter name — declines),
+never-returning calls (unreachable flow), and non-reference
+arguments (`assert(x.kind === "a")` — is_matching_reference
+declines; the discriminant composition is the §84 family's later
+arm).
+
+**Bar.** ≥40 G→R at ≥5:1. Falsifier: an assertion callee this
+port resolves to the WRONG overload narrows by the wrong predicate
+— confident wrongs concentrated where arity/overload selection is
+weak; if it fires, gate on single-signature callees.
