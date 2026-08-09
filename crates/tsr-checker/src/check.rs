@@ -651,6 +651,12 @@ impl Checker<'_, '_> {
             return;
         }
         if !self.module_specifier_unfindable(specifier) {
+            // **The other branch of the load-bearing distinction.** A specifier
+            // that resolved to a file which is not in the program is not
+            // TS2307's; it is TS7016's when that file is JavaScript and
+            // `noImplicitAny` is on. The rule's own table above has named this
+            // arm since it was written; only the resolved path was missing. §357.
+            self.check_untyped_module_import(declaration, specifier);
             return;
         }
         let Some(Node::StringLiteral(literal)) = self.node_map.get(specifier) else { return };
@@ -663,6 +669,46 @@ impl Checker<'_, '_> {
             &messages::CANNOT_FIND_MODULE_0_OR_ITS_CORRESPONDING_TYPE_DECLARATIONS
         };
         self.report(importing, Diagnostic::with_args(message, span, [text.to_string()]));
+    }
+
+    /// TS7016 — `Could not find a declaration file for module '{0}'. '{1}'
+    /// implicitly has an 'any' type.`
+    ///
+    /// The resolved-but-untyped arm of `resolveExternalModule`
+    /// (`checker.go:15149`), reported at the specifier literal exactly as
+    /// TS2307 is. Confined to a resolved **JavaScript** file: `.tsx` without
+    /// `--jsx` is TS6142 and a resolved `.ts` that is not a module is TS2306,
+    /// both different codes at the same position. §357.
+    fn check_untyped_module_import(&mut self, declaration: NodeId, specifier: NodeId) {
+        if !self.no_implicit_any {
+            return;
+        }
+        if !self.external_import_is_positioned_for_resolution(declaration) {
+            return;
+        }
+        let Some(Node::StringLiteral(literal)) = self.node_map.get(specifier) else { return };
+        let text = literal.text;
+        // A module this port could resolve to a symbol is typed; TS7016 is for
+        // the resolution that produced a file and no module symbol.
+        if self.resolve_external_module_name(declaration, specifier).is_some() {
+            return;
+        }
+        let Some(importing) = self.source_file_of_for_diagnostics(specifier) else { return };
+        let Some(host) = self.module_host else { return };
+        let Some(path) = host.resolved_module_path(importing, text) else { return };
+        let lowered = path.to_ascii_lowercase();
+        if ![".js", ".jsx", ".cjs", ".mjs"].iter().any(|ext| lowered.ends_with(ext)) {
+            return;
+        }
+        let span = self.error_span(specifier);
+        self.report(
+            importing,
+            Diagnostic::with_args(
+                &messages::COULD_NOT_FIND_A_DECLARATION_FILE_FOR_MODULE_0_1_IMPLICITLY_HAS_AN_ANY_TYPE,
+                span,
+                [text.to_string(), path],
+            ),
+        );
     }
 
     /// The boolean core of the TS2307 emitter, shared with

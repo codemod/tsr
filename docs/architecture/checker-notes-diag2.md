@@ -20843,3 +20843,90 @@ TS2552   5 blocked, 4 single   checker+ls       "Did you mean …" — a suggest
 TS2720   4 blocked, 3 single   checker+ls
 TS2686   3 blocked, 3 single   checker+ls
 ```
+
+## §357 — TS7016: the sibling `check_module_specifier`'s own table names
+
+§356's package split surfaced TS7016 — 7 blocked, 6 single-line, `occupied
+0/10` — and `check_module_specifier`'s doc comment already names it:
+
+| declined here | upstream's code there |
+|---|---|
+| the specifier resolves to a file | TS2306, **TS7016**, the `node16` mode family — never 2307 |
+
+```ts
+// @noImplicitAny: true
+// @filename: /node_modules/foo/index.js
+// @filename: /a.ts
+import * as foo from "foo";   // TS7016 at the specifier
+```
+
+The distinction the rule calls *"the single most load-bearing line in this
+file"* — `module_resolution_found` separating *nothing resolved* from *a file
+resolved that is not in the program* — is already drawn. TS2307 takes the first
+branch. **The second branch reports nothing at all**, and TS7016 is its largest
+member.
+
+> §345's shape at the level of a trait rather than a function: **the
+> discriminating call was already made and one of its two answers had no
+> consumer.**
+
+### What has to be added
+
+`ModuleHost` gains a third question — the resolved *path* — because the code is
+chosen by the resolved file's extension: `.js`/`.jsx`/`.cjs`/`.mjs` is TS7016,
+`.tsx` without `--jsx` is TS6142, a resolved `.ts` that is not a module is
+TS2306. ADR-0041's "one method rather than eighteen" is a rule against porting
+`Program` speculatively; this is the third question a real caller asks, and the
+answer already exists on `ResolvedModule.resolved` (`loader.rs:140`), which
+records the file name *even for a `.js` under `allowJs: false`* — the exact case
+here.
+
+### The bar
+
+```
+bar:  +3 of 7,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **A `.tsx` resolved without `--jsx` reports TS7016.** That is TS6142 and the
+   extension test must exclude it.
+2. **With `noImplicitAny` off, anything reports.** Upstream's guard is the flag;
+   `untypedModuleImport` (no `noImplicitAny`) is the paired fixture that must
+   stay silent.
+
+## §358 — §357 built: **+6**, and the board passes 34%
+
+```
+diagnostics   1,861 → 1,867   (bar was +3;  +6, 0 LOST)   34.02%
+every other suite unmoved — both falsifiers negative
+```
+
+Double the bar, from a rule whose doc comment had named this arm since the day
+it was written. The distinction TS2307 calls *"the single most load-bearing line
+in this file"* was already drawn and already correct; one of its two answers
+simply had no consumer.
+
+> **A discriminator with a dead branch is a rule that has been half-written on
+> purpose and then forgotten.** §345 was this at the level of a value
+> (`maximum == 0` computed and discarded); this is the same thing at the level
+> of a *trait method* — `module_resolution_found` exists precisely to separate
+> two populations, and only one of them was ever read.
+
+That form is worth searching for directly, because it leaves a signature:
+a predicate introduced *by a doc comment that explains what the other branch
+would report*. This file's table listed TS2306, TS7016 and the `node16` family;
+the notes for `checker-notes-callres.md` §31 name the same split from the alias
+side.
+
+### The seam, eight builds
+
+```
+§335 +7 · §343 +1 · §345 +2 · §347 +3 · §349 +3 · §353 +1 · §351 0 · §357 +6
+```
+
+**Twenty-three cases, no new subsystem.** The one structural addition in all of
+them is this build's third `ModuleHost` method, and ADR-0041's cap explicitly
+allows it: *"one method rather than eighteen"* is a rule against porting
+`Program` speculatively, not against answering the third question a real caller
+asks.

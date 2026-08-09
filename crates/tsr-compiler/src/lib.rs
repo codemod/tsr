@@ -607,6 +607,14 @@ impl tsr_checker::resolution::ModuleHost for Program<'_> {
     fn module_resolution_found(&self, importing_file: NodeId, specifier: &str) -> bool {
         Program::module_resolution_found(self, importing_file, specifier)
     }
+    fn resolved_module_path(&self, importing_file: NodeId, specifier: &str) -> Option<String> {
+        let &index = self.files_by_source_file.get(&importing_file)?;
+        let resolutions = self.resolved_modules.get(self.files[index].path())?;
+        match resolutions.get(specifier) {
+            Some(ModuleResolution::To(path)) => Some(path.to_string()),
+            _ => None,
+        }
+    }
     fn jsdoc_template_parameters(&self, declaration: NodeId) -> Vec<NodeId> {
         // §110: linear over files, then over each file's (host, docs) rows —
         // the table is small and the call is bake-time-only.

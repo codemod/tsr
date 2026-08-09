@@ -129,6 +129,20 @@ pub trait ModuleHost {
     /// question a real caller asks.
     fn module_resolution_found(&self, importing_file: NodeId, specifier: &str) -> bool;
 
+    /// The **file name** the resolver answered for this specifier.
+    ///
+    /// The third question a real caller asks, and the one that picks the code
+    /// among the resolved-but-not-in-the-program family: a `.js` is TS7016, a
+    /// `.tsx` reached without `--jsx` is TS6142, a resolved `.ts` that is not a
+    /// module is TS2306. [`ModuleHost::module_resolution_found`] separates that
+    /// family from TS2307's; only the extension separates its members.
+    ///
+    /// Defaulted to `None`, which reports nothing — a host that is not a real
+    /// program has no resolutions to describe. §357.
+    fn resolved_module_path(&self, _importing_file: NodeId, _specifier: &str) -> Option<String> {
+        None
+    }
+
     /// The namespace an `@jsx` pragma names for this file, if it has one.
     ///
     /// `getJsxNamespaceAt` (`checker/jsx.go:1306`) resolves the factory's first
