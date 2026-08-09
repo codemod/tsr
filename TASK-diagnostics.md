@@ -12,8 +12,16 @@ FIRST: git pull. Then read, in this order:
   builds.
 
 STATE AT HANDOFF, fourteenth session (verify with a fresh run):
-  diagnostics    1,614/5,488 = 29.41%   (+163 over EIGHTEEN builds, zero lost —
-                 §156-§201).  `extraonly` fell 50 -> 28 cases.
+  diagnostics    1,615/5,488 = 29.43%   (+164 over NINETEEN builds, zero lost —
+                 §156-§205).  `extraonly` fell 50 -> 27 cases, ALL of it from
+                 four parser/harness fixes and not one rule.
+
+  THE HIGHEST-YIELD MOVE THIS SESSION FOUND, stated for reuse: **when a row is
+  expensive, check what has landed underneath it since it was priced.** Three
+  instances — §166 turned §163's dead code into §167's +8; the `.types`
+  workstream's `declare global` merge turned §171's refusal into §189's +14;
+  §193's same-position guard turned §204 from a two-error problem into a
+  one-condition one. None was predictable from the row.
 
 ## READ THIS FIRST: THREE REFUSALS WERE FILED AND ALL THREE WERE WRONG
 
