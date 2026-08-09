@@ -117,10 +117,13 @@ fn a_const_assertion_on_an_object_literal_is_readonly_and_unwidened() {
     // previously pinned the pre-slice GAP ("error") and went red the day the
     // slice landed — the failure was the feature arriving.
     assert_eq!(type_of_initialiser("let x = { a: 1 } as const;"), "{ readonly a: 1; }");
-    // The remaining gap is deliberate: a SINGLE-QUOTED string member value
-    // needs the written-spelling carriage (upstream prints `'lookup'` inside
-    // the object type), so the literal declines whole rather than mis-quote.
-    assert_eq!(type_of_initialiser("let x = { a: 'b' } as const;"), "error");
+    // §109: the value-spelling carriage — a SINGLE-QUOTED member value
+    // prints single-quoted inside the object type (upstream reuses the
+    // source node), while its standalone line stays double-quoted. This
+    // assertion pinned the pre-carriage gap and went red the day §109
+    // landed — the second same-day instance of a test one build behind
+    // its own feature, both caught by the tee-log grep.
+    assert_eq!(type_of_initialiser("let x = { a: 'b' } as const;"), "{ readonly a: 'b'; }");
     // A double-quoted member has no spelling question and answers.
     assert_eq!(type_of_initialiser("let x = { a: \"b\" } as const;"), "{ readonly a: \"b\"; }");
     // Without `as const` the same literal widens, so the const arm is

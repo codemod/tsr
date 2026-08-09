@@ -4382,6 +4382,23 @@ head). Must NOT move: slice 2a's converts, standalone
 double-quoted literal lines, §104's 232. One wrong-quote line
 anywhere refuses the arm.
 
+**§109 score — LANDED at +26/0; THE READONLY SUBSYSTEM IS CLOSED.**
+right 408,170 → **408,196** on the full pair: +26 G→R
+(inferFromNestedSameShapeTuple 12, correlatedUnions 6,
+es2018IntlAPIs 4 — the locale-options family the original blocker
+note named), **zero adverse in any column**. The gate lifted for
+exactly the carried shape and nothing else; the
+impossible-not-detectable property held end to end. The subsystem's
+arc, for the record: §103's sizing said "four machines, do not
+attempt piecemeal"; it landed as SIX measured slices (§104's
+contract seam, slice 1's tuple wiring, slice 2a's three legs,
+trace 1's member shape, trace 2 by composition, §109's carriage) —
+each with its own pair, and the two that looked hardest (the
+carriage, the member shape) each turned out to be ONE ARM once the
+machinery around them existed. What remains of the §103 head is
+now ONLY the inference plumbing (const-T argument typing), and
+§33's decline in calls.rs is its entry.
+
 ## §109 — JSDoc @template reaches the signature bake [claimed: checker-1]
 
 The @template family holds ~200 WRONG + 34 GAP across seven cases

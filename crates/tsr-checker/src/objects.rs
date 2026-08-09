@@ -303,23 +303,6 @@ impl Checker<'_, '_> {
         // member VALUE, because the value-spelling carriage is unbuilt and a
         // wrong quote is worse than the gap.
         let const_context = node.node_id.is_some_and(|id| self.is_const_context(id));
-        if const_context
-            && node.properties.iter().any(|property| {
-                matches!(
-                    property,
-                    tsr_ast::ObjectLiteralElementLike::PropertyAssignment(assignment)
-                        if matches!(
-                            assignment.initializer,
-                            Some(tsr_ast::Expression::StringLiteral(literal))
-                                if literal
-                                    .token_flags
-                                    .contains(tsr_ast::TokenFlags::SINGLE_QUOTE)
-                        )
-                )
-            })
-        {
-            return error;
-        }
         let mut members = Vec::with_capacity(node.properties.len());
         for property in node.properties {
             // `checker.go:13223` dispatches over three member kinds. Only two are
@@ -550,14 +533,22 @@ impl Checker<'_, '_> {
             // `{ a: string; b: number; }`, with `a` still first. Plain
             // literals go through the same call because `{ a: 1, ...o }` has to
             // let `o`'s `a` win, and a `push` here would print `a` twice.
+            let printed = match (const_context, &value) {
+                // SS109: the carried shape is DIRECTLY a single-quoted
+                // string literal - it prints single-quoted inside the
+                // object type while its standalone line stays double
+                // (the SS77.3 name-quote precedent applied to values).
+                // Indirect reaches keep the fresh render.
+                (true, PropertyValue::Initializer(tsr_ast::Expression::StringLiteral(literal)))
+                    if literal.token_flags.contains(tsr_ast::TokenFlags::SINGLE_QUOTE) =>
+                {
+                    format!("'{}'", literal.text)
+                }
+                _ => self.type_to_string(member_type),
+            };
             upsert_member(
                 &mut members,
-                Member::Property {
-                    name,
-                    optional: false,
-                    readonly: const_context,
-                    printed: self.type_to_string(member_type),
-                },
+                Member::Property { name, optional: false, readonly: const_context, printed },
             );
         }
         let printed = render_object_type(&members);
