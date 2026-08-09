@@ -13331,3 +13331,143 @@ A cheap standing check falls out of that and is worth writing down for whoever
 next touches this file: **the set of units the parser/binder half walks must
 equal the set `from_check_traversal` walks.** They are computed independently
 today and there is no test.
+
+## §198 — `parseDelimitedList` recovers by CONTINUING; this port's parameter list breaks
+
+§197 left `extraonly` at 29 cases, described as *"genuinely-different-position
+recovery, needing the paths read one at a time"*. Read the first one.
+
+```
+constructor(...public rest: string[]) {}
+
+upstream   restParamModifier.ts(2,27) TS1005  ',' expected.        ← one error
+ours       (2,27) TS1005 · (2,41) TS1005 · (2,43) TS1131 · (3,1) TS1012
+```
+
+**The first error matches.** Everything after it is cascade, and the cause is
+four lines:
+
+```rust
+// crates/tsr-parser/src/expression.rs:1862
+if !self.eat(SyntaxKind::CommaToken) {
+    break;                       // ← leaves the whole parameter list
+}
+```
+
+```go
+// parser.go:664 — parseDelimitedList
+if p.parseOptional(ast.KindCommaToken) { continue }
+if p.isListTerminator(kind) { break }
+// We didn't get a comma, and the list wasn't terminated, explicitly parse
+// out a comma so we give a good error message.
+p.parseExpected(ast.KindCommaToken)   // reports ',' expected
+… if startPos == p.nodePos() { p.nextToken() }   // no-progress guard
+// and CONTINUES
+```
+
+Upstream reports the missing comma and **stays in the list**. This port leaves
+it, so `rest: string[]` is never consumed as a parameter, `expect(CloseParen)`
+fails on `rest`, and the failure cascades out into the class body — three more
+errors from one recovery decision.
+
+### Why this is not "one case at a time" after all
+
+§197 called the remaining `extraonly` residue per-construct work. It is not:
+**`parse_parameter_list` is one of several hand-written list loops in this
+parser**, and upstream has exactly one `parseDelimitedList` that all of them
+would be. A `break` where upstream continues is a *shape*, not an incident —
+the same relationship §192 found between one guard and 59 extra lines.
+
+The build is bounded to the parameter list, because that is the loop the
+evidence names; the shape is recorded so the next `extraonly` read starts by
+asking which list it is in.
+
+### The bar
+
+```
+bar:  diagnostics +3,  0 LOST,  parser_typescript / scanner_clean_files /
+      binder_symbols / printer_round_trip UNMOVED
+```
+
+`+3` because `restParamModifier` is one case and two more of `extraonly`'s
+parser residue (`objectBindingPatternKeywordIdentifiers01`,
+`classWithPredefinedTypesAsNames2`) are list-shaped by inspection but unverified.
+
+### Falsifiers
+
+1. **Any 100% rail moves.** Continuing where the port used to break changes
+   which trees are built for *valid* input only if the loop is entered wrongly;
+   the rails are what says it is not.
+2. **`diagnostics` falls.** A case passing because the cascade happened to
+   supply a line the baseline wants — implausible, and worth knowing.
+3. **A hang.** Upstream's `startPos == p.nodePos()` guard is what prevents it and
+   must be ported with the continue, not after it.
+
+## §199 — §198 REFUSED by its own falsifier, and the missing piece is named
+
+§198's bar had `parser_typescript … UNMOVED` as falsifier 1. Measured:
+
+```
+parser_typescript   5,031/5,031 → 4,967/5,031   (98.73%, 64 files)
+diagnostics         1,613 → 1,601               (−12)
+checker_types       3,970 → 3,961               (−9)
+```
+
+**Refused and reverted.** The falsifier was written to catch exactly this and
+did, on the first run.
+
+### The diagnosis, which the failures hand over directly
+
+Every one of the 64 is `TS1003 Identifier expected`, first at offsets like
+`8..9` — a *one-character token* the parser tried to read as a parameter name.
+The port continued the list and then parsed a parameter unconditionally.
+Upstream does not:
+
+```go
+for !p.isListTerminator(kind) {
+    if p.isListElement(kind, false) {          // ← PCParameters: isStartOfParameter
+        element := parseElement()
+        if p.parseOptional(KindCommaToken) { continue }
+        if p.isListTerminator(kind) { break }
+        p.parseExpected(KindCommaToken)
+        …
+        continue
+    }
+    if p.abortParsingListOrMoveToNextToken(kind) { break }
+}
+```
+
+**`isListElement` is the guard §198 omitted.** For `PCParameters` it is
+`isStartOfParameter(false)` (`parser.go:886`):
+
+```go
+return p.token == ast.KindDotDotDotToken ||
+    p.isBindingIdentifierOrPrivateIdentifierOrPattern() ||
+    ast.IsModifierKind(p.token) ||
+    p.token == ast.KindAtToken ||
+    p.isStartOfType(true)
+```
+
+Continuing the list is only safe when the next token could start a parameter;
+without that test, "recover by continuing" becomes "invent a parameter from
+whatever is there", which is worse than the `break` it replaced.
+
+### What this costs and what it is worth
+
+§198's diagnosis stands — a `break` where upstream continues is a real
+divergence and `restParamModifier`'s three extra errors are real. The build
+needs **`isStartOfParameter`**, which needs `isStartOfType`, which is a
+sixty-kind switch. That is the honest price: not four lines, one predicate of
+moderate size, and the payoff is `extraonly`'s parser residue rather than one
+case.
+
+> **A recovery strategy has two halves and porting one is worse than porting
+> neither.** Upstream's list loop is *"continue if the next token could be an
+> element, otherwise abort"*, and §198 ported the continue without the
+> condition. The `break` this port had was a crude version of the *second* half
+> — it aborted always — and crude-but-safe beat half-faithful.
+
+This is the fifth refusal of the session and the first that failed on a
+falsifier written before the code rather than on an attribution. That is the
+system working: §198's bar named `parser_typescript` specifically because the
+change was in the parser, and one run settled it.
