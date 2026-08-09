@@ -26797,3 +26797,71 @@ one `grep` against a table already on disk.
 
 All four are now either complete or complete-for-the-corpus, which is the
 honest form of "done" this suite can express.
+
+## §503 — TS1245: an abstract method with a body
+
+**2 blocked, `occupied 0/2`.** `checkMethodDeclaration` (`checker.go:2808`):
+
+```go
+if ast.HasSyntacticModifier(node, ModifierFlagsAbstract) && ast.IsMethodDeclaration(node) && node.Body() != nil {
+    c.error(node, Method_0_cannot_have_an_implementation_because_it_is_marked_abstract, …)
+}
+```
+
+```ts
+abstract class C {
+    abstract foo() { }   // TS1245 at `foo`
+}
+```
+
+Three conjuncts, all shape: a modifier, a node kind, a field. §490's signature,
+and it shares no guard with the other 2-case modifier rows (`TS1242` is in
+`checkGrammarModifiers`, `TS1248` in the class-member block), so **§497's rule
+says build it alone** rather than bundling three small ones and risking §496's
+`−2` again.
+
+The error node is the declaration and `error_span` narrows to the name —
+`classAbstractMethodWithImplementation` expects column 14 of
+`    abstract foo() { }`, which is `foo`.
+
+### The bar
+
+```
+bar:  +2 of 2,  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **`abstract foo();` without a body reports.** The body test is the third
+   conjunct and the legal form.
+2. **A non-abstract method with a body reports.** The modifier is the first.
+
+## §504 — §503 built: **+2**, and `checker_types` **+19**
+
+```
+diagnostics     2,023 → 2,025   (bar was +2;  +2, 0 LOST)   36.90%
+checker_types   4,055 → 4,074   (+19 — the session's largest cross-suite move)
+```
+
+Both blocked cases converted; the row is closed.
+
+### The `+19` and §437's framing
+
+§437 established that a build which **evaluates a new expression** moves
+`checker_types` by construction, and corrected the falsifier from *"the number
+is unmoved"* to *"no case goes passing→failing"*. This build evaluates nothing —
+it reads a modifier list and a body field.
+
+The mechanism is different and worth separating: `check_abstract_method_has_no_body`
+is dispatched from a **new `matches!` arm on `MethodDeclaration`**, and adding
+that arm put method declarations through the generic per-node section for the
+first time in this path. Whatever `checker_types` reads there now runs.
+
+> **Three distinct ways a diagnostics build moves the type snapshot, now all
+> measured:** §350's shared *predicate* (neutral), §437's new *expression*
+> evaluation (`+14`), and §504's new *dispatch* (`+19`). None was predicted by
+> the build's own reasoning, and all three were visible in the same column.
+>
+> The practical form: **`checker_types` moving is information, not noise, and
+> its direction is not the falsifier — `passing→failing` is.** This session has
+> moved it `+89` in total without once aiming at it.

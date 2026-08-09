@@ -597,6 +597,9 @@ impl Checker<'_, '_> {
         ) {
             self.check_implicit_any_signature_return(node, ambient);
         }
+        if matches!(typed, Node::MethodDeclaration(_)) {
+            self.check_abstract_method_has_no_body(node);
+        }
         if matches!(typed, Node::FunctionDeclaration(_) | Node::MethodDeclaration(_)) {
             self.check_empty_body_returns_value(node);
         }
@@ -2251,6 +2254,33 @@ impl Checker<'_, '_> {
             Diagnostic::new(&messages::THIS_CANNOT_BE_REFERENCED_IN_A_COMPUTED_PROPERTY_NAME, span),
         );
         true
+    }
+
+    /// TS1245 — `Method '{0}' cannot have an implementation because it is
+    /// marked abstract.`
+    ///
+    /// `checkMethodDeclaration` (`checker.go:2808`): three conjuncts, all
+    /// shape — the `abstract` modifier, the node kind, and a present body.
+    /// §503.
+    fn check_abstract_method_has_no_body(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let Some(Node::MethodDeclaration(method)) = self.node_map.get(node) else { return };
+        if method.body.is_none() || !has_modifier(method.modifiers, SyntaxKind::AbstractKeyword) {
+            return;
+        }
+        let text = declaration_name_to_string(method.name).unwrap_or_default();
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let span = self.error_span(node);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::METHOD_0_CANNOT_HAVE_AN_IMPLEMENTATION_BECAUSE_IT_IS_MARKED_ABSTRACT,
+                span,
+                [text],
+            ),
+        );
     }
 
     fn check_this_in_module_body(&mut self, node: NodeId) {
