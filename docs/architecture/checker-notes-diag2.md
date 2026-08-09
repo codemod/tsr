@@ -24337,3 +24337,78 @@ have produced none of them.
 > working: **refusals naming a whole subsystem** — §412's "the relation's
 > trigger", §424's "the type-side representation" — have been reopened **zero**
 > times, because a subsystem name delimits nothing.
+
+## §442 — TS2397: a script declaring `undefined` or `globalThis`
+
+**5 blocked, all single-line, `occupied 0/5`.** Two upstream guards, both
+syntactic, both in `checker.go`'s global-table setup rather than in any check:
+
+```go
+// :1452  addUndefinedToGlobalsOrErrorOnRedeclaration
+if targetSymbol := c.globals["undefined"]; targetSymbol != nil {
+    for _, declaration := range targetSymbol.Declarations {
+        if !ast.IsTypeDeclaration(declaration) { … "undefined" }
+
+// :1302  for a file that is NOT an external module
+if fileGlobalThisSymbol := file.Locals["globalThis"]; fileGlobalThisSymbol != nil { … "globalThis" }
+```
+
+```ts
+var undefined = void 0;      // TS2397 at `undefined`
+```
+
+Only a **script** contributes to `c.globals`, so both guards are the same
+condition: a top-level, non-type declaration in a non-module file whose name is
+one of the two built-ins.
+
+> Worth noting where these live: **neither is inside a `check*` function.** They
+> run once while the global table is assembled, which is why no amount of
+> reading `checkSourceElement`'s callees would have found them — and why
+> §376's message-name detector, which searches all of `internal/checker`
+> regardless of function, is the tool that surfaces this class.
+
+### The bar
+
+```
+bar:  +3 of 5,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **A module declaring `var undefined` reports.** A module's declarations do
+   not enter `c.globals`; the script test is the whole guard.
+2. **`type undefined = …` reports.** `IsTypeDeclaration` is excluded
+   explicitly.
+
+## §443 — §442 built: **+4**, above bar
+
+```
+diagnostics   1,949 → 1,953   (bar was +3;  +4, 0 LOST)   35.59%
+every other suite unmoved — both falsifiers negative
+```
+
+### The class this belongs to, now that there are two
+
+Neither of TS2397's guards lives in a `check*` function — both run once while
+the global symbol table is assembled. TS2669 (§418) was the same: named in the
+*binder*'s merge logic, not in a check.
+
+> **Diagnostics that fire during setup are invisible to every technique that
+> walks the check traversal.** §328 swept call sites, §381 swept rule dispatch,
+> §386 swept destructures — all three follow `checkSourceElement`'s callees, and
+> none of them can reach a diagnostic emitted while building `c.globals`.
+> §376's message-name grep is the only instrument here that searches
+> `internal/checker` **regardless of function**, which is why it and the
+> comment sweep found these two and nothing else did.
+
+### §433's refresh, six rows worked
+
+```
+TS2309  §432  +8      TS2507  §436  +3  (checker_types +14)
+TS2351  §434  +2      TS7013  §438  +7  (with TS7011)
+TS2355  §440  +4      TS2397  §442  +4
+```
+
+**+28 across six rows**, all of them at `occupied 0/n` with every case
+single-line — the signature §433's refresh exposed and the previous hundred
+builds never saw.

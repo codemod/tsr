@@ -592,6 +592,15 @@ impl Checker<'_, '_> {
         if matches!(typed, Node::FunctionDeclaration(_) | Node::MethodDeclaration(_)) {
             self.check_empty_body_returns_value(node);
         }
+        if matches!(
+            typed,
+            Node::VariableDeclaration(_)
+                | Node::FunctionDeclaration(_)
+                | Node::ClassDeclaration(_)
+                | Node::ModuleDeclaration(_)
+        ) {
+            self.check_builtin_global_redeclaration(node);
+        }
         if matches!(typed, Node::ExportAssignment(_)) {
             self.check_export_assignment_alone(node);
         }
@@ -1175,6 +1184,62 @@ impl Checker<'_, '_> {
             Diagnostic::new(
                 &messages::A_FUNCTION_WHOSE_DECLARED_TYPE_IS_NEITHER_UNDEFINED_VOID_NOR_ANY_MUST_RETURN_A_VALUE,
                 span,
+            ),
+        );
+    }
+
+    /// TS2397 — `Declaration name conflicts with built-in global identifier '{0}'.`
+    ///
+    /// Two upstream guards, both syntactic and both in the global-table setup
+    /// rather than in any `check*` function: `addUndefinedToGlobalsOrErrorOnRedeclaration`
+    /// (`checker.go:1452`) and the `globalThis` loop (`:1302`). Only a **script**
+    /// contributes to `c.globals`, so both reduce to one condition — a
+    /// top-level, non-type declaration in a non-module file named `undefined`
+    /// or `globalThis`. §442.
+    fn check_builtin_global_redeclaration(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let name = match self.node_map.get(node) {
+            Some(Node::VariableDeclaration(declaration)) => {
+                declaration.name.and_then(|name| name.node_id())
+            }
+            Some(Node::FunctionDeclaration(f)) => f.name.and_then(|n| n.node_id),
+            Some(Node::ClassDeclaration(c)) => c.name.and_then(|n| n.node_id),
+            Some(Node::ModuleDeclaration(m)) => m.name.and_then(|n| n.node_id()),
+            _ => return,
+        };
+        let Some(name) = name else { return };
+        let Some(text) = self.identifier_text(name) else { return };
+        if text != "undefined" && text != "globalThis" {
+            return;
+        }
+        let text = text.to_string();
+        // `c.globals` is fed by scripts only.
+        let Some(file) = self.source_file_of_for_diagnostics(name) else { return };
+        let Some(Node::SourceFile(source)) = self.node_map.get(file) else { return };
+        if tsr_binder::is_external_module(source) {
+            return;
+        }
+        // Top-level: the declaration's statement is a child of the file. A
+        // `VariableDeclaration` sits under a list and a statement.
+        let mut container = self.nodes.parent(node);
+        while let Some(id) = container {
+            match self.nodes.kind(id) {
+                SyntaxKind::VariableDeclarationList | SyntaxKind::VariableStatement => {
+                    container = self.nodes.parent(id);
+                }
+                SyntaxKind::SourceFile => break,
+                _ => return,
+            }
+        }
+        let span = self.error_span(name);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::DECLARATION_NAME_CONFLICTS_WITH_BUILT_IN_GLOBAL_IDENTIFIER_0,
+                span,
+                [text],
             ),
         );
     }
