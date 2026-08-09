@@ -523,6 +523,12 @@ impl Checker<'_, '_> {
         // six dispatch arms, all of them class members or a parameter, so
         // TS1038's arm existed and never fired on a `declare` inside a
         // `declare namespace`.
+        // `checkGrammarAsyncModifier` (`grammarchecks.go:659`) applies to **any**
+        // node carrying an `async` modifier, including the class-member kinds
+        // the order check below excludes, so it is asked separately. §377.
+        if let Some(modifiers) = modifiers_of(typed) {
+            self.check_grammar_async_modifier(node, modifiers);
+        }
         if !matches!(
             typed,
             Node::PropertyDeclaration(_)
@@ -710,6 +716,50 @@ impl Checker<'_, '_> {
                 [text],
             ),
         );
+    }
+
+    /// TS1042 — `'{0}' modifier cannot be used here.`
+    ///
+    /// `checkGrammarAsyncModifier` (`grammarchecks.go:659`). `async` is legal
+    /// on exactly four node kinds; everywhere else the modifier itself is the
+    /// error node — `async class C {}` reports at column 1, not at `C`. §377.
+    fn check_grammar_async_modifier(
+        &mut self,
+        node: NodeId,
+        modifiers: &[tsr_ast::ModifierLike<'_>],
+    ) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        if matches!(
+            self.nodes.kind(node),
+            SyntaxKind::MethodDeclaration
+                | SyntaxKind::FunctionDeclaration
+                | SyntaxKind::FunctionExpression
+                | SyntaxKind::ArrowFunction
+        ) {
+            return;
+        }
+        for modifier in modifiers {
+            let tsr_ast::ModifierLike::Token(token) = modifier else { continue };
+            if token.kind != SyntaxKind::AsyncKeyword {
+                continue;
+            }
+            let Some(file) = token.node_id.and_then(|id| self.source_file_of_for_diagnostics(id))
+            else {
+                continue;
+            };
+            let Some(id) = token.node_id else { continue };
+            let span = self.nodes.span(id);
+            self.report(
+                file,
+                Diagnostic::with_args(
+                    &messages::_0_MODIFIER_CANNOT_BE_USED_HERE,
+                    span,
+                    ["async".to_string()],
+                ),
+            );
+        }
     }
 
     /// TS2307 — `Cannot find module '{0}' or its corresponding type declarations.`

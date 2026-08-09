@@ -21672,3 +21672,92 @@ The third is invisible to every instrument here, because instruments see codes
 and this distinction lives in upstream's *function* structure. `grep -n
 "<Message_name>" vendor/typescript-go/internal/checker/*.go | wc -l` is the
 whole detector, and it costs one command per code.
+
+## §377 — TS1042 via §376's detector
+
+§376's detector — `grep -c` a message name across `internal/checker/` — run over
+every row with ≥4 blocked cases. Sixteen codes have more than one upstream site.
+The one that is both unported and entirely single-line:
+
+```
+TS1042   3 sites   6 blocked   6 single
+```
+
+```ts
+async class C { }        // 'async' modifier cannot be used here
+async enum E { }
+async interface I { }
+class C { async get x() { return 1 } }
+```
+
+`checkGrammarAsyncModifier` (`grammarchecks.go:659`) is nine lines:
+
+```go
+switch node.Kind {
+case KindMethodDeclaration, KindFunctionDeclaration,
+     KindFunctionExpression, KindArrowFunction:
+    return false
+}
+return c.grammarErrorOnNode(asyncModifier, X_0_modifier_cannot_be_used_here, "async")
+```
+
+Everything it needs exists: §320 built `modifiers_of` and the generic
+modifier dispatch. **The code is not emitted anywhere in this port** — the
+sweep's value is finding a whole small rule, not a missing arm of one.
+
+### The bar
+
+```
+bar:  +4 of 6,  0 LOST,  WRONG delta <= +2
+```
+
+High, because all six blocked cases are single-line and this is the complete
+upstream rule rather than a fragment — §371 and §373's judgement, applied a
+third time.
+
+### Falsifiers
+
+1. **`async function f() {}` or `async () => {}` reports.** Those are two of
+   the four exempt kinds.
+2. **`async` on a *method* reports.** The first exempt kind, and the one the
+   property arm at `grammarchecks.go:1070` also special-cases.
+
+## §378 — §377 built: **+4**, bar met
+
+```
+diagnostics   1,876 → 1,880   (bar was +4;  +4, 0 LOST)   34.26%
+every other suite unmoved — both falsifiers negative
+```
+
+The largest single build since §357, from a nine-line upstream function found
+by a `grep -c`.
+
+### The detector earned its keep on first use
+
+§376 proposed it one build ago and priced it at *one command per code*. Run over
+every row with ≥4 blocked cases, it produced sixteen codes with more than one
+upstream site, and the first unported all-single-line row on that list paid
+`+4`. The remaining fifteen are unworked and listed in §377's output.
+
+> **`grep -c "<Message_name>" vendor/typescript-go/internal/checker/*.go` is the
+> cheapest instrument in this workstream and the only one that reads
+> *upstream's* structure rather than this port's output.** Every other
+> instrument here — `diaggap`, `diagslice`, `diagnode`, `diagdeepen`,
+> `diagpair`, `diagcolumn` — measures the gap from the inside. This one measures
+> what the gap is made of.
+
+That distinction is worth the paragraph: an instrument over this port's output
+can only rank what this port already does. It cannot see a *function* that was
+never ported, because a function that was never ported produces no output to
+rank. Fourteen builds of predicate-widening found cases because the machinery
+was there; §375 and §377 found cases because the machinery was **not**, and no
+amount of ranking the port's own behaviour would have said so.
+
+### The seam and its sibling, fifteen builds
+
+```
+predicate/branch widening   §335 §343 §345 §347 §349 §353 §361 §364 §371 §373   +24
+missing upstream site       §375 §377                                            +5
+instruments                 §336 §339 §341 §370                                   —
+reverted with mechanism     §338 §339 §341 §351 §368                            −16
+```
