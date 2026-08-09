@@ -296,9 +296,28 @@ impl<'a> Parser<'a> {
     pub fn finish(mut self) -> (Vec<Diagnostic>, NodeTable, JSDocTable<'a>, tsr_ast::NodeMap<'a>) {
         // Scanner diagnostics are interleaved by position so a caller sees one
         // ordered list rather than two.
-        let mut diagnostics = self.diagnostics;
-        diagnostics.extend(self.scanner.take_diagnostics());
-        diagnostics.sort_by_key(|d| (d.span.start, d.span.end));
+        //
+        // **And `parseErrorAtRange`'s same-position guard is applied across
+        // both** (`parser.go:327`). Upstream has a single list — the scanner's
+        // error callback routes through the same function — so its guard
+        // compares across the two sources by construction. Here the scanner
+        // owns a `Vec` and the guard in `error_at` can only see the parser's,
+        // which left a parser error surviving at a position the scanner had
+        // already reported: `parserErrorRecovery_Block2` wants `TS1127` alone
+        // and got `TS1012` beside it. §195.
+        //
+        // The scanner's entries go first at an equal start because upstream
+        // keeps whichever was reported **first**, and the scanner reports while
+        // scanning the token — before the parser can say anything about it.
+        // Tagged before sorting rather than counted during it: `sort_by_key`
+        // calls its key function an unpredictable number of times, so a
+        // positional counter inside one is not a source ordinal.
+        let mut tagged: Vec<(u8, Diagnostic)> =
+            self.scanner.take_diagnostics().into_iter().map(|d| (0, d)).collect();
+        tagged.extend(self.diagnostics.into_iter().map(|d| (1, d)));
+        tagged.sort_by_key(|(source, d)| (d.span.start, *source, d.span.end));
+        let mut diagnostics: Vec<Diagnostic> = tagged.into_iter().map(|(_, d)| d).collect();
+        diagnostics.dedup_by_key(|d| d.span.start);
         (diagnostics, self.nodes, JSDocTable { entries: self.jsdoc }, self.node_map)
     }
 

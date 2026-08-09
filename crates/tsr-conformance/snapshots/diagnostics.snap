@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; scanner, parser and binder only, with no checker (bd tsr-4sc)
-Passed         : 1608/5488 (29.30%)
-Failed         : 3880
+Passed         : 1611/5488 (29.35%)
+Failed         : 3877
 Skipped        : 6956 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -11,7 +11,7 @@ Skipped        : 6956 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 3880 failures:
+First 100 of 3877 failures:
 compiler/ClassDeclaration24
   1 missing (first TS2414 at ClassDeclaration24.ts(1,7))
 compiler/ClassDeclaration26
@@ -31,7 +31,7 @@ compiler/ParameterList5
 compiler/ParameterList6
   1 missing (first TS7006 at ParameterList6.ts(2,19))
 compiler/TransportStream
-  3 unexpected (first TS1005 at TransportStream.ts(1,2)), 2 missing
+  2 unexpected (first TS1005 at TransportStream.ts(1,2)), 2 missing
 compiler/abstractClassInLocalScopeIsAbstract
   1 missing (first TS2511 at abstractClassInLocalScopeIsAbstract.ts(4,5))
 compiler/abstractClassUnionInstantiation

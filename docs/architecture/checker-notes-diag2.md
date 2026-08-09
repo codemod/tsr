@@ -13194,3 +13194,90 @@ because the measurement was taken over a stack that had a defect in it.
 Every refusal in this file should carry the state it was measured against.
 §142 said so about `bd tsr-6re`'s number; four reversals in one session say it
 about all of them.
+
+## §195 — the guard has a second blind spot: scanner diagnostics are a separate list
+
+§193's guard runs during parsing on `Parser::diagnostics`. The scanner keeps its
+own list and the two are merged in `Parser::finish` (`parser.rs:296`) *after*
+parsing, then sorted. **So the guard cannot see a scanner diagnostic**, and a
+parser error at a position the scanner already reported survives.
+
+```
+conformance/parserErrorRecovery_Block2
+  expected   (2,5) TS1127                  ← scanner: Invalid character
+  actual     (2,5) TS1012 + (2,5) TS1127
+```
+
+Upstream has one list: the scanner's error callback routes through
+`parseErrorAtRange` like everything else, so its guard compares across both
+sources by construction. This port's separation is an artefact of the scanner
+owning a `Vec`, and it is invisible from either side — §192's finding, one layer
+further out.
+
+### The tie-break, which the evidence settles
+
+At one position upstream keeps whichever was reported **first**, and the scanner
+reports while scanning the token — before the parser can say anything about it.
+`parserErrorRecovery_Block2` confirms it: TS1127 survives and TS1012 does not.
+So the merge orders scanner entries ahead of parser entries at an equal start,
+then keeps the first per start.
+
+### The bar
+
+```
+bar:  diagnostics +4,  0 LOST,  parser_typescript / printer_round_trip / binder_symbols UNMOVED
+```
+
+`extraonly` is 34 cases, of which 25 lines are TS1005, 7 TS1012, 4 TS1003 and 2
+TS1131 — a mix of same-position-as-scanner and genuinely different positions, so
+only part of it is reachable here. `+4` is the head of that.
+
+### Falsifiers
+
+1. **Any 100% rail moves.** The merge must drop only a diagnostic whose start
+   equals one already kept.
+2. **`diagnostics` falls.** A case passing on a duplicate is impossible under a
+   multiset comparison, so a fall means a *first* entry is being dropped — the
+   tie-break inverted.
+
+## §196 — §195 built: +3, bar short by one, every rail unmoved
+
+```
+diagnostics          1,608 → 1,611  (+3)
+parser_typescript    5,031/5,031    unmoved
+scanner_clean_files  5,031/5,031    unmoved
+binder_symbols       8,458/8,458    unmoved
+printer_round_trip  11,760/11,760   unmoved
+checker_types        3,970          unmoved
+```
+
+The bar was `+4`. **Short by one**, at zero cost anywhere — landed, and the miss
+is recorded rather than rounded away: `+4` was an estimate off `extraonly`'s
+head and the head turned out to be three deep, not four.
+
+### One implementation note worth keeping
+
+The first attempt tagged source order with a counter mutated *inside*
+`sort_by_key`'s closure:
+
+```rust
+diagnostics.sort_by_key({ let mut index = 0; move |d| { … index += 1; … } });
+```
+
+**`sort_by_key` calls its key function an unpredictable number of times**, so
+that counter is not a source ordinal and the tie-break would have been
+arbitrary. Caught before measuring, which is the only reason it is a note and
+not a section: a wrong tie-break here would have produced a *plausible* number —
+the same code, dropping a slightly different set — and nothing downstream would
+have flagged it.
+
+Tagging before the sort is the fix, and the general form is: **derive an ordinal
+where the order still exists, never inside a comparator.**
+
+### What is left in `extraonly`
+
+34 cases before this build. The remainder is genuinely-different-position
+recovery — errors this parser invents where upstream produces none, rather than
+a second error where upstream produces one. That is a different defect and needs
+the recovery paths read one at a time; `parserErrorRecovery_*`,
+`extendsUntypedModule` and `scannerUnexpectedNullCharacter1` are the families.
