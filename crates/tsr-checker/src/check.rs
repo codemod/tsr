@@ -612,6 +612,9 @@ impl Checker<'_, '_> {
         if matches!(typed, Node::LabeledStatement(_)) {
             self.check_duplicate_label(node, ambient);
         }
+        if matches!(typed, Node::ImportTypeNode(_)) {
+            self.check_import_type_argument(node);
+        }
         if matches!(typed, Node::IndexSignatureDeclaration(_)) {
             self.check_index_signature_key_type(node);
         }
@@ -2028,6 +2031,32 @@ impl Checker<'_, '_> {
             file,
             Diagnostic::with_args(&messages::MODULE_0_HAS_NO_DEFAULT_EXPORT, span, [printed]),
         );
+    }
+
+    /// TS1141 — `String literal expected.`
+    ///
+    /// `getTypeFromImportTypeNode` (`checker.go:24578`): an `import(...)` type
+    /// whose argument is not a literal type wrapping a string literal. A shape
+    /// test on two nodes, with no other conjunct, reported at the argument.
+    /// §489.
+    fn check_import_type_argument(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let Some(Node::ImportTypeNode(import)) = self.node_map.get(node) else { return };
+        let Some(argument) = import.argument.and_then(|a| a.node_id()) else { return };
+        let is_string_literal_type = matches!(
+            self.node_map.get(argument),
+            Some(Node::LiteralTypeNode(literal))
+                if literal.literal.and_then(|l| l.node_id())
+                    .is_some_and(|id| self.nodes.kind(id) == SyntaxKind::StringLiteral)
+        );
+        if is_string_literal_type {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(argument) else { return };
+        let span = self.error_span(argument);
+        self.report(file, Diagnostic::new(&messages::STRING_LITERAL_EXPECTED, span));
     }
 
     fn check_this_in_module_body(&mut self, node: NodeId) {

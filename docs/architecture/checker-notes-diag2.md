@@ -26143,3 +26143,68 @@ and the choice among the survivors came, every time, from a sentence in
 > reading. It is a statement of where the remaining work is: the six
 > instruments are built and will not need a seventh, and the reading is
 > unbounded.
+
+## §489 — TS1141: a non-string `import(...)` type argument
+
+**4 blocked, `occupied 0/6`.**
+
+```ts
+export const x: import({x: 12}) = undefined as any;   // TS1141 at `{x: 12}`
+```
+
+`getTypeFromImportTypeNode` (`checker.go:24578`):
+
+```go
+if !ast.IsLiteralImportTypeNode(node) {
+    c.error(n.Argument, diagnostics.String_literal_expected)
+```
+
+`IsLiteralImportTypeNode` is *the argument is a literal type whose literal is a
+string* — a shape test on two nodes, and the error node is the argument.
+
+### The bound
+
+An `ImportTypeNode` whose `argument` is not a `LiteralTypeNode` wrapping a
+`StringLiteral`. Nothing else — upstream's guard is the same shape test and has
+no other conjunct.
+
+### The bar
+
+```
+bar:  +3 of 4,  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **`import("./m")` reports.** The string-literal case is the whole legal form.
+2. **A `typeof import("./m")` reports.** Same argument shape, wrapped in a type
+   query — the test is on the `ImportTypeNode`'s own argument and unaffected.
+
+## §490 — §489 built: **+4**, every blocked case converted
+
+```
+diagnostics   2,002 → 2,006   (bar was +3;  +4, 0 LOST)   36.55%
+every other suite unmoved — both falsifiers negative
+```
+
+Four blocked cases, four conversions — the second row this session where the
+whole row fell to one rule (§476 was the first), and both were **two-node shape
+tests**.
+
+> **The rows that close completely are the ones whose upstream guard has no
+> conjunct this port cannot answer.** TS1114's was *an ancestor label with this
+> text*; TS1141's is *the argument is a literal type wrapping a string*. Neither
+> consults a type, a flag, or a symbol. Every partially-converted row this
+> session had at least one conjunct that did — a relation, a flow answer, an
+> option, a parser flag — and the leftover cases are always the ones where that
+> conjunct decides.
+>
+> **Total conversion is a property of the guard, not of the row's size.** That
+> is worth saying because the instinct is to read a fully-converted row as luck.
+
+### The board
+
+```
+80 → 2,006 across fourteen sessions, 25.1×
+this session: +555 over one hundred and twenty-six builds, 0 lost
+```
