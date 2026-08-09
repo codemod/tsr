@@ -820,3 +820,18 @@ the selection semantics now pinned by data:**
   still wrong, the discriminator needs applicability, not arity.
   Population confirmed at +16-vs-6 scale on the head case alone;
   the family remains the board's best-instrumented open head.
+
+**§114 family-1, round 6 (banked; reverted):** the six R→W
+positions are NAMED — all six are arrows inside TERNARY arguments
+(`fun((cond ? arrow1 : arrow2), arrow3)`, positions 0:201-206 and
+0:235-237), where upstream's inference-phase context-sensitivity
+skip answers `any` while direct parenthesized arrows convert. A
+paren-unwrap-to-conditional guard on the arity arm was built and
+MEASURED NOT FIRING (6 R→W unchanged) — the branch arrows receive
+their context through a dispatch path the guard never sees (not
+via the argument arm's `argument` node). Round 7's single question:
+one eprintln in `get_contextual_type` printing the PARENT KIND for
+the ternary-branch arrows names the transmitting arm; the guard
+then moves to that arm's conditional case. The +16 win population
+and the six-line adverse are both stable across three arm shapes —
+the family lands the day the transmitting arm is named.
