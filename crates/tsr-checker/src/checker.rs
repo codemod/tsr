@@ -1065,6 +1065,29 @@ impl<'a, 'n> Checker<'a, 'n> {
                 out.push('}');
                 self.rendering_composites.remove(&id);
                 return Some(out);
+            // §96 (`checker-notes-narrow.md`): a union carrying ORIGIN
+            // entries re-renders each entry at the site — the alias-named
+            // entries qualify through the same stack §95 uses; any decline
+            // keeps the baked spelling.
+            if let Some(entries) = self.union_origin.get(&id).cloned()
+                && !self.rendering_composites.contains(&id)
+            {
+                self.rendering_composites.insert(id);
+                let mut parts = Vec::with_capacity(entries.len());
+                let mut complete = true;
+                for entry in entries {
+                    match self.type_to_string_at(entry, reference) {
+                        Some(part) => parts.push(part),
+                        None => {
+                            complete = false;
+                            break;
+                        }
+                    }
+                }
+                self.rendering_composites.remove(&id);
+                if complete {
+                    return Some(parts.join(" | "));
+                }
             }
             // §95 (`checker-notes-narrow.md`): a GENERIC reference re-renders
             // its ARGUMENT slots at the site — the baked argument text was

@@ -3771,3 +3771,18 @@ decomposes partial entries and stays untouched; (c) union ORDER —
 origin preserves WRITTEN entry order while the §77.2-family wants
 builder order in places; any adverse whose want is the same set
 re-ordered belongs to §77.2, priced there, not here.
+
+**§96 measured — HELD at 1.6:1 pending its unlock.** The isolated
+pair (reverse-stash against the §96 baseline): **+93 G→R
+(temporal 68) against 59 G→W, no R→W.** Both bar legs missed as
+stated (temporal net +24 < 120; 1.6:1 < 10:1). BUT the 59 are not
+the origin arm's: 44 of temporal's plus the scattered rest
+(stringLiteralTypesInUnionTypes, typeInferenceLiteralUnion,
+controlFlowOptionalChain) are `{ largestUnit: "hour" }`-shaped —
+object-literal properties wanting LITERAL RETENTION against the
+contextual member type that §96 just made computable (`string` got,
+`"hour"` want). The owner is the contextual retention family
+(§56.3's object-property extension — the other workstream's lane).
+§96 stays on this branch unpushed until that arm exists or the
+trade is re-priced; landing it earlier converts honest gaps into
+confident wrongs that read as the origin arm's fault.

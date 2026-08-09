@@ -693,8 +693,16 @@ impl Checker<'_, '_> {
             let enum_union = flags.contains(TypeFlags::UNION)
                 && flags.intersects(TypeFlags::ENUM_LITERAL | TypeFlags::ENUM)
                 && matches!(&self.store.get(entry).data, TypeData::Union { symbol: Some(_), .. });
+            // §96: an ALIAS-named union entry is admitted now that
+            // `type_to_string_at`'s origin arm can re-render its spelling
+            // per site — the site-sensitivity that made §53 exclude it.
+            let alias_union = flags.contains(TypeFlags::UNION)
+                && matches!(&self.store.get(entry).data,
+                    TypeData::Union { symbol: Some(symbol), .. }
+                        if self.binder.symbols().get(*symbol).flags
+                            .contains(tsr_binder::SymbolFlags::TYPE_ALIAS));
             let plain = !flags.intersects(TypeFlags::OBJECT | TypeFlags::UNION);
-            if !(enum_union || plain) {
+            if !(enum_union || alias_union || plain) {
                 // §58.1 (`checker-notes-narrow.md`): before declining, a set
                 // that IS a named union's member set answers the named type —
                 // the join of `State`'s constituent with `State` itself
