@@ -488,3 +488,20 @@ landed. Everything else in this owner ships as one build against
 the twin acceptance sets, or not at all. The next window that
 opens this document starts at the build, with nothing left to
 discover first.
+
+**The whole-unit draft, measured twice more — the 328/330-class is
+INVARIANT across six build shapes, and that invariance is the
+final instruction.** The complete unit (fields + consumption +
+two-phase order + memo + arms) reproduced the class exactly; adding
+the return-type seed (inferTypeArguments' first block, wired with
+a two-tier priority consult) moved it by 2. Six shapes, one
+immovable class: whatever those 328 lines actually need, it is not
+reachable by drafting mechanisms from the read — THE BUILD'S FIRST
+ACT IS A LINE-LEVEL TRACE of one stringLiteralTypesAsType-
+ParameterConstraint01 line through upstream's inference (which
+priority wrote the winning candidate, where instantiation
+consumed it), against the same line through the draft. The draft's
+full text is patch126 (+ the seed) in scratchpad history; the
++202-class wins it reproduces are stable. This document now
+contains everything except that one trace — the next window opens
+with it.
