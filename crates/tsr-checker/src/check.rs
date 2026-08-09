@@ -239,6 +239,7 @@ impl Checker<'_, '_> {
                 self.check_function_or_constructor_symbol(node, ambient);
                 let ambient =
                     ambient || has_modifier(declaration.modifiers, SyntaxKind::DeclareKeyword);
+                self.check_generator_in_ambient_context(declaration.asterisk_token, ambient);
                 self.check_implicit_any_parameters(node, ambient);
                 self.check_implicit_any_return(node, ambient);
                 ambient
@@ -299,6 +300,7 @@ impl Checker<'_, '_> {
                 ambient
             }
             Node::ParameterDeclaration(parameter) => {
+                self.check_optional_parameter_initializer(node);
                 self.check_parameter_property_position(node, parameter.modifiers);
                 self.check_annotated_initializer(node, ambient);
                 ambient
@@ -370,6 +372,10 @@ impl Checker<'_, '_> {
             }
             Node::ComputedPropertyName(_) => {
                 self.check_computed_property_name(node, ambient);
+                ambient
+            }
+            Node::ObjectLiteralExpression(_) => {
+                self.check_duplicate_object_literal_names(node);
                 ambient
             }
             Node::CallExpression(_) => {
@@ -2435,6 +2441,160 @@ impl Checker<'_, '_> {
                 ["const".to_string()],
             ),
         );
+    }
+
+    /// TS1221 — `Generators are not allowed in an ambient context.`
+    ///
+    /// `checkGrammarForGenerator` (`grammarchecks.go:990`). The error node is
+    /// the **asterisk**, not the name, and the first of the function's two arms
+    /// wins: an ambient generator is TS1221 and a bodiless one TS1222, so the
+    /// ambient test must come first or `declare function* f();` takes the wrong
+    /// code. §180.
+    fn check_generator_in_ambient_context(
+        &mut self,
+        asterisk: Option<&tsr_ast::Token<'_>>,
+        ambient: bool,
+    ) {
+        if !ambient || self.file_has_parse_errors {
+            return;
+        }
+        let Some(token) = asterisk else { return };
+        let Some(id) = token.node_id else { return };
+        let Some(file) = self.source_file_of_for_diagnostics(id) else { return };
+        let span = self.nodes.span(id);
+        self.report(
+            file,
+            Diagnostic::new(&messages::GENERATORS_ARE_NOT_ALLOWED_IN_AN_AMBIENT_CONTEXT, span),
+        );
+    }
+
+    /// TS1015 — `Parameter cannot have question mark and initializer.`
+    ///
+    /// `checkGrammarParameterList` (`grammarchecks.go:711`), the optional arm.
+    /// The error node is the parameter's **name**.
+    ///
+    /// A **rest** parameter takes an earlier branch (`A rest parameter cannot
+    /// be optional`), so the rest test is the arm's guard rather than a bound
+    /// this port chose — §103's rule that the `else if` order is the
+    /// specification. §180.
+    fn check_optional_parameter_initializer(&mut self, node: NodeId) {
+        if self.file_has_parse_errors || !self.parameter_has_question_and_initializer(node) {
+            return;
+        }
+        // **Once per parameter LIST, not once per parameter.**
+        // `checkGrammarParameterList` walks the list and `return`s on the first
+        // offender, so `function f(y? = 1, z? = 2)` is one diagnostic upstream
+        // and was two here — §103's *at most one grammar report per node*, with
+        // the node being the list rather than the member.
+        // `optionalArgsWithDefaultValues` is all three of the first
+        // measurement's wrong lines.
+        let Some(owner) = self.nodes.parent(node) else { return };
+        let first = self
+            .parameters_of(owner)
+            .into_iter()
+            .find(|&parameter| self.parameter_has_question_and_initializer(parameter));
+        if first != Some(node) {
+            return;
+        }
+        let Some(Node::ParameterDeclaration(parameter)) = self.node_map.get(node) else { return };
+        let Some(name) = parameter.name.and_then(|name| name.node_id()) else { return };
+        let Some(file) = self.source_file_of_for_diagnostics(name) else { return };
+        let span = self.nodes.span(name);
+        self.report(
+            file,
+            Diagnostic::new(&messages::PARAMETER_CANNOT_HAVE_QUESTION_MARK_AND_INITIALIZER, span),
+        );
+    }
+
+    /// The offending shape TS1015 reports on, asked of one parameter.
+    ///
+    /// A **rest** parameter takes an earlier branch of
+    /// `checkGrammarParameterList` (`A rest parameter cannot be optional`), so
+    /// excluding it here is upstream's ordering rather than a bound chosen
+    /// here.
+    fn parameter_has_question_and_initializer(&self, node: NodeId) -> bool {
+        let Some(Node::ParameterDeclaration(parameter)) = self.node_map.get(node) else {
+            return false;
+        };
+        parameter.dot_dot_dot_token.is_none()
+            && parameter.question_token.is_some()
+            && parameter.initializer.is_some()
+    }
+
+    /// TS1117 — `An object literal cannot have multiple properties with the
+    /// same name.`
+    ///
+    /// `checkGrammarObjectLiteralExpression` (`grammarchecks.go:1139`), the
+    /// property-assignment arm of its `DeclarationMeaning` table. Reported on
+    /// the **second and later** names, not the first, and once per repeat —
+    /// upstream does not `return` here, unlike most of that file.
+    ///
+    /// Bounded to plain `PropertyAssignment` and `ShorthandPropertyAssignment`
+    /// pairs: upstream's other arms give a *different* code to a method/method
+    /// clash (TS2300) and a get/set clash (TS1118), so a rule that treated all
+    /// members alike would be a wrong code at a right position. A spread
+    /// contributes names this port cannot enumerate and stops the check, as it
+    /// does in `check_excess_properties`. §180.
+    fn check_duplicate_object_literal_names(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let Some(Node::ObjectLiteralExpression(literal)) = self.node_map.get(node) else { return };
+        // `inDestructuring` — an assignment pattern is a *target* and repeats
+        // are legal there.
+        if self.nodes.parent(node).is_some_and(|parent| {
+            matches!(
+                self.node_map.get(parent),
+                Some(Node::BinaryExpression(binary))
+                    if binary.operator_token.is_some_and(|t| t.kind == SyntaxKind::EqualsToken)
+                        && binary.left.and_then(|left| left.node_id()) == Some(node)
+            )
+        }) {
+            return;
+        }
+        if literal.properties.iter().any(|property| {
+            !matches!(
+                property,
+                tsr_ast::ObjectLiteralElementLike::PropertyAssignment(_)
+                    | tsr_ast::ObjectLiteralElementLike::ShorthandPropertyAssignment(_)
+            )
+        }) {
+            return;
+        }
+        let mut seen: Vec<&str> = Vec::new();
+        let mut repeats: Vec<(NodeId, String)> = Vec::new();
+        for property in literal.properties {
+            let name_id = match property {
+                tsr_ast::ObjectLiteralElementLike::PropertyAssignment(assignment) => {
+                    assignment.name.node_id()
+                }
+                tsr_ast::ObjectLiteralElementLike::ShorthandPropertyAssignment(assignment) => {
+                    assignment.name.node_id()
+                }
+                _ => None,
+            };
+            let Some(name_id) = name_id else { continue };
+            // `getEffectivePropertyNameForPropertyNameNode` returns `!ok` for a
+            // computed name, which upstream `continue`s past.
+            let Some(text) = self.identifier_text(name_id) else { continue };
+            if seen.contains(&text) {
+                repeats.push((name_id, text.to_string()));
+            } else {
+                seen.push(text);
+            }
+        }
+        for (name_id, text) in repeats {
+            let Some(file) = self.source_file_of_for_diagnostics(name_id) else { continue };
+            let span = self.nodes.span(name_id);
+            self.report(
+                file,
+                Diagnostic::with_args(
+                    &messages::AN_OBJECT_LITERAL_CANNOT_HAVE_MULTIPLE_PROPERTIES_WITH_THE_SAME_NAME,
+                    span,
+                    [text],
+                ),
+            );
+        }
     }
 
     /// TS1163 — `A 'yield' expression is only allowed in a generator body.`

@@ -1003,7 +1003,7 @@ impl Checker<'_, '_> {
         }
     }
 
-    fn parameters_of(&self, node: NodeId) -> Vec<NodeId> {
+    pub(crate) fn parameters_of(&self, node: NodeId) -> Vec<NodeId> {
         let collect = |parameters: &[&tsr_ast::ParameterDeclaration<'_>]| -> Vec<NodeId> {
             parameters.iter().filter_map(|p| p.node_id).collect()
         };

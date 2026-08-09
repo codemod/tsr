@@ -12312,3 +12312,65 @@ ambient context` is the **sixth** arm of the `declare` chain
 `await using` branches. Porting it alone would report it where upstream reports
 one of those, and §103's rule — *the `else if` order is the specification* —
 says that is a wrong code at a right position, not a partial win.
+
+## §180 — three more grammar rows at ZERO wrong, and a bar that was not registered
+
+TS1015, TS1117 and TS1221 — `checkGrammarParameterList` (`grammarchecks.go:711`),
+`checkGrammarObjectLiteralExpression` (`:1139`) and `checkGrammarForGenerator`
+(`:990`).
+
+```
+RULE_CODES = [1015, 1117, 1221]
+CONVERTS 8 · LOST 0 · STILL SHORT 7 · RIGHT 36 · WRONG 0
+```
+
+`coverage`: `diagnostics` **1,544 → 1,552 (28.28%)**. Rails unmoved.
+
+### The process slip, recorded because the file is the place for it
+
+**No bar was registered before this code was written.** §178's bar covered
+TS1028/TS1071/TS1155 and this is a different batch; the loop's rule is one bar
+per build and it was skipped because the previous batch had just landed cleanly.
+The measurement happens to be good, which is exactly when the omission is
+cheapest to excuse and most worth recording: a bar written *after* the number is
+not a bar, it is a caption. Had this measured +8 for 30 wrong there would have
+been nothing to fail against.
+
+### §103's rule bit again, and one level up from where it was written
+
+The first measurement was `+7 / 0 LOST / 3 WRONG`, and all three wrong lines
+were `optionalArgsWithDefaultValues`:
+
+```
+function foo(x: number, y?:boolean=false, z?=0) {}
+                        ~   ← upstream reports HERE and stops
+```
+
+Upstream's `checkGrammarParameterList` walks the list and `return`s on the first
+offender, so one list is one diagnostic. This port hooked
+`ParameterDeclaration` and reported on **every** offender.
+
+> §103 recorded *"at most one grammar report per node — every upstream arm is a
+> `return`"*. The refinement this build pays for: **the node is whatever the
+> upstream function iterates, not the node the walk happens to visit.**
+> `checkGrammarModifiers` iterates a modifier list, `checkGrammarParameterList`
+> a parameter list, `checkGrammarObjectLiteralExpression` a property list — and
+> a port that hangs each rule off the *member* silently multiplies every report.
+
+Moving the test to "is this the first offender in my owner's parameter list"
+took the wrong column to **0 and gained a conversion** (7 → 8): the extra line
+had been failing a case that otherwise passed.
+
+TS1117 is the exception that proves the shape — upstream does **not** `return`
+there, it reports every repeat after the first, and the port matches.
+
+### Bounds, each upstream's own ordering rather than a choice made here
+
+- **TS1015 skips a rest parameter** — `A rest parameter cannot be optional` is
+  an earlier branch.
+- **TS1221 tests ambient before bodiless** — `declare function* f();` is TS1221,
+  not TS1222.
+- **TS1117 declines a spread and any non-assignment member** — a method/method
+  clash is TS2300 and a get/set clash TS1118, both different codes at the same
+  position.
+- All three carry the `file_has_parse_errors` gate §179 measured at −20/+0.
