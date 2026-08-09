@@ -3062,6 +3062,30 @@ impl Checker<'_, '_> {
     /// member key is the late-bound written bracket text, which is how this
     /// binder files well-known-symbol members.
     fn has_instance_predicate_type(&mut self, callee_type: TypeId) -> Option<TypeId> {
+        // §111 residue: composite callees — an INTERSECTION answers through
+        // its first predicate-bearing constituent; a UNION requires every
+        // constituent to carry one and answers their union (Rhs15's
+        // `x is Point`|`x is Line` narrows to Point | Line).
+        match &self.store.get(callee_type).data {
+            TypeData::Intersection { types, .. } => {
+                let constituents = types.clone();
+                for constituent in constituents {
+                    if let Some(found) = self.has_instance_predicate_type(constituent) {
+                        return Some(found);
+                    }
+                }
+                return None;
+            }
+            TypeData::Union { types, .. } => {
+                let constituents = types.clone();
+                let mut candidates = Vec::with_capacity(constituents.len());
+                for constituent in constituents {
+                    candidates.push(self.has_instance_predicate_type(constituent)?);
+                }
+                return Some(self.get_union_type(&candidates));
+            }
+            _ => {}
+        }
         // Late-bound members are filed `__computed` OUTSIDE the member
         // tables (binder.rs:4136) — the well-known name is found by reading
         // the owner's declarations.

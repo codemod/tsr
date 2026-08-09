@@ -4685,3 +4685,11 @@ the remainder honest W→G. The any-arm serves BOTH consumers of the
 shared ladder (call predicates and hasInstance). Residue: the
 union-declared rows (Line | Point | ...) still decline in the
 relater's interface rungs — the §22 Undecidable class, priced there.
+
+**§111 slice 3 — composite callees (+2/0).** An intersection callee
+answers through its first predicate-bearing constituent; a union
+requires all and answers their union. The rung probe measured ZERO
+undecidables — the case's remaining rows fail past the predicate
+road entirely (the narrowed prints still mismatch on shapes the
+probe places downstream of the ladder); priced as the case's deep
+residue, not a §22 rung.
