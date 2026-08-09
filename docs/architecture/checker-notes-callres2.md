@@ -544,3 +544,17 @@ re-assembling the draft WITHOUT the constraint fallback (a
 scratch-patch is not a series — fold the fallback into patch126
 before the next application). Reverted; the diagnosis is complete
 to the cache-enumeration command.
+
+**Cache enumeration, round 1:** the arrow's road is
+get_type_of_function_expression → get_type_of_symbol →
+get_type_of_func_class_enum_module, and BOTH memo layers are
+symbol_types (evicted, verified insufficient — TRACE3 still froze).
+The survivor is one of three named candidates for round 2: (a) a
+node-level expression memo on check_expression's dispatch, (b) a
+contextual-type/contextual-signature memo on the §56-family roads,
+(c) the Named-type interning itself (the arrow's type OBJECT bakes
+its T-text at creation — if the recompute INTERNS to the same
+TypeData it answers the old object). One grep each; TRACE3 is the
+probe; the draft + fallback (now to be folded into patch126) is
+the harness. The summit's remaining unknown is exactly one of
+three greps wide.
