@@ -10428,3 +10428,46 @@ expected lines against the seventeen emitted, position by position.** §131
 proved that reading the input explains what nine sections of layer-probing
 could not, and this row has repeated the same mistake at a different scale —
 probing *mechanisms* when the *data* was never laid side by side.
+
+## §155 — the side-by-side read: `(26,3)` and nothing else
+
+The comparison §154 prescribed, positions matched across both columns:
+
+```
+ONLY-ONE-SIDE  26,3
+```
+
+**Every other position appears on both sides.** Seventeen emitted lines each
+match an expected one exactly; `(26,3)` is expected and never emitted. The
+discrepancy is one access and one access only.
+
+Two facts from earlier sections now sit in contradiction, and naming that is
+this section's whole contribution:
+
+- **§154:** the line-26 access is *not* among the nine declined at the entry
+  gate.
+- **§149:** all seventeen that pass the entry gate clear every later gate.
+
+Both cannot hold while `(26,3)` goes unreported. One of the two probes is
+measuring fewer instances than it appears to — and the likeliest culprit is the
+same one that has misled this row twice: **§149's probe was read through
+`grep`/`sort` pipelines that collapse identical output lines**, so an
+eighteenth instance producing output identical to another would be invisible in
+both counts.
+
+**The one command left: re-run §148's entry probe and §149's gate probe with
+`| wc -l` instead of `| sort | uniq -c`, and compare the raw totals to 26
+accesses.** If the entry probe shows 18 passing rather than 17, §149's "all
+pass" is a dedup artefact and the defect is at a later gate after all.
+
+### The row's final state, and the honest verdict on it
+
+Fourteen sections, fourteen corrections, **zero builds, zero reverts**, one line
+still unexplained. **Six of the fourteen were wrong because an instrument
+collapsed, truncated, or deduplicated its output.**
+
+That is the finding this row exists to record, and it outweighs the eleven cases
+it was priced at: **on this board the dominant failure mode is not bad reasoning
+about the compiler — it is reading a measurement that answered a narrower
+question than the one asked.** Every `sort -u`, `head`, `grep -A n` and
+set-valued diff in an investigation is a place where that happens silently.
