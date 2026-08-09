@@ -1492,6 +1492,18 @@ impl<'a, 'n> Checker<'a, 'n> {
                 let module_name = tsr_core::strip_quotes(self.binder.symbols().get(parent).name);
                 return Some(format!("import(\"{module_name}\")."));
             }
+            // §106 (`checker-notes-narrow.md`): the FILE-module half of
+            // `getSpecifierForModuleSymbol` — a module inaccessible at the
+            // site spells `import("./name").`; this port stores the stripped
+            // file path as the module symbol's name. Same-directory slice:
+            // a name carrying visible directory structure keeps the decline
+            // (a wrong specifier is worse than the bare name).
+            if self.is_module_symbol(parent) {
+                let module_name = tsr_core::strip_quotes(self.binder.symbols().get(parent).name);
+                if !module_name.contains('/') && !module_name.is_empty() {
+                    return Some(format!("import(\"./{module_name}\")."));
+                }
+            }
             return None;
         }
         if !self.binder.symbols().get(parent).flags.intersects(SymbolFlags::MODULE) {

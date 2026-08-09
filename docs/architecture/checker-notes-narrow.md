@@ -4097,3 +4097,18 @@ family) — any R→W in privacy-family cases fires it; (b) ambiguity —
 `module_alias_at`'s Err(true) refusal stays ahead of this arm;
 (c) cross-directory modules must keep declining (wrong specifier is
 worse than bare).
+
+**§106 measured — a ZERO that names its blocker.** The spelling arm
+is faithful and UNREACHED: the full pair is byte-identical because
+the 128 target sites never enter `symbol_chain` — their prints take
+WRITTEN-ANNOTATION REUSE (`param?: Widget1` verbatim), and this
+port's reuse is unconditional. Upstream's reuse is NOT:
+`tryReuseExistingTypeNode` checks the written names' ACCESSIBILITY
+at the print site and falls to the BUILD road (where the specifier
+spelling lives) when they fail. So the import-spelling head's true
+prerequisite is CONDITIONAL REUSE — the same reuse-vs-build seam
+§102's carriage note named from the other side. The arm stays (zero
+cost, §92.1 precedent; it is the build road's correct behavior the
+moment conditional reuse exists); the head goes back on the board as
+"conditional written reuse: accessibility-gated" owning BOTH the
+import-spelling 128 and the §102 flipped-pair residue.
