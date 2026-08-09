@@ -1185,7 +1185,7 @@ impl Checker<'_, '_> {
     }
 
     /// §123/§124's combined question: is this name's absence ESTABLISHED?
-    /// A CONST_ENUM owner skips the Function-family gate — upstream
+    /// A `CONST_ENUM` owner skips the `Function`-family gate — upstream
     /// deliberately withholds the prototype road there (TS2748-family, the
     /// §117 fallback's own recorded gate), so `E.toString`'s error-any IS
     /// the established answer (constEnumNoObjectPrototypePropertyAccess 14).

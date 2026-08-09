@@ -27954,6 +27954,7 @@ is why the diagnosis cost one `extraonly` run instead of a bisect.
 **Not built and named**: `A.B` resolving cleanly with `C` missing, which needs
 `resolveEntityName` over a qualified left. TS2694 keeps six cases behind that
 and §186's empty-exports decline.
+<<<<<<< HEAD
 ## §531 — TS1192: the synthetic default, and two conjuncts that were never ported
 
 `import React from "react"` reported *"Module has no default export"* — 78 times
@@ -28046,3 +28047,118 @@ Four tests in `crates/tsr-checker/tests/heritage_positions.rs`, one per arm plus
 a control, each confirmed red under the mutation it exists for. The harness
 needed a `ModuleHost` again — the **third** time this session a fixture harness
 without one first showed up as a green test that should have been red.
+=======
+
+## §531 — TS2304: `libReplacement`, and four cases the loader never had a chance at
+
+Four of TS2304's twenty are one family, all at `(6,1)`:
+
+```
+libTypeScriptOverrideSimple  ·  …SimpleConfig  ·  libTypeScriptSubfileResolving  ·  …Config
+```
+
+```ts
+// @libReplacement: true
+// @Filename: /node_modules/@typescript/lib-dom/index.d.ts
+interface ABC { abc: string }
+// @Filename: index.ts
+/// <reference lib="dom" />
+window.localStorage          // TS2304 — libdom has been REPLACED by the module above
+```
+
+**This is not a checker row at all.** `window` resolves here because the loader
+loads the bundled `lib.dom.d.ts`; upstream, with `libReplacement`, resolves the
+name `@typescript/lib-dom` through the *module resolver* and loads the package
+instead. The checker is right and its input is wrong.
+
+That is worth naming as a class:
+
+> **A missing diagnostic whose whole family shares one column is usually not a
+> rule.** Twenty TS2304 lines look like twenty independent name-resolution
+> failures; four of them are one option, unread. `diagmissing`'s grouping is
+> what makes that visible, and the tell is the *repeated position*, not the
+> repeated code.
+
+### Already filed, already named
+
+`bd tsr-9or.5` describes exactly this, and `loader.rs`'s module docs list it
+among the four things the loader knowingly does not do. **It was filed against
+the `file_loader` suite's trace baselines** — three cases there — and nobody had
+counted its diagnostics cases. The same build pays twice.
+
+### The port
+
+`pathForLibFile` (`fileloader.go:645`) gains the replacement branch;
+`getLibraryNameFromLibFileName` maps `lib.dom.d.ts → @typescript/lib-dom` and
+`lib.es2015.symbol.wellknown.d.ts → @typescript/lib-es2015/symbol-wellknown`;
+`getInferredLibraryNameResolveFrom` builds the synthetic containing file
+`__lib_node_modules_lookup_<name>__.ts`.
+
+**Trace replay is not built.** Upstream stores each resolution in
+`pathForLibFileResolutions` and replays the traces at the *end* of the run,
+sorted by path key. That is what `tsr-9or.5` needs for its three trace cases and
+is a separate build; this one takes the four diagnostics cases and leaves the
+issue open with its scope reduced. §501.
+
+### The bar
+
+```
+bar:  +4 of 4,  0 LOST,  WRONG delta <= +1
+       and parser_typescript / binder_symbols / printer_round_trip stay at 100%
+```
+
+### Falsifiers
+
+1. **A case without `libReplacement` changes.** The branch is gated on the
+   option and `lib.d.ts` is excluded by name upstream.
+2. **A lib file stops loading when the package is absent.** An unresolved
+   `@typescript/lib-*` must fall back to the bundled path, not to nothing.
+
+## §532 — §531 built: **+2** against a bar of +4, and the missing two name their own cause
+
+```
+diagnostics   2,052 → 2,054   (bar was +4;  +2, 0 LOST)   37.43%
+parser_typescript · binder_symbols · printer_round_trip · module_resolution · file_loader   all 100%
+```
+
+The two that converted are `libTypeScriptOverrideSimple` and
+`libTypeScriptSubfileResolving`. The two that did not are **their `Config`
+variants**, and they differ in exactly one way:
+
+```go
+if options.ConfigFilePath != "" {
+    containingDirectory = GetDirectoryPath(options.ConfigFilePath)
+} else {
+    containingDirectory = currentDirectory
+}
+```
+
+Both `…Config` cases put their tsconfig at `/somepath/`, so upstream resolves
+`@typescript/lib-dom` from `/somepath/__lib_node_modules_lookup_lib.dom.d.ts__.ts`
+and this port resolves it from the current directory. **`config_file_path` is
+empty here** — the conformance harness builds `CompilerOptions` from the
+fixture's `@`-directives and never sets it.
+
+> **A bar missed by half, with the half that missed sharing one field, is a
+> better outcome than a bar met.** §494 wrote *"a bar met exactly is not
+> evidence of a correct build"* from the other direction: there, three of six
+> messages were dead and the total still landed on the number. Here the total
+> is wrong and the residue is a single named cause.
+
+### What this does not claim
+
+`config_file_path` is unset for **every** case in the diagnostics suite, not
+just these two, so this is not a `libReplacement` bug. Anything upstream
+resolves relative to a tsconfig directory is wrong here in the same way, and
+nothing has measured how many rows that is. **Recorded as unpriced** — §526 is
+the standing warning against guessing a sweep's size, and the honest entry is
+that this one has not been probed at all.
+
+### `bd tsr-9or.5` — scope reduced, not closed
+
+The lib-name mapping and the replacement branch are built. Its three
+`file_loader` trace cases still need the **trace replay** — resolutions stored
+and emitted at the end of the run, sorted by path key — which is untouched.
+`file_loader` and `module_resolution` both still read 100%, so the replay is
+invisible to them today and the issue stays open on its own terms.
+>>>>>>> ed8c57ad (loader: §531/§532 libReplacement resolves @typescript/lib-* (+2))

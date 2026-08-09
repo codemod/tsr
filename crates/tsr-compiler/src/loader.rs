@@ -457,8 +457,44 @@ impl<'host, 'a> FileLoader<'host, 'a> {
     /// The `libReplacement` half — resolving `@typescript/lib-dom` through the
     /// module resolver, which *does* trace — is not ported (bd tsr-9or.5). It is
     /// off by default and no `.trace.json` baseline exercises it.
+    /// `pathForLibFile` (`fileloader.go:645`).
+    ///
+    /// Under `libReplacement` a lib file's name is resolved as an
+    /// `@typescript/lib-*` **module** and the package's file is loaded instead
+    /// of the bundled one — which is how `libTypeScriptOverrideSimple` expects
+    /// `window` to be undefined after `/// <reference lib="dom" />`.
+    ///
+    /// An unresolved package falls back to the bundled path, so a program
+    /// without the `@typescript/*` packages is unaffected.
+    ///
+    /// The **trace replay** is not built: upstream stores each resolution and
+    /// emits its traces at the end of the run, sorted by path key
+    /// (`bd tsr-9or.5`). `docs/architecture/checker-notes-diag2.md` §531.
     fn path_for_lib_file(&self, name: &str) -> String {
-        combine_paths(&self.default_library_path, &[name])
+        let bundled = combine_paths(&self.default_library_path, &[name]);
+        if !self.options.lib_replacement.is_true() || name == "lib.d.ts" {
+            return bundled;
+        }
+        let library_name = library_name_from_lib_file_name(name);
+        let containing_directory = if self.options.config_file_path.is_empty() {
+            self.host.current_directory().to_string()
+        } else {
+            get_directory_path(&self.options.config_file_path).to_string()
+        };
+        let resolve_from = combine_paths(
+            &containing_directory,
+            &[&format!("__lib_node_modules_lookup_{name}__.ts")],
+        );
+        let (resolution, _traces) = self.resolver.resolve_module_name(
+            &library_name,
+            &resolve_from,
+            tsr_core::ResolutionMode::CommonJS,
+        );
+        if resolution.resolved_file_name.is_empty() {
+            bundled
+        } else {
+            resolution.resolved_file_name
+        }
     }
 
     /// `fileLoader.addAutomaticTypeDirectiveTasks`.
@@ -1272,6 +1308,34 @@ fn is_javascript_file(file_name: &str) -> bool {
         file_name,
         &[EXTENSION_JS, EXTENSION_JSX, EXTENSION_MJS, EXTENSION_CJS],
     )
+}
+
+/// `getLibraryNameFromLibFileName` (`fileloader.go:676`).
+///
+/// ```text
+/// lib.dom.d.ts                    → @typescript/lib-dom
+/// lib.dom.iterable.d.ts           → @typescript/lib-dom/iterable
+/// lib.es2015.symbol.wellknown.d.ts → @typescript/lib-es2015/symbol-wellknown
+/// ```
+///
+/// The first component after `lib` names the package; the rest become one path
+/// segment joined by `-`, stopping at the `d` of `.d.ts`. §531.
+fn library_name_from_lib_file_name(lib_file_name: &str) -> String {
+    let components: Vec<&str> = lib_file_name.split('.').collect();
+    let mut path = String::from("@typescript/lib-");
+    if let Some(second) = components.get(1) {
+        path.push_str(second);
+    }
+    let mut index = 2;
+    while let Some(&component) = components.get(index) {
+        if component.is_empty() || component == "d" {
+            break;
+        }
+        path.push(if index == 2 { '/' } else { '-' });
+        path.push_str(component);
+        index += 1;
+    }
+    path
 }
 
 #[cfg(test)]
