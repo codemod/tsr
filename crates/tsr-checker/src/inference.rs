@@ -278,6 +278,39 @@ impl Checker<'_, '_> {
             let has_other = candidates
                 .iter()
                 .any(|&(from, inferred)| from == type_parameter && inferred != never);
+            // Pipeline-lite (checker-notes-callres2.md): same-base-literal
+            // candidate sets RESOLVE - union, then the stage-2 widening
+            // decision (primitive constraint keeps literals, no constraint
+            // widens; the two registered falsifier fixtures sit one on each
+            // branch). Everything else keeps the per-pair disagreement
+            // decline below.
+            {
+                let list: Vec<TypeId> = candidates
+                    .iter()
+                    .filter(|&&(from, inferred)| {
+                        from == type_parameter && !(has_other && inferred == never)
+                    })
+                    .map(|&(_, inferred)| inferred)
+                    .collect();
+                if list.len() > 1 {
+                    let distinct: Vec<TypeId> = {
+                        let mut seen = Vec::new();
+                        for &t in &list {
+                            if !seen.contains(&t) {
+                                seen.push(t);
+                            }
+                        }
+                        seen
+                    };
+                    if distinct.len() > 1
+                        && let Some(resolved) =
+                            self.same_base_literal_supertype(&distinct, position, signature)
+                    {
+                        map.push((type_parameter, resolved));
+                        continue;
+                    }
+                }
+            }
             let mut candidate = None;
             for &(from, inferred) in &candidates {
                 if from != type_parameter {
@@ -1617,4 +1650,81 @@ pub(crate) fn flatten_infos(infos: &[InferenceInfo]) -> Vec<(TypeId, TypeId)> {
         }
     }
     out
+}
+
+impl Checker<'_, '_> {
+    /// Pipeline-lite's resolver (getCommonSupertype's relater-free branch,
+    /// inference.go:1530 + the stage-2 widening decision of
+    /// getCovariantInference, inference.go:1434): ALL candidates literals of
+    /// one base -> union them, then keep literals when the parameter's
+    /// constraint is primitive-flavored (hasPrimitiveConstraint) and WIDEN to
+    /// the base otherwise. Any non-literal or mixed-base set answers None and
+    /// the caller keeps the decline.
+    fn same_base_literal_supertype(
+        &mut self,
+        candidates: &[TypeId],
+        parameter_position: usize,
+        signature: &Signature,
+    ) -> Option<TypeId> {
+        use crate::flags::TypeFlags;
+        let base_of = |checker: &Self, id: TypeId| -> Option<TypeId> {
+            let flags = checker.store.get(id).flags;
+            if flags.contains(TypeFlags::STRING_LITERAL) {
+                Some(checker.intrinsics.string)
+            } else if flags.contains(TypeFlags::NUMBER_LITERAL) {
+                Some(checker.intrinsics.number)
+            } else if flags.contains(TypeFlags::BIG_INT_LITERAL) {
+                Some(checker.intrinsics.bigint)
+            } else if flags.contains(TypeFlags::BOOLEAN_LITERAL) {
+                Some(checker.intrinsics.boolean)
+            } else {
+                None
+            }
+        };
+        let first_base = base_of(self, *candidates.first()?)?;
+        for &candidate in candidates {
+            if base_of(self, candidate) != Some(first_base) {
+                return None;
+            }
+        }
+        // The widening decision: a primitive-flavored constraint keeps the
+        // literal union; no constraint (or a non-primitive one) widens to
+        // the base (getCovariantInference's widenLiteralTypes default - the
+        // topLevel/isFixed refinements join with the foundation's steps
+        // 2/4, and until then the base IS the widened union of same-base
+        // literals).
+        let has_primitive_constraint = signature
+            .type_parameters
+            .get(parameter_position)
+            .and_then(|tp| tp.constraint)
+            .is_some_and(|constraint| {
+                let flags = self.store.get(constraint).flags;
+                flags.intersects(
+                    TypeFlags::STRING
+                        | TypeFlags::NUMBER
+                        | TypeFlags::BOOLEAN
+                        | TypeFlags::BIG_INT
+                        | TypeFlags::UNIT,
+                ) || matches!(
+                    &self.store.get(constraint).data,
+                    crate::types::TypeData::Union { types, .. }
+                        if types.iter().all(|&t| {
+                            self.store.get(t).flags.intersects(TypeFlags::UNIT)
+                        })
+                )
+            });
+        if has_primitive_constraint {
+            // The constraint branch: keep the literal union (+2/0 measured
+            // pure — literalTypes2). The widen branch measured 9:7 pure and
+            // DECLINES until steps 2/4 supply topLevel/isFixed (the
+            // branch-attribution pair trio is in the study).
+            let mut regular = Vec::with_capacity(candidates.len());
+            for &candidate in candidates {
+                regular.push(self.get_regular_type_of_literal_type(candidate));
+            }
+            Some(self.get_union_type_unprinted(&regular))
+        } else {
+            None
+        }
+    }
 }

@@ -427,3 +427,15 @@ registered falsifier fixtures, one on each branch of the widening
 decision. Nullable filtering (strictNullChecks strip-and-restore)
 completes the faithful shape. Every function in the chain is now
 read and cited; the build is mechanical against this record.
+
+**Pipeline-lite — LANDED at +2/0 (the constraint branch); the
+widen branch priced at 9:7 behind steps 2/4.** The three-pair
+branch-attribution trio (full 11:7, constraint-only 2:0, widen-only
+9:7) caught my own backwards first guess — the +7
+typeArgumentsWithStringLiteralTypes01 rode WIDEN, not constraint —
+and the shapes are now measured pure: the constraint branch (same-
+base literal candidates under a primitive-flavored constraint keep
+their union) lands clean; the widen branch's 9:7 waits on
+topLevel/isFixed (steps 2/4's fields) with its wins registered as
+their acceptance fixtures. Re-isolated identically over §123's
++381 (right 410,131 composed).
