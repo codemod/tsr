@@ -55,7 +55,7 @@ fixes ride into the checker rows.
 | **`checker_types`** (superseding the row above) | **3,957/9,538** | **41.49%** | **gradient 405,682/478,954 = 84.70%**, measured at the `declare global` landing on top of `a7dccd4`, one release run. The row above is kept because its attributions are still the record; only the totals are superseded. **The delta is +2 cases and +292 lines, and it was measured twice on two different bases** — once against `22d745c` (405,111 → 405,403) and again after rebasing onto the fifteenth `.types` session (405,390 → 405,682). Same delta both times, which is the evidence that the two workstreams compose rather than overlap. Also: **the committed snapshot was stale by 280 lines at `22d745c`** — it read 84.52% where a fresh run read 84.5824%, i.e. `454a559`'s +280 landed in the commit message and not in the snapshot |
 | **`checker_types`** (lines only, superseding the gradient above) | *cases not re-taken* | — | **gradient 405,698/478,954 = 84.70%**, measured at `45436ae` (`45436ae^..45436ae`) by the scorepair pair over a baseline freshly accepted on clean `4965add` (405,682). **§93's true delta is +16 right G→R (fatarrowfunctions 11, fatarrowfunctionsOptionalArgs 5) against 4 G→W — 4:1, zero R→W/R→G.** The commit's own message claims "+311, 8.6:1, +300 G→R"; **that score is WRONG** — it was taken against a baseline stale by several landings, and the +300 (jsxChildren 42, reactDefaultProps 27, jsx arity 17 among them) was drift already on main, proven by the stash/clean-run counterfactual reading 405,682 with every one of those transitions present. The correction is in `checker-notes-narrow.md` §93 — carried inside `45436ae` itself, because the committing session swept the other session's in-tree correction into its commit (conventions' fourth sweep form, benign this once). Case count deliberately not quoted: no coverage run was taken at this commit |
 | **`checker_types`** (lines only, §94) | *cases not re-taken* | — | **gradient 405,805/478,954 = 84.73%**, measured at `c9b7f93` (`c9b7f93^..c9b7f93`) by the full scorepair pair over the §93-corrected baseline (405,698). **§94: +93 G→R / +14 W→R against 1 G→W — 107:1, zero R→W/R→G.** `has_no_contextual_type` became the nil-ladder of upstream's `getContextualType` dispatch (`checker.go:29343`); the bar (`67a472e`, committed before the code) predicted +60–110 in the head case and measured 81 there. The one adverse is the strict-optional `| undefined` print residue, now priced twice (§93 0:457, §94 parserParameterList11) and named the seam's next candidate. checker-2 session |
-| `diagnostics` | **1,653/5,488** | **30.12%** | measured at HEAD, 2026-08-09, fresh release run. **Fourteenth session (`diagnostics`) §156–§234: +202 over thirty-one builds, 0 lost.** Running total 80 → 1,653, **20.7×**. Also **+40 to `checker_types`**, **invented parser lines 1,288 → 1,209**, and **column-only mismatched lines 107 → 85**. **Nine refusals; six reversed or corrected in-session.** `extraonly` fell **50 → 25**. `binder_symbols` 100% throughout |
+| `diagnostics` | **1,654/5,488** | **30.14%** | measured at HEAD, 2026-08-09, fresh release run. **Fourteenth session (`diagnostics`) §156–§239: +203 over thirty-one builds, 0 lost.** Running total 80 → 1,654, **20.7×**. Also **invented parser lines 1,288 → 1,209** and **column-only mismatched lines 107 → 85**. **Eleven refusals; six reversed or corrected in-session; two builds reverted whole after measurement.** `extraonly` fell **50 → 25**. `binder_symbols` 100% throughout |
 | **`checker_types`** (lines only, §202) | *cases not re-taken* | — | **gradient 406,209/478,954 = 84.81%**, measured at the ambient-module-quoting landing against `357df05` (406,188) in a worktree at the base commit. **+21 lines, 0 cases.** The corpus barely moves because it holds no ambient-module/global name collision; the change is scored on a real repository instead, where it is worth 110 diagnostics |
 
 ### `checker_types`, the number the project is steered by
@@ -1322,9 +1322,21 @@ cycle cannot form — `get_export_of_module` answers `None` at the first hop
 because neither file declares the name. *"There is no guard" and "a cycle can
 happen" are two claims, and only the first was checked.*
 
-**Owner: entity-name `ImportEqualsDeclaration` resolution
-(`getTargetOfImportEqualsDeclaration` → `resolveEntityName`).** Ten cases sit
-behind it, and the cycle guard should be built *with* that arm, not before it.
+**§238 built that arm and §239 measured it: `+0` diagnostics and `−40`
+`checker_types`.** TS2303 does not fire even with the arm *and* the guard —
+`import A = B` resolves in **one hop** and never re-enters `resolve_alias`,
+because `dontResolveAlias` is true there. §237 named an owner and the owner
+turned out not to own it.
+
+The 40 lines also give `checker-notes-nameres.md` §14's older refusal of this
+arm the number it never had. `checker_types` is the other workstream's rail; 40
+of its lines for zero diagnostics is not a trade at any exchange rate.
+
+**Real owner: cycle detection lives in the individual chain-walkers.**
+`get_symbol_flags` (`symbols.rs:424`) carries its own local `seen` set and
+*silently absorbs* the cycle upstream reports. Reaching TS2303 means moving
+detection into a shared resolution stack — a refactor of alias resolution, not
+an arm, and bigger than what §237 named.
 
 ### New, this session, TS2335 — `super` outside a derived class, 8 cases
 
@@ -2178,6 +2190,7 @@ holds only the numbers.
 | 2026-08-09 | HEAD | **30.12%** | **1,653** | **+3; new instrument `diagcolumn`; a −22 attempt reverted** | **A wrong column appears in BOTH the missing and extra columns at once, so no existing instrument could name it.** `diagcolumn` pairs them: 107 lines, **9 cases blocked by column alone** — needing no rule ported. The first attempt cost 22 cases: `GetErrorRangeForNode` switches on a **closed** list (and comments that it does), while `GetNameOfDeclaration` is a *different* function with an open tail. *Two functions both named for "the name of a declaration", one closed and one open.* Fix belongs in the binder's `name_node_of`; a checker-side twin measured **exactly zero** and was reverted. §233–§234 |
 | 2026-08-09 | HEAD | 30.12% | 1,653 | **no code change — a claim retracted** | **§234 called TS1005's 53 column-only lines "the next head". Running the fixtures through this port's parser shows a different token, a different message and a different recovery** — `'export' expected` at col 1 upstream vs `';' expected` at col 9 here. `diagcolumn` could not see it because **the suite compares the tuple and not the message text, and the instrument is built on the same tuple**: *an instrument built on the suite's key can only ever be as discriminating as the suite.* Now splits by producer — parser 68 (assume recovery divergence), checker 17. **TS1005's 53 lines are not cheap.** *A measurement licenses a count, never a cause.* §235 |
 | 2026-08-09 | HEAD | 30.12% | 1,653 | **built, mutated twice, reverted** | **TS2303.** The rule is unreachable — all ten cases are entity-name `import A = B`, a form `resolve_alias` does not dispatch. §236 also claimed the absent cycle guard was a latent hang; **two mutations disproved it**, since a pure re-export cycle fails to find the symbol at the first hop. *"There is no guard" and "a cycle can happen" are two claims, and only the first was checked.* Reverted for §234's reason with more force: **unreachable infrastructure reads as tested-and-working to everyone who finds it later.** §236–§237 |
+| 2026-08-09 | HEAD | **30.14%** | **1,654** | **second whole build reverted after measurement** | **§237 named entity-name `import A = B` as TS2303's owner; §238 built it; §239 measured `+0` diagnostics and `−40` `checker_types`.** TS2303 never fires even with the guard — the alias resolves in one hop and never re-enters. *A named owner is still a hypothesis.* The 40 lines give `nameres` §14's older refusal the number it lacked. Real owner is a refactor: cycle detection sits in the per-walker `seen` sets, which **absorb** the cycle upstream reports. §238–§239 |
 
 ## 8. Updating this file
 

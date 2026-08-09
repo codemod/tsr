@@ -15655,3 +15655,104 @@ which should be built *with* that arm rather than before it.
 zero. This is the same call with more reason: that one duplicated a path that
 worked, this one guards a path that cannot be entered. Unreachable
 infrastructure reads as tested-and-working to everyone who finds it later.
+
+## §238 — the arm §237 named: entity-name `import A = B`
+
+§237 refused TS2303 and named its owner. This builds the owner.
+
+`getTargetOfImportEqualsDeclaration`'s **second** half (`checker.go:14457`) —
+the first half is the `require(...)` form, which is a different arm:
+
+```go
+resolved := c.getSymbolOfPartOfRightHandSideOfImportEquals(node.ModuleReference)
+```
+
+and that function (`:14474`) chooses the meaning from the reference's shape,
+with its own worked comment:
+
+```
+import a = |b|;     // Namespace
+import a = |b.c|;   // Value, type, namespace
+```
+
+so an `Identifier` reference resolves with `NAMESPACE` and a `QualifiedName`
+with `VALUE | TYPE | NAMESPACE`. `dontResolveAlias` is **true**: the answer is
+the alias symbol itself, one hop, not the end of the chain.
+
+`resolve_entity_name` (`declared.rs:1572`) already handles both shapes, so the
+arm is a dispatch entry and a meaning choice.
+
+### What this does to §237's guard
+
+§237 reverted a cycle guard because nothing could reach it. **This arm is what
+reaches it** — `import A = B; import B = A;` resolves `B` to an alias whose own
+resolution is `A`. Whether that recurses here depends on `dontResolveAlias`
+stopping at one hop, which is a claim about *this* port's chain-walkers rather
+than about upstream, and §237's whole lesson is that such a claim has to be
+measured rather than asserted.
+
+So the guard is **not** restored pre-emptively. The conformance run is the
+experiment, under a timeout, and the falsifier is explicit.
+
+### The bar
+
+```
+bar:  +6 cases of 10,  0 LOST,  checker_types unmoved or up
+```
+
+### Falsifiers
+
+1. **The run does not terminate.** Then `dontResolveAlias` does not bound the
+   walk here, §237's guard is reachable after all, and it comes back — with the
+   test that could not be written before this arm existed.
+2. **`checker_types` falls.** Alias targets feed type printing; a newly resolved
+   `import A = B` that resolves *wrongly* is worse than the gap it replaces.
+3. **`diagnostics` falls.**
+
+## §239 — §238 measured and reverted: +0 diagnostics, −40 `checker_types`
+
+Both falsifiers answered, and the answers are decisive.
+
+```
+arm alone:        diagnostics 1,653 (unchanged)   checker_types 4,004 → 3,964
+arm + §237 guard: diagnostics 1,653 (unchanged)   checker_types 3,964
+```
+
+**Falsifier 1 negative** — the run terminates, so `dontResolveAlias` does bound
+the walk. **Falsifier 2 fired** — 40 `checker_types` lines lost.
+
+### TS2303 does not fire even with both halves
+
+This is the part worth carrying forward. §237 predicted the arm would make the
+guard reachable, and it does not: `import A = B` resolves to symbol `B` in
+**one hop** and never re-enters `resolve_alias`, precisely because
+`dontResolveAlias` is true at that call. Upstream's `pushTypeResolution` window
+spans more than this one function, so its cycle is detected by a *consumer*
+walking the chain inside that window — not by `resolveAlias` calling itself.
+
+> **§237 named an owner and the owner turned out not to own it.** Building the
+> named blocker is the right move and it is still a hypothesis; this one cost a
+> build to disprove and would have cost the next session the same.
+
+### The 40 lines confirm an old refusal with a number
+
+`checker-notes-nameres.md` §14 already refused this arm, on the grounds that a
+resolved `import a = foo.bar.baz` prints the **local alias** rather than the
+module and would put wrong lines where gaps stand. That refusal was an argument.
+It is now **40 measured `checker_types` lines**, which is what it was missing.
+
+`checker_types` is the other workstream's rail and is explicitly not this
+workstream's to spend. A build that pays 40 of its lines for **zero**
+diagnostics is not a trade at any exchange rate.
+
+### Refused, restated with the measurement
+
+**TS2303, 10 cases — refused.** Not blocked on the entity-name arm, which is
+buildable and was built. Blocked on **where upstream's alias-resolution window
+actually sits**: the cycle is observed by a consumer walking the chain, and this
+port's chain-walkers (`get_symbol_flags`, `symbols.rs:424`) carry their own
+local `seen` sets, so they *silently absorb* the cycle that upstream reports.
+
+Reaching TS2303 means moving cycle detection out of the individual walkers and
+into a shared resolution stack — a real refactor of alias resolution, not an arm.
+That is the owner, and it is bigger than the one §237 named.
