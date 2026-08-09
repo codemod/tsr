@@ -489,6 +489,97 @@ impl Suite for BinderSymbols {
                         }
                     }
                 }
+                // An augmentation of an ambient module adds its own
+                // declaration to the module's `export =` target — the checker
+                // merges the blocks and `M`'s list gains the augmenting
+                // `module "foo" {}`'s node (`module_augmentUninstantiatedModule`:
+                // `Symbol(M, Decl(0,22), Decl(2,6), Decl(6,22))`).
+                {
+                    use std::collections::HashMap;
+                    let mut ambient_blocks: HashMap<&str, Vec<tsr_ast::NodeId>> = HashMap::new();
+                    for index in 0..nodes.len() {
+                        #[allow(clippy::cast_possible_truncation)]
+                        let node_id = tsr_ast::NodeId::new(index as u32);
+                        if nodes.kind(node_id) != SyntaxKind::ModuleDeclaration
+                            || !file.contains(node_id)
+                        {
+                            continue;
+                        }
+                        let Some(tsr_ast::Node::ModuleDeclaration(declaration)) =
+                            program.node_map().get(node_id)
+                        else {
+                            continue;
+                        };
+                        let Some(tsr_ast::ModuleName::StringLiteral(name)) = declaration.name
+                        else {
+                            continue;
+                        };
+                        ambient_blocks.entry(name.text).or_default().push(node_id);
+                    }
+                    for blocks in ambient_blocks.values() {
+                        if blocks.len() < 2 {
+                            continue;
+                        }
+                        // The export= target of the module these blocks name.
+                        let Some(module) = blocks
+                            .iter()
+                            .find_map(|id| bound.symbol_of(*id).map(|s| bound.merged_symbol(s)))
+                        else {
+                            continue;
+                        };
+                        let Some(assignment) =
+                            bound.symbols().get(module).exports.get("export=").copied()
+                        else {
+                            continue;
+                        };
+                        let assignment = bound.merged_symbol(assignment);
+                        let Some(&decl) = bound.symbols().get(assignment).declarations.first()
+                        else {
+                            continue;
+                        };
+                        let Some(tsr_ast::Node::ExportAssignment(node)) =
+                            program.node_map().get(decl)
+                        else {
+                            continue;
+                        };
+                        let Some(tsr_ast::Expression::Identifier(target_name)) = node.expression
+                        else {
+                            continue;
+                        };
+                        let Some(target) = bound.resolve_name(
+                            nodes,
+                            program.node_map(),
+                            decl,
+                            target_name.text,
+                            tsr_binder::SymbolFlags::NAMESPACE | tsr_binder::SymbolFlags::VARIABLE,
+                        ) else {
+                            continue;
+                        };
+                        let mut extra = BTreeSet::new();
+                        for block in blocks {
+                            let span = nodes.span(*block);
+                            let pos = full_starts.of(&unit.content, span.start);
+                            let (line, _) =
+                                symbols_baseline::line_and_character(&unit.content, pos);
+                            extra.insert(line);
+                        }
+                        let target_symbol = bound.symbols().get(target);
+                        for full in display_names(
+                            bound,
+                            nodes,
+                            target,
+                            &names_by_declaration,
+                            &unit.content,
+                        ) {
+                            for offset in dotted_suffixes(&full) {
+                                ours.entry(full[offset..].to_string())
+                                    .or_default()
+                                    .extend(extra.iter().copied());
+                            }
+                        }
+                        let _ = target_symbol;
+                    }
+                }
                 // Late-bound members that resolve to the same constant value
                 // are ONE symbol upstream, displayed under each member's
                 // bracket spelling with every declaration

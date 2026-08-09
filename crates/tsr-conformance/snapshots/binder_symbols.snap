@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 binder_symbols Summary:
 What a pass means: every symbol in the .symbols baseline exists with the same declaration lines
-Passed         : 8450/8460 (99.88%)
-Failed         : 10
+Passed         : 8451/8460 (99.89%)
+Failed         : 9
 Skipped        : 3984 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -16,8 +16,6 @@ compiler/ambientExternalModuleWithRelativeModuleName
   1 symbol(s): .\\relativeModule: no symbol
 compiler/moduleElementsInWrongContext
   1 symbol(s): Foo: declared on {24}, expected to include {6, 24}
-compiler/module_augmentUninstantiatedModule
-  1 symbol(s): M: declared on {0, 2}, expected to include {0, 2, 6}
 compiler/ramdaToolsNoInfinite2
   3 symbol(s): ONonNullable: declared on {489}, expected to include {183, 489}; UKeys: declared on {23, 113}, expected to include {23, 96, 113}; UNonNullable: declared on {165}, expected to include {137, 165}
 compiler/staticFieldWithInterfaceContext
