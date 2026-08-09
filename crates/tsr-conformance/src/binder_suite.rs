@@ -918,7 +918,15 @@ fn assigned_name(
 ) -> Option<tsr_binder::SymbolId> {
     let declaration = *bound.symbols().get(symbol).declarations.first()?;
     let parent = nodes.parent(declaration)?;
-    (nodes.kind(parent) == SyntaxKind::VariableDeclaration).then(|| bound.symbol_of(parent))?
+    // A class-expression default inside a destructuring pattern displays
+    // under the binding element it defaults (`staticFieldWithInterfaceContext`:
+    // `let [ c10 = class { static x } ]` prints `c10.x`), same as a variable's
+    // initializer under the variable.
+    (matches!(
+        nodes.kind(parent),
+        SyntaxKind::VariableDeclaration | SyntaxKind::BindingElement | SyntaxKind::PropertyAssignment
+    ))
+    .then(|| bound.symbol_of(parent))?
 }
 
 /// How a container participates in a qualified name.

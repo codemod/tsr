@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 binder_symbols Summary:
 What a pass means: every symbol in the .symbols baseline exists with the same declaration lines
-Passed         : 8452/8459 (99.92%)
-Failed         : 7
+Passed         : 8453/8459 (99.93%)
+Failed         : 6
 Skipped        : 3985 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -16,8 +16,6 @@ compiler/moduleElementsInWrongContext
   1 symbol(s): Foo: declared on {24}, expected to include {6, 24}
 compiler/ramdaToolsNoInfinite2
   3 symbol(s): ONonNullable: declared on {489}, expected to include {183, 489}; UKeys: declared on {23, 113}, expected to include {23, 96, 113}; UNonNullable: declared on {165}, expected to include {137, 165}
-compiler/staticFieldWithInterfaceContext
-  3 symbol(s): c.x: declared on {3}, expected to include {3, 15, 17}; c10.x: no symbol; c11.x: no symbol
 conformance/autoAccessorNoUseDefineForClassFields
   1 symbol(s): file3.ts: C3.x: no symbol
 conformance/moduleExportsAliasLoop2
