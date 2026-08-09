@@ -597,3 +597,20 @@ is single-case mountains (controlFlowSelfReferentialLoop 68 of the
 generic-candidate 90); the near-miss aim favors the spread rows.
 NEXT WINDOW'S SIZING INPUT: pair this against the 770 one-row
 near-miss CallExpression cases — the intersection names the bar.
+
+CALL-SIDE GATE DECOMPOSED (the sizing's conclusion): the 494-line
+`identifier: symbol types as a non-object` gate's largest bucket is
+87 lines of "callee is any — UNANNOTATED PARAMETER, contextual
+typing refused", SPREAD (parenthesizedContexualTyping2 10,
+dependentDestructuredVariables 8, callWithMissingVoid 5,
+taggedTemplateContextualTyping1 5, tail wide) — the funnel's own
+evidence that get_contextually_typed_parameter_type's coverage is
+the contextual arc's entry: callbacks whose parameters the §56
+roads cannot contextually type, whose CALLS then error. The want
+census there (void/unknown returns) says the payoff includes the
+callback-invocation family. Second finding: the recursive-types
+single-case noise (declarationsWithRecursiveInternalTypes…, 5
+enormous want-texts) pads the smaller buckets — exclude it from any
+conversion prediction. NEXT WINDOW'S BAR: extend the contextual
+parameter road one measurable context at a time (the §68-family
+method), starting from parenthesizedContexualTyping2's shapes.
