@@ -13882,3 +13882,56 @@ false, and the *behaviour* may or may not be.
 Fifth correction of a claim of my own this session, after §165, §187, §188 and
 §199 — and the first that was wrong in a *comment* rather than in a refusal.
 That is worth noting because nothing re-measures a comment.
+
+## §207 — the `@jsx` pragma path, built across three crates and REFUSED at +0
+
+§189 declined TS7026's pragma path and named it as five of that build's nine
+wrong lines. Built it: an `@jsx` factory namespace captured in
+`tsr_parser::pragma` (with a test), carried on `FileReferences`, exposed through
+a third `ModuleHost` method, implemented on `Program`, and consumed by
+`jsx_intrinsic_elements_exists` — `getJsxNamespaceAt`'s two hops
+(`jsx.go:1306`, `:1321`) plus `resolveSymbol` on the alias.
+
+**Every layer works and the number does not move.** `WRONG` stayed at 9 through
+three successive additions — the branch, then the alias resolution, then both.
+
+### The probe, run after the third inference rather than the fourth
+
+```
+JSXHOP factory=dom     resolved flags=SymbolFlags(ALIAS)
+JSXHOP factory=predom  resolved flags=SymbolFlags(ALIAS)
+JSXEXPORTS []
+```
+
+The factory resolves, it is an alias, `resolve_alias` follows it — and the
+target's **export table is empty**. `namespace dom { export namespace JSX { … } }`
+imported across units contributes no exports here.
+
+**That is §186's surviving insight, one layer down and now with a second
+consumer:** *an empty export table can be declined; a partial one cannot* —
+except this one is not partial, it is empty, and the machinery above it is
+therefore inert.
+
+### Refused and reverted, all three crates
+
++0 cases. §177 kept `elaborateObjectLiteral` at +1 because it was a precondition
+that would pay when the relation improved; this is the same argument at +0, and
++0 is where *"never document an intention as though it were built"* starts to
+bite. The parser half is small and tested and would have been harmless to keep —
+but a captured pragma with no reachable consumer is a fact about nobody.
+
+### The two things worth carrying
+
+**First, the blocker is now named for the third time and has three consumers:**
+imported namespace symbols carry no exports here. §186 (TS2694, 4 residual
+lines), §187 (its fix), and now TS7026's pragma path all end at it. Three
+independent rows behind one table.
+
+**Second — and this cost a measurement — a multi-part edit that asserts midway
+can leave NOTHING applied.** The first attempt at this build asserted on its
+second pattern, failed, and never wrote the file; the run that followed showed
+"no change", which reads exactly like "the pragma path does not help". It was
+three probes later that the branch turned out never to have been wired. **A
+"no change" result must be confirmed against the source before it is
+interpreted** — the same class as §194's *state what the measurement was taken
+through*, applied to the edit rather than the stack.
