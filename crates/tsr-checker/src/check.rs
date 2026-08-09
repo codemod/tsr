@@ -374,10 +374,18 @@ impl Checker<'_, '_> {
                 self.check_comma_left(node, binary.left.and_then(|left| left.node_id()));
                 ambient
             }
+            // **The dispatch is the guard.** §542 widened the rule to every
+            // assignment operator and measured +0, because this arm still
+            // admitted `=` alone — §380's "dispatch never called", for the
+            // fourth time. `check_assignment_operator` stays on `=`;
+            // `check_reference_expression` takes them all, as upstream's
+            // `checkBinaryLikeExpression` does. §543.
             Node::BinaryExpression(binary)
-                if binary.operator_token.is_some_and(|t| t.kind == SyntaxKind::EqualsToken) =>
+                if binary.operator_token.is_some_and(|t| t.kind.is_assignment_operator()) =>
             {
-                self.check_assignment_operator(binary, ambient);
+                if binary.operator_token.is_some_and(|t| t.kind == SyntaxKind::EqualsToken) {
+                    self.check_assignment_operator(binary, ambient);
+                }
                 self.check_reference_expression(node);
                 ambient
             }
@@ -6945,13 +6953,28 @@ impl Checker<'_, '_> {
         // path upstream and this port's parser does not agree with it there —
         // `plainJSBinderErrors.js` is three wrong TS2703 lines and nothing
         // right. The same decline every other rule in this module carries.
-        if self.file_has_parse_errors || self.in_js_file(node) {
+        // **The `file_has_parse_errors` bail is port-local** — upstream has no
+        // counterpart and checks a file with parse errors like any other. All
+        // five of this rule's blocked cases are parser error-recovery fixtures,
+        // and the syntax it reads (a binary `=` and its left node's kind) is
+        // exactly what recovery preserves. §524 took the same guard off
+        // `checkFunctionOrConstructorSymbol` for +4; §526 measured the blanket
+        // removal and concluded the collection must be per-rule. §541.
+        if self.in_js_file(node) {
             return;
         }
         let (target, message, skip_assertions) = match self.node_map.get(node) {
+            // **Every assignment operator, not just `=`.** Upstream's
+            // `checkBinaryLikeExpression` calls `checkAssignmentOperator` for
+            // any `isAssignmentOperator`, and `1 >>= 2` is four of this rule's
+            // five blocked cases. The destructuring short-circuit below applies
+            // to `=` alone — a compound operator's left cannot be a binding
+            // pattern. §542.
             Some(Node::BinaryExpression(binary))
-                if binary.operator_token.is_some_and(|t| t.kind == SyntaxKind::EqualsToken) =>
+                if binary.operator_token.is_some_and(|t| t.kind.is_assignment_operator()) =>
             {
+                let simple =
+                    binary.operator_token.is_some_and(|t| t.kind == SyntaxKind::EqualsToken);
                 let Some(left) = binary.left.and_then(|left| left.node_id()) else { return };
                 // **`checkAssignmentOperator` is never reached for a
                 // destructuring assignment.** `checkBinaryLikeExpression`
@@ -6962,10 +6985,12 @@ impl Checker<'_, '_> {
                 // test is on the **unskipped** left node, as upstream's is —
                 // 184 of §181's first measurement's wrong lines were this one
                 // short-circuit, and all six of its losses.
-                if matches!(
-                    self.nodes.kind(left),
-                    SyntaxKind::ObjectLiteralExpression | SyntaxKind::ArrayLiteralExpression
-                ) {
+                if simple
+                    && matches!(
+                        self.nodes.kind(left),
+                        SyntaxKind::ObjectLiteralExpression | SyntaxKind::ArrayLiteralExpression
+                    )
+                {
                     return;
                 }
                 (

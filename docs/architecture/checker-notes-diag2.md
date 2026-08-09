@@ -28561,6 +28561,7 @@ deliberate exception of the current-directory *default*, which differs because
 the two suites' baselines differ (§539).
 
 Back to rules.
+<<<<<<< HEAD
 ## §541 — an optional parameter's type includes `undefined`
 
 `getTypeOfParameter` (`checker.go:17042`), three lines:
@@ -28626,3 +28627,154 @@ That is optional-chain narrowing, which `docs/architecture/binder.md` already
 records as unbuilt — the parser does not set `NodeFlags::OPTIONAL_CHAIN`, so
 `a?.b` gets the flow graph of `a.b` and the guard narrows nothing. Pre-existing,
 named, and not this row's.
+=======
+
+## §541 — TS2364: the second per-rule collection on §525's guard
+
+All five blocked cases are parser error-recovery fixtures:
+
+```
+parserGreaterThanTokenAmbiguity11 · 15 · 16 · 20    parserUnparsedTokenCrash2
+```
+
+and `check_reference_expression` opens with
+
+```rust
+if self.file_has_parse_errors || self.in_js_file(node) {
+```
+
+§526 measured the **blanket** removal at +4 across all 111 sites, with 15 extra
+cases as the price, and concluded: *the blanket probe is the right way to price
+a sweep and the wrong way to take it — the bar is per-rule*. §524 was the first
+per-rule collection (+4, zero extras). **This is the second, and §526's
+conclusion predicts it should be possible for the total to exceed +4** even
+though the blanket measured +4, because the blanket nets the good removals
+against the bad ones.
+
+If this lands at +5, that is the sharper statement:
+
+> **A sweep's blanket measurement is a *net*, not a *ceiling*.** §526 wrote the
+> prize as "bounded at ~+4" and that was one word too strong — bounded is what a
+> net is not. The correct claim is that the blanket is the cheapest way to learn
+> a sweep is worth *investigating*, and says nothing about the sum of its
+> positive terms.
+
+### The bar
+
+```
+bar:  +5 of 5,  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **`extraonly` grows.** §526's blanket bought its +4 with +15 extra-blocked
+   cases; the per-rule take is only worth having if this one does not.
+2. **TS2703 lines appear.** The same function carries the `delete` operand
+   message, and a file that never parsed is exactly where a spurious one would
+   land — the `in_js_file` decline beside it names `plainJSBinderErrors.js` as
+   three wrong TS2703 lines from a related cause.
+
+## §542 — §541 measured **+1 of 5**, and the residue named the real arm
+
+```
+diagnostics   2,065 → 2,066   (bar was +5;  +1, 0 LOST)
+extraonly     58 → 55 cases   — the falsifier, negative and then some
+```
+
+One of the five converted. The other four are all this shape:
+
+```ts
+1 >>= 2;    // parserGreaterThanTokenAmbiguity11, 15, 16, 20
+```
+
+and the rule matches **`EqualsToken` only**:
+
+```rust
+Some(Node::BinaryExpression(binary))
+    if binary.operator_token.is_some_and(|t| t.kind == SyntaxKind::EqualsToken) =>
+```
+
+Upstream's `checkBinaryLikeExpression` calls `checkAssignmentOperator` for
+**every** assignment operator (`isAssignmentOperator`), and the destructuring
+short-circuit §181 documents applies to `=` alone — a compound operator's left
+side cannot be a binding pattern.
+
+> **A guard removed reveals the next guard, and the second one was the rule's
+> own.** §541 predicted +5 from the port-local bail and got +1; the four that
+> stayed were never blocked by the harness-facing guard at all. **The bar's
+> shortfall was the diagnostic** — had it landed at +5 the compound-operator gap
+> would still be there, unmeasured, behind a row reading zero.
+
+`SyntaxKind::is_assignment_operator` already exists (`kind.rs:1268`), so the arm
+is a predicate swap.
+
+### The claim §541 set up, now settled
+
+§526 wrote the sweep's prize as *"bounded at ~+4"*. Two per-rule collections
+have now returned **+4 (§524) and +1 (§541)**, which is +5 against a blanket net
+of +4 — so the word was wrong in the direction predicted:
+
+> **A sweep's blanket measurement is a net, not a ceiling.** It is the cheapest
+> way to learn a sweep is worth investigating and says nothing about the sum of
+> its positive terms. §526's own table showed the mechanism — +1 and +2 from two
+> halves that summed to +4 — and the note drew the opposite conclusion from it.
+
+Corrected in §526's own terms rather than silently: the remaining sweep is
+**not** worth ~zero; it is worth an unknown amount that only per-rule
+measurement can find, and two rules have paid +5 of it.
+
+### The bar
+
+```
+bar:  +4 of 4,  0 LOST,  WRONG delta <= +1
+```
+
+## §543 — §542's arm measured **+0** until its dispatch was widened: **+4**, row closed
+
+```
+§541   the port-local guard removed          2,065 → 2,066   +1
+§542   the rule takes every assignment op    2,066 → 2,066   +0
+§543   the DISPATCH takes them too           2,066 → 2,070   +4
+                                                             ───
+                                              TS2364 at zero  +5
+extraonly  58 → 55 cases blocked by an extra alone
+```
+
+The rule and its dispatch carried the **same predicate**, written twice:
+
+```rust
+Node::BinaryExpression(binary)
+    if binary.operator_token.is_some_and(|t| t.kind == SyntaxKind::EqualsToken) => {
+        self.check_assignment_operator(binary, ambient);
+        self.check_reference_expression(node);      // ← whose own match arm repeated it
+```
+
+§542 widened one of the two and measured +0 — **§380's *dispatch never called*,
+for the fourth time this session** (§380, §402, §412, §543).
+
+> **A predicate written twice is a predicate that will be widened once.** The
+> duplication is not redundancy — the outer copy is a *filter* and the inner one
+> a *selector*, and they look identical until one of them has to change.
+> Everywhere this port dispatches on a node's shape and then re-tests that shape
+> inside the rule, the two are a pair that must move together, and nothing
+> checks that.
+
+That is a cheaper description of the same failure than the four earlier notes
+gave individually, and it is testable by grep rather than by measurement:
+**a rule whose first `match` arm restates its dispatch guard is a candidate**.
+
+### Three builds, three different blockers, one row
+
+TS2364 needed all three and none of them was the rule's logic:
+
+```
+the harness-facing bail    §541   port-local, no upstream counterpart
+the rule's own predicate   §542   `=` where upstream has isAssignmentOperator
+the dispatch's predicate   §543   the same test, one level up
+```
+
+**§541's bar shortfall was what exposed the other two.** Had the guard removal
+landed at its predicted +5, the row would have read zero and both remaining
+defects would still be in the tree — which is the second time this session a
+*missed* bar was worth more than a met one (§532 was the first).
+>>>>>>> b6a49f25 (checker: §541/§542/§543 TS2364 closes — a predicate written twice (+5))
