@@ -504,3 +504,60 @@ conversions: the 49 Temporal.Duration results + 60 signature prints
 + downstream reads (~150+); PluralizeUnit was NEVER conditional
 (it is `T | {...}[T]` — indexed access; the §36 speculation in the
 superseded probe note was wrong and is corrected here).
+
+
+ADDENDUM AFTER THE PARALLEL SESSION (checker-2, builds §93-§103,
+84.87% at a370cfa):
+
+THE TWO-SESSION PROTOCOL IS LIVE. checker-1 and checker-2 share
+this checkout's main (checker-1 works from a worktree for code,
+both push to main); lanes: checker-1 = printing/alias-instantiation
+(§95 +146, §97, §99 +55, §100 +24 predicates; §102 REFUSED at
+88:763 with the written-reuse carriage named as prerequisite),
+checker-2 = contextual dispatch arc. Rules that earned their place
+TODAY: stash/accept/pop counterfactual before scoring ANYTHING (the
+§93 stale-baseline trap fired its worst — a LANDED score inflated
+19×, corrected in-commit at 45436ae; the commit MESSAGE there is
+wrong, the docs inside it right); announced measurement windows on
+target/verdict_baseline.tsv; section numbers claimed by committing
+the bar to main FIRST; tail-append doc conflicts resolved
+mine-then-theirs in section order (four today, all mechanical).
+
+checker-2's landings this session, each with bar-before-code and
+its score in checker-notes-narrow.md:
+  - §93 correction: true score +16/4 at 4:1 (not +300).
+  - §94 statement position shows contextual absence (+93 G→R /
+    +14 W→R / 1 G→W at 107:1) — has_no_contextual_type is now the
+    nil-ladder of getContextualType's dispatch (checker.go:29343).
+  - §96 initializer-branch optionality (+6/0; bar missed at 6 vs
+    12-25 — exact-insertion sizing buckets by SPELLING not
+    mechanism, the lesson recorded).
+  - §98 retention's roots widen (+93 W→R / ~152 G→R / 1 R→W at
+    245:1): assignment roots (checker.go:29843), distributing
+    union/intersection member lookup (checker.go:30555), root
+    discrimination as upstream's TERNARY algorithm
+    (relater.go:1212 — constituents lacking the member SURVIVE).
+    Two boolean over-corrections built, measured R→W 23/25, and
+    REVERTED — bare `boolean` retains; read §98's fired legs
+    before touching type_wants_literal.
+  - §101 template fold consults the constant evaluator (+152/0):
+    the symbol-free evaluate slice (checker.go:7991), spelling via
+    tsr_core::jsnum::format_number. Const-reference spans still
+    decline — the evaluate-entity slice is the follow-up.
+
+DEFERRED WITH DECOMPOSITION: §103 const-T inference (41+ lines) =
+FOUR machines shared with as-const (const-context arrays, readonly
+tuples, readonly members+printing, inference plumbing); §33's
+decline in calls.rs:481 stays until built as a unit; the as-const
+OBJECT gap (assertions.rs) is the natural first slice.
+
+PARKED, JOINT-ONLY: the ~215-line scanner escape family
+(octalLiteral 94, templateLiteralEscape 91, numericSeparators 30) —
+invalid-escape cooked-text divergences. Touches the scanner under
+FOUR 100% suites; requires a joint bar with per-suite regression
+legs, and possibly the user's nod.
+
+NEXT HEADS (checker-2 lane): the as-const object slice (unlocks
+§103); the evaluate-entity slice (const refs into §101's fold);
+§98's one-line attributes2 residue; the §68/ctx dispatch arms into
+CallExpression/ArrowFunction own-roots (still the largest owner).
