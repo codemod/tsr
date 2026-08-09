@@ -630,7 +630,7 @@ success case", which is a *correct and honest* thing to have written before
 measuring — and it is not what this prediction said. This prediction named
 120–200 lines. It got 22.
 
-## §113 — the contextual parameter road's next context: PARENTHESIZED function annotations [checker-2, bar]
+## §114 — the contextual parameter road's next context: PARENTHESIZED function annotations [checker-2, bar]
 
 The calleegap sizing's named entry, claimed for the next window.
 parenthesizedContexualTyping2's shapes: a function-typed parameter
@@ -647,7 +647,11 @@ prediction to be REGISTERED after one trace confirms the paren
 layer is the decline (TSR_CTX_DEBUG on the head case). Entry:
 crates/tsr-checker/src/contextual.rs's parameter road.
 
-**§113 bar CORRECTED before any code (the trace contradicted the
+[Renumbered §113→§114: checker-1's ALIAS re-price bar (2885500) precedes
+the ctx bar (6151e57), ancestry verified both directions. The commit
+messages naming ctx-§113 are immutable and stale.]
+
+**§114 bar CORRECTED before any code (the trace contradicted the
 suspicion).** The head case read, not skimmed: FuncType is
 `(x: <T>(p: T) => T) => typeof x` — a typeof-own-parameter RETURN —
 and `fun` is an OVERLOADED GENERIC taking FuncType callbacks; the
@@ -663,7 +667,7 @@ dependentDestructuredVariables, and contextuallyTypeAsyncFunction-
 ReturnType each carry their own shape. §113 stays a bar-in-triage;
 no prediction registered, no code owed against it yet.
 
-**§113 triage, second case (callWithMissingVoid, 5+ lines):** NOT
+**§114 triage, second case (callWithMissingVoid, 5+ lines):** NOT
 the contextual-parameter machine either — two families:
   1. WRITTEN UNION ORDER WITH VOID (the 4 WRONGs): want
      `x: number | void` as written, we print `void | number` — the
@@ -680,3 +684,23 @@ instantiation) — the "one road" reading of the calleegap bucket was
 level-1 bucketing and the bar stays in triage; remaining cases
 (dependentDestructuredVariables 8, taggedTemplate 5) owe their
 looks before any §113 mechanism is claimed.
+
+**§114 triage COMPLETE — the 87-line bucket is FOUR families:**
+  1. OVERLOAD+GENERIC CONTEXTUAL DISPATCH (the largest): both
+     parenthesizedContexualTyping2 AND taggedTemplateContextualTyping1
+     carry the identical FuncType shape (`(x: <T>(p: T) => T) =>
+     typeof x` through overloaded generic callees) — one family, two
+     syntactic entries (call and tagged template).
+  2. DESTRUCTURED-DISCRIMINANT OPTIONALITY
+     (dependentDestructuredVariables 8): contextual types leak
+     `| undefined` into destructured members (`string | number`
+     wants, `| undefined` got) plus one exhaustive-`never` want —
+     the §50 family's optionality half, its own machine.
+  3. WRITTEN UNION ORDER WITH VOID — routed to and CLAIMED by the
+     printing lane's §108 umbrella.
+  4. VOID INSTANTIATION (`f<void>()`) — the §35 deferred road.
+Family 1 is the claimable head: two cases, one shape, and the
+FuncType fixture is deliberately built so that any partial
+contextual typing shows up as `any`-invoked-with-type-arguments
+errors — upstream's own test design isolates the mechanism. The
+next window's bar targets family 1 with the §68-family method.

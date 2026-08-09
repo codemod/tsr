@@ -614,3 +614,10 @@ enormous want-texts) pads the smaller buckets — exclude it from any
 conversion prediction. NEXT WINDOW'S BAR: extend the contextual
 parameter road one measurable context at a time (the §68-family
 method), starting from parenthesizedContexualTyping2's shapes.
+
+PARKED, JOINT-OR-USER-NOD (second entry): the LOADER/VFS UNLOCK —
+symlink realpath + `paths` mapping in the host resolver. Priced by
+checker-1's §113 re-price: ~240 gradient lines + the 428-case
+near-miss ALIAS row; the era refusal (35:13) reproduced EXACTLY
+after two years, proving the blocker sits beneath the checker.
+module_resolution's 100% suite must hold through any attempt.
