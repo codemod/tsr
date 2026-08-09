@@ -42,7 +42,10 @@ dead code into §167's +8, and §171's 65 wrong into §189's 9.
 WHAT IS ACTUALLY LEFT, with fresh numbers:
   · relation + members — TS2322's split re-run after §166 and unchanged:
     335 wholly relation-gated, 132 anchor-gated (an UPPER bound, §177), 14 mixed
-  · **NOT the parse-error set** — §190/§191 checked it. `tsr_parser` emits
+  · **THE PARSER IS DONE, and it was never the parse-error set.** §190 said one
+    conjunct, §192 found the real defect one layer lower — `error_at` had no
+    same-position guard — and both are landed (§193 +14, §194 checker_types +6).
+    Historical note, since three attributions were needed: §190/§191 checked `tsr_parser` emits
     TS1005; what it lacks is the `IsLeftHandSideExpression` conjunct in
     `parse_assignment_expression`. **One line, and it works** — four right
     lines appear immediately. Refused only because recovery emits a spurious

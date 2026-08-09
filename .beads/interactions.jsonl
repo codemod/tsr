@@ -111,3 +111,4 @@
 {"id":"int-795e99df","kind":"field_change","created_at":"2026-08-09T05:58:13.853937964Z","actor":"mo","issue_id":"tsr-a6pq","extra":{"field":"status","new_value":"closed","old_value":"open","reason":"Closed"}}
 {"id":"int-9ffdcd89","kind":"field_change","created_at":"2026-08-09T05:58:14.130335172Z","actor":"mo","issue_id":"tsr-730u","extra":{"field":"status","new_value":"closed","old_value":"open","reason":"Closed"}}
 {"id":"int-5931e34c","kind":"field_change","created_at":"2026-08-09T06:05:58.103577127Z","actor":"mo","issue_id":"tsr-scrm","extra":{"field":"status","new_value":"closed","old_value":"open","reason":"Closed"}}
+{"id":"int-9137201b","kind":"field_change","created_at":"2026-08-09T06:16:32.227930984Z","actor":"mo","issue_id":"tsr-vczf","extra":{"field":"status","new_value":"closed","old_value":"open","reason":"Closed"}}
