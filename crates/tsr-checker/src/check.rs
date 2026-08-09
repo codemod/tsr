@@ -495,6 +495,24 @@ impl Checker<'_, '_> {
         // must not be filtered through, and §140 recorded a rule silently
         // deleted by exactly that. §156.
         self.check_reserved_declaration_name(typed);
+        // §320 — `checkGrammarModifiers` runs for **every** declaration that
+        // can carry modifiers; this port invoked `check_modifier_order` from
+        // six dispatch arms, all of them class members or a parameter, so
+        // TS1038's arm existed and never fired on a `declare` inside a
+        // `declare namespace`.
+        if !matches!(
+            typed,
+            Node::PropertyDeclaration(_)
+                | Node::MethodDeclaration(_)
+                | Node::GetAccessorDeclaration(_)
+                | Node::SetAccessorDeclaration(_)
+                | Node::ConstructorDeclaration(_)
+                | Node::ParameterDeclaration(_)
+        ) && let Some(modifiers) = modifiers_of(typed)
+            && !modifiers.is_empty()
+        {
+            self.check_modifier_order(node, modifiers);
+        }
         self.check_grammar_heritage_clauses(typed);
         self.check_override_kind(node, typed);
         self.check_this_before_super(node);

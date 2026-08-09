@@ -19211,3 +19211,102 @@ The validated scan's no-producer rows at ≥4 cases are now **all
 relation-owned** — TS2769, TS2344, TS2493, TS2351, TS2320, TS2507, TS2739 — plus
 TS2303 and TS2783, both refused with owners. TS2349's primitive slice was the
 last one answerable without the relation, and it is taken.
+
+## §320 — TS1038's missing lines are a missing *dispatch*, not a missing arm
+
+The deepening seam — codes this port **does** emit but is short lines on — has
+never been scanned. Ranked, non-relation, ≥5 blocked cases:
+
+```
+TS2304 30 · TS7006 16 · TS1109 12 · TS2554 12 · TS2564 12 · TS2365 11
+TS2694 10 · TS2540 10 · TS7008  9 · TS2729  9 · TS1038  8 · TS6133 8
+```
+
+TS1038 is 8 cases, 7 single-line, purely syntactic, and its arm exists
+(`check.rs:2541`) with the right condition. `declFileWithErrorsInInputDeclarationFile`
+is:
+
+```ts
+declare namespace M {
+    declare var x;          // TS1038
+    declare function f();   // TS1038
+    declare namespace N {}  // TS1038
+    declare class C {}      // TS1038
+}
+```
+
+Parent is a `ModuleBlock`, file is a `.d.ts` — both conditions hold. The arm
+never runs, because `check_modifier_order` is invoked from **six** dispatch
+arms:
+
+```
+PropertyDeclaration · MethodDeclaration · GetAccessor · SetAccessor
+ConstructorDeclaration · ParameterDeclaration
+```
+
+**All class members and a parameter.** Upstream's `checkGrammarModifiers` runs
+for every declaration that can carry modifiers — statements included.
+
+> **A rule can be complete and still never fire, and the gap reports that
+> identically to a missing arm.** §304 taught the same thing about a scan; this
+> is the rule-level version, and it is why "the arm exists" was never sufficient
+> evidence that a row was deepened rather than dead.
+
+### The bar
+
+```
+bar:  +5 cases of 8,  0 LOST,  WRONG delta <= +2
+```
+
+Not the ceiling: widening a dispatch runs **every** arm of
+`check_modifier_order` — order, duplicates, visibility — on node kinds that
+have never seen them.
+
+### Falsifiers
+
+1. **`export declare function f()` at file scope reports.** Its parent is a
+   `SourceFile`, not a `ModuleBlock`.
+2. **A legal `export const` reports** from one of the other arms.
+
+## §321 — §320 built: +12, `WRONG 0`, from widening a dispatch
+
+```
+diagnostics   1,821 → 1,833   (+12, bar was +5)
+CONVERTS 36 · LOST 0 · STILL SHORT 14 · RIGHT 105 · WRONG 0
+every other suite unmoved — falsifiers 1 and 2 negative
+```
+
+**One hundred and five right lines, none wrong**, from adding no rule at all —
+`check_modifier_order` was complete and was being called from six dispatch arms
+instead of every declaration that can carry modifiers.
+
+The `+12` is the marginal board gain; `CONVERTS 36` is how many cases the
+modifier family as a whole now decides, which is what `diag2307` measures when
+the whole family is removed.
+
+### The seam this opened
+
+The **deepening** seam — codes this port already emits but is short lines on —
+had never been scanned in fourteen sessions. Its head:
+
+```
+TS2304 30 · TS7006 16 · TS1109 12 · TS2554 12 · TS2564 12 · TS2365 11
+TS2694 10 · TS2540 10 · TS7008  9 · TS2729  9 · TS1038  8 · TS6133 8
+```
+
+Every instrument built this session ranks **missing codes**. `diaggap`,
+`diagslice`, `diagpair` and the no-producer sweeps all answer *what is absent*.
+A code that is present and under-firing looks identical to one that is present
+and complete, and nothing distinguished them.
+
+> **"The arm exists" was never evidence that a row was deepened rather than
+> dead.** TS1038's arm had the right condition, the right anchor and the right
+> message, and had never once run on the shape it was written for.
+
+### Why the bar was so far off
+
+`+5` was priced on TS1038's 8 cases. Widening the dispatch runs *every* arm of
+`check_modifier_order` — order, duplicates, visibility, `declare` chains — on
+node kinds that had never seen them, and eleven other codes came with it. The
+bar was right to be conservative about wrong lines (there were none) and had no
+way to anticipate the breadth.
