@@ -705,35 +705,76 @@ pub struct CompilerOptions {
 }
 
 impl CompilerOptions {
-    /// The target actually emitted for (`GetEmitScriptTarget`).
+    /// The target actually emitted for (`GetEmitScriptTarget`,
+    /// `internal/core/compileroptions.go:195`).
     ///
-    /// Unset does not mean "none": it means ES5, unless the module kind implies
-    /// something newer. That default is why so much of the corpus sets `target`
-    /// explicitly.
+    /// Two lines upstream, and the whole of it:
+    ///
+    /// ```go
+    /// if options.Target != ScriptTargetNone {
+    ///     return options.Target
+    /// }
+    /// return ScriptTargetLatestStandard
+    /// ```
+    ///
+    /// **Unset means the latest standard, not ES5.** This read *"unset means
+    /// ES5, unless the module kind implies something newer"* and derived a
+    /// target from `module` — which is what TypeScript did before `tsgo`, and
+    /// which no version of `GetEmitScriptTarget` in the pinned upstream does.
+    ///
+    /// The divergence was found from the other end, by the CLI workstream:
+    /// `--showConfig`'s implied-option pass drops an implied value that equals
+    /// what wholly-default options would compute, so the *default* is directly
+    /// observable in two `tsc` baselines that pull in **opposite directions**
+    /// (`STATUS-cli.md` §7.10) — which is what makes it a fact about upstream
+    /// rather than a fit to one case. `show_config.rs` applied the correct rule
+    /// locally and left this one alone, because a function the checker, the
+    /// loader and module resolution all read is a compiler change with its own
+    /// measurement rather than a CLI one. That measurement is
+    /// `checker-notes-diag2.md` §174.
     #[must_use]
     pub fn emit_script_target(&self) -> ScriptTarget {
         if self.target != ScriptTarget::None {
             return self.target;
         }
-        match self.module {
-            ModuleKind::Node16 | ModuleKind::Node18 => ScriptTarget::ES2022,
-            ModuleKind::Node20 => ScriptTarget::ES2023,
-            ModuleKind::NodeNext => ScriptTarget::ESNext,
-            _ => ScriptTarget::ES5,
-        }
+        // `ScriptTargetLatestStandard = ScriptTargetES2025`
+        // (`compileroptions.go:526`). Spelled as the standard it currently names
+        // rather than aliased, because upstream's alias moves with each yearly
+        // edition and a silent move here would change lib selection.
+        ScriptTarget::ES2025
     }
 
-    /// The module kind actually emitted (`GetEmitModuleKind`).
+    /// The module kind actually emitted (`GetEmitModuleKind`,
+    /// `internal/core/compileroptions.go:202`).
+    ///
+    /// A **ladder**, not a two-way split: `ESNext` → `ESNext`, then `ES2022`,
+    /// `ES2020`, `ES2015`, and `CommonJS` below all of them. This read as a
+    /// single `>= ES2015` test producing `ES2015`, which collapses three of
+    /// upstream's five outcomes.
+    ///
+    /// Corrected alongside [`CompilerOptions::emit_script_target`], and only
+    /// because that correction made the difference reachable: with an unset
+    /// target defaulting to ES5, every unset-module program took the `CommonJS`
+    /// arm and the missing rungs were unobservable.
     #[must_use]
     pub fn emit_module_kind(&self) -> ModuleKind {
         if self.module != ModuleKind::None {
             return self.module;
         }
-        if self.emit_script_target() >= ScriptTarget::ES2015 {
-            ModuleKind::ES2015
-        } else {
-            ModuleKind::CommonJS
+        let target = self.emit_script_target();
+        if target == ScriptTarget::ESNext {
+            return ModuleKind::ESNext;
         }
+        if target >= ScriptTarget::ES2022 {
+            return ModuleKind::ES2022;
+        }
+        if target >= ScriptTarget::ES2020 {
+            return ModuleKind::ES2020;
+        }
+        if target >= ScriptTarget::ES2015 {
+            return ModuleKind::ES2015;
+        }
+        ModuleKind::CommonJS
     }
 
     /// How specifiers resolve (`GetModuleResolutionKind`).
@@ -969,22 +1010,47 @@ mod tests {
     use super::*;
 
     #[test]
-    fn an_unset_target_is_es5_unless_the_module_kind_says_otherwise() {
-        // The default that makes `// @target:` the corpus's most common directive.
-        assert_eq!(CompilerOptions::default().emit_script_target(), ScriptTarget::ES5);
+    fn an_unset_target_is_the_latest_standard() {
+        // `GetEmitScriptTarget` (`core/compileroptions.go:195`) is two lines:
+        // the written target, or `ScriptTargetLatestStandard`. It does **not**
+        // consult the module kind.
+        //
+        // This test read `an_unset_target_is_es5_unless_the_module_kind_says_
+        // otherwise` and asserted ES5, with a `module: node16` case asserting
+        // ES2022. Both were the pre-`tsgo` TypeScript rule, and both were
+        // wrong about the pinned upstream — see
+        // `docs/architecture/checker-notes-diag2.md` §174 for how the
+        // divergence was found and why no conformance suite could see it.
+        assert_eq!(CompilerOptions::default().emit_script_target(), ScriptTarget::ES2025);
 
+        // The module kind is not an input.
         let node16 = CompilerOptions { module: ModuleKind::Node16, ..Default::default() };
-        assert_eq!(node16.emit_script_target(), ScriptTarget::ES2022);
+        assert_eq!(node16.emit_script_target(), ScriptTarget::ES2025);
 
         let explicit = CompilerOptions { target: ScriptTarget::ES2020, ..Default::default() };
         assert_eq!(explicit.emit_script_target(), ScriptTarget::ES2020);
     }
 
     #[test]
-    fn an_unset_module_kind_follows_the_target() {
-        assert_eq!(CompilerOptions::default().emit_module_kind(), ModuleKind::CommonJS);
-        let modern = CompilerOptions { target: ScriptTarget::ES2015, ..Default::default() };
-        assert_eq!(modern.emit_module_kind(), ModuleKind::ES2015);
+    fn an_unset_module_kind_climbs_the_targets_ladder() {
+        // `GetEmitModuleKind` (`:202`) has five outcomes, not two. This
+        // asserted `CommonJS` for wholly default options, which was true only
+        // because the unset target answered ES5.
+        assert_eq!(CompilerOptions::default().emit_module_kind(), ModuleKind::ES2022);
+
+        let rung = |target| CompilerOptions { target, ..Default::default() }.emit_module_kind();
+        assert_eq!(rung(ScriptTarget::ES5), ModuleKind::CommonJS);
+        assert_eq!(rung(ScriptTarget::ES2015), ModuleKind::ES2015);
+        assert_eq!(rung(ScriptTarget::ES2019), ModuleKind::ES2015);
+        assert_eq!(rung(ScriptTarget::ES2020), ModuleKind::ES2020);
+        assert_eq!(rung(ScriptTarget::ES2021), ModuleKind::ES2020);
+        assert_eq!(rung(ScriptTarget::ES2022), ModuleKind::ES2022);
+        assert_eq!(rung(ScriptTarget::ES2025), ModuleKind::ES2022);
+        assert_eq!(rung(ScriptTarget::ESNext), ModuleKind::ESNext);
+
+        // An explicit module kind wins over all of it.
+        let written = CompilerOptions { module: ModuleKind::CommonJS, ..Default::default() };
+        assert_eq!(written.emit_module_kind(), ModuleKind::CommonJS);
     }
 
     #[test]

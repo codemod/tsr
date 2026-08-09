@@ -66,12 +66,21 @@ with an upstream anchor and a test, and no caller sequencing them.
 | | upstream | here | share |
 |---|---:|---:|---:|
 | `CompilerOptions` fields | 130 | 125 | 96% |
-| declared options (`declscompiler.go` / `declarations.rs`) | 121 | 134 | complete |
+| declared options (`declscompiler.go` / `declarations.rs`) | 121 | 135 | complete |
 
 Counted by `awk '/^type CompilerOptions struct/,/^}/' | grep -cE '^\t[A-Z]'` and
 `grep -c 'name: "'`. Was 50/48 before the CLI; the 27 added are the command-line
 surface — `--help`, `--project`, `--showConfig`, `--pretty` and the rest — which
 had nowhere to land before there was a driver to read them.
+
+`plugins` is the 135th, added because it is a **real** tsconfig option this port
+reported as `TS5023 Unknown compiler option` — three hits in one 22-package
+monorepo. Upstream declares it as a `TSConfigOnly` list with no
+`core.CompilerOptions` field (`declscompiler.go:1179-1186`): the compiler
+accepts it and never reads it, because it configures the *language service*.
+Declared here the same way, so `apply` validates the shape and stores nothing.
+`cli_baselines` unchanged at 33/43, with the same 13 mismatch lines before and
+after.
 
 Everything not in the table reports as an unknown option. That is survivable for
 a checking-only driver run by its own authors and is a **hard blocker for the
@@ -392,6 +401,11 @@ too, because phase 0 exists.
 | 8 | `references` in the program | 1 baseline | `Config-with-references-…` |
 | 9 | emit (`tsr-transformers`) | **151 baselines** | **not a CLI item**; the ceiling above everything |
 
+**Done since this board was written:** the `plugins` compiler option (see §1)
+and §7.10's `emit_script_target`, the latter in `tsr-core` rather than locally —
+`checker-notes-diag2.md` §174, which also records why its "two lines" estimate
+was wrong by a function.
+
 **Refused, with the reason:** `--locale` (`commandLine/locale.js` wants
 `Verze FakeTSVersion`). This port ships one locale, upstream ships a message
 catalogue per language, and translating diagnostics is not a compiler task.
@@ -557,12 +571,28 @@ in users' repositories, so it reports `NotImplemented` (upstream's own status 5)
       expects `useDefineForClassFields: false` — which appears *only* because the
       default is latest-standard `true` and es5 differs from it.
 
-    Applied locally in `show_config.rs` (`show_config_emit_target`) and
-    **deliberately not fixed in `tsr-core`**: `emit_script_target` is read by the
-    checker, the loader and module resolution, so correcting it is a compiler
-    change with its own conformance measurement, and this session is scoped to
-    the CLI. **This is the highest-value item this session found for whoever
-    touches the core next** — it is two lines, and the evidence is above.
+    ~~Applied locally in `show_config.rs` (`show_config_emit_target`) and
+    **deliberately not fixed in `tsr-core`**.~~ **Fixed in the core, and the
+    local copy is gone** — `checker-notes-diag2.md` §174. The evidence above was
+    right and the sizing was not:
+
+    - **"It is two lines" was wrong.** Correcting `emit_script_target` alone
+      broke four loader tests, because the default target feeds
+      `GetEmitModuleKind` — and *that* function was independently wrong in a way
+      the ES5 default had been hiding: a two-way `>= ES2015` split where upstream
+      is a five-rung ladder. A wrong default was masking a wrong ladder, and
+      fixing only the named line would have shipped `ES2015` where upstream says
+      `ES2022`.
+    - **"Read by the checker, the loader and module resolution" was wrong for
+      this port.** `emit_script_target` had *no* production caller at all; the
+      reach is entirely through `emit_module_kind`, which calls it.
+    - **Nothing measurable moved**: all five conformance suites identical *per
+      case*, `cli_baselines` 33/43, and a 22-package repository at 1,550 errors
+      with the same distribution. That is because the default is barely
+      exercised — the corpus writes `// @target:` in 12,423 of 12,444 cases. The
+      observable that licenses the change is a `tsconfig.json` with no `target`
+      using `Object.entries`: `tsc` is silent, this port reported TS2339 before
+      and is silent after.
 
 ## 8. Updating this file
 

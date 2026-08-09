@@ -1239,7 +1239,7 @@ fn is_javascript_file(file_name: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use tsr_core::{ModuleKind, ModuleResolutionKind, Tristate};
+    use tsr_core::{ModuleKind, ModuleResolutionKind, ScriptTarget, Tristate};
     use tsr_vfs::{FileSystem, InMemoryFileSystem};
 
     use super::*;
@@ -1588,7 +1588,10 @@ mod tests {
             &[("/a.ts", "const x = 1;\n")],
             &["lib.d.ts"],
             &["/a.ts"],
-            CompilerOptions::default(),
+            // `lib.d.ts` IS the ES5 lib, so the target is named rather
+            // than defaulted: `GetEmitScriptTarget` returns the latest standard
+            // for an unset target, which would pick `lib.es2025.full.d.ts`.
+            CompilerOptions { target: ScriptTarget::ES5, ..CompilerOptions::default() },
         );
         assert_eq!(loaded.file_names, ["/libs/lib.d.ts", "/a.ts"]);
         assert_eq!(loaded.lib_file_count, 1);
@@ -1636,7 +1639,10 @@ mod tests {
             &[("/a.ts", "const x = 1;\n")],
             &["lib.d.ts"],
             &[],
-            CompilerOptions::default(),
+            // `lib.d.ts` IS the ES5 lib, so the target is named rather
+            // than defaulted: `GetEmitScriptTarget` returns the latest standard
+            // for an unset target, which would pick `lib.es2025.full.d.ts`.
+            CompilerOptions { target: ScriptTarget::ES5, ..CompilerOptions::default() },
         );
         assert!(loaded.file_names.is_empty());
     }
@@ -1668,7 +1674,10 @@ mod tests {
             &[("/a.ts", "/// <reference lib=\"es5\" />\nconst x = 1;\n")],
             &["lib.d.ts", "lib.es5.d.ts"],
             &["/a.ts"],
-            CompilerOptions::default(),
+            // `lib.d.ts` IS the ES5 lib, so the target is named rather
+            // than defaulted: `GetEmitScriptTarget` returns the latest standard
+            // for an unset target, which would pick `lib.es2025.full.d.ts`.
+            CompilerOptions { target: ScriptTarget::ES5, ..CompilerOptions::default() },
         );
         assert_eq!(libs(&loaded), ["lib.d.ts", "lib.es5.d.ts"]);
     }
@@ -1679,7 +1688,9 @@ mod tests {
             &[("/a.ts", "/// <reference lib=\"es2015.symbol\" />\nconst x = 1;\n")],
             &["lib.d.ts", "lib.es2015.symbol.d.ts"],
             &["/a.ts"],
-            traced(),
+            // ES5 named rather than defaulted; `lib.d.ts` is the ES5 lib and an
+            // unset target resolves to the latest standard.
+            CompilerOptions { target: ScriptTarget::ES5, ..traced() },
         );
         assert_eq!(libs(&loaded), ["lib.d.ts", "lib.es2015.symbol.d.ts"]);
         // It is a table lookup, not a module resolution: no request, no trace.
@@ -1731,6 +1742,11 @@ mod tests {
         let options = CompilerOptions {
             trace_resolution: Tristate::True,
             module_resolution: ModuleResolutionKind::Node16,
+            // The mounted default library is spelled `lib.d.ts`, which is the
+            // ES5 one; an unset target now resolves to the latest standard and
+            // would look for `lib.es2025.full.d.ts` instead, mount nothing, and
+            // make this test assert about an empty program.
+            target: ScriptTarget::ES5,
             ..CompilerOptions::default()
         };
         let loaded = load_from(

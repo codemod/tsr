@@ -11857,3 +11857,100 @@ specifier, where upstream keeps the quotes (`binder.go:311`), so
 `declare module "process"` and a global `var process` share a key. Written up
 in `docs/architecture/binder.md` with the minimal repro and the reason the
 previously-recorded objection to fixing it no longer holds.
+
+## §174 — an unset `target` is the LATEST STANDARD, not ES5; and the item was not two lines
+
+`STATUS-cli.md` §7.10 found this from the other end and left it as the highest-value
+item for whoever touched the core next, sized at **"it is two lines, and the
+evidence is above"**. The evidence was right. The size was wrong, and the way it
+was wrong is the useful part.
+
+### The finding, restated with its provenance
+
+`GetEmitScriptTarget` (`internal/core/compileroptions.go:195`) is:
+
+```go
+if options.Target != ScriptTargetNone { return options.Target }
+return ScriptTargetLatestStandard          // = ScriptTargetES2025, :526
+```
+
+This port instead derived ES5 from the module kind — the pre-`tsgo` TypeScript
+rule. The divergence is not directly observable in any suite here, and §7.10
+found it only because `--showConfig`'s implied-option pass *drops a value equal
+to what wholly-default options would compute*, which makes the default visible
+in two `tsc` baselines pulling in **opposite directions**. One rule, both
+baselines, opposite signs — which is what made it a fact about upstream rather
+than a fit to one case.
+
+### It is two functions, not two lines
+
+Correcting `emit_script_target` alone broke four `tsr-compiler` loader tests,
+and that is the whole finding. The default target is an input to
+`GetEmitModuleKind`, and **this port's `emit_module_kind` was independently
+wrong in a way ES5 had been hiding**: it was a two-way `>= ES2015` split where
+upstream is a five-rung ladder (`compileroptions.go:202-220`):
+
+```
+ESNext -> ESNext | >=ES2022 -> ES2022 | >=ES2020 -> ES2020 | >=ES2015 -> ES2015 | else CommonJS
+```
+
+With an unset target answering ES5, every unset-module program took the
+`CommonJS` arm and the three missing rungs were unreachable. A wrong default was
+**masking** a wrong ladder. Both are corrected here; correcting only the one
+named in §7.10 would have shipped `ES2015` where upstream says `ES2022`.
+
+`GetEmitModuleKind` then feeds `GetModuleResolutionKind`, so the reach is
+target → module kind → resolution kind → the loader. That is the reach the "two
+lines" estimate did not have.
+
+### What moved: nothing measurable, and that is the honest result
+
+| | before | after |
+|---|---:|---:|
+| `binder_symbols` | 8,459/8,459 | 8,459/8,459 |
+| `checker_types` | 3,957 cases / 405,403 lines | identical, **per case** |
+| `diagnostics` | 1,524/5,488 | 1,524/5,488 |
+| `module_resolution` | 95/95 | 95/95 |
+| `file_loader` | 96/96 | 96/96 |
+| `cli_baselines` | 33/43 | 33/43 |
+| the 22-package monorepo | 1,550 errors | 1,550, same distribution |
+
+A `casequery --list` diff over `checker_types` showed **zero rows changed**, so
+this is "no case moved", not "the net was zero".
+
+**Why nothing moved is itself the measurement.** The default is almost never
+exercised: the corpus sets `// @target:` in 12,423 of 12,444 cases (the figure
+is in `tsr-core`'s own module docs), every `tsconfig.json` in the sample
+repository sets `target`, and the `tsc` baselines compile trivial files. So the
+suites here **cannot** see this rule, in the same way they cannot see the
+ambient-module-name collision in §172. Two blind spots found in one session,
+both by pointing the binary at something that is not the corpus.
+
+The observable, which is what licenses the change:
+
+```jsonc
+// tsconfig.json — no "target"
+{ "compilerOptions": { "noEmit": true } }
+```
+```ts
+const e = Object.entries({ a: 1 });
+```
+
+`tsc` reports nothing. Before: `TS2339: Property 'entries' does not exist on
+type 'ObjectConstructor'` — the ES5 lib. After: nothing. That is the whole
+user-visible effect and it is exactly the intended one.
+
+### Six tests were encoding the old defaults
+
+Four in `tsr-compiler`'s loader and two in `tsr-core` — each written against
+`CompilerOptions::default()` while asserting about `lib.d.ts`, which **is** the
+ES5 lib. They did not fail because the change was wrong; they failed because
+they had been depending on a default rather than naming a target. Each now names
+`ScriptTarget::ES5` explicitly, with the reason, so none of them can silently
+re-acquire the dependency. The two `tsr-core` tests were assertions of the wrong
+rule and are rewritten against upstream's, including every rung of the ladder.
+
+**The transferable rule:** a test that leans on a default is a test that will
+fail for the right reason at the worst possible time, and cannot tell you which.
+`the_target_chooses_the_default_lib` sat beside all four loader tests, doing the
+same thing correctly, the whole time.
