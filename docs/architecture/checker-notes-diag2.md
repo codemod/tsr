@@ -19854,3 +19854,45 @@ other never considered.
 it decides — and §328's sweep of call sites found none of them, because they
 live in candidate lists, guards and applicability predicates rather than at the
 dispatch.
+
+## §336 — `diagnode`: the third axis
+
+§335 said nothing ranks positions. This does — the node kind, **and its
+parent**, at every missing line.
+
+```
+node kind at the position              lines   top codes wanted there
+Identifier in BinaryExpression          2426   TS2322×1026 TS2362×295 TS2365×290
+Identifier in PropertyAccessExpression  1376   TS2339×426  TS2322×99  TS18048×84
+<no node at position>                    967   TS1005×141  TS1128×102 TS1487×86
+Identifier in VariableDeclaration        844   TS2322×404  TS2403×137 TS2741×30
+Identifier in TypeReference              545   TS2304×316  TS2313×41  TS2344×22
+Identifier in Parameter                  361   TS7006×176  TS1096×14  TS1268×14
+Identifier in BindingElement             357   TS7031×193  TS2339×37  TS2842×34
+ReturnStatement in Block                 350   TS2322×334
+Identifier in InterfaceDeclaration       270   TS2430×182  TS2320×26  TS2310×20
+```
+
+The parent is what makes a gap legible: §335's `implements` name is an
+`Identifier`, which says nothing, in an `ExpressionWithTypeArguments`, which
+says everything.
+
+### What its first reading shows
+
+**`<no node at position>` is 967 lines** — positions where this port's parse
+produced no node at all. §235 counted 68 parser recovery divergences by *case*;
+this is the same population by line, and it is the third-largest row on the
+board. Every one is a place where the tree upstream built and the tree this port
+built disagree, which no checker rule can reach.
+
+The rest of the head is the structural relation — TS2322, TS2339, TS2345 — as
+every other ranking has said.
+
+### A row it prices out rather than in
+
+`TS1487` (*octal escape sequences are not allowed*) is **86 lines and zero
+blocked cases**. §293's filter applies: a code with no sole-obstacle case
+converts nothing by construction, however many lines it carries. Recording it
+because 86 lines looks like a row until the second number is read — and
+`diagnode` is the first instrument that shows line counts prominently enough to
+make that mistake available.
