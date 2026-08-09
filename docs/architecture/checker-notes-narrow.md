@@ -5152,3 +5152,29 @@ Expected signature: G→W concentrated in high-target lib corpora
 with REAL-type wants. **Bar: ≥200 G→R at ≥5:1**; if the cross-file
 class fires, the next gate is single-declaration-file symbols only,
 and its price gets recorded either way.
+
+**§123 MEASURED AND LANDED at iteration 2 — +381 G→R / 69 G→W /
+0 R→W (5.5:1), right 409,748 → 410,129 = 85.63%.** The bar
+(≥200 at ≥5:1) met. §34's "gapped by design" was a design claim
+that had never been measured on Named receivers, and most of it
+dissolved under two gates:
+  1. UNGATED: +722/325+11 at 2.1:1 — three adverse classes, each
+     diagnostic: mapped/conditional-alias receivers whose Named
+     table was never the type's member list (mappedTypes2 21,
+     conditionalTypes1 26, recursiveIntersectionTypes 24), JS
+     positions (spellingUncheckedJS's 7 R→W — unchecked-JS misses
+     answer differently), and the narrowing-miss class.
+  2. GATED (owner declared EXCLUSIVELY by class/interface
+     declarations + non-JS positions): +381/69.
+The residual adverse is the class the bar predicted and the arm
+cannot see: receivers upstream NARROWS before the lookup
+(typeGuardFunctionOfFormThis 14, assertionTypePredicates1 8,
+typeGuardFunction* 8 — this-predicates and assertion narrowing,
+each a recorded unported leg). Two more pins came due and were
+flipped with the section named (thirty-first: constraint-absent
+member; thirty-second: absent private name — both had argued
+"errorType is upstream's answer too" while asserting the gap
+sentinel that PRINTS differently). destructuringParameterProperties
+1/2/5 came in nearly whole (112 lines). Gates: four 100% suites
+held, diagnostics 2,040 → 2,044, clippy 0, tests 0 FAILED via
+`rtk proxy`, anchors 2,692.

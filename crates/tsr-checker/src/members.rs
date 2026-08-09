@@ -470,6 +470,17 @@ impl Checker<'_, '_> {
                     } else {
                         info.value
                     }
+                } else if node_id.is_some_and(|id| !self.in_js_file(id))
+                    && self.named_walk_is_complete(receiver_type)
+                {
+                    // §123 (`checker-notes-narrow.md`): the walk COMPLETED —
+                    // every base on the chain was followed and the name is
+                    // established absent — so this is upstream's TS2339/TS2550
+                    // report and its errorType-printed-any, not a table this
+                    // port failed to read. A blocked walk keeps the gap.
+                    // JS positions excluded — unchecked-JS misses answer
+                    // differently upstream (spellingUncheckedJS's 7 R→W).
+                    self.intrinsics.any
                 } else {
                     error
                 }
@@ -1114,6 +1125,51 @@ impl Checker<'_, '_> {
             None => return None,
         };
         self.symbol_is_value(found).then_some(found)
+    }
+
+    /// §123's completeness probe: whether a Named receiver's base-type walk
+    /// can be followed to the end — every `base_symbols_of` on the chain
+    /// answers. Only then is a member's absence ESTABLISHED rather than
+    /// unknown. A cycle answers `false` (decline, honest gap) — upstream
+    /// reports a base-cycle diagnostic there, a channel this port lacks.
+    fn named_walk_is_complete(&mut self, receiver: TypeId) -> bool {
+        let TypeData::Named { members: Some(owner), .. } = self.store.get(receiver).data else {
+            return false;
+        };
+        // Only owners declared EXCLUSIVELY by class/interface declarations —
+        // the two forms whose members tables the binder populates whole. A
+        // Named minted for an alias of a mapped/conditional body carries a
+        // table that was never the type's member list (mappedTypes2 21,
+        // conditionalTypes1 26, recursiveIntersectionTypes 24 G→W on the
+        // ungated pair — upstream computes real members there).
+        let declared_only = {
+            let symbol = self.binder.symbols().get(owner);
+            !symbol.declarations.is_empty()
+                && symbol.declarations.iter().all(|&declaration| {
+                    matches!(
+                        self.nodes.kind(declaration),
+                        tsr_ast::SyntaxKind::ClassDeclaration
+                            | tsr_ast::SyntaxKind::ClassExpression
+                            | tsr_ast::SyntaxKind::InterfaceDeclaration
+                    )
+                })
+        };
+        if !declared_only {
+            return false;
+        }
+        let mut visiting = Vec::new();
+        self.walk_completes(owner, &mut visiting)
+    }
+
+    fn walk_completes(&mut self, owner: SymbolId, visiting: &mut Vec<SymbolId>) -> bool {
+        if visiting.contains(&owner) {
+            return false;
+        }
+        visiting.push(owner);
+        match self.base_symbols_of(owner) {
+            None => false,
+            Some(bases) => bases.into_iter().all(|base| self.walk_completes(base, visiting)),
+        }
     }
 
     /// §122's walk: each base's `exports`, depth-first in declaration order,

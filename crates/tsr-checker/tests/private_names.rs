@@ -79,11 +79,14 @@ fn a_private_field_of_function_type_prints_its_signature() {
     assert_eq!(type_of_private_access(source), "() => void");
 }
 
-/// The safe failure: a private name that is **not** a member of the
-/// receiver's type answers `errorType`, which is upstream's type answer too —
-/// the scope rule upstream enforces
-/// (`lookupSymbolForPrivateIdentifierDeclaration`) is a *diagnostic* channel
-/// this port does not have (ADR-0040), and it does not change the type.
+/// A private name that is **not** a member of the receiver's type —
+/// **flipped by §123** (`checker-notes-narrow.md`; the thirty-second
+/// stand-in). Upstream's `errorType` here PRINTS as `any` in the `.types`
+/// baselines (ADR-0038's observable), and §123's completed-walk arm now
+/// answers it: `C` has no bases, so `#missing`'s absence is established.
+/// The old comment argued "errorType is upstream's type answer too" and
+/// then asserted this port's gap sentinel — the two spell differently at
+/// the baseline, which is exactly what the arm closes.
 /// Asserted beside the ported form so the pair keeps discriminating.
 #[test]
 fn an_absent_private_name_is_a_gap() {
@@ -96,5 +99,5 @@ fn an_absent_private_name_is_a_gap() {
     #a: number = 1;
     m() { return this.#missing; }
 }";
-    assert_eq!(type_of_private_access(absent), "error");
+    assert_eq!(type_of_private_access(absent), "any");
 }

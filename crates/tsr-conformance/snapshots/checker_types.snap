@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 4082/9538 (42.80%)
-Assertion lines: 409748/478954 (85.55%)  — a gradient, not a pass rate
-Failed         : 5456
+Passed         : 4104/9538 (43.03%)
+Assertion lines: 410129/478954 (85.63%)  — a gradient, not a pass rate
+Failed         : 5434
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 5456 failures:
+First 100 of 5434 failures:
 compiler/2dArrays
   2dArrays.ts: >allShipsSunk : error — expected >allShipsSunk : () => boolean
 compiler/ClassDeclaration26
@@ -129,8 +129,6 @@ compiler/anonymousClassDeclarationDoesntPrintWithReadonly
   anonymousClassDeclarationDoesntPrintWithReadonly.ts: >y : error — expected >y : () => typeof (Anonymous class)
 compiler/anonymousClassExpression1
   anonymousClassExpression1.ts: >class {} : error — expected >class {} : typeof (Anonymous class)
-compiler/anonymousClassExpression2
-  anonymousClassExpression2.ts: >this.methodA : error — expected >this.methodA : any
 compiler/anyAndUnknownHaveFalsyComponents
   anyAndUnknownHaveFalsyComponents.ts: >foo1 : error — expected >foo1 : () => any
 compiler/anyAsReturnTypeForNewOnCall
@@ -213,3 +211,5 @@ compiler/arrayConcatMap
   arrayConcatMap.ts: >x : error — expected >x : any[]
 compiler/arrayConstructors1
   arrayConstructors1.ts: >x = new Array(1) : error — expected >x = new Array(1) : any[]
+compiler/arrayDestructuringInSwitch1
+  arrayDestructuringInSwitch1.ts: >Expression : error — expected >Expression : Expression

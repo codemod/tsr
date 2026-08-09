@@ -74,13 +74,17 @@ function g<U extends Shape>(u: U) { return u.name; }";
     assert_eq!(type_of_access(unconstrained, "t", "name"), "error");
     assert_eq!(type_of_access(unconstrained, "u", "name"), "string");
 
-    // A member the constraint does not have stays a gap, which is upstream's
-    // type answer too (it reports, and reporting is a channel this port does
-    // not have — ADR-0040).
+    // A member the constraint does not have — **flipped by §123**
+    // (`checker-notes-narrow.md`; the thirty-first stand-in to come due).
+    // This pinned `error` on the argument that upstream "reports, and
+    // reporting is a channel this port does not have"; the report's
+    // OBSERVABLE in the `.types` baseline is `any` (TS2339's errorType),
+    // and §123's completed-walk arm answers it: `Shape` is an interface
+    // with no bases, so `missing`'s absence is established.
     let absent = "interface Shape { name: string; }
 function f<T extends Shape>(t: T) { return t.missing; }
 function g<U extends Shape>(u: U) { return u.name; }";
-    assert_eq!(type_of_access(absent, "t", "missing"), "error");
+    assert_eq!(type_of_access(absent, "t", "missing"), "any");
     assert_eq!(type_of_access(absent, "u", "name"), "string");
 }
 
