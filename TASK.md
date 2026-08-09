@@ -466,3 +466,13 @@ end, so nothing landed, but the follow-up fix re-applied only the
 edit that raised. A TypeId-printing probe found the missing
 registration two hours later. Re-verify every edit in an aborted
 batch, not the one that errored.
+
+NEXT SEAM DIAGNOSED (post-§92.2 probe): fatarrowfunctionsOptionalArgs'
+111 gaps are arrows IN ARGUMENT POSITIONS under a callee with no
+usable contextual signature (`foo(...arg: any[])`) — statement-position
+arrows already print (451 RIGHT). The fix is the §68 family's next
+arm: when contextual dispatch declines at a call argument, fall back
+to the arrow's STANDALONE type instead of erroring the argument.
+Owner: checker-notes-ctx.md's dispatch; the §56.3 argument-position
+retention build is the precedent. ArrowFunction own-root is 3,705
+gap lines; this is its cheapest measurable slice.
