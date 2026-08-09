@@ -703,4 +703,41 @@ mod tests {
         assert_eq!(compilation.options.jsx, JsxEmit::Preserve);
         assert_eq!(compilation.root_file_names, ["/.src/index.js"]);
     }
+
+    /// The three JSX factory directives reach `CompilerOptions`.
+    ///
+    /// **This is a regression test for a silent-default defect, not for a
+    /// parser.** `jsxFactoryAndJsxFragmentFactory` sets `@jsxFactory: h`; this
+    /// function dropped it, `Checker::apply_compiler_options` took its `React`
+    /// default, and TS2874 reported a name the file never mentions — 36 wrong
+    /// lines and 4 lost cases, with the *rule* correct throughout. See
+    /// `docs/architecture/checker-notes-diag2.md` §262 and §263.
+    ///
+    /// The failure mode is what makes this worth pinning: a dropped directive
+    /// does not error, it substitutes a **plausible** default, and every
+    /// diagnostic downstream is confidently wrong about a value nobody typed.
+    ///
+    /// Red under M1 — restore any of the three to `base.…`.
+    #[test]
+    fn the_jsx_factory_directives_reach_the_options() {
+        let options = applied(&[
+            ("jsx", "react"),
+            ("jsxfactory", "h"),
+            ("jsxfragmentfactory", "Frag"),
+            ("reactnamespace", "Preact"),
+        ]);
+        assert_eq!(options.jsx_factory, "h");
+        assert_eq!(options.jsx_fragment_factory, "Frag");
+        assert_eq!(options.react_namespace, "Preact");
+    }
+
+    /// A case that sets none of them keeps the defaults, so the test above is
+    /// asserting the *directive* rather than a constant.
+    #[test]
+    fn no_jsx_directives_leaves_the_factories_empty() {
+        let options = applied(&[("jsx", "react")]);
+        assert!(options.jsx_factory.is_empty());
+        assert!(options.jsx_fragment_factory.is_empty());
+        assert!(options.react_namespace.is_empty());
+    }
 }

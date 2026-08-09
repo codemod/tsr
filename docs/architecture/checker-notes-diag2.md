@@ -16891,3 +16891,56 @@ Both a **qualified** `jsxFactory` (`a.b.c`), where upstream resolves the entity
 rather than its first identifier. `getJsxNamespace` returns the root for the
 namespace test but `markJsxAliasReferenced` resolves the whole entity; this port
 has only the root. Two lines, named, not fixed.
+
+## §264 — how many other directives does the harness drop?
+
+§263's finding — *the harness is part of the compiler under test, and the part
+with no conformance suite of its own* — is only worth generalising if there are
+other instances. Counted every directive the corpus uses against the ones
+`apply_test_directives` reads:
+
+```
+directives used by >=20 cases and NOT mapped
+  913  noemit                 379  notypesandsymbols      303  noemithelpers
+  198  experimentaldecorators 182  sourcemap              145  skiplibcheck
+  121  emitdeclarationonly    104  usedefineforclassfields 82  importhelpers
+   79  removecomments          70  emitdecoratormetadata   55  ignoredeprecations
+   46  fullemitpaths           44  allowunusedlabels       30  noimplicitoverride
+   26  noimplicitthis          24  downleveliteration      22  isolateddeclarations
+   20  noimplicitreturns
+```
+
+Nineteen of them. Most are emit-only and cannot reach a diagnostic. Seven can:
+`useDefineForClassFields`, `noImplicitThis`, `noImplicitOverride`,
+`allowUnusedLabels`, `noImplicitReturns`, `experimentalDecorators`,
+`skipLibCheck`.
+
+**All seven are read by the checker in exactly zero places.**
+
+So wiring them today is unmeasurable surface, and §248's rule applies: not
+added. But that is a statement with an expiry date — **the moment any of those
+seven rules is ported, the harness will silently supply a default**, which is
+precisely the shape that cost §262 a refusal.
+
+### What was added instead
+
+A regression test on the three §263 wired, and its docstring says what it is
+for:
+
+> A dropped directive does not error, it substitutes a **plausible** default,
+> and every diagnostic downstream is confidently wrong about a value nobody
+> typed.
+
+Mutation-checked: restoring `jsx_factory: base.jsx_factory` turns
+`the_jsx_factory_directives_reach_the_options` red and leaves the other 130
+green. A second test pins that a case setting *no* directives still gets empty
+factories, so the first is asserting the directive rather than a constant.
+
+> **A silent default is worse than a missing feature, because it is
+> indistinguishable from a working one.** The seven unread options are safe
+> today only because nothing consults them; that is a property of the checker's
+> incompleteness, not of the harness's correctness, and it will stop being true
+> one build at a time.
+
+Recorded here rather than filed as seven issues, because the actionable moment
+is *when the rule is ported* and this file is what gets read then.
