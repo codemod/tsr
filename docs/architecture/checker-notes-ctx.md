@@ -1005,3 +1005,20 @@ move: §63's tuple-context literals (the array's own print road —
 this arm feeds ELEMENTS, not the literal), §115's converts, §68's
 family. Adverse over 1:5 refuses; artifact test on any
 untouched-case row per the new conventions rule.
+
+**§116 — MEASURED ZERO, reverted per the §34 precedent.** The arm
+was built complete (tuple-positional + array-element + spread
+decline) and the full pair moved NOTHING. The lesson is in the
+population, not the arm: `get_contextual_type`'s consumers are
+FUNCTION-contextualization only (contextual_signature + the
+parameter road), so the arm could only ever serve arrows/function
+expressions sitting directly inside array literals under
+tuple/array contexts — and that population, whatever the old
+33-function census counted, is drained or trivial at today's
+baseline (§63 took the literal side long ago). The old census
+counted CONTEXTUALLY TYPED FUNCTIONS, not convertible lines — the
+kind-1/kind-2 conflation, again. A future array-element context
+consumer (object literals in arrays, the §56-family's walk) would
+route through symbols.rs's walk, not this dispatch — that walk
+already has its own array handling. DO NOT rebuild this arm without
+first naming a consumer that reaches it.
