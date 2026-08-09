@@ -992,6 +992,44 @@ impl Checker<'_, '_> {
         if self.file_has_parse_errors || !self.no_implicit_this {
             return;
         }
+        // **TS7041 first** (`checker.go:12115`): a `this` that reaches the file
+        // through at least one arrow and no opaque container is the global
+        // `this`, captured by that arrow. Upstream's two arms are exclusive and
+        // this one is above §416's, so it returns rather than falling through.
+        // §103's order. §519.
+        let mut through_arrow = false;
+        for ancestor in self.nodes.ancestors(node) {
+            let kind = self.nodes.kind(ancestor);
+            if kind == SyntaxKind::ArrowFunction {
+                through_arrow = true;
+                continue;
+            }
+            if kind == SyntaxKind::SourceFile {
+                if !through_arrow {
+                    break;
+                }
+                let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+                let span = self.nodes.span(node);
+                self.report(
+                    file,
+                    Diagnostic::new(
+                        &messages::THE_CONTAINING_ARROW_FUNCTION_CAPTURES_THE_GLOBAL_VALUE_OF_THIS,
+                        span,
+                    ),
+                );
+                return;
+            }
+            if self.is_function_like_or_static_block(ancestor)
+                || matches!(
+                    kind,
+                    SyntaxKind::ClassDeclaration
+                        | SyntaxKind::ClassExpression
+                        | SyntaxKind::ModuleDeclaration
+                )
+            {
+                break;
+            }
+        }
         for ancestor in self.nodes.ancestors(node) {
             let kind = self.nodes.kind(ancestor);
             if kind == SyntaxKind::ArrowFunction {

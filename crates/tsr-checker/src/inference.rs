@@ -1583,7 +1583,7 @@ mod tests {
     }
 }
 
-/// The InferenceInfo collector (checker-notes-callres2.md, the foundation
+/// The `InferenceInfo` collector (`checker-notes-callres2.md`, the foundation
 /// design, step 1): per-parameter candidate lists as the COLLECTION model,
 /// flattened to the wire pairs at the boundary. Step 1 is
 /// behavior-identical — within-parameter order is preserved and the sole

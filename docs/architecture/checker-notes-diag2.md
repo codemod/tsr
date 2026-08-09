@@ -27418,3 +27418,78 @@ TS1155  §509  +3   TS1156  §395  +2   TS1492  §517  +2
 ```
 
 All three of the corpus's `using`-declaration grammar rows are closed.
+
+## §519 — TS7041: an arrow capturing the global `this`
+
+§416's unnamed neighbour — the arm immediately above it in the same `if`
+(`checker.go:12115`):
+
+```go
+if t == globalThisType && capturedByArrowFunction {
+    c.error(node, The_containing_arrow_function_captures_the_global_value_of_this)   // TS7041 — this
+} else if t == nil {
+    … X_this_implicitly_has_type_any…                                               // TS2683 — §416
+}
+```
+
+```ts
+var f = () => { this.window; }   // TS7041
+```
+
+**§501's discipline should have caught this at §416 and did not** — §416 named
+the *bound* it took (a plain function rebinds `this`) but not the arm it stepped
+over. That is the second time this session a neighbour was found by reading
+upstream again rather than by reading the note (§512 was the first), and both
+notes were written before §501 existed.
+
+### The bound
+
+A `this` whose walk to the `SourceFile` passes **at least one arrow function**
+and **no opaque container** — that is `capturedByArrowFunction` and
+`t == globalThisType` together, since the global `this` is exactly what an
+unenclosed arrow captures. Ordered before §416's arm, per §103.
+
+### The bar
+
+```
+bar:  +2 of 2,  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **`this` at top level, not in an arrow, reports.** The arrow is half the
+   condition — without one there is nothing capturing.
+2. **§416's row regresses.** The arms are exclusive upstream; TS2683 must keep
+   firing for a `this` inside a plain function.
+
+## §520 — §519 built: **+2**, row closed; and a seventh repair of the shared tree
+
+```
+diagnostics   2,042 → 2,044   (bar was +2;  +2, 0 LOST)   37.24%
+every other suite unmoved — both falsifiers negative
+```
+
+Both TS7041 cases convert and §416's TS2683 row is untouched, which was the
+falsifier that mattered: the two arms are exclusive upstream and are now
+exclusive here.
+
+`main` arrived red again — a `doc_markdown` lint on the `.types` workstream's
+`inference.rs`. **Seventh repair this session**, and the second that was a lint
+rather than a compile error.
+
+> §422 recorded five and observed that `cargo xtask measure` protects the
+> *measurement* and not the *branch*. Two more since, and the shape has not
+> changed: **every repair was a one-line mechanical fix, and every one blocked a
+> measurement until it was made.** The cost is not the fix — it is that a red
+> tree makes `+0` and `−n` indistinguishable from *did not build*, which is the
+> failure §260's gate exists to prevent and cannot prevent from the other side.
+
+### The `this` family, complete for the corpus
+
+```
+TS2331  §392  a namespace body        TS2465  §500  a computed property name
+TS2683  §416  a plain function        TS7041  §519  an arrow at top level
+```
+
+Four arms of `checkThisExpression`, built across a hundred and thirty builds,
+now all present and mutually exclusive in upstream's order.
