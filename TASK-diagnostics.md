@@ -11,9 +11,9 @@ FIRST: git pull. Then read, in this order:
   the metric), then **§86–§90** — the thirteenth session, five sections, four
   builds.
 
-STATE AT HANDOFF, fourteenth session, at `dbfa89d` (verify with a fresh run):
-  diagnostics    1,544/5,488 = 28.13%   (+93 over EIGHT builds, zero lost —
-                 §156-§179; two priced refusals and three self-corrections)
+STATE AT HANDOFF, fourteenth session, at `b427d42` (verify with a fresh run):
+  diagnostics    1,566/5,488 = 28.53%   (+115 over TEN builds, zero lost —
+                 §156-§182; two priced refusals and three self-corrections)
   binder_symbols 8,459/8,459 = 100%     — held across a build that changed
                  `merge_symbol`'s behaviour
   checker_types  3,937/9,538 · 84.47% — the other workstream's, and it moves
@@ -172,6 +172,26 @@ TS2540      12         9
 0. **Run `diagreach.rs`, `diaggap.rs` and `extraonly.rs` and pick from them.**
    Everything below is that list read at §90's commit, and seven builds have
    moved it. The board re-taken at `58b5ed2` is in §161/§163.
+
+0v. **THE GRAMMAR SEAM IS THE ONE THAT PAYS, AND §105 CLOSED IT PREMATURELY.**
+   61 of this session's 115 cases came from rules §105 called exhausted:
+   TS1212/1213/1214 (§162, +32), TS1028/1071/1155 (§179, +19),
+   TS1015/1117/1221 (§180, +8), TS2364/2703/2371 (§182, +14). The shape that
+   keeps working: a `checkGrammar*` function, no types, no symbols, no flow —
+   and **three rules of thumb that each cost a measurement to learn**:
+     - **The `else if` order is the specification** (§103), and **the node is
+       whatever the upstream function ITERATES**, not the node the walk visits
+       (§180). Hanging a rule off the member instead of the list multiplies
+       every report.
+     - **The parse-error gate is a per-rule measurement** and is worth running
+       both ways every time (§179 measured it at −20 wrong / +0 cases).
+     - **A shared helper is not a shared convention** (§182): two functions one
+       paragraph apart skipped different spines *and* reported at different
+       nodes.
+   Remaining priced rows in this seam: TS1038 (7, the sixth arm of the
+   `declare` chain — needs the five ahead of it), TS1044 (6), TS2355/TS2378
+   (6 each, both need flow), TS1109 (11, parser's), TS1359 (7, needs
+   `AWAIT_CONTEXT`).
 
 0w. **TS2322 IS `checker_types`', AND THIS SESSION PROVED IT TWICE.** §172 split
    the 2,441 missing TS2322 lines by which gate declined them; §175 ranked the
