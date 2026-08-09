@@ -963,7 +963,21 @@ impl<'a> Checker<'a, '_> {
                 .is_some_and(|parent| self.is_readonly_type_operator(parent));
             let text =
                 format!("{}[{}]", if readonly { "readonly " } else { "" }, pieces.join(", "));
-            return self.store.new_named(TypeFlags::OBJECT, text, None);
+            let minted = self.store.new_named(TypeFlags::OBJECT, text, None);
+            // §87 (`checker-notes-narrow.md`): a variadic whose ONLY rest is
+            // one TRAILING `...T[]` records its NODE so positional consumers
+            // (§86's contextual expansion) can resolve it AT CONSUMPTION —
+            // resolving eagerly here perturbed an unrelated JSX case's whole
+            // alignment (16 lines, `unicodeEscapesInJsxtags`); the print-only
+            // road stays lazy.
+            if let [prefix @ .., TypeNode::RestTypeNode(rest)] = node.elements
+                && !prefix.iter().any(|e| matches!(e, TypeNode::RestTypeNode(_)))
+                && matches!(rest.r#type, Some(TypeNode::ArrayTypeNode(_)))
+                && let Some(id) = node.node_id
+            {
+                self.tuple_rest_tails.insert(minted, id);
+            }
+            return minted;
         }
         let mut any_marked = false;
         let mut labels: Vec<Option<String>> = Vec::with_capacity(node.elements.len());

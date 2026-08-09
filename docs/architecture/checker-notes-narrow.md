@@ -3243,3 +3243,23 @@ narrowing then composes with it for free, since the §50 road keys on
 the declared shapes this arm now supplies.
 
 **§86 score — LANDED.** right 404,423 → **404,456 (84.46%)**.
+
+## §87 — variadic tails become consumable, lazily
+
+A trailing-rest variadic (`[number, boolean, ...string[]]`) records
+its tuple NODE beside §40's print-only mint; §86's positional
+expansion resolves prefix/tail AT CONSUMPTION. The first cut resolved
+EAGERLY inside the mint and appeared to cost 16 aligned lines in
+`unicodeEscapesInJsxtags` — the clean-tree rule (§85.1's lesson,
+applied within the same day) showed those 16 lines vanish on the
+UNTOUCHED tree too: **`unicodeEscapesInJsxtags`' alignment is
+nondeterministic across builds** (18 vs 2 rows), an INSTRUMENT
+caveat now on record — any future single-case ±16 there is noise.
+**§87's true delta: +3, zero adverse**
+(`restTuplesFromContextualTypes`). The seam matters more than the
+count: positional consumers can now see variadic shapes, which the
+expanded-signature prints (`(args_0: number, …)`) and the remaining
+90+ rows of that case build on.
+
+**§87 score — LANDED.** right 404,441 → **404,444 (84.46%)** against
+the re-taken 470,648-line population.

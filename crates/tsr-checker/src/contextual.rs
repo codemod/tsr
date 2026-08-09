@@ -192,8 +192,34 @@ impl<'a> Checker<'a, '_> {
             };
             let mut positional = Vec::with_capacity(constituents.len());
             for constituent in constituents {
-                let (elements, _) = self.tuple_element_lists.get(&constituent)?;
-                positional.push(*elements.get(index)?);
+                if let Some((elements, _)) = self.tuple_element_lists.get(&constituent) {
+                    positional.push(*elements.get(index)?);
+                    continue;
+                }
+                // §87: a trailing-rest variadic — prefix positions index,
+                // tail positions take the rest's element type; resolved
+                // lazily from the recorded node.
+                let tuple_node = *self.tuple_rest_tails.get(&constituent)?;
+                let Some(tsr_ast::Node::TupleTypeNode(tuple)) = self.node_map.get(tuple_node)
+                else {
+                    return None;
+                };
+                let [prefix @ .., tsr_ast::TypeNode::RestTypeNode(rest)] = tuple.elements else {
+                    return None;
+                };
+                let member = if let Some(member) = prefix.get(index) {
+                    *member
+                } else {
+                    let Some(tsr_ast::TypeNode::ArrayTypeNode(array)) = rest.r#type else {
+                        return None;
+                    };
+                    array.element_type?
+                };
+                let resolved = self.get_type_from_type_node(member);
+                if resolved == self.intrinsics.error {
+                    return None;
+                }
+                positional.push(resolved);
             }
             return Some(self.get_union_type(&positional));
         }

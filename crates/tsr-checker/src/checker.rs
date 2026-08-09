@@ -444,6 +444,9 @@ pub struct Checker<'a, 'n> {
     /// §79: which positions of an optional-element tuple carry `?` — read at
     /// the index roads, where an optional element answers `| undefined`.
     pub(crate) tuple_optional_masks: FxHashMap<TypeId, Vec<bool>>,
+    /// §87: a trailing-rest variadic's tuple NODE — resolved lazily by
+    /// positional consumers; the print stays §40's.
+    pub(crate) tuple_rest_tails: FxHashMap<TypeId, tsr_ast::NodeId>,
     /// `a type-parameter type -> the symbol it was minted from`.
     ///
     /// The third instance of the `type_reference_targets` precedent, and it
@@ -671,6 +674,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             tuple_element_lists: FxHashMap::default(),
             optional_tuple_types: FxHashMap::default(),
             tuple_optional_masks: FxHashMap::default(),
+            tuple_rest_tails: FxHashMap::default(),
             type_parameter_symbols: FxHashMap::default(),
             signature_types: FxHashMap::default(),
             instantiated_signatures: FxHashMap::default(),
