@@ -21230,3 +21230,41 @@ All three are `match`es over the declaration kinds of a **merged symbol**, and
 all three conflate *this declaration contributes nothing* with *the answer is
 unknown*. For a merged symbol those are almost never the same statement, and
 `tsr-checker` has more of these matches than three.
+
+## §366 — the family's fourth member, checked for traffic first
+
+§365 predicted more `_ => return None` arms over a merged symbol's declaration
+kinds. The grep finds them; `index_constraint.rs:287` is the closest match, and
+it owns TS2411 — 25 blocked cases, 15 single-line, the largest row the family
+could plausibly reach:
+
+```rust
+// A merged namespace, an enum, a variable: the member list is
+// assembled somewhere this walk does not read.
+_ => return None,
+```
+
+Identical wording to §349's and §364's, and **§351's rule says check the traffic
+before the correctness.** Checked:
+
+```ts
+class C {
+    0: number;
+    [x: number]: RegExp;    // numericIndexerConstraint — TS2411
+}
+```
+
+A lone `class C`, not a merge. The arm is never reached for this case, and
+TS2411's real blocker is the assignability of `number` to `RegExp` — the
+relation. The three `computedPropertyNames*_ES6` cases behind it are §9's
+unbound computed names.
+
+> **The prediction was right about the shape and wrong about the row.** §351
+> cost a build to learn that a correct fix to an unreached predicate measures
+> zero; this is the first time that lesson was applied *before* spending one
+> rather than after. The cost of checking was one fixture.
+
+TS2411's owner is therefore the relation, not this family. The family's
+remaining members are real and unranked, and the instrument that would rank
+them is still §354's — *which decline sites do blocked cases actually reach* —
+now with a fourth motivating instance.
