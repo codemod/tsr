@@ -5101,3 +5101,22 @@ walk, never answers the wrong symbol.
 redeclaring a base's must answer the DERIVED symbol; own-exports-
 first ordering guarantees it by construction, and a measured
 adverse there means the ordering claim is wrong.
+
+**§122 MEASURED AND LANDED — +77 G→R / 0 adverse (after one
+refinement), right 409,671 → 409,748 = 85.55%.** The first pair
+read +77/4 at 19:1; the 4 were `#private` statics carried through
+the chain where upstream scopes private names lexically and answers
+its error-any (privateNameStaticAccessorssDerivedClasses wants
+`any`, we found the base's `number`) — the `#`-prefix exclusion
+converted them back to honest gaps and the second pair read +77/0.
+protectedStaticClassPropertyAccessibleWithinSubclass 20 whole,
+protectedMembers 16, derivedClassIncludesInheritedMembers 12.
+The `the_shapes_typeof_x_still_gaps` pin's inherited-static
+assertion came due — the THIRTIETH stand-in — and was flipped to
+its new truth with §122 named. NOTE the residue this opens:
+`#`-static misses now gap where upstream wants `any` (4 lines) —
+a §121-family deliberate-error arm for missing private names is a
+future slice, recorded not built. Gates: four 100% suites held,
+diagnostics 2,031 → 2,040, clippy 0 (rtk-masked test failure caught
+by `rtk proxy` — the trap's second firing this session; the full
+run reads 0 FAILED after the pin flip), anchors 2,690.

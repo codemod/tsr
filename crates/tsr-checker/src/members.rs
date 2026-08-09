@@ -1085,15 +1085,62 @@ impl Checker<'_, '_> {
         ) {
             return None;
         }
+        let is_class = data.flags.contains(SymbolFlags::CLASS);
         // An own export first, then the module's `export *` re-exports. Reading
         // the table alone is what made every member of a barrel module missing:
         // `import * as z from "zod"` names a module whose entire surface arrives
         // through `export *`, so `z.string` found nothing.
         let found = match data.exports.get(name).copied() {
+            Some(found) => Some(found),
+            None => self.get_export_from_star(symbol, name),
+        };
+        let found = match found {
             Some(found) => found,
-            None => self.get_export_from_star(symbol, name)?,
+            // §122 (`checker-notes-narrow.md`): a class's STATIC side is a
+            // real inheritance chain — upstream's constructor type takes the
+            // base class's constructor type as its base
+            // (`getBaseConstructorTypeOfClass`), so `class D extends B` finds
+            // `B.x` through `typeof D`. Own exports answered above, which is
+            // what makes a derived redeclaration shadow by construction.
+            // A `#private` static never inherits: private names are
+            // lexically scoped to the declaring class body, and upstream
+            // answers its error-any for `Derived.#x` (TS18013 territory) —
+            // the walk carrying it measured 4 G→W
+            // (privateNameStaticAccessorssDerivedClasses wants `any`).
+            None if is_class && !name.starts_with('#') => {
+                let mut visiting = vec![symbol];
+                self.static_property_of_bases(symbol, name, &mut visiting)?
+            }
+            None => return None,
         };
         self.symbol_is_value(found).then_some(found)
+    }
+
+    /// §122's walk: each base's `exports`, depth-first in declaration order,
+    /// first hit wins. `base_symbols_of`'s refusals (instantiated or
+    /// non-identifier heritage) gap the whole walk rather than answer a wrong
+    /// symbol, exactly as the instance side's walk does.
+    fn static_property_of_bases(
+        &mut self,
+        owner: SymbolId,
+        name: &str,
+        visiting: &mut Vec<SymbolId>,
+    ) -> Option<SymbolId> {
+        for base in self.base_symbols_of(owner)? {
+            if visiting.contains(&base) {
+                continue;
+            }
+            visiting.push(base);
+            if let Some(&found) = self.binder.symbols().get(base).exports.get(name)
+                && self.symbol_is_value(found)
+            {
+                return Some(found);
+            }
+            if let Some(found) = self.static_property_of_bases(base, name, visiting) {
+                return Some(found);
+            }
+        }
+        None
     }
 
     /// One step of the walk: `owner`'s own members, then its base types'.

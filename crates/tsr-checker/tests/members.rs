@@ -366,17 +366,16 @@ fn the_shapes_typeof_x_still_gaps() {
     // comment does not claim. The control is what distinguishes "this specific
     // step is unported" from "nothing here works at all".
 
-    // **A static inherited from a base class.** Upstream reaches it through
-    // `getBaseConstructorTypeOfClass` (`checker.go:20687`), which needs construct
-    // signatures (`bd tsr-4sc.8`). A miss is safe in a way it is not for
-    // `base_symbols_of`: upstream layers inherited statics *underneath* own ones
-    // (`addInheritedMembers`, `checker.go:20690`, adds only absent names), so a
-    // name found in the symbol's own `exports` is always upstream's symbol.
+    // **A static inherited from a base class — PORTED by §122**
+    // (`checker-notes-narrow.md`; the thirtieth stand-in to come due). This
+    // used to pin `error` on the argument that the walk needed
+    // `getBaseConstructorTypeOfClass`'s construct signatures; §122 walks
+    // `base_symbols_of` reading each base's `exports` instead, own-exports
+    // first — upstream's `addInheritedMembers` (`checker.go:20690`) layering
+    // (only absent names) reproduced by ordering.
     let inheriting = "class B { static x = 1; }\nclass C extends B {}\n";
-    assert_eq!(type_of(&format!("{inheriting}var r = C.x;"), "r"), "error");
-    // The control: read through `B` instead of `C` and the SAME static resolves.
-    // Without this, the assertion above would pass just as well if `static x = 1`
-    // had stopped binding, or if `class C extends B` did not parse.
+    assert_eq!(type_of(&format!("{inheriting}var r = C.x;"), "r"), "number");
+    // The control keeps its original job: read through `B` directly.
     assert_eq!(type_of(&format!("{inheriting}var r = B.x;"), "r"), "number");
 
     // **An exported type in a value position**, held out by `symbolIsValue`
