@@ -146,3 +146,37 @@ corrected: the next build is the two-pass skip WITH the
 function-shape arm inside it, measured as one unit against the
 1,829 ceiling. The reverted arm's text lives in this repo's
 history (patch118) for the reunion build.
+
+## The reunion design (slices 2+3), from chooseOverload's read
+
+Upstream's loop (`checker.go:9025`, read in full): per candidate —
+infer WITH SkipContextSensitive → instantiate → applicability → if
+anything was skipped, re-infer at CheckModeNormal → re-check →
+return. The structure the port lacked is not the passes — it is
+WHERE the second pass's context comes from: upstream threads the
+INSTANTIATED candidate to the argument checks via the resolved-
+signature machinery, while this port's contextual roads are
+STATELESS (they re-resolve the callee fresh — which is why slice 3a
+measured zero: the instantiated parameter types were invisible to
+the arrows).
+
+THE PORT SHAPE — the resolved-signature memo:
+  1. `call_inference_signatures: FxHashMap<NodeId, Signature>` —
+     the pass-1 partially-instantiated candidate, keyed by the CALL
+     node (upstream's `getResolvedSignature` cache, reduced to the
+     inference window's lifetime).
+  2. Pass 1 in check_generic_call: candidates from
+     NON-context-sensitive arguments only (context-sensitive =
+     function-likes with unannotated parameters, upstream's
+     isContextSensitive); instantiate with the partial map
+     (unmapped stays the parameter — the §75 pass's precedent);
+     memo the instantiated signature.
+  3. contextual_type_for_argument CONSULTS THE MEMO FIRST — the
+     arrows then see instantiated parameter types, type their
+     bodies, and stop being error.
+  4. Pass 2: re-infer at normal mode WITH the function-shape arm
+     (patch118's text, reunited); final instantiation answers.
+  5. The memo clears per call on exit — reentrancy via the
+     §56.3 stack precedent.
+Measured against the 1,829 ceiling as ONE unit; the bar's
+prediction and gates at build time.
