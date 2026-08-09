@@ -14479,3 +14479,63 @@ Five loops remain with the bare `break` (`declaration.rs:105`, `:551`, `:579`,
 `module.rs:138`, `:320`, `types.rs:780`, `:1150`). None is currently named by
 `extraonly`, so each needs a case before it is worth doing — the discipline
 §216 arrived at for the extra column generally.
+
+## §219 — the list-loop sweep: seven of ten have no case, the eighth had two
+
+§218 left *"seven loops still carry the bare `break`; none is named by
+`extraonly`, so each needs a case before it is worth doing"*. Ran that.
+
+**First, the population was bigger than `extraonly` showed.** `extragap` splits
+the *whole* extra column, not only the cases blocked by an extra alone:
+
+```
+code      displaced   invented   sole-obstacle cases
+TS1005        118        391        16
+TS1109         14        180        12
+TS1012          0        166         2
+TS1003          3        157         4
+TS1131          0        131         1
+```
+
+Roughly **1,150 invented parser lines** and 35 sole-obstacle cases — an order of
+magnitude more than `extraonly`'s view. *`extraonly` is one projection of the
+extra column and the narrowest one.*
+
+**Second, the loops themselves are mostly unwanted.** Mapping every
+`if !self.eat(CommaToken) { break }` to its function gives ten, not seven:
+named-import bindings, export specifiers, import attributes, heritage clauses,
+enum members, two type-argument lists, tuple types, type parameters — and the
+**array literal**, which the earlier grep missed because its loop is shaped
+differently.
+
+Checked for demand rather than swept: `TS1132` (`Enum member expected`, the enum
+list's own separator error) measures **zero missing**, and
+`parseErrorInHeritageClause1`'s extra is `TS1131` at the class body's `{` — not
+a separator at all. **Seven of the ten have no case asking for them.**
+
+### The eighth had two, and it is the fourth instance of one shape
+
+```
+var v = [1, 2, 3
+4, 5, 6, 7];
+
+upstream   (2,1) TS1005          ← ',' expected, then the list CONTINUES
+ours       (2,1) TS1005  +  (2,11) TS1005
+```
+
+Ported with the §200 subset guard.
+
+```
+diagnostics          1,617 → 1,619  (+2, exactly the two cases predicted)
+checker_types        3,998 → 4,000  (+2)
+extraonly               27 → 25 cases
+parser_typescript / scanner_clean_files / binder_symbols /
+printer_round_trip — unmoved at 100%
+```
+
+`parse_parameter_list` (§200), `parse_binding_element` (§204),
+`parse_object_literal` (§218), `parse_array_literal` (here). **Four instances,
+one cause, and the remaining seven measured as not worth doing today** — which
+is a result, not a deferral. The `1,150` invented lines are therefore *not* in
+the list loops, and finding where they are is the next question rather than an
+assumed answer.

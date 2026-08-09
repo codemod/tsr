@@ -876,16 +876,17 @@ impl Checker<'_, '_> {
         }
         let names: Vec<&str> =
             signature.type_parameters.iter().map(|parameter| parameter.name.as_str()).collect();
-        let Some(mut renamed) = self.instantiate_signature(signature.clone(), &map, &own, &names)
+        let Some(mut instantiated) =
+            self.instantiate_signature(signature.clone(), &map, &own, &names)
         else {
             return signature;
         };
-        for (parameter, rename) in renamed.type_parameters.iter_mut().zip(renames) {
+        for (parameter, rename) in instantiated.type_parameters.iter_mut().zip(renames) {
             if let Some(fresh_name) = rename {
                 parameter.name = fresh_name;
             }
         }
-        renamed
+        instantiated
     }
 
     /// §90.1's print-only clone: own type parameters respelled `name_1` and

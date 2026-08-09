@@ -143,6 +143,29 @@ fn starts_parameter(kind: SyntaxKind) -> bool {
     )
 }
 
+/// The unambiguous half of `isListElement(PCArrayLiteralMembers)`
+/// (`parser.go`): upstream admits `,`, `...` or `isStartOfExpression`.
+///
+/// `isStartOfExpression` is not ported, so this is a **subset** and every token
+/// it rejects keeps the caller's `break` — the §200 shape.
+fn starts_array_element(kind: SyntaxKind) -> bool {
+    matches!(
+        kind,
+        SyntaxKind::CommaToken
+            | SyntaxKind::DotDotDotToken
+            | SyntaxKind::Identifier
+            | SyntaxKind::NumericLiteral
+            | SyntaxKind::BigIntLiteral
+            | SyntaxKind::StringLiteral
+            | SyntaxKind::NoSubstitutionTemplateLiteral
+            | SyntaxKind::TemplateHead
+            | SyntaxKind::RegularExpressionLiteral
+            | SyntaxKind::OpenBracketToken
+            | SyntaxKind::OpenBraceToken
+            | SyntaxKind::OpenParenToken
+    )
+}
+
 /// `isListElement(PCObjectLiteralMembers)` (`parser.go:845`).
 ///
 /// `[`, `*`, `...` and `.` are admitted verbatim from upstream — the last is
@@ -858,9 +881,30 @@ impl<'a> Parser<'a> {
                 self.next_token();
                 continue;
             }
+            let before = self.pos();
             elements.push(self.parse_argument());
-            if !self.eat(SyntaxKind::CommaToken) {
+            if self.eat(SyntaxKind::CommaToken) {
+                continue;
+            }
+            if self.at(SyntaxKind::CloseBracketToken) || self.at(SyntaxKind::EndOfFile) {
                 break;
+            }
+            // `parseDelimitedList` (`parser.go:664`) reports the missing
+            // separator and continues. `var v = [1, 2, 3\n4, 5, 6, 7];` is one
+            // `',' expected` upstream and was two here: this loop left the
+            // list, so the `]` was reported missing as well.
+            //
+            // Guarded by a **subset** of `isListElement(PCArrayLiteralMembers)`
+            // — upstream's is `,`, `...` or `isStartOfExpression`, and the last
+            // is a sixty-kind predicate this port does not have. Everything the
+            // subset rejects keeps the `break`, so this can only turn an abort
+            // into a continue where an element genuinely follows (§200). §219.
+            if !starts_array_element(self.token.kind) {
+                break;
+            }
+            self.expect(SyntaxKind::CommaToken);
+            if self.pos() == before {
+                self.next_token();
             }
         }
         self.expect(SyntaxKind::CloseBracketToken);
