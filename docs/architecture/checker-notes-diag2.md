@@ -26208,3 +26208,78 @@ tests**.
 80 → 2,006 across fourteen sessions, 25.1×
 this session: +555 over one hundred and twenty-six builds, 0 lost
 ```
+
+## §491 — the `for…in`/`for…of` declaration-list grammar, three arms
+
+§490's filter — *prefer rows whose upstream guard is a shape test* — applied to
+the fresh table. Three of the top rows are one upstream block
+(`grammarchecks.go:1271`–`:1299`), three sequential guards, each returning on
+its first hit:
+
+```go
+if len(declarations.Nodes) > 1        { … Only_a_single_variable_declaration_is_allowed_in_a_for_{in,of}_statement }
+if firstVariableDeclaration.Initializer != nil { … The_variable_declaration_of_a_for_{in,of}_statement_cannot_have_an_initializer }
+if firstVariableDeclaration.Type != nil        { … The_left_hand_side_of_a_for_{in,of}_statement_cannot_use_a_type_annotation }
+```
+
+**Six message constants, all present**, and each guard is a field test on the
+declaration list. No type, no symbol, no flag — §490's signature exactly.
+
+### Shipped as one build
+
+§230's rule: shipping one branch of a multi-branch guard is how a case gets the
+*wrong* code at the *right* position. The three arms return in order and the
+`for…in`/`for…of` split is a kind test on the statement, so all six messages go
+in together.
+
+Error nodes are upstream's and differ per arm: the **second declaration**'s
+first token, the **name**, and the **declaration** node.
+
+### The bar
+
+```
+bar:  +5,  0 LOST,  WRONG delta <= +2
+```
+
+Rows: TS1188 (3) and TS2404 (3) are on the board; their `for…of` twins and the
+initializer pair are not separately ranked, which §439 established means the
+priced row is part of the build.
+
+### Falsifiers
+
+1. **A single declaration with no initialiser or annotation reports.** All three
+   guards must decline.
+2. **A `for (;;)` statement reports.** Only `for…in`/`for…of` reach this block.
+
+## §492 — §491 built: **+5**, bar met exactly
+
+```
+diagnostics   2,006 → 2,011   (bar was +5;  +5, 0 LOST)   36.64%
+every other suite unmoved — both falsifiers negative
+```
+
+Six messages, three guards, one build. **§439's finding again**: the priced rows
+were TS1188 and TS2404 at three cases each, and the build converted five —
+because the `for…of` twins and the initializer pair are the same guards under
+different codes and `diagslice` ranks each separately.
+
+> **When upstream splits one guard's message by a kind test, the row you priced
+> is a fraction of the build — and the fraction is the number of kinds.** §439
+> saw this with a two-way `switch` (`+7` on a bar of `+4`); here it is a two-way
+> split across three guards, and the bar was set by summing two of six.
+>
+> The estimate that would have been right: **count the messages, not the rows.**
+> Six constants were verified present before the build (§491) and six is what
+> the bar should have been divided over.
+
+### The shape-test filter, three builds
+
+```
+§476  TS1114  +4   an ancestor label with this text        row closed
+§489  TS1141  +4   a literal type wrapping a string        row closed
+§491  six for-statement messages  +5                       three guards
+```
+
+**+13 from guards with no conjunct this port cannot answer**, and two of the
+three rows closed completely — which is §490's claim holding at three data
+points rather than two.

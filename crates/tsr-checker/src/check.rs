@@ -612,6 +612,9 @@ impl Checker<'_, '_> {
         if matches!(typed, Node::LabeledStatement(_)) {
             self.check_duplicate_label(node, ambient);
         }
+        if matches!(typed, Node::ForInOrOfStatement(_)) {
+            self.check_for_in_or_of_declarations(node);
+        }
         if matches!(typed, Node::ImportTypeNode(_)) {
             self.check_import_type_argument(node);
         }
@@ -2057,6 +2060,63 @@ impl Checker<'_, '_> {
         let Some(file) = self.source_file_of_for_diagnostics(argument) else { return };
         let span = self.error_span(argument);
         self.report(file, Diagnostic::new(&messages::STRING_LITERAL_EXPECTED, span));
+    }
+
+    /// The `for…in` / `for…of` declaration-list grammar
+    /// (`grammarchecks.go:1271`–`:1299`): three sequential shape tests, each
+    /// returning on its first hit, each with a `for…in` and a `for…of` message.
+    /// Shipped together per §230 — one branch of a multi-branch guard gives a
+    /// case the wrong code at the right position. §491.
+    fn check_for_in_or_of_declarations(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let Some(Node::ForInOrOfStatement(statement)) = self.node_map.get(node) else { return };
+        let for_in = statement.kind.kind == SyntaxKind::InKeyword;
+        let Some(initializer) = statement.initializer else { return };
+        let Some(list) = initializer.node_id() else { return };
+        let Some(Node::VariableDeclarationList(declarations)) = self.node_map.get(list) else {
+            return;
+        };
+        let [first, rest @ ..] = declarations.declarations else { return };
+        if let Some(second) = rest.first()
+            && let Some(id) = second.node_id
+            && let Some(file) = self.source_file_of_for_diagnostics(id)
+        {
+            let span = self.error_span(id);
+            let message = if for_in {
+                &messages::ONLY_A_SINGLE_VARIABLE_DECLARATION_IS_ALLOWED_IN_A_FOR_IN_STATEMENT
+            } else {
+                &messages::ONLY_A_SINGLE_VARIABLE_DECLARATION_IS_ALLOWED_IN_A_FOR_OF_STATEMENT
+            };
+            self.report(file, Diagnostic::new(message, span));
+            return;
+        }
+        if first.initializer.is_some()
+            && let Some(name) = first.name.as_ref().and_then(tsr_ast::BindingName::node_id)
+            && let Some(file) = self.source_file_of_for_diagnostics(name)
+        {
+            let span = self.error_span(name);
+            let message = if for_in {
+                &messages::THE_VARIABLE_DECLARATION_OF_A_FOR_IN_STATEMENT_CANNOT_HAVE_AN_INITIALIZER
+            } else {
+                &messages::THE_VARIABLE_DECLARATION_OF_A_FOR_OF_STATEMENT_CANNOT_HAVE_AN_INITIALIZER
+            };
+            self.report(file, Diagnostic::new(message, span));
+            return;
+        }
+        if first.r#type.is_some()
+            && let Some(id) = first.node_id
+            && let Some(file) = self.source_file_of_for_diagnostics(id)
+        {
+            let span = self.error_span(id);
+            let message = if for_in {
+                &messages::THE_LEFT_HAND_SIDE_OF_A_FOR_IN_STATEMENT_CANNOT_USE_A_TYPE_ANNOTATION
+            } else {
+                &messages::THE_LEFT_HAND_SIDE_OF_A_FOR_OF_STATEMENT_CANNOT_USE_A_TYPE_ANNOTATION
+            };
+            self.report(file, Diagnostic::new(message, span));
+        }
     }
 
     fn check_this_in_module_body(&mut self, node: NodeId) {
