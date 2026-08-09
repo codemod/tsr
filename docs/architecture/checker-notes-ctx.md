@@ -799,3 +799,24 @@ is the context. `fun(f, x)` → 2 args → candidate `(f, x)`;
 required; ties decline as today. Four rounds, and the family's spec
 is now one arm with a measured population: the thirteen None
 positions plus their downstream prints. Next window BUILDS this.
+
+**§114 family-1, round 5 — two arm shapes measured, both reverted,
+the selection semantics now pinned by data:**
+  - ARITY-FIRST (override): +16 (4 G→R, 12 W→R) against 6 R→W in
+    the head case — the wins are real and the mechanism close, but
+    six positions relied on the §70 loop's strict declines
+    (standalone-typing was RIGHT there) and the override consumed
+    them.
+  - DISAGREEMENT-GATED: measured ZERO — unreachable, because the
+    §70 loop's Nones on this family are MENTION-driven (candidate
+    1's index-1 is its own `T`, declined before any disagreement is
+    seen), never `Some(_) != Some(_)`.
+  The next design must therefore be PER-CANDIDATE: arity-select the
+  candidate FIRST (upstream's resolution order), apply the guards to
+  THE CHOSEN CANDIDATE ALONE — and the six R→W positions need
+  naming (which walker lines, which calls) before the chosen-only
+  guards can be trusted; if the six are all positions where the
+  chosen candidate's parameter passes the guards but the answer is
+  still wrong, the discriminator needs applicability, not arity.
+  Population confirmed at +16-vs-6 scale on the head case alone;
+  the family remains the board's best-instrumented open head.
