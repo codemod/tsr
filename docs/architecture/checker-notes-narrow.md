@@ -3499,3 +3499,11 @@ discriminated/aliased families), 12 G→W at 9.4:1, ZERO R→W. The 12
 are priced residues: exactOptional modifier interplay through the
 Omit arm (4+2), two discriminated-union alias-name variants (4), and
 dependentDestructuredVariables 2.
+
+**§92.1 — a measured ZERO, kept.** The §36 alias-declared decline now
+tries §91's evaluator first; the full pair is byte-identical. The
+declined population (templateLiteralTypes3's `Foo1<"*x*">` family) is
+template-literal conditionals, which the extends-never gate refuses —
+the §36 wrong lines need template-literal MATCHING, a different
+machine. Kept because the arm is faithful direction at zero cost and
+self-gating (the §12.8 precedent); the zero is the record.

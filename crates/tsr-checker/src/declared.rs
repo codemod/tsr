@@ -1281,6 +1281,12 @@ impl<'a> Checker<'a, '_> {
                     if keyword.kind == SyntaxKind::IntrinsicKeyword))
             && self.in_alias_declared_position(node.node_id)
         {
+            // §92.1: §91's evaluator now answers the computable slice of
+            // this decline (extends-never conditionals over concrete
+            // arguments); everything it refuses keeps the honest gap.
+            if let Some(evaluated) = self.evaluate_conditional_alias(symbol, &arguments) {
+                return evaluated;
+            }
             // Upstream evaluates conditional aliases in alias-declared
             // positions even through type-parameter arguments
             // (`PrefixData<P>` answers `\`${P}:baz\``).
