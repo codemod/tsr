@@ -17513,3 +17513,99 @@ what it costs.
 ### The residue
 
 `STILL SHORT 2` — cases wanting one of these codes *and* something else.
+
+## §278 — ranking by upstream *function* instead of by code
+
+§277's finding — *rows are ranked; rules are not* — is only useful if the
+grouping can be computed. It can: map each still-missing code to its upstream
+message identifier, grep the four checker sources for the `c.error` site, and
+record the enclosing `func`.
+
+```
+upstream functions carrying MORE THAN ONE still-missing code
+   67 cases  checker.go        TS2454(46) TS2540(10) TS2588(4)  TS2815(1) TS7005(6)
+   32 cases  checker.go        TS2427(5)  TS2430(25) TS2499(2)
+   29 cases  checker.go        TS2415(3)  TS2417(6)  TS2420(16) TS2720(4)
+   28 cases  checker.go        TS7006(16) TS7008(6)  TS7019(1)  TS7031(3) TS7039(1) TS7051(1)
+   24 cases  grammarchecks.go  TS1038(8)  TS1187(5)  TS1206(2)  TS1244(1) TS1248(2) TS1317(3) TS1319(3)
+```
+
+**Seven still-missing codes live in `checkGrammarModifiers` alone**, and that
+function is purely syntactic — no types, no relation. Nothing that ranks by code
+puts those seven anywhere near each other; the largest is 8 cases and three of
+them are 2 or fewer.
+
+> **A sweep that groups by the function a diagnostic is reported *from* finds
+> work that every case-count ranking hides.** §277 found one such group by
+> accident, from two rows landing adjacently in `diagslice`. This computes it.
+
+### This build takes three of the seven
+
+TS1038 turns out to be **already emitted** (`check.rs:2536`) — its 8 cases are
+missing *lines*, not a missing rule, which the grouping cannot distinguish and
+reading the code can.
+
+The three taken are one family and two lines apart upstream
+(`grammarchecks.go:560`–`:563`, `:475`–`:480`):
+
+```go
+} else if node.Kind == KindParameter && flags&ParameterPropertyModifier != 0 && IsBindingPattern(node.Name()) {
+    return c.grammarErrorOnNode(node, A_parameter_property_may_not_be_declared_using_a_binding_pattern)   // TS1187
+} else if node.Kind == KindParameter && flags&ParameterPropertyModifier != 0 && node.DotDotDotToken != nil {
+    return c.grammarErrorOnNode(node, A_parameter_property_cannot_be_declared_using_a_rest_parameter)     // TS1317
+```
+
+and, for `abstract` on a member whose parent class is not `abstract`, TS1244 /
+TS2515-family split by whether the member is a property.
+
+### The bar
+
+```
+bar:  +6 cases of 9,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **A plain `constructor(private x: number)` reports.** The binding-pattern
+   and rest tests are the whole guard.
+2. **An `abstract` method inside an `abstract class` reports.**
+
+## §279 — §278 built: +9, `WRONG 0`, and the board crosses 32%
+
+```
+diagnostics   1,748 → 1,757   (+9, bar was +6)   ← 32.02%
+CONVERTS 9 · LOST 0 · STILL SHORT 7 · RIGHT 32 · WRONG 0
+every other suite unmoved — falsifiers 1 and 2 negative
+```
+
+Three arms of one upstream function, found by a sweep that groups the gap by
+**the function a diagnostic is reported from**. Their individual case counts are
+5, 3 and 1 — the last is below every cutoff used this session, and none of the
+three appears in the ranked gap's head.
+
+### The sweep is the deliverable, not these nine cases
+
+`checkGrammarModifiers` still carries **four** more missing codes (TS1206,
+TS1248, TS1319, and TS1038's residual lines), and four other functions carry
+groups of 25–67 cases each:
+
+```
+   67  TS2454(46) TS2540(10) TS2588(4)  TS2815(1) TS7005(6)
+   32  TS2427(5)  TS2430(25) TS2499(2)
+   29  TS2415(3)  TS2417(6)  TS2420(16) TS2720(4)
+   28  TS7006(16) TS7008(6)  TS7019(1)  TS7031(3) TS7039(1) TS7051(1)
+```
+
+Each is one function, and each group's small codes are free once the function is
+opened — which is exactly what §277 measured and §278 predicted.
+
+> **The unit of porting is the upstream function; the unit of measurement is the
+> code. Nothing in this workstream connected the two until §278.** Fourteen
+> sessions of ranking by case count have been ranking the wrong noun.
+
+### One thing the grouping could not tell, and reading could
+
+TS1038 appeared in the group with 8 cases and is **already emitted**
+(`check.rs:2536`). Its cases want missing *lines*, not a missing rule. The sweep
+groups by where a code is *reported upstream*; whether this port already reports
+it is a separate question that costs one `grep`.

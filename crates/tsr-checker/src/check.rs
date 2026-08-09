@@ -490,6 +490,7 @@ impl Checker<'_, '_> {
         // must not be filtered through, and §140 recorded a rule silently
         // deleted by exactly that. §156.
         self.check_reserved_declaration_name(typed);
+        self.check_grammar_modifier_shapes(node, typed);
         self.check_jsx_intrinsic_element(node, typed);
         self.check_jsx_factory_in_scope(typed);
         self.check_strict_mode_eval_or_arguments_sites(node, typed, ambient);
@@ -2802,6 +2803,89 @@ impl Checker<'_, '_> {
         children.into_iter().any(|child| {
             !self.is_function_like_or_static_block(child) && self.subtree_has_return_or_throw(child)
         })
+    }
+
+    /// `checkGrammarModifiers`' parameter-property and `abstract` arms
+    /// (`grammarchecks.go:560`, `:475`).
+    ///
+    /// Three of the seven still-missing codes that function carries, found by
+    /// grouping the gap by the **upstream function** a diagnostic is reported
+    /// from rather than by code — see §278, where nothing that ranks by case
+    /// count puts them near each other.
+    fn check_grammar_modifier_shapes(&mut self, node: NodeId, typed: Node<'_>) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        match typed {
+            Node::ParameterDeclaration(parameter) => {
+                // `flags&ast.ModifierFlagsParameterPropertyModifier != 0` —
+                // `public`/`private`/`protected`/`readonly`/`override` on a
+                // parameter make it a parameter property.
+                if !parameter.modifiers.iter().any(|modifier| {
+                    matches!(
+                        modifier,
+                        tsr_ast::ModifierLike::Token(token)
+                            if matches!(
+                                token.kind,
+                                SyntaxKind::PublicKeyword
+                                    | SyntaxKind::PrivateKeyword
+                                    | SyntaxKind::ProtectedKeyword
+                                    | SyntaxKind::ReadonlyKeyword
+                                    | SyntaxKind::OverrideKeyword
+                            )
+                    )
+                }) {
+                    return;
+                }
+                let message =
+                    if matches!(parameter.name, Some(tsr_ast::BindingName::BindingPattern(_))) {
+                        &messages::A_PARAMETER_PROPERTY_MAY_NOT_BE_DECLARED_USING_A_BINDING_PATTERN
+                    } else if parameter.dot_dot_dot_token.is_some() {
+                        &messages::A_PARAMETER_PROPERTY_CANNOT_BE_DECLARED_USING_A_REST_PARAMETER
+                    } else {
+                        return;
+                    };
+                let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+                // `grammarErrorOnNode(node, …)` — the whole parameter,
+                // modifiers included.
+                let span = self.nodes.span(node);
+                self.report(file, Diagnostic::new(message, span));
+            }
+            // `abstract` on a member whose parent class is not `abstract`
+            // (`grammarchecks.go:475`), split by whether the member is a
+            // property.
+            Node::MethodDeclaration(_) | Node::PropertyDeclaration(_) => {
+                let modifiers = match typed {
+                    Node::MethodDeclaration(n) => n.modifiers,
+                    Node::PropertyDeclaration(n) => n.modifiers,
+                    _ => return,
+                };
+                if !modifiers.iter().any(|modifier| {
+                    matches!(modifier, tsr_ast::ModifierLike::Token(t) if t.kind == SyntaxKind::AbstractKeyword)
+                }) {
+                    return;
+                }
+                let Some(parent) = self.nodes.parent(node) else { return };
+                if self.nodes.kind(parent) != SyntaxKind::ClassDeclaration {
+                    return;
+                }
+                let Some(Node::ClassDeclaration(class)) = self.node_map.get(parent) else { return };
+                if class.modifiers.iter().any(|modifier| {
+                    matches!(modifier, tsr_ast::ModifierLike::Token(t) if t.kind == SyntaxKind::AbstractKeyword)
+                }) {
+                    return;
+                }
+                let message = if matches!(typed, Node::PropertyDeclaration(_)) {
+                    &messages::ABSTRACT_PROPERTIES_CAN_ONLY_APPEAR_WITHIN_AN_ABSTRACT_CLASS
+                } else {
+                    &messages::ABSTRACT_METHODS_CAN_ONLY_APPEAR_WITHIN_AN_ABSTRACT_CLASS
+                };
+                let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+                let span = self.nodes.span(node);
+                self.report(file, Diagnostic::new(message, span));
+            }
+            _ => {}
+        }
     }
 
     /// `checkTypeNameIsReserved` (`checker.go:6901`) — the eleven predefined
