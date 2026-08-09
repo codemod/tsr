@@ -16552,3 +16552,98 @@ this file: §226's sweep re-read the *whole* gap for no-producer codes rather th
 working a list from memory, and TS7026's growth from "3 residual lines" to
 **14 cases** only became visible when the gap was re-ranked in §255. **Re-rank
 before choosing; do not work from the last session's ordering.**
+
+## §257 — TS2403, and an identity relation this port does not have
+
+`checkVariableLikeDeclaration`'s secondary-declaration arm
+(`checker.go:5928`):
+
+```go
+declarationType := c.convertAutoToAny(c.getWidenedTypeForVariableLikeDeclaration(node, false))
+if !c.isErrorType(t) && !c.isErrorType(declarationType) &&
+   !c.isTypeIdenticalTo(t, declarationType) && symbol.Flags&SymbolFlagsAssignment == 0 {
+    c.errorNextVariableOrPropertyDeclarationMustHaveSameType(symbol.ValueDeclaration, t, node, declarationType)
+}
+```
+
+`isTypeIdenticalTo` is `isTypeRelatedTo(source, target, c.identityRelation)` —
+a **third relation**, beside assignability and comparability, and this port has
+none of the three. That is the `.types` workstream's, explicitly.
+
+### The sound slice, and why it is sound
+
+Type identity cannot be approximated by `TypeId` equality in general: two
+structurally identical types with different ids would compare unequal and the
+rule would report where upstream is silent. **The error is in the reporting
+direction**, which is the expensive one.
+
+It *can* be decided for the **intrinsic primitives**, which are singletons in
+`Intrinsics` — `string`, `number`, `bigint`, `boolean` and friends are one id
+each, so `a != b` between two of them is identity-false with no interning
+assumption at all.
+
+So: report only when both declarations' widened types are distinct intrinsic
+primitives. `var x: string; var x: number;` is the corpus's shape
+(`duplicateLocalVariable3`, `augmentedTypesVar`), and everything else declines.
+
+> **A relation this port lacks can still have a decidable fragment, and the
+> fragment is worth taking when the undecidable part fails *silently*.** The
+> slice adds no wrong line it could not already justify; it simply answers
+> "not identical" only where that is certain.
+
+### The bar
+
+```
+bar:  +10 cases of 32,  0 LOST,  WRONG delta <= +2
+```
+
+Well below the ceiling: the fragment is a fraction of the relation, and §225's
+no-producer rule does not apply to a row whose blocker is a missing *relation*
+rather than a missing rule.
+
+### Falsifiers
+
+1. **Two declarations of the same primitive report.** `var x: string; var x:
+   string;` must be silent — the ids are equal.
+2. **`checker_types` moves.**
+
+## §258 — §257 built: +2 against a bar of +10
+
+```
+diagnostics   1,701 → 1,703   (+2, bar was +10)
+every other suite unmoved — falsifiers 1 and 2 negative
+
+diag2307, RULE_CODES = [2403]:
+  CONVERTS 3 · LOST 1 · STILL SHORT 7 · RIGHT 17 · WRONG 1
+```
+
+**A fifth of the bar, and the bar was the honest part.** §257 priced the
+decidable fragment at 10 of 32 by assuming the corpus's TS2403 cases are mostly
+`var x: string; var x: number;`. Seven of the ten cases it did reach are
+`STILL SHORT` — they want TS2403 *and* something else — and the rest want
+identity decided between shapes no fragment covers.
+
+> **A decidable fragment of a relation is worth taking and worth pricing low.**
+> The fragment answers where it is certain, which is exactly the set of cases
+> that are easy for *any* implementation — so it is systematically the part the
+> corpus least needs.
+
+### The one wrong line, and a guard that is right but idle
+
+`jsFileCompilationBindErrors` a.js(2,5). Upstream's own guard for this is
+`symbol.Flags&ast.SymbolFlagsAssignment == 0` (`checker.go:5929`), and it is
+ported. It does not fire here.
+
+`SymbolFlags::ASSIGNMENT` is **not** in `OPTIONAL`'s category — the binder sets
+it at five sites for JavaScript property assignments (`binder.rs:3278`, `:3386`,
+`:3514`, `:3521`). So the guard is live; this particular symbol simply is not
+classified as an assignment declaration by this binder. Kept, because dropping a
+condition from a rule while porting it is §253's mistake exactly, and recorded
+as idle rather than as working.
+
+### What stays refused
+
+**The identity relation itself.** `isTypeIdenticalTo` is
+`isTypeRelatedTo(source, target, c.identityRelation)`, a third relation beside
+assignability and comparability, and all three are the `.types` workstream's.
+The 22 cases this build does not reach are behind it.

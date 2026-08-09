@@ -311,6 +311,7 @@ impl Checker<'_, '_> {
                 ambient
             }
             Node::VariableDeclaration(declaration) => {
+                self.check_subsequent_declaration_type(node, declaration);
                 self.check_variable_like_declaration(node, declaration, ambient);
                 self.check_const_is_initialized(node, declaration, ambient);
                 ambient
@@ -2722,6 +2723,88 @@ impl Checker<'_, '_> {
             file,
             Diagnostic::new(&messages::GENERATORS_ARE_NOT_ALLOWED_IN_AN_AMBIENT_CONTEXT, span),
         );
+    }
+
+    /// TS2403 — `Subsequent variable declarations must have the same type.`
+    ///
+    /// `checkVariableLikeDeclaration`'s secondary-declaration arm
+    /// (`checker.go:5928`), whose test is `!c.isTypeIdenticalTo(t,
+    /// declarationType)` — the **identity** relation, a third beside
+    /// assignability and comparability, and one this port does not have.
+    ///
+    /// # The decidable fragment
+    ///
+    /// Identity cannot be approximated by [`crate::types::TypeId`] equality:
+    /// two structurally identical types with different ids would compare
+    /// unequal and this would report where upstream is silent — an error in the
+    /// *reporting* direction.
+    ///
+    /// It is decidable for the **intrinsic primitives**, which are singletons
+    /// in [`crate::intrinsics::Intrinsics`]. Between two of them `a != b` is
+    /// identity-false with no interning assumption at all, so the rule answers
+    /// only where it is certain and declines everywhere else. §257.
+    fn check_subsequent_declaration_type(
+        &mut self,
+        node: NodeId,
+        declaration: &tsr_ast::VariableDeclaration<'_>,
+    ) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let Some(name) = declaration.name.as_ref().and_then(tsr_ast::BindingName::node_id) else {
+            return;
+        };
+        let Some(symbol) = self.binder.symbol_of(node) else { return };
+        let symbol = self.binder.merged_symbol(symbol);
+        // `symbol.ValueDeclaration` is the primary; this arm is only for the
+        // ones after it.
+        let Some(primary) = self.binder.symbols().get(symbol).value_declaration else { return };
+        if primary == node {
+            return;
+        }
+        // `symbol.Flags&ast.SymbolFlagsAssignment == 0` (`checker.go:5929`). A
+        // JavaScript assignment declaration — `exports.x = …`, `this.x = …` —
+        // is not a second *declaration* of a type, and upstream excludes it
+        // here rather than in the caller. `jsFileCompilationBindErrors` is the
+        // one line this rule got wrong without it. §258.
+        if self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::ASSIGNMENT) {
+            return;
+        }
+        let first = self.get_widened_type_for_variable_like_declaration(primary);
+        let next = self.get_widened_type_for_variable_like_declaration(node);
+        if first == next
+            || !self.is_decidable_primitive(first)
+            || !self.is_decidable_primitive(next)
+        {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(name) else { return };
+        let span = self.error_span(name);
+        let (Some(text), Some(next_text)) =
+            (self.type_to_string_at(first, node), self.type_to_string_at(next, node))
+        else {
+            return;
+        };
+        let Some(Node::Identifier(identifier)) = self.node_map.get(name) else { return };
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::SUBSEQUENT_VARIABLE_DECLARATIONS_MUST_HAVE_THE_SAME_TYPE_VARIABLE_0_MUST_BE_OF_TYPE_1_BUT_HERE_HAS_TYPE_2,
+                span,
+                [identifier.text.to_string(), text, next_text],
+            ),
+        );
+    }
+
+    /// An intrinsic primitive: a singleton id, so inequality *is* non-identity.
+    fn is_decidable_primitive(&self, id: crate::types::TypeId) -> bool {
+        [
+            self.intrinsics.string,
+            self.intrinsics.number,
+            self.intrinsics.bigint,
+            self.intrinsics.boolean,
+        ]
+        .contains(&id)
     }
 
     /// TS1015 — `Parameter cannot have question mark and initializer.`
