@@ -1144,14 +1144,7 @@ impl<'a> Checker<'a, '_> {
         };
         // `tryFindAmbientModule` (`checker.go:15533`), consulted **before** the
         // host exactly as `resolveExternalModule` (`checker.go:15154`) does: a
-        // non-relative specifier may name a `declare module "x"`. Upstream keys
-        // ambient modules in `globals` under the *quoted* name; this binder
-        // stores the literal's text unquoted (`module_name`,
-        // `crates/tsr-binder/src/binder.rs:4091`) and that naming is
-        // load-bearing for its other consumers, so the selection upstream gets
-        // from the quotes is recovered from the declaration's *shape* instead —
-        // [`Checker::is_ambient_module`] — plus upstream's
-        // `SymbolFlagsValueModule` meaning test.
+        // non-relative specifier may name a `declare module "x"`.
         if let Some(ambient) = self.ambient_module(literal.text) {
             return Some(ambient);
         }
@@ -1170,15 +1163,26 @@ impl<'a> Checker<'a, '_> {
     ///
     /// Upstream: `IsExternalModuleNameRelative` short-circuits, then
     /// `c.getSymbol(c.globals, "\""+moduleName+"\"", ast.SymbolFlagsValueModule)`
-    /// with `getMergedSymbol` on the hit. The quoted-name key becomes a
-    /// declaration-shape test here — see the call site above for why.
+    /// with `getMergedSymbol` on the hit.
+    ///
+    /// **The quoted key is upstream's, and this now uses it.** It read the
+    /// unquoted specifier and recovered the selection the quotes give from the
+    /// declaration's *shape* instead. That was not merely a different spelling
+    /// of the same lookup: without the quotes, `declare module "process"` and a
+    /// global `var process` are one key in one table, which is
+    /// `docs/architecture/checker-notes-diag2.md` §202. The shape test is kept
+    /// below as a second gate rather than the only one — an unquoted name can
+    /// no longer reach here, so it now only excludes a quoted symbol that is
+    /// somehow not a module declaration.
     fn ambient_module(&self, name: &str) -> Option<SymbolId> {
-        // `tspath.IsExternalModuleNameRelative`: `.`, `..`, `./…`, `../…`.
-        if name == "." || name == ".." || name.starts_with("./") || name.starts_with("../") {
+        // `IsExternalModuleNameRelative` short-circuits first, exactly as
+        // upstream does — and through `tsr_path`, which is the port of
+        // `tspath`, rather than a local prefix test that would miss `.\`,
+        // `..\` and rooted disk paths.
+        if tsr_path::is_external_module_name_relative(name) {
             return None;
         }
-        let &symbol = self.binder.globals().get(name)?;
-        let symbol = self.binder.merged_symbol(symbol);
+        let symbol = self.binder.ambient_module(name)?;
         (self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::VALUE_MODULE)
             && self.is_ambient_module(symbol))
         .then_some(symbol)

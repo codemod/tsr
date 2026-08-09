@@ -257,12 +257,24 @@ fn an_ambient_module_resolves_and_prints_the_alias_name() {
 #[test]
 fn an_ordinary_global_sharing_the_specifier_name_is_not_a_module() {
     // Upstream keys ambient modules in `globals` under the QUOTED name, so a
-    // plain `namespace m {}` can never be found by `tryFindAmbientModule`.
-    // This binder stores ambient module names unquoted
-    // (`crates/tsr-binder/src/binder.rs:4091`), so the selection is recovered
-    // from the declaration's shape instead — and this is the fixture that
-    // reddens if that shape test is dropped: `m` here is a global namespace,
-    // not a `declare module`, and the import must stay a gap.
+    // plain `namespace m {}` can never be found by `tryFindAmbientModule` — and
+    // **this binder now stores them quoted too**, so the separation is the key
+    // rather than a shape test layered over a shared one
+    // (`docs/architecture/checker-notes-diag2.md` §202).
+    //
+    // **This test expected `error` and now expects `any`, and the old
+    // expectation was an artefact of the unquoted naming.** `m` was findable
+    // under the bare key by `Checker::module_specifier_unfindable`'s lookup,
+    // which tests only `VALUE_MODULE` — and an instantiated `namespace m` has
+    // it — so the specifier read as findable, and the *second* lookup in
+    // `resolve_alias` then rejected it on shape and left `errorType`. Two
+    // lookups disagreeing. With one key they agree: nothing named `"m"`
+    // exists, the specifier is unfindable, and §31's rule gives `any`.
+    //
+    // `tsc` agrees the module is not there — `TS2307: Cannot find module 'm'`
+    // on this exact fixture — and an unresolvable `import = require(…)` reads
+    // `any` at every use site, which is what `get_type_of_alias` already
+    // documents.
     let arena = Arena::new();
     let fixture = program(
         &arena,
@@ -271,7 +283,7 @@ fn an_ordinary_global_sharing_the_specifier_name_is_not_a_module() {
             ("core", "import a = require(\"m\");\n"),
         ],
     );
-    assert_eq!(rendered_at(&fixture, "a", SyntaxKind::ImportEqualsDeclaration), "error");
+    assert_eq!(rendered_at(&fixture, "a", SyntaxKind::ImportEqualsDeclaration), "any");
 }
 
 #[test]

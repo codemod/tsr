@@ -4377,11 +4377,10 @@ impl Checker<'_, '_> {
     /// function's visibility for a diagnostic is the kind of coupling that makes
     /// the next resolution change look risky.
     fn ambient_module_for_diagnostics(&self, name: &str) -> Option<tsr_binder::SymbolId> {
-        if name == "." || name == ".." || name.starts_with("./") || name.starts_with("../") {
+        if tsr_path::is_external_module_name_relative(name) {
             return None;
         }
-        let &symbol = self.binder.globals().get(name)?;
-        let symbol = self.binder.merged_symbol(symbol);
+        let symbol = self.binder.ambient_module(name)?;
         self.binder
             .symbols()
             .get(symbol)

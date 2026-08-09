@@ -25,6 +25,7 @@ pub mod side_table;
 pub mod span;
 pub mod spelling;
 pub mod stack;
+pub mod stringutil;
 
 pub use arena::Arena;
 pub use index::{Idx, IndexVec};
@@ -36,3 +37,4 @@ pub use options::{
 pub use side_table::PagedTable;
 pub use span::{GetSpan, Span};
 pub use spelling::get_spelling_suggestion;
+pub use stringutil::strip_quotes;

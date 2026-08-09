@@ -1458,9 +1458,13 @@ fn a_shorthand_ambient_module_is_any_and_not_a_gap() {
     // `isShorthandAmbientModuleSymbol` (`utilities.go:198`) is the first branch of
     // `getTypeOfFuncClassEnumModuleWorker`, and `anyType` there is a computed
     // answer — a module with no body genuinely has no known shape.
-    // The binder stores a string module's name unquoted, which is why the guard
-    // below is on the declaration's name *node* and not on the stored text.
-    assert_eq!(type_of_declaration("declare module \"x\";", "x"), "any");
+    // **The symbol is named `"x"`, quotes included**, which is
+    // `getDeclarationName` (`internal/binder/binder.go:311`) and is what keeps
+    // an ambient module from colliding with an ordinary global of the same name
+    // (`docs/architecture/checker-notes-diag2.md` §202). Both lookups in this
+    // test spell the key that way; they read `"x"` bare until the rename, and
+    // the comment here recorded that as a property of the port.
+    assert_eq!(type_of_declaration("declare module \"x\";", "\"x\""), "any");
     // With a body it is an ordinary value module. Upstream spells it
     // `typeof import("x")` — a form this port does not build — and until the
     // `tryFindAmbientModule` slice (`checker-notes-modobj.md` §10) that
@@ -1481,7 +1485,7 @@ fn a_shorthand_ambient_module_is_any_and_not_a_gap() {
         tsr_binder::FileInfo { name: "test.ts", text: source },
     );
     let root = tsr_ast::Node::SourceFile(parsed.source_file).node_id().expect("registered");
-    let symbol = bound.lookup_local(root, "x").expect("`x` is declared");
+    let symbol = bound.lookup_local(root, "\"x\"").expect("`\"x\"` is declared");
     let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
     let id = checker.get_type_of_symbol(symbol);
     assert_ne!(id, checker.intrinsics().error, "the module object now has a type");

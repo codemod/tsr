@@ -297,6 +297,7 @@ dependencies = [
  "tsr-core",
  "tsr-diagnostics",
  "tsr-parser",
+ "tsr-path",
  "tsr-scanner",
 ]
 

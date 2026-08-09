@@ -1474,9 +1474,14 @@ impl<'a, 'n> Checker<'a, 'n> {
                 Err(false) => {}
             }
             // The ambient branch of `getSpecifierForModuleSymbol`
-            // (`nodebuilderimpl.go:1260`): the specifier IS the module's name.
+            // (`nodebuilderimpl.go:1260`): the specifier IS the module's name,
+            // **with its quotes taken off** —
+            // `stringutil.StripQuotes(symbol.Name)`, guarded by
+            // `ast.IsAmbientModuleSymbolName`. The symbol is stored as `"fs"`
+            // and the printed form is `import("fs")`, so stripping here is
+            // upstream's own step rather than a compensation for the storage.
             if self.is_ambient_module(parent) && !self.is_module_symbol(parent) {
-                let module_name = self.binder.symbols().get(parent).name;
+                let module_name = tsr_core::strip_quotes(self.binder.symbols().get(parent).name);
                 return Some(format!("import(\"{module_name}\")."));
             }
             return None;

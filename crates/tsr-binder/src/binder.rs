@@ -4684,7 +4684,13 @@ fn declaration_name<'a>(
         Node::TypeAliasDeclaration(n) => n.name.map(|i| i.text),
         Node::EnumDeclaration(n) => n.name.map(|i| i.text),
         Node::TypeParameterDeclaration(n) => n.name.map(|i| i.text),
-        Node::ModuleDeclaration(n) => n.name.map(module_name),
+        // `declare module "fs"` is the symbol `"fs"`, **with the quotes in the
+        // name**, exactly as `getDeclarationName` spells it
+        // (`internal/binder/binder.go:311`). See [`quoted_module_name`].
+        Node::ModuleDeclaration(n) => n.name.map(|name| match name {
+            tsr_ast::ModuleName::StringLiteral(literal) => quoted_module_name(arena, literal.text),
+            tsr_ast::ModuleName::Identifier(identifier) => identifier.text,
+        }),
         Node::ParameterDeclaration(n) => n.name.and_then(binding_name),
         Node::VariableDeclaration(n) => n.name.and_then(binding_name),
         // The elements of a pattern declare; the pattern itself does not.
@@ -4783,19 +4789,76 @@ fn computed_name<'a>(
     }
 }
 
+/// The symbol name of `declare module "x"` — **`"x"`, quotes included**.
+///
+/// Upstream's `getDeclarationName` (`internal/binder/binder.go:311`):
+///
+/// ```go
+/// if ast.IsAmbientModule(node) {
+///     if ast.IsGlobalScopeAugmentation(node) { return ast.InternalSymbolNameGlobal }
+///     return "\"" + moduleName + "\""
+/// }
+/// ```
+///
+/// The quotes are not decoration. `ast.IsAmbientModuleSymbolName` is literally
+/// `strings.HasPrefix(s, "\"") && strings.HasSuffix(s, "\"")`
+/// (`ast/utilities.go:1656`), and `initializeChecker` uses it to keep ambient
+/// module symbols out of the plain global merge. They are what makes
+/// `"process"` and `process` two different keys in one table.
+///
+/// # This port stored the text unquoted, and it was a real defect
+///
+/// The name was recovered from the declaration's *shape* instead
+/// (`tsr_checker::Checker::ambient_module`), on the reasoning that quoting
+/// would need an owned string where every symbol name borrows from the source.
+/// That reasoning expired: the binder takes an [`Arena`](tsr_core::Arena) and
+/// already allocates names through it for canonical numerics and signed
+/// computed property names.
+///
+/// The defect it left is the normal shape of `@types/node`, and `tsc` is silent
+/// on all of it:
+///
+/// ```ts
+/// // crypto.d.ts — a script, so its top-level locals become globals
+/// declare module "crypto" {          // symbol `crypto` (unquoted) -> globals
+///     global {
+///         var crypto: …              // symbol `crypto`             -> globals
+///     }
+/// }
+/// ```
+///
+/// Both reached one key, `merge_symbol` hit the excludes mask, and the checker
+/// reported `TS2300: Duplicate identifier 'crypto'` on both declarations —
+/// or `TS2649` where the module symbol is a `NAMESPACE_MODULE`, as
+/// `declare module "console"` is. **Measured before the fix: 79 spurious TS2300
+/// and 13 spurious TS2649 across a 22-package monorepo, and zero conformance
+/// cases**, because no corpus case exhibits the collision.
+///
+/// It became reachable, not new, when `declare global` blocks started merging
+/// (`docs/architecture/checker-notes-diag2.md` §173): before that the `global`
+/// block's contents went nowhere and never met the module symbol.
+///
+/// # A global augmentation is deliberately NOT renamed
+///
+/// The same upstream branch renames `declare global` to
+/// `InternalSymbolNameGlobal` (`__global`), and this port leaves it as `global`.
+/// That is not the defect — the block's symbol is a *local* of the file it is
+/// written in and nothing looks it up by name — and `.symbols` baselines print
+/// it as bare `global` (`moduleAugmentationGlobal4.symbols`: `>global :
+/// Symbol(global, Decl(f1.ts, 0, 0))`), because `symbolToString` strips the
+/// internal prefix. Renaming would mean teaching the suite to strip it back,
+/// against a suite currently at 100%, for no behaviour. Recorded so the
+/// divergence is a decision rather than an omission.
+fn quoted_module_name<'a>(arena: &'a tsr_core::Arena, text: &str) -> &'a str {
+    arena.alloc_str(&format!("\"{text}\""))
+}
+
 /// `ast.IsAmbientModule` (`internal/ast/utilities.go:1652`), for a node already
 /// known to be a module declaration: it is spelled with a string literal name,
 /// or it is a `global { … }` block.
 fn is_ambient_module(module: &tsr_ast::ModuleDeclaration<'_>) -> bool {
     matches!(module.name, Some(tsr_ast::ModuleName::StringLiteral(_)))
         || module.keyword.kind == SyntaxKind::GlobalKeyword
-}
-
-fn module_name(name: tsr_ast::ModuleName<'_>) -> &str {
-    match name {
-        tsr_ast::ModuleName::Identifier(i) => i.text,
-        tsr_ast::ModuleName::StringLiteral(s) => s.text,
-    }
 }
 
 /// The name a binding introduces, or `None` for a pattern.

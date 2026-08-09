@@ -13569,3 +13569,147 @@ it has been applied outside a rule.
 the ones where a parameter list resumes at a *type* rather than a name, and they
 keep today's `break`. Nothing is wrong at those positions; there is simply less
 recovery than upstream has.
+## §202 — an ambient module's symbol carries its quotes, and three dead lookups
+
+§173 recorded this as a known collision with a number and did not fix it. Fixed
+here, and the fix is smaller and the fallout larger than that note estimated.
+
+### The defect
+
+`getDeclarationName` (`internal/binder/binder.go:311`):
+
+```go
+if ast.IsAmbientModule(node) {
+    if ast.IsGlobalScopeAugmentation(node) { return ast.InternalSymbolNameGlobal }
+    return "\"" + moduleName + "\""
+}
+```
+
+The quotes are the mechanism, not the spelling: `ast.IsAmbientModuleSymbolName`
+is `strings.HasPrefix(s, "\"") && strings.HasSuffix(s, "\"")`
+(`ast/utilities.go:1656`), and they are what make `"process"` and `process` two
+keys in one table. This port stored the specifier bare and recovered the
+selection from the declaration's *shape* instead, on the reasoning that quoting
+needed an owned string where every symbol name borrows. That reasoning had
+expired: the binder takes an `Arena` and already allocates names through it.
+
+The collision is the ordinary shape of `@types/node`, and `tsc` is silent on all
+of it:
+
+```ts
+// crypto.d.ts — a script, so its top-level locals become globals
+declare module "crypto" {          // symbol `crypto` -> globals
+    global {
+        var crypto: …              // symbol `crypto` -> globals
+    }
+}
+```
+
+`module.d.ts` and `process.d.ts` are identical in shape; `process` draws a third
+declaration from `globals.d.ts`. `console` takes a different arm for one reason:
+`declare module "console"` holds only an import and `export =`, so its symbol is
+a `NAMESPACE_MODULE` and merging into a non-instantiated namespace is TS2649
+(`checker.go:14188`), not TS2300.
+
+### What it cost to fix, which was mostly not the binder
+
+The binder change is one function. What it exposed is that **five call sites had
+independently open-coded `tryFindAmbientModule`'s table lookup**, and all five
+went silently dead the moment the key changed:
+
+| site | what it is |
+|---|---|
+| `tsr_checker::Checker::ambient_module` | `tryFindAmbientModule` for resolution |
+| `tsr_checker::Checker::ambient_module_for_diagnostics` | the same question for TS2307 |
+| `binder_suite::namespace_import_target` | `import * as F from "ambient"` |
+| `binder_suite::import_specifier_target` | `import { x } from "ambient"` |
+| `binder_suite::resolve_import_equals_target` | `import x = require("ambient")` |
+
+Only the first was found by grep before the change; the other four were found by
+tests and suites going red. They now share `BindResult::ambient_module`, which
+lives next to where the name is made.
+
+**The two checker copies were not even equivalent to each other**, and that is
+what produced the first confusing failure. `ambient_module_for_diagnostics`
+tested only `VALUE_MODULE`; `ambient_module` also tested the declaration's
+*shape*. So `namespace m {}` — instantiated, hence `VALUE_MODULE` — read as
+findable to one and not the other, and `import a = require("m")` came out
+`errorType` from the two disagreeing. With one key they agree, the specifier is
+correctly unfindable, and §31's rule gives `any`. `tsc` confirms the premise:
+`TS2307: Cannot find module 'm'`.
+
+### Two predicates were being re-derived rather than ported
+
+Both were caught in review rather than by a test, which is the argument for
+reading the vendored package before writing the four-line version:
+
+- **`IsExternalModuleNameRelative`.** The new binder helper hand-rolled
+  `== "." || == ".." || starts_with("./") || starts_with("../")`.
+  `tsr_path::is_external_module_name_relative` already exists and is the real
+  port — it is `PathIsRelative || IsRootedDiskPath` (`tspath/path.go:931`), so
+  it also covers `.\`, `..\` and `C:\foo.ts`, which the hand-rolled version
+  misses. The guard now lives at the two checker call sites, which is where
+  upstream puts it, and reads `tsr_path`.
+
+  The other two `starts_with("../")` in the tree were checked and **left
+  alone**: `tsr_module::resolver` and `tsr_tsoptions`'s `extends` resolution are
+  faithful transliterations of upstream's own literal `strings.HasPrefix`
+  (`module/resolver.go:753-754`, `tsoptions/tsconfigparsing.go:571`). Not every
+  repeated string is a duplicated predicate.
+
+- **`StripQuotes`.** `getSpecifierForModuleSymbol` renders the specifier with
+  `stringutil.StripQuotes(symbol.Name)` (`nodebuilderimpl.go:1261`) — so the
+  quotes come *off* at the render site, which is upstream's own step and not a
+  compensation for how the name is stored. Ported as
+  `tsr_core::stringutil::strip_quotes` rather than inlined, and
+  `binder_suite::normalise_symbol_name`'s own copy — which handled `'` and `"`
+  but forgot the backtick — now calls it.
+
+### The oracle had a symmetry bug, worth 109 cases
+
+`binder_symbols` fell to **8,350/8,459** on a change that was strictly more
+faithful. The suite normalises the *baseline's* names through
+`normalise_symbol_name` and did not normalise ours, which was invisible for
+exactly as long as no name on our side carried a spelling. Two fixes:
+
+1. Normalise both sides. Recovered 102.
+2. Normalise **per dotted suffix**, not per full name. A nested ambient module
+   is `"Map"."Observable"` here — the *whole* name is not quoted, only the
+   suffix is, and the suffix is the key the baseline uses.
+   `moduleAugmentationInAmbientModule1` is the case. Recovered 1.
+
+The last 6 were the three dead harness lookups above. Back to
+**8,459/8,459 (100.00%)**.
+
+This is the same lesson as §173's oracle-gap note from the other side: a suite
+that compares *our* output against *upstream's* has to put both through the same
+normalisation, and an asymmetry there reads as a regression in the code.
+
+### The measurement
+
+| | before | after |
+|---|---:|---:|
+| `binder_symbols` | 8,459/8,459 | 8,459/8,459 |
+| `checker_types` | 3,957 / 405,682 (84.6434%) | 3,957 / **405,703** (84.7060%) |
+| `diagnostics` | 1,524/5,488 | 1,524/5,488, **no case changed verdict** |
+| `module_resolution` · `file_loader` | 95/95 · 96/96 | unchanged |
+| 22-package monorepo | **1,550** | **1,440** |
+
+The corpus barely moves — +21 lines, no case — because it contains no such
+collision, which is exactly what §173 predicted and why this could only ever be
+scored on a real repository. `apps/worker` alone goes from 10 reported errors to
+2, and both survivors are an unrelated `export *` gap in `zod`.
+
+The −110 is 91 TS2300 + 13 TS2649 + 6 TS2322; the last six are cases where the
+collision had been corrupting the symbol a comparison was made against.
+
+### A deliberate non-change
+
+The same upstream branch renames `declare global` to `InternalSymbolNameGlobal`
+(`__global`); this port leaves it `global`. It is not part of the defect — the
+block's symbol is a *local* of the file it is written in and nothing looks it up
+by name — and `.symbols` baselines print it bare (`moduleAugmentationGlobal4`:
+`>global : Symbol(global, Decl(f1.ts, 0, 0))`) because `symbolToString` strips
+the internal prefix. Renaming would mean teaching the suite to strip it back,
+against a suite at 100%, for no behaviour. Recorded so it is a decision rather
+than an omission.

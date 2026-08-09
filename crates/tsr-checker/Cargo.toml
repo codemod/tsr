@@ -16,6 +16,7 @@ tsr-scanner = { workspace = true }
 tsr-binder = { workspace = true }
 tsr-core = { workspace = true }
 tsr-diagnostics = { workspace = true }
+tsr-path = { workspace = true }
 
 [dev-dependencies]
 tsr-parser = { workspace = true }

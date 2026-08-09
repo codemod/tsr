@@ -277,6 +277,39 @@ impl<'a> BindResult<'a> {
         self.globals.get(name).copied().map(|found| self.merged_symbol(found))
     }
 
+    /// The `declare module "x"` a **specifier** names, if the program declares
+    /// one.
+    ///
+    /// The lookup half of `c.getSymbol(c.globals, "\""+moduleName+"\"", …)`
+    /// (`tryFindAmbientModule`, `internal/checker/checker.go:15533`), and it
+    /// exists so that the quoting convention has exactly one spelling on each
+    /// side. An ambient module's symbol is keyed by the **quoted** specifier —
+    /// see `quoted_module_name` in `binder.rs` for why the quotes are
+    /// load-bearing rather than decorative — and a caller that passes the bare
+    /// specifier to [`BindResult::global`] instead gets whichever ordinary
+    /// global happens to share the name.
+    ///
+    /// That is not hypothetical: `@types/node` declares both
+    /// `declare module "process"` and a global `var process`, and the two
+    /// collided in one key for as long as the specifier was stored unquoted
+    /// (`docs/architecture/checker-notes-diag2.md` §202).
+    ///
+    /// **This is the table lookup and nothing else.** Upstream's
+    /// `tryFindAmbientModule` also short-circuits a *relative* specifier and
+    /// filters by `SymbolFlagsValueModule`; both stay at the call site, in
+    /// `tsr_checker`, because both are that function's policy while the quoting
+    /// is this table's convention. The relative test is
+    /// `tsr_path::is_external_module_name_relative`, which is the real port of
+    /// `tspath.IsExternalModuleNameRelative` — it also covers `.\\`, `..\\` and
+    /// rooted disk paths, which a hand-rolled `starts_with("./")` misses.
+    #[must_use]
+    pub fn ambient_module(&self, specifier: &str) -> Option<SymbolId> {
+        self.globals
+            .get(format!("\"{specifier}\"").as_str())
+            .copied()
+            .map(|found| self.merged_symbol(found))
+    }
+
     /// Look a name up in `container`'s own scope, without walking outward.
     #[must_use]
     pub fn lookup_local(&self, container: NodeId, name: &str) -> Option<SymbolId> {
@@ -509,7 +542,7 @@ impl<'a> BindResult<'a> {
         // so did every name in it. That is why `var a: A` reported nothing —
         // the checker's meaning ladder saw a `TYPE` hit and fell silent, which
         // is the correct response to a hit and the wrong answer here.
-        // `checker-notes-diag2.md` §166.
+        // `checker-notes-diag2.md` §202.
         self.lookup_scoped(Some(&self.globals), name, meaning)
     }
 
@@ -550,7 +583,7 @@ impl<'a> BindResult<'a> {
     /// is a value and wrong in a type position, where it offers a nearby
     /// *variable* for a missing *type*: `parserRealSource13` was 105 wrong
     /// TS2552 lines for one missing `AST`
-    /// (`docs/architecture/checker-notes-diag2.md` §55, §57).
+    /// (`docs/architecture/checker-notes-diag2.md` §202, §57).
     #[must_use]
     pub fn names_in_scope_with_meaning(
         &self,
@@ -598,7 +631,7 @@ impl<'a> BindResult<'a> {
     /// files by construction.
     ///
     /// Order is the order the merges were attempted, which is file order.
-    /// See `docs/architecture/checker-notes-diag2.md` §159.
+    /// See `docs/architecture/checker-notes-diag2.md` §202.
     #[must_use]
     pub fn merge_conflicts(&self) -> &[(SymbolId, SymbolId)] {
         &self.merge_conflicts

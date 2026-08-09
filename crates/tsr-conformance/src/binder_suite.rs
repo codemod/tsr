@@ -364,8 +364,31 @@ impl Suite for BinderSymbols {
                     for full in
                         display_names(bound, nodes, id, &names_by_declaration, &unit.content)
                     {
+                        // **Both sides go through `normalise_symbol_name`, and
+                        // they must.** The expected side is normalised at
+                        // `:894`; this side was not, which was invisible for as
+                        // long as no name here carried a *spelling*. An ambient
+                        // module's symbol is now stored as `"fs"` — quotes
+                        // included, which is `getDeclarationName`
+                        // (`internal/binder/binder.go:311`) and what stops it
+                        // colliding with a global `fs`
+                        // (`docs/architecture/checker-notes-diag2.md` §202) —
+                        // while the baseline's `"fs"` normalises to `fs`.
+                        //
+                        // **Per suffix, not per full name.** A nested ambient
+                        // module is `"Map"."Observable"` here, whose *whole* name
+                        // is not quoted; only the suffix is, and that suffix is
+                        // the key the baseline uses.
+                        // `moduleAugmentationInAmbientModule1` is the case, and
+                        // it needs the union of two symbols upstream merges in
+                        // the checker and this binder does not.
                         for offset in dotted_suffixes(&full) {
-                            ours.entry(full[offset..].to_string()).or_default().extend(&declared);
+                            let suffix = &full[offset..];
+                            ours.entry(suffix.to_string()).or_default().extend(&declared);
+                            let normalised = normalise_symbol_name(suffix);
+                            if normalised != suffix {
+                                ours.entry(normalised).or_default().extend(&declared);
+                            }
                         }
                         // Respelling replaces the symbol's own (canonical)
                         // name, which may itself contain a dot (`0.12e1` binds
@@ -1200,11 +1223,12 @@ fn normalise_symbol_name(name: &str) -> String {
     let name: &str = &decoded;
     // A whole name in quotes is a string literal spelled as the source wrote it:
     // `declare module "fs"` is the symbol `"fs"`, and `{ 'a': 1 }` gives `'a'`.
-    // Either quote, because the baseline reproduces the spelling.
-    for quote in ['"', '\''] {
-        if name.len() >= 2 && name.starts_with(quote) && name.ends_with(quote) {
-            return name[1..name.len() - 1].to_string();
-        }
+    // `tsr_core::strip_quotes` is `stringutil.StripQuotes`, which is the same
+    // predicate the checker uses to render an ambient module's specifier — one
+    // spelling, and it covers the backtick this loop used to forget.
+    let stripped = tsr_core::strip_quotes(name);
+    if stripped.len() != name.len() {
+        return stripped.to_string();
     }
     let mut out = String::with_capacity(name.len());
     let mut rest = name;
@@ -1537,8 +1561,14 @@ fn namespace_import_target(
     // An ambient module the binder holds in globals resolves first —
     // `import * as Foo from "ambient"` displays the module's declaration
     // under the alias (`moduleElementsInWrongContext`).
-    if let Some(found) = bound.globals().get(specifier.text).copied() {
-        let found = bound.merged_symbol(found);
+    //
+    // `BindResult::ambient_module` rather than a `globals()` lookup on the bare
+    // specifier: the symbol is keyed by the **quoted** name, which is
+    // `getDeclarationName` (`internal/binder/binder.go:311`). This file held
+    // three copies of the bare-key lookup and all three went quietly dead when
+    // the binder started quoting — worth 6 cases and, more to the point, worth
+    // them silently. One spelling now, next to where the name is made.
+    if let Some(found) = bound.ambient_module(specifier.text) {
         if bound.symbols().get(found).flags.intersects(tsr_binder::SymbolFlags::MODULE) {
             return Some(found);
         }
@@ -1585,8 +1615,7 @@ fn import_specifier_target(
     let Some(tsr_ast::Expression::StringLiteral(spec)) = node.module_specifier else {
         return None;
     };
-    let module = if let Some(found) = bound.globals().get(spec.text).copied() {
-        let found = bound.merged_symbol(found);
+    let module = if let Some(found) = bound.ambient_module(spec.text) {
         bound
             .symbols()
             .get(found)
@@ -1753,8 +1782,7 @@ fn resolve_import_equals_target_at(
             let Some(tsr_ast::Expression::StringLiteral(literal)) = external.expression else {
                 return None;
             };
-            if let Some(found) = bound.globals().get(literal.text).copied() {
-                let found = bound.merged_symbol(found);
+            if let Some(found) = bound.ambient_module(literal.text) {
                 if bound.symbols().get(found).flags.intersects(tsr_binder::SymbolFlags::MODULE) {
                     return Some(found);
                 }

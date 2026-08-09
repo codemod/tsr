@@ -609,36 +609,36 @@ workstreams compose rather than overlap.
 
 The line gain is concentrated in JSX cases, because `declare global { namespace
 JSX { … } }` now reaches a lookup — which is the second of the three items
-`checker-notes-diag2.md` §171 priced the TS7026 row at.
+`checker-notes-diag2.md` §202 priced the TS7026 row at.
 
 On a real repository (22 `tsconfig.json` packages), reported errors fell from
 **1,996 to 1,550**. All 474 `typeof process` / `typeof console` property errors
 and all 64 `Cannot find name` reports for `fetch`, `Response`, `URL` and the
 rest disappeared.
 
-**It also exposed a latent defect, and the count is honest about it.** 92 of the
-remaining errors are *new*: 79 spurious TS2300 and 13 spurious TS2649. Their
-cause is not this feature. Upstream names an ambient module symbol with the
-quotes in it — `"\"" + moduleName + "\""`, `binder.go:311` — so `c.globals` holds
-`"process"` and `process` as two keys. This port stores the text unquoted and
-recovers the distinction from the declaration's shape
-(`tsr_checker::Checker::ambient_module`), which works until something else claims
-the name — and `@types/node` declares both `declare module "process"` and, in a
-global augmentation, `var process`. Minimal repro, on which `tsc` is silent:
+**It also exposed a latent defect — since fixed.** 92 of the errors remaining
+after that measurement were *new*: 79 spurious TS2300 and 13 spurious TS2649.
+Their cause was not this feature. Upstream names an ambient module symbol with
+the quotes in it — `"\"" + moduleName + "\""`, `binder.go:311` — so `c.globals`
+holds `"process"` and `process` as two keys. This port stored the text unquoted
+and recovered the distinction from the declaration's shape, which worked until
+something else claimed the name — and `@types/node` declares both
+`declare module "process"` and, in a global augmentation, `var process`.
 
-```ts
-// m.d.ts   (a script)
-declare module "amod" { export const x: number; }
-// g.d.ts   (a module)
-export {}; declare global { var amod: string; }
-```
+The rename landed in the next commit (`checker-notes-diag2.md` §202) and took
+the monorepo from 1,550 to **1,440**. Two findings from it are worth carrying
+here because they are about this file's subject matter:
 
-The conformance corpus contains no such collision — the per-case `diagnostics`
-diff across this change was empty — so **no suite here can see it**, which is the
-same shape of blind spot as the one below. The fix is to name ambient module
-symbols the way upstream does; the reason previously recorded against it (an
-owned string where every name borrows) no longer holds now that the binder has an
-arena and already allocates names through it.
+- **Five call sites had open-coded `tryFindAmbientModule`'s table lookup**, and
+  all five went silently dead when the key changed. Only one was findable by
+  grep beforehand. They now share `BindResult::ambient_module`, which lives
+  beside where the name is made.
+- **`binder_symbols` fell to 8,350/8,459 on a strictly more faithful change**,
+  because the suite normalised the baseline's names and not ours — an asymmetry
+  that was invisible for exactly as long as no name on our side carried a
+  spelling. See the oracle note below; this is the same lesson from the other
+  side.
+
 
 ---
 
