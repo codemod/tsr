@@ -426,6 +426,7 @@ impl Checker<'_, '_> {
                 ambient
             }
             Node::BinaryExpression(_) => {
+                self.check_instanceof_left_operand(node);
                 self.check_comparison_overlap(node, ambient);
                 self.check_operator_operands(node, ambient);
                 ambient
@@ -1566,6 +1567,38 @@ impl Checker<'_, '_> {
             );
             return;
         }
+    }
+
+    /// TS2358 — `The left-hand side of an 'instanceof' expression must be of
+    /// type 'any', an object type or a type parameter.`
+    ///
+    /// The primitive argument's sixth position. A primitive is none of the
+    /// three the message permits, and §459's rule says the position is free
+    /// because it carries those types — a template literal is a string. §466.
+    fn check_instanceof_left_operand(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let Some(Node::BinaryExpression(binary)) = self.node_map.get(node) else { return };
+        if binary.operator_token.is_none_or(|t| t.kind != SyntaxKind::InstanceOfKeyword) {
+            return;
+        }
+        let Some(left) = binary.left else { return };
+        let Some(id) = left.node_id() else { return };
+        let left_type = self.check_expression(left);
+        let widened = self.get_base_type_of_literal_type(left_type);
+        if !self.is_decidable_primitive(widened) {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(id) else { return };
+        let span = self.error_span(id);
+        self.report(
+            file,
+            Diagnostic::new(
+                &messages::THE_LEFT_HAND_SIDE_OF_AN_INSTANCEOF_EXPRESSION_MUST_BE_OF_TYPE_ANY_AN_OBJECT_TYPE_OR_A_TYPE_PARAMETER,
+                span,
+            ),
+        );
     }
 
     fn check_this_in_module_body(&mut self, node: NodeId) {

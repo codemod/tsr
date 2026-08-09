@@ -25275,3 +25275,74 @@ The remaining rows on the clean list — TS2694, TS2354, TS1359, TS1344, TS1038,
 TS1005, TS18014, TS8010, TS8006 — are held by owners already named: the depth
 bound (§323), the emit-helper list (§453), the parser's unset flags (§452), and
 parser recovery (§355).
+
+## §466 — TS2358: a primitive on the left of `instanceof`
+
+The primitive argument's **sixth** position, and the first found by scanning for
+it deliberately rather than meeting it:
+
+```ts
+var x = `abc${ 0 }def` instanceof String;   // TS2358 at the template literal
+```
+
+`checkInstanceOfExpression`'s left-hand guard — *"must be of type 'any', an
+object type or a type parameter"* — and a primitive is none of those. §459's
+rule said a position is free when it carries the types; a template literal is a
+string, so it does.
+
+### The bound
+
+The `instanceof` left operand's widened type is one of the four intrinsic
+primitives §257 admits. `any` is excluded by the message's own wording and by
+§338's measurement; a type parameter is excluded by §456's finding that an
+unconstrained one has no upper bound to test.
+
+### The bar
+
+```
+bar:  +3 of 5,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **An object left operand reports.** The message permits object types
+   explicitly.
+2. **`x instanceof C` where `x: any` reports.** `any` is permitted and is not
+   in the decidable set.
+
+## §467 — §466 built: **+4**, above bar
+
+```
+diagnostics   1,976 → 1,980   (bar was +3;  +4, 0 LOST)   36.08%
+every other suite unmoved — both falsifiers negative
+```
+
+### The first position found by *searching* for the argument
+
+Five earlier positions were met while working a row; this one was found by
+scanning the fresh table for codes whose **message text** describes a type
+restriction, then asking §459's question. That is a repeatable procedure and it
+is cheap:
+
+```
+grep the message text for "must be of type" / "is not callable" /
+"is not a constructor" / "must have"    →   ask: is a primitive excluded?
+                                        →   ask: do the cases carry primitives?
+```
+
+The second question is §460's, and it is the one that costs a `diagmissing`.
+
+> **An argument that has paid six times is worth a search, not just a
+> recognition.** The first five positions arrived by luck of the queue. The
+> sixth arrived because the argument was written down precisely enough (§459)
+> to be looked for — which is the same claim §441 made about refusals, applied
+> to the positive case.
+
+### The primitive argument, six positions
+
+```
+§403 TS2394 +4 · §436 TS2507 +3 · §450 TS2394 +3
+§454 TS2320 +1 · §458 TS2351 +5 · §466 TS2358 +4      = +20
+rejected: §460 TS2349 (types absent)
+reverted: §338 (domain widened) −3
+```
