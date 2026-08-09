@@ -19714,3 +19714,60 @@ on the face of it upstream should not report an error either, and it does.
 Recorded open: **TS7006's 16 cases, gated on `no_implicit_any`, with the gate's
 correctness unverified.** If reading (2) is right it is a harness defect in
 §263's family and will be worth more than this row.
+
+## §333 — the survey §332 asked for, and the correction it forced
+
+§332 recorded three readings for TS7006's `+0` and named a baseline survey as
+the next step. Run:
+
+```
+TS7006 cases in the corpus            115
+  set `noImplicitAny` or `strict`      63
+  set NEITHER                          52
+```
+
+Fifty-two cases cannot all be misconfigured, so **reading (2) — a §263-family
+harness defect — is disproved.** That is what the survey was for.
+
+It also disproved §332's own diagnosis. `ParameterList4` has the *same* options
+as `ParameterList6` — `{"target": "es2015"}` — and this port **already reports
+TS7006 in it**:
+
+```
+-- expected --   ParameterList4.ts(1,12) TS2369 · TS7006
+-- actual --     ParameterList4.ts(1,12) TS7006 · TS2369
+```
+
+So `no_implicit_any` is true in this suite for these cases, and §332's claim —
+*"the rule opens with `if !self.no_implicit_any { return }`, and that is why
+`ParameterList6` fails"* — was wrong. The two cases differ only in **where the
+parameter lives**: a `FunctionDeclaration` in one, a `FunctionTypeNode` in the
+other.
+
+> **A survey run to test one hypothesis disproved two, and the second was the
+> one I had published.** §332 chose not to guess a fourth time and to measure
+> instead; the measurement's most useful output was about the three candidates
+> it was not aimed at.
+
+### What §331 was missing
+
+Three places, not two:
+
+```
+implicit_any_candidates              the input list     (§331 widened)
+the dispatch arm                     the entry point    (§331 widened)
+parameters_cannot_be_contextually_typed   the guard     (§331 did NOT)
+```
+
+The guard has no arm for a signature kind and falls through to `false`, so the
+rule declined every parameter the widened list handed it. `ParameterList6` now
+converts.
+
+```
+diagnostics   1,843 → 1,844   (+1)
+checker_types 4,028 → 4,029   (+1)
+LOST 0 · every rail unmoved
+```
+
+§327 taught "widen the dispatch too". This adds: **count the places a rule reads
+its own applicability, and widen all of them.** For this rule there were three.

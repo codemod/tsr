@@ -176,7 +176,19 @@ impl Checker<'_, '_> {
     /// accessor's parameter type comes from its `get` counterpart.
     fn parameters_cannot_be_contextually_typed(&self, node: NodeId) -> bool {
         match self.node_map.get(node) {
-            Some(Node::FunctionDeclaration(_) | Node::ConstructorDeclaration(_)) => true,
+            // §333 — a *signature*'s parameters are declarations, not
+            // expressions, so nothing can supply them a contextual type. The
+            // kinds this predicate knew all have **bodies**; the signatures do
+            // not, and they answer the same way a function declaration does.
+            Some(
+                Node::FunctionDeclaration(_)
+                | Node::ConstructorDeclaration(_)
+                | Node::FunctionTypeNode(_)
+                | Node::ConstructorTypeNode(_)
+                | Node::CallSignatureDeclaration(_)
+                | Node::ConstructSignatureDeclaration(_)
+                | Node::MethodSignatureDeclaration(_),
+            ) => true,
             Some(Node::MethodDeclaration(_)) => self.nodes.parent(node).is_some_and(|parent| {
                 self.nodes.kind(parent) != SyntaxKind::ObjectLiteralExpression
             }),
@@ -363,6 +375,14 @@ impl Checker<'_, '_> {
             Some(Node::ConstructorDeclaration(n)) => collect(n.parameters),
             Some(Node::FunctionExpression(n)) => collect(n.parameters),
             Some(Node::ArrowFunction(n)) => collect(n.parameters),
+            // §333 — the five above all have bodies; a parameter in a
+            // *signature* is implicitly `any` exactly as one in a declaration
+            // is. `ParameterList6` is `constructor(C: (public A) => any)`.
+            Some(Node::FunctionTypeNode(n)) => collect(n.parameters),
+            Some(Node::ConstructorTypeNode(n)) => collect(n.parameters),
+            Some(Node::CallSignatureDeclaration(n)) => collect(n.parameters),
+            Some(Node::ConstructSignatureDeclaration(n)) => collect(n.parameters),
+            Some(Node::MethodSignatureDeclaration(n)) => collect(n.parameters),
             _ => Vec::new(),
         }
     }

@@ -374,10 +374,19 @@ impl Checker<'_, '_> {
             // §81. No walk arm claimed this kind before, which is what §49's
             // trap says to check before pricing a rule that measures zero.
             Node::MethodSignatureDeclaration(_) => {
+                self.check_implicit_any_parameters(node, ambient);
                 self.check_implicit_any_return(node, ambient);
                 ambient
             }
-            Node::FunctionExpression(_) | Node::ArrowFunction(_) => {
+            // §333 — the rule, its candidate list, its contextual-typing guard
+            // *and* this dispatch all had to widen together; §331 moved two of
+            // the three and measured zero.
+            Node::FunctionExpression(_)
+            | Node::ArrowFunction(_)
+            | Node::FunctionTypeNode(_)
+            | Node::ConstructorTypeNode(_)
+            | Node::CallSignatureDeclaration(_)
+            | Node::ConstructSignatureDeclaration(_) => {
                 self.check_implicit_any_parameters(node, ambient);
                 ambient
             }
