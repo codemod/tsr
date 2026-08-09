@@ -24777,3 +24777,43 @@ measurement belongs in a session that can afford a parser regression, and the
 falsifier is unambiguous: **both rails must stay at 100%.**
 
 **Owner: `tsr-parser` — `AMBIENT`, `AWAIT_CONTEXT`, `YIELD_CONTEXT`. 13 cases.**
+
+## §453 — TS2354 declined; owner is the emit-helper analysis
+
+```
+TS2354  7 blocked, 6 single-line, occupied 0/7
+        "This syntax requires an imported helper but module 'tslib' cannot be found."
+```
+
+The resolution half is available — §357 added `resolved_module_path` and
+`module_resolution_found` answers whether `tslib` resolves. The other half is
+not: **which syntax requires a helper** is the emitter's list (decorators,
+spread, rest, async, generators, class fields, …), computed while lowering, and
+this port's `tsr-transformers` is where that question lives.
+
+A decorator-only subset would convert one or two cases and would report wherever
+this port's helper list disagrees with upstream's — a list this workstream has
+no way to check. **Declined rather than approximated**, which is §363's rule:
+when the missing piece is a *list* rather than a *predicate*, a partial version
+is wrong in proportion to how much of the list is missing, and nothing here
+measures that.
+
+**Owner: `tsr-transformers`' emit-helper analysis. 7 cases.**
+
+### The session's declines, by owner
+
+Consolidating, because the pattern is now visible:
+
+```
+the structural relation        TS2322 TS2345 TS2339 TS2353 TS2411 TS2352 …   ~3,250
+tsr-parser's unset flags       TS1038 TS1359                                     13
+the type-side representation   TS2488 TS2713 TS2493                             ~24
+flow narrowing precision       TS2454 TS7005                                     55
+tsr-transformers               TS2354                                             7
+getSpellingSuggestion's row    TS2551                                              4
+```
+
+> **Every remaining owner is a subsystem, and §441 predicted that: refusals
+> naming a subsystem have been reopened zero times.** The five reopened this
+> session all named a *function* or a *condition*. That is the clearest signal
+> the session leaves about where its technique stops working.

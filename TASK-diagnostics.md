@@ -12,7 +12,7 @@ FIRST: git pull. Then read, in this order:
   builds.
 
 STATE AT HANDOFF, fourteenth session (verify with a fresh run):
-  diagnostics    1,924/5,488 = 35.06%   (+202 over NINETY-NINE builds (plus §235, a retraction), zero
+  diagnostics    1,961/5,488 = 35.73%   (+202 over ONE HUNDRED AND NINE builds (plus §235, a retraction), zero
                  lost — §156-§219).  The list-loop sweep is DONE (§219): ten
                  loops, four fixed, seven measured as having no case asking for
                  them.  `extragap` shows ~1,150 invented parser lines against
