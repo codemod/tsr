@@ -4074,3 +4074,26 @@ to const-context member values), while slice (1) — as-const ARRAY →
 readonly tuple — needs only the tuple mint plus a readonly flag on
 the existing tuple printer. BUILD ORDER therefore: (1) first, its
 own pair; (2) behind the carriage, separately measured.
+
+## §106 — the file-module import spelling [claimed: checker-1]
+
+The "import-spelling 128, architectural, per-file printing" deferred
+head is STALE as stated: §95/§99/§102 built the per-site rendering it
+said was missing, and the residue is ONE declined branch —
+`symbol_chain`'s file-module parent arm returns `None` where
+upstream's `getSpecifierForModuleSymbol` (non-ambient half) emits
+`import("<relative specifier>").` for a module inaccessible at the
+site (`privacyFunctionCannotNameParameterTypeDeclFile`'s 128 lines
+want exactly `import("./…_Widgets").Widget1`; we print the bare baked
+name — a WRONG, not a gap, because `qualified_name_at` keeps the
+print when the chain declines). **Mechanism:** in that arm, after the
+alias roads decline, spell `import("./{module symbol name}").` — the
+module symbol's name IS the stripped file path in this port. Slice:
+same-directory relative specifiers only (`./` + name); anything with
+directory structure visible in the name keeps the decline.
+**Bar:** ≥80 of the case's 128 at ≥10:1. Falsifiers: (a) sites where
+upstream prints the BARE name despite non-resolution (the §31 mint
+family) — any R→W in privacy-family cases fires it; (b) ambiguity —
+`module_alias_at`'s Err(true) refusal stays ahead of this arm;
+(c) cross-directory modules must keep declining (wrong specifier is
+worse than bare).
