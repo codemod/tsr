@@ -4539,7 +4539,12 @@ road. **Bar:** slice 1 first, alone: operands stop printing any
 arm fires only when the member EXISTS); (b) late-bound member reads
 elsewhere unchanged (the binder-display precedent's population).
 
-## §111 — const-T inference: the §103 head's last machine [checker-2]
+## §112 — const-T inference: the §103 head's last machine [checker-2]
+
+[Renumbered from §111 after the ancestry check: checker-1's hasInstance
+claim (06f05c3) precedes this bar (0ca26c1) on main — verified both
+directions, the mirror of the §109/§110 collision. The two commit
+messages naming §111 are immutable and stale; this header is the record.]
 
 §33's decline (calls.rs:481) measured the naive lift at 70 G→W when
 NONE of the readonly machinery existed; all of it now does (§104,
@@ -4567,7 +4572,7 @@ decline's lift is keyed on `is_const` exactly), §98's retention
 converts, §105's readonly population. Adverse over 1:5 re-instates
 the decline with the new measurement recorded beside §33's old 70.
 
-**§111 — REFUSED at 15:6 after three measured gates; the code is
+**§112 — REFUSED at 15:6 after three measured gates; the code is
 reverted whole.** The lift's iterations, each measured: (1)
 unrestricted — 19:49 (typeParameterConstModifiersReturnsAndYields
 40: non-literal arguments reach unmodelled inference arms); (2)
@@ -4588,3 +4593,15 @@ G→W pre-readonly). DO NOT retry without both mechanisms; the
 readonly machinery alone was necessary but is now measured
 insufficient. The §103 head stays open with a sharper spec than it
 had this morning.
+
+**§98 attributes2 residue — shape SHIFTED under the day's landings
+(recorded for the next trace).** The original one-liner
+(autoIncrement `boolean` vs `true`) is now FOUR lines of two kinds:
+`type : "string"` wants retention we miss (0:101/0:102 — got
+`string`; the §98 retention road should retain against the
+discriminated member `'string'`, and the DISCRIM instrumentation
+shows elimination firing with plausible include masks), and ONE
+autoIncrement still answering `true` where discrimination should
+remove its constituent (0:109). The discriminate_union_root
+eprintln (env-gated, kept) prints the include masks; next trace
+starts by pairing masks to call sites.
