@@ -22977,3 +22977,46 @@ is exactly what its name says.
 3. **A refusal's owner can be wrong about the row without being wrong about the
    mechanism.** "TS2394 is signature assignability" was true and still hid
    sixteen cases of `number` versus `string`.
+
+## §410 — TS2741 is not dead, and §400's verdict is corrected
+
+§409's first lesson — *`absent` beats `decidably different`* — points straight at
+TS2741, which **is** the missing-member diagnostic: 46 blocked, 32 single-line,
+`occupied 0/91`. §400 had marked it **RELATION ONLY — dead** on the grounds that
+its only upstream site is in `relater.go`.
+
+That verdict was wrong, and the correction is worth more than the row.
+
+- The rule **is already ported** (`assignreport.rs:528`), and its doc comment
+  already makes §409's argument, three hundred sections early: *"This asks a
+  different question — is a required property absent — and that one is answered
+  by the member tables alone… No relation runs, so no incompleteness leaks."*
+- The position **is** dispatched: `contextualTyping5` is
+  `class foo { public bar:{id:number;} = { }; }`, and the `PropertyDeclaration`
+  arm calls `check_annotated_initializer`, which handles that node kind.
+
+So the decline is neither the position (§347), nor the dispatch (§380), nor the
+site (§375). It is inside `missing_required_property`, whose first two lines are
+
+```rust
+let target_properties = self.declared_property_table(target)?;
+let source_properties = self.declared_property_table(source)?;
+```
+
+and one of those `?`s answers `None` for an **object-literal source type**.
+
+**Owner: `declared_property_table` for an anonymous object-literal type.** 46
+cases, and it is a table lookup rather than a relation — which is why the row is
+worth reopening rather than refusing.
+
+> **A file-level detector cannot see a rule that is already ported.** §400 ranked
+> by *which upstream file reports the code* and concluded `relater.go` means
+> dead. It means the *upstream* code lives in the relation; it says nothing
+> about whether this port has already extracted a decidable subset of it — and
+> here the extraction happened in §16's era and the note was never read back
+> into the ranking.
+
+The detector's rule should be: **`relater.go`-only marks a row dead *unless this
+port already emits the code*.** `diagdeepen` answers that in the column beside
+it — TS2741 shows **48 emits** — and the two instruments disagreeing was the
+signal I read past.
