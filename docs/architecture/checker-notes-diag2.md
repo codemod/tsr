@@ -16944,3 +16944,85 @@ factories, so the first is asserting the directive rather than a constant.
 
 Recorded here rather than filed as seven issues, because the actionable moment
 is *when the rule is ported* and this file is what gets read then.
+
+## §265 — TS1046, `declare` required at the top level of a `.d.ts`
+
+Off §256's re-rank; new since the last one. `checkGrammarSourceFile`
+(`grammarchecks.go:2043`) is two lines:
+
+```go
+return node.Flags&ast.NodeFlagsAmbient != 0 &&
+    c.checkGrammarTopLevelElementsForRequiredDeclareModifier(node)
+```
+
+and the per-statement test (`:2011`) is a list of exemptions with upstream's own
+grammar comment above it:
+
+```
+ExportAssignment · export_opt InterfaceDeclaration · export_opt TypeAliasDeclaration
+export_opt ImportDeclaration · export_opt ExternalImportDeclaration
+export_opt AmbientDeclaration
+```
+
+so `interface`, `type`, `import`, `import =`, `export …`, `export =`,
+`export as namespace`, and anything carrying `declare` / `export` / `default`
+are all exempt; every other top-level *declaration* or `VariableStatement` is
+TS1046, reported on its **first token**.
+
+### Why the file-level entry, not the node walk
+
+`checkGrammarSourceFile` runs the loop itself rather than letting the walk reach
+each statement, because the exemption list is about **top-level** position. A
+`declare` is not required on a statement inside a namespace body — that
+container is already ambient — and a node-walk arm would have to re-derive
+"is this a direct child of the file" at every statement. This port has the same
+choice available: `check_source_file` already knows the file and its
+`FileContext.ambient`.
+
+### The bar
+
+```
+bar:  +5 cases of 7,  0 LOST
+```
+
+### Falsifiers
+
+1. **A well-formed `.d.ts` reports.** The corpus is full of them and every
+   declaration in them carries `declare` or `export`; a wrong exemption list
+   detonates rather than drifts.
+2. **A `.ts` file reports.** The whole rule is behind the ambient flag.
+
+## §266 — §265 built: +7 of a ceiling of 7, `WRONG 0`
+
+```
+diagnostics   1,712 → 1,719   (+7, bar was +5, ceiling was 7)
+CONVERTS 7 · LOST 0 · STILL SHORT 2 · RIGHT 9 · WRONG 0
+every other suite unmoved — falsifiers 1 and 2 negative
+```
+
+**Fourth no-producer row to take its whole ceiling** (§225 TS1121, §227 TS2524,
+§241 TS6053, this), and the second to do it at zero wrong lines.
+
+### Why this one was clean
+
+The rule is a **list of exemptions**, and upstream writes the list out as
+grammar directly above the code. There is nothing to infer: `interface`, `type`,
+`import`, `import =`, `export …`, `export =`, `export as namespace`, and any
+`declare`/`export`/`default` modifier. Everything else in a `.d.ts` top level is
+the diagnostic.
+
+> **A rule whose upstream source contains its own specification is the cheapest
+> kind to port, and the ranked gap does not distinguish it from any other.**
+> TS1046 sat at 7 cases behind rows five times its size for the whole session;
+> what made it a twenty-minute build was the comment block, which no instrument
+> can see.
+
+### Two details that would have cost lines
+
+- **The loop returns on the first offender** (`checkGrammarTopLevelElementsFor…`
+  returns `true`), so a `.d.ts` with four bare declarations is *one*
+  diagnostic. Reporting all four would have been four wrong lines under §152's
+  multiset comparison.
+- **`grammarErrorOnFirstToken`**, not the declaration name — the column is the
+  `function` keyword, not the function's name. §232 and §234 are the same
+  distinction from the other side.

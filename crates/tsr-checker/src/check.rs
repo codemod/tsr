@@ -120,6 +120,7 @@ impl Checker<'_, '_> {
         self.file_has_parse_errors = context.has_parse_errors;
         self.file_is_ambient = context.ambient;
         self.reset_unused_state();
+        self.check_top_level_declare_modifiers(file, context.ambient);
         self.check_node(file, context.ambient, 0);
         // `checkSourceFile` (`checker.go:2220`) runs the unused-identifier pass
         // *after* the file's own check, because it reads reference marks the
@@ -2736,6 +2737,66 @@ impl Checker<'_, '_> {
             file,
             Diagnostic::new(&messages::GENERATORS_ARE_NOT_ALLOWED_IN_AN_AMBIENT_CONTEXT, span),
         );
+    }
+
+    /// TS1046 — `Top-level declarations in .d.ts files must start with either
+    /// a 'declare' or 'export' modifier.`
+    ///
+    /// `checkGrammarSourceFile` (`grammarchecks.go:2043`) and the loop beneath
+    /// it. Run **from the file** rather than from a dispatch arm, as upstream
+    /// does, because the exemption list is about *top-level* position: a
+    /// declaration inside a namespace body needs no `declare`, its container is
+    /// already ambient, and a per-node arm would have to re-derive "is this a
+    /// direct child of the file" at every statement. §265.
+    fn check_top_level_declare_modifiers(&mut self, file: NodeId, ambient: bool) {
+        if !ambient || self.file_has_parse_errors {
+            return;
+        }
+        let Some(Node::SourceFile(source)) = self.node_map.get(file) else { return };
+        for statement in source.statements {
+            let Some(id) = statement.node_id() else { continue };
+            // `ast.IsDeclarationNode(decl) || decl.Kind == KindVariableStatement`,
+            // narrowed to the statement kinds that reach a `.d.ts` top level.
+            let modifiers = match statement {
+                tsr_ast::Statement::FunctionDeclaration(n) => n.modifiers,
+                tsr_ast::Statement::ClassDeclaration(n) => n.modifiers,
+                tsr_ast::Statement::EnumDeclaration(n) => n.modifiers,
+                tsr_ast::Statement::ModuleDeclaration(n) => n.modifiers,
+                tsr_ast::Statement::VariableStatement(n) => n.modifiers,
+                // `interface`, `type`, `import`, `import =`, `export …`,
+                // `export =` and `export as namespace` are all exempt by kind
+                // (`grammarchecks.go:2025`).
+                _ => continue,
+            };
+            if modifiers.iter().any(|modifier| {
+                matches!(
+                    modifier,
+                    tsr_ast::ModifierLike::Token(token)
+                        if matches!(
+                            token.kind,
+                            SyntaxKind::DeclareKeyword
+                                | SyntaxKind::ExportKeyword
+                                | SyntaxKind::DefaultKeyword
+                        )
+                )
+            }) {
+                continue;
+            }
+            let Some(file_id) = self.source_file_of_for_diagnostics(id) else { continue };
+            // `grammarErrorOnFirstToken` — the node's own start, which is the
+            // first token's start once trivia is skipped.
+            let span = self.nodes.span(id);
+            self.report(
+                file_id,
+                Diagnostic::new(
+                    &messages::TOP_LEVEL_DECLARATIONS_IN_D_TS_FILES_MUST_START_WITH_EITHER_A_DECLARE_OR_EXPORT_MODIFIER,
+                    span,
+                ),
+            );
+            // `checkGrammarTopLevelElementsForRequiredDeclareModifier` returns
+            // on the **first** offender.
+            return;
+        }
     }
 
     /// TS1039 — `Initializers are not allowed in ambient contexts.`
