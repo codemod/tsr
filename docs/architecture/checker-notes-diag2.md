@@ -11746,3 +11746,114 @@ population. **Which anchors carry the 691 never-reached lines is unmeasured**,
 and it decides whether 132 cases is one build or eight: `ts2322split.rs` prints
 positions and not node kinds, and adding the kind is a small extension to the
 same probe. **Do that before writing an anchor.**
+## §173 — `declare global` merging, rebuilt and LANDED; §171's LOST 1 explained
+
+§171 built this half, measured it, and reverted it at `LOST 1` with the note
+that *"that single case is what the next attempt has to explain before this
+lands"*. It is explained, it was not the merge, and the fix is in the checker.
+
+### The measurement, one checkout, before and after
+
+| | before (`22d745c`) | after |
+|---|---:|---:|
+| `binder_symbols` | 8,459/8,459 (100.00%) | 8,459/8,459 (100.00%) |
+| `diagnostics` | 1,524/5,488 (27.77%) | 1,524/5,488 (27.77%) |
+| `checker_types` cases | 3,955/9,538 (41.47%) | 3,957/9,538 (41.49%) |
+| `checker_types` lines | 405,111 (84.5824%) | 405,403 (84.6434%) |
+
+**`diagnostics` did not merely net to zero — no case changed verdict**, in
+either direction. That is a stronger statement than §171's `1,524 → 1,523` and
+it is the one the bar asked for.
+
+§171 recorded `checker_types +2` and nothing about lines; the line figure is
+**+292**, and it is where the interesting content is. Per-case, +2/−0 verdicts
+and 54 cases whose line tally moved, of which 53 gained and one lost
+(`compiler/importAliasInModuleAugmentation`, 12/19 → 10/19). The gainers are
+overwhelmingly JSX — `jsxChildrenIndividualErrorElaborations` +42,
+`reactDefaultPropsInferenceSuccess` +27, `tsxNotUsingApparentTypeOfSFC` +15 —
+because `declare global { namespace JSX { … } }` now reaches a lookup. That is
+item (2) of the three §171 priced the TS7026 row at; item (1), `file_loader`
+following `/// <reference path>`, is still the binding constraint and still owns
+that row's wrong column.
+
+### The LOST case was `compiler/extendGlobalThis`, and it was named in one run
+
+Found with `examples/casequery.rs --list`, written for this session: a suite
+run that emits one row per case, diffed across the change. The committed
+snapshot truncates at the first 100 failures, so a −1 over 5,488 cases named the
+case nowhere; the previous session left it "unidentified" for that reason.
+
+```
+2615c2615
+< compiler/extendGlobalThis	PASS
+---
+> compiler/extendGlobalThis	FAIL
+```
+
+The case writes `declare global { namespace globalThis { var test: string } }`
+and then `globalThis.tests = "a-b"` — a typo, deliberately. We reported
+`TS2339 Property 'tests' does not exist`; upstream's baseline reports nothing
+and its `.types` says `>globalThis.tests : any`.
+
+**Two separate causes, both real, neither the merge.**
+
+1. **`globalThis` is not a name in the global table upstream, it is the table.**
+   `c.globalThisSymbol.Exports` **is** `c.globals` (`checker.go:963`), so
+   merging a `namespace globalThis` into the `globalThis` entry deposits its
+   members in the global table itself. This port has no `globalThis` symbol at
+   all — §33 of `checker-notes-narrow.md` mints `typeof globalThis` as a *type*
+   when the name fails to resolve. The plain `mergeSymbolTable` arm therefore
+   inserted the namespace under the name `globalThis`, which is wrong twice:
+   the name starts resolving so §33's mint stops firing, *and* `test` stays
+   invisible because nothing reads that symbol's exports.
+   `Binder::merge_into_globals` splices instead.
+
+2. **A missing member of `globalThis` is never TS2339.** It has its own arm
+   several branches before `reportNonexistentProperty`
+   (`checker.go:11337-11344`): TS2339 only when the name *is* a global and is
+   `SymbolFlagsBlockScoped`, TS7017 under `noImplicitAny`, and `anyType`
+   otherwise. This port had never reached that arm, because until globals
+   carried what a `declare global` block declares, `typeof globalThis` had
+   nothing in it that `declared_members_are_complete` would call complete. The
+   merge is what made an unported branch reachable, not what broke the case.
+
+The transferable part: **a regression a merge exposes is not a regression the
+merge caused**, and the distinction is only available if the instrument names
+the case. §171's honest "unidentified, and worth explaining rather than
+bounding away" was the right call; what it lacked was the tool.
+
+### The gate, which is narrower than the previous attempt's
+
+§171 ported this as *"record every top-level `ModuleDeclaration` whose name is
+the identifier `global` … then merge that block's exports **and its body's
+locals**"*. Both halves of that are wrong, and there is now a test for each:
+
+- **The name is not the predicate; the keyword is.** `ast.IsGlobalScopeAugmentation`
+  tests `Keyword == KindGlobalKeyword`, which is what separates
+  `declare global` from `namespace global`.
+- **Position matters.** Only a block upstream's *parser* collected into
+  `SourceFile.ModuleAugmentations` is merged, and `collectModuleReferences`
+  (`internal/parser/references.go:47-69`) collects exactly the two shapes
+  `ast.IsModuleAugmentationExternal` names. A `global` block at the top level of
+  a *script*, or inside a module *augmentation*, is TS2669 and merges nothing —
+  verified against `tsc` 5.x in both directions, not reasoned about.
+- **Locals must not be merged.** `mergeModuleAugmentation` unions `Symbol.Exports`
+  only. The observable case is a block containing an explicit `export {}`, which
+  turns the export context off: `tsc` then reports TS2304 at the use site.
+
+Each is pinned by a test in `crates/tsr-binder/tests/program.rs` that was
+checked to fail under the mutation it exists to catch — the five positive tests
+against the feature reverted, the two position tests against an ungated
+predicate, and the export-context test against a locals-merging one.
+
+### What it exposed, recorded rather than fixed
+
+Pointing `tsr` at a 22-package monorepo took reported errors from **1,996 to
+1,550**, removing all 474 `typeof process` / `typeof console` property errors
+and all 64 unresolved `fetch`/`Response`/`URL` names. It also *added* 92 —
+79 TS2300 and 13 TS2649 — from a pre-existing collision this port carries and
+the corpus cannot exhibit: ambient module symbols are stored under the unquoted
+specifier, where upstream keeps the quotes (`binder.go:311`), so
+`declare module "process"` and a global `var process` share a key. Written up
+in `docs/architecture/binder.md` with the minimal repro and the reason the
+previously-recorded objection to fixing it no longer holds.

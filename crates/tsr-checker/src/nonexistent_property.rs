@@ -25,6 +25,12 @@ use tsr_diagnostics::{Diagnostic, messages};
 
 use crate::checker::Checker;
 
+/// `ast.SymbolFlagsBlockScoped` (`internal/ast/symbolflags.go:77`) — the names
+/// that live in the global *scope* without being properties of the global
+/// *object*.
+const BLOCK_SCOPED: SymbolFlags =
+    SymbolFlags::BLOCK_SCOPED_VARIABLE.union(SymbolFlags::CLASS).union(SymbolFlags::ENUM);
+
 impl Checker<'_, '_> {
     /// The nonexistent-property check for one property access.
     ///
@@ -55,6 +61,9 @@ impl Checker<'_, '_> {
 
         let Some(receiver_id) = receiver.node_id() else { return };
         let receiver_type = self.check_expression(receiver);
+        if self.global_this_member_is_not_reported(receiver_type, name.text) {
+            return;
+        }
         if !self.receiver_type_is_the_declared_one(receiver_id, receiver_type)
             || !self.declared_members_are_complete(receiver_type)
         {
@@ -102,6 +111,63 @@ impl Checker<'_, '_> {
                 [name.text.to_string(), printed],
             ),
         );
+    }
+
+    /// Whether `globalThis.<name>` is a missing property upstream stays silent
+    /// about — which is nearly all of them.
+    ///
+    /// `globalThis` does not reach `reportNonexistentProperty` at all. It has
+    /// its own arm several branches earlier
+    /// (`internal/checker/checker.go:11337-11344`), and the arm's answer is
+    /// `anyType`:
+    ///
+    /// ```go
+    /// if leftType.symbol == c.globalThisSymbol {
+    ///     globalSymbol := c.globalThisSymbol.Exports[right.Text()]
+    ///     if globalSymbol != nil && globalSymbol.Flags&ast.SymbolFlagsBlockScoped != 0 {
+    ///         c.error(right, diagnostics.Property_0_does_not_exist_on_type_1, …)
+    ///     } else if c.noImplicitAny {
+    ///         c.error(right, diagnostics.Element_implicitly_has_an_any_type_because_type_0_has_no_index_signature, …)
+    ///     }
+    ///     return c.anyType
+    /// }
+    /// ```
+    ///
+    /// So TS2339 is reported for exactly one shape: a name that **is** a global
+    /// and is `let`/`const`/`class`/`enum`, because those live in the global
+    /// *scope* without being properties of the global *object*. An undeclared
+    /// name is TS7017 under `noImplicitAny` and silence otherwise — never
+    /// TS2339.
+    ///
+    /// `SymbolFlagsBlockScoped` is `BlockScopedVariable | Class | Enum`
+    /// (`internal/ast/symbolflags.go:77`).
+    ///
+    /// **Why this landed with the `declare global` merge rather than before
+    /// it.** Until globals carried what a `declare global` block declares, this
+    /// port's `typeof globalThis` had nothing in it that
+    /// [`Checker::declared_members_are_complete`] would call complete, so the
+    /// rule declined on that gate and the missing arm was invisible.
+    /// `compiler/extendGlobalThis` — which augments `namespace globalThis` and
+    /// then writes `globalThis.tests` where `test` was declared — is the case
+    /// that turned it up, as a `diagnostics` regression of exactly one. Its
+    /// `.types` baseline records `>globalThis.tests : any`, with no error, and
+    /// the case runs `@strict: false` so the `noImplicitAny` arm is off too.
+    ///
+    /// **TS7017 is not ported here.** It is a different code with its own row,
+    /// and reporting it from this file would put an implicit-any diagnostic in
+    /// the nonexistent-property rule. What this function owes is the silence.
+    fn global_this_member_is_not_reported(
+        &mut self,
+        receiver_type: crate::types::TypeId,
+        name: &str,
+    ) -> bool {
+        if Some(receiver_type) != self.global_this_type {
+            return false;
+        }
+        !self
+            .binder
+            .global(name)
+            .is_some_and(|symbol| self.binder.symbols().get(symbol).flags.intersects(BLOCK_SCOPED))
     }
 
     /// Is the receiver's type the one its declaration says, rather than one

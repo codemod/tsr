@@ -653,6 +653,26 @@ pub static COMPILER_OPTIONS: &[OptionDeclaration] = &[
         },
         ..OptionDeclaration::DEFAULT
     },
+    // `declscompiler.go:1179-1186`. A language-service option: upstream declares
+    // it so that `tsc` accepts it, and `core.CompilerOptions` has **no field for
+    // it** — the compiler never reads the value. Declared here for the same
+    // reason and stored nowhere, so a config that configures an editor plugin
+    // does not draw `TS5023: Unknown compiler option 'plugins'` from a
+    // type-checking run. Three hits in one 22-package monorepo.
+    //
+    // Upstream's kind is a bare `CommandLineOptionTypeList` with no element
+    // type, so the elements are unvalidated; the real shape is
+    // `[{ "name": "…", … }]`. `apply` therefore checks only that the value is a
+    // list, which is what `option_type_name` will name in the diagnostic if it
+    // is not.
+    OptionDeclaration {
+        name: "plugins",
+        kind: OptionKind::List(&OptionKind::String),
+        is_file_path: false,
+        apply: |_, value| matches!(value, ConfigValue::List(_)),
+        is_tsconfig_only: true,
+        ..OptionDeclaration::DEFAULT
+    },
     OptionDeclaration {
         name: "paths",
         kind: OptionKind::PathMap,

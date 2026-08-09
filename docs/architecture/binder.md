@@ -496,6 +496,148 @@ Named here rather than left to be discovered. Each has a `bd` issue.
 
 ---
 
+## `declare global { … }` — augmenting the global scope
+
+A module's top-level names are its exports, not globals; that is the whole
+distinction between a script and a module and it is why `merge_globals` skips
+external modules. `declare global { … }` is the escape hatch, and it is how
+essentially every `@types/*` package puts a name in scope.
+
+Three layers each do a piece, and it is worth naming which, because the feature
+is invisible in the layer it looks like it should live in:
+
+| layer | upstream | what it decides |
+|---|---|---|
+| parser | `collectModuleReferences` (`internal/parser/references.go:47-69`) | **which** `global { … }` blocks count |
+| binder | `getDeclarationName` (`binder.go:309`) | the block's symbol is called `__global` and sits in the file's locals |
+| checker | `initializeChecker` (`checker.go:1335-1343`), `mergeModuleAugmentation` (`:1406`) | the block's **exports** are unioned into `c.globals` |
+
+This port does the collection and the merge in the binder, because
+`merge_globals` already lives there ([ADR-0034](../adr/0034-a-program-needs-one-identity-space.md):
+a `BindResult` *is* the program's symbol state) and because the binder holds the
+three inputs upstream's collector reads — `in_ambient_module`, `is_module`, and
+the ancestor chain. See `Binder::is_merged_global_augmentation`.
+
+### The gate is narrower than "a block spelled `global`"
+
+`ast.IsGlobalScopeAugmentation` is one line — a module declaration whose keyword
+is `global` — and it is not the question. Only a block upstream's *parser*
+collected is ever merged, and it collects two shapes:
+
+```ts
+// (1) top level of an external module
+export {};
+declare global { var gvar: string }
+
+// (2) directly inside an ambient module declaration, in a file that is NOT a module
+declare module "m" {
+    global { var inner: string }
+}
+```
+
+Everything else is a **diagnostic, not a merge**: `checkModuleDeclaration`
+reports TS2669 (*"Augmentations for the global scope can only be directly nested
+in external modules or ambient module declarations"*) for a `global` block
+anywhere else. In particular, adding `export {};` to the top of the second file
+turns its `global` block from a merge into a TS2669 — checked against `tsc` 5.x
+rather than reasoned about, and both directions are pinned by tests in
+`tests/program.rs`.
+
+The two shapes are exactly `ast.IsModuleAugmentationExternal`
+(`internal/ast/utilities.go:1694`), which is why the predicate reads that rather
+than replaying the collector's recursion.
+
+### Exports, not locals
+
+`mergeModuleAugmentation` unions `moduleAugmentation.Symbol.Exports`. The
+block's *locals* are a different table and must not be merged: in the shapes
+that reach the merge the block is an export context, so every declaration in it
+produces both halves of `declareModuleMember`'s local/export pair, and the
+export half is the one carrying the real flags.
+
+The observable difference is a block that writes `export` explicitly, which
+turns the export context off:
+
+```ts
+export {};
+declare global {
+    var notGlobal: string;
+    export {};              // TS2666 — and `notGlobal` is now a local, not a global
+}
+```
+
+`tsc` reports `TS2304: Cannot find name 'notGlobal'` at the use site. An earlier
+attempt at this feature merged both tables; that test is what fails under it.
+
+### `globalThis` is not a name in the table, it *is* the table
+
+`namespace globalThis { … }` is the supported way to add a property to the
+global object, and upstream implements it purely by aliasing:
+
+```go
+c.globalThisSymbol = c.newSymbolEx(ast.SymbolFlagsModule, "globalThis", ast.CheckFlagsReadonly)
+c.globalThisSymbol.Exports = c.globals          // checker.go:963 — the same map
+c.globals[c.globalThisSymbol.Name] = c.globalThisSymbol
+```
+
+So `mergeSymbolTable` finds `globalThis` already in the table, merges into it,
+and the namespace's members land in `c.globals` itself.
+
+This port has no `globalThis` symbol — `typeof globalThis` is *minted as a type*
+when the name fails to resolve (`checker-notes-narrow.md` §33), and member
+access on it reads `globals` directly. So `Binder::merge_into_globals` splices
+the namespace's exports in rather than inserting it under the name. Doing the
+plain thing instead is wrong twice over and was measured as such: `globalThis`
+starts resolving as an identifier so the mint stops firing, *and* the names
+inside the namespace stay invisible because nothing reads that symbol's exports.
+`compiler/extendGlobalThis` is the case.
+
+### What it cost, and a known collision it exposed
+
+Measured at the landing commit, one checkout, before and after:
+
+| | before | after |
+|---|---:|---:|
+| `binder_symbols` | 8,459/8,459 | 8,459/8,459 |
+| `diagnostics` | 1,524/5,488 | 1,524/5,488 — **and no case changed verdict** |
+| `checker_types` cases | 3,955/9,538 | 3,957/9,538 |
+| `checker_types` lines | 405,111 (84.58%) | 405,403 (84.64%) |
+
+The line gain is concentrated in JSX cases, because `declare global { namespace
+JSX { … } }` now reaches a lookup — which is the second of the three items
+`checker-notes-diag2.md` §171 priced the TS7026 row at.
+
+On a real repository (22 `tsconfig.json` packages), reported errors fell from
+**1,996 to 1,550**. All 474 `typeof process` / `typeof console` property errors
+and all 64 `Cannot find name` reports for `fetch`, `Response`, `URL` and the
+rest disappeared.
+
+**It also exposed a latent defect, and the count is honest about it.** 92 of the
+remaining errors are *new*: 79 spurious TS2300 and 13 spurious TS2649. Their
+cause is not this feature. Upstream names an ambient module symbol with the
+quotes in it — `"\"" + moduleName + "\""`, `binder.go:311` — so `c.globals` holds
+`"process"` and `process` as two keys. This port stores the text unquoted and
+recovers the distinction from the declaration's shape
+(`tsr_checker::Checker::ambient_module`), which works until something else claims
+the name — and `@types/node` declares both `declare module "process"` and, in a
+global augmentation, `var process`. Minimal repro, on which `tsc` is silent:
+
+```ts
+// m.d.ts   (a script)
+declare module "amod" { export const x: number; }
+// g.d.ts   (a module)
+export {}; declare global { var amod: string; }
+```
+
+The conformance corpus contains no such collision — the per-case `diagnostics`
+diff across this change was empty — so **no suite here can see it**, which is the
+same shape of blind spot as the one below. The fix is to name ambient module
+symbols the way upstream does; the reason previously recorded against it (an
+owned string where every name borrows) no longer holds now that the binder has an
+arena and already allocates names through it.
+
+---
+
 ## Testing
 
 Three layers, each answering a different question.
@@ -512,8 +654,11 @@ condition node) because the failure mode of a filter is a graph that is quietly
 too big and still passes every positive test.
 
 **`crates/tsr-conformance`, suite `binder_symbols`** — judged against upstream's
-own `.symbols` baselines over the 12,444-case corpus. Currently 8,278/8,449
-(**97.98%**). See
+own `.symbols` baselines over the 12,444-case corpus. **8,459/8,459 (100.00%)**,
+measured 2026-08-08 — corrected from `8,278/8,449 (97.98%)`, which was the
+reading when this paragraph was written and had not been revised since. Read
+"What the `.symbols` oracle cannot see" below before reading 100% as a finished
+binder. See
 [ADR-0006](../adr/0006-conformance-oracle.md) for why the baselines are the right
 oracle and [conformance.md](conformance.md) for what the suite does and does not
 compare.
@@ -521,6 +666,62 @@ compare.
 The flow graph has **no conformance oracle at all**: upstream publishes no
 baseline of it, and the checker that would exercise it does not exist. That is a
 real gap, and it is why `tests/flow.rs` is written as carefully as it is.
+
+### What the `.symbols` oracle cannot see
+
+`binder_symbols` asks one question: *did we create a symbol of that name,
+declared on the same lines?* That is a question about **declaration positions**.
+It is not a question about **scope**, and the difference is not a detail — it is
+a whole class of defect the suite is structurally unable to report.
+
+A symbol bound into the wrong table, under the right name, from the right
+declaration, produces baseline-identical output. The suite compares what the
+baseline records; the baseline records where a symbol was *declared*, never where
+it can be *resolved from*.
+
+**`declare global` is the worked example, and it cost six sessions.** Roughly 40
+corpus cases use the syntax. Every one of them passed `binder_symbols` while the
+feature did not exist at all — the block's contents were bound as exports of an
+ordinary module named `global`, reachable from nowhere, and every declaration
+landed on exactly the line upstream said it would. `moduleAugmentationGlobal4` is
+the sharpest case: its baseline demands that `Something` carry declarations from
+both `f1.ts` and `f2.ts`, and the per-module `global` symbols merge across files
+for the same reason the real ones would, so it matched. Building the feature
+moved the suite by **zero**, exactly as predicted before the work started.
+
+Three more defects of the same shape are already on record above: a static member
+merged with an instance one, a block's locals merged with its function's, and one
+class's type parameter merged with another's. **Three of those four fixes did not
+move `binder_symbols` at all.**
+
+So the rule, stated once:
+
+> **A flat `binder_symbols` is not evidence that a symbol-table change is safe,
+> or that the tables are right.** It is evidence that declaration positions did
+> not change — which a scope bug does not change either.
+
+Watch the number for *decreases* when relocating symbols, because moving a symbol
+between tables can reorder the declaration list the baseline compares. Do not
+read a flat reading as a pass.
+
+**Closing this gap means checking resolution, not declarations**, and that is a
+different suite rather than a stricter one. Upstream's `.symbols` baselines do
+carry the information — each *occurrence* is annotated with the symbol it binds
+to — but the occurrence's own position is implicit in the layout, so recovering it
+means reconstructing the interleaving of source lines and annotations. Until that
+exists, the instruments that actually catch this class are the ones that ask a
+resolution question: `checker_types`, `diagnostics`, `tests/program.rs`, and — for
+anything involving `@types/*` — pointing the `tsr` binary at a real repository,
+which is what surfaced both the feature and the ambient-module-name collision
+above.
+
+**Per-case queries.** `examples/casequery.rs` runs any suite over the corpus and
+reports one row per case, or every case as a joinable TSV; a `--list` before and
+after a change names the case that regressed instead of leaving a net number to
+be explained. It is what found `compiler/extendGlobalThis` in one run. The
+committed snapshot cannot do this — it truncates at the first 100 failures — and
+`examples/diagcase.rs` (`diagnostics` only) and `examples/casedelta.rs`
+(`checker_types` only) each answer for one suite.
 
 ### How the number moved, and what it cost
 

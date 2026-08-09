@@ -294,6 +294,17 @@ pub(crate) struct Binder<'a, 'n> {
     export_context: bool,
     /// Whether we are inside a `declare` module.
     in_ambient_module: bool,
+    /// The symbols of this file's `declare global { … }` / `global { … }` blocks
+    /// whose exports merge into [`Binder::globals`].
+    ///
+    /// Upstream's `SourceFile.ModuleAugmentations`, filtered to the global ones
+    /// — the list `initializeChecker` walks before it builds the global types
+    /// (`internal/checker/checker.go:1335-1343`). Per file: [`merge_globals`]
+    /// drains it at the end of each `bind_source_file`, so `resuming` starts a
+    /// new file with an empty one.
+    ///
+    /// [`merge_globals`]: Binder::merge_globals
+    global_augmentations: Vec<SymbolId>,
     in_assignment_pattern: bool,
     seen_this_keyword: bool,
 
@@ -428,6 +439,7 @@ impl<'a, 'n> Binder<'a, 'n> {
             has_flow_effects: false,
             export_context: false,
             in_ambient_module: false,
+            global_augmentations: Vec::new(),
             in_assignment_pattern: false,
             seen_this_keyword: false,
             facts,
@@ -624,6 +636,94 @@ impl<'a, 'n> Binder<'a, 'n> {
         // upstream states the first-in-wins rule outright ("see #9771").
         for (name, symbol) in &self.global_exports {
             self.globals.entry(name).or_insert(*symbol);
+        }
+
+        // `declare global { … }`, which is the *only* way a file that is a
+        // module contributes a name to the global scope other than
+        // `export as namespace`. The block's own symbol is a local of the file
+        // called `global`; what becomes global is its **exports**, which
+        // `mergeModuleAugmentation` unions into `c.globals` with
+        // `mergeSymbolTable` (`internal/checker/checker.go:1406-1407`).
+        //
+        // Its *locals* are deliberately not merged. In the shapes that reach
+        // here the block is always an export context, so every declaration in
+        // it produces both halves of `declareModuleMember`'s pair and the
+        // export half is the one carrying the real flags — merging the locals
+        // as well would put the `ExportValue` marker symbols into `globals`
+        // alongside them.
+        //
+        // **Ordering.** Upstream runs this over every file at once, after the
+        // script-locals pass has run over every file
+        // (`initializeChecker`'s two loops, `checker.go:1300` and `:1335`).
+        // Here `merge_globals` is per file, so an augmentation in file 1 is
+        // merged before file 2's script locals rather than after. That is the
+        // same interleaving the script-locals and UMD passes above already
+        // have, and it only decides which of two *conflicting* declarations of
+        // one global name is the merge target — a case upstream leaves to
+        // `mergeSymbol`, which unions rather than picks.
+        for symbol in std::mem::take(&mut self.global_augmentations) {
+            let exports: Vec<(&'a str, SymbolId)> =
+                self.symbols.get(symbol).exports.iter().map(|(n, s)| (*n, *s)).collect();
+            for (name, source) in exports {
+                self.merge_into_globals(name, source);
+            }
+        }
+    }
+
+    /// One name from a global augmentation, into `globals`.
+    ///
+    /// This is `mergeSymbolTable`'s body for one entry
+    /// (`internal/checker/checker.go:14109-14126`), plus the one case where
+    /// upstream's data model does the work and this port's has to say it.
+    ///
+    /// # `globalThis` is not a name in the table, it *is* the table
+    ///
+    /// Upstream creates a `globalThis` symbol during `initializeChecker` and
+    /// aliases its export table to the global one:
+    ///
+    /// ```go
+    /// c.globalThisSymbol = c.newSymbolEx(ast.SymbolFlagsModule, "globalThis", ast.CheckFlagsReadonly)
+    /// c.globalThisSymbol.Exports = c.globals          // checker.go:963 — the same map
+    /// c.globals[c.globalThisSymbol.Name] = c.globalThisSymbol
+    /// ```
+    ///
+    /// So when a file writes `declare global { namespace globalThis { var t: string } }`
+    /// — which is the supported way to add a name to the global object —
+    /// `mergeSymbolTable` finds `globalThis` already in `c.globals`, calls
+    /// `mergeSymbol` on it, and the union of the namespace's exports lands in
+    /// `globalThisSymbol.Exports`, **which is `c.globals` itself**. The
+    /// namespace's members become globals. `mergeSymbol` even carries an
+    /// explicit `if target != c.globalThisSymbol` guard (`checker.go:14192`) to
+    /// keep that one symbol from being given a parent.
+    ///
+    /// This port has no `globalThis` symbol — §33 of
+    /// `docs/architecture/checker-notes-narrow.md` mints `typeof globalThis` as
+    /// a type when the *name* fails to resolve, and member access on it reads
+    /// `globals` directly (`tsr_checker::members`). There is therefore no entry
+    /// to merge into, and the plain `mergeSymbolTable` arm would instead insert
+    /// the namespace under the name `globalThis` — which is worse than doing
+    /// nothing twice over: `globalThis` starts resolving as an identifier, so
+    /// §33's mint stops firing, and the names inside the namespace stay
+    /// invisible because nothing reads that symbol's exports.
+    ///
+    /// Measured: doing exactly that lost `compiler/extendGlobalThis`, whose
+    /// `.types` baseline wants `globalThis.test : string` (the augmented name,
+    /// a global) and `globalThis.tests : any` (a missing one, no error).
+    /// Splicing the exports in, as below, produces both.
+    fn merge_into_globals(&mut self, name: &'a str, source: SymbolId) {
+        if name == GLOBAL_THIS {
+            let exports: Vec<(&'a str, SymbolId)> =
+                self.symbols.get(source).exports.iter().map(|(n, s)| (*n, *s)).collect();
+            for (name, source) in exports {
+                self.merge_into_globals(name, source);
+            }
+            return;
+        }
+        match self.globals.get(name) {
+            Some(&target) => self.merge_symbol(target, source, 0),
+            None => {
+                self.globals.insert(name, source);
+            }
         }
     }
 
@@ -912,6 +1012,15 @@ impl<'a, 'n> Binder<'a, 'n> {
         let saved_export_context = self.export_context;
         let saved_in_ambient = self.in_ambient_module;
         if let Node::ModuleDeclaration(module) = node {
+            // Recorded *before* `in_ambient_module` is overwritten below: the
+            // gate reads the ambience of the scope this block sits in, not the
+            // one it creates.
+            if let Some(symbol) = declared
+                && self.is_merged_global_augmentation(module)
+                && !self.global_augmentations.contains(&symbol)
+            {
+                self.global_augmentations.push(symbol);
+            }
             // An ambient module exports everything it declares — unless it uses
             // `export` explicitly somewhere, in which case only what it names.
             let ambient = self.in_ambient_module
@@ -939,6 +1048,69 @@ impl<'a, 'n> Binder<'a, 'n> {
         self.this_container = saved_this_container;
         self.export_context = saved_export_context;
         self.in_ambient_module = saved_in_ambient;
+    }
+
+    /// Whether this `global { … }` block's exports become globals.
+    ///
+    /// `ast.IsGlobalScopeAugmentation` (`internal/ast/utilities.go:1690`) is one
+    /// line — a `ModuleDeclaration` whose keyword is `global` — and it is *not*
+    /// on its own the question. Only a global augmentation that upstream's
+    /// parser collected into `SourceFile.ModuleAugmentations` is ever merged
+    /// (`initializeChecker`, `internal/checker/checker.go:1335`), and
+    /// `collectModuleReferences` (`internal/parser/references.go:47-69`)
+    /// collects two shapes and no others:
+    ///
+    /// - a **top-level** block in a file that is an external module —
+    ///   `export {}; declare global { … }`;
+    /// - a block **directly inside an ambient module declaration** that is
+    ///   itself top-level in a file that is *not* an external module —
+    ///   `declare module "m" { global { … } }` in a script `.d.ts`.
+    ///
+    /// Everything else is a *diagnostic*, not a merge: `checkModuleDeclaration`
+    /// reports TS2669 ("Augmentations for the global scope can only be directly
+    /// nested in external modules or ambient module declarations") for a global
+    /// block anywhere else (`checker.go:5203`, `:5209`). Verified against `tsc`
+    /// 5.x on the two-form fixture in `tests/bind.rs`: putting `export {}` in
+    /// the file that spells the second form turns its `global` block from a
+    /// merge into a TS2669 and the name it declares stops resolving.
+    ///
+    /// The two shapes are exactly `ast.IsModuleAugmentationExternal`
+    /// (`utilities.go:1694`), which upstream's *binder* already consults for
+    /// the string-named case, so this reads that predicate rather than
+    /// re-deriving the collector's recursion. They differ on one input:
+    /// `collectModuleReferences` also requires the enclosing context to be
+    /// ambient (`inAmbientModule || declare modifier || .d.ts`), which
+    /// `IsModuleAugmentationExternal` does not test. That gate is kept below,
+    /// because without it `global { … }` written in a `.ts` module with no
+    /// `declare` — which upstream reports as TS2669 and does not merge — would
+    /// merge here.
+    ///
+    /// The tree has no back-edges, so parent and grandparent are read from the
+    /// ancestor chain, whose last entry is the module declaration itself.
+    fn is_merged_global_augmentation(&self, module: &'a tsr_ast::ModuleDeclaration<'a>) -> bool {
+        // `ast.IsGlobalScopeAugmentation`. The parser gives the block a synthetic
+        // `global` *identifier* for a name, so the name cannot tell a global
+        // augmentation from `namespace global { … }` — the keyword can.
+        if module.keyword.kind != SyntaxKind::GlobalKeyword {
+            return false;
+        }
+        // `collectModuleReferences`' first gate.
+        if !(self.in_ambient_module || has_declare(module.modifiers) || self.in_declaration_file) {
+            return false;
+        }
+        // `ast.IsModuleAugmentationExternal`, on the ancestor chain.
+        let mut ancestors = self.ancestors.iter().rev().skip(1).map(|(_, node)| *node);
+        match ancestors.next() {
+            Some(Node::SourceFile(_)) => self.is_module,
+            Some(Node::ModuleBlock(_)) => {
+                matches!(
+                    (ancestors.next(), ancestors.next()),
+                    (Some(Node::ModuleDeclaration(outer)), Some(Node::SourceFile(_)))
+                        if is_ambient_module(outer)
+                ) && !self.is_module
+            }
+            _ => false,
+        }
     }
 
     /// The control-flow half of `bindContainer`: start a fresh graph, bind, and
@@ -3969,6 +4141,13 @@ pub(crate) const INTERNAL_DEFAULT: &str = "default";
 /// The name `export = x` files the module's whole value under
 /// (`ast.InternalSymbolNameExportEquals`).
 pub(crate) const INTERNAL_EXPORT_EQUALS: &str = "export=";
+/// The global object under its own name.
+///
+/// Not an internal name — it is spellable, and `namespace globalThis { … }` is
+/// the supported way to add a property to the global object. Upstream keeps a
+/// symbol for it whose export table *is* `c.globals` (`checker.go:962-964`);
+/// see [`Binder::merge_into_globals`] for why this port splices instead.
+pub(crate) const GLOBAL_THIS: &str = "globalThis";
 /// The name every `export * from "m"` in a module is collected under
 /// (`ast.InternalSymbolNameExportStar`).
 ///
@@ -4602,6 +4781,14 @@ fn computed_name<'a>(
         }
         _ => None,
     }
+}
+
+/// `ast.IsAmbientModule` (`internal/ast/utilities.go:1652`), for a node already
+/// known to be a module declaration: it is spelled with a string literal name,
+/// or it is a `global { … }` block.
+fn is_ambient_module(module: &tsr_ast::ModuleDeclaration<'_>) -> bool {
+    matches!(module.name, Some(tsr_ast::ModuleName::StringLiteral(_)))
+        || module.keyword.kind == SyntaxKind::GlobalKeyword
 }
 
 fn module_name(name: tsr_ast::ModuleName<'_>) -> &str {

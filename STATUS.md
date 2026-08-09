@@ -52,6 +52,7 @@ fixes ride into the checker rows.
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 492/1,162 | 42.34% | |
 | **`checker_types`** | **3,955/9,538** | **41.47%** | measured at `88d0e63` (gradient **84.63%**, right 405,390 — the fifteenth session's §89–§92 block: degenerate-union parses, instantiated-alias members, conditional-alias evaluation, and the shape property road); previous row (3,927 at `2c3de45`, gradient 84.34): **gradient 84.40% at build 138** (this row's case count was taken at build ~133 by the diagnostics session; the .types session's builds 128–135 landed §75–§77.3 on top — see §7's newest row). **+21 of these are [ADR-0042](docs/adr/0042-checker-options-come-from-compiler-options.md) with no checker change**, counterfactualled twice from different bases (3,842 → 3,863 and 3,864 → 3,885) for the same delta; the §77 base underneath was not separately counterfactualled, so 3,914 is a measurement and the +21 inside it is an attribution |
+| **`checker_types`** (PENDING RE-MEASUREMENT) | | | this row is being rewritten |
 | `diagnostics` | **1,524/5,488** | **27.77%** | measured at `5d8f0ed`, 2026-08-09, fresh release run. **Fourteenth session (`diagnostics`) §156–§171: +73 over five builds, 0 lost.** Running total 80 → 1,524, **19.1×**. Also landed a one-line `tsr-binder` fix (§166) worth +13 to `checker_types`, and carried **two priced refusals (§163/§164, §170/§171) and two self-corrections (§165, §169)**, each with its numbers. `binder_symbols` 8,459/8,459 throughout |
 
 ### `checker_types`, the number the project is steered by
@@ -1303,6 +1304,41 @@ its whole deliverable and accept that it converts nothing until finished.
 
 ## 5. Refused, with the number that refused it
 
+### New, fifteenth session, `declare global`
+
+- **`declare global` merging is no longer refused — it is BUILT** (§173). §5 had
+  carried it for many sessions on §13's "12 conversions for 47 wrong", a number
+  measured against TS7026 alone; §171 measured the merge itself for the first
+  time and reverted it at `LOST 1`. Rebuilt, and the LOST is explained rather
+  than bounded: it was `compiler/extendGlobalThis`, and it was two *checker*
+  gaps the merge made reachable, not a defect in the merge. Landed at
+  **`binder_symbols` unmoved, `diagnostics` with no case changing verdict in
+  either direction, `checker_types` +2 cases and +292 lines.**
+
+- **Ambient module symbols share a key with value globals, and no suite here can
+  see it** (§173, `docs/architecture/binder.md`). Upstream stores an ambient
+  module symbol under the *quoted* specifier (`binder.go:311`), so `c.globals`
+  holds `"process"` and `process` as two names; this port stores it unquoted and
+  recovers the distinction from declaration shape. **Measured: 79 spurious
+  TS2300 and 13 spurious TS2649 across a 22-package monorepo, and zero
+  conformance cases** — the per-case `diagnostics` diff across the change was
+  empty, so the corpus contains no such collision. Recorded rather than fixed
+  because renaming is a change with its own measurement; the objection
+  previously recorded against it (an owned string where every name borrows) no
+  longer holds, since the binder has an arena and already allocates names
+  through it.
+
+- **`binder_symbols` at 100% is not a binder that is finished** (§173). The
+  suite compares *declaration positions*, never *scope*. ~40 corpus cases use
+  `declare global` and passed for six sessions with the feature entirely absent,
+  because binding into the wrong table still puts every declaration on the right
+  line. Building it moved the suite by **zero**, as predicted before the work
+  started. This joins the three same-shape defects already on record (static vs
+  instance members, block vs function locals, per-class type parameters), three
+  of whose four fixes also moved it by zero. **Closing the gap means a
+  resolution suite, not a stricter symbols one.** Written up in
+  `docs/architecture/binder.md`, "What the `.symbols` oracle cannot see".
+
 ### New, thirteenth session, `diagnostics`
 
 - **The binder-merge item is now the board's LARGEST, at ~52 cases** (§141), and
@@ -1880,7 +1916,8 @@ Built and maintained; **use them, do not rebuild them.**
 | `examples/diagemit.rs` | **`want` against `have`, per code.** How many diagnostics of each code the baselines record beside how many this port emits. A large `want` with a zero `have` is a rule that is **not running**; a small `have` is one declining. It found TS2362 (863 lines) and TS2363 (768) — the two largest unported rows in the corpus, and nowhere near the top of `diaggap.rs`, because those lines almost always arrive beside a code this port already emits (`checker-notes-diag2.md` §65) |
 | `examples/extraonly.rs` | **the cases blocked by an extra diagnostic ALONE** — each is one false positive from passing, so the count *is* a forecast rather than a ceiling. **54** at `b78c4d7`; TS1005 38 and TS1012 15 of the original 58 are the parser's. Three builds forecast off it and three came in exact (`checker-notes-diag2.md` §58–§60) |
 | `examples/gaproot.rs` | root/cause split — ranks **causes**, not symptoms |
-| `examples/casedelta.rs` | **per-case joinable TSV.** A net hides a change that helps and harms at once |
+| `examples/casedelta.rs` | **per-case joinable TSV.** A net hides a change that helps and harms at once. `checker_types` only — it reads `types_suite::compare` directly |
+| `examples/casequery.rs` | **the same idea through the `Suite` trait, so it works for all sixteen.** `casequery <suite> <case>` prints one case's verdict, tally and the suite's own reason; `casequery <suite> --list` emits every case as a sorted TSV, and a `diff` across a change *names the case that regressed*. `casequery all <case>` asks every suite at once. Written because the committed snapshot truncates at the first 100 failures, so a suite that moves by −1 over 5,488 cases names the case nowhere — which is how §171 came to leave its single LOST "unidentified". §173 named it in one run. Prints its four tallies to stderr as a control against the snapshot |
 | `examples/reconcile.rs` | a probe's denominator against the suite's |
 | `examples/ceiling.rs` | the ADR-0038 unreachable bound |
 | `examples/rank_board.rs` | the gradient board, `TERMINAL`/propagated split |
@@ -2030,6 +2067,7 @@ holds only the numbers.
 | 2026-08-09 | `6ab4ef3` | **27.62%** | **1,516** | **+8 cases, 0 lost, 0 wrong** | **TS2709/TS2749** — §163's refused code, unchanged, re-run on top of §166. It measured 0 converts before and +8 after. The row's lesson: *a rule that measures 0 wrong AND 0 converts is not weak, it is unreached* — and `RIGHT`, not `WRONG`, is what tells the two apart. `checker-notes-diag2.md` §167–§168 |
 | 2026-08-09 | `f8b60df` | **27.77%** | **1,524** | **+8 cases, 0 lost, 19 wrong** | **The value-position meaning-mismatch arm.** §164 had measured it at 238 wrong lines against the pre-§166 resolver; re-measured on the fixed one it is 19. The stale number was wrong by an order of magnitude — §142's rule, demonstrated on this board's own figures. Makes §163's case bar, misses its wrong bar by 7, landed with the counter-argument recorded. `checker-notes-diag2.md` §169 |
 | 2026-08-09 | `5d8f0ed` | 27.77% | 1,524 | **REFUSED at LOST 1** | **TS7026 + `declare global` merging**, both built and both reverted. The rule is correct; its wrong column is one cause — `/// <reference path="/.lib/react16.d.ts" />` is not loaded, so `JSX.IntrinsicElements` is genuinely absent from a program that is not the one upstream compiled. **Owner: `file_loader`.** `declare global` merging is measured for the first time (removes 20 of 65 wrong lines; `binder_symbols` unmoved, `checker_types` +2, `diagnostics` −1). `checker-notes-diag2.md` §170–§171 |
+| 2026-08-08 | *(this session)* | 27.77% | 1,524 | **`declare global` LANDED: `checker_types` +2 cases / +292 lines, `diagnostics` no case changed verdict, `binder_symbols` unmoved** | §171's refused half, rebuilt with a narrower gate and its LOST explained. The gate is `IsGlobalScopeAugmentation && IsModuleAugmentationExternal` plus the collector's ambient test — a `global` block at the top level of a *script*, or inside a module *augmentation*, is TS2669 and merges nothing; and it is the block's **exports** that merge, never its locals. Both corrections are against the previous attempt and both have a test that fails under it. The LOST was `compiler/extendGlobalThis` and it was two *checker* gaps the merge made reachable: `c.globalThisSymbol.Exports` **is** `c.globals` upstream (`checker.go:963`), and a missing member of `globalThis` is never TS2339 (`checker.go:11337`). Also landed **`examples/casequery.rs`**, which named that case in one run, and the `plugins` compiler option (3 spurious TS5023 in one monorepo, `cli_baselines` 33/43 unchanged). Real-repo control: 1,996 → 1,550 errors over 22 packages, with 92 *new* ones attributed to a pre-existing unquoted-ambient-module-name collision and recorded in §5 rather than fixed. `checker-notes-diag2.md` §173, `docs/architecture/binder.md` |
 
 ## 8. Updating this file
 

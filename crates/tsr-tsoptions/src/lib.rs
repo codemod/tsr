@@ -782,6 +782,34 @@ mod tests {
     }
 
     #[test]
+    fn plugins_is_accepted_and_stored_nowhere() {
+        // A language-service option (`declscompiler.go:1181`). It is declared so
+        // that `tsc` accepts it and has no `core.CompilerOptions` field, so the
+        // only observable behaviour is the *absence* of TS5023 — which is
+        // exactly what a checking run of a real editor-configured repository
+        // needs.
+        let parsed = parse(
+            r#"{ "compilerOptions": { "plugins": [{ "name": "next" }], "strict": true } }"#,
+            &["/a.ts"],
+        );
+        assert!(
+            parsed.errors.is_empty(),
+            "`plugins` is a real option: {:?}",
+            parsed.errors.iter().map(tsr_diagnostics::Diagnostic::text).collect::<Vec<_>>()
+        );
+        assert_eq!(parsed.compiler_options.strict, Tristate::True);
+    }
+
+    #[test]
+    fn plugins_with_a_non_array_value_is_still_a_type_error() {
+        // Declaring an option this port stores nothing for must not turn it into
+        // one that accepts anything.
+        let parsed = parse(r#"{ "compilerOptions": { "plugins": "next" } }"#, &["/a.ts"]);
+        assert_eq!(parsed.errors.len(), 1);
+        assert!(parsed.errors[0].text().contains("Array"), "{}", parsed.errors[0].text());
+    }
+
+    #[test]
     fn an_option_of_the_wrong_type_is_reported_and_left_unset() {
         let parsed = parse(r#"{ "compilerOptions": { "strict": "yes" } }"#, &["/a.ts"]);
         assert_eq!(parsed.compiler_options.strict, Tristate::Unknown);

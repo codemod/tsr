@@ -551,3 +551,272 @@ fn a_conflicting_redeclaration_does_not_merge() {
         "a conflicting redeclaration is left alone, not merged",
     );
 }
+
+// ---------------------------------------------------------------------------
+// `declare global { … }` — the global-scope augmentation
+//
+// Upstream's `initializeChecker` merges each collected global augmentation's
+// **exports** into `c.globals` (`internal/checker/checker.go:1335-1343` and
+// `mergeModuleAugmentation`, `:1406`). Which blocks are collected is
+// `collectModuleReferences` (`internal/parser/references.go:47-69`), and it is
+// narrower than "every `global { … }`" — the two negative tests below are that
+// narrowness, and each was checked against `tsc` 5.x before being written down.
+//
+// **None of this is visible to `binder_symbols`**, which is why it lived
+// unbuilt for many sessions with ~40 corpus cases using the syntax and passing.
+// See `docs/architecture/binder.md`, "What the `.symbols` oracle cannot see".
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_declare_global_block_in_a_module_declares_globals() {
+    // The shape every `@types/*` package uses: a module that adds a name to the
+    // global scope. Before this merged, `gvar` was an export of a module symbol
+    // called `global` sitting in `augment.d.ts`'s locals, reachable from
+    // nowhere.
+    let arena = Arena::new();
+    let mut nodes = NodeTable::new();
+    let mut node_map = NodeMap::new();
+    let (result, files) = bind_program(
+        &arena,
+        &[
+            ("augment.d.ts", "export {};\ndeclare global {\n    var gvar: string;\n}\n"),
+            ("user.ts", "export {};\n"),
+        ],
+        &mut nodes,
+        &mut node_map,
+    );
+
+    assert!(
+        resolve(&result, &nodes, &node_map, &files[1], "gvar").is_some(),
+        "`declare global {{ var gvar }}` in a module is a global; globals are {:?}",
+        result.globals().keys().collect::<Vec<_>>(),
+    );
+}
+
+#[test]
+fn a_global_block_inside_an_ambient_module_in_a_script_declares_globals() {
+    // The other collected shape, and the one `@types/node` uses for `process`:
+    // `declare module "m" { global { … } }` in a file that is **not** an
+    // external module. `collectModuleReferences` reaches it by recursing into
+    // the ambient module's body, which it only does when that module is not
+    // itself an augmentation (`references.go:65`).
+    let arena = Arena::new();
+    let mut nodes = NodeTable::new();
+    let mut node_map = NodeMap::new();
+    let (result, files) = bind_program(
+        &arena,
+        &[
+            (
+                "m.d.ts",
+                "declare module \"m\" {\n    global {\n        var inner: string;\n    }\n}\n",
+            ),
+            ("user.ts", "export {};\n"),
+        ],
+        &mut nodes,
+        &mut node_map,
+    );
+
+    assert!(
+        resolve(&result, &nodes, &node_map, &files[1], "inner").is_some(),
+        "`declare module \"m\" {{ global {{ … }} }}` in a script is a global; globals are {:?}",
+        result.globals().keys().collect::<Vec<_>>(),
+    );
+}
+
+#[test]
+fn a_global_block_inside_an_ambient_module_in_a_module_declares_nothing() {
+    // The same syntax one file-level `export {}` away, and upstream does *not*
+    // merge it: the enclosing `declare module "m"` is then an external module
+    // augmentation, so `collectModuleReferences` collects it and never recurses
+    // into its body. `checkModuleDeclaration` reports TS2669 on the `global`
+    // instead (`checker.go:5203`).
+    //
+    // Verified with `tsc --noEmit`: adding `export {};` to the top of the file
+    // turns the reference to `inner` from clean into
+    // `TS2552: Cannot find name 'inner'` and adds the TS2669.
+    let arena = Arena::new();
+    let mut nodes = NodeTable::new();
+    let mut node_map = NodeMap::new();
+    let (result, files) = bind_program(
+        &arena,
+        &[
+            (
+                "m.d.ts",
+                "export {};\ndeclare module \"m\" {\n    global {\n        var inner: string;\n    }\n}\n",
+            ),
+            ("user.ts", "export {};\n"),
+        ],
+        &mut nodes,
+        &mut node_map,
+    );
+
+    assert!(
+        resolve(&result, &nodes, &node_map, &files[1], "inner").is_none(),
+        "a `global` block inside a module *augmentation* is TS2669, not a merge",
+    );
+}
+
+#[test]
+fn a_declare_global_block_in_a_script_declares_nothing() {
+    // Top level of a file that is not an external module. `IsExternalModule`
+    // is false and there is no enclosing ambient module, so
+    // `collectModuleReferences` files the block under `AmbientModuleNames` and
+    // never collects it — and `checkModuleDeclaration` reports TS2669
+    // (`checker.go:5203`, the `IsGlobalSourceFile(node.Parent)` arm).
+    //
+    // The block's own symbol is still a local of the file, and a script's
+    // locals *are* merged into globals — so what must be absent is `gvar`, not
+    // the name `global`.
+    let arena = Arena::new();
+    let mut nodes = NodeTable::new();
+    let mut node_map = NodeMap::new();
+    let (result, files) = bind_program(
+        &arena,
+        &[
+            ("script.d.ts", "declare global {\n    var gvar: string;\n}\n"),
+            ("user.ts", "export {};\n"),
+        ],
+        &mut nodes,
+        &mut node_map,
+    );
+
+    assert!(
+        resolve(&result, &nodes, &node_map, &files[1], "gvar").is_none(),
+        "a `declare global` at the top level of a script is TS2669, not a merge",
+    );
+}
+
+#[test]
+fn an_export_declaration_inside_a_global_block_stops_the_merge() {
+    // What merges is the block's **exports**, not its locals, and
+    // `setExportContextFlag` is what puts anything in them: an ambient module
+    // exports everything it declares *unless* it writes `export` explicitly
+    // (`binder.go:setExportContextFlag`). With an `export {}` inside, `notGlobal`
+    // is a plain local and the exports table is empty.
+    //
+    // This is the observable form of "locals are not merged". Verified with
+    // `tsc --noEmit`: the reference reports `TS2304: Cannot find name
+    // 'notGlobal'`, alongside TS2666 for the export declaration itself.
+    let arena = Arena::new();
+    let mut nodes = NodeTable::new();
+    let mut node_map = NodeMap::new();
+    let (result, files) = bind_program(
+        &arena,
+        &[
+            (
+                "augment.d.ts",
+                "export {};\ndeclare global {\n    var notGlobal: string;\n    export {};\n}\n",
+            ),
+            ("user.ts", "export {};\n"),
+        ],
+        &mut nodes,
+        &mut node_map,
+    );
+
+    assert!(
+        resolve(&result, &nodes, &node_map, &files[1], "notGlobal").is_none(),
+        "an `export` declaration empties the block's export table, so nothing merges",
+    );
+}
+
+#[test]
+fn a_globalthis_namespace_splices_its_members_into_globals() {
+    // `namespace globalThis { … }` is the supported way to add a property to
+    // the global *object*, and upstream implements it entirely through aliasing:
+    // `c.globalThisSymbol.Exports` **is** `c.globals` (`checker.go:963`), so
+    // merging the namespace into the `globalThis` entry of the global table
+    // deposits its members in the table itself.
+    //
+    // This port has no `globalThis` symbol — `typeof globalThis` is minted when
+    // the *name* fails to resolve — so `merge_into_globals` splices instead.
+    // Both halves are asserted, because inserting the namespace under the name
+    // `globalThis` would satisfy neither: it would make the name resolve (so
+    // the mint stops firing) while leaving `test` invisible.
+    //
+    // `compiler/extendGlobalThis` is the corpus case; its `.types` baseline
+    // wants `globalThis.test : string`.
+    let arena = Arena::new();
+    let mut nodes = NodeTable::new();
+    let mut node_map = NodeMap::new();
+    let (result, files) = bind_program(
+        &arena,
+        &[
+            (
+                "extension.d.ts",
+                "declare global {\n    namespace globalThis {\n        var test: string;\n    }\n}\n\nexport {}\n",
+            ),
+            ("index.ts", "export {};\n"),
+        ],
+        &mut nodes,
+        &mut node_map,
+    );
+
+    assert!(
+        resolve(&result, &nodes, &node_map, &files[1], "test").is_some(),
+        "the namespace's members become globals; globals are {:?}",
+        result.globals().keys().collect::<Vec<_>>(),
+    );
+    assert!(
+        !result.globals().contains_key("globalThis"),
+        "and `globalThis` itself is not one of them — it is minted as a type",
+    );
+}
+
+#[test]
+fn two_files_augmenting_the_global_scope_both_contribute() {
+    // Per-file `merge_globals` runs once per `bind_into`, so this is the test
+    // that the second file's augmentation is not overwritten by, or lost to,
+    // the first's. `mergeSymbolTable` unions rather than picks.
+    let arena = Arena::new();
+    let mut nodes = NodeTable::new();
+    let mut node_map = NodeMap::new();
+    let (result, files) = bind_program(
+        &arena,
+        &[
+            ("one.d.ts", "export {};\ndeclare global {\n    var fromOne: string;\n}\n"),
+            ("two.d.ts", "export {};\ndeclare global {\n    var fromTwo: number;\n}\n"),
+            ("user.ts", "export {};\n"),
+        ],
+        &mut nodes,
+        &mut node_map,
+    );
+
+    assert!(resolve(&result, &nodes, &node_map, &files[2], "fromOne").is_some());
+    assert!(resolve(&result, &nodes, &node_map, &files[2], "fromTwo").is_some());
+    // And a file earlier in the program sees a later one's, because `globals`
+    // is one table for the whole program rather than a per-file view.
+    assert!(resolve(&result, &nodes, &node_map, &files[0], "fromTwo").is_some());
+}
+
+#[test]
+fn two_global_blocks_in_one_file_merge_once() {
+    // Both blocks declare into one symbol called `global` in the file's locals,
+    // so the recorded augmentation list must not merge that symbol's exports
+    // twice. Upstream's guard is `moduleAugmentation.Symbol.Declarations[0] !=
+    // moduleNode` (`checker.go:1400`); here the list is deduplicated by symbol.
+    //
+    // Merging twice would be observable as a doubled declaration list, because
+    // `merge_symbol` extends rather than replaces.
+    let arena = Arena::new();
+    let mut nodes = NodeTable::new();
+    let mut node_map = NodeMap::new();
+    let (result, files) = bind_program(
+        &arena,
+        &[
+            (
+                "augment.d.ts",
+                "export {};\ndeclare global {\n    var twice: string;\n}\ndeclare global {\n    interface Twice { a: string }\n}\n",
+            ),
+            ("user.ts", "export {};\n"),
+        ],
+        &mut nodes,
+        &mut node_map,
+    );
+
+    let symbol = resolve(&result, &nodes, &node_map, &files[1], "twice").expect("resolves");
+    assert_eq!(result.symbols().get(symbol).declarations.len(), 1, "one declaration, merged once");
+    assert!(
+        resolve_type(&result, &nodes, &node_map, &files[1], "Twice").is_some(),
+        "and the second block contributes too",
+    );
+}
