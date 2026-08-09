@@ -529,14 +529,31 @@ impl<'a> Parser<'a> {
         loop {
             self.skip_whitespace_or_asterisk();
             let parameter_start = self.pos();
-            let name = self.parse_jsdoc_identifier_name();
+            let mut name = self.parse_jsdoc_identifier_name();
+            // `@template const T` — upstream's `parseTemplateTagTypeParameter`
+            // reads a `const` MODIFIER ahead of the name; without this arm the
+            // modifier was parsed AS the name and `T` was dropped
+            // (`jsdocTemplateTag6` printed `<const>`).
+            let mut modifiers: &'a [tsr_ast::ModifierLike<'a>] = &[];
+            if name.text == "const" {
+                self.skip_whitespace();
+                if self.at_jsdoc(SyntaxKind::Identifier) {
+                    let token = self.alloc_token(
+                        SyntaxKind::ConstKeyword,
+                        tsr_core::Span::new(parameter_start, self.pos()),
+                    );
+                    modifiers = self.arena.alloc_slice(&[tsr_ast::ModifierLike::Token(token)]);
+                    name = self.parse_jsdoc_identifier_name();
+                }
+            }
             let default = if self.at_jsdoc(SyntaxKind::EqualsToken) {
                 self.next_jsdoc_token();
                 Some(self.parse_jsdoc_type_expression(true))
             } else {
                 None
             };
-            let parameter = TypeParameterDeclaration::new(&[], Some(name), None, None, default);
+            let parameter =
+                TypeParameterDeclaration::new(modifiers, Some(name), None, None, default);
             type_parameters.push(self.finish_jsdoc_node(
                 parameter,
                 SyntaxKind::TypeParameter,

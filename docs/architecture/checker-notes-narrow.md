@@ -4511,3 +4511,10 @@ interplay (a §100-side change, evidence in slice 2c's record),
 jsFileMethodOverloads doc-overloads, the non-wrapper grammar forms
 (`Object`, `function()`, record types), and @template-through-
 identity-roads for the §102/§107 renames.
+
+**§110 slice 4 — LANDED at +17/0 (+28 W→G honest).** The parser's
+`parse_template_tag` read `const` AS THE NAME (`<const>` printed,
+`T` dropped) — upstream's `parseTemplateTagTypeParameter` reads a
+const MODIFIER first. One parser arm; all four 100% suites verified
+held. jsdocTemplateTag6's remaining rows are the as-const retention
+family (the other lane) and downstream consumers.
