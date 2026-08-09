@@ -19034,3 +19034,75 @@ declined. §228's rule, applied to a refusal a hundred sections old.
 
 **A refusal is a claim about what is knowable now.** §307's constructor walk and
 §313's reading changed that, and nothing about TS2335 moved.
+
+## §315 — TS2729, property-initialiser ordering
+
+Largest remaining row passing all four filters — 12 cases, 6 single-line,
+`occupied 0`, one site.
+
+`checkPropertyNotUsedBeforeDeclaration` (`checker.go:11709`) is six conjuncts:
+
+```go
+c.isInPropertyInitializerOrClassStaticBlock(node, false) &&
+!c.isOptionalPropertyDeclaration(valueDeclaration) &&
+!(ast.IsAccessExpression(node) && ast.IsAccessExpression(node.Expression())) &&
+!c.isBlockScopedNameDeclaredBeforeUse(valueDeclaration, right) &&
+!(ast.IsMethodDeclaration(valueDeclaration) && …Static…) &&
+(c.compilerOptions.GetUseDefineForClassFields() || !c.isPropertyDeclaredInAncestorClass(prop))
+```
+
+Five are syntax: an ancestor walk, a `?` token, a nesting test, a position
+comparison, and a modifier. The sixth needs the ancestor-class walk §309 built —
+and `useDefineForClassFields` is one of the seven options §264 recorded as
+dropped by the harness and read by nothing, so it is `false` here and the
+conjunct reduces to `!isPropertyDeclaredInAncestorClass`.
+
+### The slice
+
+`class C { a = this.b; b = 1; }` — a `this.X` inside a property initialiser
+where `X` is a property of the *same* class declared later. That needs no symbol
+resolution at all: the member list is ordered and both ends are in it.
+
+Declined: a `this.X` whose target is inherited (the ancestor walk's job), a
+nested access `this.a.b`, an optional property, and a static method.
+
+### The bar
+
+```
+bar:  +5 cases of 12,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **`class C { b = 1; a = this.b; }` reports.** Declared *before* is legal and
+   is the ordering test's whole point.
+2. **A method body's `this.b` reports.** Only property initialisers and static
+   blocks.
+3. **`this.b` where `b?: number` reports.** Optional declines.
+
+## §316 — §315 built: +2 against a bar of +5
+
+```
+diagnostics   1,815 → 1,817   (+2, bar was +5)
+CONVERTS 2 · LOST 0 · STILL SHORT 6 · RIGHT 16 · WRONG 2
+every other suite unmoved — falsifiers 1, 2 and 3 negative
+```
+
+Sixteen right lines and two wrong, both `useBeforeDeclaration_superClass` — a
+property declared in an **ancestor** class, which is exactly the conjunct §315
+recorded as declined (`isPropertyDeclaredInAncestorClass`) and did not build.
+The slice reads the same class's member list, so an inherited target with a
+same-named later member in the derived class reads as use-before-declaration.
+
+`STILL SHORT 6` — the remaining cases want TS2729 lines from shapes the
+same-class slice does not reach: static blocks, and targets resolved through a
+symbol rather than a member list.
+
+> **A conjunct recorded as "declined" is a wrong line waiting, not a missing
+> one, whenever it is a *negative* guard.** Five of the six conjuncts here are
+> filters that make the rule fire less; the sixth
+> (`!isPropertyDeclaredInAncestorClass`) is too, and leaving it out is what
+> produced both wrong lines. §309's ancestor walk is the machinery it needs and
+> was not wired in.
+
+That is a cheap, named next step rather than a refusal: the walk exists.

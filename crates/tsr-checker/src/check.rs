@@ -384,6 +384,7 @@ impl Checker<'_, '_> {
             Node::PropertyAccessExpression(_) => {
                 self.check_nonexistent_property(node, ambient);
                 self.check_readonly_assignment_target(node, ambient);
+                self.check_property_used_before_initialization(node);
                 self.check_private_property_access(node, ambient);
                 ambient
             }
@@ -3335,6 +3336,93 @@ impl Checker<'_, '_> {
                 ),
             );
         }
+    }
+
+    /// TS2729 — `Property '{0}' is used before its initialization.`
+    ///
+    /// `checkPropertyNotUsedBeforeDeclaration` (`checker.go:11709`), sliced to
+    /// the case that needs no symbol resolution: a `this.X` inside a property
+    /// initialiser where `X` is a property of the **same** class declared later
+    /// in the member list. §315.
+    ///
+    /// Declined: an inherited target (upstream's
+    /// `isPropertyDeclaredInAncestorClass`), a nested access `this.a.b`, an
+    /// optional property, and a static method.
+    fn check_property_used_before_initialization(&mut self, node: NodeId) {
+        if self.file_has_parse_errors || self.file_is_ambient {
+            return;
+        }
+        let Some(Node::PropertyAccessExpression(access)) = self.node_map.get(node) else { return };
+        // `this.X`, and not `this.a.b` — upstream declines an access whose own
+        // expression is an access.
+        let Some(receiver) = access.expression.and_then(|e| e.node_id()) else { return };
+        if self.nodes.kind(receiver) != SyntaxKind::ThisKeyword {
+            return;
+        }
+        let Some(parent) = self.nodes.parent(node) else { return };
+        if matches!(
+            self.nodes.kind(parent),
+            SyntaxKind::PropertyAccessExpression | SyntaxKind::ElementAccessExpression
+        ) {
+            return;
+        }
+        let Some(tsr_ast::MemberName::Identifier(name)) = access.name else { return };
+        let Some(name_id) = name.node_id else { return };
+        // `isInPropertyInitializerOrClassStaticBlock`: the nearest enclosing
+        // member must be a property declaration, and the node must be inside
+        // its initialiser.
+        let Some(member) = self.nodes.ancestors(node).find(|&it| {
+            matches!(
+                self.nodes.kind(it),
+                SyntaxKind::PropertyDeclaration | SyntaxKind::ClassStaticBlockDeclaration
+            ) || self.is_function_like_or_static_block(it)
+        }) else {
+            return;
+        };
+        if self.nodes.kind(member) != SyntaxKind::PropertyDeclaration {
+            return;
+        }
+        let Some(class) = self.nodes.parent(member) else { return };
+        let members = match self.node_map.get(class) {
+            Some(Node::ClassDeclaration(c)) => c.members,
+            Some(Node::ClassExpression(c)) => c.members,
+            _ => return,
+        };
+        // Both ends are in the same ordered list, so "declared before use" is
+        // an index comparison — `isBlockScopedNameDeclaredBeforeUse` without a
+        // symbol.
+        let mut using_at = None;
+        let mut target_at = None;
+        for (index, element) in members.iter().enumerate() {
+            let Some(id) = element.node_id() else { continue };
+            if id == member {
+                using_at = Some(index);
+            }
+            let tsr_ast::ClassElement::PropertyDeclaration(property) = element else { continue };
+            let tsr_ast::PropertyName::Identifier(declared) = property.name else { continue };
+            if declared.text != name.text || target_at.is_some() {
+                continue;
+            }
+            // `isOptionalPropertyDeclaration` — the `?` is the postfix token.
+            if property.postfix_token.is_some_and(|token| token.kind == SyntaxKind::QuestionToken) {
+                continue;
+            }
+            target_at = Some(index);
+        }
+        let (Some(using_at), Some(target_at)) = (using_at, target_at) else { return };
+        if target_at < using_at {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(name_id) else { return };
+        let span = self.nodes.span(name_id);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::PROPERTY_0_IS_USED_BEFORE_ITS_INITIALIZATION,
+                span,
+                [name.text.to_string()],
+            ),
+        );
     }
 
     /// TS2335 — `'super' can only be referenced in a derived class.`
