@@ -21839,3 +21839,45 @@ The private-name arm alone was `+0`; the dispatch alone would have missed
 `privateNameAmbientNoImplicitAny`, whose member *is* private. The build keeps
 both, and the notes keep the order they were measured in, because the `+0`
 is what located the dispatch.
+
+## §381 — §380's sweep run, and its signal refined
+
+`grep`ping every `self.check_*(` in `check.rs` and counting call sites gives
+**39 rules called exactly once**. §380 proposed that as the signal for a rule
+dispatched too narrowly. Run, it is too broad to use as-is.
+
+The reason is a shape this file already uses deliberately: a block of rules
+called **generically for every node**, not from a kind-specific arm —
+
+```rust
+self.check_strict_mode_eval_or_arguments_sites(node, typed, ambient);
+self.check_contextual_identifier(node, ambient);
+self.check_type_parameter_list(type_parameters_of(typed));
+```
+
+`check_type_parameter_list` has one call site and covers every generic
+declaration in the language, because `type_parameters_of` does the widening.
+It is the *opposite* of §380's defect and indistinguishable from it by call
+count.
+
+### The refined signal
+
+```
+one call site  AND  that site is a kind-specific `Node::X(_) =>` arm
+               AND  upstream's counterpart is not kind-specific
+```
+
+The third conjunct is the one that costs something to check, and §376's detector
+already answers it: `grep -n "<Message_name>" internal/checker/*.go` shows how
+many places upstream reports the code, and a rule reached from one arm while
+upstream reports from several is §380's shape exactly.
+
+> **Two sweeps this session produced lists that needed a third condition to be
+> useful** — §351/§366's `_ => return None` family needed *is it reached*, and
+> this needs *is upstream kind-specific*. The pattern is worth naming: **a
+> syntactic sweep finds candidates; only a semantic condition finds defects.**
+> Both third conditions are one command; neither is derivable from this port's
+> source alone.
+
+Recorded without a build. The 39-rule list is reproducible in one command and is
+not worth checking in.
