@@ -10383,3 +10383,48 @@ Five of the twelve were wrong because an instrument answered a different
 question; one was wrong because a read replaced a measurement. **That is the
 distribution worth remembering: on this board the reasoning was rarely the
 weakest link.**
+
+## §154 — the nine declined, enumerated
+
+The probe §153 asked for, on the nine accesses declined at
+`assignment_target_kind == None`:
+
+```
+2  parent=CallExpression          grand=ExpressionStatement
+2  parent=PrefixUnaryExpression   grand=ExpressionStatement
+1  parent=BinaryExpression        grand=VariableDeclaration
+1  parent=ExpressionStatement     grand=SourceFile
+1  parent=IfStatement             grand=SourceFile
+1  parent=ParenthesizedExpression grand=ExpressionStatement
+1  parent=PropertyAccessExpression grand=CallExpression
+```
+
+**`++((M.x))` is not among them.** Its access would show
+`parent=ParenthesizedExpression grand=ParenthesizedExpression`; the one paren
+entry here has `grand=ExpressionStatement`, so it is a bare `((M.x));`. The
+double-paren case therefore *passes* the entry gate and is one of the seventeen
+reported — which retires the candidate this row has carried since §146.
+
+Seven of the nine are plainly correct declines (a call, a read in an `if`, a
+right-hand side). The two worth a second look are
+`parent=PrefixUnaryExpression grand=ExpressionStatement`: `assignment_target`
+returns the unary only for `++`/`--`, so these are some other prefix operator —
+almost certainly the `+M.x` / `-M.x` reads the fixture also contains, and
+correct.
+
+**So the entry gate is probably right too**, and the eighteenth expected line is
+not among the nine. The arithmetic in §153 stands (17 emitted, 18 expected) but
+its conclusion — *"the missing line is among the nine"* — does not follow from
+this enumeration.
+
+### Stopping point for this row, stated honestly
+
+Thirteen sections, thirteen corrections, **zero builds and zero reverts**, and
+the defect is *still* not located. Every layer has been probed and each returned
+a clean answer; the discrepancy is one line and survives all of them.
+
+**The next step is the one thing never done: read the fixture's eighteen
+expected lines against the seventeen emitted, position by position.** §131
+proved that reading the input explains what nine sections of layer-probing
+could not, and this row has repeated the same mistake at a different scale —
+probing *mechanisms* when the *data* was never laid side by side.
