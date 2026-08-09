@@ -2,13 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; scanner, parser and binder only, with no checker (bd tsr-4sc)
-<<<<<<< HEAD
-Passed         : 2067/5488 (37.66%)
-Failed         : 3421
-=======
-Passed         : 2070/5488 (37.72%)
-Failed         : 3418
->>>>>>> b6a49f25 (checker: §541/§542/§543 TS2364 closes — a predicate written twice (+5))
+Passed         : 2072/5488 (37.76%)
+Failed         : 3416
 Skipped        : 6956 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -16,11 +11,7 @@ Skipped        : 6956 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-<<<<<<< HEAD
-First 100 of 3421 failures:
-=======
-First 100 of 3418 failures:
->>>>>>> b6a49f25 (checker: §541/§542/§543 TS2364 closes — a predicate written twice (+5))
+First 100 of 3416 failures:
 compiler/ClassDeclaration26
   2 unexpected (first TS1005 at ClassDeclaration26.ts(2,22)), 5 missing
 compiler/ClassDeclarationWithInvalidConstOnPropertyDeclaration
