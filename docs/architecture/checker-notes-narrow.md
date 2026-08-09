@@ -4112,3 +4112,15 @@ cost, §92.1 precedent; it is the build road's correct behavior the
 moment conditional reuse exists); the head goes back on the board as
 "conditional written reuse: accessibility-gated" owning BOTH the
 import-spelling 128 and the §102 flipped-pair residue.
+
+**§105 slice 1 bar completion (registered before the code):** the
+tuple machinery already carries readonly — `create_tuple_type
+(elements, readonly)` and the keyed intern exist (declared.rs), so
+the slice is WIRING: the as-const ARRAY gate becomes a mint —
+elements check to regular literal types, nested arrays recurse
+through the assertion arm itself (inheriting the paren-climb and
+the object gate), spreads/holes/objects decline the whole operand.
+Predict **+25–60 G→R** (constAssertions' tuple half the head),
+zero R→W tolerated; adverse limited to number/quote SPELLING lines,
+priced per line. Must NOT move: §104's 232, the written-annotation
+rights, §55 enum values.
