@@ -27730,3 +27730,48 @@ commit it is **84 lines / 56 cases blocked by an extra alone** — the tool now
 prints a trailing summary line the old count did not include, and both
 workstreams have added extras since. Corrected in §1 rather than left standing,
 per `CLAUDE.md`.
+
+## §526 — the `file_has_parse_errors` sweep, priced in four runs and declined in its blanket form
+
+§525 recorded the sweep at *unknown* rather than pricing it off `grep`. Four
+measurements price it:
+
+```
+                                     diagnostics   cases blocked by an EXTRA alone
+baseline (all 111 guards on)            2,048                 56
+check.rs's guards off  (half A)         2,049   +1            —
+the other 19 modules   (half B)         2,050   +2            65   +9
+all 111 off                             2,052   +4            71   +15
+```
+
+**The blanket removal is a real +4 and it is not worth taking.** Every split buys
+cases at a fixed rate in extras: 15 newly extra-blocked cases for 4 gained. Those
+15 are cases that were *one deletion from passing* and now are not, and the
+suite's multiset comparison means an extra line is as fatal as a missing one.
+
+The halves are also **not additive** (+1 and +2 giving +4), which says the guards
+interact: a rule silenced in a broken file stops another rule's input from
+existing. That is by itself a reason not to remove them in bulk — the effect of
+any one removal is not the effect it has alone.
+
+### The contrast that settles it
+
+§524 removed **one** guard, from `checkFunctionOrConstructorSymbol`, and measured
+**+4 with `extraonly` unchanged at 84 lines**. The same +4 as the blanket
+removal, at none of the cost.
+
+> **A port-local guard is a decline that no longer names its own bar (§525) —
+> and the way to collect on it is one rule at a time, because the bar is
+> per-rule.** The blanket probe is the right way to *price* the sweep and the
+> wrong way to *take* it. Its value was in showing that ~+4 is the whole prize,
+> which is the number that decides how much per-rule work is worth doing.
+
+### What this buys the next session
+
+The prize is bounded at **+4 across 111 sites**, and §524 has already taken +4 of
+it. **The remaining sweep is worth approximately zero**, and that is the useful
+finding: a hundred and ten candidate rows priced and closed by three
+measurements, rather than left as a standing "cheap wins here" note that would
+have cost someone a day.
+
+Recorded as **priced and closed**, not as refused-for-now.
