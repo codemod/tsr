@@ -852,3 +852,22 @@ placing the guard, or the guard may mask a different mechanism.
 Seven rounds: every arm in the chain is now individually measured;
 the family is one result-print plus one guard placement from its
 pair.
+
+**§114 family-1, rounds 8-9 (banked):** round 8 INVERTS round 7 —
+there is NO ConditionalExpression arm in the dispatch (zero grep
+matches; the two GCT firings fell to the default None), and round
+9 finds NO consumers of get_contextual_type outside the module. So
+no road exists by which the arity arm could retype the
+ternary-branch arrows — every chain to them dies at the
+conditional-parent None, pre-arm and post-arm alike. The six
+"R→W" are therefore SUSPECTED ALIGNMENT ARTIFACTS of the twelve
+adjacent wins: the walker aligns by subject text, our texts at the
+converted positions changed, and the §87 caveat (recorded at
+unicodeEscapesInJsxtags: "any single-case ±16 there is noise")
+describes exactly this. VERIFICATION, one command before landing:
+dump the case pre- and post-arm and diff the SUBJECT texts at
+0:202/204/206/236 — if the subjects differ between runs, the six
+are artifacts, the arity arm's real score is +16/0, and it LANDS
+(gates + isolated pair as usual). If the subjects match, the six
+are real and the transmitting road is still unfound — refuse per
+the bar. Nine rounds; the family is one diff from its verdict.
