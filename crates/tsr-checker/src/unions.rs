@@ -693,7 +693,7 @@ impl Checker<'_, '_> {
             let enum_union = flags.contains(TypeFlags::UNION)
                 && flags.intersects(TypeFlags::ENUM_LITERAL | TypeFlags::ENUM)
                 && matches!(&self.store.get(entry).data, TypeData::Union { symbol: Some(_), .. });
-            // §96: an ALIAS-named union entry is admitted now that
+            // §97: an ALIAS-named union entry is admitted now that
             // `type_to_string_at`'s origin arm can re-render its spelling
             // per site — the site-sensitivity that made §53 exclude it.
             let alias_union = flags.contains(TypeFlags::UNION)

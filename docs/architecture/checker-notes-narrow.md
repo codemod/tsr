@@ -3661,87 +3661,7 @@ positions §10.13 already owns route separately) plus the GAP half
 generics — resolution, not printing). The ratio leg (10:1) met at
 infinity.
 
-## §96 — the initializer branch adds optionality too
-
-The residue §93 and §94 both priced (`b?: number | undefined`) sized
-corpus-wide from a full dump at the §95 baseline: 33 WRONG lines are
-exactly `{ours} | undefined` with a `?:` in the want — 16 inside
-signature prints, 17 on member/parameter lines — plus 222 GAP lines
-that want such prints but gap for their own reasons (they are the
-positions' owners' work; this rule is their prerequisite, not their
-conversion).
-
-The mechanism: `get_type_for_variable_like_declaration`'s
-ANNOTATION branch already routes through
-`add_optionality_for_declaration` (`crate::optionality`, one of
-upstream's twenty-one sites), but the INITIALIZER branch returns
-`get_widened_literal_type_for_initializer` bare — upstream wraps it
-(`checker.go:16750`, `addOptionalityEx(t, isProperty, isOptional)`).
-So `(b? = 0)` — question token AND initializer, error-recovery but
-typed — infers `number` and misses the `| undefined` the `?` adds.
-`class C { p? = 5 }` is the same branch with `isProperty` true.
-`is_optional_declaration` demands a written `?`, so `(arg = 1)`
-stays plain — §94's converts must not move.
-
-**Bar, registered before the code:** predict **+12–25 W→R**
-concentrated in defaultParameterAddsUndefinedWithStrictNullChecks
-(8), contravariantOnlyInferenceWithAnnotatedOptionalParameter (4),
-and the fatarrowfunctionsOptionalArgs `b? = 0` family. Must NOT
-move: initializer-only optional parameter prints (`arg?: number`
-without `| undefined`) anywhere in the corpus — one adverse there
-refuses the build outright, because it means `is_optional_declaration`
-leaked past the question token. The rest-optional `...arg?: any[] |
-undefined` pair (parserParameterList11) is NOT claimed — no
-initializer, different road, stays a residue.
-
-**§96 score — LANDED at +6/0; the bar's magnitude MISSED and the
-miss is the finding.** right 405,951 → **405,957**: +6 W→R
-(optionalMethods 3, fatarrowfunctionsOptionalArgs 2 — §93/§94's
-0:457 residue closed — isolatedDeclarationsAddUndefined 1), **zero
-adverse in any column**; the must-not-move leg (no defaulted-only
-parameter gains `| undefined`) held exactly. The predicted +12–25
-did not appear because the sizing probe's exact-insertion test
-bucketed by the ANSWER's shape and not by the mechanism:
-defaultParameterAddsUndefinedWithStrictNullChecks's 8 lines belong
-to the *initialized-parameter-before-a-required-one* rule (an
-un-omittable defaulted parameter prints REQUIRED with
-`| undefined` — a signature-print arity rule, not optionality) and
-to literal-widening in optional-parameter positions
-(`true | undefined` wanting `boolean | undefined`), and
-contravariantOnlyInference's 4 are contextual-inference wrongs that
-merely end in the same spelling. The conventions' three-level
-lesson, paid again at small scale: a textual answer-shape probe
-sizes a SPELLING, not a rule. Residues now named with owners:
-initialized-before-required (~8, signature print), optional-literal
-widening (~6, widening road), rest-optional `...arg?` (2,
-parserParameterList11, no-initializer road).
-
-## §99 — multi-signature composites render at the site [claimed: checker-1]
-
-[Bar committed to claim the number; build on worktree-checker-1-printing.]
-§10.13's composite re-render is gated to SINGLE-signature types, so an
-OVERLOADED member's type-literal print (`{ (roundTo:
-PluralizeUnit<...>): Duration; ... }`) keeps every embedded name bare
-where the site wants it qualified (temporal's remaining ~50
-non-retention wrongs, the Intl.ListFormat rows same shape).
-
-**Mechanism:** extend the arm to `signatures.len() >= 1`: the
-type-literal form renders each signature's member text through the
-site-aware slot renderer, falling back whole to baked text when any
-signature declines. **Bar:** ≥40 of the family W→R at 10:1;
-falsifiers: (a) declaration-site prints of the same overloaded
-members must not change (their chains resolve bare — the §95
-precedent held); (b) the §89/§90.1 keep-text set members stay
-excluded.
-
-**§99 score — LANDED.** Clean-main pair: **+55 W→R, ZERO adverse**
-(overload1 15, underscoreTest1 14 — the double-refused case's second
-partial conversion — temporal 16). Measured atop the held §97 the
-same arm reads +99 (temporal 60): 44 of temporal's rows need §97's
-un-errored union types to exist before this renderer can touch them —
-that composition is §97's to state when it lands after §98 retention.
-
-## §96 — alias-named unions join the origin gate
+## §97 — alias-named unions join the origin gate
 
 [checker-1, worktree branch.] §53's slice gate admits only ENUM-named
 union entries and plain types, because the ungated form's falsifier
@@ -3772,17 +3692,17 @@ origin preserves WRITTEN entry order while the §77.2-family wants
 builder order in places; any adverse whose want is the same set
 re-ordered belongs to §77.2, priced there, not here.
 
-**§96 measured — HELD at 1.6:1 pending its unlock.** The isolated
-pair (reverse-stash against the §96 baseline): **+93 G→R
+**§97 measured — HELD at 1.6:1 pending its unlock.** The isolated
+pair (reverse-stash against the §97 baseline): **+93 G→R
 (temporal 68) against 59 G→W, no R→W.** Both bar legs missed as
 stated (temporal net +24 < 120; 1.6:1 < 10:1). BUT the 59 are not
 the origin arm's: 44 of temporal's plus the scattered rest
 (stringLiteralTypesInUnionTypes, typeInferenceLiteralUnion,
 controlFlowOptionalChain) are `{ largestUnit: "hour" }`-shaped —
 object-literal properties wanting LITERAL RETENTION against the
-contextual member type that §96 just made computable (`string` got,
+contextual member type that §97 just made computable (`string` got,
 `"hour"` want). The owner is the contextual retention family
 (§56.3's object-property extension — the other workstream's lane).
-§96 stays on this branch unpushed until that arm exists or the
+§97 stays on this branch unpushed until that arm exists or the
 trade is re-priced; landing it earlier converts honest gaps into
 confident wrongs that read as the origin arm's fault.
