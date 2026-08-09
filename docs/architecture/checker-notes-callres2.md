@@ -613,3 +613,13 @@ The free-road arm (a) measured near-irrelevant (dropping it moved
 ~24). Snapshots updated with every wire. The next window lands
 unit+pipeline together against the same twin sets — the distance
 is one pipeline, and everything else is DONE and proven.
+
+**Snapshot custody note:** the summit_*.rs.draft snapshots predate
+rounds 12-14 — they LACK the reentrancy guard, TRACE5, and the
+DECISIVE type-first read in contextual_signature. Each wire's exact
+text is in its round entry above; re-apply the three (the
+type-first read is the one that matters) after loading the
+snapshots, and verify with TRACE3 = "foo" before measuring
+anything. The chain of custody rule: a snapshot's coverage ends at
+its copy timestamp, and this study's own reassembly hole (round 4)
+is why this note exists.
