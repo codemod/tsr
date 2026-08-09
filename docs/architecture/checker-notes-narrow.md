@@ -3888,3 +3888,20 @@ each flipped pair and MUST NOT regress the other (both wrong today);
 (c) same-symbol repeated Ts — if any corpus want keeps plain `T` on
 both overloads, the arm needs a distinct-declaration test before
 landing.
+
+**§102 first measurement — REFUSED at 88:763.** The naive
+within-print byText set renames EVERY same-name collision; the
+corpus says upstream renames only a SUBSET: underscoreTest1 converts
+29 (and regresses 62 — even there the claim ORDER is site-dependent)
+while the promise family regresses 448 — `then`/`catch` overload
+lists keep PLAIN repeated `TResult1` in every want. The
+discriminator hypothesis, recorded for the next attempt: upstream's
+builder REUSES WRITTEN declaration nodes where they still denote the
+type (`tryReuseExistingTypeNode`), bypassing `typeParameterToName`
+entirely — the renames appear only in BUILT prints (merged/
+instantiated composites with no reusable node). The port needs the
+reuse-vs-build split BEFORE the byText set can land: a written-reuse
+carriage for whole member lists (the §77-family seam at signature
+scale), then the claim set applies only to the built remainder.
+Reverted whole; the bar's ≥50 leg was unreachable under the naive
+form (29 gross).
