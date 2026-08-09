@@ -488,3 +488,14 @@ reference members + the template-literal conditional evaluator
 (same blocker as templateLiteralTypes3's §36 decline). The remaining
 288 temporal WRONGS after §95's 112: baked outer texts that are not
 name<args>-shaped — signature-embedded slots §10.13 routes.
+
+§96 OPENING PROBE (queued, checker-1): temporal's method-read gaps —
+trace ONE line (`until`'s member print, want
+`(other: Temporal.ZonedDateTimeLike, options?: ...) => Temporal.Duration`)
+through the signature bake. Candidate owners: (a) the §36
+conditional-in-alias-declared-position arm erroring
+`PluralizeUnit<...>` parameter annotations — but temporal WANTS the
+NAME while templateLiteralTypes3 wants the EVALUATION, so if (a) is
+the owner the position split must be found before widening either
+way; (b) an earlier bake failure in the ambient method signature
+road. Do not build before the trace names the arm.
