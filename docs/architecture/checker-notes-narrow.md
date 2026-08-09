@@ -5019,3 +5019,36 @@ spellings the fresh union render cannot reproduce — §77-family),
 uncalledFunctionChecksInConditional2 5 (net +98 in-case),
 libTypeScriptOverride* 6. Gates: all four 100% suites held,
 diagnostics +4 (2,019 → 2,023), clippy 0, 1,559 tests, anchors ok.
+
+## §121 — the nullable/unknown receiver's deliberate error-answer [claimed: checker-1]
+
+**The seventh hop of the boundary-argument chain.** §14 → §27 → §31
+→ §32 → callres §23/§24/§25 → §26 each argued "upstream's deliberate
+error-answer's observable IS `any`". The member_shapes intrinsic
+bucket (178 lines) holds the next one: property access on a receiver
+that IS `undefined` / `null` / `unknown` / a nullable remainder goes
+through `checkNonNullType` (`checker.go:7409`), which REPORTS
+(TS2532/TS18048/TS2571) and returns `errorType` — printed `any` in
+every `.types` baseline (controlFlowCaching's `>foo.bar : any` runs,
+nonPrimitiveStrictNull, assertionTypePredicates1). This port's
+`check_non_null_type` refuses to the SAME errorType but the harness
+reads it as a gap because the refusal happens before the lookup and
+the producer never sees a computed type. The fix is one seam:
+`check_property_access_expression_worker` (and `check_qualified_name`)
+return `any` instead of `error` when the non-null strip itself
+refuses — the receiver was COMPUTED (not a gap) and upstream's
+answer at this shape is its deliberate error-answer.
+
+**The gate that keeps it honest** (every chain hop had one): the
+arm fires only when the RECEIVER's type computed successfully —
+`receiver_type == error` still returns error above the strip,
+unchanged. A receiver this port mis-narrows to `undefined` where
+upstream keeps a real type converts gap → confident wrong; that
+class is the falsifier.
+
+**Candidates**: intrinsic-receiver rows — undefined 34, unknown 28,
+never 22, null 8, void 6 ≈ 98 lines, plus paired row-5/6 doubling
+and downstream reads. **Bar: ≥60 G→R at ≥5:1.** If the
+false-undefined class (port narrowing misses) produces G→W above
+the ratio, the arm gates on receiver flags (pure NULLABLE only,
+unknown excluded) before it reverts whole.
