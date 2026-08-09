@@ -11671,3 +11671,78 @@ It is:
 Item (3) is the cheap part and it is worthless without (1). The refused source
 for both halves is described above in enough detail to rebuild; **what must not
 be repeated is building it before (1) is measured.**
+
+## §172 — the TS2322 split, and `bd tsr-bxp`'s two-session block is answered
+
+`tsr-bxp` carries the line *"Do NOT build an emitter before this runs"* and had
+never run. It has now.
+
+### Why nothing had answered it
+
+`diagemit` says `want 2888 · have 530`. **Both halves of that gap have been
+quoted as targets by different owners** — `tsr-6re` as this workstream's (once
+at +536, once at +489, corrected to 15/89), STATUS §5 as `checker_types`' 947 —
+and no instrument separated them. The split is decidable because
+`report_assignability_failure` is a *single* site with three ordered gates, so a
+wanted-but-unemitted line is either a position the walk never visits or a
+position it visits and declines, and the gate says which.
+
+`crates/tsr-conformance/examples/ts2322split.rs` with
+`Checker::assignability_probe` behind `TSR_ASSIGN_PROBE`. It goes through
+`diagnostics_suite`'s own `program_for_case`, not a hand-rolled one —
+`probefile.rs`'s warning about losing the `/.lib` mount, and `conventions.md`'s
+rule that a probe re-implementing the harness measures a different compiler.
+
+### The measurement
+
+```
+cases with at least one MISSING TS2322 line: 782
+missing TS2322 lines total: 2441
+
+bucket                       lines    cases
+NEVER REACHED                  691      312     <- reporting anchor, THIS workstream
+RELATION DECLINED             1354      406     <- checker_types
+PAIR NOT REPORTABLE            383      146     <- checker_types, narrower
+OBJECT LITERAL vs UNION          8        3
+REPORTED ELSEWHERE               5        4
+```
+
+**By lines the row is 71% `checker_types` and 28% ours.** But lines are not the
+unit that converts, and the per-case purity is the number to plan against —
+a case converts only when *every* one of its missing lines is emitted:
+
+```
+of the cases blocked on TS2322 ALONE:
+  wholly NEVER REACHED  (this workstream can convert alone):  132
+  wholly relation-gated (`checker_types` alone)            :  335
+  MIXED (needs both)                                       :   13
+```
+
+### What this settles
+
+**There is a real diagnostics-side slice and it is 132 cases** — four times the
+largest single build this session (§162's +32) and larger than everything
+§156–§169 landed put together. `tsr-6re`'s decline was reasoned from a
+*mechanism* argument (which reporting path, which primitive test) and priced at
+15, then 89; the answer is neither, because the question was never "how many
+positions can a bounded emitter speak about" but "how many positions does the
+walk visit at all".
+
+**And it bounds the ambition honestly.** 335 cases — the majority — are
+positions this port already visits and where the three-valued relation declines
+to answer `NotRelated`. No reporting work reaches them. That is STATUS §5's
+standing refusal, now with a number measured on the suite's own denominator
+rather than on baseline files (`tsr-6re`'s recorded denominator error).
+
+The 13 mixed cases matter more than their size: they are the ones that would
+make an anchor build *look* like it under-delivered, because each needs a
+`checker_types` line as well.
+
+### The next measurement, not the next build
+
+`tsr-6re` measured that its convertible diagnostics landed on **28 distinct
+anchors**, modal `BinaryExpression`/`Identifier`. That was a different
+population. **Which anchors carry the 691 never-reached lines is unmeasured**,
+and it decides whether 132 cases is one build or eight: `ts2322split.rs` prints
+positions and not node kinds, and adding the kind is a small extension to the
+same probe. **Do that before writing an anchor.**

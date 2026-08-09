@@ -1644,7 +1644,7 @@ impl<'a> Checker<'a, '_> {
         self.create_type_reference(target, arguments)
     }
 
-    /// §46/§90's shared admission: the symbol of a TYPE_ALIAS's TypeLiteral
+    /// §46/§90's shared admission: the symbol of a `TYPE_ALIAS`'s `TypeLiteral`
     /// body, if it has one. The member table an instantiated alias reference
     /// answers property lookups from.
     fn alias_body_literal_symbol(&self, symbol: SymbolId) -> Option<SymbolId> {

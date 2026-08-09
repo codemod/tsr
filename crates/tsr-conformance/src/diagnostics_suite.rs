@@ -229,6 +229,93 @@ fn apply_comment_directives(
     out
 }
 
+/// One position `report_assignability_failure` was asked about, and the gate
+/// that decided it.
+///
+/// See [`assignability_probe_for`].
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ProbedPosition {
+    /// The case-relative file name, as `BaselineDiagnostic` spells it.
+    pub file: String,
+    /// 1-based, as the baselines are.
+    pub line: u32,
+    /// 1-based, as the baselines are.
+    pub column: u32,
+    /// One of `tsr_checker::assignreport::PROBE_*`.
+    pub verdict: u8,
+}
+
+/// Every position the TS2322 site was reached at, for one case.
+///
+/// **Runs the shipped checker through the same program `from_check_traversal`
+/// builds**, rather than re-deriving one: `docs/conventions.md`'s rule that a
+/// probe re-implementing the harness measures a different compiler, and the
+/// defect `probefile.rs` exists to prevent (a hand-rolled program silently
+/// loses the `/.lib` mount).
+///
+/// Requires `TSR_ASSIGN_PROBE` in the environment; the checker records nothing
+/// otherwise. See `docs/architecture/checker-notes-diag2.md` §172.
+#[must_use]
+pub fn assignability_probe_for(test: &crate::TestCase) -> Vec<ProbedPosition> {
+    let arena = tsr_core::Arena::new();
+    let program = program_for_case(&arena, test);
+    let mut checker = tsr_checker::Checker::with_module_host(
+        program.binder(),
+        program.nodes(),
+        program.node_map(),
+        Some(&program),
+    );
+    checker.apply_compiler_options(program.compiler_options());
+
+    let mut own_files = Vec::new();
+    for unit in &test.files {
+        if tsr_parser::ScriptKind::from_file_name(&unit.name) == tsr_parser::ScriptKind::Json {
+            continue;
+        }
+        if let Some(file) = program.source_file(&unit.name)
+            && let Some(id) = file.source_file().node_id
+        {
+            own_files.push(id);
+        }
+    }
+    checker.set_checked_files(own_files);
+
+    let mut units = Vec::new();
+    for unit in &test.files {
+        if tsr_parser::ScriptKind::from_file_name(&unit.name) == tsr_parser::ScriptKind::Json {
+            continue;
+        }
+        let Some(file) = program.source_file(&unit.name) else { continue };
+        let Some(id) = file.source_file().node_id else { continue };
+        let declaration_file = unit.name.ends_with(".d.ts")
+            || unit.name.ends_with(".d.mts")
+            || unit.name.ends_with(".d.cts");
+        checker.check_source_file(
+            id,
+            tsr_checker::check::FileContext {
+                ambient: declaration_file,
+                has_parse_errors: !file.diagnostics().is_empty(),
+            },
+        );
+        units.push((id, unit.name.clone(), file.text()));
+    }
+
+    let mut out = Vec::new();
+    for &(file, span, verdict) in &checker.assignability_probe {
+        let Some((_, unit_name, source)) = units.iter().find(|(id, _, _)| *id == file) else {
+            continue;
+        };
+        let (line, character) = line_and_character(source, span.start);
+        out.push(ProbedPosition {
+            file: unit_name.clone(),
+            line: line + 1,
+            column: character + 1,
+            verdict,
+        });
+    }
+    out
+}
+
 /// Every diagnostic `Checker::check_source_file` reports for the case's own
 /// units.
 ///

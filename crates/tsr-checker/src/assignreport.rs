@@ -33,6 +33,25 @@ use tsr_diagnostics::{Diagnostic, messages};
 
 use crate::{checker::Checker, flags::TypeFlags, types::TypeId};
 
+/// Verdicts recorded by §172's probe, in the order
+/// `report_assignability_failure` tests them.
+pub const PROBE_REPORTED: u8 = 0;
+/// Declined: an object literal against a union target — TS2353/TS2561/TS2739's
+/// machinery, not this site's.
+pub const PROBE_OBJECT_LITERAL_UNION: u8 = 1;
+/// Declined by `pair_is_reportable` — one side is a type this port will not
+/// speak about.
+pub const PROBE_PAIR_NOT_REPORTABLE: u8 = 2;
+/// Declined because the three-valued relation did not answer `NotRelated`.
+/// **This is the `checker_types` bucket**: `Unknown` means the relation could
+/// not decide, which is the members-table gap.
+pub const PROBE_RELATION_DECLINED: u8 = 3;
+
+fn assign_probe_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| std::env::var("TSR_ASSIGN_PROBE").is_ok())
+}
+
 impl<'a> Checker<'a, '_> {
     /// `checkAssignmentOperator` (`checker.go:12757`), the `=` arm.
     ///
@@ -601,12 +620,28 @@ impl<'a> Checker<'a, '_> {
         // literal's type is synthesised and carries no declaration to enumerate:
         // 31 wrong lines across six cases — `excessPropertyCheckWithUnions`,
         // `assignmentCompatWithDiscriminatedUnion`, both `missingDiscriminants`.
+        // §172's probe. Records the gate that decided every position this site
+        // was asked about, so the unemitted TS2322 population can be split into
+        // "never visited" and "visited and declined". Off unless
+        // `TSR_ASSIGN_PROBE` is set; the `OnceLock` keeps it to one `getenv`.
+        macro_rules! probe {
+            ($verdict:expr) => {
+                if assign_probe_enabled()
+                    && let Some(probe_file) = self.source_file_of_for_diagnostics(at)
+                {
+                    let probe_span = self.error_span(at);
+                    self.assignability_probe.push((probe_file, probe_span, $verdict));
+                }
+            };
+        }
         if self.nodes.kind(source_node) == SyntaxKind::ObjectLiteralExpression
             && self.type_of(target).flags.contains(TypeFlags::UNION)
         {
+            probe!(PROBE_OBJECT_LITERAL_UNION);
             return false;
         }
         if !self.pair_is_reportable(source, target) {
+            probe!(PROBE_PAIR_NOT_REPORTABLE);
             return false;
         }
         let Some(file) = self.source_file_of_for_diagnostics(at) else { return false };
@@ -616,6 +651,7 @@ impl<'a> Checker<'a, '_> {
         {
             let source_text = self.type_to_string(source);
             let target_text = self.type_to_string(target);
+            probe!(PROBE_REPORTED);
             self.report(
                 file,
                 Diagnostic::with_args(
@@ -637,8 +673,10 @@ impl<'a> Checker<'a, '_> {
             != crate::relater::Ternary::NotRelated
             && !self.object_against_primitive(source, target)
         {
+            probe!(PROBE_RELATION_DECLINED);
             return false;
         }
+        probe!(PROBE_REPORTED);
         let source_text = self.type_to_string(source);
         let target_text = self.type_to_string(target);
         self.report(

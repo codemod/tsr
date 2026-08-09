@@ -350,6 +350,16 @@ pub struct Checker<'a, 'n> {
     /// makes the set program-scoped without adding a second entry point.
     /// See `docs/architecture/checker-notes-diag2.md` §159.
     pub(crate) merge_conflicts_reported: bool,
+    /// Every position `report_assignability_failure` was *asked about*, with
+    /// the gate that decided it. Filled only under `TSR_ASSIGN_PROBE`.
+    ///
+    /// The question it exists for: of the TS2322 lines the corpus wants and
+    /// this port does not emit, how many are positions the walk **never
+    /// visits** (a missing reporting anchor — this workstream's) versus
+    /// positions it visits where the **relation declines** (`checker_types`'
+    /// members and relation completeness)? `bd tsr-bxp` blocks on that split.
+    /// See `docs/architecture/checker-notes-diag2.md` §172.
+    pub assignability_probe: Vec<(NodeId, tsr_core::Span, u8)>,
     /// `compilerOptions.allowUnreachableCode`, read as `IsTrue()`
     /// (`checker.go:12534`) — so unset is `false` and the comma-operator
     /// diagnostic is on by default.
@@ -669,6 +679,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             strict_property_initialization: true,
             file_has_parse_errors: false,
             merge_conflicts_reported: false,
+            assignability_probe: Vec::new(),
             allow_unreachable_code: false,
             unreachable_code_is_error: false,
             preserve_const_enums: false,
