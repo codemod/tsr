@@ -695,6 +695,27 @@ impl Checker<'_, '_> {
                 return Some(self.create_type_reference(class, arguments));
             }
         }
+        // §117 slice 4: a TUPLE's `.length` is the LITERAL element count
+        // (`createNormalizedTupleType` mints it; plain tuples only — the
+        // §37 registry has no rest/optional shapes to miscount... optional
+        // masks DO exist: a tuple with optionals answers the union of
+        // possible lengths upstream; decline those, plain counts only).
+        if name == "length"
+            && let Some((elements, _)) = self.tuple_element_lists.get(&id)
+        {
+            let count = elements.len();
+            let optional = self
+                .tuple_optional_masks
+                .get(&id)
+                .is_some_and(|mask| mask.iter().any(|&optional| optional));
+            if !optional {
+                return Some(self.store.intern_literal(
+                    crate::flags::TypeFlags::NUMBER_LITERAL,
+                    crate::types::TypeData::NumberLiteral(count.to_string()),
+                    false,
+                ));
+            }
+        }
         if let Some(property) = self.get_property_of_type(id, name) {
             let declared = self.get_type_of_symbol(property);
             let instantiated = self.instantiate_for_reference(id, declared);

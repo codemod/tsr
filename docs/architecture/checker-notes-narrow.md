@@ -4795,3 +4795,9 @@ PrimitiveTypes} whole, zero adverse. §117's three slices total
 **+786 net**; remaining census rows: Intersection 185 (the §92
 registry gate deliberately narrow — widening needs the discriminant
 evidence re-examined), Named-bare 174, the priced slice-1 residuals.
+
+**§117 slice 4 — LANDED at +10/0.** A plain tuple's `.length` is the
+literal element count; optional-bearing tuples decline (upstream
+answers a length UNION there — a later arm if its rows surface).
+strictTupleLength 6 + destructuring defaults 3 + rest-pattern 1,
+zero adverse.
