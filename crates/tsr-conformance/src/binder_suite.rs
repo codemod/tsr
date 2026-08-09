@@ -162,6 +162,11 @@ impl Suite for BinderSymbols {
         );
         let mut section_occurrences: std::collections::HashMap<&str, usize> =
             std::collections::HashMap::new();
+        let mut section_totals: std::collections::HashMap<&str, usize> =
+            std::collections::HashMap::new();
+        for expected_file in &expected_files {
+            *section_totals.entry(expected_file.file.as_str()).or_insert(0) += 1;
+        }
 
         for expected_file in &expected_files {
             // Exact name first: a case can hold both `utils/index.ts` and
@@ -172,6 +177,17 @@ impl Suite for BinderSymbols {
                 *counter += 1;
                 *counter
             };
+            // tsgo's harness OVERWRITES a duplicated `@filename`: one baseline
+            // section against several same-named units means only the LAST was
+            // compiled (`autoAccessorNoUseDefineForClassFields`).
+            let unit_total =
+                parsed.files.iter().filter(|unit| unit.name == expected_file.file).count();
+            let occurrence =
+                if section_totals.get(expected_file.file.as_str()) == Some(&1) && unit_total > 1 {
+                    unit_total
+                } else {
+                    occurrence
+                };
             let Some(unit) = parsed
                 .files
                 .iter()
