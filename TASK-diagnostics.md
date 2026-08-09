@@ -11,19 +11,40 @@ FIRST: git pull. Then read, in this order:
   the metric), then **§86–§90** — the thirteenth session, five sections, four
   builds.
 
-STATE AT HANDOFF, fourteenth session, at `139d1f6` (verify with a fresh run):
-  diagnostics    1,574/5,488 = 28.68%   (+123 over ELEVEN builds, zero lost —
-                 §156-§186; three priced refusals, three self-corrections)
+STATE AT HANDOFF, fourteenth session (verify with a fresh run):
+  diagnostics    1,594/5,488 = 29.05%   (+143 over THIRTEEN builds, zero lost —
+                 §156-§189)
 
-WHAT IS LEFT IS NOT THIS WORKSTREAM'S, AND THAT IS THE SESSION'S CONCLUSION.
-Every remaining row above ~10 cases is blocked on another subsystem, each now
-MEASURED rather than asserted:
-  · relation + members  — 1,032 cases (§172: 335 of TS2322's alone)
-  · alias resolution    — TS2694's 15 (§186), second measured consumer
+## READ THIS FIRST: THREE REFUSALS WERE FILED AND ALL THREE WERE WRONG
+
+This session filed three refusals that named a blocking subsystem, and reversed
+every one of them **within the same session**, for a combined +20 cases that had
+been parked:
+
+| § | refusal said | truth | reversed by |
+|---|---|---|---|
+| 164 | `is_value_reference` is broken | it is not | §165, one measurement |
+| 186 | alias resolution is unported | ported in the CHECKER | §187, one `grep` |
+| 171 | `file_loader` ignores `<reference path>` | it follows it, with a test | §189, restoring the build |
+
+**Every refusal that named a MEASUREMENT stood** — §163's "+2 for 238", §177's
+"6 reports in 563 entries", §184's "8 not 25". What never stood was a sentence
+of the form *"this row is blocked on X"*.
+
+> **A refusal may state what was measured. It must not name a blocker unless the
+> blocker was grepped for by the name upstream calls it.** A refusal is read for
+> many sessions; a row is re-measured every time.
+
+Corollary that paid twice here: **when a resolver or binder fix lands, re-run
+the refused builds before believing their numbers.** §166 alone turned §163's
+dead code into §167's +8, and §171's 65 wrong into §189's 9.
+
+WHAT IS ACTUALLY LEFT, with fresh numbers:
+  · relation + members — TS2322's split re-run after §166 and unchanged:
+    335 wholly relation-gated, 132 anchor-gated (an UPPER bound, §177), 14 mixed
   · the parse-error set — four rows' residues (§162, §179, §182, §184)
-  · JSX / file_loader   — TS7026's 28 (§171)
-The cheap grammar seam is now genuinely worked out; §105 said that once and was
-wrong, so the evidence is listed in 0v rather than the claim repeated.
+  · partial symbol tables — TS2694's residual 4 (§187): an empty export table
+    can be declined and a partial one cannot
   binder_symbols 8,459/8,459 = 100%     — held across a build that changed
                  `merge_symbol`'s behaviour
   checker_types  3,937/9,538 · 84.47% — the other workstream's, and it moves
