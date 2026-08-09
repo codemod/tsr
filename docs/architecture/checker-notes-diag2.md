@@ -23678,3 +23678,44 @@ this needs is a type-side read this workstream has no instrument for.
 **TS2488 stays open**, owner: the type-side representation of a `new`
 expression. 11 cases. The syntactic bound in §423 is sound and is recorded
 above; it is the *lookup* that failed, not the argument.
+
+## §425 — TS2749 on a qualified name: scoped, not built
+
+```ts
+namespace A {
+    export function B<T>(x: T) { return x; }
+    export namespace B { export var x = 1; }
+}
+var b: A.B;      // TS2749 — 'A.B' refers to a value, but is being used as a type
+```
+
+3 blocked, all single-line, `occupied 0/3`.
+
+The meaning ladder that would decide this — `report_meaning_mismatch_in_type_position`,
+which already selects between TS2709 and TS2749 — is called from **one place**:
+`check_type_reference_name`, whose subject is a *simple* name. `var b: A.B` is a
+`QualifiedName`, and the only rule asked about that shape is
+`check_qualified_type_name`, which emits TS2503 and nothing else.
+
+So this is §347's shape — one question, asked of one node kind — with the ladder
+already built and simply never consulted for the other kind.
+
+### Why it is scoped rather than built
+
+**§369 measured `−2` widening exactly this rule's position.** The lesson there
+was that a `QualifiedName` in an `import =` reference has a *family* of failure
+modes and TS2503 names only one of them. The same caution applies in reverse
+here: the ladder's first rung asks `resolve_under(node, text, MODULE)` and would
+answer TS2709 for a **fundule** (`function B` merged with `namespace B`), where
+upstream answers TS2749 — so porting the position without first establishing
+upstream's rung order for a merged symbol is how §369 happened.
+
+§103's rule is the one that governs: **the `else if` order is the
+specification**, and it has not been read for this ladder against a
+namespace-and-value symbol.
+
+**Owner: this workstream, next session.** The work is (1) read
+`checkAndReportErrorForUsingNamespaceAsTypeOrValue` and
+`checkAndReportErrorForUsingValueAsType` in order for a symbol carrying both
+flags, then (2) ask the ladder from `check_qualified_type_name`. Bar when built:
+`+2 of 3`, with `checker_types` unmoved as the falsifier.
