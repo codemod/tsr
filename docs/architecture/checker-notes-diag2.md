@@ -27493,3 +27493,133 @@ TS2683  §416  a plain function        TS7041  §519  an arrow at top level
 
 Four arms of `checkThisExpression`, built across a hundred and thirty builds,
 now all present and mutually exclusive in upstream's order.
+
+## §521 — TS2390/TS2391: a declaration with no implementation
+
+Two arms of **one** `if` (`checker.go:3592`), reached from **one** call site
+(`checker.go:3681`):
+
+```go
+if lastSeenNonAmbientDeclaration.Body() == nil
+   && !HasSyntacticModifier(…, ModifierFlagsAbstract)
+   && !isOptionalDeclaration(…) {
+    reportImplementationExpectedError(lastSeenNonAmbientDeclaration)
+}
+…
+if isConstructor { Constructor_implementation_is_missing }        // TS2390
+else if abstract { All_declarations_of_an_abstract_method… }      // TS2394, not ported (§501)
+else            { Function_implementation_is_missing_or_not… }    // TS2391
+```
+
+**§497's bundling test passes for the first time in twenty builds**: these are
+not two rules that happen to be adjacent, they are one predicate and a
+two-way branch on `isConstructor`. §496's failure was two rules sharing a
+*dispatch*; this is two messages sharing a *guard*.
+
+### The fixtures, and what the error span says
+
+```ts
+class C { public constructor; }        // TS2390 at (3,3)  — parserConstructorDeclaration8
+function f(a, {                        // TS2391 at (1,10) — parserErrorRecovery_ParameterList2
+```
+
+Upstream's `errorNode` is `OrElse(name, node)`, and TS2390 lands on **column 3**
+— the `public`, not the `constructor` at column 10. **That column is the
+evidence that upstream parses `public constructor;` as a `ConstructorDeclaration`
+and not as a property named `constructor`**, because a constructor is the one
+class member with no `name` and therefore the one whose error falls back to the
+node. The fixture's own comment says `// Not a constructor`; the span says
+otherwise, and the span is generated from the code.
+
+That is §131's rule paying off in the other direction — the fixture's *prose*
+was the misleading part and the baseline's *column* was the fact.
+
+### The narrowing
+
+`checkFunctionOrConstructorSymbol` is a per-symbol loop over merged
+declarations. Ported here as a per-declaration test — *am I the last
+non-ambient function-like declaration of my symbol?* — resolved through the
+binder for named declarations and through the class's own `members` for
+constructors, since `__constructor` is not a name `resolve_name` can reach.
+
+**This is narrower than upstream for cross-file merged functions**, where the
+last declaration is not a sibling. Declining that deliberately: it reports
+*less*, never *wrong*, which is the direction §784's note argues for when a
+rule's false positives are the expensive kind.
+
+### The bar
+
+```
+bar:  +4 of 4  (2 TS2390 + 2 TS2391),  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **An overload followed by an implementation reports.** The commonest shape
+   in the corpus; if "last declaration" is computed wrong this floods.
+2. **A `declare function f();` reports.** §508's ambient helper is the guard.
+3. **An interface method signature reports.** Upstream nulls
+   `lastSeenNonAmbientDeclaration` for interface and type-literal parents.
+4. **An `abstract` method reports TS2391** rather than being left for TS2394.
+
+## §522 — §521 measured **−26**, reverted whole: a per-symbol loop is not a per-declaration test
+
+```
+bar was +4;  measured −26 (2,044 → 2,018), twelve wrong lines
+```
+
+§521 ported `checkFunctionOrConstructorSymbol`'s trailing guard by asking each
+declaration *am I the last non-ambient one of my symbol?* rather than iterating
+symbols. `extraonly` named three mechanisms, and **each was found by reading a
+baseline rather than by reasoning further** — §131's rule, applied at the point
+where the fourth hypothesis was forming:
+
+**1. `.d.ts` is ambient and §508's helper does not say so.** Six of the twelve
+were in declaration files (`b.d.ts`, `preact/jsx-runtime/index.d.ts`).
+`declaration_is_in_an_ambient_context` walks for an enclosing `declare`;
+upstream's `NodeFlagsAmbient` is *also* set on everything in a declaration file.
+**§445 got this wrong by making the predicate too wide and §521 by making it too
+narrow** — the same missing distinction, from both sides, thirteen builds apart.
+
+**2. The `subsequentNode` branch is an early *return*, not a refinement.**
+
+```ts
+function foo();
+function bar() { }    // baseline: TS2389, not TS2391
+```
+
+`FunctionDeclaration4`'s baseline carries **TS2389** — *Function implementation
+name must be 'foo'* — because a following declaration of the same kind *with a
+body* returns before the report is reached. §521 read that block as computing a
+better error node and it is a different rule entirely.
+
+**3. A declaration with no symbol is never visited at all.**
+
+```ts
+class C { [e](); }    // baseline: TS2304 only — no TS2391
+```
+
+Upstream's loop is driven by the **symbol table**, and a computed member name
+that does not resolve produces no member symbol, so the declaration is never
+reached. A per-declaration port has no equivalent of *"was never enumerated"* —
+it sees every declaration by construction.
+
+> **The third is the general one.** A per-symbol loop and a per-declaration test
+> differ not only in what they *decide* but in what they *see*: the loop's
+> domain is the symbol table, and the set of declarations with no symbol is
+> exactly the set a per-declaration port reports on for free. **Porting a
+> `for symbol := range` as a node visit silently widens the domain**, and no
+> amount of guard-matching closes that gap — the guards are inside the loop.
+
+This is the twenty-fifth whole revert and the first whose mechanism was
+*domain* rather than *predicate*. Twenty-four earlier reverts were a wrong
+arm, a wrong flag, a wrong walk, or a wrong bound; this one had all its
+predicates right.
+
+### Owner
+
+**TS2390/TS2391 need the symbol-driven form**, which means
+`checkFunctionOrConstructorSymbol` over the class's member table and the file's
+locals rather than a `check.rs` visitor arm. That is a real port of a real
+function and it is the right shape for TS2389, TS2392, TS2393 and TS2394 as
+well — four more rows behind the same loop. Filed as the successor to this note.
