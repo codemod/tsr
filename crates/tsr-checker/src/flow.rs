@@ -1506,8 +1506,8 @@ impl Checker<'_, '_> {
     /// (`getTypeAtFlowCondition`, `flow.go:340`).
     /// §127's syntactic pre-gate: the callee is an identifier whose resolved
     /// symbol has a declaration visibly returning `asserts ...` — a
-    /// FunctionDeclaration's return TypePredicate, or a variable annotated
-    /// with a FunctionTypeNode whose return is one. Overloaded/expression
+    /// `FunctionDeclaration`'s return `TypePredicate`, or a variable annotated
+    /// with a `FunctionTypeNode` whose return is one. Overloaded/expression
     /// forms outside these shapes decline (the walk then skips, today's
     /// behaviour).
     fn callee_declares_asserts(&mut self, callee: tsr_ast::Expression<'_>) -> bool {

@@ -28807,3 +28807,54 @@ for well-formedness**, which is worth knowing about them.
 No measurement was affected — the snapshot was regenerated from a clean
 `measure` run and reads **2,072** at this commit, which includes the other
 workstream's landings since §543's 2,070.
+
+## §545 — §543's grep sweep, discharged: three arms, one defect, **+0**
+
+§543 proposed *a rule whose first `match` arm restates its dispatch guard is a
+candidate*, testable by grep. Run: the visitor has **three** guarded
+`BinaryExpression` arms.
+
+```
+is_numeric_binary_operator   →  nullable / operator-operands / arithmetic
+CommaToken                   →  check_comma_left
+is_assignment_operator       →  check_assignment_operator + check_reference_expression
+```
+
+The defect found is not the one §543 predicted. **A `match` is exclusive and the
+numeric arm comes first**, and `is_numeric_binary_operator` contains the compound
+arithmetic assignments:
+
+```
+MinusEqualsToken · AsteriskEqualsToken · SlashEqualsToken · PercentEqualsToken
+```
+
+so `x -= y` never reached the assignment arm and never saw
+`check_reference_expression`. **§528's ordering defect, in the dispatch rather
+than in a rule** — the fourth instance of that class, and the first where the
+"order" is `match`-arm order rather than statement order.
+
+> **Arm order is a guard nobody writes down.** A `match` whose arms overlap
+> encodes a precedence that no comment states and no test asserts, and the only
+> visible symptom is silence in the shadowed arm. §543 found its defect because
+> a row was at 5 and stayed at 4; this one had no row at all.
+
+### Measured **+0**, and kept
+
+```
+diagnostics   2,072 → 2,072
+extraonly     55 → 54 cases blocked by an extra alone
+```
+
+The corpus has no case where a compound arithmetic assignment targets a
+non-reference, so nothing converted. **Kept anyway**: it is upstream's behaviour,
+it costs nothing, and the alternative is leaving a known-silent arm in place
+because today's corpus does not exercise it. §540 made the same call for two
+harness directives worth +0 each.
+
+That is now three §0 builds kept for fidelity in this session (§539 ×2, §545),
+against twenty-five reverted for measuring negative — the distinction being
+**whether the change makes the port more like upstream or merely different**.
+
+### The sweep, closed
+
+Three arms, one defect, +0. Recorded as **discharged**, not standing.

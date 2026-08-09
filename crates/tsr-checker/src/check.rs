@@ -366,6 +366,15 @@ impl Checker<'_, '_> {
                 self.check_nullable_operand(node, ambient);
                 self.check_operator_operands(node, ambient);
                 self.check_arithmetic_operand_types(node, ambient);
+                // **A `match` is exclusive and this arm comes first.**
+                // `is_numeric_binary_operator` includes the compound arithmetic
+                // assignments (`-=`, `*=`, `/=`, `%=`, …), so those never reach
+                // the assignment arm below and never saw
+                // `check_reference_expression` — §528's ordering defect, in the
+                // dispatch rather than in a rule. §545.
+                if binary.operator_token.is_some_and(|t| t.kind.is_assignment_operator()) {
+                    self.check_reference_expression(node);
+                }
                 ambient
             }
             Node::BinaryExpression(binary)
