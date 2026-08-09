@@ -13691,17 +13691,38 @@ normalisation, and an asymmetry there reads as a regression in the code.
 |---|---:|---:|
 | `binder_symbols` | 8,459/8,459 | 8,459/8,459 |
 | `checker_types` | 3,957 / 405,682 (84.6434%) | 3,957 / **405,703** (84.7060%) |
+
+**Re-measured after rebasing onto the fifteenth session's §176–§197** (base
+`357df05`, measured in a worktree at the base commit): 406,188 → **406,209**,
+3,970 cases unchanged. **The same +21 lines and 0 cases on a second base**,
+which is what makes it a delta rather than an interaction.
 | `diagnostics` | 1,524/5,488 | 1,524/5,488, **no case changed verdict** |
 | `module_resolution` · `file_loader` | 95/95 · 96/96 | unchanged |
 | 22-package monorepo | **1,550** | **1,440** |
+
+Re-measured on the rebased base as well (`357df05`, whose parser and TS7026
+builds changed the repo's totals): **3,186 → 3,082, −104.** Same 91 TS2300 and
+13 TS2649; the −6 TS2322 of the first measurement is absent because that base
+had already lost them to a different change.
 
 The corpus barely moves — +21 lines, no case — because it contains no such
 collision, which is exactly what §173 predicted and why this could only ever be
 scored on a real repository. `apps/worker` alone goes from 10 reported errors to
 2, and both survivors are an unrelated `export *` gap in `zod`.
 
-The −110 is 91 TS2300 + 13 TS2649 + 6 TS2322; the last six are cases where the
-collision had been corrupting the symbol a comparison was made against.
+The −110 is 91 TS2300 + 13 TS2649 + 6 TS2322; the last six were cases where the
+collision had been corrupting the symbol a comparison was made against, and they
+do not recur on the second base.
+
+**An observation the second measurement forced, and it is not about this
+change.** At `357df05` the same repository reports **1,642 TS7026** — the rule
+§189 landed for +14 conformance cases. Every one of them is
+`JSX.IntrinsicElements` failing to resolve in a React package, which is the
+`file_loader` wrong column §171 named as that row's binding constraint and
+priced before the rule was built. The conformance corpus scores the rule
+positive; a real repository scores it at more than a thousand false positives.
+Recorded here because the two numbers are about the same code and only one of
+them was taken.
 
 ### A deliberate non-change
 
