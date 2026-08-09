@@ -11761,6 +11761,11 @@ lands"*. It is explained, it was not the merge, and the fix is in the checker.
 | `checker_types` cases | 3,955/9,538 (41.47%) | 3,957/9,538 (41.49%) |
 | `checker_types` lines | 405,111 (84.5824%) | 405,403 (84.6434%) |
 
+**Re-measured on a second base.** Rebasing onto the fifteenth `.types`
+session's work (`a7dccd4`, 3,955 / 405,390) and re-running gives
+**3,957 / 405,682** — the same +2 cases and +292 lines. A delta reproduced on
+two bases is a delta rather than an interaction.
+
 **`diagnostics` did not merely net to zero — no case changed verdict**, in
 either direction. That is a stronger statement than §171's `1,524 → 1,523` and
 it is the one the bar asked for.

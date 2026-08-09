@@ -603,6 +603,10 @@ Measured at the landing commit, one checkout, before and after:
 | `checker_types` cases | 3,955/9,538 | 3,957/9,538 |
 | `checker_types` lines | 405,111 (84.58%) | 405,403 (84.64%) |
 
+Re-measured after rebasing onto the fifteenth `.types` session: 405,390 →
+405,682. **The same +2 / +292 on a different base**, which is what says the two
+workstreams compose rather than overlap.
+
 The line gain is concentrated in JSX cases, because `declare global { namespace
 JSX { … } }` now reaches a lookup — which is the second of the three items
 `checker-notes-diag2.md` §171 priced the TS7026 row at.

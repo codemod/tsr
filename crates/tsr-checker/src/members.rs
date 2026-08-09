@@ -706,9 +706,7 @@ impl Checker<'_, '_> {
                 }
             };
         }
-        let Some((target, arguments)) = self.type_reference_targets.get(&id).cloned() else {
-            return None;
-        };
+        let (target, arguments) = self.type_reference_targets.get(&id).cloned()?;
         if self.global_type_symbol_with_arity("Omit", 2) == Some(target) && arguments.len() == 2 {
             let removed = self.literal_key_texts(arguments[1])?;
             if removed.iter().any(|key| key == name) {

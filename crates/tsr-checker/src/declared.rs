@@ -2384,7 +2384,7 @@ impl<'a> Checker<'a, '_> {
         result
     }
 
-    /// §92's admission walk: whether a TypeLiteral sits on the body's
+    /// §92's admission walk: whether a `TypeLiteral` sits on the body's
     /// structural spine (through unions, intersections, parentheses).
     fn body_carries_type_literal(node: TypeNode<'_>) -> bool {
         match node {
