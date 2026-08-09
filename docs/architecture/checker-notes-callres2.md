@@ -180,3 +180,28 @@ THE PORT SHAPE — the resolved-signature memo:
      §56.3 stack precedent.
 Measured against the 1,829 ceiling as ONE unit; the bar's
 prediction and gates at build time.
+
+**The reunion's first fire — REFUSED at 361:424 and reverted whole;
+the two gates it named are the next build's bars.** The full unit
+(memo + two passes + reunited arm + the gate's third disjunct) was
+built and measured: **+336 G→R +25 W→R** — parenthesizedContexual-
+Typing2 59, temporal 58, intraExpressionInferences 26: the summit
+fixtures MOVE, the design is right — against 363 G→W, 46 R→G, 15
+R→W from exactly two causes, each read off the case names:
+  1. HALF-INSTANTIATED CONTEXTS: the pass-1 memo instantiates with
+     the partial map and hands parameters whose types still mention
+     UNMAPPED T to the callbacks (generatedContextualTyping 48,
+     typeArgumentInference 15) — the memo must include a parameter
+     ONLY when every type parameter its type mentions is mapped;
+     otherwise that position's context stays None and the callback
+     stays deferred-then-standalone.
+  2. THE OVER-BROAD UN-GATE: the third disjunct consulted ANY
+     contextual signature, un-gating the §75-era single-generic
+     population whose uninstantiated pass was landed behavior
+     (genericCallWith* R→G/R→W 46+15) — the disjunct must test THE
+     MEMO's presence alone, not contextual_signature.
+Both fixes are mechanical against this measurement; the reunion
+resumes with them as registered gates and this pair's numbers as
+the falsifier (the +361 must survive; the 424 must fall under
+1:5). Reverted whole per the bar; the build's full text is
+patch119+patch120+the disjunct in the scratchpad history.
