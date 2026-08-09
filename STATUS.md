@@ -1307,6 +1307,25 @@ its whole deliverable and accept that it converts nothing until finished.
 
 ## 5. Refused, with the number that refused it
 
+### New, this session, TS2591 — the `Cannot find name` name table, 9 cases
+
+Refused by **§248**, after being ported at both call sites and measuring
+**exactly zero** at each. `moduleKeywordRepeatError` wants TS2591 for `module` in
+`module.module { }` and this port emits **nothing** there, so the name never
+reaches the TS2304 site the table sits at the end of.
+
+The parser hypothesis is **disproved**: probed directly, the parse is
+`ExpressionStatement` + `Block` with TS1005 at exactly upstream's position.
+
+**Owner: `check_value_identifier` declines for these names before reaching the
+fallback** — one of its five guards, which one not established.
+
+Reverted for §237's reason. The distinction tried and rejected: this table sits
+on a *live* path (every TS2304 passes through it), so it is **unmatched** rather
+than **unreachable**. That is a real difference and it is not enough — *a table
+that has never once selected a message is indistinguishable from one that
+cannot.*
+
 ### New, this session, TS2323 — duplicate exported names, 8 cases
 
 Refused by **§246**, after three bounds and three measurements. Owner:
@@ -2213,6 +2232,7 @@ holds only the numbers.
 | 2026-08-09 | HEAD | **30.28%** | **1,662** | **+8, the whole ceiling — a channel, not a rule** | **TS6053 was never refused; it was *unroutable*.** The loader's own comment: *"a diagnostic upstream and is dropped here, as every other loader diagnostic is."* Four codes shared one missing field. Built `LoaderDiagnostic` → `Program::loader_diagnostics` (upstream's `fileProcessingDiagnostics`); `FileReference.span` had carried the doc *"so a diagnostic can point at it"* for a consumer that did not exist. ***"Not ported" and "has nowhere to go" look identical from the gap, and only one is fixed by writing the rule.*** Third no-producer row to hit its ceiling. §240–§241 |
 | 2026-08-09 | HEAD | **30.50%** | **1,674** | **+12, `RIGHT 90 · WRONG 0` — the best ratio measured** | **TS2628/2629/2630/2631/2632/2539**, a six-way switch on symbol flags alone. *A rule gated on symbol flags has nothing to be approximately right about.* **The first measurement said 1,072** — a 590-case collapse that read exactly like the falsifier firing, and was §140 for the **third** time. §231's rule said clippy *before* coverage; both ran in one invocation and the coverage number was read first. ***A gate that runs before the measurement is not a gate; a gate that BLOCKS the measurement is.*** Also §242: the three loader arms §241 promised are worth **zero**, measured before building. §242–§244 |
 | 2026-08-09 | HEAD | 30.50% | 1,674 | **third whole build reverted after measurement** | **TS2323** — bounded three times (no bound `WRONG 47`, skip `default` `WRONG 24`, skip binder-reported symbols **no change**), net negative throughout. The mechanism was read off two baselines: **upstream's `declareSymbol` gives a conflicting declaration a fresh symbol; this port's binder merges it.** ***A refusal that names a divergence in shared infrastructure is worth more than the eight cases that found it*** — the session's three prior refusals each named a *rule's* blocker; this names a **data-model** difference every future counting rule will meet. §245–§246 |
+| 2026-08-09 | HEAD | 30.50% | 1,674 | **fourth build reverted; one dead call removed** | **TS2591's name table ported at both call sites, measured zero at each.** Parser hypothesis disproved by direct probe. Reading the function to find out why turned up `report_meaning_mismatch_in_value_position` called **twice in a row**, the second unreachable — a §169 rebase artefact, removed. ***Three builds this session found their real defect while reading code for a different reason*** (§232, §244, §248): the gap tells you which function to open; it does not tell you what you will find there. §247–§248 |
 
 ## 8. Updating this file
 
