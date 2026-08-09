@@ -4931,3 +4931,32 @@ declaration kinds, different upstream rule); (b) NamespaceExportDeclaration
 (c) if the symlink-corpora adverse RECURS despite §118 (some
 specifier class still unfindable for a third reason), the refusal
 is thrice-confirmed and the price recorded here.
+
+**§119 MEASURED AND LANDED — the refusal was stale, and §118 is
+what made it so: +235 G→R / 38 G→W / 2 R→W (~5.9:1), right
+409,219 → 409,452 = 85.49% on /478,954.** The bar (≥150 at ≥5:1)
+met on the first measurement. The positive side is §113's almost
+line-for-line (+238 then, +235 now — ramdaToolsNoInfinite2's 130
+intact); what changed is the adverse: 120 lines then, 40 now, and
+the symlink corpora contribute ZERO of them — §118's structural
+exclusion held exactly as argued. The residual G→W is a NEW
+nameable class: tsconfig-unit machinery the types harness does not
+parse — `paths` mapping (pathMappingBasedModuleResolution6_node 5),
+package.json self-names (nodeNextPackageSelfName* 15,
+nodeColonModuleResolution2 6) — plus expandoFunctionContextualTypesNoValue 3
+(expando statics, different owner). The 2 R→W
+(jsxLibraryManagedAttributesUnusedGeneric, reactImportDropped) are
+lines whose upstream want is literally `error` — JSX-import
+positions where upstream itself keeps the gap; priced and accepted.
+The pinned fixture `a_named_import_from_an_unresolved_module_is_a_gap`
+came due and was RENAMED with its new truth (`..._is_any`) — the
+twenty-ninth stand-in.
+
+**What this buys next.** The remaining ALIAS census (ImportEquals
+entity forms 205, NamespaceExportDeclaration 30) stays with
+resolver parity / tsr-9or.1. The tsconfig-unit class (paths +
+self-names, ~26 adverse lines here and the pathMapping* corpora's
+gaps beyond) is now the loader head's SHARPENED price: parsing
+tsconfig units in `program_for_case` would both convert those
+corpora and retire this build's largest adverse class. Still
+parked; re-priced upward in usefulness.

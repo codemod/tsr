@@ -356,6 +356,32 @@ impl<'a> Checker<'a, '_> {
                 return any;
             }
         }
+        // §119 (`checker-notes-narrow.md`): the ES-import declaration forms —
+        // ImportSpecifier, named ImportClause (a default import), and
+        // NamespaceImport — take the same rule through the same calibrated
+        // predicate: an UNFINDABLE specifier reads `any` at every use site
+        // (upstream's unresolved-import error-answer, observable as `any`).
+        // `export ... from` re-exports (ExportSpecifier, NamespaceExport) are
+        // deliberately NOT admitted — different declaration kinds, different
+        // upstream rule (§119 falsifier a). Findable-but-untyped modules keep
+        // the errorType gap below. §113 measured this arm 2:1 when the symlink
+        // corpora were unfindable; §118 mounted their links, which excludes
+        // that adverse class from the arm's domain structurally.
+        if let Some(declaration) = self.declaration_of_alias_symbol(symbol)
+            && matches!(
+                self.nodes.kind(declaration),
+                SyntaxKind::ImportSpecifier
+                    | SyntaxKind::ImportClause
+                    | SyntaxKind::NamespaceImport
+            )
+            && let Some(specifier) = self.import_declaration_specifier(declaration)
+            && self.module_specifier_unfindable(specifier)
+        {
+            let any = self.intrinsics.any;
+            let any = if self.resolutions.pop() { any } else { self.intrinsics.error };
+            self.symbol_types.insert(symbol, any);
+            return any;
+        }
         let target = self.resolve_alias(symbol);
         // `checker.go:18612`, and the `SymbolFlags::VALUE` test is the
         // stack-overflow guard, not a nicety. It is taken over
@@ -714,6 +740,21 @@ impl<'a> Checker<'a, '_> {
     /// be a guess, and the consequence of leaving them out is a *miss* — the
     /// walk finds no alias declaration and the symbol gaps — never a wrong
     /// target.
+    /// The module specifier of the `ImportDeclaration` an import-form alias
+    /// declaration sits under: `ImportSpecifier → NamedImports → ImportClause
+    /// → ImportDeclaration`, or either shorter spine. §119's walk; a bounded
+    /// parent climb because the spine is at most three hops.
+    fn import_declaration_specifier(&self, declaration: NodeId) -> Option<NodeId> {
+        let mut current = declaration;
+        for _ in 0..4 {
+            current = self.nodes.parent(current)?;
+            if let Some(Node::ImportDeclaration(node)) = self.node_map.get(current) {
+                return node.module_specifier.and_then(|specifier| specifier.node_id());
+            }
+        }
+        None
+    }
+
     fn declaration_of_alias_symbol(&self, symbol: SymbolId) -> Option<NodeId> {
         self.binder.symbols().get(symbol).declarations.iter().rev().copied().find(|&declaration| {
             match self.nodes.kind(declaration) {

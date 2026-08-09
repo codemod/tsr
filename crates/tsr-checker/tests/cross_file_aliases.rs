@@ -335,14 +335,18 @@ fn a_named_import_of_a_name_the_module_does_not_export_is_a_gap() {
 }
 
 #[test]
-fn a_named_import_from_an_unresolved_module_is_a_gap() {
-    // A control pinned by **construction**, not by arithmetic: the fixture set
-    // contains no file named `nope`, so `Fixtures::resolved_module` cannot
-    // answer `Some` for it whatever the checker does. This is upstream's
-    // unresolved module, `Cannot_find_module_0_or_its_corresponding_type_declarations`.
+fn a_named_import_from_an_unresolved_module_is_any() {
+    // **Renamed with its new truth by §119** (`checker-notes-narrow.md`) — the
+    // twenty-ninth stand-in to come due. This used to pin `error`, the
+    // §31.1-era reading that an unresolved module leaves its imports as gaps.
+    // The corpus says otherwise: upstream answers TS2307's deliberate
+    // error-answer at every use of the alias, and its `.types` baselines print
+    // `any` (`importNotElidedWhenNotFound`, `unusedInvalidTypeArguments` —
+    // §119's +235). The fixture set contains no file named `nope`, so the
+    // specifier is unfindable by construction and the §119 arm answers `any`.
     let arena = Arena::new();
     let fixture = program(&arena, &[M, ("a", "import { x } from \"./nope\";\n")]);
-    assert_eq!(type_of_alias(&fixture, "x", true), "error");
+    assert_eq!(type_of_alias(&fixture, "x", true), "any");
 }
 
 #[test]
