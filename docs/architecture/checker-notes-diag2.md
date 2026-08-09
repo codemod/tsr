@@ -24608,3 +24608,47 @@ port emit the code at all*, and this asks *does the helper's answer reach a
 report*. TS2576 was emitted nowhere and TS2741 is emitted 48 times — the two
 questions have different answers on the same corpus, which is why the composed
 grep is worth writing down as a pair rather than a refinement.
+
+## §449 — §448's sweep run, corrected, and priced
+
+Run. **Twelve candidates, and the first correction was mine within the same
+turn**: `spelling_suggestion_for` appeared on the list, which would have
+contradicted §363's refusal of TS2552 — except the sweep counted
+
+```rust
+if let Some(suggestion) = self.spelling_suggestion_for(node, text) { …report…; return }
+```
+
+as "suppress-only", because the regex saw `if` before the call and never noticed
+that the answer is **bound**. TS2552 *is* emitted (`check.rs:2202`), and §363's
+refusal was about a different half of that row.
+
+> **A sweep for "the answer is discarded" must distinguish `if f()` from
+> `if let Some(x) = f()`.** The first throws the value away; the second is the
+> exact opposite. That is one character of Rust syntax and it inverts the
+> finding.
+
+Corrected, ten remain — and most are **suppressors by design**, which the sweep
+cannot tell from suppressors by accident:
+
+```
+pair_is_reportable        §16's gate — suppression IS its job
+declaration_is_constant   likewise
+elaborate_object_literal  likewise
+```
+
+The one true §447-shaped candidate:
+
+```
+static_member_references_class_type_parameter   doc names TS2302   1 blocked case
+```
+
+**Priced and not built: one case.** §447 was worth five because
+`other_side_of_class_has` sat in front of a 99-case row; this sits in front of a
+one-case row, and the same edit shape does not make it the same build.
+
+> **The sweep's yield is the *row behind* the helper, not the helper count.**
+> Ten candidates, nine of them either correct-as-written or worth one case. That
+> is the honest rate for this technique, and it is recorded rather than left as
+> "ten leads" — which is what §431 corrected the last time a note handed forward
+> a number instead of a measurement.
