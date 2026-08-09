@@ -23105,3 +23105,93 @@ finding, and it is the second time this session the same signal appeared
 (§221's JSX tests). It also had a real bug: `find_map` then `filter` takes the
 *first* variable in the program and then checks its name, which only ever worked
 for a fixture with exactly one variable. Fixed to `filter_map` then `find`.
+
+## §411 — `declared_property_table` for an object-literal source
+
+§410's owner, built. The function admits one shape:
+
+```rust
+let owner = match &self.store.get(id).data {
+    TypeData::Named { members: Some(owner), .. } => *owner,
+    _ => return None,
+};
+```
+
+An object literal's type is `TypeData::Anonymous`, so `{ }` as a source answers
+`None` and TS2741's `?` short-circuits before the comparison it exists to make.
+
+### The bound
+
+Only an `Anonymous` type whose symbol's declarations are **all
+`ObjectLiteralExpression`**. That excludes `typeof X` — the other producer of
+`Anonymous` — where the symbol's table is *exports* rather than members and a
+missing-property verdict would be nonsense. §349's lesson applied before the
+measurement rather than after: the pattern must test the property (*is this an
+object literal*), not the reason (*is this anonymous*).
+
+### The bar
+
+```
+bar:  +5 of 46,  0 LOST,  WRONG delta <= +4,  checker_types MUST NOT regress
+```
+
+`declared_property_table` is shared with the assignability reports, so this
+reaches the other workstream's suite — the same exposure §350 measured as
+neutral and §368 measured as `+1`.
+
+### Falsifiers
+
+1. **A `typeof X` source produces TS2741.** The declaration test must exclude
+   it.
+2. **`checker_types` moves down.** Shared predicate; a regression there is a
+   revert regardless of the diagnostics board.
+
+## §412 — §411 measured **+0**; §410's owner was one function too shallow
+
+```
+diagnostics   1,909 → 1,909   (bar was +5;  0)
+```
+
+Reverted. §402's fork applied: the widening is *reached* only if something calls
+it, and the call chain is
+
+```
+report_assignability_failure          ← runs only when the caller decided
+  → pair_is_reportable                  the pair is NOT assignable
+  → missing_required_property
+      → declared_property_table          ← §411's edit
+```
+
+For `{ }` against `{ id: number }`, **the relation must first return
+`NotRelated`**. If this port's relation answers `Related` or declines, no report
+is attempted and no table is consulted. §411 widened the last link in a chain
+whose first link never fires.
+
+### Correcting §410, one turn later
+
+§410 stated the owner as *"`declared_property_table` for an anonymous
+object-literal type"*, and said so confidently. That was one function too
+shallow. **TS2741's 46 cases are owned by the relation's verdict on
+object-to-object assignability** — the multi-year workstream — and the
+already-ported absent-form rule sits *behind* that verdict rather than beside
+it.
+
+> **A doc comment that says "no relation runs" describes the rule, not the path
+> to it.** `missing_required_property`'s comment is accurate — it consults only
+> member tables — and I read it as meaning the *diagnostic* is relation-free.
+> The rule is; its **trigger** is not. §16's gate and the relation's verdict
+> both sit upstream of it, and neither is visible from the function that does
+> the work.
+
+That is the third distinct place a `+0` has come from this session, and the set
+is now worth stating together:
+
+```
+§351   the predicate is correct and nothing reaches it
+§380   the rule is correct and nothing dispatches to it
+§412   the rule is correct, is dispatched, and its TRIGGER never fires
+```
+
+All three look identical from the board. The discriminators are, in order: a
+fixture read, `grep -n "<rule>(node"`, and reading the **call chain upward**
+until something decides.
