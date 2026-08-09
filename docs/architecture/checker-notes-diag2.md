@@ -18263,3 +18263,84 @@ is reported from the object-literal/spread path, on a different node.
 `checkGrammarBindingElement`. **TS1186, TS18016, TS1184** — each has residual
 wrong lines that need their own reading; grouping five arms into one build made
 all four indistinguishable until they were isolated.
+
+## §296 — TS1108, chosen under three filters
+
+After two consecutive reverts from batching, this build takes **one** arm and
+applies every filter the session has produced:
+
+- **§293** — the code itself has blocked cases: TS1108 has 5.
+- **§295** — exactly **one** upstream site, so "same message, two rules" cannot
+  bite: `checker.go:4104` and nowhere else.
+- **§273** — all 5 blocked cases are single-line, so a complete arm converts
+  them.
+
+`checkReturnStatement` (`checker.go:4095`):
+
+```go
+if c.checkGrammarStatementInAmbientContext(node) { return }
+container := getContainingFunctionOrClassStaticBlock(node)
+if container != nil && ast.IsClassStaticBlockDeclaration(container) {
+    c.grammarErrorOnFirstToken(node, A_return_statement_cannot_be_used_inside_a_class_static_block)
+    return
+}
+if container == nil {
+    c.grammarErrorOnFirstToken(node, A_return_statement_can_only_be_used_within_a_function_body)
+```
+
+Both branches are ported — the static-block one has no blocked cases and is free
+(§293), and shipping one branch of a two-branch `if` is §230's shape.
+
+The ancestor walk is §269's, and the ambient guard already exists as
+`check_grammar_statement_in_ambient_context`, which the `ReturnStatement` arm
+already calls — so this merges into that arm rather than adding one (§140).
+
+### The bar
+
+```
+bar:  +4 cases of 5,  0 LOST
+```
+
+### Falsifiers
+
+1. **A `return` inside any function reports.** The corpus is made of them.
+2. **A top-level `return` in a `.d.ts` reports.** The ambient guard runs first.
+
+## §297 — §296 built: +5 of a ceiling of 5, and the three filters held
+
+```
+diagnostics   1,779 → 1,784   (+5, bar was +4, ceiling was 5)
+CONVERTS 19 · LOST 0 · STILL SHORT 8 · RIGHT 38 · WRONG 1
+every other suite unmoved — falsifiers 1 and 2 negative
+```
+
+`CONVERTS 19` against a row `diagslice` sized at **5**: the other fourteen were
+blocked on TS1108 *and* something else, and this arm supplied all of their
+TS1108 lines too.
+
+> **A sole-obstacle count is a floor, not a ceiling, when the arm is complete.**
+> §272 established the opposite direction — a *fragment* converts fewer cases
+> than the count. A complete arm can convert more, because it also finishes
+> cases the count never claimed.
+
+Both readings come from the same instrument and neither is visible in it. What
+distinguishes them is whether the arm is whole, which only reading the upstream
+site can say.
+
+### The filters, after two reverts
+
+| filter | source | what it ruled out |
+|---|---|---|
+| the code has blocked cases | §293 | six codes nobody was waiting for |
+| exactly one upstream site | §295 | TS2462, two rules wearing one message |
+| blocked cases are single-line | §273 | TS7031, which no fragment reaches |
+
+All three passed here, and the build is the first since §290 to hit its ceiling.
+Two consecutive reverts (§292, §295) each failed a filter that did not exist
+yet; both filters came out of those failures.
+
+### The one wrong line
+
+`parserWithStatement2.ts(2,3)` — a `return` inside a `with` block, which is the
+same fixture family §254 recorded for TS2304. Upstream resolves nothing inside
+`with` and this port has no `NodeFlagsInWithStatement`.

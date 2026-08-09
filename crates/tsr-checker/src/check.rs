@@ -339,6 +339,7 @@ impl Checker<'_, '_> {
             }
             Node::ReturnStatement(_) => {
                 self.check_grammar_statement_in_ambient_context(node, ambient);
+                self.check_return_container(node, ambient);
                 self.check_return_statement(node, ambient);
                 ambient
             }
@@ -3254,6 +3255,35 @@ impl Checker<'_, '_> {
     /// be optional`), so the rest test is the arm's guard rather than a bound
     /// this port chose — §103's rule that the `else if` order is the
     /// specification. §180.
+    /// TS1108 — `A 'return' statement can only be used within a function body.`
+    /// TS1107 — `A 'return' statement cannot be used inside a class static block.`
+    ///
+    /// `checkReturnStatement` (`checker.go:4098`), after its ambient guard:
+    /// `getContainingFunctionOrClassStaticBlock` is a class static block, or it
+    /// is nothing at all. Both branches ported — the static-block one has no
+    /// blocked cases and is free, and shipping one branch of a two-branch `if`
+    /// is §230's shape. §296.
+    fn check_return_container(&mut self, node: NodeId, ambient: bool) {
+        if ambient || self.file_has_parse_errors {
+            return;
+        }
+        let container = self
+            .nodes
+            .ancestors(node)
+            .find(|&ancestor| self.is_function_like_or_static_block(ancestor));
+        let message = match container {
+            Some(container)
+                if self.nodes.kind(container) == SyntaxKind::ClassStaticBlockDeclaration =>
+            {
+                &messages::A_RETURN_STATEMENT_CANNOT_BE_USED_INSIDE_A_CLASS_STATIC_BLOCK
+            }
+            Some(_) => return,
+            None => &messages::A_RETURN_STATEMENT_CAN_ONLY_BE_USED_WITHIN_A_FUNCTION_BODY,
+        };
+        // `grammarErrorOnFirstToken(node, …)` — the `return` keyword.
+        self.report_grammar_at(Some(node), message);
+    }
+
     /// `checkGrammarClassLikeDeclaration` and
     /// `checkGrammarInterfaceDeclaration`'s heritage walks
     /// (`grammarchecks.go:898`, `:955`).
