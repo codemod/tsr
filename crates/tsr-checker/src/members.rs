@@ -621,7 +621,13 @@ impl Checker<'_, '_> {
             let constituents = types.clone();
             let mut projected = Vec::with_capacity(constituents.len());
             for constituent in constituents {
-                let member = self.get_type_of_property_of_type(constituent, name)?;
+                // §117 slice 3: each constituent reads through its APPARENT
+                // type — upstream's per-constituent getReducedApparentType;
+                // `(string | number).constructor` answers through the
+                // wrapper interfaces, and slice 1's Object fallback then
+                // covers the object constituents.
+                let apparent = self.apparent_type(constituent);
+                let member = self.get_type_of_property_of_type(apparent, name)?;
                 projected.push(member);
             }
             return Some(self.get_union_type(&projected));

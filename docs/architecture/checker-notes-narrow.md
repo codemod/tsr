@@ -4785,3 +4785,13 @@ constructorHasPrototypeProperty 26, instanceMemberAssignsToClass
 function receivers never enter (CLASS flag gate) and TS2699 makes
 the written-member shadow unreachable. The generic arm (reference
 over per-parameter any) fired without adverse.
+
+**§117 slice 3 — LANDED at +76/0.** Union constituents read through
+their APPARENT types (upstream's per-constituent
+getReducedApparentType): `(string | number).constructor` answers via
+the wrapper interfaces, composing with slice 1's fallback for object
+constituents. typeGuardConstructor{ClassAndNumber,DerivedClass,
+PrimitiveTypes} whole, zero adverse. §117's three slices total
+**+786 net**; remaining census rows: Intersection 185 (the §92
+registry gate deliberately narrow — widening needs the discriminant
+evidence re-examined), Named-bare 174, the priced slice-1 residuals.
