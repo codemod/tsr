@@ -11,9 +11,9 @@ FIRST: git pull. Then read, in this order:
   the metric), then **§86–§90** — the thirteenth session, five sections, four
   builds.
 
-STATE AT HANDOFF, fourteenth session, at `5d8f0ed` (verify with a fresh run):
-  diagnostics    1,524/5,488 = 27.77%   (+73 over FIVE builds, zero lost —
-                 §156-§169; two priced refusals, §163/§164 and §170/§171)
+STATE AT HANDOFF, fourteenth session, at `dbfa89d` (verify with a fresh run):
+  diagnostics    1,544/5,488 = 28.13%   (+93 over EIGHT builds, zero lost —
+                 §156-§179; two priced refusals and three self-corrections)
   binder_symbols 8,459/8,459 = 100%     — held across a build that changed
                  `merge_symbol`'s behaviour
   checker_types  3,937/9,538 · 84.47% — the other workstream's, and it moves
@@ -172,6 +172,16 @@ TS2540      12         9
 0. **Run `diagreach.rs`, `diaggap.rs` and `extraonly.rs` and pick from them.**
    Everything below is that list read at §90's commit, and seven builds have
    moved it. The board re-taken at `58b5ed2` is in §161/§163.
+
+0w. **TS2322 IS `checker_types`', AND THIS SESSION PROVED IT TWICE.** §172 split
+   the 2,441 missing TS2322 lines by which gate declined them; §175 ranked the
+   reporting anchors; **§177 then built the top-ranked anchor and got +1 where
+   the ranking said 19**, because a position the walk never visits has no gate
+   to observe and the split silently assumed the relation would succeed once an
+   anchor existed. It does so 6 times in 563. **Do not build anchors 2–4 from
+   §175's table on the strength of that table** — the cheap check is in §177:
+   add the anchor behind a counter and read `REPORTED` against `entered`.
+   `bd` has the gate filed.
 
 0x. **§166 CHANGED WHAT EVERY MEANING QUERY IN THE PROGRAM ANSWERS.** Until
    this session `resolve_name`'s `globals` fallback ignored `meaning`, so every
