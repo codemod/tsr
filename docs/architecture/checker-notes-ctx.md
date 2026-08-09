@@ -704,3 +704,24 @@ FuncType fixture is deliberately built so that any partial
 contextual typing shows up as `any`-invoked-with-type-arguments
 errors — upstream's own test design isolates the mechanism. The
 next window's bar targets family 1 with the §68-family method.
+
+**§114 family-1 bar (registered; the build is the next window's):**
+the mechanism is a GENERALIZATION OF LANDED MACHINERY, not new: §70
+(overload-agreement contextual argument, +68, with the id-walk
+mention test that survived its own falsifier) already decides when
+an overloaded callee supplies a position's context — the family-1
+arm extends `get_contextual_type`'s argument case from
+single-signature callees to §70-AGREEING overload sets whose agreed
+parameter type mentions no callee type parameter (FuncType mentions
+no T of `fun`, so the id-walk admits it), which then flows through
+`contextual_signature` → the §75 uninstantiated-generic pass into
+the arrow's parameters. Free falsifier, upstream's own design: the
+fixtures invoke contextually typed values WITH TYPE ARGUMENTS, so
+`any` (contextual typing absent) errors and `<T>(p: T) => T`
+(present) resolves — partial credit is impossible. Predict the two
+FuncType cases' family (~40–70 lines across
+parenthesizedContexualTyping2 + taggedTemplateContextualTyping1 +
+the fun-family tail); must NOT move: §70's own converts, §75's, the
+§93 nil-ladder. Tagged templates need the template-tag argument
+mapping (span 0 is the strings array) — if that mapping is absent
+the tagged half stays gapped and says so.
