@@ -407,3 +407,23 @@ the four stages over the step-1 collector as ONE measured unit —
 the census's 82 pairs and the five refused shapes are the
 acceptance set. This is the singular named next for the summit,
 and it pays the inference board AND the BCT board together.
+
+**The core's dependency read (getCommonSupertype,
+inference.go:1530) — it SPLITS, and the buildable half is the
+census's whole unit class.** (a) `literalTypesWithSameBaseType` →
+plain getUnionType — RELATER-FREE, and it is exactly the 1|2 /
+"foo"|"bar" pairs; (b) `getSingleCommonSupertype` →
+isTypeSubtypeOf — relater-gated (the conservative-false selector
+trap; declines stay declines). THE PIPELINE-LITE SLICE, fully
+specified for the next window: same-base-literal candidates →
+union → the stage-2 widening decision (hasPrimitiveConstraint on
+the parameter's constraint → regular; else widen — the topLevel/
+isFixed refinements join with steps 2/4) → answer. It is
+3b-unit PLUS the widening stage — the exact pair the third
+sub-iteration refused for lacking — with
+typeArgumentsWithStringLiteralTypes01 (primitive constraint keeps
+literals) and unionTypeInference (no constraint widens) as the two
+registered falsifier fixtures, one on each branch of the widening
+decision. Nullable filtering (strictNullChecks strip-and-restore)
+completes the faithful shape. Every function in the chain is now
+read and cited; the build is mechanical against this record.
