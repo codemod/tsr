@@ -4538,3 +4538,31 @@ road. **Bar:** slice 1 first, alone: operands stop printing any
 (a) §83's class-identity instanceof byte-identical (the hasInstance
 arm fires only when the member EXISTS); (b) late-bound member reads
 elsewhere unchanged (the binder-display precedent's population).
+
+## §111 — const-T inference: the §103 head's last machine [checker-2]
+
+§33's decline (calls.rs:481) measured the naive lift at 70 G→W when
+NONE of the readonly machinery existed; all of it now does (§104,
+§105's six slices, §109). Two arms complete the head:
+  1. `isConstContext`'s SECOND disjunct — the one §105 deliberately
+     skipped: a valid const-assertion argument whose contextual type
+     is a CONST type variable is a const context
+     (`checker.go:13618`). Slice: the node is a CALL argument, the
+     callee resolves to a single signature (reentrancy-guarded via
+     the §56.3 narrow_value_stack precedent), and the positional
+     parameter's type IS a type parameter marked `const`. Object and
+     array literal arguments then compute const-style through the
+     §105 roads with no new machinery.
+  2. The DECLINE LIFTS: check_generic_call proceeds for const-marked
+     signatures; a fresh literal candidate under const T stays a
+     literal (fresh and regular print alike for plain literals), and
+     the const-style argument types ARE the inferences — upstream's
+     readonly mapping is already baked into what the §105 roads
+     produce.
+
+**Bar, registered before the code:** typeParameterConstModifiers
+held 88 readonly-want lines at the last census; predict **+40–90**
+there plus a tail. Must NOT move: non-const generic calls (the
+decline's lift is keyed on `is_const` exactly), §98's retention
+converts, §105's readonly population. Adverse over 1:5 re-instates
+the decline with the new measurement recorded beside §33's old 70.
