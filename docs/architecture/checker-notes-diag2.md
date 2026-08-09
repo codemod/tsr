@@ -18691,3 +18691,84 @@ The arm is kept out of the tree; the probes are removed. This is the first time
 this session an instrumented probe has been run *before* the third guess rather
 than after it, and it cost four cheap steps to replace three wrong published
 claims with a measured one.
+
+## §307 — TS17009, a sound fragment of `checkThisBeforeSuper`
+
+Chosen under the validated scan (§304's lesson: the scan now asserts it can see
+a known positive **and** a known negative before it reports anything) and all
+four filters — 9 cases, 6 single-line, `occupied 0`, no producer.
+
+`checkThisBeforeSuper` (`checker.go:12263`):
+
+```go
+baseTypeNode := ast.GetExtendsHeritageClauseElement(containingClassDecl)
+if baseTypeNode != nil && !c.classDeclarationExtendsNull(containingClassDecl) {
+    if node.FlowNodeData() != nil && !c.isPostSuperFlowNode(node.FlowNodeData().FlowNode, false) {
+        c.error(node, diagnosticMessage)
+    }
+}
+```
+
+`isPostSuperFlowNode` is flow analysis and is not ported. **Two shapes are
+decidable without it**, both in the reporting direction:
+
+- the constructor contains **no `super()` call at all** — then every `this` in
+  it is pre-super, on every path;
+- `this` appears at the constructor body's **statement level** in a statement
+  strictly before the one containing `super()` — no branch can reorder two
+  sibling statements.
+
+Anything inside a nested function-like declines: an arrow captures the
+constructor's `this` and upstream's flow decides it by where the arrow *runs*,
+which no textual rule can answer.
+
+### The bar
+
+```
+bar:  +4 cases of 9,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **A `this` after `super()` reports.** The statement index is the whole guard.
+2. **A non-derived class's `this` reports.** The extends clause gates the rule.
+3. **A `this` inside a nested arrow reports.** Declined by construction.
+
+## §308 — §307 built: +8 of a ceiling of 9
+
+```
+diagnostics   1,789 → 1,797   (+8, bar was +4, ceiling was 9)
+CONVERTS 8 · LOST 0 · STILL SHORT 9 · RIGHT 33 · WRONG 2
+every other suite unmoved — falsifiers 1, 2 and 3 negative
+```
+
+Twice the bar, from a fragment of a rule whose real test is flow analysis this
+port does not have. The two decidable shapes — no `super()` at all, and a `this`
+at statement level before the statement holding `super()` — cover eight of nine
+cases.
+
+### `extends null` parses as an `Identifier` here
+
+The first measurement had three wrong lines, two of them
+`superCallBeforeThisAccessing4` — `class D extends null`, where upstream reports
+TS17005 and this reported TS17009. The `classDeclarationExtendsNull` guard was
+written against `SyntaxKind::NullKeyword` and matched nothing.
+
+Probed rather than guessed:
+
+```
+HERITAGE expr kind = Some(Identifier)
+```
+
+**This parser makes `extends null`'s `null` an ordinary `Identifier`.** `null`
+is a reserved word, so an identifier carrying that text can only be the literal,
+and testing the text is sound *for this tree*. Whether the parser should build a
+`NullKeyword` there is a separate question and is not this rule's to answer.
+
+> **A guard written from upstream's node kinds can miss silently when the two
+> parsers disagree about a shape neither of them documents as differing.** The
+> guard compiled, ran, and matched nothing — and the only symptom was two wrong
+> lines in one fixture.
+
+That is the fourth time this session a probe of *this port's own tree* has
+answered a question that reading upstream could not (§166, §251, §306, this).

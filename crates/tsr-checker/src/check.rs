@@ -494,6 +494,7 @@ impl Checker<'_, '_> {
         // deleted by exactly that. §156.
         self.check_reserved_declaration_name(typed);
         self.check_grammar_heritage_clauses(typed);
+        self.check_this_before_super(node);
         if matches!(typed, Node::GetAccessorDeclaration(_) | Node::SetAccessorDeclaration(_)) {
             self.check_grammar_accessor(node, typed);
         }
@@ -3256,6 +3257,105 @@ impl Checker<'_, '_> {
     /// be optional`), so the rest test is the arm's guard rather than a bound
     /// this port chose — §103's rule that the `else if` order is the
     /// specification. §180.
+    /// TS17009 — `'super' must be called before accessing 'this' in the
+    /// constructor of a derived class.`
+    ///
+    /// `checkThisBeforeSuper` (`checker.go:12263`), whose real test is
+    /// `!isPostSuperFlowNode(...)` — flow analysis, not ported. Two shapes are
+    /// decidable without it and both are sound in the reporting direction: a
+    /// constructor with **no `super()` at all**, and a `this` at the body's
+    /// **statement level** in a statement strictly before the one containing
+    /// `super()`. A `this` inside a nested function-like declines, because an
+    /// arrow captures the constructor's `this` and upstream decides it by where
+    /// the arrow *runs*. §307.
+    fn check_this_before_super(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        if self.nodes.kind(node) != SyntaxKind::ThisKeyword {
+            return;
+        }
+        // The nearest function-like must be the constructor itself; anything
+        // nested captures and is upstream's flow question.
+        let Some(container) =
+            self.nodes.ancestors(node).find(|&it| self.is_function_like_or_static_block(it))
+        else {
+            return;
+        };
+        if self.nodes.kind(container) != SyntaxKind::Constructor {
+            return;
+        }
+        let Some(class) = self.nodes.parent(container) else { return };
+        let extends = match self.node_map.get(class) {
+            Some(Node::ClassDeclaration(n)) => n.heritage_clauses,
+            Some(Node::ClassExpression(n)) => n.heritage_clauses,
+            _ => return,
+        }
+        .iter()
+        .find(|clause| clause.token.kind == SyntaxKind::ExtendsKeyword);
+        let Some(extends) = extends else { return };
+        // `classDeclarationExtendsNull` — `extends null` has no `super` to
+        // call, and upstream reports TS17005 there instead.
+        //
+        // **This parser makes the `null` an `Identifier`, not a
+        // `NullKeyword`** — probed directly, because testing the keyword kind
+        // matched nothing and `superCallBeforeThisAccessing4` was two of three
+        // wrong lines. `null` is a reserved word, so an identifier carrying that
+        // text can only be the literal. §308.
+        if extends.types.iter().any(|it| {
+            matches!(it.expression, Some(tsr_ast::Expression::Identifier(name)) if name.text == "null")
+        }) {
+            return;
+        }
+        let Some(Node::ConstructorDeclaration(constructor)) = self.node_map.get(container) else {
+            return;
+        };
+        let Some(body) = constructor.body.and_then(|body| body.node_id()) else { return };
+        let Some(Node::Block(block)) = self.node_map.get(body) else { return };
+        // Which top-level statement holds `super()`, and which holds this
+        // `this`? Both are indices into the same list, so no branch can reorder
+        // them.
+        let mut super_at = None;
+        let mut this_at = None;
+        for (index, statement) in block.statements.iter().enumerate() {
+            let Some(id) = statement.node_id() else { continue };
+            if super_at.is_none() && self.subtree_calls_super(id) {
+                super_at = Some(index);
+            }
+            if this_at.is_none() && self.nodes.ancestors(node).any(|it| it == id) {
+                this_at = Some(index);
+            }
+        }
+        let Some(this_at) = this_at else { return };
+        if super_at.is_some_and(|at| at < this_at) {
+            return;
+        }
+        self.report_grammar_at(
+            Some(node),
+            &messages::SUPER_MUST_BE_CALLED_BEFORE_ACCESSING_THIS_IN_THE_CONSTRUCTOR_OF_A_DERIVED_CLASS,
+        );
+    }
+
+    /// Does this subtree contain a `super(...)` call, not descending into a
+    /// nested function-like?
+    fn subtree_calls_super(&self, node: NodeId) -> bool {
+        if let Some(Node::CallExpression(call)) = self.node_map.get(node)
+            && call
+                .expression
+                .and_then(|e| e.node_id())
+                .is_some_and(|id| self.nodes.kind(id) == SyntaxKind::SuperKeyword)
+        {
+            return true;
+        }
+        let mut children = Vec::new();
+        if let Some(typed) = self.node_map.get(node) {
+            tsr_ast::for_each_child_id(typed, |child| children.push(child));
+        }
+        children.into_iter().any(|child| {
+            !self.is_function_like_or_static_block(child) && self.subtree_calls_super(child)
+        })
+    }
+
     /// TS2481 — `Cannot initialize outer scoped variable '{0}' in the same
     /// scope as block scoped declaration '{1}'.`
     ///
