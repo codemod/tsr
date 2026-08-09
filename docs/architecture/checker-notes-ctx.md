@@ -743,3 +743,19 @@ has_no_contextual_type may be answering true (standalone-typing the
 arrow as `any`) BEFORE the contextual road is consulted — check the
 consultation ORDER first; the §68-family dispatch decides who asks
 whom.
+
+**§114 family-1, trace round 2 (all probes reverted, findings
+banked):** (a) the dispatch's ParenthesizedExpression arm EXISTS at
+contextual.rs:435 — the module doc's "seventeen arms not here" list
+still names it as rejected-on-concentration and is STALE; correct
+it when the family lands. (b) The alias-signatures fallback is
+genuinely UNREACHED even with parens flowing (two independent zero
+measurements) — FuncType's contextual TypeId is consumed by the
+Anonymous road, so the alias theory is dead. (c) The instrumented
+run's shape: ARG-ARM answers FuncType 8×, CTX-SIG receives it 10×
+and still the arrow prints `any` — THE THIRD POINT is the live one:
+`get_contextually_typed_parameter_type` / the §75 pass between a
+received contextual signature and the arrow's parameter types.
+NEXT: one instrumented run at contextual.rs:161's road on the head
+case; the consumer between CTX-SIG Some and the `any` print is the
+family's whole remaining question.
