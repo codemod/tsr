@@ -22858,3 +22858,82 @@ this port emits, and every row count read off it since is that old.
 Re-running `diagslice` before the next row is the fix, and it costs one corpus
 run. §404's remaining three re-pricing candidates (TS2411, TS2420, TS2352)
 should be re-read from a fresh table, not from the one in scratch.
+
+## §407 — TS2420: the missing-member subset
+
+§406's fresh table first, and it exposes the process error behind §405:
+**TS2416 is `occupied 15/34`** — 44% of its missing lines sit where this port
+already emits a different code. §293's filter would have declined it, and I did
+not read the column. §370 built the position-level version of exactly this
+check; the code-level one has existed since §293.
+
+TS2420 passes both: **16 blocked, 13 single-line, `occupied 0/21`.**
+
+```ts
+interface IBuffer { [index: number]: number; }
+declare class Buffer implements IBuffer { }   // TS2420 at `Buffer`
+```
+
+The interface declares an index signature; the class declares nothing. No
+relation is consulted to know that — a member the class does not declare **at
+all** cannot be assignable to one it must have.
+
+### The bound
+
+- the class has **no `extends`** (an inherited member satisfies the interface
+  and this port would not see it);
+- the implemented name is an `Identifier` resolving to exactly one
+  `InterfaceDeclaration` with **no type parameters**;
+- a **required** (non-optional) member of that interface has a name the class
+  declares nowhere, or the interface declares an index signature and the class
+  declares none.
+
+Anything the class *does* declare is not examined — that is TS2416's question
+and §405's failed row.
+
+### The bar
+
+```
+bar:  +3 of 16,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **A class with `extends` reports.** Inherited members are invisible to this
+   walk and would be false positives.
+2. **An optional interface member reports.** `x?: number` need not be
+   declared.
+
+## §408 — §407 built: **+5**, well above bar
+
+```
+diagnostics   1,904 → 1,909   (bar was +3;  +5, 0 LOST)   34.78%
+every other suite unmoved — both falsifiers negative
+```
+
+Largest build since §357, and it came directly out of §406's correction: the
+fresh table, then §293's `occupied` column, then the fixture. TS2416 fails
+`occupied` at **15/34**; TS2420 passes at **0/21**. Reading one column that has
+existed since §293 is the whole difference between §405's `+0` and this.
+
+### The decidable-subset idea, three rules
+
+```
+§403  TS2394  +4   overload vs implementation, primitive returns
+§405  TS2416   0   member vs base, primitive annotations — REVERTED
+§407  TS2420  +5   implements, a member declared NOWHERE
+```
+
+§407 is the strongest form and worth separating from the other two: it needs no
+type comparison **at all**. `number` versus `string` is a decidable comparison;
+*absent* is not a comparison. **A member the class does not declare cannot be
+assignable to one it must have, and no relation is consulted to know that.**
+
+> That suggests the ordering for the remaining relation-owned rows: **ask
+> whether the corpus cases are about a member that is *missing* before asking
+> whether they are about a member that is *wrong*.** Missing is free; wrong
+> needs the primitives to line up.
+
+TS2411 and TS2352 are §404's remaining candidates and have not been read.
+`diagslice` (fresh) prices them at 22 blocked / 14 single / `occupied 1/103` and
+23 / 13 / `0/66`.

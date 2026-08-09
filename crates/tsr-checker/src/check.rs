@@ -207,6 +207,7 @@ impl Checker<'_, '_> {
                 ambient
             }
             Node::ClassDeclaration(declaration) => {
+                self.check_implements_missing_member(node);
                 // `declare class C { x: number }` puts every member in an
                 // ambient context, which is where upstream's flag would already
                 // be set on the members themselves.
@@ -1095,6 +1096,121 @@ impl Checker<'_, '_> {
                 | SyntaxKind::BigIntKeyword
         )
         .then_some(keyword.kind)
+    }
+
+    /// TS2420 — `Class '{0}' incorrectly implements interface '{1}'.`
+    ///
+    /// The **missing-member subset**: a required member of the implemented
+    /// interface that the class does not declare at all cannot be assignable to
+    /// one it must have, so no relation is consulted. A class with `extends`
+    /// declines — an inherited member satisfies the interface and this walk
+    /// would not see it. §407.
+    fn check_implements_missing_member(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let Some(Node::ClassDeclaration(class)) = self.node_map.get(node) else { return };
+        if class
+            .heritage_clauses
+            .iter()
+            .any(|clause| clause.token.kind == SyntaxKind::ExtendsKeyword)
+        {
+            return;
+        }
+        let Some(class_name) = class.name.and_then(|name| name.node_id) else { return };
+        let mut declared: Vec<&str> = Vec::new();
+        let mut class_has_index = false;
+        for member in class.members {
+            match member {
+                tsr_ast::ClassElement::IndexSignatureDeclaration(_) => class_has_index = true,
+                tsr_ast::ClassElement::PropertyDeclaration(property) => {
+                    if let tsr_ast::PropertyName::Identifier(name) = property.name {
+                        declared.push(name.text);
+                    }
+                }
+                tsr_ast::ClassElement::MethodDeclaration(method) => {
+                    if let tsr_ast::PropertyName::Identifier(name) = method.name {
+                        declared.push(name.text);
+                    }
+                }
+                _ => return,
+            }
+        }
+        for clause in class.heritage_clauses {
+            if clause.token.kind != SyntaxKind::ImplementsKeyword {
+                continue;
+            }
+            for base in clause.types {
+                if !base.type_arguments.is_empty() {
+                    continue;
+                }
+                let Some(expression) = base.expression.and_then(|e| e.node_id()) else { continue };
+                let Some(text) = self.identifier_text(expression).map(str::to_string) else {
+                    continue;
+                };
+                let Some(symbol) = self.binder.resolve_name(
+                    self.nodes,
+                    self.node_map,
+                    expression,
+                    &text,
+                    SymbolFlags::TYPE,
+                ) else {
+                    continue;
+                };
+                let declarations = self
+                    .binder
+                    .symbols()
+                    .get(self.binder.merged_symbol(symbol))
+                    .declarations
+                    .clone();
+                let [declaration] = declarations.as_slice() else { continue };
+                let Some(Node::InterfaceDeclaration(interface)) = self.node_map.get(*declaration)
+                else {
+                    continue;
+                };
+                if !interface.type_parameters.is_empty() || !interface.heritage_clauses.is_empty() {
+                    continue;
+                }
+                let mut missing = false;
+                for member in interface.members {
+                    match member {
+                        tsr_ast::TypeElement::IndexSignatureDeclaration(_) => {
+                            missing |= !class_has_index;
+                        }
+                        tsr_ast::TypeElement::PropertySignatureDeclaration(property) => {
+                            if property.postfix_token.is_none()
+                                && let tsr_ast::PropertyName::Identifier(name) = property.name
+                            {
+                                missing |= !declared.contains(&name.text);
+                            }
+                        }
+                        tsr_ast::TypeElement::MethodSignatureDeclaration(method) => {
+                            if method.postfix_token.is_none()
+                                && let tsr_ast::PropertyName::Identifier(name) = method.name
+                            {
+                                missing |= !declared.contains(&name.text);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                if !missing {
+                    continue;
+                }
+                let Some(file) = self.source_file_of_for_diagnostics(class_name) else { return };
+                let span = self.error_span(class_name);
+                let printed = self.identifier_text(class_name).unwrap_or_default().to_string();
+                self.report(
+                    file,
+                    Diagnostic::with_args(
+                        &messages::CLASS_0_INCORRECTLY_IMPLEMENTS_INTERFACE_1,
+                        span,
+                        [printed, text.clone()],
+                    ),
+                );
+                return;
+            }
+        }
     }
 
     /// TS2307 — `Cannot find module '{0}' or its corresponding type declarations.`
