@@ -778,3 +778,24 @@ REFERENCE inside the body? the call result?), and instrument THAT
 node's road. The §116 lesson candidate if it lands: four rounds of
 mechanism theory, and the family's blocker was never once in the
 roads the sizing named.
+
+**§114 family-1, round 4 — THE MECHANISM, found by position:**
+PARAM-SYM instrumentation (28 firings on the head case) shows the
+contextual road answering for every agreeing position and None for
+THIRTEEN parameters that cluster precisely where §70's agreement
+test declines: the MIXED-ARITY overload pairs (`fun(f, x)` /
+`fun(f, g, x)`) disagree at index 1+ — candidate 1's position 1 is
+its own `T` (correctly declined by the mention walk), candidate 2's
+is FuncType — so agreement fails and the WHOLE position gets no
+context. Upstream never asks for agreement: it contextually types
+through the RESOLVED signature (`getResolvedSignature`, memoized).
+THE BUILDABLE SLICE — ARITY SELECTION: in
+`contextual_type_for_argument`'s §70 arm, when candidates disagree
+at the index, select the SINGLE candidate whose parameter count
+equals the call's argument count (upstream's own first overload
+discriminator); its parameter — still guarded by the mention walk —
+is the context. `fun(f, x)` → 2 args → candidate `(f, x)`;
+`fun(f, g, x)` → 3 args → candidate `(f, g, x)`. Exactly-one-match
+required; ties decline as today. Four rounds, and the family's spec
+is now one arm with a measured population: the thirteen None
+positions plus their downstream prints. Next window BUILDS this.
