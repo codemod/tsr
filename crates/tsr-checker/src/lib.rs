@@ -124,6 +124,7 @@ pub mod indexed;
 pub mod inference;
 pub mod intersections;
 pub mod intrinsics;
+pub mod jsx_intrinsic;
 pub mod literals;
 pub mod meaning_mismatch;
 pub mod member_completeness;

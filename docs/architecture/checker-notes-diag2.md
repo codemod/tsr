@@ -12865,3 +12865,58 @@ symptom, and it needs the same evidence any other claim about the codebase does.
 **TS7026 is therefore re-opened**, and its next step is a probe rather than a
 build: print whether `JSX` resolves at one `jsxIntrinsicElementsTypeArgumentErrors`
 element, which distinguishes all three candidates in one run.
+
+## §189 — TS7026 LANDED at +14 for 9, and the third refusal of the session reverses
+
+§188 said the next step was a probe. The probe is the build itself: §171's rule,
+restored unchanged, re-measured against a resolver two fixes newer.
+
+| | §171 (at the time) | §189 (now) |
+|---|---:|---:|
+| CONVERTS | 14 | **14** |
+| LOST | **1** | **0** |
+| WRONG | **65** | **9** |
+
+§170's bar was `+14 cases, 0 LOST, WRONG delta ≤ +10`. **Met on all three.**
+`coverage`: `diagnostics` **1,580 → 1,594 (29.05%)**. Rails unmoved.
+
+### What changed, and neither of them was `file_loader`
+
+1. **§166** — `resolve_name`'s `globals` fallback stopped answering every
+   meaning. §188's candidate (3), and it did not exist when §171 measured.
+2. **The `.types` workstream's §173** — `declare global` merging, rebuilt with
+   the `LOST 1` this workstream could not explain at §171, and landed.
+
+**The subsystem §171 named was never involved.** The loader followed the
+reference the whole time and `/.lib/react16.d.ts` was mounted the whole time;
+what was missing was a one-line meaning filter in the binder and a merge in the
+same crate.
+
+### Three refusals filed, three reversed, and the cost of each
+
+| § | refused | reversed by | cost of the wrong attribution |
+|---|---|---|---|
+| 164 | `is_value_reference` is broken | §165, one measurement | one session-hour |
+| 186 | alias resolution unported | §187, one `grep` | **+6 cases delayed** |
+| 171 | `file_loader` ignores `<reference path>` | §189, restoring the build | **+14 cases delayed** |
+
+> **Every refusal this session that named a subsystem was wrong, and every
+> refusal that named a *measurement* was right.** §163's "+2 for 238" stood.
+> §177's "6 reports in 563 entries" stood. §184's "8 not 25" stood. What did not
+> stand was any sentence of the form *"this row is blocked on X"* — because that
+> is a claim about the whole codebase, and none of the three was checked against
+> it.
+>
+> The operational rule, now paid for three times: **a refusal may state what was
+> measured and must not name a blocker unless the blocker was grepped for by the
+> name upstream calls it.** §136 said this about *rows*; it is twice as
+> important about *refusals*, because a refusal is read for many sessions and a
+> row is re-measured every time.
+
+### The nine residual wrong lines
+
+`jsxChildWrongType`, `jsxChildrenWrongType`, `jsxElementTypeLiteral` and
+`jsxFragmentFactoryNoUnusedLocals` — all cases whose `JSX.IntrinsicElements`
+comes through a path this rule still cannot see, and all in cases that fail for
+other reasons too (`STILL SHORT` is 35). No owner is named for them here, on
+purpose.

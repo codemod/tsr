@@ -450,6 +450,7 @@ impl Checker<'_, '_> {
         // `FunctionDeclaration` and both unary kinds behind guards this rule
         // must not be filtered through, and §140 recorded a rule silently
         // deleted by exactly that. §156.
+        self.check_jsx_intrinsic_element(node, typed);
         self.check_strict_mode_eval_or_arguments_sites(node, typed, ambient);
         self.check_contextual_identifier(node, ambient);
         self.check_type_parameter_list(type_parameters_of(typed));
