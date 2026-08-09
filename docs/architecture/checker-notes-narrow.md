@@ -4457,3 +4457,17 @@ consult. Isolated: +1 W→R (unusedTypeParameters_templateTag),
 2 W→G, zero adverse. Slice 2 = the param/return tags; the identity
 roads (`type_parameter_types`, §102/§107 matches) also need the
 JSDoc-declaration arm before renames can see these params.
+
+**§110 slice 2 — REFUSED at net −17 right.** The @param/@returns
+consult built and measured: 114 W→G, ~15 R→G, 2 R→W, ZERO
+W→R/G→R — a strict loss. The mechanism: most JSDoc type expressions
+do not COMPUTE through `get_type_from_type_node` (the JSDoc grammar
+— `?` nullability, `=` optionality, `...` variadics, `Object`/
+`function()` spellings — has no arms), so the annotation road
+answers error and the WHOLE signature gaps where the un-consulted
+bake printed partially-right anys. The prerequisite is the JSDoc
+TYPE GRAMMAR (upstream's `getTypeFromJSDoc*` family) — a real
+subsystem, and slice 2 stays refused until its common forms exist.
+Slice 1 (template plumbing) stands landed; returnTagTypeGuard's 2
+R→W confirm the return-tag half also interacts with the §100
+predicate road and must land together with the grammar.
