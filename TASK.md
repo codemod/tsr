@@ -410,3 +410,14 @@ boundary; tuple-SLICE minting is the next machine in this seam).
 restTuplesFromContextualTypes fell 117 → ~85; genericRestParameters
 1/2 largely converted. Remaining in-seam: tuple slices, TupleUnionFunc
 alias prints, the union-of-variadic contextual forms.
+
+
+OPEN TRACE (build 149+): §72's alias-name mint fires and carries the
+name ("H" verified by instrumentation), yet `>H :` and `>h : H`-want
+assertions print the STRUCTURAL signature — some road between
+get_declared_type_of_symbol and the assertion consumes a different
+TypeId (suspects: the variables road's written/signature rendering in
+symbols.rs ~1390, get_regular_type_of_literal_type, or an
+earlier-resolution cache). Three TupleUnionFunc rows + p18's probe
+reproduce it. Worth one focused trace next session; §72's +39 came
+from OTHER positions.

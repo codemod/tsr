@@ -137,6 +137,7 @@ impl<'a> Checker<'a, '_> {
         // a non-generic alias prints the alias's name (`type F2 = ({ a:
         // string }: O) => any` records `>F2 : F2`), a generic one gaps rather
         // than dropping its arguments, an unaliased node renders structurally.
+
         let text = match self.alias_symbol_for_type_node(id) {
             None => self.signature_to_string(&signature),
             Some(alias) if self.local_type_parameters_of(alias).is_empty() => {
