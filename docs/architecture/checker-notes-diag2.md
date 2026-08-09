@@ -19132,3 +19132,82 @@ A grandparent's property still reads as absent.
 > two wrong lines; now it is one hop of inheritance.** Each step cost less than
 > the one before because the previous step named what was missing precisely
 > enough to act on.
+
+## §318 — TS2349, the primitive slice
+
+The validated scan's remaining no-producer rows at ≥4 cases are now all
+relation-owned — TS2769, TS2344, TS2493, TS2351, TS2320, TS2507, TS2739 — with
+one exception worth a slice.
+
+TS2349 is the **head of a diagnostic chain** (`checker.go:9981`); the sub-messages
+carry the detail and the suite compares the head. The condition is *the callee's
+type has no call signatures*.
+
+Asking that in general needs this port's signature machinery to be complete,
+which it is not — an incomplete signature list reads as "not callable" and
+over-reports. **One family answers without it:** a *primitive* is never callable,
+under any signature resolution.
+
+```rust
+STRING_LIKE | NUMBER_LIKE | BOOLEAN_LIKE | ES_SYMBOL_LIKE | BIG_INT_LIKE
+```
+
+`any`, `unknown` and the error type decline, as does everything object-shaped —
+the latter being exactly where an incomplete signature list would lie.
+
+### The bar
+
+```
+bar:  +5 cases of 15,  0 LOST,  WRONG delta <= +2
+```
+
+A third of the row: eleven of the fifteen are single-line, but the primitive
+family is a slice of the condition, not of the cases.
+
+### Falsifiers
+
+1. **A call on a function type reports.** Object-shaped types decline.
+2. **A call on `any` reports.** Declined two guards earlier.
+
+## §319 — §318 built: +4, `WRONG 0`, after one decline
+
+```
+primitive slice          diagnostics 1,817 → 1,821   RIGHT 16 · WRONG 3
++ zero-arg member calls declined       → 1,821   RIGHT 16 · WRONG 0
+CONVERTS 4 · LOST 0 · STILL SHORT 5
+```
+
+One under the case bar, at zero wrong.
+
+### The three wrong lines were one substitution
+
+`instancePropertyInClassType` wants **TS6234** — *"This expression is not
+callable because it is a `get` accessor. Did you mean to use it without
+`()`?"* — which is the head message upstream **substitutes** when a
+zero-argument call's callee resolves to a getter (`checker.go:9983`):
+
+```go
+if ast.IsCallExpression(errorTarget.Parent) && len(errorTarget.Parent.Arguments()) == 0 {
+    if resolvedSymbol.Flags&ast.SymbolFlagsGetAccessor != 0 {
+        headMessage = This_expression_is_not_callable_because_it_is_a_get_accessor…
+    }
+}
+```
+
+The accessor test needs the resolved symbol. **Declining the whole
+zero-argument member-call shape is a superset of it**, so the trade is a
+possible missing line for a certain wrong one — the direction §274 argued for
+and §316 got backwards.
+
+> **A head message that is *substituted* rather than *added* means the row's
+> code is not the only one its condition can produce.** `diagpair` reports which
+> codes block a case *together*; nothing reports which codes are alternatives
+> for one condition, and this is the second time that has cost lines (§295's
+> TS2462 was the first, from the other direction — one message, two conditions).
+
+### The seam's state
+
+The validated scan's no-producer rows at ≥4 cases are now **all
+relation-owned** — TS2769, TS2344, TS2493, TS2351, TS2320, TS2507, TS2739 — plus
+TS2303 and TS2783, both refused with owners. TS2349's primitive slice was the
+last one answerable without the relation, and it is taken.
