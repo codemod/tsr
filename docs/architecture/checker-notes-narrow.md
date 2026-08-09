@@ -4196,3 +4196,24 @@ widening (the 2,500-line boundary objects.rs documents), slice 1's
 118, §98's discrimination converts. Any wrong-quote line refuses
 the build outright — that is exactly what the single-quote gate
 exists to make impossible.
+
+## §107 — nested signatures shadow through the RENDER scope [claimed: checker-1]
+
+§102's shadow test consults the reference SITE; the handed-off
+declarationEmitTypeParameterNameShadowedInternally 6 (provenance:
+§105 slice 1 made them printable) show the other scope the test
+needs: `<T>(x: T) => <T_1>(y: T_1) => readonly [T, T_1]` — the INNER
+signature's `T` renames against the OUTER signature's `T`, which is
+in scope only DURING THE RENDER (upstream: `enterNewScope` pushes the
+signature's type parameters as a fake scope; the inner
+`typeParameterToName` then resolves the name to the outer symbol).
+**Mechanism:** a render-scope stack on the checker — each signature
+render pushes its own (post-rename) type-parameter (name, symbol)
+pairs for the duration of its slot rendering; the §102 shadow test
+consults the stack before site resolution; wired into
+`signature_to_string_at` (single) as well as the §99 member renderer.
+**Bar:** the handed 6 at ≥6:1, zero adverse elsewhere; falsifiers:
+(a) outer signatures at empty scope stay plain; (b) NO double-rename
+composition with §90.1's mint-time gate (watch chain2/TupleUnionFunc
+for `r_1_1`); (c) the §102 multi-sig layouts must be byte-identical
+— the stack augments, never replaces, the site test.
