@@ -242,7 +242,7 @@ fn compilation(
 /// Upstream's heuristic on the *last* unit: if it uses `require(` or a
 /// `/// <reference path`, the case is assumed to pull the rest in by reference,
 /// so only that unit is a root and the others merely exist on disk.
-fn root_files_without_a_config(
+pub(crate) fn root_files_without_a_config(
     case: &TestCase,
     units: &[TestFile],
     current_directory: &str,

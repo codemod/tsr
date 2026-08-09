@@ -1129,15 +1129,23 @@ pub fn program_for_case<'a>(
     for unit in &case.files {
         let name = tsr_path::get_normalized_absolute_path(&unit.name, CURRENT_DIRECTORY);
         files.push((name.clone(), unit.content.clone()));
-        // **Roots are the config's file list, not every unit.** A case whose
-        // config names three of its five units compiled all five here, and the
-        // `tsconfig.json` was itself handed over as a program root. §535.
-        let is_config = crate::trace_case::config_name_from_file_name(&unit.name).is_some();
-        let listed = parsed_config.as_ref().is_none_or(|parsed| parsed.file_names.contains(&name));
-        if !is_config && listed {
-            roots.push(name);
-        }
     }
+    // **Roots are chosen, not assumed.** With a config they are its file list
+    // (§535); without one they are `harnessutil`'s heuristic on the last unit —
+    // a `require(` or a `/// <reference path` there means it pulls the rest in
+    // and is the only root (§537). `.json` and `.tsbuildinfo` are never roots.
+    // The producer made every unit a root under both conditions.
+    roots.extend(match &parsed_config {
+        Some(parsed) => case
+            .files
+            .iter()
+            .map(|unit| tsr_path::get_normalized_absolute_path(&unit.name, CURRENT_DIRECTORY))
+            .filter(|name| parsed.file_names.contains(name))
+            .collect::<Vec<_>>(),
+        None => {
+            crate::trace_case::root_files_without_a_config(case, &case.files, CURRENT_DIRECTORY)
+        }
+    });
 
     // The `/.lib` test-library folder — `harnessutil.go:39` and the copy-in
     // rule at `:141`: the folder is present exactly when some input file

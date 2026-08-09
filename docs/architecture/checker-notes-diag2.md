@@ -28370,3 +28370,106 @@ roots        §535   +3 diagnostics, −2 checker_types
 producer now reads both. **The third thing it does — removing the config unit
 from the compilation — is also done here**, and was worth part of the +3: a
 `tsconfig.json` was previously handed to the compiler as a program root.
+
+## §537 — the producer's third missing input: the no-config root heuristic
+
+`trace_case` has a third rule the producer ignores, and it applies to the cases
+**without** a config — which is most of them:
+
+```rust
+// harnessutil: on the LAST unit only.
+let only_last = case.options.contains_key("noimplicitreferences")
+    || last.content.contains("require(")
+    || contains_path_reference(&last.content);
+```
+
+If the last unit uses `require(` or a `/// <reference path`, upstream treats it
+as the entry point that pulls the rest in, and **only it is a root**; the others
+merely exist on disk. It also excludes `.json` and `.tsbuildinfo` from roots
+entirely (`harnessutil.CompileFilesEx`).
+
+The producer makes every unit a root, always.
+
+> **Three inputs, found in one line of reasoning each, after a hundred and
+> forty builds of reading rules.** §533's class — *the input was absent* — has
+> now paid three times, and the reason it stayed invisible is structural: a rule
+> is read against upstream's source and a harness is read against nothing. There
+> is no `xtask anchors` for the producer, because its counterpart is Go test
+> plumbing rather than Go compiler code.
+
+### Direction of risk, stated before the run
+
+This one **removes** roots rather than adding options. A file that stops being a
+root is still on disk and is still reached if something imports it — but a case
+whose diagnostics came from a file nothing imports will lose them. That is the
+LOST direction, and it is the first build this session where the bar should
+expect a fall as readily as a rise.
+
+### The bar
+
+```
+bar:  net >= 0 with a NAMED mechanism either way
+```
+
+Not `+n`. §526 and §536 both showed that a harness change's sign is not the
+question — fidelity is — so the bar is that the number moves *for a reason this
+note can state*, and the falsifiers are what decide whether to keep it.
+
+### Falsifiers
+
+1. **A case loses diagnostics from a file nothing imports.** Expected; the
+   question is whether upstream also loses them, which the baseline answers.
+2. **`checker_types` falls by more than it rose at §534.** The shared producer
+   again; the net across §533–§537 is what matters to its owner.
+3. **`binder_symbols` or `printer_round_trip` move at all.** Those suites read
+   every file, not the program's roots — a move there means the filter reached
+   further than roots.
+
+## §538 — §537 built: **+6 here, +5 there**, and all three falsifiers negative
+
+```
+                    §535      §537
+diagnostics         2,059     2,065    +6
+checker_types       4,122     4,127    +5
+binder_symbols      100%      100%           unmoved
+printer_round_trip  100%      100%           unmoved
+```
+
+The bar was *"net ≥ 0 with a named mechanism either way"* because this build
+**removes** roots and the fall was as likely as the rise. It rose in both suites,
+and falsifier 3 — the one that would have said the filter reached past roots — is
+negative on the two suites that read every file rather than the program's.
+
+### The producer's three inputs, complete and measured
+
+```
+                                    diagnostics   checker_types
+§533   the config's OPTIONS              +2            +8
+§535   the config's ROOT FILES           +3            −2
+§537   the no-config ROOT HEURISTIC      +6            +5
+                                        ───           ───
+                                        +11           +11
+```
+
+**Twenty-two cases from three inputs the harness already knew how to compute.**
+`trace_case::compilation` has held all three since it was written; the producer
+duplicated its job and got two of the three wrong and the third missing.
+
+> **The most expensive thing in this session was not a hard rule. It was a
+> second implementation of a function that already existed** — §521 found this
+> for `checkFunctionOrConstructorSymbol` and paid −26 for it, and §533–§537
+> found it again for `trace_case::compilation` and were paid +22. The same
+> defect, both signs.
+
+### What that changes about where to look
+
+A hundred and forty builds of this session read *rules* against upstream, which
+`xtask anchors` keeps honest — 2,698 references, zero unresolved. **Nothing
+checks the harness**, because its counterpart is Go test plumbing rather than Go
+compiler code, and an anchor to `harnessutil.go` is not something the tool
+currently accepts. That asymmetry is why three inputs sat missing while
+individual match arms were being audited one at a time.
+
+Recorded as the standing recommendation for the next session: **before the next
+rule, diff `types_producer.rs` against `trace_case.rs` line by line.** They are
+two implementations of one thing and only one of them is tested.
