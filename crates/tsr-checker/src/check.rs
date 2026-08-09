@@ -8027,9 +8027,6 @@ impl Checker<'_, '_> {
     ///   three-overload function reports three times, and the suite compares
     ///   multisets.
     fn check_function_or_constructor_symbol(&mut self, node: NodeId, ambient: bool) {
-        if self.file_has_parse_errors {
-            return;
-        }
         // A **constructor has no symbol in this binder**. Upstream binds one as
         // `__constructor` in the class's member table; here `symbol_of` answers
         // `None`, so an overload set of constructors had nothing to gather its

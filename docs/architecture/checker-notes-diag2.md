@@ -27623,3 +27623,110 @@ predicates right.
 locals rather than a `check.rs` visitor arm. That is a real port of a real
 function and it is the right shape for TS2389, TS2392, TS2393 and TS2394 as
 well — four more rows behind the same loop. Filed as the successor to this note.
+
+## §524 — §523 abandoned before measurement: the loop was already ported
+
+`cargo build` answered before the conformance run did:
+
+```
+error[E0592]: duplicate definitions with name `check_function_or_constructor_symbol`
+    --> crates/tsr-checker/src/check.rs:8257:5
+```
+
+**`checkFunctionOrConstructorSymbolWorker` has been ported since §14, refined at
+§64, and carries two measured declines** (the class-merge arm, 18 wrong lines;
+the split-parent case, another 18). §523's design note above is a rediscovery of
+work already in the tree, and §521 was a **second implementation of an existing
+rule** — which is the largest single term in its −26, since both fired.
+
+> **§143 exists for exactly this — *read the existing rule before assuming the
+> missing arm* — and it was skipped twice in a row**, at §521 and again at §523.
+> The tell was available both times and cost nothing to check: `grep -n "fn
+> check_function_or_constructor"`. §522's whole analysis of *domain* is correct
+> as a general claim and was not the reason those rows were missing.
+
+Correcting §522's owner line: **TS2390/TS2391 do not need the symbol-driven form
+built. It exists.** What they need is whatever the existing loop declines.
+
+### The actual bound
+
+Both blocked fixtures are parser error-recovery tests:
+
+```ts
+function f(a, {                  // parserErrorRecovery_ParameterList2
+class C { public constructor; }  // parserConstructorDeclaration8
+```
+
+and the ported rule opens with `if self.file_has_parse_errors { return }` — a
+**port-local** guard with no upstream counterpart, added to stop cascades. That
+is the candidate, and the probe is to drop it for this rule alone.
+
+### The bar
+
+```
+bar:  +4 of 4,  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifier
+
+**`extraonly` grows anywhere outside these two files.** The guard is doing real
+work for other rules; if it is also doing real work here, the wrong lines
+arrive from files that never parsed.
+
+## §525 — §524 built: **+4**, bar met exactly, both rows closed
+
+```
+diagnostics   2,044 → 2,048   (bar was +4;  +4, 0 LOST)   37.32%
+extraonly     84 lines → 84 lines   — the falsifier, measured on both sides
+```
+
+One line deleted:
+
+```rust
+fn check_function_or_constructor_symbol(&mut self, node: NodeId, ambient: bool) {
+-   if self.file_has_parse_errors {
+-       return;
+-   }
+```
+
+TS2390 and TS2391 are now zero-blocked. **The rule that reports them was written
+at §14 and has been complete since §64**; the four cases were held out by a
+guard with no upstream counterpart.
+
+> **A port-local guard is a decline that no longer names its own bar.** The
+> `file_has_parse_errors` bail was added early and generally, to stop cascades
+> in files that never parsed — and it is *right* for rules whose input is a
+> type. This rule's input is a **declaration list and a body-or-not**, which
+> error recovery preserves: `function f(a, {` still has a name, still has no
+> body, and upstream still reports on it. The guard was never measured against
+> this rule; it was inherited.
+
+That is the shape worth carrying forward. §522's `for symbol := range` note is
+about porting *upstream's* structure faithfully; this one is about the
+structure **we** added, which no anchor checks and no falsifier covers:
+
+```
+grep -c "file_has_parse_errors" crates/tsr-checker/src/  →  every one an unmeasured decline
+```
+
+Each is a candidate row, and each costs one line and one measurement to test.
+**Recorded as a sweep, not built** — §420's lesson is that a sweep priced off
+grep alone over-counts, so this one is priced at *unknown* until the second
+instance is measured.
+
+### The correction §521–§525 owes
+
+**§522's owner line was wrong.** It read *"TS2390/TS2391 need the symbol-driven
+form"*, and the symbol-driven form already existed thirty lines from where §521
+was inserted. §143 — *read the existing rule before assuming the missing arm* —
+was skipped at §521 and again at §523, and the check was `grep -n "fn
+check_function_or_constructor"` both times. §522's general claim about *domain*
+stands on its own evidence; its **prescription** did not.
+
+### A number corrected
+
+STATUS has carried **`extraonly` 50 → 18 lines** since §300-odd. Measured at this
+commit it is **84 lines / 56 cases blocked by an extra alone** — the tool now
+prints a trailing summary line the old count did not include, and both
+workstreams have added extras since. Corrected in §1 rather than left standing,
+per `CLAUDE.md`.
