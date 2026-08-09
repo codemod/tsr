@@ -4098,7 +4098,23 @@ family) — any R→W in privacy-family cases fires it; (b) ambiguity —
 (c) cross-directory modules must keep declining (wrong specifier is
 worse than bare).
 
-**§106 measured — a ZERO that names its blocker.** The spelling arm
+**§106 measured — a ZERO whose first-named blocker was WRONG;
+corrected the same session.** The paragraph below attributed the
+unreached arm to unconditional written reuse — then READING THE
+FIXTURE (the §131-family lesson, again) showed the privacy case's
+parameters carry NO annotations at all: `param =
+exporter.createExportedWidget1()` INFERS its type, so the build road
+applies and written reuse is irrelevant to these 128 lines.
+`needs_qualification`'s unresolved arm answers true (verified by
+read), so the road SHOULD reach the new spelling arm and the pair
+still measured byte-identical — the true decline point is one level
+unlocated (candidates: the signature print not routing the parameter
+slot through `type_to_string_at` at these bake sites, or an earlier
+arm in `qualified_name_at` keeping the bare print). NEXT PROBE, not
+next build: one eprintln at the §106 arm on the filtered case.
+Conditional reuse remains a REAL seam for the §102 flipped pairs —
+but it does not own these 128. Original (wrong) paragraph kept
+below for the record. The spelling arm
 is faithful and UNREACHED: the full pair is byte-identical because
 the 128 target sites never enter `symbol_chain` — their prints take
 WRITTEN-ANNOTATION REUSE (`param?: Widget1` verbatim), and this
