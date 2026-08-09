@@ -640,6 +640,14 @@ impl<'a> Checker<'a, '_> {
             probe!(PROBE_OBJECT_LITERAL_UNION);
             return false;
         }
+        // `elaborateError` (`relater.go:440`) runs **before** the whole-expression
+        // report and, when it speaks, `checkTypeRelatedToEx` stays silent. The
+        // hand-off is exclusive by construction here because both live in this
+        // one function: elaborating returns, it does not fall through. §176.
+        if self.elaborate_object_literal(source_node, source, target) {
+            probe!(PROBE_REPORTED);
+            return true;
+        }
         if !self.pair_is_reportable(source, target) {
             probe!(PROBE_PAIR_NOT_REPORTABLE);
             return false;
@@ -781,6 +789,107 @@ impl<'a> Checker<'a, '_> {
             && self
                 .declared_property_table(target)
                 .is_some_and(|table| table.iter().any(|(_, optional)| !optional))
+    }
+
+    /// `elaborateObjectLiteral` (`relater.go:498`) — report on the offending
+    /// **property** rather than on the literal.
+    ///
+    /// Returns whether it reported, which is upstream's contract: a `true` here
+    /// is what stops the whole-expression diagnostic being issued at all.
+    ///
+    /// §175 ranked this anchor first on the board — 19 of the 132 TS2322 cases
+    /// that are gated on a reporting anchor and nothing else, and 101 of the
+    /// 691 never-reached lines.
+    fn elaborate_object_literal(
+        &mut self,
+        source_node: NodeId,
+        source: TypeId,
+        target: TypeId,
+    ) -> bool {
+        let Some(Node::ObjectLiteralExpression(literal)) = self.node_map.get(source_node) else {
+            return false;
+        };
+        // `target.flags&(TypeFlagsPrimitive|TypeFlagsNever) != 0` — a primitive
+        // or `never` target has no properties to elaborate against, and
+        // upstream returns before the loop.
+        if self.type_of(target).flags.intersects(TypeFlags::PRIMITIVE | TypeFlags::NEVER) {
+            return false;
+        }
+        // `getBestMatchIndexedAccessTypeOrUndefined` picks a union constituent;
+        // this port has only the non-union lookup, and a union target is
+        // already declined by the caller's own object-literal arm, so the two
+        // agree on every input that reaches here. §176.
+        if self.type_of(target).flags.contains(TypeFlags::UNION) {
+            return false;
+        }
+        // A spread contributes properties this port cannot enumerate — the same
+        // decline `check_excess_properties` makes, for the same reason.
+        if literal.properties.iter().any(|property| {
+            matches!(property, tsr_ast::ObjectLiteralElementLike::SpreadAssignment(_))
+        }) {
+            return false;
+        }
+        let mut reported = false;
+        for property in literal.properties {
+            // `ast.KindPropertyAssignment` — the arm that carries an
+            // initialiser. The accessor and shorthand arms elaborate through a
+            // different path (`elaborateElement` with `next == nil`) and are in
+            // §175's tail, not its head.
+            let tsr_ast::ObjectLiteralElementLike::PropertyAssignment(assignment) = property else {
+                continue;
+            };
+            let Some(name_id) = assignment.name.node_id() else { continue };
+            // `getLiteralTypeFromProperty(…, StringOrNumberLiteralOrUnique)` —
+            // a computed non-literal name yields no usable name type and
+            // upstream `continue`s.
+            let Some(name) = self.identifier_text(name_id).map(str::to_string) else { continue };
+            let Some(initializer) = assignment.initializer.and_then(|e| e.node_id()) else {
+                continue;
+            };
+            // `getBestMatchIndexedAccessTypeOrUndefined(source, target, nameType)`
+            // — absent from the target means excess, which is TS2353's row and
+            // not this one.
+            let Some(target_property) = self.get_property_of_type(target, &name) else { continue };
+            let target_property_type = self.get_type_of_symbol(target_property);
+            // `getIndexedAccessTypeOrUndefined(source, nameType, …)`. Reading
+            // the *initialiser's* type rather than the literal's member is
+            // upstream's `checkExpressionForMutableLocationWithContextualType`
+            // reduced to what this port can answer, and it is the same type at
+            // every position a fresh literal reaches.
+            let source_property_type = self.check_expression_at_node(initializer);
+            // `checkTypeRelatedTo(sourcePropType, targetPropType, …)` — the
+            // three-valued form, and reporting only on a **confident**
+            // `NotRelated`, which is §25's rule for a rule acting on a negative.
+            if self.relate_ternary(
+                source_property_type,
+                target_property_type,
+                crate::relater::Relation::Assignable,
+            ) != crate::relater::Ternary::NotRelated
+            {
+                continue;
+            }
+            if !self.pair_is_reportable(source_property_type, target_property_type) {
+                continue;
+            }
+            let Some(file) = self.source_file_of_for_diagnostics(name_id) else { continue };
+            // `createDiagnosticForNode(prop, …)` — the property **name**, which
+            // is the anchor §175 measured and the one `check_excess_properties`
+            // already uses.
+            let span = self.nodes.span(name_id);
+            let source_text = self.type_to_string(source_property_type);
+            let target_text = self.type_to_string(target_property_type);
+            self.report(
+                file,
+                Diagnostic::with_args(
+                    &messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1,
+                    span,
+                    [source_text, target_text],
+                ),
+            );
+            reported = true;
+        }
+        let _ = source;
+        reported
     }
 }
 

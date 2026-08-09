@@ -12035,3 +12035,157 @@ TS2322-only cases are relation-gated and no anchor reaches them.
 The 51 cases the greedy pass does not reach in ten steps sit in the 56-anchor
 tail — that is where "eight builds" would have been true, and it is where to
 stop rather than where to continue.
+## §176 — `elaborateObjectLiteral`, the anchor §175 ranked first
+
+§175's greedy pass puts `PropertyAssignment in ObjectLiteralExpression` at the
+head: **19 of the 132** wholly-anchor-gated TS2322 cases, 101 of the 691
+never-reached lines. This is that build.
+
+`elaborateObjectLiteral` (`relater.go:498`), reached from `elaborateError`
+(`:440`) — which `checkTypeRelatedToEx` calls **before** it reports anything.
+
+### The mechanism, and the half that is easy to miss
+
+For each non-spread property of the literal: take the property's name type, ask
+the *target* for that property's type and the *source* for its own, and if they
+do not relate, report **on the property name** (`elaborateElement`, `:546`).
+
+**Elaboration replaces the outer report, it does not add to it.** `elaborateError`
+returns a bool and `checkTypeRelatedToEx` reports the whole-expression error
+only when it comes back `false`. So a port that elaborates *and* keeps the outer
+line turns one wrong line into one right line plus one wrong line — no net
+conversion, because the suite compares exact multisets. **That is the whole
+risk of this build**, and it is why `report_assignability_failure` must hand
+off rather than fall through.
+
+### What exists already
+
+`check_excess_properties` (`assignreport.rs:365`) already walks an object
+literal's properties, already declines a spread it cannot enumerate, already
+resolves the target's property table through `declared_property_table`, and
+already reports at the **property name** — `arrayCast.ts(3,23)` is the `foo` of
+`{ foo: "s" }`, the same anchor this build needs. §136's rule pays again: the
+walk, the decline and the error node are all written.
+
+What is not written is the per-property *relation* call and the hand-off.
+
+### Deliberately not ported
+
+- **`elaborateElement`'s recursion into the initialiser** (`:557`): upstream
+  recurses so a nested literal elaborates further in. One level is what §175's
+  anchor distribution measures; the nested anchors are in the 56-anchor tail.
+- **`getBestMatchIndexedAccessTypeOrUndefined`** — upstream's best-match over a
+  union target. `get_property_of_type` is the non-union half, and a union target
+  is already declined by `report_assignability_failure`'s object-literal arm.
+- **`exactOptionalPropertyTypes`** and the `removeMissingType` pair, which
+  change *which* message, not whether one is reported.
+- **`elaborateDidYouMeanToCallOrConstruct`**, which runs first and carries its
+  own codes.
+
+### The bar
+
+```
+bar:  +12 cases,  0 LOST,  WRONG delta ≤ +8
+```
+
+Under §175's 19 because the anchor distribution counts a case as convertible
+when *every* missing line is anchor-gated, and it does not check that this port
+computes the right **types** at those positions — the assumption `bd tsr-bxp`
+flagged for the 89-case bound and which is unmeasured here in exactly the same
+way. The bar is set where the build is still worth landing if a third of the
+positions answer `error`.
+
+### Falsifiers
+
+1. **`WRONG` delta above +8, concentrated at the outer node.** Then the hand-off
+   is not exclusive and both lines are being emitted — the failure mode named
+   above.
+2. **`RIGHT` rises and `CONVERTS` does not.** Then the per-property relation is
+   right and something else in those cases is missing; §175's purity filter
+   would have been measuring anchors it cannot fully price.
+3. **`LOST` non-zero.** The outer line is being suppressed where the baseline
+   wants it — the hand-off firing when elaboration reports nothing.
+
+## §177 — §176 built at +1, and it CORRECTS §172/§175's ownership split
+
+The bar was `+12 cases, 0 LOST, WRONG delta ≤ +8`. Measured, `RULE_CODES = [2322]`:
+
+| | before | after |
+|---|---:|---:|
+| CONVERTS | 84 | **85** |
+| LOST | 0 | 0 |
+| RIGHT | 447 | 451 |
+| WRONG | 83 | 84 |
+
+**+1 case, +4 right lines, +1 wrong.** §175 priced this anchor at **19 cases and
+101 lines**. Falsifier 2 fired exactly as written — *"`RIGHT` rises and
+`CONVERTS` does not"* — and the reason is worth more than the build.
+
+### Why: the elaboration reaches the positions and cannot decide them
+
+Counters at each decline, over the corpus:
+
+```
+ELAB entered              563     an object literal at a failing position
+ELAB relation-declined    343     the per-property relation was not NotRelated
+ELAB no-target-property   280     `get_property_of_type(target, name)` found nothing
+ELAB primitive-target      10
+ELAB REPORTED               6
+```
+
+The anchor was never the binding constraint. **Adding it puts the walk in front
+of 563 positions and the relation declines 343 of them and the members table
+another 280** — the same two buckets §172 attributed to `checker_types` at the
+*outer* position, reappearing one level in.
+
+### The correction, which is the point of this section
+
+> **§172's `NEVER REACHED` bucket conflates two things, and §175's "132 cases
+> this workstream can convert alone" is an UPPER BOUND, not a slice.**
+
+The split classified each missing line by *which gate declined at that
+position*. At a position the walk never visits **there is no gate to observe**,
+so `NEVER REACHED` silently assumed that adding the anchor would let the
+relation succeed. For this anchor it does so 6 times in 563.
+
+That is precisely the assumption `bd tsr-bxp` flagged against the *89-case*
+bound — *"it assumes our port computes the right type on both sides at each of
+the convertible positions; that assumption is unmeasured in BOTH directions"* —
+and §172 reproduced it while believing it had retired it. **The instrument
+answered a narrower question than the one asked**, which is this board's
+dominant failure mode (§155), in its fourth recorded instance.
+
+**What §172 and §175 do establish, and it still stands:** 335 TS2322-only cases
+are relation-gated at the outer position and no anchor reaches them; the
+never-reached population is 691 lines over 66 anchors; and the anchors rank in
+the order §175 printed. **What they do not establish is that any of the 132
+converts.** The honest restatement:
+
+```
+132  cases where every missing line lacks an anchor      (upper bound)
+  ?  of those, cases where the relation can decide once the anchor exists
+  1  measured, for the highest-ranked anchor of the ten
+```
+
+### The build is landed anyway, and why
+
++1 case for +1 wrong line with `LOST 0` is not what the bar asked for. It is
+kept because it is **faithful upstream code at the position upstream reports
+from**, and because it is a *precondition* that pays out without another build:
+the 343 relation-declines and 280 missing properties are `checker_types`' work,
+and when that lands this elaboration converts without anyone revisiting it.
+That is the §166 → §167 shape — a one-line resolver fix turned §163's dead code
+into +8 — and it is the only reason to keep machinery that scores 1 today.
+
+**The falsifier for that judgement:** if `checker_types` lands members work and
+this anchor still measures under +5, the elaboration is not the thing standing
+between the port and those cases, and it should come out.
+
+### What this changes about the next build
+
+**Do not build anchors 2–4 from §175's list on the strength of that list.** The
+greedy table ranks anchors by cases-that-lack-them, and this section shows that
+number is not a forecast. Before each one, the cheap check now exists: add the
+anchor behind a counter, run the corpus, and read `REPORTED` against `entered`.
+Six in five hundred is what a saturated relation looks like from the reporting
+side.
