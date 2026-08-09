@@ -1046,6 +1046,26 @@ impl<'a, 'n> Checker<'a, 'n> {
                 self.rendering_composites.remove(&id);
                 return Some(out);
             }
+            // §99 (`checker-notes-narrow.md`): the MULTI-signature type-literal
+            // form renders at the site too — an overloaded member's embedded
+            // names were staying bare (`{ (roundTo: PluralizeUnit<...>):
+            // Duration; ... }` wanting `Temporal.`-qualified slots).
+            if let Some(signatures) = self.signature_types.get(&id)
+                && signatures.len() > 1
+                && !self.rendering_composites.contains(&id)
+                && !self.alias_named_signature_types.contains(&id)
+            {
+                let signatures = signatures.clone();
+                self.rendering_composites.insert(id);
+                let mut out = String::from("{ ");
+                for signature in &signatures {
+                    out.push_str(&self.signature_member_text_at(signature, reference));
+                    out.push_str("; ");
+                }
+                out.push('}');
+                self.rendering_composites.remove(&id);
+                return Some(out);
+            }
             // §95 (`checker-notes-narrow.md`): a GENERIC reference re-renders
             // its ARGUMENT slots at the site — the baked argument text was
             // minted at creation (inside-view), and `split_around_name`'s
@@ -1068,6 +1088,88 @@ impl<'a, 'n> Checker<'a, 'n> {
             return self.qualified_name_at(id, printed, reference);
         };
         self.module_name_at(module, reference).map(|name| format!("typeof {name}"))
+    }
+
+    /// §99's member-form twin of [`crate::objects::signature_member_text`]:
+    /// same slots, same written-text precedence, every RENDERED slot through
+    /// [`Checker::type_to_string_at`] with the baked text as the per-slot
+    /// fallback — the §10.13 contract, member spelling.
+    fn signature_member_text_at(
+        &mut self,
+        signature: &crate::signatures::Signature,
+        reference: NodeId,
+    ) -> String {
+        let mut out = match signature.kind {
+            crate::signatures::SignatureKind::Call => String::new(),
+            crate::signatures::SignatureKind::Construct
+            | crate::signatures::SignatureKind::AbstractConstruct => "new ".to_string(),
+        };
+        if !signature.type_parameters.is_empty() {
+            out.push('<');
+            for (index, parameter) in signature.type_parameters.iter().enumerate() {
+                if index > 0 {
+                    out.push_str(", ");
+                }
+                if parameter.is_const {
+                    out.push_str("const ");
+                }
+                out.push_str(&parameter.name);
+                if let Some(constraint) = parameter.constraint {
+                    out.push_str(" extends ");
+                    match &parameter.written_constraint {
+                        Some(written) => out.push_str(written),
+                        None => {
+                            let rendered = self
+                                .type_to_string_at(constraint, reference)
+                                .unwrap_or_else(|| self.type_to_string(constraint));
+                            out.push_str(&rendered);
+                        }
+                    }
+                }
+                if let Some(default) = parameter.default {
+                    let rendered = self
+                        .type_to_string_at(default, reference)
+                        .unwrap_or_else(|| self.type_to_string(default));
+                    out.push_str(" = ");
+                    out.push_str(&rendered);
+                }
+            }
+            out.push('>');
+        }
+        out.push('(');
+        for (index, parameter) in
+            signature.this_parameter.iter().chain(signature.parameters.iter()).enumerate()
+        {
+            if index > 0 {
+                out.push_str(", ");
+            }
+            if parameter.rest {
+                out.push_str("...");
+            }
+            out.push_str(&parameter.name);
+            out.push_str(if parameter.optional { "?: " } else { ": " });
+            match &parameter.written_text {
+                Some(written) => out.push_str(written),
+                None => {
+                    let rendered = self
+                        .type_to_string_at(parameter.r#type, reference)
+                        .unwrap_or_else(|| self.type_to_string(parameter.r#type));
+                    out.push_str(&rendered);
+                }
+            }
+        }
+        out.push_str("): ");
+        match (&signature.predicate, &signature.written_return) {
+            (Some(predicate), _) => out.push_str(&self.type_predicate_to_string(predicate)),
+            (None, Some(written)) => out.push_str(written),
+            (None, None) => {
+                let rendered = self
+                    .type_to_string_at(signature.r#type, reference)
+                    .unwrap_or_else(|| self.type_to_string(signature.r#type));
+                out.push_str(&rendered);
+            }
+        }
+        out
     }
 
     /// §95's rebuild: the reference's print from `(target, arguments)` with
