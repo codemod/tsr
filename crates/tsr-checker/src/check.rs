@@ -1061,6 +1061,24 @@ impl Checker<'_, '_> {
         }
         let Some(Node::NewExpression(call)) = self.node_map.get(node) else { return };
         let Some(callee) = call.expression.and_then(|e| e.node_id()) else { return };
+        // **A primitive callee never constructs**, whatever its spelling —
+        // `new \`abc\`(…)` is a string and `new (a ** b)` is a number. §436
+        // established the argument for `extends`; nothing about it was
+        // heritage-specific. §458.
+        if let Some(expression) = call.expression {
+            let callee_type = self.check_expression(expression);
+            let widened = self.get_base_type_of_literal_type(callee_type);
+            if self.is_decidable_primitive(widened) {
+                if let Some(file) = self.source_file_of_for_diagnostics(callee) {
+                    let span = self.error_span(callee);
+                    self.report(
+                        file,
+                        Diagnostic::new(&messages::THIS_EXPRESSION_IS_NOT_CONSTRUCTABLE, span),
+                    );
+                }
+                return;
+            }
+        }
         let Some(text) = self.identifier_text(callee).map(str::to_string) else { return };
         let Some(symbol) =
             self.binder.resolve_name(self.nodes, self.node_map, callee, &text, SymbolFlags::VALUE)

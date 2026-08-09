@@ -24977,3 +24977,75 @@ That is the fourth distinct way this session has stepped around the relation —
 after §407 (absent), §403 (singletons), and §436 (no construct signature).
 **Each one replaced a question the relation cannot answer with one the syntax
 can**, and the four together are worth `+22`.
+
+## §458 — TS2351 widened: a primitive callee
+
+```ts
+new `abc${0}abc`(…);     // TS2351 — a template literal is a string
+new (a ** b ** c);       // TS2351 — an exponentiation is a number
+```
+
+§434 ported the class-instance shape for `+2`. The remaining cases are not
+instances at all: the callee's **type is a primitive**, and §436 already
+established that a primitive has no construct signature under any structural
+reading. The same sentence covers `extends` and `new`.
+
+> §436 and §458 are one argument reaching two positions. That is the shape §347
+> named — *a question asked of one node kind and not another* — arriving from
+> the **argument's** side rather than the rule's: the bound was written for
+> heritage clauses because that is where it was first needed, and nothing about
+> it was heritage-specific.
+
+### The bound
+
+The `new` callee's widened type is one of the four intrinsic primitives §257
+admits. Unchanged from §434: an `Identifier` naming a class still constructs,
+and the instance-of-a-class arm stays.
+
+### The bar
+
+```
+bar:  +3 of 7,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **`new a()` where `a: any` reports.** `any` is not in the decidable set and
+   `exponentiationOperatorWithNew`'s first two lines are exactly that control.
+2. **`new C()` on a class reports.** A class type is not a primitive.
+
+## §459 — §458 built: **+5**, above bar
+
+```
+diagnostics   1,965 → 1,970   (bar was +3;  +5, 0 LOST)   35.90%
+every other suite unmoved — both falsifiers negative
+```
+
+### One argument, five positions
+
+`a primitive has no construct signature, and two distinct intrinsic singletons
+are unrelated` has now been asked in five places:
+
+```
+§403  TS2394  an overload's return vs its implementation's      +4
+§436  TS2507  an `extends` clause                               +3
+§450  TS2394  members of two type literals                      +3
+§454  TS2320  members inherited across a base chain             +1
+§458  TS2351  a `new` callee                                    +5
+```
+
+**+16 kept from one sentence.** The failed extension remains §338's, and its
+distinction from these five is now very clear: **all five ask the same question
+in a new *place*; §338 asked a different question in the same place** — whether
+`any` is a singleton conclusion as well as a singleton type — and the answer was
+no.
+
+> **A decidable-subset argument travels by position and breaks by domain.**
+> §451 stated this as *narrow the unit, do not widen the domain*; five positions
+> later the sharper form is: **the argument is a property of the types, so it
+> goes wherever those types go — and it stops the moment a new type is
+> admitted.**
+
+That is a usable rule for the next session: **before extending one of these,
+ask whether the change adds a position or a type.** A position is free; a type
+needs its own measurement.
