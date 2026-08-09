@@ -15343,3 +15343,142 @@ the existing rule before assuming the missing arm* and §131 *read the fixture
 before the fourth hypothesis*; neither says **read the fixture before writing
 the summary**, which is where this went wrong. The wrong column was visible in
 the first line of the file.
+
+## §233 — a new instrument: right code, right line, **wrong column**
+
+§232 fixed one column and asked the obvious follow-up: how many others are
+there? No instrument could say. `diaggap` counts misses by code and `extragap`
+counts inventions by code, and **a diagnostic at the wrong column appears in
+both at once** — as a miss at the expected position and an extra at the reported
+one — indistinguishable from an unrelated miss plus an unrelated extra.
+
+`diagcolumn.rs` pairs them: same `(file, line, code)`, different column.
+
+```
+cases with a column-only mismatch:  58
+column-only mismatched lines:      107
+**cases blocked by column ALONE:     9**
+
+TS1005 53 · TS2300 21 · TS1109 8 · TS2304 4 · TS2322 4 · TS2528 4
+TS1003  3 · TS2567  3 · TS6188 3 · TS1110 2 · TS1002 1 · TS1010 1
+```
+
+**Nine cases need no rule ported at all.** They have every diagnostic upstream
+has, at every line, and fail on a column.
+
+### What the head is
+
+`merge_conflicts.rs` already calls `error_span`, so TS2300's 21 lines are not a
+call-site oversight — they are `error_span` itself. Its `declaration_name_of`
+enumerates twenty node kinds; upstream's `GetNonAssignedNameOfDeclaration`
+(`ast/utilities.go:1461`) special-cases two and then falls through to
+**`declaration.Name()` for everything else**.
+
+An enumeration where upstream has a fallback is a defect that grows silently:
+every kind not listed reports at the node's start, and nothing announces it.
+
+`export = server` is the clearest instance. Upstream:
+
+```go
+case KindExportAssignment:
+    expr := declaration.Expression()
+    if IsIdentifier(expr) { return expr }
+    return nil
+```
+
+so `multipleExportAssignments` reports at column **10** — `server`, the
+expression — where this port reports column **1**.
+
+### The bar
+
+```
+bar:  +5 cases of 9,  0 LOST
+```
+
+**LOST is the real risk and the reason the bar is not the ceiling.** This
+changes the span of *every* rule reporting on these node kinds, including ones
+whose columns are right today by accident of the node starting where the name
+does.
+
+### Falsifiers
+
+1. **`diagnostics` falls.** Any LOST at all means a rule was relying on the
+   node-start span.
+2. **`checker_types` or `binder_symbols` moves.** Neither reads spans; movement
+   would mean the change reached further than intended.
+
+## §234 — §233's falsifier fired, and the two functions that look alike
+
+```
+first attempt:  diagnostics 1,650 → 1,628   (−22)
+```
+
+Falsifier 1, exactly as written. §233's premise was:
+
+> "An enumeration where upstream has a fallback is a defect that grows silently."
+
+**The premise was false.** `GetErrorRangeForNode` (`scanner.go:2588`) — which
+`error_span` ports — switches on a **closed list**, and upstream comments on it:
+
+```go
+// This list is a work in progress. Add missing node kinds to improve their error spans
+case ast.KindVariableDeclaration, ast.KindBindingElement, ast.KindClassDeclaration, …
+     ast.KindPropertySignature, ast.KindNamespaceImport:
+    errorNode = ast.GetNameOfDeclaration(node)
+```
+
+This port's twenty kinds *are* that list. A parameter, an import specifier or a
+property assignment reports at the node upstream too, and widening `error_span`
+to "every declaration with a name" moved every rule that reports on one.
+
+### The function I had actually read
+
+`GetNameOfDeclaration` (`ast/utilities.go:1447`) *does* have the unconditional
+`return declaration.Name()` tail. It is a different function, and the
+duplicate-identifier reporter is what routes through it:
+
+```go
+func getAdjustedNodeForError(node *ast.Node) *ast.Node {   // checker.go:14262
+    name := ast.GetNameOfDeclaration(node)
+    if name != nil { return name }
+    return node
+}
+```
+
+> **Two functions, both named for "the name of a declaration", one closed and
+> one open — and the corpus charges 22 cases for confusing them.** The tell was
+> available before the build: `GetErrorRangeForNode` carries a comment saying
+> its list is incomplete *on purpose*, which is not something a function with a
+> fallback would need to say.
+
+### Where the fix actually belongs
+
+Not in the checker at all. `merge_conflicts.rs` already calls `error_span`, and
+a checker-side `getAdjustedNodeForError` was written, measured at **exactly
+zero**, and reverted rather than carried — a parallel name-resolution path that
+is never observably different is surface that rots.
+
+The binder positions these diagnostics, through `name_node_of`
+(`binder.rs:4640`), which is *its* port of `GetNameOfDeclaration` and was
+missing the open tail. Seven kinds added, one of them upstream's special case:
+
+```rust
+Node::ExportAssignment(n) => match n.expression {
+    Some(tsr_ast::Expression::Identifier(i)) => i.node_id,   // `export = server`
+    _ => None,
+},
+```
+
+```
+diagnostics                  1,650 → 1,653   (+3)
+column-only mismatched lines   107 → 85
+cases blocked by column ALONE    9 → 6
+binder_symbols               100%, unmoved — falsifier 2 negative
+```
+
+### What the instrument is worth beyond this build
+
+`diagcolumn` is staying. It measures a population no other instrument can name,
+and the 85 remaining lines are ranked and cheap to re-read after any span
+change. TS1005's 53 lines are the parser's, not the binder's, and are the next
+head — a different owner from everything §156–§232 touched.

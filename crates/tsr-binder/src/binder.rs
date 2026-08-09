@@ -4665,6 +4665,25 @@ fn name_node_of(node: Node<'_>) -> Option<NodeId> {
         Node::EnumMember(n) => property(&n.name),
         Node::PropertyAssignment(n) => property(&n.name),
         Node::ShorthandPropertyAssignment(n) => property(&n.name),
+        // §234 — kinds upstream reaches through `GetNameOfDeclaration`'s
+        // unconditional `return declaration.Name()` tail
+        // (`ast/utilities.go:1461`). Every redeclaration diagnostic is
+        // positioned here, so a kind missing from this list reports at the
+        // declaration's first token instead of its name.
+        Node::ImportSpecifier(n) => n.name.and_then(|i| i.node_id),
+        Node::ExportSpecifier(n) => n.name.and_then(|n| n.node_id()),
+        Node::ImportClause(n) => n.name.and_then(|i| i.node_id),
+        Node::NamespaceImport(n) => n.name.and_then(|i| i.node_id),
+        Node::NamespaceExport(n) => n.name.and_then(|n| n.node_id()),
+        Node::TypeParameterDeclaration(n) => n.name.and_then(|i| i.node_id),
+        // Upstream's one special case that reaches this port: the
+        // **expression**, and only when it is an identifier
+        // (`ast/utilities.go:1476`). `export = server` reports at `server`,
+        // column 10 — not at the `export` keyword, column 1.
+        Node::ExportAssignment(n) => match n.expression {
+            Some(tsr_ast::Expression::Identifier(i)) => i.node_id,
+            _ => None,
+        },
         _ => None,
     }
 }
