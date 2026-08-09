@@ -1838,8 +1838,21 @@ impl<'a> Parser<'a> {
         // renames is legal — `{ enum: e }` — because upstream reads the
         // property with `parsePropertyName`, an identifier-name position
         // (`declarationEmitKeywordDestructuring`).
-        let keyword_renames =
-            self.token.kind.is_keyword() && self.peek_kind(|kind| kind == SyntaxKind::ColonToken);
+        //
+        // **And a RESERVED word takes this branch whatever follows it.**
+        // `parseObjectBindingElement` (`parser.go:1687`) branches on
+        // `tokenIsIdentifier && p.token != KindColonToken`, where
+        // `tokenIsIdentifier` is `isBindingIdentifier()` (`:6262`) — *"the
+        // token is an identifier, or is past the last reserved word"* — and is
+        // read **before** the property name is parsed. So `{ while }` takes the
+        // `else`, which reports a single `':' expected` on the `}`; this port
+        // asked only whether a colon followed, sent `while` to
+        // `parse_binding_name`, and got `Identifier expected` at the keyword
+        // instead. §202.
+        let binding_identifier = self.token.kind == SyntaxKind::Identifier
+            || (self.token.kind as u16) > (SyntaxKind::LAST_RESERVED_WORD as u16);
+        let keyword_renames = self.token.kind.is_keyword()
+            && (!binding_identifier || self.peek_kind(|kind| kind == SyntaxKind::ColonToken));
         let (property_name, name) = if bracket_is_computed_key
             || keyword_renames
             || self.at(SyntaxKind::StringLiteral)

@@ -13734,3 +13734,107 @@ by name — and `.symbols` baselines print it bare (`moduleAugmentationGlobal4`:
 the internal prefix. Renaming would mean teaching the suite to strip it back,
 against a suite at 100%, for no behaviour. Recorded so it is a decision rather
 than an omission.
+
+## §204 — `parseObjectBindingElement` decides on `isBindingIdentifier`, not on the colon
+
+`var { while } = { while: 1 }` — one error upstream, four here:
+
+```
+upstream   (1,13) TS1005  ':' expected.
+ours       (1,7) TS1003 · (1,13) TS1005 · (1,15) TS1012 · (1,24) TS1005
+```
+
+The extra `(1,7)` comes **before** the matching line, so this is not §198's
+cascade shape. `parseObjectBindingElement` (`parser.go:1681`):
+
+```go
+tokenIsIdentifier := p.isBindingIdentifier()
+propertyName := p.parsePropertyName()
+if tokenIsIdentifier && p.token != ast.KindColonToken {
+    name = propertyName; propertyName = nil
+} else {
+    p.parseExpected(ast.KindColonToken)      // ':' expected
+    name = p.parseIdentifierOrPattern()
+}
+```
+
+**The test is taken before the property name is parsed, and it is
+`isBindingIdentifier`** (`:6262`), which is one line:
+
+```go
+return p.token == ast.KindIdentifier || p.token > ast.KindLastReservedWord
+```
+
+`while` is a reserved word, so `tokenIsIdentifier` is false, the `else` runs
+whatever follows, and the single `':' expected` lands on the `}`. This port asks
+a different question — *"is this a keyword followed by a colon"* — so a keyword
+**not** followed by a colon falls to `parse_binding_name`, which rejects it with
+`Identifier expected` at the keyword itself.
+
+The rest of upstream's line is already here: `parseIdentifierOrPattern` on `}`
+reports `Identifier expected` at the same position as the `':' expected` just
+emitted, and §193's same-position guard drops it. **That guard is what makes
+this fix a one-condition change rather than a two-error one** — it was landed
+five sections ago for a different row.
+
+### The bar
+
+```
+bar:  diagnostics +1,  0 LOST,
+      parser_typescript / scanner_clean_files / binder_symbols /
+      printer_round_trip UNMOVED
+```
+
+One case verified (`objectBindingPatternKeywordIdentifiers01`). The rails are
+the falsifier that caught §198 and they are the falsifier again — this touches
+binding patterns, which every destructuring form goes through.
+
+### Falsifiers
+
+1. **Any 100% rail moves.** `{ a }`, `{ a: b }`, `{ [k]: v }`, `{ ...rest }` and
+   nested patterns must all parse exactly as now; only a **reserved** word in
+   the property position may change.
+2. **`diagnostics` falls.** As §198.
+
+## §205 — §204 built: +1, every rail unmoved, and §193 paid for it a second time
+
+```
+diagnostics          1,614 → 1,615  (+1, bar was +1)
+extraonly               28 → 27 cases
+parser_typescript    5,031/5,031    unmoved
+scanner_clean_files  5,031/5,031    unmoved
+binder_symbols       8,458/8,458    unmoved
+printer_round_trip  11,760/11,760   unmoved
+checker_types        3,973 → 3,974  (+1)
+```
+
+`var { while } = { while: 1 }` now reports the single `':' expected` upstream
+reports.
+
+### The half of it that was already there
+
+Upstream's `else` branch reports `':' expected` and then calls
+`parseIdentifierOrPattern` on the same token, which reports `Identifier
+expected` at the *same position* — and `parseErrorAtRange`'s guard drops it.
+**This port only emits one because §193 landed that guard**, five sections
+earlier, for `x++ = 4`.
+
+> **A fidelity fix pays forward into rows nobody had connected to it.** §193 was
+> barred and measured against `extraonly`'s TS1005/TS1012 column; it also turned
+> §202 from a two-error problem into a one-condition one. Neither section could
+> have predicted the other, and the only reason the second was cheap is that the
+> first was done properly rather than bounded to its own row.
+
+That is the third time this session a general fix has changed what a later
+build costs — §166 → §167 (+8), §193 → §202, and the `.types` workstream's
+`declare global` merge → §189 (+14). **The pattern is worth acting on: when a
+row is expensive, check what has landed underneath it since it was priced.**
+
+### `extraonly` over the session
+
+```
+50 → 34 (§193)  → 29 (§197)  → 28 (§201)  → 27 (§203)
+```
+
+Twenty-three cases, all from four fixes in the parser and the harness, none of
+them a rule.

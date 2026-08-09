@@ -1661,7 +1661,7 @@ impl<'a> Checker<'a, '_> {
                         self.intrinsics.error
                     }
                 };
-                let matches = member == *unit
+                let is_match = member == *unit
                     || member == base
                     || member == self.intrinsics.any
                     || matches!(
@@ -1669,7 +1669,7 @@ impl<'a> Checker<'a, '_> {
                         crate::types::TypeData::Union { types, .. }
                             if types.contains(unit) || types.contains(&base)
                     );
-                if matches {
+                if is_match {
                     matched = true;
                 } else {
                     maybe.push(i);
@@ -1942,9 +1942,9 @@ impl<'a> Checker<'a, '_> {
                     let Some(Node::BinaryExpression(binary)) = self.node_map.get(holder) else {
                         return None;
                     };
-                    if !binary
+                    if binary
                         .operator_token
-                        .is_some_and(|token| token.kind == SyntaxKind::EqualsToken)
+                        .is_none_or(|token| token.kind != SyntaxKind::EqualsToken)
                         || binary.right.and_then(|e| e.node_id()) != Some(literal)
                         || self.in_js_file(declaration)
                     {
