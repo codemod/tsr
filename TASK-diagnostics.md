@@ -11,9 +11,9 @@ FIRST: git pull. Then read, in this order:
   the metric), then **§86–§90** — the thirteenth session, five sections, four
   builds.
 
-STATE AT HANDOFF, fourteenth session, at `7d5c718` (verify with a fresh run):
-  diagnostics    1,508/5,488 = 27.48%   (+57 over THREE builds, zero lost, and
-                 the wrong column did not move on any — §156-§162)
+STATE AT HANDOFF, fourteenth session, at `6ab4ef3` (verify with a fresh run):
+  diagnostics    1,516/5,488 = 27.62%   (+65 over FOUR builds, zero lost, and
+                 the wrong column did not move on any — §156-§168)
   binder_symbols 8,459/8,459 = 100%     — held across a build that changed
                  `merge_symbol`'s behaviour
   checker_types  3,937/9,538 · 84.47% — the other workstream's, and it moves
@@ -173,7 +173,18 @@ TS2540      12         9
    Everything below is that list read at §90's commit, and seven builds have
    moved it. The board re-taken at `58b5ed2` is in §161/§163.
 
-0z. **THE MEANING-MISMATCH ROW — read §163-§165 before touching it.** TS2693 (9),
+0x. **§166 CHANGED WHAT EVERY MEANING QUERY IN THE PROGRAM ANSWERS.** Until
+   this session `resolve_name`'s `globals` fallback ignored `meaning`, so every
+   name in `globals` — all of `lib.*.d.ts` included — resolved under every
+   meaning. **Any number on this board taken before `2dfe2a1` that depended on a
+   meaning ladder is stale**, including §164's 238 wrong lines. Re-measure
+   before quoting.
+
+0z. **THE MEANING-MISMATCH ROW — read §163-§168 before touching it.** The
+   TYPE-position half is **DONE** (§167/§168, +8, zero wrong). What is left is
+   the **value-position** arm — TS2693, TS2708, TS2661 — which §164 measured at
+   238 wrong lines *against the pre-§166 resolver*. That number is not valid any
+   more. The refused source is described arm by arm in §163. TS2693 (9),
    TS2709 (9), TS2661 (9), TS2749 (4) are four arms of `onFailedToResolveSymbol`
    (`checker.go:1564`). It was built in full, measured at **+2 cases for 238
    wrong lines**, bounded to +6, and **refused**. Do not re-derive it: the code
