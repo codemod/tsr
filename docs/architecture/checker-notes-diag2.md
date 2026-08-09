@@ -25657,3 +25657,74 @@ TS2337   3 cases   Super calls outside constructors  — §468's second arm
 > paid `+12` and `+2`; the two sweeps over this port's own source paid zero.
 > **Search the artefact that describes the target, not the one that describes
 > the progress.**
+
+## §476 — TS1114: a duplicate label
+
+§475's list, next row. **4 blocked, `occupied 0/6`.**
+
+```ts
+target:
+target:
+while (true) { }     // TS1114 at the inner `target`
+```
+
+`checkLabeledStatement` (`checker.go:4209`) walks up from the labeled statement,
+stopping at a function boundary, and reports if an ancestor carries the same
+label text:
+
+```go
+for current := node.Parent; current != nil && !ast.IsFunctionLike(current); current = current.Parent {
+    if ast.IsLabeledStatement(current) && current.Label().Text() == labelText {
+        c.grammarErrorOnNode(labelNode, diagnostics.Duplicate_label_0, labelText); break
+    }
+}
+```
+
+Purely syntactic and stated in full above — nothing to bound. The ambient guard
+in front of it is `checkGrammarStatementInAmbientContext`, which this port has
+(`check.rs:6254`) and which is threaded the same way.
+
+### The bar
+
+```
+bar:  +3 of 4,  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **Two sibling labels with the same name report.** The walk is over
+   *ancestors*; `a: while(1){} a: while(1){}` is legal.
+2. **A label repeated across a function boundary reports.** The loop stops at
+   `IsFunctionLike`, which is the whole reason the boundary is in the loop
+   condition rather than the body.
+
+## §477 — §476 built: **+4**, above bar
+
+```
+diagnostics   1,990 → 1,994   (bar was +3;  +4, 0 LOST)   36.33%
+every other suite unmoved — both falsifiers negative
+```
+
+Six lines of upstream, quoted in full in §476 and ported unchanged. The bar was
+`+3` from four blocked cases and it converted four — the first row this session
+where **every** blocked case fell to one rule.
+
+### The message-catalogue search, six rows
+
+```
+restrictions   TS2358 +4 · TS2466 +4 · TS2376 +3 · TS1268 +1
+prohibitions   TS1184 +2 · TS1114 +4
+                                            ─────
+                                            +18
+```
+
+Three candidates remain from the broadened grep: `TS1203`, `TS1120`, `TS2337`.
+
+> **Eighteen cases from `grep`ping a message catalogue, against zero from two
+> sweeps of this port's source.** §475 called the catalogue a to-do list written
+> by someone who finished the job; six rows in, the sharper claim is that it is
+> the **only** artefact in the repository that enumerates behaviour by
+> *condition* rather than by *implementation*. `diagslice` ranks what is
+> missing, `diagdeepen` ranks what half-exists, `diagnode` ranks where — and
+> none of them can name a condition nobody has written a rule for. The
+> catalogue names all of them, in English, sorted by number.

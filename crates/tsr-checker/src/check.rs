@@ -607,6 +607,9 @@ impl Checker<'_, '_> {
         ) {
             self.check_builtin_global_redeclaration(node);
         }
+        if matches!(typed, Node::LabeledStatement(_)) {
+            self.check_duplicate_label(node, ambient);
+        }
         if matches!(typed, Node::IndexSignatureDeclaration(_)) {
             self.check_index_signature_key_type(node);
         }
@@ -1819,6 +1822,38 @@ impl Checker<'_, '_> {
         let Some(file) = self.source_file_of_for_diagnostics(id) else { return };
         let span = self.nodes.span(id);
         self.report(file, Diagnostic::new(&messages::MODIFIERS_CANNOT_APPEAR_HERE, span));
+    }
+
+    /// TS1114 — `Duplicate label '{0}'.`
+    ///
+    /// `checkLabeledStatement` (`checker.go:4209`): walk up from the labeled
+    /// statement, stopping at a function boundary, and report if an ancestor
+    /// carries the same label text. Purely syntactic. §476.
+    fn check_duplicate_label(&mut self, node: NodeId, ambient: bool) {
+        if ambient || self.file_has_parse_errors {
+            return;
+        }
+        let Some(Node::LabeledStatement(statement)) = self.node_map.get(node) else { return };
+        let Some(label) = statement.label.and_then(|label| label.node_id) else { return };
+        let Some(text) = self.identifier_text(label).map(str::to_string) else { return };
+        for ancestor in self.nodes.ancestors(node) {
+            if self.is_function_like_or_static_block(ancestor) {
+                return;
+            }
+            let Some(Node::LabeledStatement(outer)) = self.node_map.get(ancestor) else { continue };
+            let same = outer
+                .label
+                .and_then(|label| label.node_id)
+                .and_then(|id| self.identifier_text(id))
+                .is_some_and(|outer_text| outer_text == text);
+            if !same {
+                continue;
+            }
+            let Some(file) = self.source_file_of_for_diagnostics(label) else { return };
+            let span = self.error_span(label);
+            self.report(file, Diagnostic::with_args(&messages::DUPLICATE_LABEL_0, span, [text]));
+            return;
+        }
     }
 
     fn check_this_in_module_body(&mut self, node: NodeId) {
