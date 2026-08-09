@@ -3660,3 +3660,36 @@ positions §10.13 already owns route separately) plus the GAP half
 (399 lines: `Temporal.ZonedDateTime[]` method results through lib
 generics — resolution, not printing). The ratio leg (10:1) met at
 infinity.
+
+## §96 — the initializer branch adds optionality too
+
+The residue §93 and §94 both priced (`b?: number | undefined`) sized
+corpus-wide from a full dump at the §95 baseline: 33 WRONG lines are
+exactly `{ours} | undefined` with a `?:` in the want — 16 inside
+signature prints, 17 on member/parameter lines — plus 222 GAP lines
+that want such prints but gap for their own reasons (they are the
+positions' owners' work; this rule is their prerequisite, not their
+conversion).
+
+The mechanism: `get_type_for_variable_like_declaration`'s
+ANNOTATION branch already routes through
+`add_optionality_for_declaration` (`crate::optionality`, one of
+upstream's twenty-one sites), but the INITIALIZER branch returns
+`get_widened_literal_type_for_initializer` bare — upstream wraps it
+(`checker.go:16750`, `addOptionalityEx(t, isProperty, isOptional)`).
+So `(b? = 0)` — question token AND initializer, error-recovery but
+typed — infers `number` and misses the `| undefined` the `?` adds.
+`class C { p? = 5 }` is the same branch with `isProperty` true.
+`is_optional_declaration` demands a written `?`, so `(arg = 1)`
+stays plain — §94's converts must not move.
+
+**Bar, registered before the code:** predict **+12–25 W→R**
+concentrated in defaultParameterAddsUndefinedWithStrictNullChecks
+(8), contravariantOnlyInferenceWithAnnotatedOptionalParameter (4),
+and the fatarrowfunctionsOptionalArgs `b? = 0` family. Must NOT
+move: initializer-only optional parameter prints (`arg?: number`
+without `| undefined`) anywhere in the corpus — one adverse there
+refuses the build outright, because it means `is_optional_declaration`
+leaked past the question token. The rest-optional `...arg?: any[] |
+undefined` pair (parserParameterList11) is NOT claimed — no
+initializer, different road, stays a residue.
