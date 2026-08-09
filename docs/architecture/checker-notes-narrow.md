@@ -3315,3 +3315,21 @@ population that grew 3 lines (the JSX flake's neighborhood — see
 still declines — it needs the §40 print-only shape minted from parts.
 
 **§86.2 score — LANDED.** right 404,520 → **404,527 (84.49%)**.
+
+## §89 — the composite re-render was eating §72's names
+
+The open trace closed: §72's alias-named mints (`type H = (a:
+number) => void` baking text "H") printed STRUCTURALLY at every site
+because `type_to_string_at`'s composite re-render (§10.13) rebuilds
+any single-signature type from its structure — right for
+qualifier/rename sites, wrong for an alias-NAMED bake. One set
+(`alias_named_signature_types`) tells the site renderer to keep the
+name. **+178 net (185 W→R against 7 R→W, 26:1)** — the fix converts
+the entire alias-name residue §71/§77 had been exposing for eleven
+builds (`renamingDestructuredPropertyInFunctionType{,2}` 20,
+`unusedLocalsAndParametersTypeAliases` 7, `defaultValueInFunctionTypes`'
+`Foo`, TupleUnionFunc…). The 7: union/intersection-constituent
+positions wanting parenthesized or structural spellings — the §xm9
+parenthesisation family's door.
+
+**§89 score — LANDED.** right 404,594 → **404,772 (84.51%)**.

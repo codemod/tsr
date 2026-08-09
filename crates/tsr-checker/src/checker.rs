@@ -368,6 +368,9 @@ pub struct Checker<'a, 'n> {
     pub(crate) non_null_type_variables: FxHashMap<(TypeId, String), TypeId>,
     /// §85's reverse map: mint → (base type variable, refinement kind).
     pub(crate) non_null_mint_bases: FxHashMap<TypeId, (TypeId, crate::flow::NonNullKind)>,
+    /// §89: signature types whose baked text is an ALIAS NAME — the site
+    /// renderer's composite re-render must not rebuild them structurally.
+    pub(crate) alias_named_signature_types: rustc_hash::FxHashSet<TypeId>,
     pub(crate) no_unused_locals: bool,
     /// `compilerOptions.noUnusedParameters` (`checker.go:7109`).
     pub(crate) no_unused_parameters: bool,
@@ -661,6 +664,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             alias_inline_level: 0,
             non_null_type_variables: FxHashMap::default(),
             non_null_mint_bases: FxHashMap::default(),
+            alias_named_signature_types: rustc_hash::FxHashSet::default(),
             no_unused_locals: false,
             no_unused_parameters: false,
             symbol_reference_kinds: FxHashMap::default(),
@@ -1000,6 +1004,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             if let Some(signatures) = self.signature_types.get(&id)
                 && signatures.len() == 1
                 && !self.rendering_composites.contains(&id)
+                && !self.alias_named_signature_types.contains(&id)
             {
                 let signature = signatures[0].clone();
                 self.rendering_composites.insert(id);

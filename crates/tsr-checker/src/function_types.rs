@@ -138,9 +138,11 @@ impl<'a> Checker<'a, '_> {
         // string }: O) => any` records `>F2 : F2`), a generic one gaps rather
         // than dropping its arguments, an unaliased node renders structurally.
 
+        let mut alias_named = false;
         let text = match self.alias_symbol_for_type_node(id) {
             None => self.signature_to_string(&signature),
             Some(alias) if self.local_type_parameters_of(alias).is_empty() => {
+                alias_named = true;
                 self.binder.symbols().get(alias).name.to_string()
             }
             Some(_) => return error,
@@ -151,6 +153,15 @@ impl<'a> Checker<'a, '_> {
         // the note above.
         let Some(symbol) = self.binder.symbol_of(id) else { return error };
         let built = self.store.new_anonymous(TypeFlags::OBJECT, text, symbol, true);
+        // §89 (`checker-notes-narrow.md`): the site renderer's composite
+        // re-render (§10.13) rebuilds a single-signature type from its
+        // STRUCTURE — which is right for qualifier/rename sites and WRONG
+        // for an alias-NAMED bake (`type H = (a: number) => void` printed
+        // structurally at every site while the mint carried "H"; the open
+        // trace this closes). The set tells it to keep the name.
+        if alias_named {
+            self.alias_named_signature_types.insert(built);
+        }
         // The structure the text was rendered from, kept reachable from the id
         // so `instantiate_type` can rebuild this type with substituted parts —
         // see `Checker::signature_types` (`bd tsr-0hc`). Recorded here because
