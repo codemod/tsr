@@ -637,3 +637,18 @@ complexRecursiveCollections) — no new cheap head exists there.
 the gain-column artifact rule are in conventions.md. The next
 session opens on subsystem-scale work or the parked unlocks —
 nothing smaller remains at the top.
+
+THE BOARD'S SPREAD ROWS ARE CLOSED (the marathon session's final
+census act): ElementAccess 146 — the last unclaimed spread row —
+sampled and FOLDED (elementAccessChain's wrongs are the §77.2
+optionality union-order family; its gaps are the §13 optional-chain
+flow machinery; the error concentrations are the known subsystem
+cases). EVERY near-miss row now has a named owner and a gate:
+the callres2 summit (whole-or-nothing, its study complete to the
+struct-field level), the flow machines (f22, optional chains,
+auto-var), the printing residues (§77.2 order, per-file spelling),
+the relater-gated families, and the two user-nod unlocks. There is
+no cheap head left — the port's remaining distance is subsystem
+builds, each with its document, each opened from its record and
+not from a label. The two-lane loop's continuing work: checker-1's
+census heads and the summit build in fresh windows.
