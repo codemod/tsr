@@ -5271,3 +5271,33 @@ inferTypePredicates head); re-open §125 then, citing this pair.
 The member-miss seam closes at §124: rows 5/6 fell 2,384 → ~1,700
 this window, and every remaining concentration names narrowing or
 tsr-4qx as its owner.
+
+## §126 — the instanceof FALSE branch, traced and built [claimed: checker-1]
+
+**The §83 evidence split resolved by the read it asked for.**
+`getNarrowedTypeWorker`'s `!assumeTrue` arm (flow.go:861):
+`t == candidate → never`; else (checkDerived, the instanceof road)
+`filterType(t, constituent → !isTypeDerivedFrom(constituent,
+candidate))`. `isTypeDerivedFrom` (relater.go:4962) is DECLARED
+BASE CHAINS (`hasBaseType`), not structure — which is why
+typeGuardOfFormInstanceOf's else keeps the whole union (its
+constituents are unrelated interfaces, derived from nothing) while
+instanceofWithStructurallyIdenticalTypes narrows (its constituents
+are classes on the candidate's chain). The "global var vs
+parameter" difference §83 recorded was a red herring; derivation
+decides. The §83-era false-arm measurement (21 adverse) predates
+this trace and used the wrong test.
+
+**The arm.** In the §83 road, `!assume_true` with a CLASS RHS:
+identity constituent → removed; chain-derived constituent
+(`class_extends_chain_contains`, the same test the true branch
+runs) → removed; everything else survives; nothing removed → t
+unchanged. Non-union: `t == instance → never`; chain-derived t →
+never; else t. Upstream's pre-gate (`instanceType` Object-flagged
+non-empty) holds by construction for class instances.
+
+**Bar.** ≥30 G→R at ≥5:1. Falsifiers: (a) typeGuardOfFormInstanceOf's
+whole-union else must not move (its RHS is constructor-signature
+interfaces, outside the CLASS gate); (b) the §83 chain test declines
+undecidable shapes — a decline in the false arm keeps the WHOLE
+union, never guesses never.
