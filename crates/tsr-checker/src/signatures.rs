@@ -1987,11 +1987,52 @@ impl<'a> Checker<'a, '_> {
         let error = self.intrinsics.error;
         let Some(parts) = self.signature_parts_of(node) else { return error };
         let unannotated = parts.parameters.iter().any(|parameter| parameter.r#type.is_none());
-        if unannotated && !self.has_no_contextual_type(node) {
+        if unannotated && !self.has_no_contextual_type(node) && !self.argument_context_is_any(node)
+        {
             return error;
         }
         let Some(symbol) = self.binder.symbol_of(node) else { return error };
         self.get_type_of_symbol(symbol)
+    }
+
+    /// §93 (`checker-notes-narrow.md`): a call ARGUMENT whose contextual
+    /// parameter type is `any` (or an `any[]` rest) supplies no parameter
+    /// types — upstream's `assignContextualParameterTypes` with `anyType`
+    /// leaves the implicit `any`, so the standalone type IS the answer
+    /// (`fatarrowfunctionsOptionalArgs`: `foo(...arg: any[])` taking arrows).
+    /// `false` wherever the callee or its signature cannot be shown — the
+    /// gap stays honest.
+    fn argument_context_is_any(&mut self, declaration: NodeId) -> bool {
+        let Some(parent) = self.nodes.parent(declaration) else { return false };
+        let Some(Node::CallExpression(call)) = self.node_map.get(parent) else { return false };
+        if call.arguments.iter().any(|a| matches!(a, tsr_ast::Expression::SpreadElement(_))) {
+            return false;
+        }
+        let Some(index) = call.arguments.iter().position(|a| a.node_id() == Some(declaration))
+        else {
+            return false;
+        };
+        let Some(callee) = call.expression else { return false };
+        let callee_type = self.check_expression(callee);
+        let Some(signature) = self.single_call_signature(callee_type) else { return false };
+        let parameter = match signature.parameters.get(index) {
+            Some(parameter) => parameter,
+            // Past the fixed list: only an `any[]` rest covers the position.
+            None => match signature.parameters.last() {
+                Some(last) if last.rest => last,
+                _ => return false,
+            },
+        };
+        if parameter.rest {
+            // `...arg: any[]` — the sliced element is `any`.
+            return self.type_reference_targets.get(&parameter.r#type).is_some_and(
+                |(target, arguments)| {
+                    self.global_type_symbol("Array") == Some(*target)
+                        && arguments.as_slice() == [self.intrinsics.any]
+                },
+            );
+        }
+        parameter.r#type == self.intrinsics.any
     }
 
     /// Render a signature as a `FunctionTypeNode` is printed: `<T>(x?: A, ...r: B[]) => C`,

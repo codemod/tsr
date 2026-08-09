@@ -661,7 +661,7 @@ impl<'a> Checker<'a, '_> {
         false
     }
 
-    fn single_call_signature(&mut self, id: TypeId) -> Option<Signature> {
+    pub(crate) fn single_call_signature(&mut self, id: TypeId) -> Option<Signature> {
         let TypeData::Anonymous { symbol, .. } = self.store.get(id).data else {
             return None;
         };

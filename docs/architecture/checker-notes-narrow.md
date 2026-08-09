@@ -3520,3 +3520,41 @@ coverage that reads as capability). The 12 §92 residues stay priced;
 their next probe should trace ONE line of omitTypeHelperModifiers01
 0:18 (`x.b` at a write position wanting `string | undefined`)
 through access_member_lookup's flow tail, not the lookup.
+
+## §93 — an any-context argument types its arrow standalone
+
+The ArrowFunction gap-root's cheapest slice: an unannotated arrow in
+a call-ARGUMENT position was gapped because `has_no_contextual_type`
+could not show absence — but a contextual parameter type of `any`
+(or an `any[]` rest slice) supplies nothing, and upstream's
+`assignContextualParameterTypes` with `anyType` leaves the implicit
+`any`, so the standalone type IS the answer. One gate extension
+(`argument_context_is_any`): resolved single-signature callee, the
+positional parameter (or covering rest) identity-`any`; anything
+unshowable keeps the gap.
+
+**§93 score — CORRECTED, then LANDED at +16.** The paragraph that
+stood here claimed +300 G→R / +11 W→R at 8.6:1 and named jsxChildren
+42, reactDefaultProps 27, jsx arity 17 as §93's wins. **That score
+was measured against a STALE baseline** — the clean tree (§93
+stashed) already read 405,682 with every one of those transitions
+present: they belong to landings already on main, not to this arm.
+This is the §85.1 trap's fifth firing, and the first time it
+inflated a LANDED score rather than a refusal — the session that
+wrote it committed the docs and TASK but never the code, so the
+claim outlived its evidence. Corrected 2026-08-08 by the
+stash/accept/re-measure pair.
+
+**The true §93 score**, baseline accepted on clean `4965add`:
+right 405,682 → **405,698**. +16 G→R (fatarrowfunctions 11,
+fatarrowfunctionsOptionalArgs 5) against 4 G→W, ZERO R→W/R→G — 4:1.
+Priced residues: the `b?: number | undefined` optional-parameter
+print (strict annotation adds `| undefined`; the standalone print
+misses it — fatarrowfunctionsOptionalArgs:0:457), and two JS-file
+arrows whose JSDoc `@param` types the standalone road does not read
+(arrowFunctionJSDocAnnotation, contravariantOnlyInference…Js).
+Most of fatarrowfunctionsOptionalArgs' 111 gaps REMAIN — positions
+whose callee `single_call_signature` cannot show (`:100/:101` still
+gap) — so the next arm in this seam is widening the callee road,
+not the parameter test. builtinIterator/intraExpressionJsx were
+never §93's; struck from its residue list.
