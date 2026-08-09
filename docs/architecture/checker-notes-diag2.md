@@ -12920,3 +12920,111 @@ same crate.
 comes through a path this rule still cannot see, and all in cases that fail for
 other reasons too (`STILL SHORT` is 35). No owner is named for them here, on
 purpose.
+
+## §190 — the parse-error set: the codes are not missing, one GUARD is
+
+§189's rule turned on this board's last remaining subsystem claim. Four rows
+this session (§162, §179, §182, §184) ended with residual wrong lines attributed
+to *"the parse-error set is incomplete"*. Applying §136 to that claim rather
+than repeating it:
+
+```
+grep -rno "messages::[A-Z_0-9]*" crates/tsr-parser/src | sort -u
+→ 9 distinct messages, and `_0_EXPECTED` is TS1005
+```
+
+**TS1005 is emitted.** The parser has the code the fixtures want; it does not
+report it because it *accepts* the construct. For `incrementAndDecrement`'s
+`x++ = 4;`, one line explains it:
+
+```go
+// parser.go:4143 — parseAssignmentExpressionOrHigherWorker
+if ast.IsLeftHandSideExpression(expr) && ast.IsAssignmentOperator(p.reScanGreaterThanToken()) {
+    return p.makeBinaryExpression(...)
+}
+```
+
+```rust
+// crates/tsr-parser/src/expression.rs:153
+if is_assignment_operator(self.token.kind) {
+```
+
+**The `IsLeftHandSideExpression(expr)` conjunct is absent.** A
+`PostfixUnaryExpression` is not a left-hand-side expression, so upstream never
+builds the assignment and the `=` falls through as an unexpected token —
+`';' expected`. This parser builds it, so the file has no parse error, so
+§179's gate cannot suppress the checker rules that then read a tree upstream
+never produced.
+
+That is the whole of *"the parse-error set is incomplete"* for this row: not a
+missing code, not a missing rule, **a missing conjunct in a condition**.
+
+### Why this is worth stating separately from the fix
+
+Three sessions of handoff notes would have carried *"`tsr_parser` does not
+record enough parse errors"* — a sentence that reads as a subsystem-sized debt
+and is one `&&`. §189 established the rule for refusals; this is the same
+mistake made in a *residue note*, which nothing on this board reviews.
+
+**Extend the rule: a residue note names an owner, and an owner is a claim.**
+`§162: owner tsr_parser`, `§179: owner tsr_parser`, `§182: owner tsr_parser`,
+`§184: a parser divergence` — four notes, one unexamined premise, and the
+convergence of four rows on one owner read as *corroboration* when it was four
+copies of a single unchecked inference.
+
+## §191 — the one-line parser fix works, and is REFUSED on a spurious TS1012
+
+§190's conjunct, added:
+
+```rust
+if is_left_hand_side_expression(left) && is_assignment_operator(self.token.kind) {
+```
+
+**It does exactly what it should.** `incrementAndDecrement.ts` before and after:
+
+```
+expected   (8,5) TS1005   (11,5) TS1005   (14,5) TS1005   (17,5) TS1005
+before     — nothing at any of the four —
+after      (8,5) TS1005 + TS1012    (11,5) TS1005 + TS1012    … all four
+```
+
+Four missing lines became four *right* lines. And each brought a **TS1012**
+(`Unexpected token`) that upstream does not emit: this parser's recovery reports
+both the expectation and the surprise where upstream reports only the first.
+
+### Measured whole
+
+| suite | before | after |
+|---|---:|---:|
+| `parser_typescript` | 5,031/5,031 | 5,031/5,031 |
+| `binder_symbols` | 8,459/**8,459** | 8,458/**8,458** |
+| `printer_round_trip` | 11,762/**11,762** | 11,760/**11,760** |
+| **`checker_types`** | 3,963 | **3,969 (+6)** |
+| **`diagnostics`** | **1,594** | **1,588 (−6)** |
+
+The two 100% rails hold but their **denominators shrink** — files that used to
+parse cleanly now carry a parse error, which is the intended effect and removes
+them from those suites. `checker_types` gains 6. `diagnostics` loses 6.
+
+**Refused and reverted**, on the rule this board applies to nothing else so
+strictly: a build may not lose cases on the suite it is made for. Trading −6
+here for +6 in another workstream's suite is not this workstream's trade to
+make unilaterally, and the handoff says so in as many words.
+
+### What it costs to fix properly, which is small and specific
+
+The −6 is not the guard. It is the spurious TS1012 and the files that now
+correctly carry a parse error and so lose rules to §179's gate. The first is one
+recovery site; the second is the *correct* behaviour arriving before the rules
+that would replace those conversions.
+
+> **The finding worth carrying: `tsr_parser` needs one `&&`, not a subsystem.**
+> Four residue notes (§162, §179, §182, §184) said *"the parse-error set is
+> incomplete"*. It is not incomplete — TS1005 is emitted, at exactly the right
+> positions, the moment the guard exists. What is wrong is that recovery emits
+> **two** codes where upstream emits one.
+
+**Next step, and it is small:** find the recovery site that pairs
+`_0_EXPECTED` with `UNEXPECTED_TOKEN` and make it report one, then re-run this
+one-line change. If `diagnostics` comes back at or above 1,594 the build lands
+and takes `checker_types`' +6 with it.
