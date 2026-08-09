@@ -5371,3 +5371,21 @@ through exports. controlFlowOptionalChain took 7 W→R — the
 board's item-6 residue moving for the first time. Residue owners
 recorded: asserts-this, never-return unreachability, overloaded
 assertion callees outside the two declaration shapes.
+
+## §128 — never-returning calls truncate flow [claimed: checker-1]
+
+**§127's other half, same seam.** `getTypeAtFlowCall` returns
+`unreachableNeverType` when the resolved signature's return is
+`never` — `Debug.assert(false); x;` reads `x : never` after the
+call (assertionTypePredicates1's "Unreachable" comments). The §127
+pre-gate extends: a callee whose resolvable declaration visibly
+returns `never` (NeverKeyword annotation, the same two declaration
+shapes + namespace exports road) enters resolution; the resolved
+signature's return being never answers the never flow type. Same
+perturbation-safety argument as §127's iteration 3.
+
+**Bar.** ≥10 G→R at ≥5:1. Falsifier: reads BETWEEN the call and
+the container end that upstream still types normally (only flow
+AFTER the call truncates — the CALL node's position in the graph
+handles this by construction; if lines before the call move, the
+graph claim is wrong).
