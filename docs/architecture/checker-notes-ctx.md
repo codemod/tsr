@@ -646,3 +646,19 @@ Sizing input recorded in TASK (the 87-line bucket, spread); bar
 prediction to be REGISTERED after one trace confirms the paren
 layer is the decline (TSR_CTX_DEBUG on the head case). Entry:
 crates/tsr-checker/src/contextual.rs's parameter road.
+
+**§113 bar CORRECTED before any code (the trace contradicted the
+suspicion).** The head case read, not skimmed: FuncType is
+`(x: <T>(p: T) => T) => typeof x` — a typeof-own-parameter RETURN —
+and `fun` is an OVERLOADED GENERIC taking FuncType callbacks; the
+failing positions are arrows contextually typed through overload
+selection over generic candidates, which is the §33/§35 refused
+territory, not a ParenthesizedTypeNode unwrap. The one-arm
+suspicion was written from the annotation TEXT without reading the
+case — exactly the sizing sin the conventions catalogue (level 1
+bucketing), caught here by the mandatory trace before code. The
+87-line bucket therefore needs PER-CASE TRIAGE before any mechanism
+is claimed: callWithMissingVoid, taggedTemplateContextualTyping1,
+dependentDestructuredVariables, and contextuallyTypeAsyncFunction-
+ReturnType each carry their own shape. §113 stays a bar-in-triage;
+no prediction registered, no code owed against it yet.
