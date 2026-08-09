@@ -4605,3 +4605,23 @@ autoIncrement still answering `true` where discrimination should
 remove its constituent (0:109). The discriminate_union_root
 eprintln (env-gated, kept) prints the include masks; next trace
 starts by pairing masks to call sites.
+
+## §113 — the §31.1 refusal re-priced: ES-imports through the calibrated predicate [claimed: checker-1]
+
+The board's biggest case-mover (ALIAS/no-value-decl: 428 near-miss
+cases + 177 reference-variant) sits behind callres §31.1's refusal —
+priced at 2.7:1 in an era when the findability predicate was one
+host call. Since then the DIAGNOSTICS calibration rebuilt it as
+`module_specifier_unfindable` with five gates (ambient-module
+consult, pattern-ambient decline, node-core names, @types/,
+IsResolved-vs-in-program split), and the require() arm has run on it
+since §31-callres. **The re-price: the ES-import declaration forms
+(ImportSpecifier, ImportClause default, NamespaceImport) take the
+SAME arm in `get_type_of_alias` — walk to the ImportDeclaration's
+specifier, and an unfindable one reads `any`.** Bar: ≥150 lines at
+≥5:1 (the old adverse class — resolvable-by-symlink corpora — is
+what the IsResolved split now excludes; if it recurs, the refusal
+stands re-confirmed and this section records the price). Falsifiers:
+(a) `export ... from` re-export aliases are NOT admitted (different
+declaration kinds, different upstream rule); (b) findable-but-untyped
+modules keep the errorType gap (the predicate's IsResolved half).
