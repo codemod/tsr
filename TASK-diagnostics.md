@@ -12,8 +12,8 @@ FIRST: git pull. Then read, in this order:
   builds.
 
 STATE AT HANDOFF, fourteenth session (verify with a fresh run):
-  diagnostics    1,615/5,488 = 29.43%   (+164 over NINETEEN builds, zero lost —
-                 §156-§205).  `extraonly` fell 50 -> 27 cases, ALL of it from
+  diagnostics    1,615/5,488 = 29.43%   (+164 over TWENTY builds, zero lost —
+                 §156-§211).  `extraonly` fell 50 -> 27 cases, ALL of it from
                  four parser/harness fixes and not one rule.
 
   THE HIGHEST-YIELD MOVE THIS SESSION FOUND, stated for reuse: **when a row is
