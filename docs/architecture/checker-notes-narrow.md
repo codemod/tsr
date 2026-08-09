@@ -3507,3 +3507,16 @@ template-literal conditionals, which the extends-never gate refuses —
 the §36 wrong lines need template-literal MATCHING, a different
 machine. Kept because the arm is faithful direction at zero cost and
 self-gating (the §12.8 precedent); the zero is the record.
+
+**§92.2 — symbol-level shape road REFUSED at a measured zero.** The
+§92 residues (optional `| undefined` and readonly-`any` dropped
+through the Omit arm) suggested returning the underlying property
+SYMBOL through Omit/evaluated bodies so the §27 readonly arm and the
+optionality union would fire. Built and measured: the full pair is
+BYTE-IDENTICAL — the road either isn't reached where the residues
+live or the residues' owner is the flow/write-position layer, not
+the lookup. Reverted whole (the §34 precedent: a zero-payoff arm is
+coverage that reads as capability). The 12 §92 residues stay priced;
+their next probe should trace ONE line of omitTypeHelperModifiers01
+0:18 (`x.b` at a write position wanting `string | undefined`)
+through access_member_lookup's flow tail, not the lookup.
