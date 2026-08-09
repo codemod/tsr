@@ -1344,6 +1344,15 @@ fn namespace_import_target(
     let Some(tsr_ast::Expression::StringLiteral(specifier)) = node.module_specifier else {
         return None;
     };
+    // An ambient module the binder holds in globals resolves first —
+    // `import * as Foo from "ambient"` displays the module's declaration
+    // under the alias (`moduleElementsInWrongContext`).
+    if let Some(found) = bound.globals().get(specifier.text).copied() {
+        let found = bound.merged_symbol(found);
+        if bound.symbols().get(found).flags.intersects(tsr_binder::SymbolFlags::MODULE) {
+            return Some(found);
+        }
+    }
     let root = resolve_specifier(program, importing_unit, specifier.text)?.source_file().node_id?;
     bound.symbol_of(root)
 }
