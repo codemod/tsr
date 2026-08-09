@@ -986,7 +986,7 @@ fn render_case(
     // is unchanged.
     let mut checker = tsr_checker::Checker::with_module_host(bound, nodes, node_map, Some(program));
     for file in program.root_and_referenced_files() {
-        checker.set_jsdoc(file.jsdoc().iter().map(|(host, docs)| (host, docs)));
+        checker.set_jsdoc(file.jsdoc().iter());
     }
     // `GetStrictOptionValue(strictNullChecks)` (`checker.go:919`) over the
     // case's directives: the explicit flag wins, `@strict` is the fallback.

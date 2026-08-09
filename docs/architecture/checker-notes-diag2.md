@@ -19310,3 +19310,77 @@ and complete, and nothing distinguished them.
 node kinds that had never seen them, and eleven other codes came with it. The
 bar was right to be conservative about wrong lines (there were none) and had no
 way to anticipate the breadth.
+
+## §322 — TS2694's depth bound, measured
+
+Second row off the deepening seam. TS2694 is 10 blocked cases, 9 single-line,
+and the rule exists — §185 built it and §228 extended it.
+
+Probed rather than guessed (§306):
+
+```
+-- expected --   innerAliases.ts(19,10) TS2694
+                 innerAliases.ts(21,11) TS2339
+-- actual --     innerAliases.ts(21,11) TS2339
+```
+
+The source is `var c: D.inner.Class1;` — **three deep**. The rule carries §185's
+bound, written in its own comment:
+
+> "Two deep: `A.B`, not `A.B.C`. A deeper chain is upstream's `canSuggestTypeof`
+> and type-but-not-namespace arms, which carry TS2749 and TS2713."
+
+That bound is right about the *outer* levels and wrong about the inner pair.
+`D.inner` inside `D.inner.Class1` is exactly TS2694's shape — an `Identifier`
+left, a name that is not an export of it — and upstream reports on it at
+`(19,10)`, the `inner`.
+
+Two guards implement the bound: the parent must be a `TypeReferenceNode`, and
+the left must be an `Identifier`. The second is the real one and stays; the
+first excludes a nested pair for no reason the message can see.
+
+### The bar
+
+```
+bar:  +5 cases of 10,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **`A.B.C` where `A.B` resolves reports.** The export lookup is unchanged.
+2. **A deeper chain reports TS2694 where upstream reports TS2749 or TS2713.**
+   §185's bound existed for those arms and only the *outer* level reaches them.
+
+## §323 — §322 reverted, and a −50 that its own isolation could not see
+
+```
+relaxed depth bound   diagnostics 1,833 → 1,783   (−50)
+diag2307 [2694]:      CONVERTS 0 · LOST 0 · RIGHT 14 · WRONG 3
+```
+
+**Three wrong lines of TS2694, and fifty lost cases.** The isolation measures the
+rule's *own* column and said the damage was three lines; the board said fifty
+cases. Both are correct.
+
+The relaxed rule fires on qualified names nested inside other qualified names,
+in positions where a **different** code was previously reported correctly. Those
+losses are missing lines of *other* codes, which `diag2307` does not count when
+`RULE_CODES = [2694]`.
+
+> **`diag2307`'s per-rule isolation cannot see a rule that displaces a different
+> code.** §253 met this from the other side — a rule whose missing `return`
+> let a *second* rule fire — and recorded that per-rule isolation is blind to
+> it. This is the same blindness costing fifty cases instead of four wrong
+> lines, and the board is the only instrument that saw it.
+
+§185's bound stands, and its comment was right for a reason its author did not
+state: the parent test is not only about TS2749 and TS2713, it is what keeps
+this rule out of positions another rule owns.
+
+### The attribution took one extra step and was worth it
+
+Two edits were in the tree — the bound, and a `clippy` fix to
+`types_producer.rs` from the concurrent workstream. §283's rule is to attribute
+before concluding, so the second was tested: `file.jsdoc().iter()` already
+yields by value, the removed `.map(|(h, d)| (h, d))` was a true identity, and
+the edit is semantically nothing. That left the bound holding all fifty.
