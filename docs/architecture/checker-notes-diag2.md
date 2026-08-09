@@ -26514,3 +26514,45 @@ converting one more diagnostics case, visible only after the merge.
 
 Recorded rather than fixed: making `measure` refuse to run on a dirty rebase
 state is a change to the shared gate, and the other workstream owns half of it.
+
+## §499 — `NodeFlagsAmbient`, priced precisely and still not built
+
+§452 deferred this at thirteen cases; §497 raised it to **sixteen** (TS1038's 6,
+TS1359's 7, TS1155's 3). The pricing is now precise enough to hand over.
+
+### Where it goes
+
+`tsr-parser` sets node flags **per node at finish time**
+(`parser.rs:597`, `finish_node_with_flags`), and the existing block-scope flags
+are computed from the declaration's own keyword (`statement.rs:502`). Upstream's
+`NodeFlagsAmbient` is not that shape: it is a **context bit**, set while parsing
+anything under a `declare` and OR-ed into every node produced there.
+
+So the change is:
+
+1. a `context_flags: NodeFlags` field on the parser, saved and restored around
+   the body of a `declare`-modified declaration and an ambient module;
+2. `finish_node_with_flags` OR-ing it into every node;
+3. the checker reading `nodes.flags(node).contains(AMBIENT)` where it currently
+   walks `declare` modifiers.
+
+The parser already has an `in_ambient_module` bool — but in `references.rs`
+(`:147`), a **separate pass** over the same tree, so it cannot supply this.
+
+### Why it is still not built here
+
+Two suites at **100%** read every node this would touch, and §446 measured
+`−14` from a *cheaper* approximation of the same flag. A context bit OR-ed into
+every node is the largest-blast-radius change this workstream could make, and
+the workstream that owns the parser's rails is not this one.
+
+**The falsifier is unambiguous and unchanged: `parser_typescript` and
+`printer_round_trip` both stay at 100%.** With that green, sixteen cases follow
+from three checker-side reads that are already written and currently walk
+modifiers instead.
+
+> **A refusal that names an implementation point is worth more than one that
+> names a subsystem.** §441 predicted subsystem-named refusals never reopen, and
+> §452's *"the parser's unset flags"* was one. This is the same refusal with a
+> file, a function, and three numbered steps — which is the difference between
+> a boundary and a task.
