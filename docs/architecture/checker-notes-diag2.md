@@ -17111,3 +17111,95 @@ a getter as a stub.
 corrupted a measurement — both are compile errors — but the second is the exact
 shape §262 hit, and the gate is now the thing that notices rather than the
 reading.
+
+## §269 — TS1308, the second unset flag with a decidable meaning
+
+§268 asked whether a declared-and-never-set flag blocks the rule that reads it,
+and answered *only if the flag's meaning is not decidable another way*. Applying
+that to the rest of the list: `YIELD_CONTEXT`, `AWAIT_CONTEXT` and
+`OPTIONAL_CHAIN` are each read at exactly one checker site and set at none.
+
+`AWAIT_CONTEXT` gates `checkGrammarAwaitOrAwaitUsing` (`grammarchecks.go:1676`):
+
+```go
+container := getContainingFunctionOrClassStaticBlock(node)
+if container != nil && ast.IsClassStaticBlockDeclaration(container) { … }
+else if node.Flags&ast.NodeFlagsAwaitContext == 0 {
+    if ast.IsInTopLevelContext(node) { …four module/target-gated messages… }
+    else { … X_await_expressions_are_only_allowed_within_async_functions_and_at_the_top_levels_of_modules }
+}
+```
+
+The parser sets `AwaitContext` inside an async function. **The decidable
+equivalent is one modifier lookup**: the containing function exists, is not a
+class static block, and carries no `async`. Nothing about the flag's meaning is
+lost — it *is* "the nearest enclosing function is async".
+
+### The top-level arm is declined
+
+Four of the five messages under `IsInTopLevelContext` are gated on `moduleKind`
+against six module kinds, `ImpliedNodeFormat`, and `languageVersion >= ES2017`.
+That is a different rule with its own inputs; this build takes only the
+`else` — an `await` inside a **non-async function** — where the answer needs no
+options at all.
+
+### The bar
+
+```
+bar:  +3 cases of 4,  0 LOST
+```
+
+### Falsifiers
+
+1. **An `await` inside an `async function` reports.** The corpus is full of
+   them; a wrong modifier test detonates rather than drifts.
+2. **A top-level `await` reports.** That arm is declined, so it must stay
+   silent.
+3. **An `await` in a class static block reports TS1308** rather than its own
+   message.
+
+## §270 — §269 built: +2, and the residue is the same flag from the parser side
+
+```
+diagnostics   1,725 → 1,727   (+2, bar was +3)
+CONVERTS 2 · LOST 0 · STILL SHORT 1 · RIGHT 14 · WRONG 2
+every other suite unmoved — falsifiers 1, 2 and 3 negative
+```
+
+Under the bar; the row is 4 cases and one of the two it did not take is
+`STILL SHORT`.
+
+### Both wrong lines are the same shape, and it is not this rule
+
+```
+awaitCallExpressionInSyncFunction.ts(2,16)   upstream: TS2311 Cannot find name 'await'.
+exportDefaultAsyncFunction2   a.ts(1,17)     upstream: TS1262 …'await' is a reserved word…
+```
+
+Both fixtures call **a function named `await`**:
+
+```ts
+function foo() {
+   const foo = await(Promise.resolve(1));   // a call, not an await expression
+}
+```
+
+Outside an async function and outside a module's top level, `await` is an
+ordinary identifier. Upstream's parser knows this because it tracks
+`AwaitContext` *while parsing* and only produces an `AwaitExpression` inside
+one. This port's parser produces one unconditionally, so the checker is handed a
+tree upstream never built and reports a grammar error about it.
+
+> **The same missing flag appears on both sides of the port, and the two halves
+> fail differently.** §269 recovered the *checker's* use of `AwaitContext` by
+> deriving it from the enclosing function — a summary the tree still contains.
+> The *parser's* use cannot be recovered that way: it decides what node to
+> build, and by the time the checker sees the tree the alternative is gone.
+
+That distinction is the sharper version of §268's rule. A flag read *after*
+parsing can often be re-derived; a flag read *during* parsing changes the tree,
+and re-deriving it downstream is not available at any price.
+
+**Owner: `NodeFlags::AWAIT_CONTEXT` in `tsr-parser`**, deciding whether `await`
+begins an expression or is an identifier. Two wrong lines here, and it is also
+why `YIELD_CONTEXT` will not yield to the same trick.

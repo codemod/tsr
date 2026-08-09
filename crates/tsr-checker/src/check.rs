@@ -439,7 +439,10 @@ impl Checker<'_, '_> {
         // is the statement-level shape and is declined, §103.
         match typed {
             Node::YieldExpression(_) => self.check_yield_grammar(node),
-            Node::AwaitExpression(_) => self.check_await_in_parameter_initializer(node),
+            Node::AwaitExpression(_) => {
+                self.check_await_in_parameter_initializer(node);
+                self.check_await_in_non_async_function(node);
+            }
             Node::ImportSpecifier(_) | Node::ExportSpecifier(_) => {
                 self.report_missing_module_export(node);
                 self.check_alias_symbol(node);
@@ -3091,6 +3094,73 @@ impl Checker<'_, '_> {
                 span,
             ),
         );
+    }
+
+    /// TS1308 — `'await' expressions are only allowed within async functions
+    /// and at the top levels of modules.`
+    ///
+    /// `checkGrammarAwaitOrAwaitUsing`'s `else` arm (`grammarchecks.go:1689`).
+    /// Upstream tests `node.Flags&ast.NodeFlagsAwaitContext == 0`, a flag its
+    /// **parser** sets inside an async function and which this port declares
+    /// and never sets (`flags.rs`).
+    ///
+    /// The decidable equivalent is one modifier lookup — `AwaitContext` *is*
+    /// "the nearest enclosing function is async", and that function is right
+    /// here. §268/§269.
+    ///
+    /// # What is declined
+    ///
+    /// `IsInTopLevelContext`'s four messages are gated on `moduleKind` against
+    /// six module kinds, `ImpliedNodeFormat` and `languageVersion >= ES2017`;
+    /// the class-static-block arm has its own message. Both decline, so this
+    /// reports only where the answer needs no options at all.
+    fn check_await_in_non_async_function(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        // `getContainingFunctionOrClassStaticBlock`.
+        let Some(container) = self
+            .nodes
+            .ancestors(node)
+            .find(|&ancestor| self.is_function_like_or_static_block(ancestor))
+        else {
+            // No container: `IsInTopLevelContext`, declined above.
+            return;
+        };
+        if self.nodes.kind(container) == SyntaxKind::ClassStaticBlockDeclaration {
+            return;
+        }
+        if self.has_async_modifier(container) {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        // `GetRangeOfTokenAtPosition(sourceFile, node.Pos())` — the `await`
+        // keyword, which is the node's first token.
+        let span = self.nodes.span(node);
+        self.report(
+            file,
+            Diagnostic::new(
+                &messages::AWAIT_EXPRESSIONS_ARE_ONLY_ALLOWED_WITHIN_ASYNC_FUNCTIONS_AND_AT_THE_TOP_LEVELS_OF_MODULES,
+                span,
+            ),
+        );
+    }
+
+    /// `hasAsyncModifier` — an `async` modifier on a function-like.
+    fn has_async_modifier(&self, node: NodeId) -> bool {
+        let modifiers = match self.node_map.get(node) {
+            Some(Node::FunctionDeclaration(n)) => n.modifiers,
+            Some(Node::FunctionExpression(n)) => n.modifiers,
+            Some(Node::ArrowFunction(n)) => n.modifiers,
+            Some(Node::MethodDeclaration(n)) => n.modifiers,
+            Some(Node::GetAccessorDeclaration(n)) => n.modifiers,
+            Some(Node::SetAccessorDeclaration(n)) => n.modifiers,
+            Some(Node::ConstructorDeclaration(n)) => n.modifiers,
+            _ => return false,
+        };
+        modifiers.iter().any(|modifier| {
+            matches!(modifier, tsr_ast::ModifierLike::Token(token) if token.kind == SyntaxKind::AsyncKeyword)
+        })
     }
 
     /// `Checker.isInParameterInitializerBeforeContainingFunction`
