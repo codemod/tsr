@@ -12189,3 +12189,126 @@ number is not a forecast. Before each one, the cheap check now exists: add the
 anchor behind a counter, run the corpus, and read `REPORTED` against `entered`.
 Six in five hundred is what a saturated relation looks like from the reporting
 side.
+
+## §178 — the grammar seam, re-opened: four rows §105 declared exhausted
+
+§105 closed the cheap-grammar seam and §162 re-opened it once (TS1212's 34
+cases). Re-taking `diaggap` after §177 turned TS2322 back over to
+`checker_types`, four more rows sit together at the top of the relation-free
+column:
+
+```
+TS1028   8 lines   8 cases   Accessibility modifier already seen.
+TS1155   7 lines   7 cases   '{0}' declarations must be initialized.
+TS1071  12 lines   7 cases   '{0}' modifier cannot appear on an index signature.
+TS1038  10 lines   7 cases   A 'declare' modifier cannot be used in an already ambient context.
+                  ── 29 cases, concentration 1.3
+```
+
+**Three of the four are `checkGrammarModifiers`** (`grammarchecks.go:336`,
+`:292`, `:459`) — the function §103 already half-ported as
+`check_modifier_order`, which already walks the list, already keeps the `seen`
+set the first arm needs, and already reports at the modifier token. §136's rule
+for the sixth time this session.
+
+The fourth, TS1155, is `checkGrammarVariableDeclaration` (`:1582`): a `const`
+with no initialiser, outside `for-in`/`for-of`, not ambient, name not a binding
+pattern. Reported on the **declaration**, not the name.
+
+### The ordering is the specification, again
+
+§103 paid for this rule once already — *"at most one grammar report per node
+(every upstream arm is a `return`), and the `else if` order is the
+specification"*. It binds twice here:
+
+- **TS1028 precedes the must-precede family.** `private public x` is
+  *"Accessibility modifier already seen"*, not *"'public' modifier must precede
+  'private' modifier"*, because the accessibility-already-seen branch is the
+  first arm of the same `if`/`else if` chain §103 ported the tail of.
+- **TS1038 is the sixth arm of the `declare` chain**, behind class-element,
+  parameter, `using` and `await using` branches. Porting it alone means
+  reporting it where upstream reports one of those — so the ported arm is
+  bounded to the *module-block* shape and stays silent on the rest.
+
+### Deliberately not ported
+
+`ModifierFlagsReparsed` guards three of the must-precede arms upstream
+(`modifier.Flags&ast.NodeFlagsReparsed == 0`); this parser has no reparse
+concept and JSDoc lives in a side table, so no modifier here can be reparsed and
+the guard is vacuous. Stated rather than silently dropped.
+
+### The bar
+
+```
+bar:  +18 cases,  0 LOST,  WRONG delta ≤ +6
+```
+
+Off the CASE count, under the 29 because TS1071's 12 lines over 7 cases and
+TS1038's 10 over 7 both mean a case wants more than one line, and a rule bounded
+to one shape converts a case only when every line in it is that shape.
+
+### Falsifiers
+
+1. **`WRONG` delta above +6.** First suspect is the ordering: a report that
+   should have been TS1029, TS2364 or one of the `declare` chain's earlier arms.
+2. **TS1028 lines land where TS1029 already reports.** The two share a chain and
+   this port emits the tail of it; a position gaining both is the ordering read
+   backwards.
+3. **`LOST` non-zero** — the rules only add diagnostics.
+
+## §179 — §178 built: +19, and the parse-error gate paid for the fourth time
+
+The bar was `+18 cases, 0 LOST, WRONG delta ≤ +6`. Three of the four rows
+built — TS1028, TS1071, TS1155; TS1038's `declare` chain has five earlier arms
+and was left. `RULE_CODES = [1028, 1071, 1155]`, no other producer:
+
+```
+CONVERTS   19      LOST   0      STILL SHORT   6      RIGHT   38      WRONG   2
+```
+
+`coverage`: `diagnostics` **1,525 → 1,544 (28.13%)**. `checker_types` 3,957 ·
+84.70%, `binder_symbols` 8,459/8,459, `printer_round_trip` unmoved.
+
+### The first measurement was +19 for **22** wrong, and one gate fixed it
+
+Two families, both read rather than inferred:
+
+```
+multipleClassPropertyModifiersErrors.ts    public public p1;   ← 4 TS1028 lines
+  upstream's baseline: ONE error, TS1434 "Unexpected keyword or identifier"
+downlevelLetConst1.ts(1,6)                 const;              ← TS1155
+  upstream's baseline: TS1123 "Variable declaration list cannot be empty"
+```
+
+**Neither is a rule bug.** Upstream's *parser* never builds the tree these
+rules are reading: it does not accept `public public` as two modifiers, and it
+does not accept an empty declaration list. Both files carry a parse error, and
+both rules were speaking about a tree only this port has.
+
+Gating the three new rules on `file_has_parse_errors` took the wrong column
+**22 → 2 and cost zero conversions.**
+
+> **The parse-error gate is a per-rule measurement, and this is its fourth
+> instance.** §40.3 deleted it for +6, §50.1 re-measured at −6, §79 converted
+> three recovered trees with it absent, and here it is worth −20/+0. It is not a
+> house style in either direction; it is a question about *whether the rule
+> reads a shape the parser can get wrong*, and these three read modifier lists
+> and declaration lists — precisely the shapes a recovering parser invents.
+
+### The two that remain
+
+`jsxParsingErrorImmediateSpreadInAttributeValue` at `a.tsx(8,7)` and `(9,7)`,
+both TS1155. The file is a JSX parse-error fixture whose errors this parser does
+**not** record, so the gate above cannot see them. **Owner: `tsr_parser`** — the
+same shape as the two lines §162 left behind, and one more piece of evidence
+that the parse-error set itself is incomplete rather than that the gate is
+wrong.
+
+### What is left of the row
+
+TS1038 (7 cases) is unbuilt: `A 'declare' modifier cannot be used in an already
+ambient context` is the **sixth** arm of the `declare` chain
+(`grammarchecks.go:459`), behind class-element, parameter, `using` and
+`await using` branches. Porting it alone would report it where upstream reports
+one of those, and §103's rule — *the `else if` order is the specification* —
+says that is a wrong code at a right position, not a partial win.

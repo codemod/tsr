@@ -309,6 +309,7 @@ impl Checker<'_, '_> {
             }
             Node::VariableDeclaration(declaration) => {
                 self.check_variable_like_declaration(node, declaration, ambient);
+                self.check_const_is_initialized(node, declaration, ambient);
                 ambient
             }
             Node::ReturnStatement(_) => {
@@ -423,6 +424,9 @@ impl Checker<'_, '_> {
             Node::SetAccessorDeclaration(n) => self.check_modifier_order(n.modifiers),
             Node::ConstructorDeclaration(n) => self.check_modifier_order(n.modifiers),
             Node::ParameterDeclaration(n) => self.check_modifier_order(n.modifiers),
+            Node::IndexSignatureDeclaration(n) => {
+                self.check_index_signature_modifiers(node, n.modifiers);
+            }
             _ => {}
         }
         // Its own call rather than an arm in either `match` above: the two
@@ -2247,6 +2251,36 @@ impl Checker<'_, '_> {
         for modifier in modifiers {
             let ModifierLike::Token(token) = modifier else { continue };
             let kind = token.kind;
+            // TS1028, the **first** arm of the same `if`/`else if` chain
+            // (`grammarchecks.go:336`): `private public x` is *"Accessibility
+            // modifier already seen"*, not *"'public' must precede
+            // 'private'"*. §103's rule — the `else if` order is the
+            // specification — and it binds here in the direction that decides
+            // which of two codes lands on one token. §178.
+            if matches!(
+                kind,
+                SyntaxKind::PublicKeyword
+                    | SyntaxKind::ProtectedKeyword
+                    | SyntaxKind::PrivateKeyword
+            ) && !self.file_has_parse_errors
+                && seen.iter().any(|earlier| {
+                    matches!(
+                        earlier,
+                        SyntaxKind::PublicKeyword
+                            | SyntaxKind::ProtectedKeyword
+                            | SyntaxKind::PrivateKeyword
+                    )
+                })
+            {
+                let Some(id) = token.node_id else { return };
+                let Some(file) = self.source_file_of_for_diagnostics(id) else { return };
+                let span = self.error_span(id);
+                self.report(
+                    file,
+                    Diagnostic::new(&messages::ACCESSIBILITY_MODIFIER_ALREADY_SEEN, span),
+                );
+                return;
+            }
             let precede: Option<&str> = match kind {
                 SyntaxKind::PublicKeyword
                 | SyntaxKind::ProtectedKeyword
@@ -2293,6 +2327,114 @@ impl Checker<'_, '_> {
             }
             seen.push(kind);
         }
+    }
+
+    /// TS1071 — `'{0}' modifier cannot appear on an index signature.`
+    ///
+    /// `checkGrammarModifiers` (`grammarchecks.go:292`), inside the
+    /// non-decorator branch and behind `modifier.Kind != KindReadonlyKeyword`:
+    /// `readonly [k: string]: T` is legal and every other modifier is not.
+    /// `static` is exempt **only** on a class-like parent, which an index
+    /// signature in a type literal or interface never has.
+    ///
+    /// At most one report, like every arm of that function. §178.
+    fn check_index_signature_modifiers(&mut self, node: NodeId, modifiers: &[ModifierLike<'_>]) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let class_like = self.nodes.parent(node).is_some_and(|parent| {
+            matches!(
+                self.nodes.kind(parent),
+                SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
+            )
+        });
+        for modifier in modifiers {
+            let ModifierLike::Token(token) = modifier else { continue };
+            if token.kind == SyntaxKind::ReadonlyKeyword {
+                continue;
+            }
+            if token.kind == SyntaxKind::StaticKeyword && class_like {
+                continue;
+            }
+            // `scanner.TokenToString(modifier.Kind)` — the keyword's own text.
+            let Some(text) = modifier_keyword_text(token.kind) else { continue };
+            let Some(id) = token.node_id else { return };
+            let Some(file) = self.source_file_of_for_diagnostics(id) else { return };
+            let span = self.error_span(id);
+            self.report(
+                file,
+                Diagnostic::with_args(
+                    &messages::_0_MODIFIER_CANNOT_APPEAR_ON_AN_INDEX_SIGNATURE,
+                    span,
+                    [text.to_string()],
+                ),
+            );
+            return;
+        }
+    }
+
+    /// TS1155 — `'{0}' declarations must be initialized.`
+    ///
+    /// `checkGrammarVariableDeclaration` (`grammarchecks.go:1582`). A `const`
+    /// with no initialiser, and upstream's three guards, each of which is a
+    /// different legal shape rather than a bound this port chose:
+    ///
+    /// - **not the variable of a `for-in`/`for-of`** — `for (const x of xs)`
+    ///   has no initialiser and needs none, tested at the *list's* parent;
+    /// - **not ambient** — `declare const x` is a declaration, not a definition,
+    ///   and `checkAmbientInitializer` takes that path instead;
+    /// - **not a binding pattern** — `const {a} = …` without an initialiser is
+    ///   TS1182, a different code on the same line.
+    ///
+    /// The error node is the **declaration**, not its name:
+    /// `grammarErrorOnNode(node.AsNode(), …)`, so this is `nodes.span` and not
+    /// `error_span`, which would narrow to the name.
+    ///
+    /// `using` and `await using` share the arm upstream and are not ported —
+    /// this parser has no `using` block-scope kind, so the two spellings cannot
+    /// be told from `const` here. §178.
+    fn check_const_is_initialized(
+        &mut self,
+        node: NodeId,
+        declaration: &tsr_ast::VariableDeclaration<'_>,
+        ambient: bool,
+    ) {
+        if ambient || self.file_has_parse_errors || declaration.initializer.is_some() {
+            return;
+        }
+        // `IsBindingPattern(node.Name())` — a pattern with no initialiser is
+        // TS1182, a different code on the same line.
+        if !matches!(declaration.name, Some(tsr_ast::BindingName::Identifier(_))) {
+            return;
+        }
+        let Some(list) = self.nodes.parent(node) else { return };
+        if self.nodes.kind(list) != SyntaxKind::VariableDeclarationList {
+            return;
+        }
+        // `blockScopeKind == ast.NodeFlagsConst` — the flag the parser sets on
+        // the *list*, read the way `crate::flow` reads it.
+        if !self.nodes.flags(list).intersects(tsr_ast::NodeFlags::CONST) {
+            return;
+        }
+        // `node.Parent.Parent.Kind != KindForInStatement && … ForOfStatement`.
+        if self.nodes.parent(list).is_some_and(|owner| {
+            matches!(
+                self.nodes.kind(owner),
+                SyntaxKind::ForInStatement | SyntaxKind::ForOfStatement
+            )
+        }) {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let span = self.nodes.span(node);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::_0_DECLARATIONS_MUST_BE_INITIALIZED,
+                span,
+                ["const".to_string()],
+            ),
+        );
     }
 
     /// TS1163 — `A 'yield' expression is only allowed in a generator body.`
@@ -3866,6 +4008,28 @@ fn type_parameters_of(node: Node<'_>) -> &[&tsr_ast::TypeParameterDeclaration<'_
         Node::ConstructorTypeNode(node) => node.type_parameters,
         _ => &[],
     }
+}
+
+/// `scanner.TokenToString` for the modifier keywords, which is every kind this
+/// module needs it for.
+fn modifier_keyword_text(kind: SyntaxKind) -> Option<&'static str> {
+    Some(match kind {
+        SyntaxKind::PublicKeyword => "public",
+        SyntaxKind::PrivateKeyword => "private",
+        SyntaxKind::ProtectedKeyword => "protected",
+        SyntaxKind::StaticKeyword => "static",
+        SyntaxKind::AbstractKeyword => "abstract",
+        SyntaxKind::AsyncKeyword => "async",
+        SyntaxKind::DeclareKeyword => "declare",
+        SyntaxKind::ExportKeyword => "export",
+        SyntaxKind::DefaultKeyword => "default",
+        SyntaxKind::AccessorKeyword => "accessor",
+        SyntaxKind::OverrideKeyword => "override",
+        SyntaxKind::ConstKeyword => "const",
+        SyntaxKind::InKeyword => "in",
+        SyntaxKind::OutKeyword => "out",
+        _ => return None,
+    })
 }
 
 pub(crate) fn has_modifier(modifiers: &[ModifierLike<'_>], keyword: SyntaxKind) -> bool {
