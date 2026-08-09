@@ -5404,3 +5404,20 @@ the majority of this fixture's calls. Read getEffectsSignature +
 the binder's createFlowCall conditions BEFORE the second attempt;
 the §127 asserts half survives unchanged (its pre-gate keeps the
 never road out).
+
+**§128 ATTEMPT 2 — LANDED at +6 W→R / ZERO adverse (85.67%).** The
+refusal's diagnosis was one read away from the fix: the never
+answer is a SENTINEL (`unreachableNeverType`) converted to the
+DECLARED TYPE at the walk's exit (`flow.go:111`) — the first
+attempt's 13 wrongs were exactly that conversion missing, and
+returning `state.declared_type` at the CALL node directly is the
+port (equivalent while no narrowing node sits between the call and
+the read; a divergence there would be narrowing inside unreachable
+code, measurable if it ever surfaces). The count bar missed (6 vs
+≥10): the residue is callee shapes outside the pre-gate —
+`this.fail()` (this-based receivers), `((Debug).fail)()`
+(parenthesized spines) — each nameable, none worth the perturbation
+risk today. Diagnostics moved +5 (2,067 → 2,072: unreachable-read
+diagnostics compose). A refusal reversed by reading ONE more
+function is the cheapest un-refusal on record; §125's re-open note
+said "citing this pair" and this is what the pair bought.

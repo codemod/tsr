@@ -1549,11 +1549,17 @@ impl Checker<'_, '_> {
             self.binder.symbols().get(symbol).declarations.iter().copied().collect();
         declarations.into_iter().any(|declaration| {
             let asserts_return = |annotation: Option<tsr_ast::TypeNode<'_>>| {
-                matches!(
-                    annotation,
-                    Some(tsr_ast::TypeNode::TypePredicateNode(predicate))
-                        if predicate.asserts_modifier.is_some()
-                )
+                match annotation {
+                    Some(tsr_ast::TypeNode::TypePredicateNode(predicate)) => {
+                        predicate.asserts_modifier.is_some()
+                    }
+                    // §128: a visible `: never` return — the call truncates
+                    // flow and unreachable reads answer the declared type.
+                    Some(tsr_ast::TypeNode::KeywordTypeNode(keyword)) => {
+                        keyword.kind == SyntaxKind::NeverKeyword
+                    }
+                    _ => false,
+                }
             };
             match self.node_map.get(declaration) {
                 Some(Node::FunctionDeclaration(function)) => asserts_return(function.r#type),
@@ -1594,6 +1600,18 @@ impl Checker<'_, '_> {
             return None;
         }
         let signature = self.resolve_call_signature(callee_type, Some(call.arguments))?;
+        // §128 second attempt: a never-returning call truncates flow, and
+        // the OBSERVABLE at an unreachable read is the DECLARED type —
+        // upstream's `unreachableNeverType` is a sentinel converted at the
+        // walk's exit (`flow.go:111`, `resultType == c.unreachableNeverType
+        // → return declaredType`). The first attempt returned plain `never`
+        // and measured 4:13 against wants that were all declared types.
+        if signature.predicate.is_none() {
+            if self.store.get(signature.r#type).flags.contains(TypeFlags::NEVER) {
+                return Some(FlowType { t: state.declared_type, incomplete: false });
+            }
+            return None;
+        }
         let predicate = signature.predicate.as_ref()?;
         if !predicate.asserts {
             return None;
