@@ -24092,3 +24092,77 @@ TS2309  §432  +8
 TS2351  §434  +2
 TS2507, TS2417, TS7013, TS18014   unworked, same clean signature
 ```
+
+## §436 — TS2507: `extends` a primitive
+
+Third of §433's newly-visible rows. **7 blocked, all single-line,
+`occupied 0/7`.**
+
+```ts
+class A { a: number; }
+namespace Foo {
+    var A = 1;
+    class B extends A { b: string; }   // TS2507 — Type 'number' is not a constructor function type
+}
+```
+
+The local `var A = 1` shadows the outer class, so the `extends` expression is a
+**number**. `getBaseConstructorTypeOfClass` (`checker.go:16984`) reports when the
+base has no construct signatures — the relation's question in general, and
+§403's singleton argument in this shape: **a primitive has no construct
+signature under any structural reading.**
+
+§414's empty-interface caution does not apply here and it is worth saying why:
+that caution was about a primitive being *assignable to* a structurally empty
+target. This asks the opposite direction — whether the primitive *itself*
+constructs — and `{}`-ness of some other type cannot make it so.
+
+### The bound
+
+The `extends` expression is a bare `Identifier` resolving to a `VALUE` symbol
+whose type is one of the four intrinsic primitives §257 admits. Everything else
+— a class, a `typeof X`, an expression — declines.
+
+### The bar
+
+```
+bar:  +3 of 7,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **`class B extends A` on a real class reports.** The type is a `Named`
+   class type, not a primitive.
+2. **A generic or aliased base reports.** Only a bare identifier whose type is
+   an intrinsic primitive is admitted.
+
+## §437 — §436 built: **+3**, and **`checker_types` +14**
+
+```
+diagnostics     1,933 → 1,938   (bar was +3;  +3, 0 LOST)   35.31%
+checker_types   4,031 → 4,045   (+14, the other workstream's)
+```
+
+The `+14` on the other suite is the largest cross-suite effect this session and
+was not predicted. The mechanism is worth stating because it is not "the rule
+happened to help":
+
+`check_expression` on the `extends` expression **runs the checker over a node
+the class path had not been evaluating**. `checker_types` asserts the printed
+type of expressions; evaluating one that was previously untouched fills entries
+that suite reads. The diagnostic is `+3`; the `+14` is the *side effect of
+asking a question at all*.
+
+> **Calling `check_expression` somewhere new is a change to the type snapshot,
+> not only to the diagnostic board.** Fourteen sessions of notes treat
+> `checker_types` as a rail to hold steady — §350 and §411 both list "unmoved"
+> as the falsifier. That framing is right for *predicate* changes and wrong for
+> changes that **evaluate a new expression**: those move the other suite by
+> construction, and up is as likely as down.
+
+Recorded because the reverse is the danger: a build that evaluates a new
+expression and moves `checker_types` **down** would look, under §350's framing,
+like a regression to revert — when it may be the other suite's own gap being
+exposed for the first time. **The falsifier for such a build should be "no
+`checker_types` case goes from passing to failing", not "the number is
+unmoved"**, and this workstream's instruments cannot currently tell those apart.

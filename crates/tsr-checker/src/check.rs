@@ -207,6 +207,7 @@ impl Checker<'_, '_> {
                 ambient
             }
             Node::ClassDeclaration(declaration) => {
+                self.check_extends_primitive(node);
                 self.check_implements_missing_member(node);
                 // `declare class C { x: number }` puts every member in an
                 // ambient context, which is where upstream's flag would already
@@ -1069,6 +1070,54 @@ impl Checker<'_, '_> {
         let Some(file) = self.source_file_of_for_diagnostics(callee) else { return };
         let span = self.error_span(callee);
         self.report(file, Diagnostic::new(&messages::THIS_EXPRESSION_IS_NOT_CONSTRUCTABLE, span));
+    }
+
+    /// TS2507 — `Type '{0}' is not a constructor function type.`
+    ///
+    /// `getBaseConstructorTypeOfClass` (`checker.go:16984`), restricted to the
+    /// shape that needs no relation: the `extends` expression is a value whose
+    /// type is an intrinsic primitive, and **a primitive has no construct
+    /// signature under any structural reading**. §414's empty-interface caution
+    /// is about a primitive being *assignable to* an empty target; this asks
+    /// whether the primitive itself constructs, which is a different direction.
+    /// §436.
+    fn check_extends_primitive(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let clauses = match self.node_map.get(node) {
+            Some(Node::ClassDeclaration(class)) => class.heritage_clauses,
+            Some(Node::ClassExpression(class)) => class.heritage_clauses,
+            _ => return,
+        };
+        for clause in clauses {
+            if clause.token.kind != SyntaxKind::ExtendsKeyword {
+                continue;
+            }
+            for base in clause.types {
+                let Some(expression) = base.expression else { continue };
+                let Some(id) = expression.node_id() else { continue };
+                if self.nodes.kind(id) != SyntaxKind::Identifier {
+                    continue;
+                }
+                let base_type = self.check_expression(expression);
+                let widened = self.get_base_type_of_literal_type(base_type);
+                if !self.is_decidable_primitive(widened) {
+                    continue;
+                }
+                let Some(file) = self.source_file_of_for_diagnostics(id) else { continue };
+                let span = self.error_span(id);
+                let printed = self.type_to_string(base_type);
+                self.report(
+                    file,
+                    Diagnostic::with_args(
+                        &messages::TYPE_0_IS_NOT_A_CONSTRUCTOR_FUNCTION_TYPE,
+                        span,
+                        [printed],
+                    ),
+                );
+            }
+        }
     }
 
     fn check_this_in_module_body(&mut self, node: NodeId) {
