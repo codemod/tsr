@@ -11533,3 +11533,141 @@ The honest counter-argument is that a bar missed is a bar missed, and that the
 bar was set before the code precisely to stop this reasoning. **If a later
 session finds these 19 blocking a larger row, the revert is the one call in
 `check_value_identifier`.**
+
+## §170 — TS7026, priced as what §158 found it to be: a JSX build
+
+28 sole-obstacle cases, the largest relation-free row on this board, and it has
+never been priced as a JSX rule because §5/§13/§141 filed it as `declare global`
+merging for six sessions (§158 corrects that).
+
+`getIntrinsicTagSymbol` (`jsx.go:1253`), the arm after every lookup fails:
+
+```go
+if c.noImplicitAny {
+    c.error(node, diagnostics.JSX_element_implicitly_has_type_any_because_no_interface_JSX_0_exists,
+            JsxNames.IntrinsicElements)
+}
+```
+
+### It is a name-resolution question, not a type question
+
+That is the finding that makes the row cheap, and it is why the row looked
+expensive: the message is reached through `getJsxType` → `getJsxNamespaceAt` →
+`getExportsOfSymbol`, which *reads* like the type machinery. But the branch that
+fires is the one where the lookup found **nothing**, and "is there a namespace
+`JSX` exporting an interface `IntrinsicElements` in scope here" is a question
+`BindResult::resolve_name` answers — **correctly, since §166 and not before**.
+
+Four conditions, all syntactic or resolver-level:
+
+1. the node is a `JsxOpeningElement` or `JsxSelfClosingElement`;
+2. its tag name is an **intrinsic** name — `IsIntrinsicJsxName`
+   (`scanner/utilities.go:98`) is *"starts with a lowercase letter, or contains
+   a hyphen"* — or a `JsxNamespacedName` (`isJsxIntrinsicTagName`,
+   `checker/utilities.go:1116`);
+3. `noImplicitAny`, which this checker already resolves through
+   `strict_option_value` (ADR-0042);
+4. `JSX.IntrinsicElements` does not resolve from that location.
+
+The span is the **element**, not the tag name: `tsxNoJsx.tsx`'s baseline
+underlines all eight characters of `<nope />`.
+
+### The bar
+
+Off the CASE count. Sole-obstacle: **28**.
+
+```
+bar:  +14 cases,  0 LOST,  WRONG delta <= +10
+```
+
+Half the ceiling, because the row's concentration is 110 lines over 28 cases —
+**3.9**, the worst shape landed on this board — so most of those lines sit in
+cases needing much more than this rule.
+
+### Falsifiers
+
+1. **`WRONG` delta above +10.** First suspect is condition (4) in the direction
+   that matters most: a corpus case that *does* declare `JSX.IntrinsicElements`
+   (through `react.d.ts` or its own `declare global`) and whose declaration this
+   port cannot see would take every element in the file. §13's original note
+   said exactly that about global augmentation, so the wrong column is where
+   that claim finally gets tested.
+2. **`LOST` non-zero.** The rule only adds diagnostics.
+3. **One report per element, not per tag.** A `JsxElement` has an opening *and*
+   a closing tag; upstream reaches `getIntrinsicTagSymbol` from the opening one
+   only. A duplicate at the same position is an extra line — the suite compares
+   multisets (§151).
+
+## §171 — TS7026 built with `declare global` merging, and REFUSED at LOST 1
+
+§170's bar was `+14 cases, 0 LOST, WRONG delta ≤ +10`. Built, and then built a
+second time with the blocker it exposed. Three measurements, `RULE_CODES = [7026]`:
+
+| build | CONVERTS | LOST | RIGHT | WRONG |
+|---|---:|---:|---:|---:|
+| the rule alone | 14 | **1** | 234 | **65** |
+| + `declare global` merging in `tsr_binder` | 14 | **1** | 234 | **45** |
+| the binder merge alone, no rule | — | — | — | `diagnostics` **1,524 → 1,523** |
+
+**Refused, and reverted — both halves.** The rule hits its conversion bar
+exactly and misses the wrong bar by 35 while breaking a passing case, and the
+binder half loses a diagnostics case on its own. *LOST must not grow in any
+measurement* is the one rule on this board with no exceptions.
+
+### The rule is right; its inputs are not
+
+Every remaining wrong line traces to one line of fixture text:
+
+```
+/// <reference path="/.lib/react16.d.ts" />
+```
+
+`react16.d.ts` declares `namespace JSX { interface IntrinsicElements … }` at
+global scope. When the program does not load it, `JSX.IntrinsicElements` is
+genuinely absent and the rule correctly says so — about a program that is not
+the one upstream compiled. `jsxIntrinsicElementsTypeArgumentErrors` (10 lines),
+`jsxElementTypeLiteral`, `jsxFragmentFactoryNoUnusedLocals` and the single
+`LOST`, `jsxImportForSideEffectsNonExtantNoError`, are all this.
+
+**Owner: `file_loader`**, and it is the *same* owner already carried in the
+handoff's standing-LOST section for `resolutionModeTripleSlash1`/`3`. That
+section should be read as larger than three cases: it is now the blocker on the
+board's largest relation-free row.
+
+### `declare global` merging, measured for the first time
+
+§5 has refused it for many sessions without a number. There is one now.
+
+Ported as: record every top-level `ModuleDeclaration` whose name is the
+**identifier** `global` during the bind walk — `NodeFlagsGlobalAugmentation` is
+another flag this parser does not set, and the binder holds a `NodeTable` with
+no `NodeMap`, so the walk is the only place a typed node is in hand — then merge
+that block's exports *and* its body's locals into `globals` alongside the
+script-file merge.
+
+```
+binder_symbols  8,459/8,459   unmoved
+checker_types   3,955 → 3,957 (+2)
+diagnostics     1,524 → 1,523 (−1)
+```
+
+**It works** — it removed 20 of the rule's 65 wrong lines, which is the direct
+evidence that `declare global { namespace JSX { … } }` now reaches a lookup. And
+it is **not free**: one diagnostics case regresses, unidentified. That single
+case is what the next attempt has to explain before this lands, and it is worth
+explaining rather than bounding away: a merge that makes one case worse is
+making *something* visible that was not visible before.
+
+### What the row costs, honestly, after all of it
+
+TS7026 is **not** a cheap 28-case row and it is not a merge row either (§158).
+It is:
+
+1. `file_loader` following `/// <reference path>` to a mounted lib — **the
+   binding constraint**, and it owns the wrong column outright;
+2. `declare global` merging — built here, measured, one case short of clean;
+3. the rule itself — about forty lines, correct, and already written twice.
+
+Item (3) is the cheap part and it is worthless without (1). The refused source
+for both halves is described above in enough detail to rebuild; **what must not
+be repeated is building it before (1) is measured.**
