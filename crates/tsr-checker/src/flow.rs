@@ -3119,6 +3119,28 @@ impl Checker<'_, '_> {
         predicate_type: TypeId,
         assume_true: bool,
     ) -> TypeId {
+        // `narrowTypeByTypePredicate`'s any arm (`flow.go`): a declared `any`
+        // narrows TO the candidate on the true branch — the §111 probe's 16
+        // declared=any flows were running the ladder on `[any]` and keeping
+        // it. Identity test: `errorType` shares the flag and must not match.
+        if assume_true && t == self.intrinsics.any {
+            // ...EXCEPT to the global `Function`/`Object` interfaces —
+            // upstream keeps `any` there (`flow.go`'s any arm mirrors the
+            // typeof-function rule; `narrowFromAnyWithTypePredicate` wants
+            // `any` on `x is Function`, 6 R→W measured without this).
+            let keeps_any = ["Function", "Object"].iter().any(|name| {
+                self.global_type_symbol_with_arity(name, 0).is_some_and(|symbol| {
+                    matches!(
+                        self.store.get(predicate_type).data,
+                        TypeData::Named { members: Some(owner), .. } if owner == symbol
+                    )
+                })
+            });
+            if !keeps_any {
+                return predicate_type;
+            }
+            return t;
+        }
         // `getNarrowedTypeWorker`'s per-constituent ladder (`flow.go:915`):
         // strictSubtype(t,n) -> t; strictSubtype(n,t) -> n; subtype(t,n) -> t;
         // subtype(n,t) -> n; else drop — the asserted type wins mutual

@@ -4671,3 +4671,17 @@ arm ships INERT as measured (zero-fire, byte-identical pair, gates
 green) — correct-by-reading, unreachable until the entry probe finds
 why the flow walk never consults instanceof conditions for these
 references; the ladder extraction is behaviour-neutral shared code.
+
+**§111 slice 2 ACTIVATES — the entry probe's answer was the ladder's
+missing any-arm.** The arm was reached all along (matching=true ×40);
+16 flows carried declared=any and the §22 ladder ran on `[any]` and
+kept it. Upstream's any arm: the true branch narrows `any` TO the
+candidate — EXCEPT the global `Function`/`Object` interfaces, where
+`any` stays (`narrowFromAnyWithTypePredicate`'s 6 wants, measured as
+R→W without the exception). **+36 W→R, ZERO adverse**
+(typeGuardsWithInstanceOfBySymbolHasInstance 23 — the §111 target
+family fires — narrowFromAny 11, catch-clause 2), net right +16 with
+the remainder honest W→G. The any-arm serves BOTH consumers of the
+shared ladder (call predicates and hasInstance). Residue: the
+union-declared rows (Line | Point | ...) still decline in the
+relater's interface rungs — the §22 Undecidable class, priced there.
