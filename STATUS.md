@@ -1307,6 +1307,22 @@ its whole deliverable and accept that it converts nothing until finished.
 
 ## 5. Refused, with the number that refused it
 
+### New, this session, TS2353 through a type assertion, 33 cases
+
+Refused by **§306**, after §303–§305 published **three wrong attributions** and
+an instrumented probe replaced them with a measured one.
+
+The arm was **firing the whole time**. `diagcase` on `arrayCast`: the wanted line
+at (3,23) **and an extra at (6,23)** — the fixture's own control, `[{ foo: "s" },
+{}]`, where a second element widens the array literal's type to `{}[]` so nothing
+is excess. ***The `+0` was a right line and a wrong line cancelling, and all
+three earlier attributions assumed it was a decline.***
+
+**Owner: excess-property checking belongs inside the relation**, where the array
+literal's own widened type is known. An element-by-element hop is right for a
+single-element array and wrong the moment a second element changes the array's
+type.
+
 ### New, this session, the index-signature sequence, 7 cases
 
 Refused by **§292**, after three measurements (`+4/WRONG 22`, `+4/WRONG 21`,
@@ -2293,6 +2309,7 @@ holds only the numbers.
 | 2026-08-09 | HEAD | **32.60%** | **1,789** | **+3; a bound took 60 wrong lines to 2 with no change to the score** | **TS2503**, found by the new `diagpair` (§300) as TS2304's top partner. ***The case delta was identical while the wrong column moved by a factor of thirty*** — nothing in the coverage number distinguishes the two builds. The bound: *"does not resolve as a namespace" and "does not resolve" are different conditions, and upstream's message names the first while its guard tests the second.* One lookup was serving two questions. §300–§302 |
 | 2026-08-09 | HEAD | 32.60% | 1,789 | **ninth build reverted; and the scan that chose it was wrong** | **TS2353 through a type assertion measured `+0`.** The probe named the owner precisely — the types are *correct*, and the element hop is keyed on a **global-`Array` type reference** an array *type node* never produces. **The scan that selected this row was also wrong**: it read "no constant found" as "no producer" and both its hits were codes this port already emits. ***A scan whose answer is "I could not find it" must be validated against a known positive before it is trusted*** — `diagslice` was, this was not. §303–§304 |
 | 2026-08-09 | HEAD | 32.60% | 1,789 | **§304's owner withdrawn, no replacement offered** | `get_type_from_array_type_node` **does** build the `Array` type reference §304 said it did not, so that owner is wrong too. ***"Zero movement is the proof" was the error*** — the inference is only valid once every *other* way the arm can decline is ruled out, and `check_excess_properties` has four early returns of its own. **A `+0` says something declined; it does not say which thing.** Three attributions in one neighbourhood, same shape each time: a plausible mechanism adopted without the probe that would separate it from its neighbours. §305 |
+| 2026-08-09 | HEAD | 32.60% | 1,789 | **instrumented; three published attributions replaced by one measured** | **The TS2353 arm was firing all along** — the `+0` was a right line and a wrong line **cancelling**, and §303/§304/§305 each assumed a decline. Four cheap probes found it. ***`diagslice`'s `occupied` column measures exactly this and was not consulted***, because the row was read from `diagpair` and the reading stopped there. First time this session a probe was run **before** the third guess rather than after. §306 |
 
 ## 8. Updating this file
 
