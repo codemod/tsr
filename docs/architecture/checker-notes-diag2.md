@@ -25083,3 +25083,76 @@ TS2349  not callable          checked — no primitive callees in the corpus
 TS2348  `new` on a non-ctor   5 blocked; unchecked
 TS2350  `new` on a void ctor  not on the board
 ```
+
+## §461 — TS2348: calling a class without `new`
+
+§460 left TS2348 as the unchecked position. Checked, and the shape is not the
+primitive argument at all — it is a **new** one, equally syntactic:
+
+```ts
+class C { }
+var c = C();                    // TS2348 at `C`
+
+namespace Tools { export class NullLogger { } }
+var logger = Tools.NullLogger();  // TS2348 at `Tools.NullLogger`
+```
+
+**A class constructor is not callable without `new`**, and deciding that needs
+only the callee's symbol: `SymbolFlags::CLASS` and no call signature of its own.
+No relation, no type, no apparent-type walk.
+
+> §460 rejected TS2349 because the position lacked the *types*. TS2348 has
+> neither those types nor that argument — and pays anyway, on a different one.
+> **Checking whether an argument reaches a position is not the same as checking
+> whether the position is workable**, and conflating them would have skipped
+> this row: it sits one code away from the one §460 just declined.
+
+### The bound
+
+The callee is either a bare `Identifier`, or a `PropertyAccessExpression` whose
+receiver names a namespace, resolving to a symbol carrying `SymbolFlags::CLASS`
+and **not** `SymbolFlags::FUNCTION` (a class merged with a function is callable).
+The error node is the whole callee expression.
+
+### The bar
+
+```
+bar:  +3 of 5,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **`new C()` reports.** Only a `CallExpression` is examined.
+2. **A class merged with a function reports.** The `FUNCTION` flag excludes it.
+
+## §462 — §461 built: **+2** of a bar of +3
+
+```
+diagnostics   1,970 → 1,972   (bar was +3;  +2, 0 LOST)   35.93%
+every other suite unmoved — both falsifiers negative
+```
+
+Kept: positive, nothing lost. The third case is `arrayTypeOfFunctionTypes2`,
+whose callee is an **element access** — a shape neither arm reads.
+
+### What §460 and §461 are together
+
+§460 checked TS2349 for the primitive argument, found the types absent, and
+declined **without a build**. §461 then took TS2348 — one code away — and paid
+`+2` on an argument §460 never considered.
+
+> **Rejecting a row for one argument does not reject it for every argument.**
+> That reads as obvious written down, and the failure mode it guards against is
+> not: §460's decline was recorded as *"the position lacks the types"*, and a
+> reader scanning declines for the next row would reasonably skip its
+> neighbours. **A decline is about the argument that was tried, and the note
+> has to say which one** — §441's claim about refusal specificity, now applying
+> to the declines this session wrote rather than to the ones it inherited.
+
+### The primitive argument, final tally
+
+```
+positions paid       §403 +4 · §436 +3 · §450 +3 · §454 +1 · §458 +5   = +16
+position rejected    §460 TS2349 — types absent, no build spent
+domain extension     §338 −3, reverted
+```

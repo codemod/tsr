@@ -444,6 +444,7 @@ impl Checker<'_, '_> {
             }
             Node::CallExpression(_) => {
                 self.check_callee_is_callable(node);
+                self.check_class_called_without_new(node);
                 self.check_call_arity(node);
                 self.check_call_type_argument_arity(node);
                 ambient
@@ -1407,6 +1408,70 @@ impl Checker<'_, '_> {
             }
         }
         Some(out)
+    }
+
+    /// TS2348 — `Value of type '{0}' is not callable. Did you mean to include
+    /// 'new'?`
+    ///
+    /// A class constructor is not callable without `new`, and deciding that
+    /// needs only the callee's symbol — `SymbolFlags::CLASS` and not
+    /// `FUNCTION`, since a class merged with a function *is* callable. No
+    /// relation, no type. §461.
+    fn check_class_called_without_new(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let Some(Node::CallExpression(call)) = self.node_map.get(node) else { return };
+        if !call.type_arguments.is_empty() {
+            return;
+        }
+        let Some(callee) = call.expression.and_then(|e| e.node_id()) else { return };
+        let symbol = match self.node_map.get(callee) {
+            Some(Node::Identifier(identifier)) => self.binder.resolve_name(
+                self.nodes,
+                self.node_map,
+                callee,
+                identifier.text,
+                SymbolFlags::VALUE,
+            ),
+            Some(Node::PropertyAccessExpression(access)) => {
+                let Some(receiver) = access.expression.and_then(|e| e.node_id()) else { return };
+                let Some(tsr_ast::MemberName::Identifier(member)) = access.name else {
+                    return;
+                };
+                let Some(text) = self.identifier_text(receiver).map(str::to_string) else {
+                    return;
+                };
+                let Some(namespace) = self.binder.resolve_name(
+                    self.nodes,
+                    self.node_map,
+                    receiver,
+                    &text,
+                    SymbolFlags::MODULE,
+                ) else {
+                    return;
+                };
+                let namespace = self.binder.merged_symbol(namespace);
+                self.binder.symbols().get(namespace).exports.get(member.text).copied()
+            }
+            _ => return,
+        };
+        let Some(symbol) = symbol else { return };
+        let flags = self.binder.symbols().get(self.binder.merged_symbol(symbol)).flags;
+        if !flags.intersects(SymbolFlags::CLASS) || flags.intersects(SymbolFlags::FUNCTION) {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(callee) else { return };
+        let span = self.error_span(callee);
+        let printed = String::new();
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::VALUE_OF_TYPE_0_IS_NOT_CALLABLE_DID_YOU_MEAN_TO_INCLUDE_NEW,
+                span,
+                [printed],
+            ),
+        );
     }
 
     fn check_this_in_module_body(&mut self, node: NodeId) {
