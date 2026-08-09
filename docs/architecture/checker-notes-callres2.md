@@ -522,3 +522,25 @@ draft applied; the failing link will name itself as every other
 trace this project has run eventually did. The draft is patch126 +
 the seed + the constraint gates in scratchpad history; the memo
 fallback's +50 rides with it. Reverted whole; the baseline stands.
+
+**THE TRACE RAN — the invariant class's blocker is NAMED and
+CONFIRMED: cross-phase caching.** The four-print trace on the head
+fixture, with the full draft applied: TRACE2 shows the memo
+instantiated correctly (`(x: "foo") => "foo"` — the constraint
+fallback works), TRACE1 shows the argument road consulting it, and
+TRACE3 shows the arrow STILL checking as `(x: T) => T` — the arrow
+was typed and CACHED during the eager resolution pass with the
+uninstantiated context, and phase 2 reads the frozen answer.
+Upstream re-checks context-sensitive arguments PER CHECK-MODE; the
+port's caches have no mode. The first eviction (symbol_types for
+the arrow and its parameters) measured INSUFFICIENT — a second
+cache on the arrow's road still holds the answer. THE NEXT
+WINDOW'S EXACT WORK: enumerate every memo on
+get_type_of_function_expression's road (grep its consults), evict
+or mode-key each, re-run TRACE3 until it prints `(x: "foo") =>
+"foo"` — at which point the head-23 convert and the whole draft
+lands against its twin sets. The trace also caught this window
+re-assembling the draft WITHOUT the constraint fallback (a
+scratch-patch is not a series — fold the fallback into patch126
+before the next application). Reverted; the diagnosis is complete
+to the cache-enumeration command.
