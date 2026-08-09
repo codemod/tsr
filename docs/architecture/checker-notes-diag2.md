@@ -23593,3 +23593,88 @@ measurement, not the branch.
 Not proposing CI here: that is a repo-wide decision and PLAN.md's, not this
 workstream's. Recorded so the count is on the record — five in one session is
 the number that would justify it.
+
+## §423 — TS2488: a `for…of` over a class with no iterator
+
+§377's list, next row: **11 blocked, 9 single-line, `checker.go` only.**
+
+```ts
+class MyStringIterator { next() { return ""; } }
+var v: string;
+for (v of new MyStringIterator) { }   // TS2488 at the expression
+```
+
+The general check needs the iteration protocol. This subset needs only the
+class's *syntax*, and the bound turns on a limitation this port already has:
+
+> **§9 does not bind computed property names**, so a class that declares
+> `[Symbol.iterator]()` and one that declares nothing look identical to every
+> member lookup here. That makes "does this class have an iterator" undecidable
+> in general — **and decidable in the negative when the class declares no
+> computed names at all**, because then there is nothing for the lookup to have
+> missed.
+
+A limitation is being used as a premise rather than worked around, which is the
+same move §414 made with `prototype` and §403 with the intrinsic singletons.
+
+### The bound
+
+- the `for…of` expression's type resolves to an instance of a class with
+  exactly one `ClassDeclaration`;
+- that class has **no heritage clauses** (an `extends` could supply the
+  iterator) and **no computed member names**;
+- no `await` modifier — `for await` is the async protocol and a different code.
+
+### The bar
+
+```
+bar:  +3 of 11,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **`for (c of [1,2])` reports.** An array is not a user class declaration.
+2. **A class declaring `[Symbol.iterator]()` reports.** The computed-name test
+   must exclude it — this is the falsifier the whole bound exists for.
+
+## §424 — §423 measured **+0** twice, and is reverted
+
+```
+first dispatch  (on SyntaxKind::ForOfStatement)   1,922 → 1,922
+second dispatch (on Node::ForInOrOfStatement)     1,922 → 1,922
+```
+
+The first `+0` was §380's branch — the kind test never matched, because a
+`for…of` registers as `ForInOrOfStatement` and the `SyntaxKind` I keyed on is
+not what `nodes.kind` returns for it. Fixing that was one line and the rail
+(§402) named it in one read.
+
+The second `+0` is §351's branch: dispatched, reached, still silent. The rule
+asks
+
+```rust
+let TypeData::Named { members: Some(symbol), .. } = &self.store.get(expression_type).data
+```
+
+and a `new MyStringIterator` expression's type does not present that way here.
+**Not isolated further**, and reverted rather than probed at the end of a long
+session — §339 and §341 are what probing-by-guess costs, and the discriminator
+this needs is a type-side read this workstream has no instrument for.
+
+> The three `+0` branches now have a fourth distinguishing question, and it is
+> worth writing down as a decision procedure rather than three separate notes:
+>
+> ```
+> does the dispatch fire?         grep the call site        (§380)
+> does the rule's guard pass?     read the guard's inputs   (§351)
+> does the trigger upstream fire? read the call chain up    (§412)
+> is the DATA the shape assumed?  <-- this one, and there is no cheap check
+> ```
+>
+> The fourth is the expensive one, and it is expensive because every instrument
+> in this workstream measures *diagnostics*, not *types*. That is the honest
+> boundary of the toolkit built over fourteen sessions.
+
+**TS2488 stays open**, owner: the type-side representation of a `new`
+expression. 11 cases. The syntactic bound in §423 is sound and is recorded
+above; it is the *lookup* that failed, not the argument.
