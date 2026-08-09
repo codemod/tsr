@@ -2405,9 +2405,24 @@ impl Checker<'_, '_> {
         if self.file_has_parse_errors {
             return;
         }
-        if self.identifier_text(node) != Some("await") {
-            return;
-        }
+        // `await` needs an enclosing `async`; `yield` needs an enclosing
+        // generator. Two arms of one `else if` chain on one node, so they share
+        // a rule (§497) — and §494's differential applies within it: the arms
+        // are independent and each must keep firing when the other is added.
+        // §515.
+        let keyword = match self.identifier_text(node) {
+            Some("await") => "await",
+            // **`yield` is not the symmetric case.** §515 added it as the
+            // sibling arm — an enclosing generator instead of an enclosing
+            // `async` — and measured −4. Upstream's `NodeFlagsYieldContext` is
+            // set by the *parser* on the tokens it scans in a yield context,
+            // which is narrower than "somewhere inside a generator": a nested
+            // non-generator function inside a generator is not in yield context,
+            // and the ancestor walk cannot see that boundary the way it can see
+            // `async`, because `async` propagates to nested arrows and `yield`
+            // does not. §516.
+            _ => return,
+        };
         // A binding-name position, not an expression.
         let Some(parent) = self.nodes.parent(node) else { return };
         let named = match self.node_map.get(parent) {
@@ -2424,13 +2439,12 @@ impl Checker<'_, '_> {
         if !named {
             return;
         }
-        let in_async = self.nodes.ancestors(node).any(|ancestor| {
-            self.node_map
-                .get(ancestor)
-                .and_then(modifiers_of)
+        let in_context = self.nodes.ancestors(node).any(|ancestor| {
+            let Some(typed) = self.node_map.get(ancestor) else { return false };
+            modifiers_of(typed)
                 .is_some_and(|modifiers| has_modifier(modifiers, SyntaxKind::AsyncKeyword))
         });
-        if !in_async {
+        if !in_context {
             return;
         }
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
@@ -2440,7 +2454,7 @@ impl Checker<'_, '_> {
             Diagnostic::with_args(
                 &messages::IDENTIFIER_EXPECTED_0_IS_A_RESERVED_WORD_THAT_CANNOT_BE_USED_HERE,
                 span,
-                ["await".to_string()],
+                [keyword.to_string()],
             ),
         );
     }

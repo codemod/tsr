@@ -27267,3 +27267,79 @@ TS1359  3   §513  an ancestor walk for AWAIT_CONTEXT       no parser change
 The honest remainder is **one case**, `asyncOrYieldAsBindingIdentifier1`, which
 wants the `yield`/generator arm alongside the `await` one — and that is a second
 ancestor walk, not a flag.
+
+## §515 — TS1359's `yield` arm: the second walk
+
+§514 left one case, `asyncOrYieldAsBindingIdentifier1`, wanting the sibling arm:
+
+```go
+} else if originalKeywordKind == ast.KindYieldKeyword && node.Flags&ast.NodeFlagsYieldContext != 0 {
+    b.errorOnNode(node, Identifier_expected_0_is_a_reserved_word_that_cannot_be_used_here, …)
+```
+
+`NodeFlagsYieldContext` is *inside a generator*, and a generator is a
+function-like carrying an **asterisk** — the same ancestor walk as §513's
+`async`, with a different field. §501's discipline made this arm findable:
+§513 named it as the one it did not port.
+
+### The bound
+
+An `Identifier` whose text is `yield`, in a binding-name position, with an
+enclosing function-like carrying `asterisk_token`. Identical to §513 otherwise,
+and shipped as an extension of that rule rather than a second one — **§497's
+"bundle only what shares a guard"**, and these two arms are the same `else if`
+chain on the same node.
+
+### The bar
+
+```
+bar:  +1,  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **`yield` as a name in a non-generator reports.** The asterisk is the guard.
+2. **`await` stops reporting.** The arms are independent and the first must be
+   untouched — §494's differential, applied within one rule.
+
+## §516 — §515 measured **−4**, reverted: `yield` is not `await`'s mirror
+
+```
+with the yield arm   2,040 → 2,036   (−4)
+without it           2,040            restored
+```
+
+The two arms looked symmetric — `await` needs an enclosing `async`, `yield` an
+enclosing generator — and they are not.
+
+> **`async` propagates into nested arrows; `yield` does not propagate at all.**
+> `NodeFlagsAwaitContext` is set for the body of an async function *and* for
+> arrow functions inside it, because an arrow has no `this`/`await` of its own.
+> `NodeFlagsYieldContext` stops at every function boundary: a plain function
+> nested inside a generator is **not** in yield context, and `yield` is a legal
+> identifier there.
+>
+> An ancestor walk cannot see that boundary without re-implementing it, and
+> "somewhere inside a generator" is the wrong predicate — which is why it
+> reported four lines upstream does not.
+
+### The pattern this closes
+
+§514 wrote *"a flag records a context; a context is a property of the ancestor
+chain; the checker can always walk it"* and that sentence is **too strong**. The
+correction, measured:
+
+```
+NodeFlagsAmbient       propagates through everything      walk works   §508  +5
+NodeFlagsAwaitContext  propagates through arrows only     walk works   §513  +3
+NodeFlagsYieldContext  propagates through nothing         walk fails   §515  −4
+```
+
+**A context is walkable when its propagation rule is "everything below"; it is
+not when the rule has exceptions the walk cannot see.** §514's sentence held for
+two flags out of three and was written after the two that worked — the third was
+one measurement away and the note claimed the general case anyway.
+
+`asyncOrYieldAsBindingIdentifier1` stays open. **Owner: `NodeFlagsYieldContext`,
+and this time the parser really is the place** — the flag is set during scanning,
+where the boundary is known.
