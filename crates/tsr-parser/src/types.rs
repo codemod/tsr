@@ -184,10 +184,14 @@ impl<'a> Parser<'a> {
 
     fn parse_union_type(&mut self) -> TypeNode<'a> {
         let start = self.pos();
-        // A leading `|` is allowed: `type T = | A | B`.
-        self.eat(SyntaxKind::BarToken);
+        // A leading `|` is allowed: `type T = | A | B` — and it forces the
+        // union node even with one constituent (`parser.go:2649`,
+        // `p.token == operator || hasLeadingOperator`); the degenerate node
+        // is what keeps `getAliasSymbolForTypeNode` from naming the
+        // constituent (checker-notes-narrow.md §89.1).
+        let has_leading = self.eat(SyntaxKind::BarToken);
         let first = self.parse_intersection_type();
-        if !self.at(SyntaxKind::BarToken) {
+        if !has_leading && !self.at(SyntaxKind::BarToken) {
             return first;
         }
         let mut types = vec![first];
@@ -201,9 +205,10 @@ impl<'a> Parser<'a> {
 
     fn parse_intersection_type(&mut self) -> TypeNode<'a> {
         let start = self.pos();
-        self.eat(SyntaxKind::AmpersandToken);
+        // A leading `&` forces the node like the leading `|` above.
+        let has_leading = self.eat(SyntaxKind::AmpersandToken);
         let first = self.parse_type_operator_or_higher();
-        if !self.at(SyntaxKind::AmpersandToken) {
+        if !has_leading && !self.at(SyntaxKind::AmpersandToken) {
             return first;
         }
         let mut types = vec![first];

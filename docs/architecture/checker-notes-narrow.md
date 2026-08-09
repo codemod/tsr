@@ -3354,3 +3354,20 @@ shape at a leading-bar alias could disturb any of them; (b) other
 degenerate-union corpus sites may want the OLD shape — if the pair
 shows unrelated R→W concentrated on leading-bar files, the checker
 consumers need the union-hop instead.
+
+**§89.1 findings.** Three seams, not one: (1) the parser kept — both
+`parse_union_type` and `parse_intersection_type` now build the node
+when a leading operator was eaten; (2) the checker's two node
+consumers answer a single-constituent list BEFORE the alias attaches
+(`checker.go:25632` union, `:26128` intersection); (3) two print
+bugs the case exposed: the intersection parenthesiser was wrapping
+`boolean` (UNION-flagged but keyword-printed — the BOOLEAN exemption
+upstream's node builder applies at `nodebuilderimpl.go:3255`), and
+the printer dropped the leading operator on degenerate nodes, which
+broke round-trip until it re-emits `| `/`& ` for one-element lists.
+Falsifier (a) FIRED on printer_round_trip (100% → 99.97%) and was
+honoured by the re-emit; all four 100% suites verified restored by a
+full coverage run.
+
+**§89.1 score — LANDED.** right 404,772 → **404,780 (84.51%)**, all
+8 W→R, ZERO adverse on the full pair.

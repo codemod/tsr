@@ -708,6 +708,14 @@ impl<'a> Checker<'a, '_> {
             .iter()
             .map(|constituent| self.get_type_from_type_node(*constituent))
             .collect::<Vec<_>>();
+        // A degenerate node (`type U3 = | () => number`, the leading-bar
+        // parse keeps it — §89.1) answers its constituent BEFORE the alias
+        // attaches: `getUnionTypeEx`'s `len(types) == 1` early return
+        // (`checker.go:25632`) runs ahead of every alias consumer, which is
+        // why upstream prints `U3 : () => number` structurally.
+        if let [single] = types[..] {
+            return single;
+        }
         match node.node_id.and_then(|id| self.alias_symbol_for_type_node(id)) {
             None => self.get_union_type(&types),
             Some(alias) if self.local_type_parameters_of(alias).is_empty() => {
@@ -773,6 +781,13 @@ impl<'a> Checker<'a, '_> {
             .iter()
             .map(|constituent| self.get_type_from_type_node(*constituent))
             .collect::<Vec<_>>();
+        // The degenerate leading-`&` node answers its constituent un-aliased,
+        // like the union above — `getIntersectionTypeEx`'s
+        // `len(typeSet) == 1` return (`checker.go:26128`) precedes the alias
+        // consumers (§89.1).
+        if let [single] = types[..] {
+            return single;
+        }
         match node.node_id.and_then(|id| self.alias_symbol_for_type_node(id)) {
             None => self.get_intersection_type(&types, None),
             Some(alias) if self.local_type_parameters_of(alias).is_empty() => {

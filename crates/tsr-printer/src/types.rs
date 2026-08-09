@@ -71,6 +71,13 @@ impl Printer<'_> {
             }
             // Ported from `Printer.emitUnionType` (`internal/printer/printer.go`).
             TypeNode::UnionTypeNode(union) => {
+                // A single-constituent node only ever comes from a leading
+                // `|` (`parser.go:2649`, checker-notes-narrow.md §89.1);
+                // re-emitting the operator is what makes the reparse produce
+                // the same tree.
+                if union.types.len() == 1 {
+                    self.write("| ");
+                }
                 self.emit_list(
                     union.types,
                     ListFormat::UNION_TYPE_CONSTITUENTS,
@@ -81,6 +88,10 @@ impl Printer<'_> {
             }
             // Ported from `Printer.emitIntersectionType` (`internal/printer/printer.go`).
             TypeNode::IntersectionTypeNode(intersection) => {
+                // The leading-`&` twin of the union arm above (§89.1).
+                if intersection.types.len() == 1 {
+                    self.write("& ");
+                }
                 self.emit_list(
                     intersection.types,
                     ListFormat::INTERSECTION_TYPE_CONSTITUENTS,

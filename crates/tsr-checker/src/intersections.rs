@@ -77,8 +77,14 @@ fn create_intersection(
                 let constituent = store.get(id);
                 let printed = printing::type_to_string(constituent);
                 // A union binds less tightly than an intersection, so it is
-                // parenthesised: `T & ({} | null)`.
-                if constituent.flags.contains(TypeFlags::UNION) {
+                // parenthesised: `T & ({} | null)`. `boolean` is exempt: it
+                // carries UNION (it *is* `false | true`) but prints as the
+                // keyword — upstream's node builder tests BOOLEAN before its
+                // union branch (`nodebuilderimpl.go:3255`), so it never
+                // reaches the parenthesiser (§89.1's I4).
+                if constituent.flags.contains(TypeFlags::UNION)
+                    && !constituent.flags.contains(TypeFlags::BOOLEAN)
+                {
                     format!("({printed})")
                 } else {
                     printed
