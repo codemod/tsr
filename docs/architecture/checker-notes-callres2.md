@@ -589,3 +589,27 @@ creation path — probed by printing the arrow's TypeId across the
 eviction. The chain of custody on every claim in this study is now
 explicit; three of its corrections caught this window's own
 errors, which is the method working on its author.
+
+**ROUNDS 4-14: THE FREEZE IS BROKEN — TRACE3 prints "foo" — and
+the unit measures +665/313 (net +549), REFUSED on the registered
+bar's second leg with the breakthrough banked whole.** The trace
+chain's findings, in firing order: the reassembly hole (round 4);
+TRACE5 proving the consult serves the instantiated memo correctly;
+the reentrancy guard (hypothesis, kept); and THE MISSING WIRE — the
+port's own documented tsr-0hc/tsr-1uz hazard live at
+contextual_signature: an instantiated signature type is Anonymous
+carrying the UNINSTANTIATED symbol, so the symbol-declarations read
+resolved (x: T) => T over the type's (x: "foo") => "foo"; the
+TYPE-FIRST read (signature_types, exactly as resolve_call_signature's
+instantiated branch) breaks the freeze — also VINDICATING the
+twice-"zero" fallback (it was starved both times, never wrong).
+FULL JUDGMENT: +292 G→R +373 W→R (inferTypePredicates 29, temporal
+60, overEager 18) against 249-266 G→W + ~15 R→W (~2:1) — the
++193-class CONVERTS, but the ex-invariant class's residue goes
+WRONG (not gap) via the memo's constraint contexts where upstream's
+inference resolves differently: the REAL four-stage pipeline is the
+residue's owner, now with a working harness and a +549 head start.
+The free-road arm (a) measured near-irrelevant (dropping it moved
+~24). Snapshots updated with every wire. The next window lands
+unit+pipeline together against the same twin sets — the distance
+is one pipeline, and everything else is DONE and proven.
