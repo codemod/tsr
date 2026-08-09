@@ -2255,6 +2255,31 @@ impl<'a> Checker<'a, '_> {
         if signature.predicate.is_some() {
             return self.signature_to_string(signature);
         }
+        // §107: the render-scope shadow — an ENCLOSING signature render's
+        // same-named type parameter renames this one; this signature's own
+        // parameters then join the scope for its slot renders.
+        let mut throwaway = rustc_hash::FxHashSet::default();
+        // The SITE test anchors at the PRINTED DECLARATION here — upstream
+        // resolves shadows from the declaration being rendered, and the
+        // assertion-node anchor renamed 4 computed-name positions whose own
+        // method declares the parameter (§107's first refusal). The §102
+        // composite arm keeps the assertion anchor: its per-site layouts
+        // ([T,T_1] vs [T_1,T]) are the decoded evidence for it.
+        let site_anchor = signature.declaration;
+        let signature =
+            &self.rename_type_parameters_for_site(signature.clone(), site_anchor, &mut throwaway);
+        let scope_depth = self.render_type_parameter_scope.len();
+        self.push_render_type_parameter_scope(signature);
+        let out = self.signature_to_string_at_inner(signature, reference);
+        self.render_type_parameter_scope.truncate(scope_depth);
+        out
+    }
+
+    fn signature_to_string_at_inner(
+        &mut self,
+        signature: &Signature,
+        reference: tsr_ast::NodeId,
+    ) -> String {
         // The `_1` rename, enclosing-scope half (`checker-notes-callres.md`
         // §19): a type parameter whose name is also declared by an ancestor
         // of the reference site — and NOT by this signature's own declaration,

@@ -406,6 +406,14 @@ pub struct Checker<'a, 'n> {
     /// shape property road may search (a WRITTEN intersection answering
     /// confidently was 134 G→W in the discriminated-union family).
     pub(crate) alias_evaluated_types: rustc_hash::FxHashSet<TypeId>,
+    /// §107: while true, `instantiate_type` answers an UNMAPPED type
+    /// parameter with ITSELF instead of refusing — the print-clone's
+    /// substitution runs over signatures that legitimately mention ENCLOSING
+    /// (foreign) parameters; real instantiation keeps the refusal.
+    pub(crate) identity_unmapped_type_parameters: bool,
+    /// §107: the RENDER scope — (name, symbol) of each signature's own type
+    /// parameters, pushed for the duration of its slot rendering.
+    pub(crate) render_type_parameter_scope: Vec<(String, tsr_binder::SymbolId)>,
     /// §91: the conditional-alias evaluator's binding frames — type-parameter
     /// symbol → the argument it is bound to during one body evaluation. Empty
     /// outside evaluation, which is the gate on the evaluator's node arms.
@@ -709,6 +717,8 @@ impl<'a, 'n> Checker<'a, 'n> {
             alias_inline_level: 0,
             non_null_type_variables: FxHashMap::default(),
             non_null_mint_bases: FxHashMap::default(),
+            identity_unmapped_type_parameters: false,
+            render_type_parameter_scope: Vec::new(),
             alias_body_evaluations: FxHashMap::default(),
             alias_evaluated_types: rustc_hash::FxHashSet::default(),
             alias_evaluation_bindings: Vec::new(),

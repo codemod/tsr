@@ -4294,3 +4294,27 @@ the refusal record's description + one eprintln printing own_symbol,
 render_shadow, and the resolve result per parameter on the filtered
 case). One window, one build, instrumented from the start — not
 three blind probes.
+
+**§107 LANDED at +36/0 — three probes, one flag, one anchor.** The
+retry's instrumentation chain: (1) the routing probe had cleared
+§89; (2) the shadow probe showed BOTH mechanisms firing (render
+scope hit for nested renders, symbols filed — the arrow-filing
+suspect was wrong); (3) the refusal probe found the killer:
+`instantiate_signature REFUSED` ×4 — the print-clone's substitution
+hit the DELIBERATE unmapped-type-parameter refusal on FOREIGN
+(enclosing) parameters (`readonly [T_outer, T_inner]` mentions
+T_outer, unmapped, errorType). The fix is a SCOPED identity flag
+(`identity_unmapped_type_parameters`) set only around the
+print-clone's instantiate — real instantiation keeps the refusal.
+The first §107 attempt ALSO predated §105-1's readonly-tuple mint,
+a second silent killer since removed by the other lane. Final shape:
+single-signature renders anchor the SITE test at the PRINTED
+DECLARATION (clearing the 4 computed-name R→W and 1 mapped-inference
+line); the §102 composite arm keeps the assertion anchor (its
+per-site layouts demand it). **+36 W→R, ZERO adverse**
+(underscoreTest1's last 14, declarationEmit 2, nested-generics
+family). Residue: the handed 6's other 4 lines are the
+assertion-anchored standalone positions the declaration anchor
+declines — they need the per-assertion variant §102 has, at
+single-sig scale, without re-firing the computed-name 4; priced at
+~17 forgone conversions corpus-wide.

@@ -617,6 +617,14 @@ impl Checker<'_, '_> {
         if self.instantiation_depth == 100 || self.instantiation_count >= 5_000_000 {
             return self.intrinsics.error;
         }
+        // §107: the print-clone road substitutes identity for FOREIGN
+        // (enclosing) type parameters; real instantiation keeps the
+        // deliberate unmapped-parameter refusal below.
+        if self.identity_unmapped_type_parameters
+            && self.store.get(id).flags.contains(crate::flags::TypeFlags::TYPE_PARAMETER)
+        {
+            return id;
+        }
         self.instantiation_count += 1;
         self.instantiation_depth += 1;
         let result = self.instantiate_type_worker(id, map, parameters, names);
@@ -782,6 +790,30 @@ impl Checker<'_, '_> {
         minted
     }
 
+    /// §107: push a signature's own (post-rename name, symbol) pairs onto
+    /// the render scope; the caller truncates back to its saved depth.
+    pub(crate) fn push_render_type_parameter_scope(
+        &mut self,
+        signature: &crate::signatures::Signature,
+    ) {
+        let declarations = match self.node_map.get(signature.declaration) {
+            Some(Node::FunctionDeclaration(node)) => node.type_parameters,
+            Some(Node::FunctionExpression(node)) => node.type_parameters,
+            Some(Node::ArrowFunction(node)) => node.type_parameters,
+            Some(Node::MethodDeclaration(node)) => node.type_parameters,
+            Some(Node::MethodSignatureDeclaration(node)) => node.type_parameters,
+            Some(Node::CallSignatureDeclaration(node)) => node.type_parameters,
+            Some(Node::ConstructSignatureDeclaration(node)) => node.type_parameters,
+            Some(Node::FunctionTypeNode(node)) => node.type_parameters,
+            _ => return,
+        };
+        for (parameter, declaration) in signature.type_parameters.iter().zip(declarations) {
+            if let Some(symbol) = declaration.node_id.and_then(|id| self.binder.symbol_of(id)) {
+                self.render_type_parameter_scope.push((parameter.name.clone(), symbol));
+            }
+        }
+    }
+
     /// §102's print-only clone, the DECODED two-mechanism form
     /// (`promisePermutations` lines 6/15/24/33/62 are the proof set):
     ///
@@ -835,25 +867,33 @@ impl Checker<'_, '_> {
             signature.type_parameters.iter().zip(&own).zip(declarations)
         {
             let own_symbol = declaration.node_id.and_then(|id| self.binder.symbol_of(id));
-            let shadowed = own_symbol.is_some_and(|own_symbol| {
-                self.binder
-                    .resolve_name(
-                        self.nodes,
-                        self.node_map,
-                        reference,
-                        &parameter.name,
-                        tsr_binder::SymbolFlags::TYPE,
-                    )
-                    .is_some_and(|found| {
-                        found != own_symbol
-                            && self
-                                .binder
-                                .symbols()
-                                .get(found)
-                                .flags
-                                .contains(tsr_binder::SymbolFlags::TYPE_PARAMETER)
-                    })
+            let render_shadow = own_symbol.is_some_and(|own_symbol| {
+                self.render_type_parameter_scope
+                    .iter()
+                    .rev()
+                    .find(|(name, _)| *name == parameter.name)
+                    .is_some_and(|&(_, symbol)| symbol != own_symbol)
             });
+            let shadowed = render_shadow
+                || own_symbol.is_some_and(|own_symbol| {
+                    self.binder
+                        .resolve_name(
+                            self.nodes,
+                            self.node_map,
+                            reference,
+                            &parameter.name,
+                            tsr_binder::SymbolFlags::TYPE,
+                        )
+                        .is_some_and(|found| {
+                            found != own_symbol
+                                && self
+                                    .binder
+                                    .symbols()
+                                    .get(found)
+                                    .flags
+                                    .contains(tsr_binder::SymbolFlags::TYPE_PARAMETER)
+                        })
+                });
             // SHADOW ONLY: `underscoreTest1:3229/3233/3237` print [T,T_1],
             // [T_1,T] and [T_1,T_1] per site, and asyncFunctionReturnType
             // holds ZERO renames at neutral sites — the byText half does not
@@ -876,9 +916,11 @@ impl Checker<'_, '_> {
         }
         let names: Vec<&str> =
             signature.type_parameters.iter().map(|parameter| parameter.name.as_str()).collect();
-        let Some(mut instantiated) =
-            self.instantiate_signature(signature.clone(), &map, &own, &names)
-        else {
+        let saved = self.identity_unmapped_type_parameters;
+        self.identity_unmapped_type_parameters = true;
+        let instantiated = self.instantiate_signature(signature.clone(), &map, &own, &names);
+        self.identity_unmapped_type_parameters = saved;
+        let Some(mut instantiated) = instantiated else {
             return signature;
         };
         for (parameter, rename) in instantiated.type_parameters.iter_mut().zip(renames) {
