@@ -5226,3 +5226,27 @@ the §31-family, recorded not guessed. The 2 residual:
 typeReferenceDirectives9 (type-directive resolution, different
 owner). Gates: four 100% suites held (coverage at 85.64%, 4,114
 cases), tests/clippy in the landing commit's log.
+
+## §125 — the union receiver's established miss [claimed: checker-1]
+
+**The bucket's other half.** member_shapes' union/intersection rows
+(639 lines post-§124): the distribution probe's PARTIAL class (406
+lines, "some constituents have it — upstream errors too") and
+NoneHaveIt (~170). Upstream's rule at both: a union member lookup
+that fails on ANY constituent reports TS2339 ("does not exist on
+type A | B") and answers errorType-printed-any. §123/§124 built the
+per-receiver establishment question; this arm asks it
+per-CONSTITUENT: a stripped union receiver where every constituent
+(through its apparent type) either HAS the member or has
+ESTABLISHED absence (§123/§124's combined predicate, index
+signatures consulted per constituent), with at least one absent,
+answers `any`. Any constituent whose state is unknown keeps the
+gap.
+
+**Bar.** ≥150 G→R at ≥5:1. Falsifier: the census's NARROWER class
+(242 receiver positions where upstream's receiver is narrower than
+ours) — a discriminated union upstream narrows before the lookup
+reads a real member where this arm claims any. If it fires above
+the ratio, the candidate gate is unions with no shared
+literal-discriminant member; if that also fails, the class is
+narrowing-owned whole and the section records it.
