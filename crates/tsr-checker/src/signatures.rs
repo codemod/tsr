@@ -2185,6 +2185,34 @@ impl<'a> Checker<'a, '_> {
             if index > 0 {
                 out.push_str(", ");
             }
+            // §88 (`checker-notes-narrow.md`): a REST parameter over a PLAIN
+            // tuple EXPANDS when no written annotation is carried —
+            // `...args: [number, boolean]` prints `args_0: number, args_1:
+            // boolean` (`getExpandedParameters`). A WRITTEN `typeof t1`
+            // rest keeps its reuse (rows 39/44 fired against the ungated
+            // arm); the VARIADIC want that expands OVER written (row 111)
+            // is the tail family, blocked on the immutable renderer.
+            if parameter.rest
+                && parameter.written_text.is_none()
+                && let Some((elements, _)) = self.tuple_element_lists.get(&parameter.r#type)
+            {
+                let elements = elements.clone();
+                let mask = self.tuple_optional_masks.get(&parameter.r#type).cloned();
+                let mut pieces = Vec::with_capacity(elements.len());
+                for (position, &element) in elements.iter().enumerate() {
+                    let optional = mask
+                        .as_ref()
+                        .is_some_and(|m| m.get(position).copied().unwrap_or(false));
+                    pieces.push(format!(
+                        "{}_{position}{}: {}",
+                        parameter.name,
+                        if optional { "?" } else { "" },
+                        render(self, element)
+                    ));
+                }
+                out.push_str(&pieces.join(", "));
+                continue;
+            }
             if parameter.rest {
                 out.push_str("...");
             }

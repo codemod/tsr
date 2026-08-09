@@ -3263,3 +3263,18 @@ expanded-signature prints (`(args_0: number, …)`) and the remaining
 
 **§87 score — LANDED.** right 404,441 → **404,444 (84.46%)** against
 the re-taken 470,648-line population.
+
+## §88 — rest parameters over plain tuples expand
+
+`getExpandedParameters`: a rest parameter whose type is a plain tuple
+prints positionally (`args_0: number, args_1: boolean`), optional
+elements carrying `?` — WHEN no written annotation rides the
+parameter (a written `typeof t1` rest keeps its reuse; the ungated
+arm fired 6 R→W on exactly those rows). The VARIADIC half (row 111
+wants expansion OVER the written reuse, `(args_0: number, args_1:
+boolean, ...args: string[])`) is blocked on the renderer being
+immutable — the §87 tails need `&mut` to resolve lazily; a renderer
+refactor unlocks it. **+28 net (29 W→R against 1 R→G, 29:1)**
+(`genericRestParameters1` 15, `readonlyRestParameters` 5).
+
+**§88 score — LANDED.** right 404,444 → **404,472 (84.47%)**.
