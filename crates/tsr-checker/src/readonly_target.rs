@@ -27,6 +27,7 @@ use tsr_binder::SymbolId;
 use tsr_diagnostics::{Diagnostic, messages};
 
 use crate::{checker::Checker, expressions::AssignmentTargetKind, flags::TypeFlags};
+use tsr_binder::SymbolFlags;
 
 impl Checker<'_, '_> {
     /// The read-only check for one `x.y = …` target.
@@ -71,6 +72,70 @@ impl Checker<'_, '_> {
                 [name.text.to_string()],
             ),
         );
+    }
+
+    /// Assigning to an identifier that names something other than a variable.
+    ///
+    /// `checkIdentifier`'s assignment-target arm (`checker.go:11076`), a
+    /// six-way switch on **symbol flags alone**:
+    ///
+    /// | flag | message | code |
+    /// |---|---|---|
+    /// | `Enum` | `…because it is an enum` | TS2628 |
+    /// | `Class` | `…because it is a class` | TS2629 |
+    /// | `Module` | `…because it is a namespace` | TS2631 |
+    /// | `Function` | `…because it is a function` | TS2630 |
+    /// | `Alias` | `…because it is an import` | TS2632 |
+    /// | — | `…because it is not a variable` | TS2539 |
+    ///
+    /// The order is upstream's and is load-bearing: a symbol merged from a
+    /// `namespace` and a `function` is a namespace here, because that case
+    /// comes first.
+    ///
+    /// Upstream's `isInJSFile && ValueModule` exemption is unreachable — §197
+    /// excludes `allowJs` cases from this suite.
+    pub(crate) fn check_identifier_assignment_target(&mut self, node: NodeId, ambient: bool) {
+        if ambient || self.file_has_parse_errors {
+            return;
+        }
+        if self.assignment_target_kind(node) == AssignmentTargetKind::None {
+            return;
+        }
+        let Some(Node::Identifier(identifier)) = self.node_map.get(node) else { return };
+        let Some(symbol) = self.binder.resolve_name(
+            self.nodes,
+            self.node_map,
+            node,
+            identifier.text,
+            SymbolFlags::VALUE,
+        ) else {
+            return;
+        };
+        // `getExportSymbolOfValueSymbolIfExported` — an exported declaration's
+        // local carries `EXPORT_VALUE` and none of the real flags, so reading
+        // the local would answer "not a variable" for every exported `var`.
+        let symbol = self.binder.symbols().get(symbol).export_symbol.unwrap_or(symbol);
+        let symbol = self.binder.merged_symbol(symbol);
+        let flags = self.binder.symbols().get(symbol).flags;
+        if flags.intersects(SymbolFlags::VARIABLE) {
+            return;
+        }
+        let message = if flags.intersects(SymbolFlags::ENUM) {
+            &messages::CANNOT_ASSIGN_TO_0_BECAUSE_IT_IS_AN_ENUM
+        } else if flags.intersects(SymbolFlags::CLASS) {
+            &messages::CANNOT_ASSIGN_TO_0_BECAUSE_IT_IS_A_CLASS
+        } else if flags.intersects(SymbolFlags::MODULE) {
+            &messages::CANNOT_ASSIGN_TO_0_BECAUSE_IT_IS_A_NAMESPACE
+        } else if flags.intersects(SymbolFlags::FUNCTION) {
+            &messages::CANNOT_ASSIGN_TO_0_BECAUSE_IT_IS_A_FUNCTION
+        } else if flags.intersects(SymbolFlags::ALIAS) {
+            &messages::CANNOT_ASSIGN_TO_0_BECAUSE_IT_IS_AN_IMPORT
+        } else {
+            &messages::CANNOT_ASSIGN_TO_0_BECAUSE_IT_IS_NOT_A_VARIABLE
+        };
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let span = self.error_span(node);
+        self.report(file, Diagnostic::with_args(message, span, [identifier.text.to_string()]));
     }
 
     /// `isReadonlySymbol`'s **property-signature** row, which

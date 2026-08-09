@@ -15864,3 +15864,112 @@ only a missing-docs lint.
 side of an attribute**, and the compiler catches the derive case while only
 `-D missing-docs` catches the other. §231's rule — clippy before coverage on any
 structural edit — earned its keep twice in one build.
+
+## §242 — the three loader arms §241 promised are worth zero, measured
+
+§241 closed by saying the unsupported-extension, JavaScript-file and
+self-reference arms "can now be added without touching plumbing". True, and
+irrelevant:
+
+```
+TS1006  A file cannot have a reference to itself      0 lines, 0 cases
+TS2688  Cannot find type definition file for '{0}'    0 lines, 0 cases
+```
+
+(the other two messages have no constant in `messages.rs` at all, so upstream
+never emits them for anything this corpus runs). **Measured before building,
+which is the only reason it cost nothing.** "The plumbing is already there" is
+an argument about *cost*, never about *value*, and §241's sentence read like
+both.
+
+## §243 — TS2630 and its five siblings: assigning to a non-variable
+
+`checkIdentifier`'s assignment-target arm (`checker.go:11076`) is a six-way
+switch on **symbol flags alone** — no types, no relation:
+
+```go
+if assignmentKind != AssignmentKindNone {
+    if localOrExportSymbol.Flags&ast.SymbolFlagsVariable == 0 && !(isInJSFile && ...ValueModule...) {
+        switch {
+        case Flags&Enum   != 0: Cannot_assign_to_0_because_it_is_an_enum          // TS2628
+        case Flags&Class  != 0: Cannot_assign_to_0_because_it_is_a_class          // TS2629
+        case Flags&Module != 0: Cannot_assign_to_0_because_it_is_a_namespace      // TS2631
+        case Flags&Function != 0: Cannot_assign_to_0_because_it_is_a_function     // TS2630
+        case Flags&Alias  != 0: Cannot_assign_to_0_because_it_is_an_import        // TS2632
+        default:                Cannot_assign_to_0_because_it_is_not_a_variable   // TS2539
+        }
+        c.error(node, assignmentError, c.symbolToString(symbol))
+```
+
+`assignment_target_kind` (`expressions.rs:1756`) is already ported;
+`readonly_target.rs` already holds this family's *last* arm (TS2540) for the
+`x.y = …` shape. This is the **identifier** shape, which had none of it.
+
+### All six, again for §230's reason
+
+Only TS2630 (7) and TS2588 (4) appear in the gap at ≥3. The other four are
+ported anyway: they are `case` labels on one switch, and shipping only the
+labels the corpus rewards is how a port acquires shapes nobody can explain.
+
+### The bar
+
+```
+bar:  +6 cases,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **An ordinary `x = 1` on a `var` reports.** The whole rule is gated on the
+   symbol *not* having `VARIABLE`; if that inverts, the corpus detonates.
+2. **A read of a function reports.** Gated on `assignmentKind != None`.
+3. **`checker_types` moves.** This adds diagnostics, not types.
+
+## §244 — §243 built: +12, `WRONG 0`, and §140's trap for the third time
+
+```
+diagnostics   1,662 → 1,674   (+12, bar was +6)
+every other suite unmoved — falsifiers 1, 2 and 3 all negative
+
+diag2307, RULE_CODES = [2628, 2629, 2630, 2631, 2632, 2539]:
+  CONVERTS 12 · LOST 0 · STILL SHORT 16 · RIGHT 90 · WRONG 0
+```
+
+**90 right lines and not one wrong** — the best ratio this workstream has
+measured. A rule gated on symbol flags alone has nothing to be approximately
+right about.
+
+### The first measurement said −590
+
+The new `Node::Identifier(_)` dispatch arm shadowed an **existing**
+`Node::Identifier(identifier)` arm forty-five lines below it, silently deleting
+five checks — `check_value_identifier`, `check_type_reference_name`,
+`check_used_before_assigned`, `check_used_before_its_declaration` and
+`mark_identifier_reference`. The coverage run came back at **1,072**, a 590-case
+collapse that read exactly like falsifier 1 firing.
+
+It was not the rule. It was §140, for the third time in this session (§231,
+§241's near-miss, this).
+
+### The rule I thought I had, and the one I actually needed
+
+§231 wrote: *"a change to a dispatch gets clippy before coverage"*. I then ran
+both **in one shell invocation** and read the coverage number first — the clippy
+count was sitting three lines above it in the same output, unread.
+
+> **A gate that runs before the measurement is not a gate; a gate that *blocks*
+> the measurement is.** Ordering is not enough when both outputs land together
+> and one is the number you are waiting for.
+
+Corrected: `clippy` is now its own invocation, and `coverage` does not run until
+it prints `0`. That is why this build's second measurement was trustworthy and
+the first was not.
+
+### Why the trap keeps finding this workstream
+
+Three times, all the same shape: a new rule needs a node kind that *already*
+appears in a 200-arm `match`, and the new arm goes near the top. Rust takes the
+first match and deletes the rest silently. The tell is always
+`unreachable pattern`, and it is always in clippy's output before the number is.
+
+**Grep the dispatch for the node kind before adding an arm to it.** One `grep`
+would have caught all three.

@@ -405,6 +405,7 @@ impl Checker<'_, '_> {
                 ambient
             }
             Node::Identifier(identifier) => {
+                self.check_identifier_assignment_target(node, ambient);
                 self.check_value_identifier(node, identifier.text);
                 self.check_type_reference_name(node, identifier.text);
                 self.check_used_before_assigned(node, identifier.text);
