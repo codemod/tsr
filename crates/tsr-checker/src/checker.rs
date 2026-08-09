@@ -1046,6 +1046,26 @@ impl<'a, 'n> Checker<'a, 'n> {
                 self.rendering_composites.remove(&id);
                 return Some(out);
             }
+            // §99 (`checker-notes-narrow.md`): the MULTI-signature type-literal
+            // form renders at the site too — an overloaded member's embedded
+            // names were staying bare (`{ (roundTo: PluralizeUnit<...>):
+            // Duration; ... }` wanting `Temporal.`-qualified slots).
+            if let Some(signatures) = self.signature_types.get(&id)
+                && signatures.len() > 1
+                && !self.rendering_composites.contains(&id)
+                && !self.alias_named_signature_types.contains(&id)
+            {
+                let signatures = signatures.clone();
+                self.rendering_composites.insert(id);
+                let mut out = String::from("{ ");
+                for signature in &signatures {
+                    out.push_str(&self.signature_member_text_at(signature, reference));
+                    out.push_str("; ");
+                }
+                out.push('}');
+                self.rendering_composites.remove(&id);
+                return Some(out);
+            }
             // §97 (`checker-notes-narrow.md`): a union carrying ORIGIN
             // entries re-renders each entry at the site — the alias-named
             // entries qualify through the same stack §95 uses; any decline
