@@ -3755,6 +3755,35 @@ claimed). Must NOT move: §56's existing annotation/call/return
 converts. Adverse worse than 1:5 refuses whichever arm produced it;
 the arms measure separately.
 
+**§98 score — LANDED at 245:1.** right 406,012 → **406,241** on the
+full pair over the post-§97 baseline: **+93 W→R** (excessProperty-
+CheckWithUnions 37, destructuringParameterDeclaration8 12,
+missingDiscriminants 9) **+~152 G→R** (gap 45,087 → 44,935) against
+**1 R→W, nothing else adverse**. Inside the +30–70 bar band on W→R
+with the G→R on top. THREE fired legs, each measured:
+  1. The first cut dropped union constituents LACKING the
+     discriminant member — upstream's ternary algorithm
+     (`relater.go:1212`) keeps them and eliminates only non-matching
+     members, and only when something matched. Order-independence
+     comes free (`missingDiscriminants2`'s subkind-before-kind).
+  2. The §18 fresh/regular twin: a checked discriminator literal is
+     FRESH, members hold REGULAR — compare regular or nothing
+     matches.
+  3. Two boolean over-corrections REVERTED by measurement: a
+     both-twins gate (R→W 23) and a bare-`boolean`-intrinsic gate
+     (R→W 25) both broke `{ hoge: true }`-class retention — bare
+     `boolean` RETAINS (`emitOneLineVariableDeclaration…`), and the
+     `autoIncrement : boolean` widening that motivated them is the
+     DISCRIMINATED CONSTITUENT LACKING THE MEMBER, plus
+     intersection-blind discriminator lookup (fixed by routing the
+     lookup through the distributing road). `T & { prop: boolean }`
+     widens via the TYPE_PARAMETER decline in the intersection arm.
+RESIDUE, priced: excessPropertyCheckWithMultipleDiscriminants 0:112
+(attributes2 — identical shape to the FIXED attributes but for a
+primitive `| string` constituent in Attribute2; one line, diagnosis
+open at the alias-union root). The TSR_CTX_DEBUG instrumentation
+stays, env-gated, per the TSR_JOIN_DEBUG precedent.
+
 ## §100 — type predicates infer from single-return bodies [claimed: checker-1]
 
 [Bar claims the number; build follows on checker-1's worktree branch.]

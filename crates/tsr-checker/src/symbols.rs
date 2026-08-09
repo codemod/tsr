@@ -1558,6 +1558,243 @@ impl<'a> Checker<'a, '_> {
         None
     }
 
+    /// §98's second fired leg: a documented SLICE of upstream's
+    /// `discriminateTypeByDiscriminableItems` (`checker.go:30779`), applied
+    /// at the walk's ROOT with the outermost object literal. Sibling members
+    /// whose initializer is a plain literal act as discriminators: a union
+    /// constituent survives only if every discriminator's member on it
+    /// contains that unit. No discriminators, a discriminator no constituent
+    /// answers, or an empty survivor set leave the root unchanged — the
+    /// undiscriminated behaviour, never a guess. Nested levels are not
+    /// discriminated (upstream re-discriminates per level; unported).
+    fn discriminate_union_root(&mut self, t: TypeId, literal: NodeId) -> TypeId {
+        use tsr_ast::SyntaxKind;
+        let crate::types::TypeData::Union { types, .. } = &self.store.get(t).data else {
+            return t;
+        };
+        let constituents = types.clone();
+        let Some(Node::ObjectLiteralExpression(object)) = self.node_map.get(literal) else {
+            return t;
+        };
+        let mut discriminators: Vec<(String, TypeId)> = Vec::new();
+        for member in object.properties {
+            let tsr_ast::ObjectLiteralElementLike::PropertyAssignment(assignment) = member else {
+                continue;
+            };
+            let name = match assignment.name {
+                tsr_ast::PropertyName::Identifier(n) => n.text.to_string(),
+                tsr_ast::PropertyName::StringLiteral(n) => n.text.to_string(),
+                _ => continue,
+            };
+            let Some(initializer) = assignment.initializer else { continue };
+            let context_free = match initializer {
+                tsr_ast::Expression::StringLiteral(_) | tsr_ast::Expression::NumericLiteral(_) => {
+                    true
+                }
+                tsr_ast::Expression::KeywordExpression(keyword) => {
+                    matches!(keyword.kind, SyntaxKind::TrueKeyword | SyntaxKind::FalseKeyword)
+                }
+                _ => false,
+            };
+            if !context_free {
+                continue;
+            }
+            let checked = self.check_expression(initializer);
+            if !self.store.get(checked).flags.intersects(crate::flags::TypeFlags::UNIT) {
+                continue;
+            }
+            // The §18 fresh/regular twin: the checked literal is FRESH, a
+            // constituent's member holds the REGULAR twin — compare regular.
+            let unit = self.get_regular_type_of_literal_type(checked);
+            discriminators.push((name, unit));
+        }
+        if discriminators.is_empty() {
+            return t;
+        }
+        // Upstream's ternary algorithm (`relater.go:1212`), mirrored: a
+        // constituent LACKING the member survives untouched; a non-matching
+        // member eliminates only when some constituent matched; primitives
+        // never enter the filtered set. "Matches" here is the unit-contains
+        // test plus the unit's own base primitive and `any` — an
+        // assignability slice sufficient for unit discriminators.
+        let mut include: Vec<bool> =
+            constituents
+                .iter()
+                .map(|&c| {
+                    !self.store.get(c).flags.intersects(
+                        crate::flags::TypeFlags::PRIMITIVE | crate::flags::TypeFlags::NEVER,
+                    )
+                })
+                .collect();
+        let mut eliminated_any = false;
+        for (name, unit) in &discriminators {
+            let mut matched = false;
+            let mut maybe: Vec<usize> = Vec::new();
+            for (i, &constituent) in constituents.iter().enumerate() {
+                if !include[i] {
+                    continue;
+                }
+                // Intersection constituents (StringAttribute = Base & {type:'string'})
+                // answer their discriminant only through the distributing road —
+                // the flat lookup missed them and the skipped discriminator left
+                // autoIncrement's constituent alive (the first pair's 0:104).
+                let Some(member) = self.contextual_property_type(constituent, name) else {
+                    continue;
+                };
+                if member == self.intrinsics.error {
+                    continue;
+                }
+                let base = {
+                    use crate::flags::TypeFlags;
+                    let flags = self.store.get(*unit).flags;
+                    if flags.contains(TypeFlags::STRING_LITERAL) {
+                        self.intrinsics.string
+                    } else if flags.contains(TypeFlags::NUMBER_LITERAL) {
+                        self.intrinsics.number
+                    } else if flags.contains(TypeFlags::BOOLEAN_LITERAL) {
+                        self.intrinsics.boolean
+                    } else {
+                        self.intrinsics.error
+                    }
+                };
+                let matches = member == *unit
+                    || member == base
+                    || member == self.intrinsics.any
+                    || matches!(
+                        &self.store.get(member).data,
+                        crate::types::TypeData::Union { types, .. }
+                            if types.contains(unit) || types.contains(&base)
+                    );
+                if matches {
+                    matched = true;
+                } else {
+                    maybe.push(i);
+                }
+            }
+            if matched {
+                for i in maybe {
+                    include[i] = false;
+                    eliminated_any = true;
+                }
+            }
+        }
+        if !eliminated_any {
+            return t;
+        }
+        let survivors: Vec<TypeId> =
+            constituents.iter().enumerate().filter(|(i, _)| include[*i]).map(|(_, &c)| c).collect();
+        if survivors.is_empty() {
+            return t;
+        }
+        match survivors.len() {
+            1 => survivors[0],
+            _ => self.get_union_type_unprinted(&survivors),
+        }
+    }
+
+    /// §98 (`checker-notes-narrow.md`): the member step of the §56 walk,
+    /// distributing over unions and intersections the way upstream's
+    /// `getTypeOfPropertyOfContextualTypeEx` (`checker.go:30555`) maps over
+    /// constituents via `mapTypeEx` with `noReductions`: each union
+    /// constituent that has the member contributes its type and the hits
+    /// union (unprinted — the result is consumed, never printed); an
+    /// intersection collects per-constituent concrete properties and
+    /// intersects. Generic mapped types inside are unported and decline.
+    fn contextual_property_type(&mut self, t: TypeId, name: &str) -> Option<TypeId> {
+        match &self.store.get(t).data {
+            crate::types::TypeData::Union { types, .. } => {
+                let constituents = types.clone();
+                let mut hits = Vec::new();
+                for constituent in constituents {
+                    if let Some(member) = self.contextual_property_type(constituent, name) {
+                        hits.push(member);
+                    }
+                }
+                // §98's fired leg (excessPropertyCheckWithUnions 0:17/0:84,
+                // both R→W on the first measurement): upstream DISCRIMINATES
+                // the union by the literal's sibling members before this
+                // lookup (`discriminateTypeByDiscriminableItems`,
+                // `checker.go:30779`), so it sees one constituent's member
+                // where this undiscriminated walk sees them all. When the
+                // hits mix a literal unit with its own base primitive, which
+                // constituent governs is exactly what discrimination decides
+                // — unported, so the walk declines rather than guesses.
+                if self.mixed_unit_and_base(&hits) {
+                    return None;
+                }
+                match hits.len() {
+                    0 => None,
+                    1 => Some(hits[0]),
+                    _ => Some(self.get_union_type_unprinted(&hits)),
+                }
+            }
+            crate::types::TypeData::Intersection { types, .. } => {
+                let constituents = types.clone();
+                // `T & { prop: boolean }` widens its literal members upstream
+                // (objectLiteralExcessProperties' obj2/obj4, R→W on the first
+                // pair when this arm answered `boolean`); a type-parameter
+                // constituent makes the member's context unshowable here.
+                if constituents.iter().any(|&c| {
+                    self.store.get(c).flags.intersects(crate::flags::TypeFlags::TYPE_PARAMETER)
+                }) {
+                    return None;
+                }
+                let mut hits = Vec::new();
+                for constituent in constituents {
+                    if let Some(member) = self.get_type_of_property_of_type(constituent, name)
+                        && member != self.intrinsics.error
+                    {
+                        hits.push(member);
+                    }
+                }
+                match hits.len() {
+                    0 => None,
+                    1 => Some(hits[0]),
+                    _ => Some(self.get_intersection_type(&hits, None)),
+                }
+            }
+            _ => self.get_type_of_property_of_type(t, name),
+        }
+    }
+
+    /// §98's decline test: across the flattened `hits`, does any literal
+    /// family appear both as a unit and as its base primitive? See the
+    /// fired-leg comment at the union arm.
+    fn mixed_unit_and_base(&self, hits: &[TypeId]) -> bool {
+        use crate::flags::TypeFlags;
+        let mut units = TypeFlags::empty();
+        let mut bases = TypeFlags::empty();
+        let mut leaves: Vec<TypeId> = Vec::new();
+        for &hit in hits {
+            if let crate::types::TypeData::Union { types, .. } = &self.store.get(hit).data {
+                leaves.extend(types.iter().copied());
+            } else {
+                leaves.push(hit);
+            }
+        }
+        for leaf in leaves {
+            let flags = self.store.get(leaf).flags;
+            for (unit, base) in [
+                (TypeFlags::STRING_LITERAL, TypeFlags::STRING),
+                (TypeFlags::NUMBER_LITERAL, TypeFlags::NUMBER),
+                (TypeFlags::BIG_INT_LITERAL, TypeFlags::BIG_INT),
+                (TypeFlags::BOOLEAN_LITERAL, TypeFlags::BOOLEAN),
+            ] {
+                if flags.contains(unit) {
+                    units |= unit;
+                } else if flags.contains(base) {
+                    bases |= match unit {
+                        TypeFlags::STRING_LITERAL => TypeFlags::STRING_LITERAL,
+                        TypeFlags::NUMBER_LITERAL => TypeFlags::NUMBER_LITERAL,
+                        TypeFlags::BIG_INT_LITERAL => TypeFlags::BIG_INT_LITERAL,
+                        _ => TypeFlags::BOOLEAN_LITERAL,
+                    };
+                }
+            }
+        }
+        units.intersects(bases)
+    }
+
     /// §56: the annotation-derived contextual type of an object-literal
     /// MEMBER, reached syntactically — property assignments and nested
     /// object literals only, ending at a `VariableDeclaration` with a written
@@ -1589,10 +1826,16 @@ impl<'a> Checker<'a, '_> {
                 // resolve). Reentrancy-guarded: typing the callee from
                 // inside a member-symbol computation can recurse.
                 SyntaxKind::CallExpression => {
+                    let debug = std::env::var("TSR_CTX_DEBUG").is_ok();
                     let Some(Node::CallExpression(call)) = self.node_map.get(holder) else {
                         return None;
                     };
-                    let callee = call.expression?;
+                    let Some(callee) = call.expression else {
+                        if debug {
+                            eprintln!("CTX: no callee");
+                        }
+                        return None;
+                    };
                     // The guard keys the CALL node: resolving the signature
                     // checks the ARGUMENTS, whose object-literal members
                     // walk back to this call — the cycle the first build hit
@@ -1603,8 +1846,16 @@ impl<'a> Checker<'a, '_> {
                     let callee_type = self.check_expression(callee);
                     let signature = self.resolve_call_signature(callee_type, Some(call.arguments));
                     self.narrow_value_stack.remove(&holder);
-                    let signature = signature?;
+                    let Some(signature) = signature else {
+                        if debug {
+                            eprintln!("CTX: no signature (callee {callee_type:?})");
+                        }
+                        return None;
+                    };
                     if !signature.type_parameters.is_empty() {
+                        if debug {
+                            eprintln!("CTX: generic signature");
+                        }
                         return None;
                     }
 
@@ -1612,16 +1863,34 @@ impl<'a> Checker<'a, '_> {
                         .arguments
                         .iter()
                         .position(|argument| argument.node_id() == Some(literal))?;
-                    let parameter = signature.parameters.get(index)?;
+                    let Some(parameter) = signature.parameters.get(index) else {
+                        if debug {
+                            eprintln!("CTX: no parameter at {index}");
+                        }
+                        return None;
+                    };
                     if parameter.rest {
                         return None;
                     }
                     let mut t = parameter.r#type;
+                    t = self.discriminate_union_root(t, literal);
                     for name in path.iter().rev() {
                         if t == self.intrinsics.error {
+                            if debug {
+                                eprintln!("CTX: error before member {name}");
+                            }
                             return None;
                         }
-                        t = self.get_type_of_property_of_type(t, name)?;
+                        let Some(next) = self.contextual_property_type(t, name) else {
+                            if debug {
+                                eprintln!("CTX: no member {name} on {t:?}");
+                            }
+                            return None;
+                        };
+                        t = next;
+                    }
+                    if debug {
+                        eprintln!("CTX: answer {t:?} (error={})", t == self.intrinsics.error);
                     }
                     return (t != self.intrinsics.error).then_some(t);
                 }
@@ -1651,11 +1920,48 @@ impl<'a> Checker<'a, '_> {
                         _ => None,
                     }?;
                     let mut t = self.get_type_from_type_node(annotation);
+                    t = self.discriminate_union_root(t, literal);
                     for name in path.iter().rev() {
                         if t == self.intrinsics.error {
                             return None;
                         }
-                        t = self.get_type_of_property_of_type(t, name)?;
+                        t = self.contextual_property_type(t, name)?;
+                    }
+                    return (t != self.intrinsics.error).then_some(t);
+                }
+                // §98: the ASSIGNMENT root — `c.x = { a: "a" }` contextually
+                // types its right operand by the LEFT operand's type
+                // (`getContextualTypeForBinaryOperand`'s equals arm,
+                // `checker.go:29843`). Plain `=` only; JS files decline (the
+                // `module.exports` exclusion upstream carves is not modelled).
+                SyntaxKind::BinaryExpression => {
+                    let Some(Node::BinaryExpression(binary)) = self.node_map.get(holder) else {
+                        return None;
+                    };
+                    if !binary
+                        .operator_token
+                        .is_some_and(|token| token.kind == SyntaxKind::EqualsToken)
+                        || binary.right.and_then(|e| e.node_id()) != Some(literal)
+                        || self.in_js_file(declaration)
+                    {
+                        return None;
+                    }
+                    let left = binary.left?;
+                    if !self.narrow_value_stack.insert(holder) {
+                        return None;
+                    }
+                    let root = self.check_expression(left);
+                    self.narrow_value_stack.remove(&holder);
+                    if root == self.intrinsics.error {
+                        return None;
+                    }
+                    let mut t = root;
+                    t = self.discriminate_union_root(t, literal);
+                    for name in path.iter().rev() {
+                        if t == self.intrinsics.error {
+                            return None;
+                        }
+                        t = self.contextual_property_type(t, name)?;
                     }
                     return (t != self.intrinsics.error).then_some(t);
                 }
@@ -1681,11 +1987,12 @@ impl<'a> Checker<'a, '_> {
                     // sets only), so LET holders retain like const.
                     let annotation = variable.r#type?;
                     let mut t = self.get_type_from_type_node(annotation);
+                    t = self.discriminate_union_root(t, literal);
                     for name in path.iter().rev() {
                         if t == self.intrinsics.error {
                             return None;
                         }
-                        t = self.get_type_of_property_of_type(t, name)?;
+                        t = self.contextual_property_type(t, name)?;
                     }
                     return (t != self.intrinsics.error).then_some(t);
                 }
