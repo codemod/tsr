@@ -45,7 +45,7 @@ fixes ride into the checker rows.
 | `module_resolution` | 95/95 | 100% | |
 | `file_loader` | 96/96 | 100% | |
 | **`printer_round_trip`** | **11,776/11,776** | **100%** | **COMPLETE** — was 99.80%; see the non-checker branch's row in §7 |
-| **`binder_symbols`** | **8,422/8,461** | **99.54%** | 8,310/8,473 → 8,422/8,461 across the thirteenth session's push toward 100%: alias/namespace-import/module-specifier transparency, canonical numeric names (`bd tsr-1`), late-bound bracket spellings, const-propagated computed names, export-default naming, exact unit pairing — and the reserved-word parser fidelity (`isIdentifier`, `parser.go:6248`) that faithfully moved 12 error-recovery cases out of the population. Remaining 39 all filed: `bd tsr-2` (JSDoc declarations, ~10), `bd tsr-3` (augmentation-of-reexport, ~8), `bd tsr-4` (late-bound expando, ~6), singles |
+| **`binder_symbols`** | **8,459/8,459** | **100%** | **COMPLETE** — 98.06% → 100% across the binder campaign; the mechanisms are in the fourteenth-session commits (tsr-1 canonical numeric names with the arena-threaded bind API, tsr-2 JSDoc declarations, tsr-3 export-star/augmentation bridges, scanner escape fidelity, and a checker-display layer anchored line-by-line to symbolToString) |
 | `isolated_declarations` | 13/15 | 86.67% | |
 | **`dts_emit`** | **333/374** | **89.04%** | 327 → 333 |
 | `dts_shape` | 860/1,008 | 85.32% | the `!!!!`-marker fix moved one case in, and it passes |
