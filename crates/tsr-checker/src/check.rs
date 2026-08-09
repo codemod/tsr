@@ -422,6 +422,7 @@ impl Checker<'_, '_> {
             }
             Node::ObjectLiteralExpression(_) => {
                 self.check_duplicate_object_literal_names(node);
+                self.check_private_name_in_object_literal(node);
                 ambient
             }
             Node::DeleteExpression(_) => {
@@ -761,6 +762,45 @@ impl Checker<'_, '_> {
                     &messages::_0_MODIFIER_CANNOT_BE_USED_HERE,
                     span,
                     ["async".to_string()],
+                ),
+            );
+        }
+    }
+
+    /// TS18016 — `Private identifiers are not allowed outside class bodies.`
+    ///
+    /// `checkGrammarObjectLiteralExpression`'s private-name arm
+    /// (`grammarchecks.go:1063`). An object literal is not a class body, so a
+    /// `#name` property is a grammar error wherever it appears — the error node
+    /// is the name. §388.
+    fn check_private_name_in_object_literal(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let Some(Node::ObjectLiteralExpression(literal)) = self.node_map.get(node) else { return };
+        for property in literal.properties {
+            let name = match property {
+                tsr_ast::ObjectLiteralElementLike::PropertyAssignment(assignment) => {
+                    assignment.name
+                }
+                tsr_ast::ObjectLiteralElementLike::MethodDeclaration(method) => method.name,
+                tsr_ast::ObjectLiteralElementLike::GetAccessorDeclaration(accessor) => {
+                    accessor.name
+                }
+                tsr_ast::ObjectLiteralElementLike::SetAccessorDeclaration(accessor) => {
+                    accessor.name
+                }
+                _ => continue,
+            };
+            let tsr_ast::PropertyName::PrivateIdentifier(private) = name else { continue };
+            let Some(id) = private.node_id else { continue };
+            let Some(file) = self.source_file_of_for_diagnostics(id) else { continue };
+            let span = self.nodes.span(id);
+            self.report(
+                file,
+                Diagnostic::new(
+                    &messages::PRIVATE_IDENTIFIERS_ARE_NOT_ALLOWED_OUTSIDE_CLASS_BODIES,
+                    span,
                 ),
             );
         }

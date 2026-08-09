@@ -22114,3 +22114,86 @@ widenings worth `+1` each. Starting a speculative one at the tail — with no
 semantic check done, on a rule whose row is 103 cases of mostly-relation work —
 is how §368's `−2` happened. **The list plus two hypotheses is a better handoff
 than a coin-flip build**, and the sweep itself was the deliverable.
+
+## §388 — both of §387's hypotheses disproved by grep; a third row found
+
+§387 recorded two hypotheses for §386's sweep so the next session would start
+from one. Applying §381's semantic condition — *does upstream report for the
+other variant here* — killed both, at two greps rather than two builds.
+
+- **`check.rs:1774`** matches a constructor **parameter property** by name. A
+  binding-pattern parameter cannot be a parameter property (TS1187 forbids the
+  combination), so `BindingName::Identifier` is *correct*.
+- **`nonexistent_property.rs:53`** carries TS2339, and upstream does **not**
+  report TS2339 for an unknown private name — `checkPrivateIdentifierPropertyAccess`
+  reaches TS18016 instead (`checker.go:11305`). `MemberName::Identifier` is
+  *correct* there too.
+
+> **Two hypotheses, two greps, two disproofs, zero builds.** §381 introduced the
+> semantic condition as the thing that turns a sweep candidate into a defect;
+> this is the first time it was applied *before* spending anything, and it
+> retired the sweep's two best candidates. The eleven remaining sites are worth
+> less than they looked an hour ago, and knowing that is the result.
+
+### What the second disproof handed over
+
+TS18016 is a code this port does not emit at all, and `diagslice` prices it at
+3 blocked / 2 single-line. Its object-literal site is nine lines
+(`grammarchecks.go:1063`):
+
+```go
+if name.Kind == ast.KindPrivateIdentifier {
+    c.grammarErrorOnNode(name, diagnostics.Private_identifiers_are_not_allowed_outside_class_bodies)
+}
+```
+
+```ts
+const obj = { #foo: 1 };   // TS18016 at column 5
+```
+
+§371 and §373's judgement applies: complete, small, and it supplies every line
+its cases want.
+
+### The bar
+
+```
+bar:  +2 of 3,  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **`class C { #foo = 1 }` reports.** A private field *in* a class body is the
+   legal case and is not an object literal.
+2. **A computed name `{ [x]: 1 }` reports.** Only `PrivateIdentifier` names.
+
+## §389 — §388 built: **+2**, bar met
+
+```
+diagnostics   1,887 → 1,889   (bar was +2;  +2, 0 LOST)   34.42%
+every other suite unmoved — both falsifiers negative
+```
+
+The row came from a **disproof**. §387's second hypothesis was that
+`nonexistent_property.rs:53` declined a private name it should report TS2339
+for; checking upstream showed it reports TS18016 instead, which retired the
+hypothesis *and* named a code this port did not emit at all.
+
+> **A disproof that names the right answer is worth more than the hypothesis
+> would have been.** §387 priced its two candidates at one `grep` each. Both
+> greps returned "this destructure is correct", and the second one also returned
+> a nine-line upstream function and a three-case row. The sweep's value turned
+> out not to be its candidates.
+
+### The session's method, as it actually worked
+
+```
+rank the gap                    diaggap, diagslice, diagnode, diagdeepen, diagpair
+find a row                      cheapest-first, occupied/claimed low
+read UPSTREAM for the rule      grep the message name — how many sites, how big
+read THIS PORT for what exists  §143, §383 — the part that stops over-scoping
+bar it, falsify it, build it, measure both sides, keep or revert whole
+```
+
+Every step after the first is a `grep`. The instruments narrow the search; they
+have never once decided a build. What decided the last twelve was reading nine
+lines of Go and four of Rust.
