@@ -14228,3 +14228,52 @@ not re-measured.
 
 The entry is corrected in `TASK-diagnostics.md` rather than deleted, per the
 project's rule about superseding.
+
+## §214 — the whole standing-LOST section is stale, and all three entries differently
+
+§213 corrected one entry. Re-measuring the other two, which cost two commands:
+
+```
+conformance/resolutionModeTripleSlash1
+  expected  /app.ts(3,1) TS2552
+  actual    (nothing)
+
+conformance/resolutionModeTripleSlash3   — identical
+```
+
+The handoff records these as *"extra TS2304 on `MODULE`"* — **one false positive
+from passing**. They emit **no diagnostic at all** now: they are one *missing*
+line from passing, which is the opposite classification. `extraonly` confirms
+it, listing neither.
+
+### All three entries, as recorded and as measured
+
+| entry | recorded | measured now |
+|---|---|---|
+| `validRegexp` | extra TS2304; *"the parser reads `/` as division"* | parser correct; one extra TS2304 from TS2304's own gate decision (§213) |
+| `resolutionModeTripleSlash1` | extra TS2304 on `MODULE` | **nothing emitted**; missing TS2552 |
+| `resolutionModeTripleSlash3` | extra TS2304 on `MODULE` | **nothing emitted**; missing TS2552 |
+
+**Three entries, three wrong.** The section's own framing explains why:
+
+> *"`diag2307` prints LOST on both sides of an edit, so a rule's existing loss
+> reads as furniture."*
+
+Furniture is not re-measured, and this section is the only part of the handoff
+with no bar, no commit stamp and no falsifier attached to any of its claims —
+while §1 of `STATUS.md` requires all three of every number on the page.
+
+### The rule, and it is the last one this session found
+
+> **Every carried claim needs the commit it was measured at — including the ones
+> that are not numbers.** A refusal has a bar (§194), a row has a case count
+> (§79), and a standing loss had neither, so it aged silently for an unknown
+> number of sessions. The fix is not more discipline at the point of writing; it
+> is that *a claim with no measurement stamp should not be quotable*.
+
+`file_loader` is no longer the owner of the two `resolutionMode` entries, and
+this workstream has been carrying it as a three-case blocker (§171 cited it,
+§188 corrected the citation, and neither re-ran the cases). **The remaining work
+there is a missing TS2552, not a false positive to remove.**
+
+The section is corrected in `TASK-diagnostics.md` rather than deleted.

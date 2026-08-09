@@ -473,8 +473,13 @@ false positive from passing** — and all three are diagnosed:
   (§40.3 +6, §50.1 −6, §79 *absent is right*) — a measured decision, not a
   defect. **A standing loss is a refusal with the bar left off; re-measure this
   list the way §194 says to re-measure a refusal.**
-- **`conformance/resolutionModeTripleSlash1` and `3`** — extra TS2304 on
-  `MODULE`. `/// <reference types="foo" />` against an `@types` package whose
+- **`conformance/resolutionModeTripleSlash1` and `3`** — ~~extra TS2304 on
+  `MODULE`.~~ **CORRECTED, §214: they emit NOTHING now.** Both are one
+  *missing* `TS2552` from passing, which is the opposite classification, and
+  `extraonly` lists neither. Whatever produced the extra TS2304 is gone —
+  §166's meaning filter and §208's export tables are the candidates, neither
+  confirmed. **Re-measure before quoting this family as a false-positive
+  blocker.** Original text, superseded: `/// <reference types="foo" />` against an `@types` package whose
   `exports` map sends `import` to `.d.mts` and `require` to `.d.cts`; the port
   loads neither. The sibling `2` is in `extraonly` too with two extra TS2552,
   meaning the port *did* load the `.d.mts` there. **Owner: `file_loader`.**
