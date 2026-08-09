@@ -21,6 +21,22 @@
 //!
 //! So the ordering is a **program** rather than a habit. Coverage does not run
 //! unless clippy exits zero, and there is no argument that skips it.
+//!
+//! # The second thing it prints, and why
+//!
+//! §283 lost a falsifier to a *silent partial build*: three edits were applied,
+//! the third failed its own assertion and left the file untouched, and the run
+//! still produced a plausible `+4`. The number moved, so nothing about the
+//! measurement said the build was incomplete — the traceback had scrolled past,
+//! above the number it was waiting for.
+//!
+//! > An edit that fails its own assertion is a silent partial build, and the
+//! > measurement cannot tell you.
+//!
+//! It can now: this prints `git diff --stat` immediately before the coverage
+//! run, in the same output. A build the author expected to touch three files
+//! and sees touch two is stopped by reading one line, not by remembering to
+//! check.
 
 use std::process::Command;
 
@@ -42,7 +58,11 @@ pub fn run(root: &std::path::Path) -> Result<()> {
              reported a 590-case collapse."
         );
     }
-    eprintln!("[measure] clippy clean; running coverage");
+    eprintln!("[measure] clippy clean");
+    // §283 — what is actually being measured, printed next to the number.
+    eprintln!("[measure] working tree:");
+    let _ = Command::new("git").args(["diff", "--stat", "HEAD"]).current_dir(root).status();
+    eprintln!("[measure] running coverage");
     let coverage = Command::new("cargo")
         .args(["run", "--release", "-q", "-p", "tsr-conformance", "--bin", "coverage"])
         .current_dir(root)
