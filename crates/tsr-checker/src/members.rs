@@ -660,6 +660,35 @@ impl Checker<'_, '_> {
                 Some(element) => element,
             });
         }
+        // §117 slice 2: the synthetic `.prototype` on a class STATIC side —
+        // upstream mints it typed as the INSTANCE (generic classes: the
+        // reference over per-parameter `any`); a WRITTEN member named
+        // `prototype` would be found by the symbol road, but upstream's mint
+        // shadows statics only where no such member exists, and a class
+        // cannot declare one (TS2699), so answering first is safe. Function
+        // receivers keep the fallback's `any`-family answers.
+        if name == "prototype"
+            && let TypeData::Anonymous { symbol, .. } = self.store.get(id).data
+            && self
+                .binder
+                .symbols()
+                .get(self.binder.merged_symbol(symbol))
+                .flags
+                .contains(SymbolFlags::CLASS)
+        {
+            let class = self.binder.merged_symbol(symbol);
+            let parameters = self.local_type_parameters_of(class);
+            if parameters.is_empty() {
+                let instance = self.get_declared_type_of_symbol(class);
+                if instance != self.intrinsics.error {
+                    return Some(instance);
+                }
+            } else {
+                let any = self.intrinsics.any;
+                let arguments = vec![any; parameters.len()];
+                return Some(self.create_type_reference(class, arguments));
+            }
+        }
         if let Some(property) = self.get_property_of_type(id, name) {
             let declared = self.get_type_of_symbol(property);
             let instantiated = self.instantiate_for_reference(id, declared);

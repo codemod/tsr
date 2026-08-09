@@ -4777,3 +4777,11 @@ Falsifiers: (a) `prototype` on non-class receivers (functions'
 `.prototype` is `any` upstream — the FUNCTION arm answers any, not
 the instance); (b) written `prototype` MEMBERS (a user property
 named prototype wins — the symbol road runs first).
+
+**§117 slice 2 — LANDED at +181/0.** The synthetic `.prototype`:
++178 G→R + 3 W→R, ZERO adverse (jsDeclarationsGetterSetter 30,
+constructorHasPrototypeProperty 26, instanceMemberAssignsToClass
+16, spread over 30+ cases). Both falsifiers held by construction:
+function receivers never enter (CLASS flag gate) and TS2699 makes
+the written-member shadow unreachable. The generic arm (reference
+over per-parameter any) fired without adverse.
