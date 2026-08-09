@@ -341,6 +341,7 @@ impl Checker<'_, '_> {
                 ambient
             }
             Node::VariableDeclaration(declaration) => {
+                self.check_using_is_initialized(node);
                 self.check_outer_scoped_variable(node);
                 self.check_ambient_initializer(
                     node,
@@ -2322,6 +2323,51 @@ impl Checker<'_, '_> {
             Diagnostic::new(
                 &messages::ABSTRACT_MODIFIER_CAN_ONLY_APPEAR_ON_A_CLASS_METHOD_OR_PROPERTY_DECLARATION,
                 span,
+            ),
+        );
+    }
+
+    /// TS1155 — `'{0}' declarations must be initialized.`
+    ///
+    /// `checkGrammarVariableDeclaration` (`grammarchecks.go:1569`), **`using`
+    /// and `await using` only**. Upstream's switch has a third arm for `const`;
+    /// §497 measured the three together at `−5` and this port declines that arm
+    /// with a measured reason — a `const` with no initialiser is legal in an
+    /// ambient context and after a grammar error, and §257 recorded 227 wrong
+    /// lines from one case when a related rule mishandled exactly that. §509.
+    fn check_using_is_initialized(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let Some(Node::VariableDeclaration(declaration)) = self.node_map.get(node) else { return };
+        if declaration.initializer.is_some() || declaration.exclamation_token.is_some() {
+            return;
+        }
+        let Some(list) = self.nodes.parent(node) else { return };
+        let Some(statement) = self.nodes.parent(list) else { return };
+        if matches!(
+            self.nodes.kind(statement),
+            SyntaxKind::ForInStatement | SyntaxKind::ForOfStatement
+        ) {
+            return;
+        }
+        if !self.nodes.flags(list).contains(tsr_ast::NodeFlags::USING) {
+            return;
+        }
+        if self.declaration_is_in_an_ambient_context(node) {
+            return;
+        }
+        let awaited = matches!(self.node_map.get(statement), Some(Node::VariableStatement(s))
+            if has_modifier(s.modifiers, SyntaxKind::AwaitKeyword));
+        let keyword = if awaited { "await using" } else { "using" };
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let span = self.error_span(node);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::_0_DECLARATIONS_MUST_BE_INITIALIZED,
+                span,
+                [keyword.to_string()],
             ),
         );
     }

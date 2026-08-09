@@ -27013,3 +27013,85 @@ still measured `−5` (§497), and TS1359 needs `AWAIT_CONTEXT`, which has no
 ancestor-walk equivalent because it is a *parser context*, not a modifier.
 
 **The sixteen is now six-done, three-unknown, seven-parser.**
+
+## §509 — TS1155 retried: the `const` arm was the over-reporter
+
+§497 measured TS1155 at `−5` and left it unisolated (§131, after two
+hypotheses). §508's lesson — *re-examine the predicate already in the file* —
+points at a different part of the same rule: not the ambient test, but the
+**message-argument switch**.
+
+All three fixtures are `using` declarations:
+
+```ts
+{
+    using a;          // TS1155 — 'using' declarations must be initialized
+}
+```
+
+Upstream's switch has three arms — `await using`, `using`, `const` — and the
+**`const` arm is the one this port cannot afford**: a `const` with no
+initialiser is legal in an ambient context *and* after a grammar error, and §257
+recorded that `declare const b: B` alone supplied **227 wrong lines** from one
+case when a related rule got its ambient test wrong.
+
+So the retry is the same rule with the `const` arm removed — §501's discipline
+applied prospectively: **name the arm you are not porting, and why.**
+
+### The bound
+
+`using` and `await using` only. The `const` arm is declined with a measured
+reason (§497's `−5`) rather than an assumed one, and stays declined until
+someone measures it alone.
+
+### The bar
+
+```
+bar:  +2 of 3,  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **`const x;` reports.** The arm is removed; if it fires, the removal failed.
+2. **`using a = expr;` reports.** The initialiser test is unchanged.
+
+## §510 — §509 built: **+3**, the row closes, and §497's `−5` is explained
+
+```
+diagnostics     2,031 → 2,034   (bar was +2;  +3, 0 LOST)   37.06%
+checker_types   4,074 → 4,075
+```
+
+All three TS1155 cases convert. **§497's `−5` was the `const` arm alone**, and
+removing it turned the same rule from a five-line loss into a three-case gain.
+
+### Two refusals overturned in three builds, by the same move
+
+```
+§497  TS1155  −5, unisolated, owner "the parser's unset flags"
+§508  TS1038  the "parser change" was a predicate already in the file   +5
+§509  TS1155  the loss was one arm of a three-arm switch                +3
+```
+
+> **Both refusals blamed a missing subsystem and both were arithmetic inside a
+> rule already written.** §441 predicted that subsystem-named refusals never
+> reopen, and it was right about the *form* — neither reopened until something
+> forced a second look at the code rather than at the owner.
+>
+> The forcing function in both cases was **§501's discipline: name the arm you
+> did not port.** §509 exists because §497 had written down that its rule
+> covered three arms; without that sentence there would have been nothing to
+> subtract.
+
+### §507's sixteen, final
+
+```
+TS1038  6   §508  converted, no parser change
+TS1155  3   §509  converted, no parser change
+TS1359  7         genuinely needs AWAIT_CONTEXT / YIELD_CONTEXT
+```
+
+**Nine of the sixteen needed no parser work at all.** The remaining seven are
+the honest parser item, and §499's implementation sketch stands for those —
+with the estimate corrected from sixteen to **seven**, which is the number the
+next session should weigh against a day of parser risk.
