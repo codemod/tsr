@@ -13148,3 +13148,49 @@ pointed at it because nothing that *emits* a diagnostic looked wrong.
 is **not** in this build. It measured `diagnostics −6` when the sink still
 double-reported; that number is now stale and it should be re-run on top of this
 guard before anyone believes it. It is `bd`-filed with that instruction.
+
+## §194 — §191's conjunct, re-run on the fixed sink: the fourth refusal reverses
+
+§191 refused `IsLeftHandSideExpression` at `diagnostics −6` and §193 said the
+number was stale because the sink still double-reported. Re-run, unchanged:
+
+| suite | §191 (broken sink) | §194 (fixed sink) |
+|---|---:|---:|
+| `diagnostics` | **−6** | **0** |
+| `checker_types` | +6 | **+6** |
+| `parser_typescript` | 5,031/5,031 | 5,031/5,031 |
+| `binder_symbols` | 100% | 100% |
+| `printer_round_trip` | 100% | 100% |
+
+**The −6 was entirely the spurious TS1012.** With the sink correct, the conjunct
+costs this suite nothing and pays `checker_types` six cases — a build with no
+downside anywhere, held out of the tree for two sections by a number measured
+against a defect one layer below it.
+
+`binder_symbols` and `printer_round_trip` stay at 100% with denominators two
+smaller: two files now carry a parse error, which is the *point*, and they leave
+those suites the way every other genuinely-broken file does.
+
+### Four refusals, four reversals, and what they have in common
+
+| § | refused because | reversed by | delay |
+|---|---|---|---|
+| 164 | `is_value_reference` blamed | §165, one measurement | one hour |
+| 186 | alias resolution "unported" | §187, one `grep` | +6 cases |
+| 171 | `file_loader` blamed | §189, restoring the build | +14 cases |
+| 191 | measured `−6` | §194, fixing a layer below | +6 `checker_types` |
+
+The first three named a subsystem without checking it — §189's rule. **§191 did
+not**: it named a *measurement*, which the rule permits, and it was still wrong,
+because the measurement was taken over a stack that had a defect in it.
+
+> **The rule needs its second half.** A refusal may state what was measured —
+> **and must state what the measurement was taken through.** §191's `−6` was
+> true of a parser whose reporting sink dropped nothing; it was never true of
+> the language. The falsifier that would have caught it is one line: *"re-run
+> this if anything under it changes"*, which §142 already demands of refusals
+> and which this board has now failed to apply to its own.
+
+Every refusal in this file should carry the state it was measured against.
+§142 said so about `bd tsr-6re`'s number; four reversals in one session say it
+about all of them.

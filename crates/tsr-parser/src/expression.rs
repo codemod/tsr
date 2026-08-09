@@ -72,6 +72,54 @@ fn binary_precedence(kind: SyntaxKind) -> Option<u8> {
 }
 
 /// Whether `kind` is an assignment operator.
+/// `ast.IsLeftHandSideExpression` — the set the assignment productions may
+/// start with.
+///
+/// Transcribed rather than reused: `tsr_binder::narrowing` has the same
+/// predicate and it is crate-private there, and the parser must not depend on
+/// the binder.
+fn is_left_hand_side_expression(expression: Expression<'_>) -> bool {
+    matches!(
+        expression,
+        Expression::PropertyAccessExpression(_)
+            | Expression::ElementAccessExpression(_)
+            | Expression::NewExpression(_)
+            | Expression::CallExpression(_)
+            | Expression::JsxElement(_)
+            | Expression::JsxSelfClosingElement(_)
+            | Expression::JsxFragment(_)
+            | Expression::TaggedTemplateExpression(_)
+            | Expression::ArrayLiteralExpression(_)
+            | Expression::ParenthesizedExpression(_)
+            | Expression::ObjectLiteralExpression(_)
+            | Expression::ClassExpression(_)
+            | Expression::FunctionExpression(_)
+            | Expression::Identifier(_)
+            | Expression::PrivateIdentifier(_)
+            | Expression::RegularExpressionLiteral(_)
+            | Expression::NumericLiteral(_)
+            | Expression::BigIntLiteral(_)
+            | Expression::StringLiteral(_)
+            | Expression::NoSubstitutionTemplateLiteral(_)
+            | Expression::TemplateExpression(_)
+            | Expression::NonNullExpression(_)
+            | Expression::ExpressionWithTypeArguments(_)
+            | Expression::MetaProperty(_)
+    ) || matches!(
+        expression,
+        Expression::KeywordExpression(keyword)
+            if matches!(
+                keyword.kind,
+                SyntaxKind::FalseKeyword
+                    | SyntaxKind::NullKeyword
+                    | SyntaxKind::ThisKeyword
+                    | SyntaxKind::TrueKeyword
+                    | SyntaxKind::SuperKeyword
+                    | SyntaxKind::ImportKeyword
+            )
+    )
+}
+
 fn is_assignment_operator(kind: SyntaxKind) -> bool {
     (SyntaxKind::FIRST_ASSIGNMENT as u16..=SyntaxKind::LAST_ASSIGNMENT as u16)
         .contains(&(kind as u16))
@@ -150,7 +198,14 @@ impl<'a> Parser<'a> {
 
         let left = self.parse_binary_expression(0);
 
-        if is_assignment_operator(self.token.kind) {
+        // `ast.IsLeftHandSideExpression(expr) && ast.IsAssignmentOperator(...)`
+        // (`parser.go:4143`) — **both** conjuncts. The assignment productions
+        // can only start with a `LeftHandSideExpression`, which is upstream's
+        // own comment three lines above, so `x++ = 4` is not an assignment
+        // there: the `=` falls through and the statement gets `';' expected`.
+        // §190 found the omission; §191 refused it at `diagnostics −6` while
+        // the reporting sink still double-reported, and §193 fixed the sink.
+        if is_left_hand_side_expression(left) && is_assignment_operator(self.token.kind) {
             let operator = self.take_token();
             let right = self.parse_assignment_expression();
             let node = self.finish_node(
