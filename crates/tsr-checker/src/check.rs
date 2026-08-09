@@ -251,6 +251,7 @@ impl Checker<'_, '_> {
                 ambient
             }
             Node::InterfaceDeclaration(_) => {
+                self.check_conflicting_inherited_primitives(node);
                 self.check_private_name_in_object_literal(node);
                 self.check_heritage_conformance(node);
                 self.check_index_constraints(node);
@@ -1242,6 +1243,152 @@ impl Checker<'_, '_> {
                 [text],
             ),
         );
+    }
+
+    /// TS2320 — `Interface '{0}' cannot simultaneously extend types '{1}' and
+    /// '{2}'.`
+    ///
+    /// §450's member-wise argument over the base chain: two bases contribute
+    /// one name with different written primitives, and two distinct intrinsic
+    /// singletons are unrelated, so two maps decide it and no relation runs.
+    /// Bases are gathered across **all declarations of the symbol** — the
+    /// corpus's shape is a twice-declared interface with one base each. §454.
+    fn check_conflicting_inherited_primitives(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let Some(Node::InterfaceDeclaration(interface)) = self.node_map.get(node) else { return };
+        let Some(name_id) = interface.name.and_then(|name| name.node_id) else { return };
+        let Some(symbol) = self.binder.symbol_of(node) else { return };
+        let symbol = self.binder.merged_symbol(symbol);
+        let declarations = self.binder.symbols().get(symbol).declarations.clone();
+        // Report once, from the first declaration.
+        if declarations.first() != Some(&node) {
+            return;
+        }
+        let mut seen: Vec<(String, SyntaxKind, String)> = Vec::new();
+        for declaration in &declarations {
+            let Some(Node::InterfaceDeclaration(each)) = self.node_map.get(*declaration) else {
+                continue;
+            };
+            for clause in each.heritage_clauses {
+                for base in clause.types {
+                    let Some(expression) = base.expression.and_then(|e| e.node_id()) else {
+                        continue;
+                    };
+                    if !base.type_arguments.is_empty() {
+                        continue;
+                    }
+                    let Some(text) = self.identifier_text(expression).map(str::to_string) else {
+                        continue;
+                    };
+                    let Some(members) = self.inherited_primitive_members(expression, &text, 0)
+                    else {
+                        continue;
+                    };
+                    for (member, kind) in members {
+                        if let Some((_, other, other_base)) =
+                            seen.iter().find(|(name, _, b)| *name == member && *b != text)
+                            && *other != kind
+                        {
+                            let other_base = other_base.clone();
+                            let Some(file) = self.source_file_of_for_diagnostics(name_id) else {
+                                return;
+                            };
+                            let span = self.error_span(name_id);
+                            let printed =
+                                self.identifier_text(name_id).unwrap_or_default().to_string();
+                            self.report(
+                                file,
+                                Diagnostic::with_args(
+                                    &messages::INTERFACE_0_CANNOT_SIMULTANEOUSLY_EXTEND_TYPES_1_AND_2,
+                                    span,
+                                    [printed, other_base, text.clone()],
+                                ),
+                            );
+                            return;
+                        }
+                        seen.push((member, kind, text.clone()));
+                    }
+                }
+            }
+        }
+    }
+
+    /// The non-optional property signatures of a type member list whose written
+    /// annotation names an intrinsic primitive. §454 (first written for §405,
+    /// which measured `+0` and was reverted; the helper is sound and its caller
+    /// there was the problem).
+    fn written_primitive_members<'m>(
+        &self,
+        members: &'m [tsr_ast::TypeElement<'m>],
+    ) -> Vec<(String, SyntaxKind)> {
+        members
+            .iter()
+            .filter_map(|member| {
+                let tsr_ast::TypeElement::PropertySignatureDeclaration(property) = member else {
+                    return None;
+                };
+                if property.postfix_token.is_some() {
+                    return None;
+                }
+                let tsr_ast::PropertyName::Identifier(name) = property.name else { return None };
+                let annotation = property.r#type.and_then(|t| t.node_id())?;
+                let Some(Node::KeywordTypeNode(keyword)) = self.node_map.get(annotation) else {
+                    return None;
+                };
+                matches!(
+                    keyword.kind,
+                    SyntaxKind::StringKeyword
+                        | SyntaxKind::NumberKeyword
+                        | SyntaxKind::BooleanKeyword
+                        | SyntaxKind::BigIntKeyword
+                )
+                .then(|| (name.text.to_string(), keyword.kind))
+            })
+            .collect()
+    }
+
+    /// A base interface's primitive members, its own plus one hop of its own
+    /// bases. `None` if any member is not a non-optional primitive property —
+    /// §450's partial-map rule. §454.
+    fn inherited_primitive_members(
+        &self,
+        reference: NodeId,
+        text: &str,
+        depth: u32,
+    ) -> Option<Vec<(String, SyntaxKind)>> {
+        if depth > 1 {
+            return None;
+        }
+        let symbol = self.binder.resolve_name(
+            self.nodes,
+            self.node_map,
+            reference,
+            text,
+            SymbolFlags::TYPE,
+        )?;
+        let symbol = self.binder.merged_symbol(symbol);
+        let declarations = self.binder.symbols().get(symbol).declarations.clone();
+        let [declaration] = declarations.as_slice() else { return None };
+        let Some(Node::InterfaceDeclaration(interface)) = self.node_map.get(*declaration) else {
+            return None;
+        };
+        if !interface.type_parameters.is_empty() {
+            return None;
+        }
+        let mut out = self.written_primitive_members(interface.members);
+        if out.len() != interface.members.len() {
+            return None;
+        }
+        for clause in interface.heritage_clauses {
+            for base in clause.types {
+                let id = base.expression.and_then(|e| e.node_id())?;
+                let inner = self.identifier_text(id)?.to_string();
+                out.extend(self.inherited_primitive_members(id, &inner, depth + 1)?);
+            }
+        }
+        Some(out)
     }
 
     fn check_this_in_module_body(&mut self, node: NodeId) {

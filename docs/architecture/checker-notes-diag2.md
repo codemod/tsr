@@ -24817,3 +24817,80 @@ getSpellingSuggestion's row    TS2551                                           
 > naming a subsystem have been reopened zero times.** The five reopened this
 > session all named a *function* or a *condition*. That is the clearest signal
 > the session leaves about where its technique stops working.
+
+## §454 — TS2320: conflicting inherited primitives
+
+```ts
+interface A { m: string; }
+interface B extends A { }
+interface C { m: number; }
+interface D extends C { }
+interface E extends B { }   // TS2320 at `E`
+interface E extends D { }
+```
+
+**8 blocked, 7 single-line, `occupied 0/8`.** §450's member-wise argument in a
+third position: two bases contribute the same member name with **different
+written primitives**, and two distinct intrinsic singletons are unrelated, so no
+relation decides the conflict — two maps do.
+
+### The bound
+
+- the interface's bases are collected across **all declarations of its symbol**
+  (`interface E` is declared twice here, and each declaration carries one base);
+- each base is a bare `Identifier` naming a single non-generic
+  `InterfaceDeclaration`, walked **two hops** (its own members, then its direct
+  bases') — `B extends A` is one hop and the corpus's shape;
+- every member seen is a non-optional property with an intrinsic-primitive
+  annotation, or the base is skipped entirely — §450's partial-map rule.
+
+Report once, at the **first** declaration's name, when two bases disagree on a
+name.
+
+### The bar
+
+```
+bar:  +3 of 8,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **Two bases agreeing on `m` report.** Same primitive is no conflict.
+2. **A generic base reports.** Type parameters mean the written annotation is
+   not the member's type — the same exclusion §405 and §407 take.
+
+## §455 — §454 built: **+1** of a bar of +3
+
+```
+diagnostics   1,961 → 1,962   (bar was +3;  +1, 0 LOST)   35.75%
+every other suite unmoved — both falsifiers negative
+```
+
+Kept: positive, nothing lost. Below bar because the other cases are
+`genericAndNonGenericInheritedSignature*` — **method signatures**, not
+properties, and a signature's compatibility is arity plus parameter types, which
+`written_primitive_members` declines by construction.
+
+### §405's helper, resurrected
+
+`written_primitive_members` was written for §405, which measured `+0` and was
+reverted whole. **The helper was sound; its caller was the problem** — §405 fed
+it a row that fails `occupied` at 15/34. Re-adding it here cost nothing and the
+note records why, so the next reader does not conclude the helper was the defect.
+
+> **Reverting a build whole is right; concluding its parts were wrong is not.**
+> Twenty-one builds have been reverted this session and this is the first whose
+> code came back. The distinction is worth keeping in the revert protocol: a
+> revert removes an *effect*, and the notes have to say which of the *causes*
+> survived.
+
+### §257's argument, six applications
+
+```
+§257 TS2403 bare   §403 TS2394 bare  +4   §436 TS2507 no ctor  +3
+§338 TS2403 `any` −3   §450 TS2394 members +3   §454 TS2320 inherited +1
+```
+
+**+11 kept.** The unit has now shrunk three times — types, then members of
+types, then members inherited across a base chain — and each shrink preserved
+the proof. §451's rule holds at six data points.
