@@ -937,3 +937,15 @@ multi-candidate callee) is the priced fallback. Predict +10–40
 (annotated-ternary spillover: `var x: F = cond ? arrow : arrow`
 family); must NOT move: §114's converts, §68's return-position
 family. Adverse over 1:5 refuses per standard.
+
+**§115 score — LANDED at +98/0.** right 408,346 → **408,444** on
+the full pair: **+94 W→R +4 G→R, ZERO adverse in any column** —
+conditionalOperatorWithoutIdenticalBCT 32, WithIdenticalBCT 20,
+contextualTypingOfConditionalExpression 18, wide tail. The bar's
+named risk (re-creating §114's artifact positions as real adverse)
+did not materialize: the callee arm's own guards decline the
+overload-ambiguous transmissions before this arm can relay them.
+Above the +10–40 prediction — the conditional-operator BCT families
+were not in the sizing, the §96-lesson shape again (favorable
+direction). One dispatch arm, ten minutes, +98: the §114 nine-round
+archive is what made it ten minutes.

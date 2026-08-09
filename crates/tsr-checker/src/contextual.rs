@@ -398,6 +398,17 @@ impl<'a> Checker<'a, '_> {
                 Some(self.get_type_from_type_node(annotation))
             }
             Node::CallExpression(call) => self.contextual_type_for_argument(call, node),
+            // SS115: a ternary BRANCH answers the conditional's own context;
+            // the CONDITION answers nil
+            // (getContextualTypeForConditionalOperand, checker.go:30022).
+            Node::ConditionalExpression(conditional) => {
+                let is_branch = conditional.when_true.and_then(|e| e.node_id()) == Some(node)
+                    || conditional.when_false.and_then(|e| e.node_id()) == Some(node);
+                if !is_branch {
+                    return None;
+                }
+                self.get_contextual_type(parent)
+            }
             Node::PropertyAssignment(element) => {
                 self.contextual_type_for_object_literal_element(parent, element)
             }
