@@ -97,6 +97,13 @@ pub trait ModuleHost {
     /// checker still gaps.
     fn resolved_module(&self, importing_file: NodeId, specifier: &str) -> Option<NodeId>;
 
+    /// §110: the `TypeParameterDeclaration` node ids a declaration's JSDoc
+    /// `@template` tags carry, in tag order. Id-vocabulary per ADR-0034;
+    /// default empty so hosts without JSDoc (unit checkers) change nothing.
+    fn jsdoc_template_parameters(&self, _declaration: NodeId) -> Vec<NodeId> {
+        Vec::new()
+    }
+
     /// Did resolution name a file **at all**, whether or not the program holds
     /// it?
     ///

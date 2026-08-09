@@ -414,6 +414,9 @@ pub struct Checker<'a, 'n> {
     /// substitution runs over signatures that legitimately mention ENCLOSING
     /// (foreign) parameters; real instantiation keeps the refusal.
     pub(crate) identity_unmapped_type_parameters: bool,
+    /// §110: JSDoc per host node, handed by whoever built the tree (the
+    /// conformance producer or a driver); consulted before the module host.
+    pub(crate) jsdoc_entries: FxHashMap<NodeId, &'a [&'a tsr_ast::JSDoc<'a>]>,
     /// §107: the RENDER scope — (name, symbol) of each signature's own type
     /// parameters, pushed for the duration of its slot rendering.
     pub(crate) render_type_parameter_scope: Vec<(String, tsr_binder::SymbolId)>,
@@ -617,6 +620,15 @@ impl<'a, 'n> Checker<'a, 'n> {
     /// Passing `None` is [`Checker::new`], and the two share this body so they
     /// cannot drift.
     #[must_use]
+    /// §110: hand the checker a file's JSDoc side table.
+    pub fn set_jsdoc(
+        &mut self,
+        entries: impl IntoIterator<Item = (NodeId, &'a [&'a tsr_ast::JSDoc<'a>])>,
+    ) {
+        self.jsdoc_entries.extend(entries);
+    }
+
+    /// Create a checker that can reach another file through `module_host`.
     pub fn with_module_host(
         binder: &'a BindResult<'a>,
         nodes: &'n NodeTable,
@@ -721,6 +733,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             alias_inline_level: 0,
             non_null_type_variables: FxHashMap::default(),
             non_null_mint_bases: FxHashMap::default(),
+            jsdoc_entries: FxHashMap::default(),
             identity_unmapped_type_parameters: false,
             render_type_parameter_scope: Vec::new(),
             alias_body_evaluations: FxHashMap::default(),

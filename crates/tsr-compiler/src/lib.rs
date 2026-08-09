@@ -607,6 +607,30 @@ impl tsr_checker::resolution::ModuleHost for Program<'_> {
     fn module_resolution_found(&self, importing_file: NodeId, specifier: &str) -> bool {
         Program::module_resolution_found(self, importing_file, specifier)
     }
+    fn jsdoc_template_parameters(&self, declaration: NodeId) -> Vec<NodeId> {
+        // §110: linear over files, then over each file's (host, docs) rows —
+        // the table is small and the call is bake-time-only.
+        let mut parameters = Vec::new();
+        for file in self.root_and_referenced_files() {
+            let docs = file.jsdoc().get(declaration);
+            {
+                for doc in docs {
+                    for tag in doc.tags {
+                        if let tsr_ast::JSDocTag::JSDocTemplateTag(template) = tag {
+                            parameters.extend(
+                                template
+                                    .type_parameters
+                                    .iter()
+                                    .filter_map(|parameter| parameter.node_id),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        parameters
+    }
+
     fn jsx_factory_namespace(&self, file: tsr_ast::NodeId) -> Option<String> {
         self.root_and_referenced_files()
             .iter()

@@ -4441,3 +4441,19 @@ field populated at checker construction from the same table the
 producer already holds, consulted by `signature_parts_of` (and the
 JS-gate) when `type_parameters` is empty. Touches the checker
 constructor + producer call sites; no new parsing, no new binding.
+
+**§110 slice 1 — LANDED at +1/0, and the probe chain names slice 2.**
+The plumbing works end-to-end (verified by probe: the fallback fires
+63× on jsdocTemplateTag6 with js=true and the host road returning
+exactly 1 template parameter per declaration — trait method with a
+default, the Program impl over the files' JSDoc tables, the
+checker-side consult with an ancestor-host walk for arrow/statement
+attachment, and a `jsdoc_entries` field for host-less drivers). The
+family's wants barely move because a JS signature ALSO needs its
+PARAMETER and RETURN types from the doc comment (`@param {T} x`,
+`@returns {T}`) — `<const T>(x: T) => T` prints `x: any` until the
+JSDocParameterTag/JSDocReturnTag halves land through the same
+consult. Isolated: +1 W→R (unusedTypeParameters_templateTag),
+2 W→G, zero adverse. Slice 2 = the param/return tags; the identity
+roads (`type_parameter_types`, §102/§107 matches) also need the
+JSDoc-declaration arm before renames can see these params.

@@ -209,7 +209,10 @@ enum Body<'a> {
 struct SignatureParts<'a> {
     modifiers: &'a [ModifierLike<'a>],
     asterisk: bool,
-    type_parameters: &'a [&'a TypeParameterDeclaration<'a>],
+    /// A `Vec` rather than the node's slice since §110: a JS declaration's
+    /// type parameters come from its JSDoc `@template` tags, which live in a
+    /// side table, not on the node.
+    type_parameters: Vec<&'a TypeParameterDeclaration<'a>>,
     parameters: &'a [&'a ParameterDeclaration<'a>],
     return_annotation: Option<TypeNode<'a>>,
     body: Option<Body<'a>>,
@@ -520,7 +523,69 @@ impl<'a> Checker<'a, '_> {
         &mut self,
         declaration: NodeId,
     ) -> Option<Signature> {
-        let parts = self.signature_parts_of(declaration)?;
+        let mut parts = self.signature_parts_of(declaration)?;
+        // §110 (`checker-notes-narrow.md`): a JS declaration's type
+        // parameters live in its JSDoc `@template` tags — a side table the
+        // module host carries; the node's own list is empty there.
+        if parts.type_parameters.is_empty() && self.in_js_file(declaration) {
+            // The DOC HOST for an arrow/function expression is the enclosing
+            // statement (`/** @template T */ const f = (x) => x` attaches to
+            // the VariableStatement) — walk out through expression-position
+            // parents, upstream's `getJSDocHost` chain.
+            let mut hosts = vec![declaration];
+            let mut current = self.nodes.parent(declaration);
+            for _ in 0..4 {
+                let Some(id) = current else { break };
+                match self.nodes.kind(id) {
+                    SyntaxKind::VariableDeclaration
+                    | SyntaxKind::VariableDeclarationList
+                    | SyntaxKind::VariableStatement
+                    | SyntaxKind::PropertyAssignment
+                    | SyntaxKind::PropertyDeclaration
+                    | SyntaxKind::ExpressionStatement
+                    | SyntaxKind::ParenthesizedExpression
+                    | SyntaxKind::ExportAssignment
+                    | SyntaxKind::BinaryExpression => {
+                        hosts.push(id);
+                        current = self.nodes.parent(id);
+                    }
+                    _ => break,
+                }
+            }
+            let mut from_jsdoc: Vec<&tsr_ast::TypeParameterDeclaration<'a>> = Vec::new();
+            for host_node in &hosts {
+                if let Some(docs) = self.jsdoc_entries.get(host_node) {
+                    for doc in *docs {
+                        for tag in doc.tags {
+                            if let tsr_ast::JSDocTag::JSDocTemplateTag(template) = tag {
+                                from_jsdoc.extend(template.type_parameters.iter().copied());
+                            }
+                        }
+                    }
+                }
+                if !from_jsdoc.is_empty() {
+                    break;
+                }
+            }
+            for host_node in &hosts {
+                if !from_jsdoc.is_empty() {
+                    break;
+                }
+                if let Some(host) = self.module_host {
+                    from_jsdoc.extend(
+                        host.jsdoc_template_parameters(*host_node).into_iter().filter_map(|id| {
+                            match self.node_map.get(id) {
+                                Some(Node::TypeParameterDeclaration(parameter)) => Some(parameter),
+                                _ => None,
+                            }
+                        }),
+                    );
+                }
+            }
+            if !from_jsdoc.is_empty() {
+                parts.type_parameters = from_jsdoc;
+            }
+        }
         let (modifiers, asterisk) = (parts.modifiers, parts.asterisk);
         let type_parameter_nodes = parts.type_parameters;
         let parameter_nodes = parts.parameters;
@@ -2004,7 +2069,7 @@ impl<'a> Checker<'a, '_> {
             Node::FunctionDeclaration(node) => Some(SignatureParts {
                 modifiers: node.modifiers,
                 asterisk: node.asterisk_token.is_some(),
-                type_parameters: node.type_parameters,
+                type_parameters: node.type_parameters.to_vec(),
                 parameters: node.parameters,
                 return_annotation: node.r#type,
                 body: node.body.and_then(|body| body.node_id()).map(Body::Block),
@@ -2013,7 +2078,7 @@ impl<'a> Checker<'a, '_> {
             Node::MethodDeclaration(node) => Some(SignatureParts {
                 modifiers: node.modifiers,
                 asterisk: node.asterisk_token.is_some(),
-                type_parameters: node.type_parameters,
+                type_parameters: node.type_parameters.to_vec(),
                 parameters: node.parameters,
                 return_annotation: node.r#type,
                 body: node.body.and_then(|body| body.node_id()).map(Body::Block),
@@ -2032,7 +2097,7 @@ impl<'a> Checker<'a, '_> {
             Node::FunctionTypeNode(node) => Some(SignatureParts {
                 modifiers: &[],
                 asterisk: false,
-                type_parameters: node.type_parameters,
+                type_parameters: node.type_parameters.to_vec(),
                 parameters: node.parameters,
                 return_annotation: node.r#type,
                 body: None,
@@ -2064,7 +2129,7 @@ impl<'a> Checker<'a, '_> {
             Node::ConstructorTypeNode(node) => Some(SignatureParts {
                 modifiers: &[],
                 asterisk: false,
-                type_parameters: node.type_parameters,
+                type_parameters: node.type_parameters.to_vec(),
                 parameters: node.parameters,
                 return_annotation: node.r#type,
                 body: None,
@@ -2103,7 +2168,7 @@ impl<'a> Checker<'a, '_> {
             Node::CallSignatureDeclaration(node) => Some(SignatureParts {
                 modifiers: &[],
                 asterisk: false,
-                type_parameters: node.type_parameters,
+                type_parameters: node.type_parameters.to_vec(),
                 parameters: node.parameters,
                 return_annotation: node.r#type,
                 body: None,
@@ -2112,7 +2177,7 @@ impl<'a> Checker<'a, '_> {
             Node::ConstructSignatureDeclaration(node) => Some(SignatureParts {
                 modifiers: &[],
                 asterisk: false,
-                type_parameters: node.type_parameters,
+                type_parameters: node.type_parameters.to_vec(),
                 parameters: node.parameters,
                 return_annotation: node.r#type,
                 body: None,
@@ -2121,7 +2186,7 @@ impl<'a> Checker<'a, '_> {
             Node::MethodSignatureDeclaration(node) => Some(SignatureParts {
                 modifiers: node.modifiers,
                 asterisk: false,
-                type_parameters: node.type_parameters,
+                type_parameters: node.type_parameters.to_vec(),
                 parameters: node.parameters,
                 return_annotation: node.r#type,
                 body: None,
@@ -2130,7 +2195,7 @@ impl<'a> Checker<'a, '_> {
             Node::FunctionExpression(node) => Some(SignatureParts {
                 modifiers: node.modifiers,
                 asterisk: node.asterisk_token.is_some(),
-                type_parameters: node.type_parameters,
+                type_parameters: node.type_parameters.to_vec(),
                 parameters: node.parameters,
                 return_annotation: node.r#type,
                 body: node.body.and_then(|body| body.node_id()).map(Body::Block),
@@ -2142,7 +2207,7 @@ impl<'a> Checker<'a, '_> {
                 // `async *() =>` in error recovery, so the token is read rather
                 // than assumed absent.
                 asterisk: node.asterisk_token.is_some(),
-                type_parameters: node.type_parameters,
+                type_parameters: node.type_parameters.to_vec(),
                 parameters: node.parameters,
                 return_annotation: node.r#type,
                 body: node.body.map(|body| match tsr_ast::Expression::try_from(Node::from(body)) {
