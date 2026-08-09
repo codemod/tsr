@@ -3561,3 +3561,39 @@ whose callee `single_call_signature` cannot show (`:100/:101` still
 gap) — so the next arm in this seam is widening the callee road,
 not the parameter test. builtinIterator/intraExpressionJsx were
 never §93's; struck from its residue list.
+
+## §94 — an expression statement supplies no contextual type
+
+**Correction to §93's residue diagnosis first, by the tracing rule:**
+§93's closing paragraph (written by the same session an hour earlier)
+said fatarrowfunctionsOptionalArgs' remaining gaps were "positions
+whose callee `single_call_signature` cannot show — widen the callee
+road". Wrong: one look at the baseline shows they are arrows in bare
+STATEMENT position (`(arg) => 2;`, `arg => 2;`) — no call anywhere.
+The residue's owner is `has_no_contextual_type`, which recognises
+only the unannotated-var-initializer shape and so cannot show
+absence for a statement.
+
+The faithful rule: upstream's `getContextualType` dispatch
+(`checker.go:29343`) switches on the PARENT's kind and has **no arm
+for `KindExpressionStatement`** — the default answers nil. A
+statement-position expression provably has no contextual type. The
+same dispatch's `KindParenthesizedExpression` arm answers the
+parent's own context, so a parenthesized chain ending at an
+expression statement is equally none.
+
+The arm: from the function-like node, climb any
+`ParenthesizedExpression` layers; if the terminating parent is an
+`ExpressionStatement` whose expression is the chain, absence is
+shown. Nothing else changes.
+
+**Bar, registered before the code:** fatarrowfunctionsOptionalArgs
+holds 105 GAP lines at the §93 landing, most of them
+statement-position arrow prints; predict **+60–110 G→R** there with
+spillover in the other fatarrow cases. Named risk: the
+default-value forms want `(arg = 1) => 3 : (arg?: number) => number`
+— if the standalone print misses the `?` or the initializer-inferred
+type, those become G→W and get priced, not hidden. Must NOT move:
+call-argument positions (§93's, measured 16 lines) and
+const-initializer positions (the existing shape). Adverse over 1:3
+against gains refuses the build.
