@@ -3852,6 +3852,21 @@ consumer road, and (b) narrowing shapes `narrow_type` declines
 each an owned follow-up, none a defect of the admission. Falsifier
 (c) held: multi-return and implicit-return functions byte-identical.
 
+**§101 score — LANDED at +152/0.** right 406,339 → **406,491** on
+the isolated stash/accept/pop pair over post-§100 main (population
+470,709 — §100 moved it +58): **+152 W→R, zero adverse in any
+column** — templateStringBinaryOperationsES6Invalid 48, …Invalid 48,
+…Operations 24, …ES6 24, tail 8. In the bar's +120–216 band. The
+evaluator is deliberately symbol-free: identifiers and property
+accesses decline, so const-reference spans stay unfolded — that
+residue belongs with a future evaluate-entity slice (upstream's
+evaluator resolves const enums and const variables;
+`evaluator.go`-class work, not this arm). PROCESS note, recorded
+because the rule exists: the first accept of this window ran on a
+tree still carrying §101's code — caught immediately and re-done as
+the stash/accept/pop pair; the contaminated baseline was never
+scored against.
+
 ## §102 — within-print byText renames [claimed: checker-1]
 
 The §20.1 double-refusal's print-context study, paid at last by

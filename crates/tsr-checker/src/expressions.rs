@@ -110,7 +110,14 @@ impl Checker<'_, '_> {
             let piece = match &self.store.get(span_type).data {
                 crate::types::TypeData::StringLiteral(text)
                 | crate::types::TypeData::NumberLiteral(text) => Some(text.clone()),
-                _ => None,
+                // §101 (`checker-notes-narrow.md`): a span whose TYPE is not
+                // a literal may still have a constant VALUE — upstream hands
+                // the whole template to the evaluator (`checker.go:7991`).
+                _ => span
+                    .expression
+                    .as_ref()
+                    .and_then(evaluate_constant_expression)
+                    .map(EvaluatedValue::render),
             };
             folded = match (piece, span.literal) {
                 (Some(piece), Some(literal)) => {
@@ -1911,5 +1918,88 @@ impl Checker<'_, '_> {
             }
         }
         id
+    }
+}
+
+/// §101's constant value.
+pub(crate) enum EvaluatedValue {
+    Number(f64),
+    Text(String),
+}
+
+impl EvaluatedValue {
+    fn render(self) -> String {
+        match self {
+            EvaluatedValue::Number(n) => tsr_core::jsnum::format_number(n),
+            EvaluatedValue::Text(s) => s,
+        }
+    }
+}
+
+/// §101 (`checker-notes-narrow.md`): the symbol-free slice of upstream's
+/// constant evaluator (`c.evaluate`, consumed by `checkTemplateExpression`
+/// at `checker.go:7991`): literals, parens, prefix `+`/`-`, numeric
+/// arithmetic, `+` string concatenation, and templates recursively.
+/// Identifiers, property accesses, bitwise/shift operators, and anything
+/// else answer `None` — a `None` anywhere keeps the type-level answer, so
+/// this only ever adds folds.
+fn evaluate_constant_expression(expr: &tsr_ast::Expression<'_>) -> Option<EvaluatedValue> {
+    use tsr_ast::SyntaxKind;
+    match expr {
+        tsr_ast::Expression::NumericLiteral(n) => {
+            Some(EvaluatedValue::Number(tsr_core::jsnum::numeric_value(n.text)))
+        }
+        tsr_ast::Expression::StringLiteral(s) => Some(EvaluatedValue::Text(s.text.to_string())),
+        tsr_ast::Expression::ParenthesizedExpression(node) => {
+            node.expression.as_ref().and_then(evaluate_constant_expression)
+        }
+        tsr_ast::Expression::PrefixUnaryExpression(node) => {
+            let operand = node.operand.as_ref().and_then(evaluate_constant_expression)?;
+            let EvaluatedValue::Number(value) = operand else { return None };
+            match node.operator.kind {
+                SyntaxKind::MinusToken => Some(EvaluatedValue::Number(-value)),
+                SyntaxKind::PlusToken => Some(EvaluatedValue::Number(value)),
+                _ => None,
+            }
+        }
+        tsr_ast::Expression::BinaryExpression(node) => {
+            let operator = node.operator_token?.kind;
+            let left = node.left.as_ref().and_then(evaluate_constant_expression)?;
+            let right = node.right.as_ref().and_then(evaluate_constant_expression)?;
+            match (left, right, operator) {
+                (a, b, SyntaxKind::PlusToken) => match (a, b) {
+                    (EvaluatedValue::Number(a), EvaluatedValue::Number(b)) => {
+                        Some(EvaluatedValue::Number(a + b))
+                    }
+                    (a, b) => Some(EvaluatedValue::Text(a.render() + &b.render())),
+                },
+                (EvaluatedValue::Number(a), EvaluatedValue::Number(b), operator) => {
+                    let value = match operator {
+                        SyntaxKind::MinusToken => a - b,
+                        SyntaxKind::AsteriskToken => a * b,
+                        SyntaxKind::SlashToken => a / b,
+                        SyntaxKind::PercentToken => a % b,
+                        SyntaxKind::AsteriskAsteriskToken => a.powf(b),
+                        _ => return None,
+                    };
+                    Some(EvaluatedValue::Number(value))
+                }
+                _ => None,
+            }
+        }
+        tsr_ast::Expression::TemplateExpression(node) => {
+            let mut folded = node.head.map(|head| head.text.to_string())?;
+            for span in node.template_spans {
+                let piece =
+                    span.expression.as_ref().and_then(evaluate_constant_expression)?.render();
+                let tail = match span.literal? {
+                    tsr_ast::TemplateMiddleOrTail::TemplateMiddle(part) => part.text,
+                    tsr_ast::TemplateMiddleOrTail::TemplateTail(part) => part.text,
+                };
+                folded = folded + &piece + tail;
+            }
+            Some(EvaluatedValue::Text(folded))
+        }
+        _ => None,
     }
 }
