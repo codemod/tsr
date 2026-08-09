@@ -23562,3 +23562,34 @@ session wrote roughly seventy such comments and the answer is currently no.
 §354's decline counter             unbuilt; 3 proxies failed (§351, §366, §367)
 TS2741's 46 cases                  the relation's trigger (§412)
 ```
+
+## §422 — main arrived broken; a half-deleted debug block
+
+`git pull --rebase` brought in `363180cd` (the `.types` workstream's) and
+`cargo build -p tsr-checker` failed:
+
+```
+error: unexpected closing delimiter: `}`
+   --> crates/tsr-checker/src/members.rs:475:5
+```
+
+`members.rs:439` held the remains of a debugging aid — the *arms* of a deleted
+`match` and an `eprintln!("miss: …")` — left inside an `else` whose only real
+statement was `error`. Removed; thirteen lines, no behaviour change, and
+`checker_types` unmoved at 4,031, which is the check that it was debug scaffolding
+rather than logic.
+
+> **This is the fifth time this session that main arrived red from the other
+> workstream**, and the first where the breakage was *not* something `cargo`
+> would have caught in that workstream's own loop — a deleted `eprintln!` block
+> compiles fine until the deletion is partial, and a partial deletion is what a
+> hurried cleanup produces.
+
+The relevant asymmetry: **`cargo xtask measure` refuses to run coverage while
+clippy is red (§260), so this workstream cannot ship over a broken tree — but
+nothing stops a broken tree being *pushed* by anyone.** The gate protects the
+measurement, not the branch.
+
+Not proposing CI here: that is a repo-wide decision and PLAN.md's, not this
+workstream's. Recorded so the count is on the record — five in one session is
+the number that would justify it.
