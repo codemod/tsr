@@ -4330,3 +4330,23 @@ The §105 subsystem's remaining head is the VALUE-SPELLING CARRIAGE
 inference unblocks. Day's arc for the record: the readonly
 subsystem went from "four machines, do not attempt piecemeal" to
 one remaining carriage in five measured slices.
+
+## §108 — Array-headed annotations join the §77 reuse gate [claimed: checker-1]
+
+433 corpus WRONG lines want `Array<T>` where the print shows `T[]`
+(objectTypesIdentity/subtyping families ~160, recursiveTypeReferences1
+19, rest spread): the written annotation spells `Array<...>`, the
+fresh render's `type_reference_text` always shortens, and §77's
+written-reuse gate admits only single-quoted subtrees. The Array head
+is the SAME admission class: a spelling the fresh render cannot
+reproduce. **Mechanism:** `written_type_text` grows an `array_headed`
+flag (a TypeReferenceNode named `Array`/`ReadonlyArray` anywhere in
+the subtree); reuse admits `single_quoted || array_headed`.
+**Bar:** ≥300 of the 433 at ≥10:1. Falsifiers: (a) the blanket-reuse
+−270 class (union order etc.) must NOT ride in — the flag admits
+only Array-headed subtrees, and any adverse concentrated in
+union-order cases fires this leg; (b) instantiated positions whose
+Array-written text no longer denotes the substituted type (the §36
+node-reuse rule — written_text is DROPPED on substitution, which the
+existing instantiate road already does); (c) `T[]`-written
+annotations must be byte-identical (no flag, no change).
