@@ -5570,3 +5570,27 @@ a mode road this port's predicate does not model
 `can_have_synthetic_default` predicate built for TS1192's
 diagnostic answered the TYPE question unchanged — ADR-0040's
 channel split, crossed in the profitable direction for once.
+
+## §132 — OPENER (probe only, autonomous tick): es6ExportEqualsInterop decomposed
+
+The gaproot board's twin ALIAS rows concentrate here (43+41 lines,
+plus constEnums 34+66 nearby). The 120 failing lines split into TWO
+mechanisms:
+  1. WANT-ANY: the ES-import forms (`import x from`, `import * as y
+     from`) against `export =` AMBIENT modules — upstream's TS2497
+     ("module resolves to a non-module entity") deliberate
+     error-answer. The §130/§131 establishment family's next arm,
+     needs the export=-module test inverted (fire WHEN export=
+     present and interop off).
+  2. WANT-REAL (`number`): the import-equals forms (`import z2 =
+     require("variable")`) — upstream resolves through the ambient
+     module's `export =` to the var/class/function target. The
+     §31/§10.8 require() chain EXISTS and works for real files but
+     gaps for ambient modules — the decline point inside
+     get_type_of_alias's ExternalModuleReference arm (or the
+     target's get_type_of_symbol inside `declare module`) is
+     unlocated. TRACE FIRST: one eprintln at the require() arm on
+     the filtered case names the decline in minutes.
+Neither built this tick; the probe is the deliverable (§547's
+form). Sizing: case-gate says ~120 lines here + the constEnums
+family if mechanism 2 generalizes.
