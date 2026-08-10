@@ -1735,3 +1735,19 @@ strictOptionalProperties1: +10 W→R, 2 R→W (rows where the ELSE branch
 wants the property absent from the union entirely — the
 exactOptionalPropertyTypes print question, named). Sixth consecutive
 verbatim transcription to land positive.
+
+## §166 — the typeof-switch exhaustiveness arm: transcribed, measured +0 on BOTH suites, reverted
+
+The doc comment at `compute_exhaustive_switch_statement` named this
+arm as its own unported tail and predicted TS2454 false positives from
+its absence. Transcribed whole (witnesses → notEqualFacts fold → the
+any/unknown all-handled shortcut → the per-constituent survivor test,
+flow.go:1950-1966 + 2012-2024): checker_types +0 AND diagnostics +0
+(2350/5488 both sides). The prediction was wrong in a specific,
+recorded way: no corpus case reaches a `switch (typeof x)` WITHOUT a
+default clause on a reference whose flow answer the bypass edge
+changes. Reverted under the unexercised-branch rule; the transcription
+text is in this commit's history for whichever corpus grows into it.
+The §165 lesson still holds — unported tails ARE under-searched — but
+this one is under-searched because it is unreachable, not because it
+was missed.
