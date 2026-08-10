@@ -1307,6 +1307,19 @@ its whole deliverable and accept that it converts nothing until finished.
 
 ## 5. Refused, with the number that refused it
 
+### New, this session, TS2661 — refused by +0, and the blocker is the resolver
+
+- **The specifier is its own answer, and it is a *separate symbol*.** Inside
+  `export { X }` the lookup returns the local alias the specifier created, whose
+  declaration list is exactly `[the specifier]`; the global `declare class X` is
+  a different symbol the lookup never reaches. §765 skipped the specifier among
+  the symbol's declarations — **the assumption was one symbol with two
+  declarations, the reality is two symbols** — and measured **+0**. The skip is
+  kept as upstream-faithful and is insufficient. **Owner: `tsr-binder`'s
+  `resolve_name`**, which has no mode that excludes a declaration's own symbol;
+  filed on `bd tsr-8esz` with the two rows already waiting there. 8 cases,
+  35 lines. §765–§766
+
 ### New, this session, TS2515 — refused by 4 wrong lines against a bar of 2
 
 - **A derived class that implements the abstract member still reports.** The
@@ -2820,6 +2833,7 @@ holds only the numbers.
 | 2026-08-10 | HEAD | **41.51%** | **2,278** | **+5, TS2515 closed — a refusal that named its next measurement** | §737 refused this row at **+2 with 4 wrong lines** and named the next measurement in one line: *print `class.members.len()` at the top of the rule*. It printed `n=1 provided=["bar"]` for the class that implements the member and `n=0` for the one that does not — ***the enumeration was right this time, and §737's wrong lines came from the version whose `member_name_text` never ran***. The rebuild is §736's design unchanged: a **local** member enumeration (methods included, unlike `class_member_shape`, which serves TS2610), §745's bounded base walk, and the single-member message only. ***A refusal that names its next measurement is worth more than a build that succeeds without one*** — two cycles, and the second was one probe and one paste. §761 |
 | 2026-08-10 | HEAD | **41.58%** | **2,282** | **+4 — a cardinality gap, and a dispatch that named two of three kinds** | **TS2374**. (1) ***Every duplicate, not the extras***: §69 kept a `seen` list and reported a signature whose kind had already appeared, where `checkObjectTypeForDuplicateDeclarations` reports **each** declaration of a repeated kind — 32 lines → 14, **+0 on the board**. (2) ***A type literal is a third dispatch site***: the rule already matches `TypeLiteralNode` and the dispatch called it from the two class kinds only — 14 → 2, board +4. ***§760's two-guards shape in a second rule***, same tell: a rule that handles a kind it is never handed. And the first change is the session's first **cardinality** defect — ***a rule whose output is a strict subset of the baseline looks exactly like a rule that is correct and blocked***; `diagcase` separates them and `diagmissing` does not. §762–§763 |
 | 2026-08-10 | HEAD | 41.58% | 2,282 | **The dispatch/entry sweep: 91 rules, 3 mismatches, 1 real, 0 cases** | §760 and §762 each found a rule handling a node kind its dispatch never hands it, with the same tell — ***the row does not move and nothing else happens***. Automated: for each dispatched rule, the kinds its **entry destructure** names against the kinds its dispatch arms name. ***The first narrowing compared all `Node::` mentions and returned 34 hits, nearly all nodes the rule walks to*** — `check_value_identifier` is dispatched on `Identifier` and mentions `ClassDeclaration` because it walks to one. ***The useful question was not which kinds a rule mentions but which it begins with***, and that is the difference between 34 and 3. One real: `check_extends_primitive` handles `ClassExpression` and only `ClassDeclaration` reached it. Wired, **+0**, kept — the corpus has no such fixture and the rule and its dispatch now agree. ***Fifth sweep, fourth negative***; only §725's paid in cases, and what the others buy is the assurance a twice-found defect is not sitting unfound elsewhere. §764 |
+| 2026-08-10 | HEAD | 41.58% | 2,282 | **+0, kept — a mechanism recorded accurately and understood one step too coarsely** | **TS2661**. The probe read `kind=ExportSpecifier script=false`: the rule resolves `X` and asks whether the **first declaration**'s container is a script, and that declaration is the export specifier. §713 named this for TS2552; §765 connected it here. Skipping the specifier measured **+0** — ***the assumption was one symbol with two declarations and the reality is two symbols***: the lookup returns the local alias the specifier created, whose declaration list is exactly `[the specifier]`, and the global class is a symbol it never reaches. ***A mechanism can be recorded accurately and still be understood one step too coarsely to act on.*** The skip is kept (upstream's `resolveEntityName` does it) and is insufficient. Owner `tsr-binder`'s `resolve_name`, ***third row this session to end at that door***, filed on `bd tsr-8esz` with the other two. §765–§766 |
 
 ## 8. Updating this file
 

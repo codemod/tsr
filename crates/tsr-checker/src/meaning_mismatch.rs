@@ -244,7 +244,21 @@ impl Checker<'_, '_> {
                 return;
             };
             let symbol = self.binder.merged_symbol(symbol);
-            let Some(&first) = self.binder.symbols().get(symbol).declarations.first() else {
+            // **The specifier is its own answer.** The binder gives
+            // `export { X }` a symbol named `X`, so `resolve_name` finds this
+            // very node and `declarations.first()` is the `ExportSpecifier` —
+            // whose container is never a script. §713 recorded the mechanism
+            // for TS2552; upstream's `resolveEntityName` skips the specifier's
+            // own symbol and this port's lookup does not, so the skip goes
+            // here. §765.
+            let Some(&first) = self
+                .binder
+                .symbols()
+                .get(symbol)
+                .declarations
+                .iter()
+                .find(|&&declaration| declaration != node)
+            else {
                 return;
             };
             self.declaration_container_is_a_script(first)

@@ -38922,3 +38922,98 @@ same thing each time: the assurance that a defect found twice by fixture is not
 sitting unfound elsewhere. **That is worth one script each and it is worth
 recording that it was bought**, so the next session does not re-derive the
 question and pay for the answer again.
+
+## §765 — TS2661: the specifier resolves to itself, again
+
+```ts
+// a.d.ts
+declare class X { }
+// b.ts
+export { X };        // TS2661 — only local declarations can be exported
+```
+
+The probe:
+
+```
+PROBE ces X: kind=ExportSpecifier script=false
+```
+
+**The resolved symbol's first declaration is the export specifier itself.**
+§713 recorded this mechanism for TS2552 — *"the binder gives `export { X }` a
+symbol named `X`, so the specifier is its own answer"* — and it is biting a
+second rule: §375 resolves the name, takes `declarations.first()`, and asks
+whether *that* declaration's container is a script. It is asking about the
+specifier.
+
+Upstream's `resolveEntityName` from an export specifier's name skips the
+specifier's own symbol; this port's `resolve_name` does not, so the fix is at the
+use: **take the first declaration that is not this specifier.**
+
+> Second rule broken by one binder behaviour, and §713 named it four hundred
+> lines of notes ago without connecting it to anything but the row in front of
+> it. **A mechanism recorded against one code is a mechanism, not a note about
+> that code** — the record was right and the generalisation was never made, and
+> the cost was one probe to rediscover it.
+
+```
+bar:  +2 of 8 (exportSpecifierForAGlobal, exportSpecifierReferencingOuterDeclaration1),
+      0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **A legitimately local `export { x }` reports.** `const x = 1; export { x }`
+   is the common case — its first non-specifier declaration is the `const`, whose
+   container is a module.
+2. **TS2552's row moves.** Same binder behaviour, different rule; §713's refusal
+   stands and this must not disturb it.
+3. **`export { X } from './m'` reports.** The module-specifier guard is ahead of
+   this and unchanged.
+
+## §766 — §765 measured: **+0, zero wrong lines, KEPT**, and the blocker is one layer deeper
+
+```
+diagnostics             2,282 → 2,282   (+0, 0 LOST)
+extraonly               zero TS2661 and zero TS2552 lines
+TS2661 missing lines    35 → 35     — unmoved
+```
+
+Kept under §667's second clause — `resolveEntityName` from an export
+specifier's name does skip the specifier's own symbol, so the skip is an arm
+upstream runs. It changes nothing because the problem is one layer deeper than
+the skip can reach.
+
+### What the second probe would have shown
+
+The skip looks for *another* declaration on the resolved symbol and there is
+none: `resolve_name("X")` from inside `export { X }` returns the **local alias
+symbol the specifier created**, whose declaration list is exactly `[the
+specifier]`. The global `declare class X` is a different symbol and the lookup
+never reaches it.
+
+```
+§765's assumption   one symbol, two declarations — skip the specifier's
+the reality         two symbols — the lookup returns the wrong one
+```
+
+**The skip is correct and insufficient.** What the rule needs is the lookup
+upstream performs: resolve the name from the specifier's *parent* scope, so the
+alias it declares is not a candidate. This port's `resolve_name` has no such
+mode, and adding one is resolver work rather than rule work.
+
+> §713 named this mechanism for TS2552 and §765 connected it to TS2661 — both
+> correctly. **What neither had was the distinction between *one symbol with the
+> specifier among its declarations* and *a separate symbol the specifier
+> created*,** and only the second is what happens. A mechanism can be recorded
+> accurately and still be understood one step too coarsely to act on.
+
+### Refused, with the number
+
+```
+TS2661   8 cases, 35 lines   needs a scope lookup that excludes the specifier's own alias
+```
+
+**Owner: `tsr-binder`'s `resolve_name`**, and it is the third row this session to
+end at that door (`bd tsr-8esz`'s six cases, §691's five wrong lines, this).
+Filed alongside them rather than separately, because the fix is one resolver mode
+and all three want it.
