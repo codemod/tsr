@@ -1628,3 +1628,17 @@ the downstream never/else rows belong to that build, not to flow. The
 narrowing machinery over these rows is now fully exonerated twice
 (§160's filter + this input trace). Next calls-lane census item:
 `new` on generic lib construct signatures.
+
+## §161 LANDED: written type arguments on constructor interfaces (+192/3 at 64:1)
+
+The §160.1 re-attribution's payoff, one arm wide: `new Set<number>()`
+on SetConstructor — arity-matching generic construct candidates
+instantiate their returns with the written arguments, agreeing per the
+§74 rule; defaults/partial lists decline. Swept
+typeArgumentInferenceConstructSignatures 30, controlFlowInstanceof
+pair 40 (the Set rows whole, closing §160.1's residue),
+esNextWeakRefs_IterableWeakMap 11, overloadResolutionConstructors 11,
+plus the long tail. Three G→W priced (two WeakRef flavors, one
+overload pick). The chain that found it: lead (a) → §157 refusal →
+§159 worker → §160 filter exoneration → §160.1 input trace → this arm
+— five hops, each one measurement.

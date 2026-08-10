@@ -1544,6 +1544,71 @@ impl Checker<'_, '_> {
                     }
                 }
             }
+            // SS161 (checker-notes-callres2.md, the SS160.1
+            // re-attribution): WRITTEN type arguments on a constructor
+            // interface's generic construct signatures -
+            // `new Set<number>()` on SetConstructor. Each arity-matching
+            // generic candidate instantiates its return with the written
+            // arguments; candidates must AGREE (the SS74 rule); defaults
+            // and partial lists decline.
+            if !node.type_arguments.is_empty()
+                && let Some(candidates) = self.signature_candidates_of_named_type(
+                    callee_type,
+                    crate::signatures::SignatureKind::Construct,
+                )
+                && !candidates.is_empty()
+            {
+                // Re-fetch through node_map for the checker-lifetime view
+                // of the written argument nodes.
+                let Some(written_nodes) = node.node_id.and_then(|id| match self.node_map.get(id) {
+                    Some(Node::NewExpression(fetched)) => Some(fetched.type_arguments),
+                    _ => None,
+                }) else {
+                    bump(&COUNTERS.new_callee_not_anonymous);
+                    return error;
+                };
+                let written: Vec<TypeId> = written_nodes
+                    .iter()
+                    .map(|&argument| self.get_type_from_type_node(argument))
+                    .collect();
+                if !written.contains(&error) {
+                    let mut agreed: Option<TypeId> = None;
+                    let mut ok = false;
+                    for candidate in &candidates {
+                        if candidate.type_parameters.len() != written.len() {
+                            continue;
+                        }
+                        let Some(parameters) = self.type_parameter_types(candidate) else {
+                            continue;
+                        };
+                        let names: Vec<&str> =
+                            candidate.type_parameters.iter().map(|p| p.name.as_str()).collect();
+                        let map: Vec<(TypeId, TypeId)> =
+                            parameters.iter().copied().zip(written.iter().copied()).collect();
+                        let answer =
+                            self.instantiate_type(candidate.r#type, &map, &parameters, &names);
+                        if answer == error {
+                            ok = false;
+                            break;
+                        }
+                        match agreed {
+                            None => {
+                                agreed = Some(answer);
+                                ok = true;
+                            }
+                            Some(t) if t == answer => {}
+                            Some(_) => {
+                                ok = false;
+                                break;
+                            }
+                        }
+                    }
+                    if ok && let Some(answer) = agreed {
+                        bump(&COUNTERS.new_resolved);
+                        return answer;
+                    }
+                }
+            }
             bump(&COUNTERS.new_callee_not_anonymous);
             return error;
         };
