@@ -3743,16 +3743,19 @@ impl Checker<'_, '_> {
             }
         }
         if kept.is_empty() && assume_true {
-            // Upstream intersects when the filter empties and the predicate
-            // type is assignable INTO the declared — the `x is string` on an
-            // `unknown` shape. One decidable check; anything else declines.
+            // Upstream's empty-filter fallback, now BOTH halves
+            // (`getNarrowedTypeWorker`'s tail): candidate assignable into
+            // the declared → the candidate; otherwise MINT the intersection
+            // — `Line | Point3D` under `x is Point` wants
+            // `(Line | Point3D) & Point` (SS148.1, wall 3 of the census —
+            // the missing arm was this port returning `t`).
             return match self.relate_ternary(
                 predicate_type,
                 t,
                 crate::relater::Relation::Assignable,
             ) {
                 crate::relater::Ternary::Related => predicate_type,
-                _ => t,
+                _ => self.get_intersection_type(&[t, predicate_type], None),
             };
         }
         // Identity preservation: a mapping that changed nothing answers the

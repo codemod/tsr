@@ -1340,3 +1340,15 @@ Wall (2): a declared `object` (NON_PRIMITIVE intrinsic) constituent
 narrows TO an object-flagged Named/Anonymous candidate — upstream's
 `subtype(candidate, object)` rung. Walls (3)-(4) (intersection minting
 site; downstream && rows) remain, 52 W, next census.
+
+## §148.1 LANDED: the empty-filter intersection mint (+5, zero regressions)
+
+Wall (3) resolved: `getNarrowedTypeWorker`'s tail mints
+`(declared) & candidate` when the constituent filter empties and the
+candidate is not assignable into the declared — this port had only the
+assignable half and returned `t` for the rest. `Line | Point3D` under
+`x is Point` now answers `(Line | Point3D) & Point` verbatim (+4
+family, +1 typeGuardIntersectionTypes kin). Family stands 48 W —
+walls (2)-(3) closed; the remainder is the member-id interning
+question (same-name members interned per-site defeating the identical-
+id inclusion test) plus rhs-shape any-arms, next census.
