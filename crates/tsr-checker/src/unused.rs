@@ -367,7 +367,16 @@ impl Checker<'_, '_> {
             Node::ModuleDeclaration(n) => is(n.name.and_then(|n| n.node_id())),
             Node::ImportClause(n) => is(n.name.and_then(|n| n.node_id)),
             Node::NamespaceImport(n) => is(n.name.and_then(|n| n.node_id)),
-            Node::ImportSpecifier(n) => is(n.name.and_then(|n| n.node_id)),
+            // **A property name names an export of another module.** It is not
+            // a reference to anything in this file, so marking it can only
+            // resolve by accident — `import { Member } …; import { Member as M }
+            // …` marks the first import used from the second's property name.
+            // Upstream never asks: `checkUnusedIdentifiers` marks from
+            // `getResolvedSymbol`, which an import specifier's property name
+            // does not go through. §702.
+            Node::ImportSpecifier(n) => {
+                is(n.name.and_then(|n| n.node_id)) || is(n.property_name.and_then(|n| n.node_id()))
+            }
             Node::ImportEqualsDeclaration(n) => is(n.name.and_then(|n| n.node_id)),
             Node::NamespaceExport(n) => is(n.name.and_then(|n| n.node_id())),
             Node::LabeledStatement(n) => is(n.label.and_then(|n| n.node_id)),

@@ -36178,3 +36178,86 @@ TS2377 *and* another code whose blocker was already gone. Second time this
 session (§687 was the first) that a bar priced from `diagmissing`'s
 blocked-alone count under-counted for that reason. **Blocked-alone is a lower
 bound on a row's value and should be read as one.**
+
+## §702 — TS6133: an import specifier's *property name* is not a reference
+
+```ts
+// b.ts
+export class Member {}
+export default Member;
+// a.ts
+import { Member } from './b';          // TS6133 — unused
+import d, { Member as M } from './b';
+```
+
+The first import is never reported. Three probes:
+
+```
+PROBE rui clause=NodeId(11) unused=2      the `d, { Member as M }` clause
+PROBE rui clause=NodeId(16) unused=1      the `* as ns` clause
+                                          — the `{ Member }` clause never arrives
+PROBE mark Member sym=27414 from_file=33   b.ts's `export default Member`
+PROBE mark Member sym=27415 from_file=33   the same reference, second meaning
+PROBE mark Member sym=27419 from_file=24   a.ts — and a.ts has no use of `Member`
+```
+
+The third is the defect. `import { Member as M }` writes `Member` as the
+specifier's **`property_name`**, and `is_declaration_or_member_name` tests only
+its `name` — so the property name is treated as an ordinary reference,
+`resolve_name` finds the *other* import's local `Member` two lines up, and marks
+it used.
+
+> **A property name names an export of another module. It is not a reference to
+> anything in this file**, and resolving it in this file's scope is meaningful
+> only by accident — here the accident is that a second import happens to bind
+> the same word. Upstream never asks: `checkUnusedIdentifiers` marks from
+> `getResolvedSymbol`, and an import specifier's property name is not resolved
+> that way at all.
+
+Fourth build in five of §701's shape — a test that enumerates positions and is
+missing one. The list already has `ImportSpecifier`; it tests the wrong field.
+
+```
+bar:  +1 of 1 (unusedImports12),  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **`export { x as y }`'s `x` stops being a reference.** It *is* one — an
+   export specifier without a module specifier names a local. Only the
+   *import* side is a foreign name, and an export specifier **with** `from` is
+   the other foreign case.
+2. **TS6192's row moves.** The grouping counts unused specifiers, so a specifier
+   that stops being marked can flip a declaration from partial to all-unused.
+3. **TS6196 / TS6138 move.** Same pass, different kinds.
+
+## §703 — §702 built: **+1 of 1**, bar met
+
+```
+diagnostics             2,229 → 2,230   (bar was +1;  +1, 0 LOST)   40.63%
+extraonly               zero TS6133, TS6192, TS6196 and TS6138 lines
+TS6133 missing lines    8 → 7
+```
+
+All three falsifiers negative — the export side was left alone, and TS6192's
+grouping did not move even though it counts the same specifiers.
+
+### Four builds, one shape
+
+```
+§695  a flag composite that could not express the position it named
+§698  a clause test that required the identifier to *be* the expression
+§700  a subtree search with no function-like boundary
+§702  a position list that enumerates the right node and the wrong field
+```
+
+**Twelve cases from four builds, no new rules, and every one found by printing a
+value rather than by reading code.** §701 called these missing boundaries; §702
+sharpens it — the code was not missing a boundary so much as *asserting the wrong
+one*, and an assertion that is wrong in a way the surrounding prose describes
+correctly is invisible to every review that is not a measurement.
+
+> The four differ in what they got wrong — a flag set, a parent relation, a
+> traversal limit, a struct field — and agree in how they were found. **When a
+> rule that exists declines, the cheapest next move in this port is not to reread
+> it but to print the thing it decided on.** Four for four.
