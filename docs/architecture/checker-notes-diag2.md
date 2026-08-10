@@ -39097,3 +39097,46 @@ why two values that should be equal are not. **That is the sixth probe and the
 first that cannot be guessed wrong** — everything around it is now measured.
 Recorded here rather than attempted, because this row has had four builds and
 the next one should start from the print, not from a fix.
+
+## §769 — TS2661: the sixth probe found the merge, and the row is stopped
+
+```
+PROBE ids node=NodeId(7) decls=[NodeId(7)]     — after `merged_symbol`
+(§767)   decls=[NodeId(2)]                     — at the binder's return, before it
+```
+
+**`merged_symbol` is where the answer changes.** `resolve_name` finds the global
+`declare class X` (NodeId 2); the merge maps it onto the local alias
+`export { X }` declares (NodeId 7), whose only declaration is the specifier — and
+§375's container test then asks about the specifier. §765's skip works exactly as
+written and finds nothing to skip, because after the merge there is nothing else
+in the list.
+
+Using the **unmerged** symbol measured `+0` and was reverted: the container test
+then asks about NodeId 2, the `declare class X` in `a.d.ts`, and still declines.
+So `declaration_container_is_a_script` is a *third* layer, and this row has now
+cost five builds.
+
+### Stopped, and why
+
+```
+§765  skip the specifier among the declarations     +0
+§767  filter the binder lookup                      +0
+§769  use the unmerged symbol                       +0
+```
+
+Three fixes, three layers, and each was the right fix for the layer above the one
+that was actually wrong. **Every one of the six probes answered its question
+correctly and every model built on top of an answer was wrong about the next
+layer down.**
+
+> §768 wrote that the sixth probe *"cannot be guessed wrong"*. It could not, and
+> it was not — it found the merge. **What it could not do was be the last one**,
+> and that is the thing to carry: a probe settles the layer it prints and says
+> nothing about the layer beneath. Five builds is the price of learning that on
+> one row, and the row is worth 8 cases.
+
+**Stopped at five builds, priced at 8 cases and 35 lines, with three layers now
+measured and the fourth named**: print `declaration_container_is_a_script`'s
+verdict and its walk for `a.d.ts`'s `declare class X`. Recorded on
+`bd tsr-8esz` with the other two rows that end at this resolver.
