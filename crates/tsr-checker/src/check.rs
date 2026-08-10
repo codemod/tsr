@@ -595,6 +595,7 @@ impl Checker<'_, '_> {
             Node::ImportEqualsDeclaration(n) => {
                 self.check_illegal_decorator(n.modifiers);
                 self.check_alias_symbol(node);
+                self.check_module_hidden_by_local(node);
             }
             Node::ModuleDeclaration(n) => self.check_illegal_decorator(n.modifiers),
             Node::ImportDeclaration(n) => self.check_illegal_decorator(n.modifiers),
@@ -10557,6 +10558,82 @@ impl Checker<'_, '_> {
         // An unresolvable or over-long chain is unknown, and this rule reports
         // on a negative — so unknown is silence.
         at.is_none()
+    }
+
+    /// TS2437 — `Module '{0}' is hidden by a local declaration with the same
+    /// name.`
+    ///
+    /// `checkImportEqualsDeclaration`'s internal-reference arm
+    /// (`checker.go:5472`). **The alias resolves and the name does not**:
+    /// `resolveAlias` reaches the namespace through the declaration, while an
+    /// ordinary lookup from the same position finds a local of the same name
+    /// first, and that disagreement is the error.
+    ///
+    /// `docs/architecture/checker-notes-diag2.md` §743.
+    fn check_module_hidden_by_local(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let Some(Node::ImportEqualsDeclaration(declaration)) = self.node_map.get(node) else {
+            return;
+        };
+        // `!ast.IsExternalModuleReference(moduleReference)` — `import x =
+        // require("m")` takes the other branch.
+        let first = match declaration.module_reference {
+            Some(ModuleReference::Identifier(name)) => name.node_id,
+            Some(ModuleReference::QualifiedName(qualified)) => {
+                let mut left = qualified.left;
+                loop {
+                    match left {
+                        Some(tsr_ast::EntityName::Identifier(name)) => break name.node_id,
+                        Some(tsr_ast::EntityName::QualifiedName(inner)) => left = inner.left,
+                        None => break None,
+                    }
+                }
+            }
+            _ => return,
+        };
+        let Some(first) = first else { return };
+        let Some(symbol) = self.binder.symbol_of(node) else { return };
+        let Some(target) =
+            self.resolve_alias(symbol).or_else(|| self.qualified_alias_target(symbol))
+        else {
+            return;
+        };
+        if !self.binder.symbols().get(target).flags.intersects(SymbolFlags::VALUE) {
+            return;
+        }
+        let Some(text) = self.identifier_text(first).map(str::to_string) else { return };
+        let hidden = self
+            .binder
+            .resolve_name(
+                self.nodes,
+                self.node_map,
+                first,
+                &text,
+                SymbolFlags::VALUE | SymbolFlags::NAMESPACE,
+            )
+            .is_some_and(|found| {
+                !self
+                    .binder
+                    .symbols()
+                    .get(self.binder.merged_symbol(found))
+                    .flags
+                    .intersects(SymbolFlags::NAMESPACE)
+            });
+        if !hidden {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(first) else { return };
+        let span = self.nodes.span(first);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::MODULE_0_IS_HIDDEN_BY_A_LOCAL_DECLARATION_WITH_THE_SAME_NAME,
+                span,
+                [text],
+            ),
+        );
     }
 
     /// A `declare` modifier on the declaration itself.

@@ -37986,3 +37986,85 @@ var resultType *Type
 so nothing on the diagnostics side depends on it. **A category worth re-asking,
 asked, and closed at two members** — §733's lesson, and the second time this
 session that a cheap second question returned a firm negative rather than a row.
+
+## §743 — TS2437: a module hidden by a local of the same name
+
+```ts
+namespace Foo { export var x = "hello"; }
+namespace Bar {
+    var Foo = 1;
+    import F = Foo;   // TS2437 on `Foo`
+}
+```
+
+`checkImportEqualsDeclaration` (`checker.go:5472`), the internal-reference arm:
+
+```go
+target := c.resolveAlias(c.getSymbolOfDeclaration(node))
+if targetFlags&ast.SymbolFlagsValue != 0 {
+    moduleName := ast.GetFirstIdentifier(moduleReference)
+    if c.resolveEntityName(moduleName, Value|Namespace, …).Flags&Namespace == 0 {
+        c.error(moduleName, Module_0_is_hidden_by_a_local_declaration_with_the_same_name, …)
+    }
+}
+```
+
+**The alias resolves and the name does not.** `resolveAlias` reaches the outer
+`Foo` namespace through the declaration, and the ordinary lookup from the same
+position finds the local `var Foo` first — so the two disagree, and that
+disagreement *is* the error. Nothing here needs a type.
+
+Every piece is already in the tree: `resolve_alias` with §686's qualified
+fallback, and `resolve_name` at `VALUE | NAMESPACE`.
+
+```
+bar:  +2 of 4 (reboundIdentifierOnImportAlias,
+      internalImportInstantiatedModuleNotReferencingInstance),
+      0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **An unshadowed `import F = Foo` reports.** The lookup finds the namespace
+   and the flag test passes — this is the common case and the whole corpus is
+   the control.
+2. **`import F = require("x")` reports.** An external module reference takes the
+   other branch entirely.
+3. **TS2440's row moves.** `check_alias_symbol` runs from the same dispatch arm.
+
+## §744 — §743 built: **+4 of 2**, row closed
+
+```
+diagnostics             2,258 → 2,262   (bar was +2;  +4, 0 LOST)   41.22%
+extraonly               zero TS2437 and zero TS2440 lines
+TS2437 missing lines    4 → 0     — the row is closed
+```
+
+All three falsifiers negative. Falsifier 1 was the whole exposure — every
+unshadowed `import F = Foo` in the corpus reaches this rule, and none reported.
+
+### A rule whose evidence is a disagreement
+
+Most rules ask one question of one thing. This one asks the **same question two
+ways** and reports when the answers differ:
+
+```
+resolveAlias(symbolOf(declaration))     → the outer namespace, through the declaration
+resolveName(firstIdentifier, Value|Namespace) → the local `var`, through the scope
+```
+
+Neither answer is wrong. `resolveAlias` follows the declaration it was written
+against; `resolveName` follows the scope the reference sits in. **The error is
+that a reader of the source would get the second and the alias got the first.**
+
+> That shape is rare in what has been ported so far — §673's flag agreement is
+> the only other one, and it compares declarations of one symbol rather than two
+> resolutions of one name. **It is also the cheapest kind to port, because both
+> halves already existed**: this build wrote no new lookup, no new walk and no
+> new predicate, and closed a row in one arm.
+
+Two of the four cases were not on the bar: `internalImport…MergedWithClass…`
+pairs, blocked on this code plus another that had already gone. **Fourth time
+this session** (§687, §701, §709) that a bar priced from `diagmissing`'s
+blocked-alone count under-counted, and the reason is always the same — the count
+is a lower bound by construction.
