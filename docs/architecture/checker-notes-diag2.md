@@ -35925,3 +35925,71 @@ because TS2749's two cases were already missing. **A bound that silences the rul
 entirely looks exactly like a bound that works, when the row it guards is empty
 in both directions.** The only signal was the row staying at 2 across a hundred
 and thirty builds.
+
+## §697 — the deepening pool, bounded: **77 codes where the rule already exists**
+
+§696 closed a row whose rule had been unreachable for a hundred and thirty
+builds. That is a *class* of defect, so the tree was swept for it: every message
+constant reachable from `tsr-checker` (218 codes) crossed against `diagslice`'s
+occupancy.
+
+```
+codes the checker can emit                       218
+of those, with an open row and 0 lines occupied   77   548 cases   1,369 lines
+```
+
+### The claim this sweep does **not** support
+
+The first reading was *"77 rules that exist and never fire"*, and it is wrong.
+`diagslice`'s `occupied` column is computed over the **residual** — the lines
+still missing — not over the corpus. TS2452, TS2540, TS2315, TS2310, TS2694 and
+TS2708 all appear in the list and all of them **fired this session**; what the
+`0/N` means is that none of their *remaining* lines is emitted.
+
+> Caught by reading a row I had personally closed four builds earlier. **§683's
+> rule — a residue attributed without a probe is a hypothesis wearing an owner's
+> name — applies to sweeps as much as to single lines**, and a sweep is more
+> dangerous because it launders one misread column into seventy-seven claims.
+> The instrument's column definition is part of the measurement.
+
+### What it does support, which is worth more
+
+**These are the rows where the port already has a rule and the row is still
+open** — the deepening pool, bounded exactly, and the complement of "needs a new
+rule". §658's `diagreach` estimated 1,241 cases by reachability; this counts 548
+by *authorship*, and the two disagree because reachability includes codes with no
+rule at all.
+
+Ranked by what the rest of this session has established about each owner:
+
+```
+the relation      TS2345 111 · TS2339 100 · TS2741 47 · TS2430 25 · TS2352 22
+                  TS2420 · TS2365 · TS2320 · TS2417 · TS2415      ~360 cases
+the type side     TS2403 31 · TS2554 · TS2349 · TS2374 · TS2313 · TS2347 ~70 cases
+flow / narrowing  TS2729 · TS18048 · TS18049 · TS18050 · TS2532 · TS2531 ~25 cases
+contextual        TS7006 14 · TS7027 · TS7031 · TS7019 · TS7013        ~25 cases
+this workstream   TS2449 6 · TS2341 5 · TS6133 5 · TS2377 · TS2481 · TS2507
+                  TS2551 · TS2552 · TS2693 · TS2451 · TS2428 · …       ~40 cases
+```
+
+**Only the last band is this workstream's**, and it is ~40 cases across ~25
+codes — which is the honest remaining size of the *deepen an existing rule* work
+here, against §663's ~50 in the *write a new rule* band.
+
+### The first of them, priced
+
+`TS2449` is 6 cases and 59 lines, and its rule (§83) is bounded to a **simple
+identifier** in an `extends` clause:
+
+```ts
+namespace B {
+    export import a = A;
+    export class D extends a.C { }   // TS2449 on `C` — A is declared below
+}
+namespace A { export class C { } }
+```
+
+`a.C` is a qualified name, so the rule never resolves it. Extending it needs the
+entity-name resolution the port already has, and the position comparison is
+unchanged. **Named and priced, not built** — this cycle's deliverable is the
+sweep and its correction.
