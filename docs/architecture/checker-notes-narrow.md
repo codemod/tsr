@@ -5594,3 +5594,33 @@ mechanisms:
 Neither built this tick; the probe is the deliverable (§547's
 form). Sizing: case-gate says ~120 lines here + the constEnums
 family if mechanism 2 generalizes.
+
+**§132 TRACE COMPLETE (one probe pair):** the require()/export=
+chain WORKS — all ten ambient modules resolve, export= follows,
+nine targets type (z2..z0 read RIGHT already; 81 right lines in
+the case). The 120 failing lines are ALL the ES-import forms:
+`target=None NO VALUE` at resolve_alias. Mechanisms per form under
+no-synthetic options: DEFAULT imports of an `export =` module want
+ANY (TS1192/interop-off); NAMESPACE imports want ANY when the
+export= target LACKS namespace meaning (TS2497 non-module entity)
+and want REAL resolution when it has it (y4/y5/y8's number reads —
+that half needs the module-object road extended, stays a gap).
+
+## §132 — ES-import forms against `export =` under no-synthetic options [claimed: checker-1]
+
+**The arm.** Plumb `allow_synthetic_defaults` into the checker
+(upstream `getAllowSyntheticDefaultImports`: explicit option, else
+esModuleInterop, else module==System; Node16/NodeNext excluded whole
+as §131). Then in `get_type_of_alias`: with synthetic defaults OFF
+and the module's exports carrying `export=` —
+  - an ImportClause default alias answers `any`;
+  - a NamespaceImport alias answers `any` IFF the export= target
+    resolves and its flags LACK namespace meaning
+    (VALUE_MODULE|NAMESPACE_MODULE); a namespace-like or
+    unresolvable target keeps the gap.
+
+**Bar.** ≥40 G→R at ≥5:1 (mechanism-sampled: the x-family 20
+aliases + non-namespace y-family + their reads in this case, plus
+siblings). Falsifier: interop-configured corpora
+(esModuleInteropDefaultImports) entering through a mis-derived
+options predicate — the §131 falsifier, second firing chance.
