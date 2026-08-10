@@ -35210,3 +35210,105 @@ One line: `declarationEmitExpressionInExtends4.ts(5,17)`, an
 `ExpressionWithTypeArguments` whose name is not an identifier — upstream's
 `symbol == nil` branch, which prints the written name. **Owner: this rule, one
 line, not another crate.**
+
+## §684 — TS2315's last line: a heritage expression that is not a name
+
+```ts
+function getSomething() { return class D { } }
+class C extends getSomething()<number, string> { }   // TS2315
+```
+
+`checkNoTypeArguments` (`checker.go:23220`) has a branch this port has never
+taken:
+
+```go
+if symbol != nil { typeName = c.symbolToString(symbol) }
+else            { typeName = scanner.DeclarationNameToString(node.AsTypeReferenceNode().TypeName) }
+```
+
+**`symbol == nil` is not a failure to resolve; it is the answer for syntax that
+cannot be resolved at all.** A call expression is not an entity name, so
+`resolveTypeReferenceName` has nothing to look up and returns no symbol — and
+the type arguments are still written, so the diagnostic still fires, printed
+from the source text.
+
+This port's rule takes the expression's `NodeId` as `name` and hands it to
+`declared_type_parameter_arity`, whose first line requires an `Identifier`. The
+`?` makes the whole rule silent. **The refusal is in the right place for a
+resolution and in the wrong place for this**, which is the same shape as §681's
+shared-helper guards two builds ago.
+
+The narrow build: in a heritage clause, an expression that is **neither an
+identifier nor a property-access chain** and that carries type arguments is
+TS2315 directly, with no resolution attempted.
+
+```
+bar:  +1 of 1 (declarationEmitExpressionInExtends4),  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **`class C extends Mixin<T>(Base)` reports.** That is a *call* whose callee
+   has type arguments, not an `ExpressionWithTypeArguments` — different node, and
+   if it reports the shape test is reading the wrong one.
+2. **`class C extends N.M.Base<T>` reports.** A property-access chain is an
+   entity name and resolves; it belongs to the arity ladder.
+3. **TS2304's row moves.** The fixture's other two lines are TS2304 and they
+   must stay exactly where they are.
+
+## §685 — §684 measured: **+0 and 2 wrong lines**, reverted
+
+```
+diagnostics             2,212 → 2,212   (bar was +1;  +0)
+extraonly               TS2315 wrong lines 0 → 2;  TS2304 unchanged at 19
+```
+
+The syntactic test was the wrong test, and the corpus says so in one file:
+
+```ts
+class C<T, U> { x: T; y: U; }
+function getClass<T>(c: T) { return C; }
+class MyClass extends getClass(2) <string, number> { }   // upstream: SILENT
+```
+```ts
+function getSomething() { return class D { } }
+class C extends getSomething()<number, string> { }       // upstream: TS2315
+```
+
+**Both are a call expression in a heritage clause carrying type arguments, and
+they differ only in what the call returns.** `getClass` returns the generic
+`C<T, U>`, so the two arguments are correct and there is nothing to report;
+`getSomething` returns a non-generic `class D`, so they are not.
+
+> §684 read `symbol == nil` as *"the syntax cannot be resolved, so report"*. It
+> means *"there is no symbol to name in the message"* — the decision to report
+> was made upstream two frames earlier, by the **type** the expression produced.
+> The branch chooses a message argument, not an outcome, and reading a branch's
+> *purpose* off its condition is what this cost.
+
+The second wrong line makes the same point from the other side: it landed in the
+target fixture itself, at a position the baseline does not carry, so even the
+case it was built for gained a wrong line.
+
+### Refused, with the number
+
+```
+TS2315's last line   1 case   needs the type of a heritage call expression
+```
+
+**Owner: the type side.** A call's return type is what decides it, and no
+arrangement of the syntax can. This closes TS2315 as far as this workstream
+reaches: seven of eight lines converted across §681 and §683, and the eighth is
+not syntactic.
+
+### The pattern, third time
+
+```
+§671  transcribed a predicate whose *input* differs here    — took the conclusion instead
+§681  transcribed a guard right for its original caller     — widened the caller list
+§684  transcribed a branch whose *condition* is not its purpose — reverted
+```
+
+Three builds in seven where the upstream text was read correctly and applied to
+the wrong thing. **The transcription hazard this session keeps finding is not
+mistranslation; it is correct translation of the wrong fragment.**

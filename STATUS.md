@@ -1307,6 +1307,19 @@ its whole deliverable and accept that it converts nothing until finished.
 
 ## 5. Refused, with the number that refused it
 
+### New, this session, TS2315's last line — refused by 2 wrong lines
+
+- **A heritage call expression's type arguments are judged by what the call
+  returns**, not by the syntax. `class MyClass extends getClass(2)<string,
+  number>` is silent upstream because `getClass` returns a generic `C<T, U>`;
+  `class C extends getSomething()<number, string>` is TS2315 because it returns
+  a non-generic `class D`. The two are the same syntax. §684 read upstream's
+  `symbol == nil` branch as *"cannot be resolved, so report"* when it means
+  *"there is no symbol to name in the message"* — **the branch chooses a message
+  argument, not an outcome.** Measured **+0 and 2 wrong lines**, one of them in
+  the target fixture itself. **Owner: the type side.** Seven of TS2315's eight
+  lines converted across §681 and §683; the eighth is not syntactic. §684–§685
+
 ### New, this session, TS2709 — refused by −7 and 28 wrong lines
 
 - **An alias satisfies any meaning in this binder**, so
@@ -2681,6 +2694,7 @@ holds only the numbers.
 | 2026-08-10 | HEAD | **40.27%** | **2,210** | **+3 of 3, third row closed in three builds — and all three came from this session's own comments** | **TS2459**, a module that declares the name locally and does not export it. §185's port stopped at exactly this line with a comment reading ***"Declined, conditions evaluated"***. Three rows closed in three builds — §673's TS2384 from an arm the existing rule's *refusal* had excluded, §677's TS2664 from two conditions already in the tree, and this from a decline whose conditions were already computed — and ***none of the three needed new machinery***. ***The ledger's value is not the refusals it records but the conditions it records alongside them***: a refusal that says "conditions evaluated" is a row costed to zero for whoever comes next, and three came due at once. Still declined here, both needing `getSymbolIfSameReference`: the `export =` outcome and TS2460's `exported as` — approximating either is a wrong code at a right position, the failure §185's own falsifier caught on this rule. §679–§680 |
 | 2026-08-10 | HEAD | **40.29%** | **2,211** | **+1 of 3 — and one fixture holds both the rule and its control** | **TS2315**. `checkNoTypeArguments` takes no interest in what kind of declaration it looks at; this port's shared arity helper took a great deal, and its two flag guards — right for the arity ladder they were written for — dropped enums and type aliases before the `maximum == 0` branch §345 later hung off the same helper. Widened both, five of seven lines converted, TS2314's ladder unmoved. ***The shortfall's sharper half is one line***: the file's outer `type T = {}` now reports and the identical declaration inside `function f<U>() {}` does not, so **[CORRECTED at §683 — this reading was wrong.** The file carries one directive line, so every baseline position is `raw − 1`, and stripped line 21 is `var v5: U<string>`, a **type parameter**, not the type alias above it. Three probes killed the binder hypothesis; `resolve_name` finds the alias and both `T` references report. **No `tsr-binder` owner.]** §681–§682 |
 | 2026-08-10 | HEAD | **40.31%** | **2,212** | **+1 — and §682's residue was misread; the probe said so** | §682 recorded TS2315's surviving line as a type alias in a function body and named `tsr-binder` as its owner. ***Both wrong.*** The fixture carries one directive line, so every baseline position is `raw − 1`, and stripped line 21 is `var v5: U<string>` — a **type parameter**, which `declared_type_parameter_arity` refused in the guard §681 had just written. Three probes, each killing one hypothesis; the decisive one printed **two distinct spans both reporting**, so `T` could not be the missing line. Fixed by making the kind list a list of ***what the helper can count***, where every kind declaring no list answers `(0, 0)`. ***A residue attributed without a probe is a hypothesis wearing an owner's name*** — §629 fixed this for the closing number; this fixes it for the leftover. It had already been written into STATUS.md as another crate's problem. §683 |
+| 2026-08-10 | HEAD | 40.31% | 2,212 | **+0 and 2 wrong lines — correct translation of the wrong fragment** | TS2315's last line. Two fixtures, ***the same syntax***, opposite answers: `extends getClass(2)<string, number>` is silent because the call returns a generic class, `extends getSomething()<number, string>` is TS2315 because it returns a non-generic one. §684 read upstream's `symbol == nil` as *"cannot be resolved, so report"*; it means *"there is no symbol to name in the message"* — ***the branch chooses a message argument, not an outcome***. Reverted. Third build in seven of the same kind (§671's predicate input, §681's guard, this branch): ***the transcription hazard this session keeps finding is not mistranslation, it is correct translation of the wrong fragment***. Owner: the type side. §684–§685 |
 
 ## 8. Updating this file
 
