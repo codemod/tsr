@@ -5881,3 +5881,24 @@ THREE-QUARTERS LANDED through the door neither refusal tried: not
 the union mint, the ADMISSION GATE. Its residue (optionality-built
 and narrowing-rebuilt union order — narrowingUnionWithBang,
 controlFlowAliasing) stays with the §52.1 site-sensitivity class.
+
+## §138 — OPENER (probed, not built): written order at the UNION MINT
+
+narrowingUnionWithBang's dump splits the §137 residue in two:
+  1. WRITTEN-ORDER wants at ALIAS/VAR positions (`Error1..Error9,
+     Correct, undefined` written; we sort `Correct` first): the
+     spelling never passes the §137 parameter/return carriage —
+     it is the UNION MINT's stored text. The §77.2 refusals
+     attacked this with origin machinery (R→G losses) and blanket
+     reuse (const-context sorts); the UNTRIED third form is §137's
+     lesson applied at the mint: after the normal sorted build,
+     when the written constituent order differs at EQUAL SETS,
+     override the minted text with the written-order spelling
+     (first written spelling wins — unions intern by constituent
+     set, so this is a per-TYPE not per-site override; the
+     const-context falsifier decides it).
+  2. NARROWED-SUBSET wants (`Correct | undefined` after bang
+     chains): narrowing-owned, not a print question.
+Needs a store text mutator (texts are currently immutable
+post-mint — one setter, mint-module-private). NOT built this
+window; the §77.2 ledger gains its third distinct entry road.
