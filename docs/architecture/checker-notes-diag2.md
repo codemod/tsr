@@ -31948,3 +31948,81 @@ assignment-target guard.
 
 **Not built in this note** — it gets its own build and its own bar, which is
 §594's rule and the reason §609's number was checked at all.
+
+## §611 — TS2462's object arm, the third site
+
+```ts
+var {...a, x } = { x: 1 };       // TS2462
+({...a, x } = { x: 1 });         // TS2462
+var {...a, x, ...b } = { x: 1 }; // TS2462 — on the FIRST spread only
+```
+
+`checker.go:12620`, and the binding-pattern half rides on §608's existing
+`BindingPattern` arm — the same node type, `kind` being
+`ObjectBindingPattern` instead of `ObjectBindingPattern`'s array sibling.
+
+The third line is the detail: `{...a, x, ...b}` reports **once**, on `...a`,
+because upstream `return nil`s after the error and the trailing `...b` **is**
+last. §608's array arm already collects every non-last offender rather than
+returning, which is right for the array form — `[...a, ...b, x]` reports twice
+upstream, since `checkGrammarBindingElement` runs per element. **Two sites, two
+iteration disciplines, one message.**
+
+> **The third site was in §608's own grep output.** §610 corrected the count;
+> this builds it, and the pair is the session's clearest case of a note being
+> right in the abstract and wrong in the instance it was written about.
+
+```
+bar:  +1 of 1 (objectRestPropertyMustBeLast),  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **`{ x, ...a }` reports.** A trailing rest is the normal form.
+2. **`const v = {...a, x};` reports.** An object literal as a **value**, under
+   the same assignment-target guard §608 built.
+3. **`{...a, x, ...b}` reports twice.** Upstream reports once, on the first.
+
+## §612 — §611 built: **+1**, TS2462 closed across all three sites
+
+```
+diagnostics   2,157 → 2,158   (bar was +1;  +1, 0 LOST)   39.32%
+extraonly     zero TS2462 lines
+TS2462        4 missing lines → 0   — verified, not assumed (§610)
+```
+
+All three falsifiers negative, including the one §611 wrote for itself:
+`{...a, x, ...b}` reports **once**, on the first spread, because upstream
+`return`s after the error while the array form's per-element grammar check does
+not.
+
+### The row, and the correction that produced it
+
+```
+§608   the array binding pattern and array assignment target   +1
+§610   CORRECTION: the row did not close; a third site existed
+§611   the object binding pattern and object assignment target +1
+                                                              ──
+                                                     4 sites, 6 lines, 0 left
+```
+
+> **§610 is the reason §611 exists.** §609 asserted a row was closed, §610
+> measured it and found four lines and a third site quoted in §608's own output,
+> and §611 built it. Had the number gone unchecked the row would have read as
+> done and the object form would have surfaced in some later session as a
+> mysterious TS2462 residue with a note claiming it was finished.
+
+`CLAUDE.md` requires correcting a number that turns out wrong; the compounding
+benefit is that the correction **carried the next build's specification**. That
+is worth more than the rule itself.
+
+### The grammar family after eight builds
+
+```
+TS1029  +4    TS1070  +4    TS1014  +3    TS1248  +2    TS2462  +2
+                                                        ──
+                                                        +15
+```
+
+Five codes closed. Also the **thirteenth repair** of the shared tree — a
+`redundant_closure` in `inference.rs`, the third time that file has arrived red.

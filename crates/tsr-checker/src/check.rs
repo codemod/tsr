@@ -674,7 +674,12 @@ impl Checker<'_, '_> {
         if matches!(typed, Node::ImportTypeNode(_)) {
             self.check_import_type_argument(node);
         }
-        if matches!(typed, Node::BindingPattern(_) | Node::ArrayLiteralExpression(_)) {
+        if matches!(
+            typed,
+            Node::BindingPattern(_)
+                | Node::ArrayLiteralExpression(_)
+                | Node::ObjectLiteralExpression(_)
+        ) {
             self.check_rest_element_is_last(node, typed);
         }
         if matches!(typed, Node::IndexSignatureDeclaration(_)) {
@@ -8585,9 +8590,12 @@ impl Checker<'_, '_> {
             return;
         }
         let offenders: Vec<NodeId> = match typed {
-            Node::BindingPattern(pattern)
-                if self.nodes.kind(node) == SyntaxKind::ArrayBindingPattern =>
-            {
+            // Both binding patterns take the same shape; only the `kind`
+            // token differs. An object pattern reports on the **first**
+            // offender alone, matching upstream's `return` after the error at
+            // `checker.go:12622`; the array form reports each, because
+            // `checkGrammarBindingElement` runs per element. §611.
+            Node::BindingPattern(pattern) => {
                 let last = pattern.elements.len().saturating_sub(1);
                 pattern
                     .elements
@@ -8598,6 +8606,31 @@ impl Checker<'_, '_> {
                             .then_some(binding.node_id)
                             .flatten()
                     })
+                    .take(if self.nodes.kind(node) == SyntaxKind::ObjectBindingPattern {
+                        1
+                    } else {
+                        usize::MAX
+                    })
+                    .collect()
+            }
+            Node::ObjectLiteralExpression(literal) => {
+                if !self.is_assignment_target_literal(node) {
+                    return;
+                }
+                let last = literal.properties.len().saturating_sub(1);
+                literal
+                    .properties
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, property)| match property {
+                        tsr_ast::ObjectLiteralElementLike::SpreadAssignment(spread)
+                            if index != last =>
+                        {
+                            spread.node_id
+                        }
+                        _ => None,
+                    })
+                    .take(1)
                     .collect()
             }
             Node::ArrayLiteralExpression(literal) => {

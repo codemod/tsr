@@ -356,7 +356,7 @@ impl Checker<'_, '_> {
                             (
                                 so_far,
                                 parameters.clone(),
-                                names.iter().map(|n| n.to_string()).collect(),
+                                names.iter().map(ToString::to_string).collect(),
                             ),
                         );
                         if let Some(value_id) = value.node_id() {
