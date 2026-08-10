@@ -40954,3 +40954,80 @@ has now blocked three rows (§641's TS1005/TS1186, and this).
 The assignment half needed no position arithmetic at all: upstream reports on
 `restExpression.OperatorToken` and this port has the token's node id, so the span
 is exact by construction.
+
+## §813 — TS1191: an import declaration cannot have modifiers
+
+```ts
+export import "server";   // TS1191, on the `export`
+```
+
+`checkImportDeclaration` (`checker.go:5278`):
+
+```go
+if !c.checkGrammarModifiers(node) && node.Modifiers() != nil {
+    c.grammarErrorOnFirstToken(node, An_import_declaration_cannot_have_modifiers)
+}
+```
+
+`grammarErrorOnFirstToken` spans the declaration's first token, which for a
+modified import is the modifier itself — expected column 1, the `export`.
+
+The `!checkGrammarModifiers(node)` conjunct is upstream's suppression: if the
+modifier list already produced an error, this one is not added. This port's
+modifier-order rules (§-earlier's TS1029/TS1030/TS1070/TS1243) do not fire for a
+plain `export` on an import, so the conjunct is satisfied here and the arm is a
+single condition — **a modifier list that is not empty.**
+
+Third row from the ≤2-case tail, and §808's filter picked it:
+`es6ImportWithoutFromClauseWithExport` names the shape.
+
+```
+bar:  +2 of 2 (es6ImportWithoutFromClauseWithExport,
+      es6ImportDefaultBindingFollowedWithNamespaceBindingWithExport),
+      0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **A plain `import "server";` reports.** No modifiers, no error — this is
+   every import in the corpus.
+2. **`export = X` or `export { X }` reports.** Those are not import
+   declarations.
+3. **TS1029 / TS1030's rows move.** They are the modifier-order codes upstream's
+   first conjunct defers to.
+
+## §814 — §813 built: **+2 of 2**, row closed, filter three for three
+
+```
+diagnostics             2,311 → 2,313   (bar was +2;  +2, 0 LOST)   42.15%
+extraonly               zero TS1191;  TS1029's one line predates (stash-checked)
+TS1191 missing lines    2 → 0     — the row is closed
+```
+
+All three falsifiers negative. The single TS1029 line was checked differentially
+by stashing — §715's rule, applied without prompting for the third time.
+
+### §808's filter, three for three
+
+```
+§807  quotedModuleNameMustBeAmbient   +2, closed
+§809  setterWithReturn                +2, closed
+§813  es6ImportWithoutFromClauseWithExport  +2, closed
+```
+
+**Six cases, three rows, three builds, no wrong lines, and every one selected by
+reading a filename.** Each reduced to one syntactic condition that upstream
+writes inside a larger function:
+
+```
+§807   !inAmbientContext && IsStringLiteral(name)
+§809   IsSetAccessorDeclaration(container) && exprNode != nil
+§813   !checkGrammarModifiers(node) && Modifiers() != nil
+```
+
+> All three sit under a conjunct this port satisfies for free — an ambient flag
+> it already threads, a container walk it already has, a modifier-order rule that
+> does not fire for the shape in question. **The grammar checks upstream guards
+> with other grammar checks are the cheapest thing left in this corpus**, and the
+> filter finds them by name because a fixture written for a grammar rule is named
+> after the rule.

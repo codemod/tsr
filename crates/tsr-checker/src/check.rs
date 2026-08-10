@@ -695,7 +695,27 @@ impl Checker<'_, '_> {
                 self.check_module_hidden_by_local(node);
             }
             Node::ModuleDeclaration(n) => self.check_illegal_decorator(n.modifiers),
-            Node::ImportDeclaration(n) => self.check_illegal_decorator(n.modifiers),
+            Node::ImportDeclaration(n) => {
+                // `!checkGrammarModifiers(node) && node.Modifiers() != nil`
+                // (`checker.go:5278`), on the declaration's first token — the
+                // modifier itself. The first conjunct defers to the
+                // modifier-order codes, which do not fire for a plain `export`
+                // on an import, so the arm is one condition here. §813.
+                if let Some(first) = n.modifiers.first()
+                    && let Some(at) = tsr_ast::Node::from(*first).node_id()
+                    && let Some(file) = self.source_file_of_for_diagnostics(at)
+                {
+                    let span = self.nodes.span(at);
+                    self.report(
+                        file,
+                        Diagnostic::new(
+                            &messages::AN_IMPORT_DECLARATION_CANNOT_HAVE_MODIFIERS,
+                            span,
+                        ),
+                    );
+                }
+                self.check_illegal_decorator(n.modifiers);
+            }
             Node::ExportDeclaration(n) => self.check_illegal_decorator(n.modifiers),
             // **Signatures reach the same walk**: TS1070's arm is inside it and
             // fires only for these two kinds, so without these arms it was
