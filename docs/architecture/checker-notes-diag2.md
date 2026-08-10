@@ -41831,3 +41831,71 @@ shapes — `duplicatePackage_withErrors` is a module-resolution case,
 `validRegexp` is the recovery difference §254 already named — so the
 same-shape-cluster trick does not extend further here. **Each of the rest is its
 own row.**
+
+## §834 — §833's defect class, swept: the two name paths' guard sets, diffed
+
+§833's finding was a guard present on one call site and absent from the other.
+The two name paths are `check_value_identifier` (§3851) and
+`check_type_reference_name` (§4411), and their guard lists diff cleanly:
+
+```
+                                        value   type
+is_specially_diagnosed_name              yes     yes
+in_js_file (blanket / narrowed)          narrow  blanket
+file_has_parse_errors                    NO      yes     — §254 measured −14 on the value path
+in_duplicate_heritage_clause             yes     yes     — §833 closed this one
+is_inside_with_statement                 yes     NO      <- candidate
+empty text / zero-width span             NO      yes     <- candidate
+```
+
+Two asymmetries, and neither is explained by an existing note:
+
+1. **`is_inside_with_statement`.** Upstream reads `NodeFlagsInWithStatement` in
+   `resolveName` (`checker.go:29344`), which serves *both* paths — a type name
+   inside a `with` block should decline for the same reason a value name does.
+2. **The zero-width-span test.** The value path relies on `is_value_reference`
+   to decline positions a recovered tree invents (§254's family); the type path
+   tests the span directly. Whether the first subsumes the second is a
+   measurement, not an argument.
+
+```
+bar:  >= +0 and 0 LOST for each;  keep whichever pays, decline the other WITH ITS NUMBER
+```
+
+### Falsifiers
+
+1. **Either loses a case.** That guard is wider than its path.
+2. **Both are `+0`.** Then §833's class had exactly one member and the sweep
+   closes — which is a result, not a failure.
+
+## §835 — §834 measured: **+0 cases, −2 wrong lines**, and the sweep closes
+
+```
+diagnostics             2,324 → 2,324   (+0, 0 LOST)   42.35%
+extraonly               77 → 75          — the `with` guard removed two wrong lines
+```
+
+Falsifier 2 fired: **§833's defect class had exactly one member.** The guard-set
+diff found two asymmetries and neither moved a case.
+
+The two were not equal, and the difference is what the note is for:
+
+```
+is_inside_with_statement on the type path   KEPT      upstream reads the flag in
+                                                      `resolveName`, which serves both
+                                                      paths — faithful, and −2 wrong lines
+zero-width-span test on the value path      REVERTED  upstream has no such test anywhere;
+                                                      it is THIS PORT's heuristic, and
+                                                      copying a heuristic sideways is not
+                                                      fidelity, it is duplication
+```
+
+> A `+0` is worth keeping when it makes the port *match upstream*, and worth
+> reverting when it merely makes two of this port's own functions look alike.
+> **Symmetry between call sites is evidence, not a goal** — §833's win came from
+> a guard upstream genuinely applies at both sites, and this section's revert is
+> the same principle refusing the superficially similar case.
+
+Eleventh `+0` kept for fidelity, and the fourth sweep this session to close with
+a complete answer. Two of the four found something; two found nothing; **all four
+cost one command each because the instrument was written down before the search.**

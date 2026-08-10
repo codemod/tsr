@@ -4427,6 +4427,14 @@ impl Checker<'_, '_> {
         if self.in_duplicate_heritage_clause(node) {
             return;
         }
+        // Upstream reads `NodeFlagsInWithStatement` in `resolveName`
+        // (`checker.go:29344`), which serves **both** name paths — a type name
+        // inside a `with` block declines for the same reason a value name does.
+        // The value path has carried this since it was written; this one never
+        // got it. §834.
+        if self.is_inside_with_statement(node) {
+            return;
+        }
         let Some(parent) = self.nodes.parent(node) else { return };
         // **An `implements` name is a type reference in a different node
         // kind.** `class C implements I` resolves `I` at `Type` and reports
