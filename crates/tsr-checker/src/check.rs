@@ -2048,6 +2048,15 @@ impl Checker<'_, '_> {
         let (Some(constructor), true) = (constructor, has_state) else { return };
         let Some(body) = constructor.body.and_then(|body| body.node_id()) else { return };
         let Some(Node::Block(block)) = self.node_map.get(body) else { return };
+        // **The whole arm is gated on a super call existing.**
+        // `checkConstructorDeclaration` (`checker.go:2847`) computes
+        // `findFirstSuperCall(body)` and enters the root-level check only when
+        // it is non-nil; with no `super()` anywhere the constructor is
+        // TS2377's and this code has nothing to be first. §470 ported the test
+        // and not the gate. §785.
+        if !self.subtree_has_super_call(body) {
+            return;
+        }
         let mut found = false;
         for statement in block.statements {
             let Some(id) = statement.node_id() else { continue };

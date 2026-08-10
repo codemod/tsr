@@ -39728,3 +39728,87 @@ much has nothing missing.**
 > of the session and it is about instrumentation rather than about TypeScript**:
 > the harness had two outputs, one was a work list and the other was a gate, and
 > nothing but habit made them different.
+
+## §785 — TS2376 fires where there is no `super()` at all
+
+```ts
+class C extends A {
+    public p: number = 10;
+    constructor() { var x = 1; }   // TS2377 only
+}
+```
+
+`checkConstructorDeclaration` (`checker.go:2847`):
+
+```go
+superCall := c.findFirstSuperCall(node.Body())
+if superCall != nil {
+    …the root-level check that produces TS2376…
+}
+```
+
+**The whole arm is gated on a super call existing.** With none, the constructor
+is TS2377's — *"Constructors for derived classes must contain a `super` call"* —
+and TS2376 has nothing to be first. §470's rule scans the statements for a
+*root-level* super call and reports when it finds none, which is the same test
+without the outer gate.
+
+`subtree_has_super_call` is the gate, and §700 gave it a function-like boundary
+so a nested class's `super()` does not satisfy it.
+
+> Fifth row from `extraonly` and the **second ordering** (§777 was the first).
+> Both are two diagnostics that upstream makes alternatives and this port makes
+> independent — and in both the second fires exactly where the first is correct.
+> **An `if x != nil { … }` in upstream is a gate on everything inside it, and a
+> port that lifts the body out keeps the test and drops the gate.**
+
+```
+bar:  +2,  0 LOST,  WRONG delta <= 0
+```
+
+### Falsifiers
+
+1. **A real TS2376 stops reporting.** `constructor() { var x = 1; super(); }`
+   with an initialised property is the code's own case and must keep firing.
+2. **TS2377's row moves.** It is the diagnostic these three cases want.
+3. **A nested class's `super()` satisfies the gate.** §700's boundary is what
+   prevents it and this is its second consumer.
+
+## §786 — §785 built: **+1**, and the gate/test split has a name
+
+```
+diagnostics             2,295 → 2,296   (bar was +2;  +1, 0 LOST)   41.84%
+extraonly               TS2376 wrong lines 3 → 0;  total 86 → 83
+TS2376 missing lines    0     — clean in both directions
+```
+
+All three falsifiers negative, and falsifier 3 is worth noting: §700's
+function-like boundary on `subtree_has_super_call` is what stops a nested
+class's `super()` from satisfying this gate, and **this is that boundary's second
+consumer** — built for TS2377, reused here without change.
+
+### Two orderings, one shape
+
+```
+§777   TS2310 fires where TS2506 is correct     the cycle check gates the recursion check
+§785   TS2376 fires where TS2377 is correct     the super-call search gates the position check
+```
+
+In both, upstream writes
+
+```go
+x := c.findSomething(...)
+if x != nil {
+    …the second diagnostic…
+}
+```
+
+and this port ported the body and not the `if`. **The body is a complete,
+correct, testable rule on its own** — that is exactly why it survives review and
+why its own measurement looks fine: it fires on every case it should, plus the
+cases the gate was there to exclude.
+
+> A gate in upstream is often a *variable binding used as a condition*, and the
+> variable's name says what it computes rather than what it guards. `superCall`,
+> `mainModule`, `ok` — three of this session's rows turned on one, and none of
+> them reads as a guard at the site that needs it.
