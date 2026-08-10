@@ -5810,3 +5810,27 @@ wide; mechanism-sampled from the §135 residuals + probefile).
 Falsifier: defaults REFERENCING EARLIER PARAMETERS (`<T, U = T>`)
 must instantiate under the partial map — a raw default type would
 print `T` where upstream prints the substituted argument.
+
+**§136 MEASURED AND REFUSED at net −350 over five iterations —
+reverted byte-identical, and the map is the deliverable.** The fill
+itself is CORRECT (probefile: `Foo<number>` → `Foo<number, string>`;
++208 G→R real, genericDefaults 55 + tsxLibraryManagedAttributes 41)
+but every gate failed to contain the PRINT side:
+  1. ungated: 623 G→W — BARE references fill position-sensitively
+     (typed arrays: `ArrayBuffer` at value positions,
+     `ArrayBufferLike` in annotations);
+  2. non-empty-written gate: 578 — the filled tail PRINTS
+     (`Iterable<number, any, any>` vs want `Iterable<number>`);
+  3. written-arity display mint: 553 — the SIGNATURE-instantiation
+     road mints its own references and never sees the display hint;
+  4. trailing-default trim in `type_reference_text`: unchanged —
+     the offending texts are born on a road that never calls it
+     (the §42-family string-substitution rebuilds);
+  5. all-declarations arity scan: byte-identical to 4.
+BLOCKER NAMED: reference texts are born in MORE THAN ONE place, and
+the omit-defaulted-tail print rule must live in all of them — the
+same immutable-text architecture the per-site naming subsystem owns.
+The +208 waits there. DO NOT retry the fill without first unifying
+where reference texts are minted; the iterator-family annotation
+gaps (§135's residual and this section's motivation) are the same
+prisoner.
