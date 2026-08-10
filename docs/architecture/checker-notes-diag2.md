@@ -44034,3 +44034,73 @@ carries `UNION` and not its constituents' flags* — is true of every union this
 port builds and false of the one the language builds for you. **A rule derived
 from a note about unions needs the note's own counter-example**, and neither §52
 nor §882 had it. It is written into the predicate now.
+
+## §885 — the union completion: every constituent, or none
+
+§884 left ten lines in one case, and they are all one shape:
+
+```ts
+(typeof --temp) ** 3;      1 ** (typeof temp--) ** 3;
+```
+
+`typeof x` is the union `"string" | "number" | "bigint" | "boolean" | "symbol" |
+"undefined" | "object" | "function"` — eight **string literals**. Its own flags
+are `UNION` and nothing else (§52), so §884's flag path cannot see it, and
+`either_is_composite` declines it before the relation.
+
+The completion is the obvious one and it is sound: **a union is definitely not
+numeric when every constituent is.** No relation call, no assumption about the
+union's shape — the same argument §884 makes for one type, quantified.
+
+> §884's path and this are one idea applied at two depths, and §882 wrote the
+> union exclusion that blocked *both*. Removing it took a fixture; **completing
+> it took the next four lines of the same fixture**, which were on screen the
+> whole time. The file is called
+> `exponentiationOperatorWithInvalidSimpleUnaryExpressionOperands` and it has
+> exactly two shapes in it.
+
+```
+bar:  +1 (exponentiationOperatorWithInvalidSimpleUnaryExpressionOperands),
+      0 LOST via `diagpass`,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **`string | number` reports.** `number` is a constituent, so the quantifier
+   fails on it.
+2. **A union containing `any` or a type parameter reports.** Neither is
+   *definitely* not numeric, and both must fail the quantifier.
+
+## §886 — §885 built: **+1/−0**, the case closes, and one predicate is worth +4
+
+```
+diagnostics   2,347 → 2,348   (bar was +1;  +1)   42.78%
+diagpass      LOST: (none)   GAINED: exponentiationOperatorWithInvalidSimpleUnaryExpressionOperands
+extraonly     78, unchanged
+TS2362        533 → 543
+```
+
+Four builds on `operand_is_definitely_not_numeric`, and the arithmetic is worth
+writing down:
+
+```
+§882   the flag path, with a union exclusion    +0    never fired
+§883   the exclusion removed                    +2    +177 lines
+§885   quantified over constituents             +1    +10 lines,  case closed
+                                                ---
+                                                +3 cases, +187 lines
+```
+
+**And §882 is the reason the other two exist.** It was reverted, it measured
+nothing, and it was the wrong hypothesis derived from a mis-stated work list —
+but it is also where the predicate was first read closely enough for §883 to see
+the union. A `+0` that gets reverted is not always a wasted build; **this one
+paid for the two that followed, and only the note says so.**
+
+### The remaining shortfall is not this rule's
+
+`TS2362` reads 543/863 and `diagmissing` now reports **0 lines missing**. §884's
+correction explains the gap: `want − have` counts lines of a code, not unmatched
+positions, and 320 of those wanted lines are in cases whose other diagnostics
+differ. **The row is finished as far as this workstream can finish it**, and the
+`diagemit` number will not reach `want` until those cases pass for other reasons.

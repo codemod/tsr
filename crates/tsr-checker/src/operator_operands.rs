@@ -28,6 +28,14 @@ use crate::{
     types::TypeId,
 };
 
+/// Flags that settle *not numeric* without the relation. §885.
+const NOT_NUMERIC: TypeFlags = TypeFlags::STRING_LIKE
+    .union(TypeFlags::BOOLEAN_LIKE)
+    .union(TypeFlags::ES_SYMBOL)
+    .union(TypeFlags::UNIQUE_ES_SYMBOL)
+    .union(TypeFlags::VOID)
+    .union(TypeFlags::NON_PRIMITIVE);
+
 impl Checker<'_, '_> {
     /// The operand check for one `+`, `+=`, `<`, `>`, `<=` or `>=`.
     pub(crate) fn check_operator_operands(&mut self, node: NodeId, ambient: bool) {
@@ -359,15 +367,22 @@ impl Checker<'_, '_> {
         // *and* carries `BOOLEAN_LIKE`, and §882's first attempt excluded unions
         // and so declined the exact type it was written for — `(!temp--) ** 3`,
         // 26 lines. §883.
-        if self.type_of(operand).flags.intersects(
-            TypeFlags::STRING_LIKE
-                .union(TypeFlags::BOOLEAN_LIKE)
-                .union(TypeFlags::ES_SYMBOL)
-                .union(TypeFlags::UNIQUE_ES_SYMBOL)
-                .union(TypeFlags::VOID)
-                .union(TypeFlags::NON_PRIMITIVE),
-        ) {
+
+        if self.type_of(operand).flags.intersects(NOT_NUMERIC) {
             return true;
+        }
+        // **A union is definitely not numeric when every constituent is.**
+        // `typeof x` is eight string literals and its own flags are `UNION`
+        // alone (§52), so the test above cannot see it and
+        // `either_is_composite` declines it before the relation. Quantifying
+        // the same argument needs no relation call and no assumption about the
+        // union's shape. §885.
+        if let crate::types::TypeData::Union { types, .. } = &self.store.get(operand).data {
+            let constituents = types.clone();
+            return !constituents.is_empty()
+                && constituents
+                    .iter()
+                    .all(|&member| self.type_of(member).flags.intersects(NOT_NUMERIC));
         }
         if !self.pair_is_reportable(operand, self.intrinsics.number) {
             return false;
