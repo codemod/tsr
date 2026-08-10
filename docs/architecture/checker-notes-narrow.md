@@ -7007,3 +7007,52 @@ against its own 99 wins; `inferFromGenericFunctionReturnTypes3` 3
 R→W. The setMethods family did NOT move — `new Set([0,1,2])` is a
 constructor INTERFACE, the §74 road, and its decline is a
 separate question.
+
+
+## §163 — the this-type at a member read (SPECCED, not built) [checker-1, banked]
+
+**317 wrong lines print `this` where a concrete type is wanted** —
+typeOfThisInInstanceMember 25+25, temporal 18, valueOfTypedArray 16,
+instancePropertyInClassType 14 (§162's exposed residue),
+thisTypeSyntacticContext 13, looseThisTypeInFunctions 10,
+json.stringify 10, tail spread. Want shapes: `C<string>` where we
+print `this`, and `() => C` where we print `() => this`.
+
+**The transcription** (`getTypeWithThisArgument`,
+`checker.go:19573-19596`): a REFERENCE whose target's type-parameter
+count matches its arguments is rebuilt as
+`createTypeReference(target, typeArguments ++ [thisArgument])` —
+upstream carries the this-argument as an EXTRA type argument on the
+reference, and member instantiation substitutes it from there;
+`thisArgument == nil` defaults to the target's own `thisType`.
+Intersections map through; `needApparentType` falls to
+`getApparentType`.
+
+**Why the port cannot do it that way, and what the decidable slice
+is.** This port's references carry no this-slot, and adding one is
+a representation change touching interning, printing and
+instantiation together — a subsystem, not an arm. The decidable
+slice: at the MEMBER READ (`access_member_lookup` in `members.rs`,
+after `property_type` is computed) a property whose type IS the
+owner class's minted this-type answers the RECEIVER's type instead.
+Where the this-type sits inside a SIGNATURE's return, the signature
+must be re-rendered with the substituted return — the same
+per-site re-render the printseam study describes, so this slice
+lands only for shapes whose text is rebuilt rather than reused.
+
+**Representation note found while specc'ing**: `this` in TYPE
+position (`declared.rs:163`) is minted per-INTERFACE only — a
+class's `this` type node answers `errorType` — while a class's
+this-type is minted separately in `expressions.rs` (`this_types`,
+keyed by class symbol) for `check_this_expression`. Two mints, one
+concept; the build should unify them first or it will substitute
+one and not the other. That divergence is itself worth a fixture.
+
+**Bar when built: ≥150 net at ≥5:1** (the class is 317 and the
+signature-return half may not be reachable in slice 1). Falsifiers:
+(a) a `this` type in a POLYMORPHIC position (`f<T extends this>`)
+must not collapse to the receiver; (b) interfaces whose `this`
+appears in a written annotation already print `this` correctly in
+some baselines — check before substituting there; (c)
+`thisTypeSyntacticContext`'s 13 may be the type-position mint's
+error road rather than the substitution's.
