@@ -138,3 +138,34 @@ string containing `", any, any>"** — one filtered typedArrays run
 names the birth site in minutes, and THAT site is where step 2's
 renderer work begins. Do not start step 1's byte-identical refactor
 before this probe; the refactor's shape depends on its answer.
+
+## 6. The text-birth probe RAN (same day) — and §136 re-priced at a near-miss
+
+Three env-gated probes (type_reference_text, signature_to_string,
+store.new_named-with-backtrace) all read ZERO births for the
+offending texts while the output still carried them — the birth site
+is **`reference_text_at` (checker.rs:1315), the §95 composite
+re-render**: it assembles `Name<ALL arguments>` TRANSIENTLY from
+`type_reference_targets` at print time; nothing stored ever holds
+the string. (En route, the §136 iteration-4/5 "byte-identical"
+readings were explained: probes confirmed the trim inputs were
+correct — those iterations almost certainly measured a STALE BINARY;
+rtk masks cargo's Compiling lines, so the §88-trap's recompile check
+must precede any byte-identical claim.)
+
+With the trim shared into `reference_text_at` and the §136 fill
+promoted, the pair reads **+525 G→R / 236 G→W / 49 R→W (~1.9:1)** —
+typedArrays 108 WHOLE, complexRecursiveCollections 100,
+genericDefaults 55. The adverse decomposes into many small
+consumers of newly-resolving references (tsxLibraryManagedAttributes
+29, arrayFrom 22, declarationEmit 17, the yield-position generic
+calls 17 R→W), each needing its own gate. PARKED at the near-miss,
+reverted byte-identical (verified against the accepted baseline);
+the working diff is reproducible from this section in minutes:
+(1) fill in get_instantiated_type_reference (non-empty written
+lists, defaults cover the tail, per-position instantiate under the
+map-so-far); (2) `visible_reference_arity` (closed-default trailing
+trim, all-declarations arity scan); (3) the trim applied in
+`reference_text_at` — stored mint texts UNTOUCHED. The next window
+gates the adverse families one at a time; +240 net right is sitting
+here behind ~5 small gates.
