@@ -760,3 +760,43 @@ names itself) is the opening act, at this site, with this block
 net +494/−193/−301, the day at +1.15 points, the ladder test
 pinning the middle rung. The next window starts HERE with the
 method that has now broken one freeze already.
+
+## §133 — THE THIRD RUNG LANDED: arm (a)'s fixing-fill (+127 gross, −16 price, net +111)
+
+The pipeline window's opening act resolved in three traces:
+
+1. The written-branch block (banked last window) re-measured ZERO with
+   W-MEMO/W-RECHECK prints: memos instantiate correctly but no
+   context-sensitive arguments exist at written-args calls in the family.
+2. The failing shape is `someGenerics6(n => n, n => n, n => n)` — NO
+   written arguments, and TRACE3 showed the deferred inference branch
+   never fires either: the arrows get `(n: A) => A` purely from the
+   CONTEXTUAL road, arm (a), serving the callee's parameter as-is.
+3. Upstream's mechanism is the FIXING mapper: a contextual consumption
+   of a type parameter with no inference candidates FIXES it —
+   `getInferredType`'s final leg (`inference.go:1317`) — to `unknown`.
+   There is no self-candidate guard upstream (checked: `inference.go:93`
+   is union/intersection-only); fixing at serve time is what prevents
+   the `A := A` identity freeze.
+
+**Landed** (this commit): arm (a) instantiates the served parameter with
+every callee type parameter mapped to `unknown`; the deferred branch's
+serve map gains the same unknown-fill final leg after the constraint
+fill (total map, unconditional serve — supersedes the SS75
+uninstantiated-serve, whose 363-G-to-W hazard was half-instantiation;
+a TOTAL map is upstream's own behavior). The ladder test flipped third
+and final: "any" → "T" → **"unknown"**. Ladder complete.
+
+**Ledger** (rebased base, accepted): GAP→RIGHT 51, WRONG→RIGHT 76,
+WRONG→GAP 2 against GAP→WRONG 3, RIGHT→GAP 6, RIGHT→WRONG 10.
+right 410,905 / 470,881. Winners: genericCallWithGenericSignatureArguments
+20, typeArgumentInference 18, typeParameterFixingWithContextSensitiveArguments 8.
+
+**The price, named**: genericContextualTypes1 (5 R→W),
+genericTypeParameterEquivalence2 (3), promiseChaining (2),
+typeArgumentInferenceWithConstraints (6 R→G) — shapes where upstream
+KEEPS the type parameter because the inference context has sources this
+port doesn't consult (return-position inference / outer contexts — the
+returnMapper machinery, priced in the third spec). The refinement that
+buys these back: fix to `unknown` only when no return-position source
+exists for the parameter. That is the next rung, NOT built here.

@@ -635,11 +635,34 @@ impl<'a> Checker<'a, '_> {
             && let [single] = signatures.as_slice()
             && !single.type_parameters.is_empty()
         {
-            let parameter = single.parameters.get(index)?;
-            if parameter.rest || parameter.optional {
-                return None;
+            let single = single.clone();
+            let parameter_type = {
+                let parameter = single.parameters.get(index)?;
+                if parameter.rest || parameter.optional {
+                    return None;
+                }
+                parameter.r#type
+            };
+            // The third rung (the ladder test's final flip): upstream's
+            // FIXING mapper — a context consumed with no inference
+            // candidates fixes its type parameters to `unknown`
+            // (`getInferredType`'s final leg, `inference.go:1317`). This
+            // road fires only when NO memo exists, i.e. no pass-1
+            // candidates were collected for this call, so the fill is
+            // total: `someGenerics6(n => n, ...)` wants
+            // `(n: unknown) => unknown`, not the adopted `(n: A) => A`.
+            let Some(type_parameter_ids) = self.type_parameter_types(&single) else {
+                return Some(parameter_type);
+            };
+            let names: Vec<&str> = single.type_parameters.iter().map(|p| p.name.as_str()).collect();
+            let unknown = self.intrinsics.unknown;
+            let map: Vec<(TypeId, TypeId)> =
+                type_parameter_ids.iter().map(|&t| (t, unknown)).collect();
+            let image = self.instantiate_type(parameter_type, &map, &type_parameter_ids, &names);
+            if image != self.intrinsics.error {
+                return Some(image);
             }
-            return Some(parameter.r#type);
+            return Some(parameter_type);
         }
         // §70 (`checker-notes-narrow.md`): OVERLOADED/GENERIC callees whose
         // every candidate AGREES on the parameter's type at this index — the

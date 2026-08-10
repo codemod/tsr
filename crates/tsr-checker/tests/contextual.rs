@@ -90,16 +90,15 @@ fn the_second_callback_argument_is_typed_from_the_second_parameter() {
 /// fixture discriminates because `T` and `any` are different strings.
 #[test]
 fn a_generic_callee_supplies_uninstantiated_context() {
-    // The summit ladder, each rung once pinned by this test: "any" (the
-    // pre-summit standalone road), now "T" (the memo serves the callee's
-    // parameter uninstantiated and the arrow ADOPTS it — the §75 semantics
-    // through the callres2 memo), and upstream's final answer is "unknown"
-    // (the resolved signature instantiates T and re-types the arrow — the
-    // pipeline's remaining work; when that lands, this test flips a third
-    // time and the ladder is complete).
+    // The summit ladder, COMPLETE — each rung once pinned by this test:
+    // "any" (the pre-summit standalone road), then "T" (the §75 adoption
+    // through the callres2 memo), and now "unknown" — arm (a)'s
+    // FIXING-FILL (`getInferredType`'s final leg, `inference.go:1317`):
+    // a context consumed with no inference candidates fixes its type
+    // parameters to `unknown`, which is upstream's final answer.
     let source = "declare function run<T>(callback: (declared: T) => void): void;\n\
                   run(value => value);";
-    assert_eq!(type_of(source, "value"), "T");
+    assert_eq!(type_of(source, "value"), "unknown");
 }
 
 /// An annotated parameter is unaffected, and the annotation wins.

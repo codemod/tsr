@@ -315,10 +315,23 @@ impl Checker<'_, '_> {
                     partial.push((type_parameter, constraint));
                 }
             }
+            // The FIXING mapper's final leg (`getInferredType`,
+            // `inference.go:1317`, same fallback as the resolution loop's
+            // no-candidate arm below): a parameter no argument or constraint
+            // reached fixes to `unknown` at serve time. This supersedes the
+            // SS75 uninstantiated-serve — the map is now TOTAL, so contexts
+            // always serve instantiated; `someGenerics6(n => n, ...)` is the
+            // head case (upstream: `(n: unknown) => unknown`; the ladder
+            // test's third flip).
+            for &type_parameter in &parameters {
+                if !partial.iter().any(|&(tp, _)| tp == type_parameter) {
+                    partial.push((type_parameter, self.intrinsics.unknown));
+                }
+            }
             let mut memo = signature.clone();
             for parameter in &mut memo.parameters {
                 let image = self.instantiate_type(parameter.r#type, &partial, &parameters, &names);
-                if image != error && !self.mentions_type_parameter(image, &parameters, &names) {
+                if image != error {
                     parameter.r#type = image;
                     for &(consumed, _) in &partial {
                         if let Some(info) = infos.iter_mut().find(|i| i.type_parameter == consumed)
@@ -334,10 +347,6 @@ impl Checker<'_, '_> {
             }
             for &index in &deferred {
                 let checked = self.check_expression(arguments[index]);
-                if std::env::var("TSR_TRACE").is_ok() {
-                    let t = self.type_to_string(checked);
-                    eprintln!("TRACE3-ARROW-CHECKED: {t}");
-                }
                 if let Some(slot) = argument_types.get_mut(index) {
                     *slot = checked;
                 }
