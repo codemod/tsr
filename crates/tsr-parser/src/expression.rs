@@ -1107,6 +1107,23 @@ impl<'a> Parser<'a> {
             return ObjectLiteralElementLike::PropertyAssignment(node);
         }
 
+        // **The shorthand form needs an identifier.** Upstream's
+        // `isShorthandPropertyAssignment` is `tokenIsIdentifier && token != ':'`,
+        // so `{ [e] }` is not a shorthand — it reaches `parseExpected(':')` and
+        // reports there. A computed name has no shorthand spelling, because the
+        // shorthand *is* the identifier.
+        // `docs/architecture/checker-notes-diag2.md` §576.
+        if !matches!(name, tsr_ast::PropertyName::Identifier(_)) {
+            self.expect(SyntaxKind::ColonToken);
+            let initializer = self.parse_assignment_expression();
+            let node = self.finish_node(
+                PropertyAssignment::new(&[], name, None, None, Some(initializer)),
+                SyntaxKind::PropertyAssignment,
+                start,
+            );
+            return ObjectLiteralElementLike::PropertyAssignment(node);
+        }
+
         // `{ a }` and `{ a = 1 }` (the latter only valid as a destructuring
         // target, which the checker enforces).
         let initializer = if self.eat(SyntaxKind::EqualsToken) {

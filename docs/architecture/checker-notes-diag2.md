@@ -30478,3 +30478,90 @@ instances are evidence it is worth a look, not evidence of its size.
 Six TS1109 cases: `classExtendingPrimitive2`, two `importTag` JSDoc cases, two
 parser error-recovery fixtures, and `parserTypeAssertionInObjectCreationExpression1`.
 No shared shape, and none looked at.
+
+## §576 — §575's proposed sweep does not work, and TS1005's `{ [e] }`
+
+### The sweep, priced and discarded
+
+§575 proposed *"each `parseX` upstream defines and this port does not is a place
+two productions were merged"*, testable by grep. Run:
+
+```
+upstream parser.go        246 parse* functions
+tsr-parser                141
+absent by name            185
+real distinctions found     2   (§572, §574)
+```
+
+**A 1% signal rate.** The absences are overwhelmingly naming differences — this
+port inlines small helpers, spells things differently, and splits along other
+lines. §420 recorded that a sweep priced off `grep` over-counts; this is the
+same failure in a new place, and the honest entry is that **the name diff is not
+an instrument**.
+
+> **A pattern that explains two findings is not thereby a way to find more.**
+> §572 and §574 were both found by reading a failing fixture and then upstream's
+> function; neither was found by noticing a missing name. The generalisation ran
+> the inference backwards.
+
+Withdrawn rather than left standing, per §546: a wrong lead costs the next
+session more than no lead.
+
+### TS1005
+
+```ts
+var v = { [e] };     // TS1005 — ':' expected
+```
+
+`parse_object_literal_element` falls through to the shorthand form for **any**
+name. Upstream gates it:
+
+```go
+isShorthandPropertyAssignment := tokenIsIdentifier && p.token != KindColonToken
+```
+
+A computed name is not an identifier, so upstream reaches
+`parseExpected(KindColonToken)` and reports there. `{ [e] }` has no shorthand
+spelling — the shorthand *is* the identifier.
+
+```
+bar:  +1 of 6,  0 LOST,  WRONG delta <= +1,  parser rails stay at 100%
+```
+
+One: the other five TS1005 cases include an invalid regex literal
+(`/fo(o/`, which is the **scanner's** validation, not the parser's) and four
+unexamined.
+
+## §577 — §576 built: **+3** against a bar of +1, and the wrong lines were already there
+
+```
+diagnostics          2,127 → 2,130   (bar was +1;  +3, 0 LOST)   38.81%
+parser_typescript    100%  ·  printer_round_trip  100%  ·  binder_symbols  100%
+TS1005 in extraonly  9 before, 9 after — measured on both sides
+TS1005               9 missing lines → 6;  6 cases blocked alone → 3
+```
+
+`extraonly` showed nine wrong TS1005 lines and **all nine predate this build** —
+confirmed by stashing the change and counting again, which is §558's *compare
+the extras* applied as a same-run differential rather than across builds.
+
+> **A wrong-line count is only a falsifier when you know its value without your
+> change.** Nine looked damning against a bar that tolerated one. The stash cost
+> one command and turned a revert into a +3.
+
+Three cases converted for a bar of one: `{ [e] }` is not the only place a
+non-identifier name reached the shorthand path.
+
+### The sweep §575 proposed, withdrawn
+
+Priced in the same sitting and discarded — 185 absent `parseX` names, 2 real
+distinctions, a 1% signal rate. **A pattern that explains two findings is not
+thereby a way to find more**; both were found by reading a failing fixture and
+then upstream's function, and the generalisation ran that inference backwards.
+
+### TS1005's residue
+
+Three cases, one of which is `/fo(o/` — an unterminated group in a **regular
+expression literal**, which upstream validates in the *scanner*. That is a
+fourth subsystem after the checker, binder, parser and loader, and it has not
+been looked at once this session.
