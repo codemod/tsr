@@ -378,6 +378,7 @@ impl Checker<'_, '_> {
                 ambient
             }
             Node::VariableDeclaration(declaration) => {
+                self.check_implicit_any_binding_pattern(node);
                 self.check_using_is_initialized(node);
                 self.check_outer_scoped_variable(node);
                 self.check_ambient_initializer(

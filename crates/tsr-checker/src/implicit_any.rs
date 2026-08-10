@@ -436,6 +436,14 @@ impl Checker<'_, '_> {
             .unwrap_or(false)
     }
 
+    /// TS7031 for a `var`/`let`/`const` whose name is a binding pattern. §730.
+    pub(crate) fn check_implicit_any_binding_pattern(&mut self, node: NodeId) {
+        if !self.no_implicit_any || self.file_has_parse_errors {
+            return;
+        }
+        self.report_binding_pattern_elements(node);
+    }
+
     /// One TS7031 per element of a parameter's binding pattern.
     ///
     /// `checkVariableLikeDeclaration`'s pattern arm — the error node is each
@@ -447,6 +455,32 @@ impl Checker<'_, '_> {
                 Some(tsr_ast::BindingName::BindingPattern(pattern)) => pattern.elements,
                 _ => return,
             },
+            // **A `var` whose name is a binding pattern is implicitly `any`
+            // when nothing supplies its type**, and *nothing supplies it* is a
+            // fact about the declaration's **parent**, not about which of its
+            // fields are empty: a `for…of` head has neither an initializer nor
+            // an annotation and takes its type from the iterable. §729 measured
+            // the field-shaped bound at 39 wrong lines, every one a loop head.
+            // §730.
+            Some(Node::VariableDeclaration(declaration)) => {
+                if declaration.initializer.is_some() || declaration.r#type.is_some() {
+                    return;
+                }
+                let in_a_statement = self
+                    .nodes
+                    .parent(parameter)
+                    .and_then(|list| self.nodes.parent(list))
+                    .is_some_and(|owner| {
+                        self.nodes.kind(owner) == tsr_ast::SyntaxKind::VariableStatement
+                    });
+                if !in_a_statement {
+                    return;
+                }
+                match declaration.name {
+                    Some(tsr_ast::BindingName::BindingPattern(pattern)) => pattern.elements,
+                    _ => return,
+                }
+            }
             Some(Node::BindingElement(element)) => match element.name {
                 Some(tsr_ast::BindingName::BindingPattern(pattern)) => pattern.elements,
                 _ => return,

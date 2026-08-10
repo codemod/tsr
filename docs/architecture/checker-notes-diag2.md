@@ -37433,3 +37433,69 @@ a type — `ForOfStatement`, `ForInStatement` — rather than the fields that do
 and at that point it is enumerating positions again, which is the family §701
 opened. **Named, priced at 2 cases, not built**; the next attempt should start
 from the parent list, not the field list.
+
+## §730 — TS7031 retried from the parent list
+
+§729 refused the field-shaped bound and said the next attempt should name the
+**parents** that supply a type. There are exactly two, and they are the two
+`diagmissing` never showed because they were never wrong before:
+
+```
+ForOfStatement   the iterable supplies it
+ForInStatement   the key type supplies it
+```
+
+so the bound becomes: the declaration list's parent is a `VariableStatement`.
+That is the *only* parent for which "no initializer and no annotation" means
+"nothing supplies a type", and it is a stronger statement than the field test
+because it is about where the declaration sits rather than what it is missing.
+
+```
+bar:  +1 of 2 (noImplicitAnyDestructuringVarDeclaration),  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **§729's 39 wrong lines return.** They are all `for…of` and `for…in` heads
+   and the parent test is aimed exactly at them.
+2. **`var [a, b] = [1, 2];` reports.** The field test is *kept* as well — a
+   `VariableStatement` parent is necessary, not sufficient.
+3. **TS7005 / TS7006 move.**
+
+## §731 — §730 built: **+1**, and the parent-shaped bound took 39 wrong lines to 0
+
+```
+diagnostics             2,252 → 2,253   (bar was +1;  +1, 0 LOST)   41.05%
+extraonly               TS7031 wrong lines 39 → 0;  TS7006 unchanged at 4
+TS7031 missing lines    9 → 7;  cases blocked alone 3 → 2
+```
+
+All three falsifiers negative. The four TS7006 lines were checked differentially
+by stashing — §715's rule, applied without being reminded this time.
+
+### The two bounds, side by side
+
+```
+§728   no initializer and no annotation        −8,  39 wrong
+§730   …and the list's parent is a statement   +1,   0 wrong
+```
+
+One clause. The field test asks *what is this declaration missing*; the parent
+test asks *where does its type come from*, and only the second is the question.
+A `for…of` head is missing exactly the same two fields and is not missing a type
+at all.
+
+> **§729 wrote the fix before the measurement**, from the wrong column alone:
+> *"a correct bound would have to name the parents that supply a type rather
+> than the fields that do."* That sentence cost nothing to write and the build
+> that used it cost one run. **The refusal note is worth more than the refusal,
+> and it is worth most when it names the next attempt rather than the failure.**
+
+### The residue
+
+Seven lines, two cases. `wideningTuples5`'s `var [a, b] = [undefined, null]` has
+an initializer and needs its type widened — the type side, as §728 already said.
+The rest are the `for…of` heads themselves, which upstream *does* report when
+the iterable is untyped: **this build made them silent, and silence is where
+they were.** Named; the arm that would take them needs the iterable's type and
+is the same owner.
