@@ -32198,3 +32198,55 @@ TS1029 +4  TS1070 +4  TS1014 +3  TS1248 +2  TS2462 +2  TS1308 +1  TS1805x +3
 ```
 
 Nine codes closed of the sixty-two with cases.
+
+## §617 — the column pool, priced: **89 lines, 52 cases, 7 blocked by column alone**
+
+§616 found a line emitted on the right line at the wrong column, and
+`diagcolumn` — built earlier in this workstream and unused since — prices the
+whole pool:
+
+```
+cases with a column-only mismatch:  52
+column-only mismatched lines:       89
+cases blocked by column ALONE:       7
+```
+
+split by producer:
+
+```
+parser  (1xxx)   70 lines   TS1005 alone is 53
+checker (2xxx+)  19 lines
+```
+
+> **Seven cases are one position each from converting, and eighty-nine lines are
+> right about everything except where they point.** That is a different pool
+> from `diagmissing`'s and from `extraonly`'s, and it has been invisible to both
+> all session: a wrong column is a *missing* line and an *extra* line at once,
+> so it inflates both instruments while looking like ordinary work in each.
+
+### The seven, with their deltas
+
+```
+incompleteDottedExpressionAtEOF        TS1003 17→18
+privateNameJsx                         TS1003 27→22
+unclosedExportClause01                 TS1005 13→18, 10→15, 18→23
+classAbstractManyKeywords              TS1005  1→9
+deleteOperatorInvalidOperations        TS1102 26→27, TS2703 26→27, and again 22→23
+parserKeywordsAsIdentifierName2        TS1010 12→10
+typePredicateOnVariableDeclaration02   TS2304  8→10
+```
+
+**Not one of these is a rule defect.** Each is a span: a recovered node whose
+synthesized position differs by a token, or a report on the wrong sub-node —
+`var y: z is number` reports on the `is` where upstream reports on the `z`.
+
+### Why this is recorded rather than built
+
+Six of the seven are `1xxx` codes from parser recovery, and each needs its own
+fixture read to say which token upstream anchored to; they share a *symptom*, not
+a *cause*. §576's rule applies — **a pattern that explains several findings is not
+thereby a way to fix them** — and §590's applies too: the useful product is the
+pool's size and composition, which nothing had until now.
+
+**53 of the 89 lines are TS1005 alone**, which makes that one code the only part
+of this pool worth attacking as a group.
