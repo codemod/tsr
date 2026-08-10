@@ -36358,3 +36358,81 @@ lines only in otherwise-passing cases**, so a build that is wrong *and* short in
 the same case is invisible to it; `diagcase` is what showed them. That is a
 limit worth stating, since eleven builds this session have used `extraonly` as
 the wrong-line gate.
+
+## §706 — TS2428: identical type parameters means identical *constraints* too
+
+```ts
+class     Foo<T extends Function>  { n: T; }
+interface Foo<T extends Different> { y: T; }   // TS2428, on both names
+```
+
+`areTypeParametersIdentical` (`checker.go:4340`) compares three things per
+parameter — the **name**, the **constraint** and the **default**. §-whenever this
+rule was written it compared only the first, and this fixture's two declarations
+agree on every name (`T` in all four) and differ on nothing else.
+
+Upstream compares constraints as *types*, through `isTypeIdenticalTo`. This port
+has no source-text printer reachable from the checker (§684 established that), so
+the comparison here is **structural and shallow**: a written type reference
+contributes its entity name, a keyword type its kind, an absent constraint the
+empty string.
+
+> That is narrower than upstream in one direction only — **two spellings of the
+> same type read as different**, so the risk is a wrong line rather than a
+> missing one. Within a single symbol's declarations that shape is rare, and the
+> falsifier below is the measurement that decides whether "rare" is "absent".
+
+```
+bar:  +1 of 2 (nonIdenticalTypeConstraints),  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **Two declarations writing the same constraint differently report.** The
+   whole risk of a syntactic comparison, and the corpus's interface-merging
+   families are where it would show.
+2. **TS2300's type-parameter scan moves.** It shares this rule's dispatch.
+3. **A merged class + namespace reports.** Only the type-parameter-carrying
+   declarations are compared, and a namespace has none — an empty list must
+   equal an empty list, not differ from a non-empty one.
+
+## §707 — §706 built: **+1 of 2**, row closed at 0 missing lines
+
+```
+diagnostics             2,231 → 2,232   (bar was +1;  +1, 0 LOST)   40.67%
+extraonly               zero TS2428 and zero TS2300 lines
+TS2428 missing lines    10 → 0     — the row is closed
+```
+
+All three falsifiers negative. **Falsifier 1 was the whole risk** — a syntactic
+comparison reads two spellings of one type as different — and the corpus's
+interface-merging families produced no wrong line, so within a single symbol's
+declarations the shape is absent rather than merely rare.
+
+The second case does not convert: it is blocked on another code as well, which
+is why the row reaches **0 missing lines at +1**. `diagmissing`'s blocked-alone
+count and the row's line count answer different questions, and here they differ
+by a case.
+
+### Five builds, five shapes of the same defect
+
+```
+§695  a flag composite that could not express the position it named
+§698  a clause test that required the identifier to *be* the expression
+§700  a subtree search with no function-like boundary
+§702  a position list that enumerates the right node and the wrong field
+§704  a marking key too coarse for the members it decides
+§706  an identity test comparing one of the three things identity means
+```
+
+Six now, and the sixth is the plainest: **`areTypeParametersIdentical` compares
+name, constraint and default, and this port compared name.** Nothing about that
+is subtle, and it survived because the row it guards had never been measured
+against a fixture where the names agreed.
+
+> Every one of the six is a rule that *works* — it fires, it has tests, it was
+> measured when written. **What each is missing is a case its author had no
+> fixture for**, and the corpus has one. That is the whole method: the corpus is
+> not a test suite for the port, it is a **list of the distinctions upstream
+> makes**, and a rule that has never seen a distinction cannot be written to
+> respect it.

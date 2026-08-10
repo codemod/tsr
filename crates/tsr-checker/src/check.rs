@@ -5239,12 +5239,40 @@ impl Checker<'_, '_> {
         if declarations.len() <= 1 {
             return;
         }
+        // `areTypeParametersIdentical` (`checker.go:4340`) compares the
+        // **name, the constraint and the default** of each parameter, not the
+        // name alone: `class Foo<T extends Function>` and `interface Foo<T
+        // extends Different>` agree on every name.
+        //
+        // Upstream compares constraints as types. This port has no source-text
+        // printer reachable from the checker (§684), so the comparison is
+        // structural and shallow — a written type reference contributes its
+        // entity name, a keyword type its kind. Narrower in one direction only:
+        // two spellings of one type read as different, so the risk is a wrong
+        // line rather than a missing one. §706.
+        let signature = |this: &Self, node: Option<NodeId>| -> String {
+            let Some(node) = node else { return String::new() };
+            match this.node_map.get(node) {
+                Some(Node::TypeReferenceNode(reference)) => reference
+                    .type_name
+                    .and_then(|name| name.node_id())
+                    .and_then(|id| this.identifier_text(id))
+                    .map_or_else(|| format!("{:?}", this.nodes.kind(node)), str::to_string),
+                _ => format!("{:?}", this.nodes.kind(node)),
+            }
+        };
         let names = |declaration: NodeId| -> Vec<String> {
             self.node_map.get(declaration).map_or_else(Vec::new, |typed| {
                 type_parameters_of(typed)
                     .iter()
                     .map(|parameter| {
-                        parameter.name.map_or_else(String::new, |name| name.text.to_string())
+                        let name =
+                            parameter.name.map_or_else(String::new, |name| name.text.to_string());
+                        let constraint =
+                            signature(self, parameter.constraint.and_then(|c| c.node_id()));
+                        let default =
+                            signature(self, parameter.default_type.and_then(|d| d.node_id()));
+                        format!("{name}|{constraint}|{default}")
                     })
                     .collect()
             })
