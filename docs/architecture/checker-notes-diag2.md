@@ -37125,3 +37125,99 @@ closer. The port now asks exactly that: if the name resolves to a declaration
 Three in a row now — §718, §720, §722 — where the *second* attempt at a row was
 right and the first was a plausible reading of upstream's prose. The prose is
 worth reading; it is not worth trusting over a measurement.
+
+## §723 — TS2301's last case: an arrow's concise body is a value position
+
+```ts
+class A {
+    private a = x;          // reported
+    private b = { p: x };   // reported
+    private c = () => x;    // TS2301, missing
+    constructor(x: number) {}
+}
+```
+
+Three probes, each one line, narrowing from the rule to the gate:
+
+```
+PROBE h      the helper is entered 4 times per class, never for the arrow's `x`
+PROBE cvi    check_value_identifier is entered 8 times — the arrow's `x` does arrive
+PROBE gates  vr=false ×4, vr=true ×4
+```
+
+`is_value_reference` answers **false** for an identifier that is an arrow
+function's **concise body**. Its arms enumerate thirty-odd expression parents —
+call, binary, spread, template span, `await`, `satisfies` — and an
+`ArrowFunction` whose `body` is the expression is not among them.
+
+> Eleventh in §701's family and the plainest yet. **The list is long enough that
+> its incompleteness reads as completeness**: thirty arms all shaped alike, and
+> the missing one is missing because an arrow's body is the only place in the
+> grammar where an *expression* hangs directly off a *function*.
+
+The gate is shared by every rule downstream of it — TS2304's cascade, the
+meaning-mismatch ladder, TS2301 — so this is measured against all of them, not
+just this row.
+
+```
+bar:  +1 of 1 (constructorParametersInVariableDeclarations),
+      0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **TS2304's row gains wrong lines.** Every identifier that is an arrow's
+   concise body now reaches the `Cannot find name` cascade for the first time —
+   this is the widest-blast-radius change of the session and the reason the bar
+   allows two.
+2. **`() => x` where `x` is a parameter of the arrow reports.** Resolution
+   decides that and is unchanged.
+3. **The meaning-mismatch rows (TS2693, TS2749, TS2708) move.** Same gate.
+
+## §724 — §723 built: **+2 of 1**, TS2301 closed, zero wrong lines on the widest gate
+
+```
+diagnostics             2,246 → 2,248   (bar was +1;  +2, 0 LOST)   40.96%
+extraonly               zero TS2301, TS2693 and TS2749;  TS2304 unchanged at 19
+TS2301 missing lines    2 → 0     — the row is closed
+```
+
+All three falsifiers negative, including the one that mattered: **every
+identifier that is an arrow's concise body reached the `Cannot find name`
+cascade for the first time, and not one of them was wrong.** That is the
+strongest evidence this session that the cascade's own guards are sound — they
+had simply never been asked about this position.
+
+### The row took four builds and three probes
+
+```
+§720  constructor locals             +2, 1 wrong
+§721  a function-like boundary       −2, 0 wrong   — reverted
+§722  what the name binds to         +1, 0 wrong
+§723  an arrow's concise body        +2, 0 wrong   — row closed
+```
+
+**Every one of the three successful builds was found by a one-line probe, and
+the one failure was the build reasoned from upstream's prose.** §721 recorded
+that as a coincidence worth watching; four builds in, it is the row's whole
+history.
+
+The probes narrowed monotonically, each ruling out the layer above:
+
+```
+PROBE h      the helper is never entered for the arrow's `x`   → not the rule
+PROBE cvi    the identifier does reach check_value_identifier  → not the dispatch
+PROBE gates  vr=false for exactly those four                   → the gate
+```
+
+> Three probes, three layers, one answer. **A rule, its caller and its gate are
+> three different suspects, and the cost of separating them is one `eprintln`
+> each** — against a full measurement per wrong guess, which is what §721 paid.
+
+### Eleventh in the family, and the most-shared gate yet
+
+`is_value_reference` enumerates thirty-odd expression parents and is consulted
+by every value-position rule in the checker. The missing arm was an
+`ArrowFunction` whose `body` is the expression — **the only place in the grammar
+where an expression hangs directly off a function**, which is exactly why a list
+of thirty could look complete without it.

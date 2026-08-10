@@ -4501,6 +4501,12 @@ impl Checker<'_, '_> {
                 is(n.name.node_id())
                     || is(n.object_assignment_initializer.and_then(|e| e.node_id()))
             }
+            // **An arrow's concise body is a value position**, and it is the
+            // only place in the grammar where an expression hangs directly off
+            // a function — which is why a list of thirty expression parents
+            // could look complete without it. `private c = () => x` was the
+            // fixture. §723.
+            Node::ArrowFunction(n) => is(n.body.and_then(|e| e.node_id())),
             Node::SpreadElement(n) => is(n.expression.and_then(|e| e.node_id())),
             Node::SpreadAssignment(n) => is(n.expression.and_then(|e| e.node_id())),
             Node::TemplateSpan(n) => is(n.expression.and_then(|e| e.node_id())),
