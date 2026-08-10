@@ -39237,3 +39237,89 @@ TS1361's remaining eight lines across four cases are therefore not kind-list
 gaps. `exportDefault` and `filterNamespace_import` are the fixtures, and whatever
 they need, it is not another arm here — **named, and the next attempt should not
 start by re-reading this function.**
+
+## §773 — TS1361: a default import's declaration *is* the clause
+
+```ts
+import type ns from './ns';
+ns.Class;      // TS1361
+ns.Value;      // TS1361
+```
+
+The probe §772 said not to guess at:
+
+```
+PROBE rt  name=ns valid_site=false      — the use site is invalid, so it should report
+PROBE toa kind=ImportClause verdict=None — and the chain declines
+```
+
+`declaration_is_type_only`'s import arm reads the flag off the **enclosing**
+`ImportClause`:
+
+```rust
+Node::ImportSpecifier(_) | Node::NamespaceImport(_) | Node::ImportClause(_) => {
+    match self.node_map.get(enclosing(SyntaxKind::ImportClause)?)? { … }
+}
+```
+
+and `enclosing` walks *ancestors*. For an `ImportSpecifier` or a `NamespaceImport`
+that is right — the clause is above them. **For a default import the declaration
+*is* the clause**, so the ancestor walk finds nothing and the `?` returns `None`.
+The kind is in the list, which is why §772's sweep found the list complete: the
+entry is present and its lookup excludes the very case it was added for.
+
+> §772 closed the *kind* question and this is a different one. **A list can be
+> complete and one of its entries still unreachable**, and the two are only
+> distinguishable by printing the verdict per kind rather than checking the kind
+> is present. §764's dispatch sweep asked "is this kind handed to the rule";
+> neither sweep asks "does the rule's own arm work for it".
+
+```
+bar:  +2 of 4 (filterNamespace_import, exportDefault),  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **A plain `import ns from './ns'` reports.** Only a `type` phase modifier
+   counts and the test is unchanged.
+2. **`let c: ns.Class` reports.** A type position is a valid use site and
+   `is_valid_type_only_alias_use_site` decides it — the probe already shows both
+   verdicts occurring on this fixture.
+3. **TS1362's row moves.** Same chain, the export half.
+
+## §774 — §773 built: **+3 of 2**, and a complete list with an unreachable entry
+
+```
+diagnostics             2,283 → 2,286   (bar was +2;  +3, 0 LOST)   41.65%
+extraonly               zero TS1361 and zero TS1362 lines
+TS1361 missing lines    8 → 2;  4 cases blocked alone → 1
+```
+
+All three falsifiers negative, including the one the probe had already shown
+would matter: `let c: ns.Class` is a valid use site on the *same* fixture as the
+two reported lines, and it stayed silent.
+
+### The pair, stated together
+
+```
+§772   the kind list is complete          5 of 5 flag-carrying nodes enumerated
+§773   one entry could not fire           its lookup excluded the case it was for
+```
+
+`ImportClause` was in the list from §121 and its arm read the flag off the
+**enclosing** clause — correct for the two kinds that sit inside one, and
+impossible for the kind that *is* one. **A sweep that asks "is this kind present"
+answers yes; the case still fails.**
+
+> Three questions about one function, and each needed a different instrument:
+> *is the kind listed* (§772, a grep of the grammar), *is the rule handed the
+> kind* (§764, a comparison with the dispatch), and *does the arm work for the
+> kind* (§773, a print of its verdict). **Only the third found this**, and it is
+> the only one of the three that requires running the code.
+
+### The residue
+
+Two lines, one case: `exportDefault`'s `import type types from './c'` where `c`
+re-exports through `export =`. The chain reaches the re-export and stops — a
+depth question, not a kind or arm one, and the fourth distinct shape this
+function has needed. **Named, not built.**

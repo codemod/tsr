@@ -4171,8 +4171,18 @@ impl Checker<'_, '_> {
         };
         match self.node_map.get(declaration)? {
             Node::ImportSpecifier(n) if n.is_type_only => Some(false),
+            // **A default import's declaration *is* the clause.** `enclosing`
+            // walks ancestors, which is right for an `ImportSpecifier` or a
+            // `NamespaceImport` — the clause is above them — and wrong for
+            // `import type ns from './ns'`, where the alias's declaration is
+            // the `ImportClause` itself and the walk finds nothing. §773.
             Node::ImportSpecifier(_) | Node::NamespaceImport(_) | Node::ImportClause(_) => {
-                match self.node_map.get(enclosing(SyntaxKind::ImportClause)?)? {
+                let clause = if self.nodes.kind(declaration) == SyntaxKind::ImportClause {
+                    declaration
+                } else {
+                    enclosing(SyntaxKind::ImportClause)?
+                };
+                match self.node_map.get(clause)? {
                     Node::ImportClause(clause) => clause
                         .phase_modifier
                         .is_some_and(|token| token.kind == SyntaxKind::TypeKeyword)
