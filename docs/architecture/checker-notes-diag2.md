@@ -38068,3 +38068,80 @@ pairs, blocked on this code plus another that had already gone. **Fourth time
 this session** (§687, §701, §709) that a bar priced from `diagmissing`'s
 blocked-alone count under-counted, and the reason is always the same — the count
 is a lower bound by construction.
+
+## §745 — TS2506: a class in its own base chain
+
+```ts
+declare namespace Box2D.Collision.Shapes {
+    export class b2CircleShape extends b2Shape { }                       // TS2506
+    export class b2Shape extends Box2D.Collision.Shapes.b2CircleShape { } // TS2506
+}
+```
+
+`resolveBaseTypesOfClass`'s cycle guard (`checker.go:16977`) — upstream detects
+it while *resolving* the base type, on a stack, and reports at the symbol's value
+declaration. This port has no such stack, so the question is asked directly:
+**follow the `extends` chain from each class and see whether it comes back.**
+
+Both halves exist. The base is an `ExpressionWithTypeArguments` whose expression
+is an identifier or a property-access chain; resolving its leftmost name at
+`CLASS` and taking the symbol's value declaration is what §736 wrote and §743
+used again. The walk is bounded at the same hop count as §692's alias chain,
+which is what makes a *cycle* detectable rather than fatal.
+
+> The rule reports on **every class in the cycle**, not on the one that closes
+> it — the fixture's two classes both carry a line. That is why the walk starts
+> afresh from each class rather than marking a visited set: a shared set would
+> report the first and silence the rest, which is the opposite of what the
+> baseline records.
+
+```
+bar:  +1 of 3 (recursiveBaseCheck2),  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **A normal chain reports.** `class A extends B`, `class B extends C` with no
+   cycle is the corpus's default and must stay silent.
+2. **`class A extends A` does not report.** The one-hop cycle is the simplest
+   case and the walk must catch it.
+3. **TS2507 / TS2515 move.** Neighbouring class-heritage codes.
+
+## §746 — §745 built: **+2 of 1**, and the cycle walk resolved the wrong `W`
+
+```
+diagnostics             2,262 → 2,264   (bar was +1;  +2, 0 LOST)   41.25%
+extraonly               zero TS2506, TS2507 and TS2515 lines
+TS2506 missing lines    9 → 2;  3 cases blocked alone → 1
+```
+
+The first shape measured **+1 with 2 wrong lines**, both in one fixture:
+
+```ts
+declare namespace A.B.Base { export class W { } }
+namespace X.Y.base {
+    export class W extends A.B.Base.W { }   // reported a cycle — wrongly
+}
+```
+
+The walk descended `A.B.Base.W` to its **rightmost segment** and resolved `W` in
+the enclosing scope, which finds the *local* `W` — the class itself. **A cycle of
+one hop, entirely manufactured by the lookup.**
+
+> `extends A.B.Base.W` is not a lookup of `W`. §698 built exactly the resolution
+> this needed — receiver to namespace, member from its exports — for TS2449's
+> qualified base, and this build descended to the last identifier instead. **The
+> two rules read the same syntax for the same purpose eight builds apart, and
+> only one of them asked the receiver.**
+
+Falsifier 1 was written as *"a normal chain reports"* and that is precisely what
+fired, in the one corpus shape where a qualified base shares its final name with
+the deriving class. **The falsifier named the failure before the build; the
+fixture named the mechanism after it.**
+
+### The residue
+
+Two lines, one case: `recursiveBaseCheck`'s five-line form, where the cycle runs
+through an `interface` as well as classes. The walk resolves at `CLASS`, so an
+interface link is not followed — **named, and it is one more meaning on one
+lookup**, not a new mechanism.

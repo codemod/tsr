@@ -584,7 +584,10 @@ impl Checker<'_, '_> {
             }
             // `NodeCanBeDecorated` rejects every one of these outright.
             Node::EnumDeclaration(n) => self.check_illegal_decorator(n.modifiers),
-            Node::ClassDeclaration(_) => self.check_type_parameter_lists_identical(node),
+            Node::ClassDeclaration(_) => {
+                self.check_type_parameter_lists_identical(node);
+                self.check_base_chain_is_acyclic(node);
+            }
             Node::FunctionDeclaration(n) => self.check_illegal_decorator(n.modifiers),
             Node::InterfaceDeclaration(n) => {
                 self.check_illegal_decorator(n.modifiers);
@@ -10634,6 +10637,82 @@ impl Checker<'_, '_> {
                 [text],
             ),
         );
+    }
+
+    /// TS2506 — `'{0}' is referenced directly or indirectly in its own base
+    /// expression.`
+    ///
+    /// `resolveBaseTypesOfClass`'s cycle guard (`checker.go:16977`). Upstream
+    /// detects it while resolving the base type, on a stack; this port has no
+    /// such stack, so the `extends` chain is followed from each class and
+    /// checked for a return to its start.
+    ///
+    /// **Every class in the cycle reports**, not only the one that closes it,
+    /// which is why the walk starts afresh from each class rather than sharing
+    /// a visited set. §745.
+    fn check_base_chain_is_acyclic(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let mut at = self.base_class_declaration_of(node);
+        for _ in 0..MAX_ALIAS_HOPS {
+            let Some(base) = at else { return };
+            if base == node {
+                break;
+            }
+            at = self.base_class_declaration_of(base);
+        }
+        if at != Some(node) {
+            return;
+        }
+        let name = match self.node_map.get(node) {
+            Some(Node::ClassDeclaration(class)) => class.name.and_then(|name| name.node_id),
+            _ => None,
+        };
+        let Some(name) = name else { return };
+        let Some(file) = self.source_file_of_for_diagnostics(name) else { return };
+        let span = self.nodes.span(name);
+        let text = self.identifier_text(name).unwrap_or_default().to_string();
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::_0_IS_REFERENCED_DIRECTLY_OR_INDIRECTLY_IN_ITS_OWN_BASE_EXPRESSION,
+                span,
+                [text],
+            ),
+        );
+    }
+
+    /// The declaration of a class's `extends` base, resolved from the leftmost
+    /// identifier of its heritage expression. §745.
+    fn base_class_declaration_of(&mut self, node: NodeId) -> Option<NodeId> {
+        let clauses = match self.node_map.get(node)? {
+            Node::ClassDeclaration(class) => class.heritage_clauses,
+            Node::ClassExpression(class) => class.heritage_clauses,
+            _ => return None,
+        };
+        let base = clauses
+            .iter()
+            .find(|clause| clause.token.kind == SyntaxKind::ExtendsKeyword)?
+            .types
+            .first()?
+            .expression
+            .and_then(|expression| expression.node_id())?;
+        // **`extends A.B.Base.W` is not a lookup of `W`.** Descending to the
+        // rightmost segment and resolving it in the enclosing scope finds the
+        // *local* `W` — the class itself — and reports a cycle that is not
+        // there. `declFileWithClassNameConflictingWithClassReferredByExtendsClause`
+        // is the fixture and it was this build's two wrong lines. The receiver
+        // decides the member, which is what §698 built for TS2449. §745.
+        let symbol = if let Some(Node::PropertyAccessExpression(access)) = self.node_map.get(base) {
+            let member = access.name.and_then(|name| name.node_id())?;
+            let text = self.identifier_text(member).map(str::to_string)?;
+            self.qualified_member_of_namespace(member, &text)?
+        } else {
+            let text = self.identifier_text(base).map(str::to_string)?;
+            self.binder.resolve_name(self.nodes, self.node_map, base, &text, SymbolFlags::CLASS)?
+        };
+        self.binder.symbols().get(self.binder.merged_symbol(symbol)).value_declaration
     }
 
     /// A `declare` modifier on the declaration itself.
