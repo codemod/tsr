@@ -1631,6 +1631,22 @@ impl Checker<'_, '_> {
         if !block.statements.is_empty() {
             return;
         }
+        // **The list above is the exclusion's *spelling*; upstream's is a type
+        // test** — `maybeTypeOfKind(t, Void) || t.flags&(Any|Undefined)`
+        // (`checker.go:3735`). The difference is every route to those types
+        // that is not a keyword, chiefly `errorType`, which carries
+        // `TypeFlagsAny` (§43). `function f(): F<T> {}` with `F` unresolved is
+        // upstream's TS2304 and was four wrong lines of this rule. §853.
+        let annotation_type = self.get_type_from_type_node_unprinted(annotation);
+        if self.is_error(annotation_type)
+            || self.type_of(annotation_type).flags.intersects(
+                crate::flags::TypeFlags::ANY
+                    .union(crate::flags::TypeFlags::VOID)
+                    .union(crate::flags::TypeFlags::UNDEFINED),
+            )
+        {
+            return;
+        }
         let Some(file) = self.source_file_of_for_diagnostics(annotation_id) else { return };
         let span = self.nodes.span(annotation_id);
         self.report(

@@ -42623,3 +42623,83 @@ the probe, so when the type arrives the row closes with no further work here.
 
 Four rows, three sections, **+4 cases**, one refusal with an owner and a
 falsifier that has already been run.
+
+## §853 — TS2355's exclusion list is **syntactic**, and upstream's is a type test
+
+```ts
+function f2(): F<T> { }   // F and T are unresolved; upstream reports TS2304, not TS2355
+```
+
+`checkAllCodePathsInNonVoidFunctionReturnOrThrow` (`checker.go:3735`):
+
+```go
+if t != nil && (c.maybeTypeOfKind(t, TypeFlagsVoid) || t.flags&(TypeFlagsAny|TypeFlagsUndefined) != 0) {
+    return
+}
+```
+
+This port's exclusion (`check.rs:1618`) matches a **`KeywordTypeNode`** whose
+keyword is `void`, `any`, `undefined` or `never`. That is the *spelling* of the
+exclusion list as the message states it, and it misses every way of arriving at
+those types by another route — chiefly `errorType`, which **carries
+`TypeFlagsAny`** (§43 recorded that fact four hundred sections ago, for the
+computed-name rule).
+
+Four wrong lines, and two of them are a numbered family §824 would have found:
+
+```
+parserGenericsInTypeContexts1   F<T> unresolved
+parserGenericsInTypeContexts2   the same, one syntax apart
+unknownSymbols1                 an unresolved annotation
+genericRecursiveImplicitConstructorErrors3
+```
+
+> The syntactic list is not *wrong* — every `KeywordTypeNode` it names does
+> resolve to the type it names. It is **incomplete in the direction that only a
+> type test can complete**, and this is the second time this session that
+> replacing a spelling test with the flag test upstream actually uses was the
+> whole build (§839 was the first, on `SymbolFlagsFunctionScopedVariable`).
+
+```
+bar:  >= +1 case,  0 LOST verified with `diagpass`,  TS2355 wrong lines 4 -> 0
+```
+
+### Falsifiers
+
+1. **A `function f(): number {}` stops reporting.** `number` is not any/void.
+2. **`diagpass` shows any LOST.** The type test is wider than the spelling test
+   and now runs on every annotated function with an empty body.
+
+## §854 — §853 built: **+4/−0**, and the first build whose zero is proven
+
+```
+diagnostics             2,334 → 2,338   (bar was >= +1;  +4)   42.60%
+extraonly TS2355        4 → 0
+diagpass                LOST: (none)
+                        GAINED: genericRecursiveImplicitConstructorErrors3
+                                unknownSymbols1
+                                parserGenericsInTypeContexts1
+                                parserGenericsInTypeContexts2
+```
+
+Four wrong lines, four cases, and every one of them named. `diagpass` was built
+three sections ago for exactly this and this is its first use inside a build
+rather than after one — **the `0 LOST` in this note is a measurement, not an
+inference**, for the first time in 362 builds.
+
+The change is four lines: compute the annotation's type and test the flags
+upstream tests, instead of matching the four keywords the message happens to
+name.
+
+> **A spelling test passes every case written in the spelling it knows.** That is
+> why it survives: the fixtures that would catch it are the ones where the type
+> arrives by another route, and those are the fixtures about *something else* —
+> here, four cases whose subject is unresolved names, not return types. Second
+> time this session (§839 was `SymbolFlagsFunctionScopedVariable`), and both
+> times the replacement was the flag test upstream had written down in the line
+> being ported.
+
+`errorType` carrying `TypeFlagsAny` is §43's fact, recorded four hundred sections
+ago for the computed-name rule and true everywhere. **This session has now spent
+two builds rediscovering consequences of it** (§819's evaluator split, this) —
+which is an argument for the note index rather than against the note.
