@@ -6037,3 +6037,23 @@ member of every such object). Falsifier: contextually-typed
 literals whose target assigns a REAL `this` (ThisType<T>, this-
 parameters) — answering any there converts honest gaps to wrongs;
 if that class is material, the arm gates on no-contextual-target.
+
+**§141 MEASURED AND REFUSED over two iterations (78:189 ungated,
+35:87 contextually-gated) — and the refusal bought the subsystem's
+true mechanism.** The fallthrough-any premise was WRONG:
+thisTypeInObjectLiterals' wants show upstream resolving `this` in a
+NON-contextual literal method to the CONTAINING LITERAL'S TYPE
+(`m(): number` from `return this.d` reads) — the this-in-methods
+inference is live in tsgo, and `any` is only the residue where
+that circularly fails. The tractable port: `this` in a literal
+method mints an ANONYMOUS type carrying the LITERAL'S SYMBOL —
+member reads (`this.d`) flow lazily through the symbol road with
+NO circularity (members resolve per-name, the current method's own
+slot never completes through itself), exactly the §41-family
+member-carrying shape. The TEXT is the wall again (the literal's
+structural print isn't known at the mint — the immutable-text
+architecture's sixth head) BUT the §-population is mostly MEMBER
+READS whose own lines print member types, not `this` itself —
+so a placeholder text may cost little. Next window: the
+symbol-carrying mint with a text census (how many assertion lines
+print `this` bare in these cases). Reverted byte-identical.
