@@ -664,6 +664,7 @@ impl Checker<'_, '_> {
         self.check_field_named_constructor(node, typed);
         self.check_decorated_private_name(node, typed);
         self.check_dynamic_import_module_kind(node, typed);
+        self.check_dynamic_import_specifier(typed);
         self.check_interface_computed_name(node, typed);
         self.check_grammar_for_generator(node, typed);
         self.check_grammar_parameter_list(node);
@@ -9542,6 +9543,44 @@ impl Checker<'_, '_> {
             }
             _ => false,
         }
+    }
+
+    /// TS2307 for a **dynamic `import()`**'s specifier.
+    ///
+    /// The third specifier-bearing syntax after an import declaration (§357)
+    /// and an `import(...)` type (§753). Resolved and reported inline for the
+    /// same reason §753 is: `check_module_specifier` carries
+    /// `checkExternalImportOrExportDeclaration`'s position test, which a call
+    /// nested in an expression cannot pass. §755.
+    fn check_dynamic_import_specifier(&mut self, typed: Node<'_>) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let Node::CallExpression(call) = typed else { return };
+        if !matches!(
+            call.expression,
+            Some(tsr_ast::Expression::KeywordExpression(keyword))
+                if keyword.kind == SyntaxKind::ImportKeyword
+        ) {
+            return;
+        }
+        let Some(argument) = call.arguments.first().and_then(tsr_ast::Expression::node_id) else {
+            return;
+        };
+        let Some(Node::StringLiteral(text)) = self.node_map.get(argument) else { return };
+        if !self.module_specifier_unfindable(argument) {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(argument) else { return };
+        let span = self.error_span(argument);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::CANNOT_FIND_MODULE_0_OR_ITS_CORRESPONDING_TYPE_DECLARATIONS,
+                span,
+                [text.text.to_string()],
+            ),
+        );
     }
 
     /// TS1323 — `Dynamic imports are only supported when the '--module' flag is

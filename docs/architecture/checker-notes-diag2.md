@@ -38505,3 +38505,80 @@ answer is the safe one and the wrong code at a right position is the failure
 All three had a **complete, correct helper** and a syntax that never reached it.
 The tell is identical each time — the row is missing and `extraonly` is clean —
 and each was found by a probe at the entry rather than by reading the helper.
+
+## §755 — TS2307 for a dynamic `import()` call
+
+```ts
+export default {
+    getInstance: function () { return import('./foo2'); }   // TS2307
+}
+```
+
+The third specifier-bearing syntax, after the declaration (§357) and the type
+(§753). `resolveExternalModuleName` is reached from
+`getTypeOfDynamicImport`/`resolveExternalModuleNameWorker` for a call whose
+callee is the `import` keyword, and this port resolves nothing there —
+§-earlier's `check_dynamic_import_module_kind` reads the same node for TS1323 and
+looks only at the module kind.
+
+**Same inline shape as §753**, and for the same reason: the declaration entry
+point carries a position test a nested call cannot pass.
+
+> Three syntaxes, one specifier, three separate wirings. That is not a design
+> choice — it is what a port looks like when the shared piece is a *resolution*
+> and the callers are spread across the grammar. **The alternative, one entry
+> point taking every kind, would have to drop the position test that makes it
+> correct for declarations.** §754 stated the principle; this is its second
+> application in two builds.
+
+```
+bar:  +1 of 3 (dynamicImportInDefaultExportExpression),  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **A resolvable `import('./x')` reports.** Every dynamic import in the corpus
+   reaches this now.
+2. **TS1323's row moves.** Same node, different question, and its module-kind
+   guard is untouched.
+3. **`require('./x')` reports.** A call to `require` is not an `import` keyword
+   callee and must stay out.
+
+## §756 — §755 built: **+1**, and the specifier now has all three syntaxes
+
+```
+diagnostics             2,268 → 2,269   (bar was +1;  +1, 0 LOST)   41.34%
+extraonly               zero TS2307 and zero TS1323 lines
+TS2307 missing lines    4 → 2   (across §753 and §755)
+```
+
+All three falsifiers negative. `require('./x')` in particular — it is a call with
+a string argument and is not an `import` keyword callee, and the corpus is full
+of them.
+
+### One resolution, three wirings
+
+```
+§357   an import or export declaration      check_module_specifier
+§753   an `import(...)` type                inline
+§755   a dynamic `import()` call            inline
+```
+
+Two builds ago this looked like a gap; it is a **shape**. The shared piece is
+`module_specifier_unfindable`, and the entry point around it carries
+`checkExternalImportOrExportDeclaration`'s position test — correct for a
+declaration, impassable for a nested type or call. **A single entry taking all
+three would have to drop the test that makes it right for the first**, so three
+call sites is the faithful arrangement rather than a duplication to be cleaned
+up later.
+
+That is worth writing down because the opposite instinct is strong: the three
+report the same code with the same argument from the same predicate, and look
+exactly like something that wants extracting.
+
+### The residue
+
+Two lines, both in `.js` files — `noCrashOnParameterNamedRequire` and
+`tslibInJs`, where a `require(...)` call in JavaScript is a module reference and
+in TypeScript is an ordinary call. **§657's JSDoc/JavaScript owner**, and the
+third row this session to end there.
