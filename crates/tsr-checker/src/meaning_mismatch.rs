@@ -56,7 +56,7 @@ impl Checker<'_, '_> {
         // `checkAndReportErrorForUsingNamespaceAsTypeOrValue` (`checker.go:1641`),
         // type branch: the position wanted `Type &^ Value`, and the name is a
         // module.
-        if self.resolve_under(node, text, SymbolFlags::MODULE).is_some() {
+        if self.resolve_symbol_under(node, text, SymbolFlags::MODULE).is_some() {
             self.report_at(node, &messages::CANNOT_USE_NAMESPACE_0_AS_A_TYPE, text);
             return true;
         }
@@ -86,6 +86,26 @@ impl Checker<'_, '_> {
         meaning: SymbolFlags,
     ) -> Option<tsr_binder::SymbolId> {
         self.binder.resolve_name(self.nodes, self.node_map, node, text, meaning)
+    }
+
+    /// `c.resolveSymbol(c.resolveName(…, meaning))` — the lookup **with the
+    /// alias followed**.
+    ///
+    /// `import modes = _modes` binds `modes` as an alias, whose own flags carry
+    /// `ALIAS` and not `MODULE`, so asking `resolve_under` for `MODULE` finds
+    /// nothing where upstream finds the alias and resolves it. §675.
+    fn resolve_symbol_under(
+        &mut self,
+        node: NodeId,
+        text: &str,
+        meaning: SymbolFlags,
+    ) -> Option<tsr_binder::SymbolId> {
+        if let Some(symbol) = self.resolve_under(node, text, meaning) {
+            return Some(symbol);
+        }
+        let alias = self.resolve_under(node, text, SymbolFlags::ALIAS)?;
+        let target = self.resolve_alias(alias)?;
+        self.binder.symbols().get(target).flags.intersects(meaning).then_some(target)
     }
 
     /// `c.error(errorLocation, message, name)` — both arms report at the same

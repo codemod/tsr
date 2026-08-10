@@ -1307,6 +1307,20 @@ its whole deliverable and accept that it converts nothing until finished.
 
 ## 5. Refused, with the number that refused it
 
+### New, this session, TS2709 — refused by −7 and 28 wrong lines
+
+- **An alias satisfies any meaning in this binder**, so
+  `check_type_reference_name`'s `TYPE` lookup succeeds for `import modes =
+  _modes` and returns before the TS2709 cascade that §163 already built.
+  Upstream's `getSymbol` (`checker.go:1023`) admits an alias under a meaning
+  only when `resolveAlias(symbol)` carries it; transcribing that test measured
+  **−7 cases and 28 wrong TS2709 lines**, because `resolve_alias` here does not
+  answer with a `TYPE`-flagged target for an alias to an interface, class or
+  type alias. **Owner `tsr-binder`, `bd tsr-8esz`.** The ten-line hunk is
+  recorded in full at `checker-notes-diag2.md` §676 so the falsifier costs
+  nothing: restore it and measure; zero wrong lines means the binder is fixed
+  and TS2709's three cases come with it. §675–§676
+
 ### New, this session, TS2438
 
 - **TS2438 was attached to three node kinds upstream never reaches** (§660).
@@ -2662,6 +2676,7 @@ holds only the numbers.
 | 2026-08-10 | HEAD | 40.07% | 2,199 | **The syntactically-decidable band is exhausted at ≥4 cases** | TS2554 was the last untested row above three cases, and all three of its shapes need the type side (tuple arity, inference, overload resolution with type arguments). ***Every remaining unoccupied row at four or more cases is the structural relation, the type side, or contextual typing*** — twenty rows, each opened or with a recorded owner, ***and none turns on a fact the syntax already carries***. ***§580's shape closed seven rows and has no eighth of this size to reach.*** What is left, priced: the grammar family's 38 remaining codes (~50 cases), §617's 7 column-only, §657's JSDoc reparse, §641's span model, §156's ~3,250, §658's 1,241. ***The next session's first decision is which owner to take, not which row*** — and that question now has a complete answer in front of it. §670 |
 | 2026-08-10 | HEAD | **40.11%** | **2,201** | **+2 — and the round-trip was asked of the wrong text** | **TS2452**, an enum member with a numeric name. `isNumericLiteralName` is `ToString(ToNumber(text)) == text`, and the fixture's `"13e-1"` is the whole point of it — it looks numeric and is not a numeric *name*. First build read +1 and left `0xF00D` behind with all three falsifiers negative, so the predicate was right and ***its input was not***: upstream reads a numeric literal's **normalised** text, which is `ToString(value)` by construction, ***so upstream's round-trip holds for every numeric literal unconditionally***; this port keeps the written spelling because `printer_round_trip` is 100% and reprints from it. Took the conclusion instead of the computation. ***Twice this session a faithful transcription was wrong because a value upstream reads is not the value this tree stores under that name*** (§578 was the flag one) — ***the transcription was of the expression and the fidelity question was about the operand***. §671–§672 |
 | 2026-08-10 | HEAD | **40.16%** | **2,204** | **+3 of 3, row closed — and a refusal that was right for one arm, wrong for another** | **TS2384**, overload signatures must all be ambient or non-ambient. The build's one real decision was ***not*** to add the arm to `check_function_or_constructor_symbol`: §64 declines a symbol whose declarations sit in different containers, and one of the three cases is by name exactly that symbol — while upstream runs the flag agreement unconditionally, outside everything that bound was drawn for. ***A refusal recorded against one arm is not a refusal against the function***; inheriting it would have cost a third of the row silently, and the loss would have read as "+2 of 3", a shortfall with no visible cause. ***The mirror of §143***: that one is *read the existing rule before assuming the missing arm*, this one is ***read the existing rule's refusal before inheriting it***. Fourth row this session to close at exactly its case count with no wrong lines. §673–§674 |
+| 2026-08-10 | HEAD | 40.16% | 2,204 | **A ported rule that has never fired is evidence about its inputs** | **TS2709** — `report_meaning_mismatch_in_type_position` has carried this arm since §163 with zero converts. The entry probe found the decline one line *above* the cascade: `resolve_name(…, TYPE)` hands back the **alias** `import modes = _modes`, so the rule reads a correct resolution and returns. Upstream's `getSymbol` admits an alias under a meaning ***only when `resolveAlias` carries that meaning***. Transcribing that measured **−7 and 28 wrong lines** and was reverted: ***the rule was correct, its lookup was correct, and the thing underneath both was not*** — `resolve_alias` here does not answer with a `TYPE`-flagged target for an alias to an interface, class or type alias. ***Owner `tsr-binder`, `bd tsr-8esz`***, with the ten-line falsifier recorded in full so it costs nothing to re-run. Kept separately: the `resolveSymbol` wrapper, +0 and zero wrong (§545/§557's category). §675–§676 |
 
 ## 8. Updating this file
 

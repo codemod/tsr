@@ -34772,3 +34772,103 @@ namespace M { export function f() { } }        → the *implementation* is blame
 
 Both baselines agree, and the comment above that line says why: an overload in
 `lib.d.ts` must not be blamed for the local file's choice.
+
+## §675 — TS2709: the rule is ported, so probe the resolution and not the rule
+
+```ts
+namespace _modes { export interface IMode {} }
+namespace editor {
+    import modes = _modes;
+    class Bug { constructor(p1: modes) {} }   // TS2709
+}
+```
+
+`report_meaning_mismatch_in_type_position` (§163) already carries this arm, and
+its measurement was zero wrong lines and zero converts — so §143's warning
+applies and the missing arm is not the question. The question is what the arm's
+**lookup** answers.
+
+```go
+symbol := c.resolveSymbol(c.resolveName(errorLocation, name, ast.SymbolFlagsModule, ...))
+```
+
+`resolveSymbol` follows an alias. `import modes = _modes` binds `modes` as an
+**alias**, whose own flags carry `ALIAS` and not `MODULE` — so a lookup asking
+for `MODULE` and reading the symbol's flags finds nothing, while upstream finds
+the alias and then resolves it to the namespace.
+
+> This is the second time this session that a ported rule was silent because a
+> resolution it depends on answered a narrower question than upstream's — §166
+> was the first (`resolve_name`'s globals fallback ignored `meaning`). **Both
+> were found by asking what the rule's *input* was, after the rule itself had
+> been read and found correct.** §143 says read the existing rule; this pair says
+> what to do once you have and it was right.
+
+```
+bar:  +3 of 3 (moduleInTypePosition1, moduleVisibilityTest3, noCrashOnImportShadowing)
+      0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **A plain type alias to a namespace member reports.** `import m = _modes;
+   let x: m.IMode` is legal — the *qualified* use is fine and only the bare one
+   is TS2709.
+2. **TS2708's row moves.** The value branch resolves under
+   `NAMESPACE_MODULE`, which already admits more; if following aliases there
+   changes it, the two branches were not independent.
+3. **Wrong lines appear in the `classExtendsInterfaceInModule` family.** The
+   heritage-clause bound (§164) guards the value branch only, and an alias
+   reaching further could expose the type branch to the same position.
+
+## §676 — §675 measured: the alias arm is right, **this binder's alias targets are not**
+
+Two edits, measured separately.
+
+**1. `resolveSymbol` around the lookup — `+0`, zero wrong lines, KEPT.**
+Transcribes an arm upstream runs (`checker.go:1652` wraps `resolveName` in
+`resolveSymbol`), §545/§557's category. It changed nothing because the arm it
+feeds is never reached.
+
+**2. The alias-target meaning test — `−7` and 28 wrong TS2709 lines, REVERTED.**
+
+The entry probe found the real decline, and it is one line above the cascade:
+
+```rust
+if self.binder.resolve_name(…, node, text, SymbolFlags::TYPE).is_some() { return; }
+```
+
+`import modes = _modes` binds an alias, and this resolver hands it back for a
+`TYPE` lookup, so the rule reads a correct resolution and returns. Upstream's
+`getSymbol` (`checker.go:1023`) admits an alias under a meaning **only when
+`resolveAlias(symbol)` carries that meaning**, so the same lookup fails there and
+the cascade gets to say TS2709.
+
+Transcribing that test produced 28 wrong lines. **The test is upstream's; the
+failure is that `resolve_alias` here does not answer with a target whose flags
+carry `TYPE` for the ordinary cases** — an alias to an interface, to a class, to
+a type alias. Twenty-eight positions where upstream is silent got a diagnostic,
+so the target is either unresolved or under-flagged, and the arm cannot be
+switched on until it is not.
+
+> **The rule was correct, its lookup was correct, and the thing underneath both
+> was not.** §166 was the same story one layer up — the globals fallback ignored
+> `meaning` — and this session has now hit the pattern twice more (§671's text,
+> this). A ported rule that has never fired is evidence about its *inputs*, and
+> the input chain is longer than the rule.
+
+**Owner: `tsr-binder`'s alias targets (`bd tsr-8esz`).** Not `tsr-checker`, and not this
+workstream's to fix blind — the falsifier is written and costs nothing to re-run:
+restore the ten-line hunk at `check.rs:4118` and measure. If the wrong lines are
+gone, the binder has been fixed and TS2709's three cases come with it.
+
+### The refusal, priced
+
+```
+TS2709   3 cases   blocked on the alias-target meaning test
+TS2749   unknown   same call site, same early return
+```
+
+`bd tsr-8esz` filed for the binder side; the checker hunk is recorded here in full
+rather than left in the tree, because a rule that costs seven cases must not sit
+behind a feature flag nobody will find.
