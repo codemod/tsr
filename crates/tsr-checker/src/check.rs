@@ -4362,8 +4362,43 @@ impl Checker<'_, '_> {
                     return Some(name);
                 }
             }
+            // **A constructor's locals shadow too**, and that is upstream's
+            // *second* situation: `var y = 1; class D { b = y; constructor() {
+            // var y = ""; } }` resolves `y` perfectly well, to the outer one,
+            // and is still an error because the initializer is emitted inside
+            // the constructor. `checkAndReportErrorForInvalidInitializer`'s
+            // header says it is *"needed in two situations: 1. When result is
+            // undefined … 2. When result is defined"*, and this port had the
+            // first. §720.
+            if let Some(body) = constructor.body.and_then(|body| body.node_id())
+                && self.constructor_body_declares(body, text)
+            {
+                return Some(name);
+            }
         }
         None
+    }
+
+    /// Does this constructor body declare `text` as a variable of its own?
+    ///
+    /// **Nested functions are not descended into**: a `var` inside a closure in
+    /// the constructor is not a constructor local, and upstream's `result`
+    /// would not be it. §720.
+    fn constructor_body_declares(&self, node: NodeId, text: &str) -> bool {
+        if self.is_function_like_or_static_block(node) {
+            return false;
+        }
+        if let Some(Node::VariableDeclaration(declaration)) = self.node_map.get(node)
+            && let Some(tsr_ast::BindingName::Identifier(name)) = declaration.name
+            && name.text == text
+        {
+            return true;
+        }
+        let mut children = Vec::new();
+        if let Some(typed) = self.node_map.get(node) {
+            tsr_ast::for_each_child_id(typed, |child| children.push(child));
+        }
+        children.into_iter().any(|child| self.constructor_body_declares(child, text))
     }
 
     /// Would `getSuggestedSymbolForNonexistentSymbol` (`checker.go:1591`) find

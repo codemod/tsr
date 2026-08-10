@@ -36983,3 +36983,96 @@ wrong, and it was written in the same paragraph that cited §683's rule against
 exactly that. **Twice this session** (§682, §717) — the discipline is not
 *probe before attributing* but **the post-build `diagmissing` names the residue,
 and nothing else does**.
+
+## §720 — TS2301: a constructor's *locals* shadow too
+
+```ts
+var y = 1;
+class D {
+    b = y;                         // TS2301
+    constructor(x: string) {
+        var y = "";
+    }
+}
+```
+
+§-whenever this arm was written it reads the constructor's **parameters** and
+stops. Upstream's comment names the general case:
+
+> *"the reference occurred within a property initializer and the identifier also
+> binds to a **local variable in the constructor** where the code will be
+> emitted"* (`checker.go:1518`)
+
+and `checkAndReportErrorForInvalidInitializer` is called from both branches of
+`resolveNameHelper` — its own header says *"needed in two situations: 1. When
+result is undefined … 2. When result is defined"*. A constructor parameter is
+the first situation, because this port's resolver does not put parameters in a
+property initializer's scope. A constructor **local** is the second: `y`
+resolves perfectly well, to the outer `var y`, and is still an error because the
+initializer is emitted inside the constructor where the local shadows it.
+
+> Tenth in §701's family and §708's kind again — an enumeration smaller than
+> upstream's. But the *reason* it is smaller is §716's: the port implemented the
+> branch where the lookup fails, because that is the branch whose symptom it
+> could see. **The other branch produces no symptom at all until you read the
+> function's header comment**, which is why upstream's comments have been worth
+> more than its code three times this session (§673, §686, this).
+
+The scan does not descend into nested functions: a `var` inside a closure in the
+constructor is not a constructor local.
+
+```
+bar:  +2 of 2 (constructorParameterShadowsOuterScopes,
+      constructorParametersThatShadowExternalNamesInVariableDeclarations),
+      0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **`var y = 1; class D { b = y; constructor() {} }` reports.** No shadowing
+   local, no error — the whole point of the scan is that it finds one.
+2. **A `var` inside a closure in the constructor counts.** It is not a
+   constructor local and upstream's `result` would not be it.
+3. **TS2304's row moves.** The arm sits ahead of the resolution and now fires on
+   names that *do* resolve.
+
+## §721 — §720 built: **+2 of 2**, and the obvious repair for its one wrong line cost both cases
+
+```
+diagnostics             2,243 → 2,245   (bar was +2;  +2, 0 LOST)   40.91%
+extraonly               one TS2301 line  (bar allowed +1)
+TS2301 missing lines    2 → 2, in a *different* case
+```
+
+Both target cases converted. `constructorParametersInVariableDeclarations`
+appears in `diagmissing` for the first time — it was blocked behind another code
+and is now down to TS2301's two lines. **§719 said `diagmissing` reaching zero
+is not a row converting; this is the mirror — a row's missing count staying at 2
+while both its cases changed identity.**
+
+### The wrong line, and the repair that was worse
+
+```ts
+class C { b = () => y; constructor() { var y = ""; } }   // legal — a lambda defers
+```
+
+`classMemberInitializerWithLamdaScoping` got a TS2301 it should not have, so the
+upward walk was given a function-like boundary — the same boundary §700 added to
+the super-call search, and for the same stated reason.
+
+**It measured −2 and 0 wrong.** The boundary removes the wrong line *and* both
+conversions, so the two target fixtures' references are reaching the property
+through something the boundary now stops at. Net worse, so it was reverted and
+the `+2 / 1 wrong` shape kept — inside the bar as declared.
+
+> §700's boundary was right and this one is not, and **nothing about the two
+> call sites explains the difference from reading them**. That is the third time
+> this session (§684, §695, this) that a repair justified by a correct sentence
+> about upstream measured worse than the thing it was repairing. The bar exists
+> for exactly this: *"WRONG delta <= +1"* was declared before the build, the
+> build met it, and the improvement that looked free was not.
+
+**Named, not chased**: one wrong line in one fixture, and the mechanism that
+would fix it is measured at −2. The next attempt should start by asking *what
+the walk actually passes through* in the two converting fixtures rather than by
+re-reading `resolveNameHelper`.
