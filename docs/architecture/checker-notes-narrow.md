@@ -5515,3 +5515,21 @@ late-bound exports) converting honest gaps to confident anys — the
 §186 empty-table guard plus a no-unresolved-star gate must hold it;
 if the class fires anyway, the gates get the establishment treatment
 §123 gave the member walk, and the price lands here.
+
+**§130 MEASURED AND LANDED at iteration 2 — +23 G→R / 2 G→W /
+0 R→W (11.5:1), right ~410,303 → 410,326 = 85.67%.** The count bar
+missed again (23 vs ≥60) and the pattern is now FOUR landings wide
+(§121 47<60, §126 27<30, §128 6<10, §130 23<60): want-any census
+rows mix mechanisms, and each §-arm takes only its own — SIZE
+FUTURE BARS BY MECHANISM SAMPLE, not census bucket. Iterations:
+(1) +27/9 — `default`-named imports ride interop machinery
+(allowSyntheticDefaultImports9, gated) and (2) non-identifier
+export keys may spell one export two ways (gated). Residual 2:
+exportSpecifiers' TYPE-ONLY export specifiers (`export { type x }`)
+— the binder does not file them, so their absence false-establishes;
+NAMED OWNER: the binder's type-only specifier arm, one gate away
+(a module-contains-type-only-exports test) if its rows grow. The
+thirty-fourth pin flipped with its discriminating half preserved
+(any is not `typeof /m.ts`). Diagnostics 2,072 → 2,084 on the
+merged tree. es6ImportDefaultBindingFollowedWithNamedImport1 9,
+modulePreserve4 3, es6ImportNamedImportNoExportMember 2.

@@ -382,6 +382,22 @@ impl<'a> Checker<'a, '_> {
             self.symbol_types.insert(symbol, any);
             return any;
         }
+        // §130 (`checker-notes-narrow.md`): an ImportSpecifier alias whose
+        // module RESOLVES and whose named export's absence is ESTABLISHED
+        // answers TS2305's deliberate error-any (es6ExportEqualsInterop's
+        // wants). The gates are `report_missing_module_export`'s: exports
+        // table non-empty (§186), plus — conservatively — NO `export *`
+        // declarations at all (a star chain through an unresolvable target
+        // would make absence a guess).
+        if let Some(declaration) = self.declaration_of_alias_symbol(symbol)
+            && self.nodes.kind(declaration) == SyntaxKind::ImportSpecifier
+            && self.missing_import_export_established(declaration)
+        {
+            let any = self.intrinsics.any;
+            let any = if self.resolutions.pop() { any } else { self.intrinsics.error };
+            self.symbol_types.insert(symbol, any);
+            return any;
+        }
         let target = self.resolve_alias(symbol);
         // `checker.go:18612`, and the `SymbolFlags::VALUE` test is the
         // stack-overflow guard, not a nicety. It is taken over
@@ -1133,6 +1149,52 @@ impl<'a> Checker<'a, '_> {
         };
         self.report(file, Diagnostic::with_args(message, span, [name]));
         None
+    }
+
+    /// §130's establishment: the specifier's module resolves in-program to a
+    /// plain module (no `export =` indirection), its exports table is
+    /// non-empty (§186), carries NO `export *` (a star chain through an
+    /// unresolvable target would make absence a guess), and the name is
+    /// absent. Only then is the miss upstream's TS2305 and the alias's `any`
+    /// deliberate.
+    fn missing_import_export_established(&mut self, specifier: NodeId) -> bool {
+        let Some(declaration) = self.import_or_export_declaration_of(specifier) else {
+            return false;
+        };
+        let Some(module_specifier) = self.external_module_name(declaration) else { return false };
+        let Some(module_symbol) = self.resolve_external_module_name(declaration, module_specifier)
+        else {
+            return false;
+        };
+        if self.resolve_external_module_symbol(module_symbol) != module_symbol {
+            return false;
+        }
+        let name = match self.node_map.get(specifier) {
+            Some(Node::ImportSpecifier(node)) => {
+                node.property_name.or(node.name.map(tsr_ast::ModuleExportName::Identifier))
+            }
+            _ => None,
+        };
+        let Some(tsr_ast::ModuleExportName::Identifier(name)) = name else { return false };
+        // `default` rides the interop machinery (synthetic defaults,
+        // `canHaveSyntheticDefault`) — its absence from the table proves
+        // nothing (allowSyntheticDefaultImports9's 7 G→W on the first pair).
+        if name.text == "default" {
+            return false;
+        }
+        if self.get_export_of_module(module_symbol, name.text).is_some() {
+            return false;
+        }
+        let entry = self.binder.symbols().get(module_symbol);
+        // A table carrying any non-identifier key (`export { x as "a-b" }`)
+        // may spell the same export two ways — absence under one spelling
+        // proves nothing (exportSpecifiers' 2 G→W, wants the literal `0`).
+        !entry.exports.is_empty()
+            && !entry.exports.contains_key(INTERNAL_EXPORT_STAR)
+            && entry
+                .exports
+                .keys()
+                .all(|key| key.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '$'))
     }
 
     /// The `ImportDeclaration` or `ExportDeclaration` a specifier belongs to.
