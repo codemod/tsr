@@ -41989,3 +41989,95 @@ them, which makes the row's tail a **different shape** from its head: a global
 re-exported through a chain rather than a single specifier over a script
 declaration. Not this build's, and named here so the next attempt starts from the
 shape rather than the count.
+
+## §838 — TS2552: a parameter is not visible in the type parameter list
+
+```ts
+function f0<T extends typeof a>(a: T) { }   // TS2552 on `a`, six times over
+```
+
+`parameterNamesInTypeParameterList` is 6 of TS2552's 8 remaining lines and the
+whole case. Upstream's resolver has a `useResult` block for exactly this
+(`binder/nameresolver.go:54`), and its comment is the specification:
+
+> *"Type parameters of a function are in scope in the entire function
+> declaration, including the parameter list and return type. However, local
+> types are only in scope in the function body. **Parameters are only in the
+> scope of function body.**"*
+
+```go
+if result.Flags&SymbolFlagsFunctionScopedVariable != 0 {
+    useResult = lastLocation.Kind == KindParameter ||
+        lastLocation.Flags&NodeFlagsSynthesized != 0 ||
+        lastLocation == location.Type() && FindAncestor(result.ValueDeclaration, IsParameterDeclaration) != nil
+}
+```
+
+`lastLocation` is the node the walk came *from* — this port's `resolve_name`
+already tracks it as `last`, for §-earlier's static-member rule. When the walk
+arrives at a function-like node from a **`TypeParameter`**, a parameter symbol
+found in that node's `locals` is *not* the answer, and the walk continues
+outward — where `a` does not exist, which is the TS2552.
+
+**Only this arm is ported.** The surrounding `useResult` block also governs type
+parameters, `infer T` in conditional types, and `useOuterVariableScopeInParameter`;
+each is its own question with its own blast radius, and the whole block is
+`bd tsr-8esz`'s neighbour rather than this build.
+
+```
+bar:  +1 of 1 (parameterNamesInTypeParameterList),  0 LOST,
+      binder_symbols STAYS 100%,  WRONG delta <= 0
+```
+
+### Falsifiers
+
+1. **`function f(a: number) { return a; }` loses `a`.** The walk arrives at the
+   function from the *body*, not from a type parameter.
+2. **`function f<T>(a: T)` loses `T`.** A type parameter is not a parameter and
+   this arm does not touch it.
+3. **`binder_symbols` moves at all.** That suite is 100% and the resolver serves
+   it.
+
+## §839 — §838 built: **+1 of 1**, all six lines, and the kind test was too narrow
+
+```
+diagnostics             2,327 → 2,328   (bar was +1;  +1, 0 LOST)   42.42%
+binder_symbols          100%   checker_types unmoved   extraonly 75, unchanged
+TS2552                  8 lines → 2,  3 cases → 2
+```
+
+The first measurement reported **2 of the fixture's 6 lines** — `f0` and its
+sibling, and not `f1`/`f2`:
+
+```ts
+function f0<T extends typeof a>(a: T) { }          // reported
+function f1<T extends typeof a>({a}: {a:T}) { }    // did not
+function f2<T extends typeof a>([a]: [T]) { }      // did not
+```
+
+The arm tested `declaration.kind == Parameter`. Upstream tests
+`SymbolFlagsFunctionScopedVariable`, and **a binding element inside a parameter
+carries that flag too** — `{a}` declares `a` as a `BindingElement`. Widening the
+test to *"a `Parameter`, or a binding element on the way to one"* took it to 6 of
+6.
+
+> **A flag test and a kind test are not interchangeable, and the difference shows
+> up exactly where the syntax is richest.** §819 hit the same shape from the
+> other side — a `None` that meant two things — and both times the port's
+> narrower predicate was *correct on the simple form of the input and silent on
+> the elaborate one*. The fixture that catches it is always the one with the
+> destructuring in it.
+
+### Two resolver arms in two builds
+
+```
+§837   resolve from the parent scope   export specifiers      +3
+§838   parameters are body-scoped      type parameter lists   +1
+```
+
+Both are slices of upstream machinery this port had left whole-cloth, both were
+reached through `bd tsr-8esz`'s wording, and both left `binder_symbols` at 100% —
+which is the check that matters, because the resolver serves that suite too.
+The rest of `useResult` — type parameters, `infer T` in conditional types,
+`useOuterVariableScopeInParameter` — remains unported and is named here as the
+neighbour, not the same job.

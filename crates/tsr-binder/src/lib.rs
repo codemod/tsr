@@ -428,6 +428,52 @@ impl<'a> BindResult<'a> {
         self.resolve_name_excluding(nodes, node_map, start, name, meaning, None)
     }
 
+    /// `useResult`'s parameter arm (`binder/nameresolver.go:72`): *"parameters
+    /// are only in the scope of function body"*. When the walk arrives at a
+    /// function-like node **from a type parameter**, a parameter symbol found
+    /// in that node's `locals` is not the answer and the walk continues
+    /// outward — which is what makes `function f<T extends typeof a>(a: T)`
+    /// report on `a`.
+    ///
+    /// Only this arm of upstream's `useResult` block is ported; the rest —
+    /// type parameters, `infer T` in conditional types,
+    /// `useOuterVariableScopeInParameter` — each has its own blast radius. §838.
+    fn parameter_hidden_from_type_parameter_list(
+        &self,
+        symbol: SymbolId,
+        location: NodeId,
+        last: Option<NodeId>,
+        nodes: &NodeTable,
+    ) -> bool {
+        let Some(last) = last else { return false };
+        if nodes.kind(last) != SyntaxKind::TypeParameter {
+            return false;
+        }
+        if !crate::container::is_function_like_kind(nodes.kind(location)) {
+            return false;
+        }
+        let declarations = &self.symbols.get(self.merged_symbol(symbol)).declarations;
+        // Upstream tests `SymbolFlagsFunctionScopedVariable`, which a binding
+        // element inside a parameter also carries: `f1<T extends typeof a>({a}:
+        // …)` declares `a` as a `BindingElement`, not a `Parameter`. Testing
+        // the node kind alone reported 2 of the fixture's 6 lines. §838.
+        !declarations.is_empty()
+            && declarations.iter().all(|&declaration| {
+                let mut current = Some(declaration);
+                while let Some(node) = current {
+                    match nodes.kind(node) {
+                        SyntaxKind::Parameter => return true,
+                        SyntaxKind::BindingElement
+                        | SyntaxKind::ObjectBindingPattern
+                        | SyntaxKind::ArrayBindingPattern => {}
+                        _ => return false,
+                    }
+                    current = nodes.parent(node);
+                }
+                false
+            })
+    }
+
     /// Do **all** of this symbol's declarations lie inside `exclude`? Such a
     /// symbol is the excluded declaration's own, and not an answer to a lookup
     /// that must resolve from the parent scope. §836.
@@ -492,6 +538,7 @@ impl<'a> BindResult<'a> {
             // that could not bite.
             if let Some(found) = self.lookup_scoped(self.locals.get(&node), name, meaning)
                 && !self.symbol_is_declared_within(found, exclude, nodes)
+                && !self.parameter_hidden_from_type_parameter_list(found, node, last, nodes)
             {
                 return Some(found);
             }
