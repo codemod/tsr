@@ -627,6 +627,7 @@ impl Checker<'_, '_> {
         // just  — §623, and §600's dispatch class for the
         // ninth time.
         self.check_modifier_on_nested_statement(node);
+        self.check_decorated_private_name(node, typed);
         self.check_dynamic_import_module_kind(node, typed);
         self.check_interface_computed_name(node, typed);
         self.check_grammar_for_generator(node, typed);
@@ -8981,6 +8982,47 @@ impl Checker<'_, '_> {
                 span,
             ),
         );
+    }
+
+    /// TS1206 — `Decorators are not valid here.`
+    ///
+    /// `checkGrammarModifiers`' decorator arm (`grammarchecks.go:246`) when
+    /// `nodeCanBeDecorated` is false, whose first test is
+    /// (`ast/utilities.go:4256`):
+    ///
+    /// ```go
+    /// if useLegacyDecorators && node.Name() != nil && IsPrivateIdentifier(node.Name()) {
+    ///     return false
+    /// }
+    /// ```
+    ///
+    /// A private name is decoratable under standard decorators and not under
+    /// legacy ones, so `experimentalDecorators` decides it. The rest of
+    /// `nodeCanBeDecorated` is not ported (§501), and the overload sibling has
+    /// its own code. §644.
+    fn check_decorated_private_name(&mut self, node: NodeId, typed: Node<'_>) {
+        if self.file_has_parse_errors || !self.legacy_decorators {
+            return;
+        }
+        let name = match typed {
+            Node::PropertyDeclaration(n) => Some(n.name),
+            Node::MethodDeclaration(n) => Some(n.name),
+            Node::GetAccessorDeclaration(n) => Some(n.name),
+            Node::SetAccessorDeclaration(n) => Some(n.name),
+            _ => None,
+        };
+        if !matches!(name, Some(tsr_ast::PropertyName::PrivateIdentifier(_))) {
+            return;
+        }
+        let Some(modifiers) = modifiers_of(typed) else { return };
+        if !modifiers.iter().any(|m| matches!(m, tsr_ast::ModifierLike::Decorator(_))) {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        // `grammarErrorOnFirstToken(node)` — the node's own start, which is the
+        // decorator's `@`.
+        let span = self.nodes.span(node);
+        self.report(file, Diagnostic::new(&messages::DECORATORS_ARE_NOT_VALID_HERE, span));
     }
 
     /// `IsInstantiatedModule` (`ast/utilities.go:2443`).

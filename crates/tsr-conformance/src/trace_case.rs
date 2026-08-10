@@ -453,6 +453,11 @@ pub fn apply_test_directives(
             base.exact_optional_property_types,
         ),
         no_unused_locals: tristate("nounusedlocals", base.no_unused_locals),
+        // **A directive the harness dropped.** `experimentalDecorators` decides
+        // whether a private-named member may be decorated, and the option
+        // existed in `tsr-core` while nothing read it from a fixture. §533's
+        // missing-input class, found from the rule end. §644.
+        experimental_decorators: tristate("experimentaldecorators", base.experimental_decorators),
         no_unused_parameters: tristate("nounusedparameters", base.no_unused_parameters),
         allow_unreachable_code: tristate("allowunreachablecode", base.allow_unreachable_code),
         preserve_const_enums: tristate("preserveconstenums", base.preserve_const_enums),

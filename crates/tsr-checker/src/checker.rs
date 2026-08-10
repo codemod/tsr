@@ -338,6 +338,8 @@ pub struct Checker<'a, 'n> {
     /// `getEmitModuleKind` — `options.module`, or ES2015 for an ES2015-or-later
     /// target and `CommonJS` otherwise. §478.
     pub(crate) module_kind: tsr_core::ModuleKind,
+    /// `c.legacyDecorators` — `experimentalDecorators` is on. §644.
+    pub(crate) legacy_decorators: bool,
     /// `getAllowSyntheticDefaultImports` (§132): the explicit option, else
     /// `esModuleInterop`, else `module == System`. Consulted by the §131/§132
     /// deliberate-error arms only; a `true` keeps those gaps honest.
@@ -762,6 +764,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             strict_null_checks: true,
             no_implicit_this: false,
             module_kind: tsr_core::ModuleKind::None,
+            legacy_decorators: false,
             allow_synthetic_defaults: false,
             no_unchecked_side_effect_imports: true,
             no_unchecked_indexed_access: false,
@@ -864,6 +867,7 @@ impl<'a, 'n> Checker<'a, 'n> {
         // The strict family (`checker.go:919-926`).
         self.strict_null_checks = options.strict_option_value(options.strict_null_checks);
         self.no_implicit_this = options.strict_option_value(options.no_implicit_this);
+        self.legacy_decorators = options.experimental_decorators.is_true();
         self.module_kind = if options.module == tsr_core::ModuleKind::None {
             if options.target >= tsr_core::ScriptTarget::ES2015 {
                 tsr_core::ModuleKind::ES2015

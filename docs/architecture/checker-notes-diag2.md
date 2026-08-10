@@ -33324,3 +33324,98 @@ Eighteen codes closed of the sixty-two with cases, **+35 of the 128 priced at
 §599** — a little over a quarter of the family, in eighteen builds, with two
 codes declined for measured reasons (§497's `const` at −5, §641's position
 arithmetic) and one owner named outside this crate (`tsr-ast`'s span model).
+
+## §644 — TS1206: a decorator on a private-named member
+
+```ts
+// @experimentalDecorators: true
+class A {
+    @dec                // TS1206
+    #foo = 1;
+    @dec                // TS1206
+    #bar(): void { }
+}
+```
+
+`checkGrammarModifiers`' decorator arm (`grammarchecks.go:246`) reports when
+`nodeCanBeDecorated` is false, and that function's **first** test is one line
+(`ast/utilities.go:4256`):
+
+```go
+if useLegacyDecorators && node.Name() != nil && IsPrivateIdentifier(node.Name()) {
+    return false
+}
+```
+
+A private name is decoratable under **standard** decorators and not under
+**legacy** ones, so the option decides it — and `experimental_decorators` exists
+in `tsr-core`'s options and has never been plumbed to the checker.
+
+> **Plumbing an option is the cheapest kind of build and the easiest to
+> overlook.** §478 added `module_kind` for one row and it has since paid three
+> (§615, §642, §643's count). This adds the second such field, and the pattern is
+> now explicit: **an option in `tsr-core` that the checker does not read is a
+> row-shaped hole with no rule missing.**
+
+The rest of `nodeCanBeDecorated` — the per-kind cases below that first test — is
+**not ported** (§501); only the private-name arm has corpus cases, and the
+sibling message *A decorator can only decorate a method implementation, not an
+overload* has its own code and its own row.
+
+```
+bar:  +1 of 1 (privateNamesAndDecorators),  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **`@dec x = 1;` reports.** A public member is decoratable and is the normal
+   form.
+2. **A private member reports under standard decorators.** The option is the
+   whole condition.
+3. **`extraonly` grows with TS1206.** Three other sites in the same function
+   carry this message and none is built.
+
+## §645 — §644 built: **+1**, and the rule found a dropped directive
+
+```
+                        without §644   with §644
+diagnostics                 2,183        2,184    +1
+checker_types               4,202        4,202     0    — differential, §534's method
+extraonly                   zero TS1206 lines
+TS1206 missing lines        3 → 1
+```
+
+The rule was written, dispatched and correct, and measured **+0** — because
+`experimentalDecorators` **was never read from the fixture**. The option existed
+in `tsr-core`, the checker did not carry it, and `apply_test_directives` did not
+set it. Three layers, and the rule at the far end was the only one that
+noticed.
+
+> **§533's missing-input class, found from the rule end rather than the harness
+> end.** §533 came from probing a loader; this came from a rule that could not
+> fire. **The same defect is reachable from either direction, and the rule end
+> is the one that prices it** — a harness audit says *"this directive is
+> unread"*, a failing row says *"this directive is worth one case"*.
+
+`checker_types` measured identically on both sides, so the directive's reach is
+confined to this row today.
+
+### Two options plumbed, two patterns
+
+```
+§478   module_kind             plumbed for one row, has since paid three
+§644   experimental_decorators dropped by the harness AND absent from the checker
+```
+
+**An option in `tsr-core` that nothing reads is a row-shaped hole with no rule
+missing**, and this one had two holes stacked: the harness never set it and the
+checker never took it. Neither is visible from the other.
+
+### The grammar family after nineteen builds
+
+```
++35 before   TS1206 +1   ──   +36
+```
+
+Nineteen codes closed. TS1206 keeps one line — `parameterDecoratorsEmitCrash`,
+which needs a different arm of `nodeCanBeDecorated`.
