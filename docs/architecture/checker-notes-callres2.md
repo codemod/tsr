@@ -1022,3 +1022,33 @@ the `string ||| any` rows there need this-body narrowing (NOT this
 carry) and stay. Falsifier: recursion through contextual_signature on
 every signature build shows as a hang/measured-zero and the carry gates
 to literal-member positions only.
+
+## §139 REFUSED at measured net −1 — the carry needs two subsystems the family can't pay for
+
+Built and measured, then reverted whole:
+
+1. The wide carry (arrows + function expressions + methods): net
+   NEGATIVE — 4 R→W in thisTypeInFunctionsNegative, 1 in
+   thisTypeInFunctions; those positions' contexts carry a `this`
+   upstream does not assign there.
+2. Gated to object-literal methods + the METHOD CONTEXT ROAD built
+   (`getContextualTypeForObjectLiteralMethod`, `checker.go:29927` —
+   dispatch arm for a MethodDeclaration whose parent is the literal):
+   still net −1, and the trace named the two real walls in one run:
+   - `init?: (this: this) => void` — the OPTIONAL property's
+     contextual type is `(...) | undefined`; `contextual_signature`
+     cannot extract from the union. Fix known: `get_non_nullable_type`
+     before extraction (§26's machinery). Cheap alone, but useless
+     without:
+   - `this: this` — the POLYMORPHIC this must instantiate to the
+     containing type at the property read (upstream's apparent-type
+     application). This is a subsystem (thisType mapping), not a
+     field carry.
+
+The family's realistic yield behind both: ~10 lines
+(thisTypeInFunctions2's 7 + a slice of thisTypeInFunctions). Refused
+at that price; the method context road text is in this commit's
+history for the build that eventually pays for the this-type
+subsystem. checker-1's flag was correct in every particular — the
+drop IS at contextual signature application; it is the this-TYPE
+model underneath that is missing, not the carry.
