@@ -1589,6 +1589,35 @@ impl Checker<'_, '_> {
     /// The memo upstream keeps (`assignmentReducedTypes`) is not ported: it
     /// guards repeated assignability queries, and this port's assignability is
     /// not yet the cost centre that makes a cache pay.
+    /// SS160: decidable assignability between REFERENCES - same target
+    /// symbol with pairwise-identical arguments is assignable; same target
+    /// with a decidably-unrelated argument pair (the relater's primitive
+    /// domain) is not; anything else is undecidable.
+    fn reference_assignable_decidable(&mut self, source: TypeId, target: TypeId) -> Option<bool> {
+        let (source_target, source_arguments) = self.type_reference_targets.get(&source)?.clone();
+        let (target_target, target_arguments) = self.type_reference_targets.get(&target)?.clone();
+        if self.binder.merged_symbol(source_target) != self.binder.merged_symbol(target_target)
+            || source_arguments.len() != target_arguments.len()
+        {
+            return None;
+        }
+        if source_arguments == target_arguments {
+            return Some(true);
+        }
+        let mut refuted = false;
+        for (&sa, &ta) in source_arguments.iter().zip(target_arguments.iter()) {
+            if sa == ta {
+                continue;
+            }
+            match self.relate_ternary(sa, ta, crate::relater::Relation::Assignable) {
+                crate::relater::Ternary::Related => {}
+                crate::relater::Ternary::NotRelated => refuted = true,
+                _ => return None,
+            }
+        }
+        Some(!refuted)
+    }
+
     fn get_assignment_reduced_type(&mut self, declared: TypeId, assigned: TypeId) -> TypeId {
         if declared == assigned {
             return declared;
@@ -1609,8 +1638,16 @@ impl Checker<'_, '_> {
         }
         let mut kept = Vec::with_capacity(constituents.len());
         for constituent in constituents {
-            if self.type_maybe_assignable_to(assigned, constituent) {
-                kept.push(constituent);
+            // SS160: the reference-identity slice answers first; its
+            // undecidables keep the old road.
+            match self.reference_assignable_decidable(assigned, constituent) {
+                Some(true) => kept.push(constituent),
+                Some(false) => {}
+                None => {
+                    if self.type_maybe_assignable_to(assigned, constituent) {
+                        kept.push(constituent);
+                    }
+                }
             }
         }
         // "Ensure that we narrow to fresh types if the assignment is a fresh
@@ -1633,7 +1670,13 @@ impl Checker<'_, '_> {
         // Upstream's own guard on its "crude heuristic" (`flow.go:2424`): when
         // the assigned type is not assignable to what the filter kept, give up
         // and narrow nothing rather than print a type the assignment refutes.
-        if self.is_type_assignable_to(assigned, reduced) { reduced } else { declared }
+        if self.reference_assignable_decidable(assigned, reduced) == Some(true)
+            || self.is_type_assignable_to(assigned, reduced)
+        {
+            reduced
+        } else {
+            declared
+        }
     }
 
     /// `typeMaybeAssignableTo` (`flow.go:2434`): a union source needs only one

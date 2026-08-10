@@ -1601,3 +1601,18 @@ instanceOfAssignability 2, structurallyIdentical 1), zero regressions.
 Slice 2: the omitted legs (keyProperty fast-path, instantiable
 intersections, the all-never tail) and the PREDICATE flavor replacing
 narrow_by_predicate_type's ladder.
+
+## §160 LANDED: decidable reference assignability in assignment narrowing (+20, zero regressions)
+
+`reference_assignable_decidable`: same merged target symbol with
+pairwise-identical arguments → assignable; a decidably-unrelated
+argument pair (the relater's primitive domain) → not; anything else
+undecidable, keeping the old filter. Wired into
+`get_assignment_reduced_type`'s constituent filter AND its final
+guard (per-site reference interning defeated both).
++20: parameterNamesInTypeParameterList 18, narrowingPastLastAssignment,
+typeGuardNarrowsIndexedAccessOfKnownProperty3. RESIDUE: the Set<T>
+rows in controlFlowInstanceof did NOT move — their filter fails
+elsewhere (the union's constituents may not be reference-interned as
+assumed, or the loop context intervenes); ONE trace inside the filter
+on that fixture decides, banked as the next increment.
