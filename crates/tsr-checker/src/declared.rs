@@ -1662,7 +1662,7 @@ impl<'a> Checker<'a, '_> {
     /// (`checker.go:15820`). An `ALIAS` is accepted here without being resolved,
     /// which is what `BindResult::resolve_name`'s own `lookup_scoped` already
     /// does for the leftmost name; resolving it needs `bd tsr-4jk`'s machinery.
-    fn resolve_entity_name(
+    pub(crate) fn resolve_entity_name(
         &self,
         name: tsr_ast::EntityName<'a>,
         meaning: SymbolFlags,

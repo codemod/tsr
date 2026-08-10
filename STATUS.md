@@ -1307,6 +1307,33 @@ its whole deliverable and accept that it converts nothing until finished.
 
 ## 5. Refused, with the number that refused it
 
+### New, this session, TS2438
+
+- **TS2438 was attached to three node kinds upstream never reaches** (§660).
+  `checkTypeNameIsReserved` has six callers and the `Import_name_cannot_be_0`
+  one is `checkImportEqualsDeclaration` (`checker.go:5488`) — an *internal*
+  `import X = A.B` whose target has a type meaning. This port had it on
+  `ImportClause`, `NamespaceImport` and `ImportSpecifier`, so every
+  `import { boolean } from "drizzle-orm/pg-core"` was an error: **31 on a
+  22-package repository**. Repo 51 → 20.
+
+- **This one the corpus DID cover, and we were failing it** (§660) — the
+  opposite of this session's other six. The fix takes `diagnostics` 2,187 →
+  2,189, and the two cases gained are `reservedNameOnInterfaceImport` and
+  `reservedNameOnModuleImportWithInterface`, the rule's own tests. **A false
+  positive found on a real repository can still be a case the suite was already
+  failing**; the suite is not always the blind instrument the preceding sections
+  make it look.
+
+- **The first attempt left the rule dead** (§660). `resolve_alias` declines a
+  qualified module reference — a decline about *printing* — and that is the only
+  shape TS2438 fires on. Resolved through the existing `resolve_entity_name`
+  instead. Fourth time this session that reading the tree beat writing the
+  four-line version.
+
+- **Not built, named rather than left**: `Enum_name_cannot_be_0`
+  (`checker.go:10459`) has no arm here. A missing diagnostic, not a wrong one.
+
 ### New, this session, TS1016 and the true-positive audit
 
 - **TS1016 was missing `parameter.Initializer == nil`** (§554). A *defaulted*
@@ -2364,6 +2391,7 @@ holds only the numbers.
 | 2026-08-09 | *(this session)* | 36.86% | 2,023 | **TS1192's synthetic default: repo 162 → 84, both snapshots byte-identical** | The report is the **third** of three conjuncts (`checker.go:14566`) and only the first was ported. `canHaveSyntheticDefault` (`:14818`) is what makes `import React from "react"` legal against `export = React` — how every `@types` package ships and every consumer writes it — so TS1192 fired **78 times on a 22-package repository**, 12 in `packages/ui` alone (17 → 5). Both arms ported: the permissive declaration-file one (`:14850`) and `hasExportAssignmentSymbol` (`:14869`). `IsDeclarationFile` becomes a `ModuleHost` question (ADR-0016: no file name on the AST), defaulting to `false` so an ignorant host reports *more*, not less. The predicate itself already existed as `tsr_binder::is_declaration_file` and was made `pub` rather than rewritten — third time this session reading the tree beat writing the four-line version. Three unported suppressors named with their direction. `checker-notes-diag2.md` §531 |
 | 2026-08-09 | *(this session)* | 37.43% | 2,054 | **an optional parameter's type includes `undefined`: repo 84 → 62, both snapshots byte-identical** | `getTypeOfParameter` (`checker.go:17042`) adds optionality for a `?` **or** an initializer, so `b?: string` and `b: string = "d"` are both `string \| undefined`. The argument check took the written annotation alone, so every `T \| undefined` argument at such a position drew TS2345 — **23 → 1** on a 22-package repository. Both arms had it (`call` and `new`, one upstream function apart). **Not one line of either snapshot moved**, which is the number that matters for a change that widens a type: the risk was a silenced case and there was none — the corpus's TS2345 fixtures use required parameters. The survivor is optional-chain narrowing, already recorded as unbuilt. `checker-notes-diag2.md` §541 |
 | 2026-08-09 | *(this session)* | 37.76% | 2,072 | **TS1016's missing conjunct, and every rule this session paired with a true positive** | `checkGrammarParameterList` (`grammarchecks.go:714`) is `seenOptionalParameter && parameter.Initializer == nil`; the second conjunct was absent, so a **defaulted** parameter after an optional one was an error. Not the same test as the arm above it — §288 established that `seenOptionalParameter` is a `?` alone, and the initialiser exclusion is a separate arm. Repo 62 → 51, both snapshots byte-identical. **Then the audit**: each of the eight rules touched this session was deleted outright to find which test catches it, and four true positives were missing and are now written. **One could not be** — `globalThis.blockScoped` over a script `let` must report TS2339 and does not, and measurement shows §173's guard is *not* the cause (§33's minted type has no members, so completeness declines first), making that branch unreachable today; kept as upstream's rule and pinned by a divergence test. `checker-notes-diag2.md` §554 |
+| 2026-08-09 | *(this session)* | 39.89% | 2,189 | **TS2438 moved to its one real caller: repo 51 → 20, `diagnostics` +2** | `checkTypeNameIsReserved` has six callers and the `Import_name_cannot_be_0` one is `checkImportEqualsDeclaration` (`checker.go:5488`) — an *internal* `import X = A.B` whose target has a **type** meaning. This port had it on `ImportClause`, `NamespaceImport` and `ImportSpecifier`, three kinds that reach none of the six, so every `import { boolean } from "drizzle-orm/pg-core"` was an error — **31 on a 22-package repository**. **Unlike this session's other six, the corpus covered this and we were failing it**: the +2 are `reservedNameOnInterfaceImport` and `reservedNameOnModuleImportWithInterface`, the rule's own cases. The first attempt left the rule **dead** — `resolve_alias` declines a qualified module reference, which is the only shape it fires on — and it is resolved through the existing `resolve_entity_name` instead. `checker_types` byte-identical. `checker-notes-diag2.md` §660 |
 | 2026-08-09 | `9f4698e` | **29.43%** | **1,615** | **+1, every rail unmoved** | **`parseObjectBindingElement` branches on `isBindingIdentifier`**, read *before* the property name — `{ while }` is one `':' expected` upstream and was four errors here. It costs one condition only because **§193's same-position guard had already landed** for a different row: the third time this session a general fix changed what a later build costs. `checker-notes-diag2.md` §204–§205 |
 | 2026-08-09 | `00d7d76` | 29.43% | 1,615 | **+0, and landed on purpose** | **A namespace in a `.d.ts` exports what it declares.** `bind_container`'s ambient test had three disjuncts and not `in_declaration_file`. Filed as *"imported namespace symbols carry no exports"* — imports had nothing to do with it. Landed at +0 because it is **observable and pinned** (a test red without the disjunct) where §207's +0 was unobservable; three rows queue behind it. `checker-notes-diag2.md` §208–§210 |
 | 2026-08-09 | `7373eff` | 29.43% | 1,615 | **TS7026 wrong 9 → 3, `checker_types` +8** | **The `@jsx` pragma path, rebuilt on §208's table.** §207 built it across three crates, measured +0, and reverted; §208 fixed the table its second hop reads and landed at +0 **because it was observable and pinned**. Had §208 been reverted for scoring zero this rebuild would be unreachable. *Unmeasured and unobservable are different.* `checker-notes-diag2.md` §207–§211 |

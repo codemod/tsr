@@ -46,7 +46,7 @@
 //! the wrong unit, which is the failure mode that looks like a checker bug for a
 //! week.
 
-use tsr_ast::{ClassElement, ModifierLike, Node, NodeId, SyntaxKind};
+use tsr_ast::{ClassElement, ModifierLike, ModuleReference, Node, NodeId, SyntaxKind};
 use tsr_binder::{NodeFacts, SymbolFlags};
 use tsr_diagnostics::{Diagnostic, messages};
 
@@ -5899,13 +5899,90 @@ impl Checker<'_, '_> {
             Node::TypeParameterDeclaration(n) => {
                 (n.name, &messages::TYPE_PARAMETER_NAME_CANNOT_BE_0)
             }
-            Node::ImportClause(n) => (n.name, &messages::IMPORT_NAME_CANNOT_BE_0),
-            Node::NamespaceImport(n) => (n.name, &messages::IMPORT_NAME_CANNOT_BE_0),
-            Node::ImportSpecifier(n) => (n.name, &messages::IMPORT_NAME_CANNOT_BE_0),
+            // `checkImportEqualsDeclaration` (`checker.go:5488`) is upstream's
+            // **only** site for `Import_name_cannot_be_0`, and it is not an
+            // import *specifier*. See
+            // [`Checker::check_reserved_import_equals_name`].
+            Node::ImportEqualsDeclaration(_) => {
+                self.check_reserved_import_equals_name(typed);
+                return;
+            }
             _ => return,
         };
         let Some(name) = name else { return };
         self.check_type_name_is_reserved(name.node_id, name.text, message);
+    }
+
+    /// TS2438 — `Import name cannot be '{0}'.`
+    ///
+    /// `checkImportEqualsDeclaration` (`checker.go:5479-5489`), and the guards
+    /// are the rule:
+    ///
+    /// ```go
+    /// moduleReference := node.AsImportEqualsDeclaration().ModuleReference
+    /// if !ast.IsExternalModuleReference(moduleReference) {
+    ///     target := c.resolveAlias(c.getSymbolOfDeclaration(node))
+    ///     if target != c.unknownSymbol {
+    ///         if c.getSymbolFlags(target)&ast.SymbolFlagsType != 0 {
+    ///             c.checkTypeNameIsReserved(node.Name(), diagnostics.Import_name_cannot_be_0)
+    ///         }
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// So it fires for `import boolean = N.SomeType` and for nothing else: an
+    /// **internal** module reference (not `require("…")`) whose target has a
+    /// *type* meaning.
+    ///
+    /// # What this replaced, and what it cost
+    ///
+    /// This rule was attached to `ImportClause`, `NamespaceImport` and
+    /// `ImportSpecifier` — three node kinds upstream never reaches with this
+    /// message. `checkTypeNameIsReserved` has six callers (`:2623`, `:4999`,
+    /// `:5488`, `:6879`, `:10454`, `:10459`) and not one of them is a named
+    /// import.
+    ///
+    /// The reserved list is the *predefined type keywords*, so the misplacement
+    /// turned every `import { boolean } from "drizzle-orm/pg-core"` into an
+    /// error. A schema library exporting column constructors named `boolean`,
+    /// `bigint`, `number` and `object` is the ordinary case, and it was worth
+    /// **31 diagnostics** on a 22-package repository against `tsc`'s zero.
+    ///
+    /// `docs/architecture/checker-notes-diag2.md` §660.
+    fn check_reserved_import_equals_name(&mut self, typed: Node<'_>) {
+        let Node::ImportEqualsDeclaration(node) = typed else { return };
+        let Some(name) = node.name else { return };
+        // `resolveAlias(getSymbolOfDeclaration(node))` then `getSymbolFlags`:
+        // the meaning that matters is the **target's**, not the alias's.
+        //
+        // Resolved through [`Checker::resolve_entity_name`] rather than
+        // [`Checker::resolve_alias`], because the latter declines a *qualified*
+        // module reference — and `import boolean = N.SomeType` is the only
+        // shape this rule fires on, so declining it would leave the rule dead.
+        // That decline is about **printing**: its rustdoc records that a
+        // qualified name resolves fine and prints wrong for want of symbol
+        // accessibility. This rule never prints the target; it asks only
+        // whether the target has a type meaning. Same argument as §221's JSX
+        // namespace and §400's alias half.
+        let Some(module_reference) = node.module_reference else { return };
+        let reference = match module_reference {
+            ModuleReference::Identifier(identifier) => tsr_ast::EntityName::Identifier(identifier),
+            ModuleReference::QualifiedName(qualified) => {
+                tsr_ast::EntityName::QualifiedName(qualified)
+            }
+            ModuleReference::ExternalModuleReference(_) => return,
+        };
+        let meaning = SymbolFlags::TYPE | SymbolFlags::NAMESPACE | SymbolFlags::VALUE;
+        let Some(target) = self.resolve_entity_name(reference, meaning) else { return };
+        let target = self.binder.merged_symbol(target);
+        if !self.get_symbol_flags(target).intersects(SymbolFlags::TYPE) {
+            return;
+        }
+        self.check_type_name_is_reserved(
+            name.node_id,
+            name.text,
+            &messages::IMPORT_NAME_CANNOT_BE_0,
+        );
     }
 
     /// TS1046 — `Top-level declarations in .d.ts files must start with either

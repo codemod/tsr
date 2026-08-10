@@ -34021,3 +34021,101 @@ and so, on this evidence, is any row whose rule already fires for the confident
 half of its inputs.** That is a test the next session can apply without a build:
 **if a rule emits for literals and not for their widened types, it is waiting on
 the relation.**
+## §660 — TS2438 was attached to three node kinds upstream never reaches
+
+```ts
+import { boolean, bigint } from "drizzle-orm/pg-core";
+//       ~~~~~~~ TS2438: Import name cannot be 'boolean'.
+```
+
+`tsc` says nothing. 31 of them on a 22-package repository — a schema library
+exporting column constructors named `boolean`, `bigint`, `number` and `object`
+is the ordinary case, not an exotic one.
+
+### One caller, and it is not an import specifier
+
+`checkTypeNameIsReserved` (`checker.go:6901`) has **six** callers:
+
+| line | message |
+|---|---|
+| `:2623` | `Type_parameter_name_cannot_be_0` |
+| `:4999` | `Interface_name_cannot_be_0` |
+| **`:5488`** | **`Import_name_cannot_be_0`** |
+| `:6879` | `Type_alias_name_cannot_be_0` |
+| `:10454` | `Class_name_cannot_be_0` |
+| `:10459` | `Enum_name_cannot_be_0` |
+
+The import one is `checkImportEqualsDeclaration`, guarded:
+
+```go
+if !ast.IsExternalModuleReference(moduleReference) {
+    target := c.resolveAlias(c.getSymbolOfDeclaration(node))
+    if target != c.unknownSymbol && c.getSymbolFlags(target)&ast.SymbolFlagsType != 0 {
+        c.checkTypeNameIsReserved(node.Name(), diagnostics.Import_name_cannot_be_0)
+    }
+}
+```
+
+So it fires for `import boolean = N.SomeType` and for nothing else. This port
+had it on `ImportClause`, `NamespaceImport` and `ImportSpecifier` — three kinds
+that reach none of the six.
+
+### The corpus DID cover this, and we were failing it
+
+Unlike the six defects before it this session, this one was not invisible. The
+fix takes `diagnostics` **2,187 → 2,189**, and the two cases gained are
+`compiler/reservedNameOnInterfaceImport` and
+`compiler/reservedNameOnModuleImportWithInterface` — the corpus's own tests for
+the rule, whose fixture says it outright:
+
+```ts
+declare namespace test {
+    interface istring { }
+    // Should error; 'test.istring' is a type, so this import conflicts with the 'string' type.
+    import string = test.istring;
+}
+```
+
+**The rule was in the wrong place *and* failing its own two cases**, and the
+second fact was legible in the suite the whole time. That is the opposite of
+this session's pattern and worth recording as such: a false positive found on a
+real repository can still be a case the corpus was already failing, and the
+suite is not always the blind instrument the last six sections make it look.
+
+### `resolve_alias` declines the only shape that fires
+
+The first attempt removed the false positives and left the rule **dead**:
+`Checker::resolve_alias` returns `None` for a *qualified* module reference, and
+`import boolean = N.SomeType` is the only shape TS2438 fires on. That decline is
+about **printing** — its rustdoc records that a qualified name resolves fine and
+prints wrong for want of symbol accessibility — and this rule never prints its
+target, it asks only whether the target has a type meaning.
+
+Resolved through `Checker::resolve_entity_name` instead, which already existed
+and already walks a qualified name through its namespace's exports. Fourth time
+this session that reading the tree beat writing the four-line version.
+
+### Measured
+
+| | base | after |
+|---|---:|---:|
+| `binder_symbols` | 8,444/8,444 | 8,444/8,444 |
+| `checker_types` | 4,204 / 86.15% | **snapshot byte-identical** |
+| `diagnostics` | 2,187/5,488 | **2,189** — +2, none lost |
+| the 22-package repository | **51** | **20** |
+
+Four tests, three of them red under one mutation each: restoring the
+`ImportSpecifier` arm, deleting the `ImportEqualsDeclaration` arm, and dropping
+the `getSymbolFlags & TYPE` gate. The fourth asserts the neighbouring type-alias
+caller still reports, so moving one arm cannot disturb the four that were right.
+
+**One test expectation was written from memory and was wrong**: it claimed
+`export type boolean = string` yields `[TS2456, TS2457]`. `tsc` reports TS2457
+alone, and so does this port. Corrected to the measured answer, and the note
+kept — the port was right and the guess was not.
+
+### Not built, and named rather than left
+
+`Enum_name_cannot_be_0` (`:10459`) has no arm here. That is a **missing**
+diagnostic rather than a wrong one, so it is out of this change's direction; it
+is recorded here so the next reading of the reserved-name family starts with it.

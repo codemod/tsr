@@ -526,3 +526,85 @@ fn a_umd_global_in_a_value_position_still_reports() {
         vec!["TS2686".to_string()]
     );
 }
+
+// ---------------------------------------------------------------------------
+// TS2438 — `Import name cannot be '{0}'.`
+//
+// `checkTypeNameIsReserved` has six callers upstream (`checker.go:2623`,
+// `:4999`, `:5488`, `:6879`, `:10454`, `:10459`) and the `Import_name_cannot_be_0`
+// one is `checkImportEqualsDeclaration` (`:5488`) — an **internal** module
+// reference whose target has a type meaning. This port had it on `ImportClause`,
+// `NamespaceImport` and `ImportSpecifier`, three kinds upstream never reaches
+// with this message, so every `import { boolean } from "drizzle-orm/pg-core"`
+// was an error: 31 on a 22-package repository against `tsc`'s zero.
+//
+// | mutation | reddens |
+// |---|---|
+// | restore the `ImportSpecifier` arm | [`a_named_import_of_a_reserved_type_name_is_silent`] |
+// | delete the `ImportEqualsDeclaration` arm | [`an_import_equals_of_a_reserved_type_name_still_reports`] |
+// | drop the `getSymbolFlags & TYPE` gate | [`an_import_equals_of_a_value_is_silent`] |
+//
+// `docs/architecture/checker-notes-diag2.md` §660.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_named_import_of_a_reserved_type_name_is_silent() {
+    // A schema library exporting column constructors called `boolean` and
+    // `bigint` is the ordinary case, not an exotic one.
+    assert_eq!(
+        codes(&[
+            ("/m.ts", "export function boolean(): void {}\nexport function bigint(): void {}\n"),
+            (
+                "/a.ts",
+                "import { boolean, bigint } from \"./m\";\nexport const x = [boolean, bigint];\n"
+            ),
+        ]),
+        Vec::<String>::new()
+    );
+}
+
+#[test]
+fn an_import_equals_of_a_reserved_type_name_still_reports() {
+    // **The true positive**, and it is the only shape upstream fires on:
+    // an internal module reference whose target has a *type* meaning.
+    //
+    // It did not fire on the first attempt at this fix, because
+    // `Checker::resolve_alias` declines a qualified module reference — a
+    // decline about *printing*. Resolving it through `resolve_entity_name`
+    // instead is what keeps the rule alive rather than trading one wrong answer
+    // for silence.
+    assert_eq!(
+        codes(&[(
+            "/b.ts",
+            "namespace N { export type SomeType = string; }\nimport boolean = N.SomeType;\nexport type Q = boolean;\n"
+        )]),
+        vec!["TS2438".to_string()]
+    );
+}
+
+#[test]
+fn an_import_equals_of_a_value_is_silent() {
+    // `getSymbolFlags(target)&SymbolFlagsType != 0` (`checker.go:5487`). An
+    // alias to something with no type meaning is not a reserved *type* name,
+    // however it is spelled.
+    assert_eq!(
+        codes(&[(
+            "/c.ts",
+            "namespace N { export const someValue = 1; }\nimport boolean = N.someValue;\nexport const q = boolean;\n"
+        )]),
+        Vec::<String>::new()
+    );
+}
+
+#[test]
+fn a_reserved_type_alias_name_still_reports() {
+    // The neighbouring caller (`checker.go:6879`), untouched by this change and
+    // asserted so: moving the import arm must not disturb the four that were
+    // already right.
+    //
+    // The expectation here was first written as `[TS2456, TS2457]` from
+    // memory and corrected to what `tsc` actually reports on this fixture —
+    // TS2457 alone, which is also what this port reports. The port was right
+    // and the guess was not.
+    assert_eq!(codes(&[("/d.ts", "export type boolean = string;\n")]), vec!["TS2457".to_string()]);
+}
