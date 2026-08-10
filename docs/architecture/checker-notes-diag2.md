@@ -37499,3 +37499,74 @@ The rest are the `for…of` heads themselves, which upstream *does* report when
 the iterable is untyped: **this build made them silent, and silence is where
 they were.** Named; the arm that would take them needs the iterable's type and
 is the same owner.
+
+## §732 — the third gate swept: `modifiers_of`
+
+```
+arms enumerated              24
+nodes carrying `modifiers`   33
+not enumerated                9
+```
+
+The nine: `BinaryExpression`, `PropertyAssignment`, `ShorthandPropertyAssignment`
+and `MissingDeclaration` carry a `modifiers` field only because the parser
+attaches recovered modifiers to whatever it was parsing when it found them —
+none of them can legally have one. `EnumMember`, `ClassStaticBlockDeclaration`
+and `NamespaceExportDeclaration` cannot either, and upstream's grammar checks
+report on them from their own arms rather than through a modifier lookup.
+
+**`FunctionTypeNode` and `ConstructorTypeNode` are the two that could matter**,
+because §-earlier this session widened `modifiers_of` from 16 arms to 24
+specifically to reach signature kinds — `CallSignature`, `ConstructSignature`,
+`IndexSignature`, `MethodSignature` — and stopped one short of the two *type*
+forms that carry the same modifiers in the same positions.
+
+```
+bar:  +1,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **TS1070 / TS1029 / TS1030 gain wrong lines.** Those are the modifier-order
+   and illegal-modifier rules that consume this helper; a function *type* with an
+   `abstract` or `export` modifier is a parse error already, so any new line
+   there is a double report.
+2. **TS2540's private-accessor row moves.** §666 reads `modifiers_of` and its
+   fixture has none of these kinds.
+3. **`checker_types` moves.** The helper is shared; measured differentially.
+
+## §733 — §732 measured: **+0, zero wrong lines, KEPT**, and the three-gate sweep is closed
+
+```
+diagnostics             2,253 → 2,253   (+0, 0 LOST)
+extraonly               TS1070/1029/1030/1243/2540 — 1 line, unchanged (checked by stashing)
+```
+
+Kept under §667's first clause: it **reads an input where upstream reads it**.
+`node.Modifiers()` covers a function type and a constructor type upstream, and
+this port's `modifiers_of` did not. No corpus case turns on it today.
+
+### Three gates swept, and the pattern across them
+
+```
+§725  is_value_reference             49 arms, 61 candidates, 1 real gap   → +4
+§727  is_declaration_or_member_name  28 arms, 65 candidates, 2 real gaps  → +0
+§732  modifiers_of                   24 arms, 33 candidates, 2 real gaps  → +0
+```
+
+Five real gaps across three hand-written position lists, and **one of the five
+was worth four cases while the other four were worth none**. That is not an
+argument against the sweeps — each cost a single script, and the one that paid
+was indistinguishable from the four that did not until it was measured.
+
+> The useful generalisation is narrower than *"sweep the lists"*. All three
+> gates were **already known to be wrong** — §724, §702 and §-earlier had each
+> just fixed one arm by hand. **A list that has been wrong once is cheap to
+> check and the check is worth doing; a list with no such history is not
+> evidence of anything.** The sweeps end here because the tree has no fourth
+> gate with that history.
+
+`checker_types` was not re-measured for this build: `modifiers_of`'s two new
+arms are reachable only from grammar rules that the `.types` producer does not
+run, and the diagnostics side moved nothing. **Stated rather than assumed** —
+if a later build finds otherwise, this sentence is the one that was wrong.

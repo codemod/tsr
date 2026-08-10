@@ -10865,6 +10865,15 @@ pub(crate) fn modifiers_of(typed: Node<'_>) -> Option<&[tsr_ast::ModifierLike<'_
         Node::PropertySignatureDeclaration(n) => n.modifiers,
         Node::MethodSignatureDeclaration(n) => n.modifiers,
         Node::IndexSignatureDeclaration(n) => n.modifiers,
+        // §-earlier widened this from sixteen arms to twenty-four to reach the
+        // signature kinds — `CallSignature`, `ConstructSignature`,
+        // `IndexSignature`, `MethodSignature` — and stopped one short of the two
+        // **type** forms that carry the same modifiers in the same positions.
+        // The other seven kinds with a `modifiers` field cannot legally have
+        // one: the parser attaches recovered modifiers to whatever it was
+        // parsing. §732.
+        Node::FunctionTypeNode(n) => n.modifiers,
+        Node::ConstructorTypeNode(n) => n.modifiers,
         _ => return None,
     })
 }
