@@ -32670,3 +32670,51 @@ the receiver's TYPE is never needed      by construction — §580's shape holds
 
 The last line is the one worth keeping: **TS18014 does not need the type side.**
 Five cases sit behind a symbol lookup this note has bracketed to two functions.
+
+## §628 — §627's bracket cashed: **+4**, TS18014 closed
+
+```
+diagnostics   2,170 → 2,174   (bar was +3;  +4, 0 LOST)   39.61%
+extraonly     zero TS18014 and TS18013 lines
+TS18014       5 missing lines → 0
+```
+
+§627 narrowed the decline to two guards and the second was it:
+
+```rust
+if self.nodes.ancestors(node).any(|ancestor| ancestor == other) { return; }   // §626, wrong
+let Some(nearest) = self.nearest_class_declaring_private_name(node, text);    // §628
+if other == nearest { return; }
+```
+
+**`class Derived` is declared inside `Base`'s constructor**, so `Base` *is* an
+ancestor of the access and the `any()` test declined every case. The rule needs
+the **nearest** class that declares the name, not the absence of the other one
+from the chain.
+
+> **A shadowing rule has to name the shadower, and "not an ancestor" never
+> does.** The whole content of TS18014 is that two classes in one chain declare
+> the same private name; a test that rejects any ancestor rejects the situation
+> the rule exists for. §626 wrote the predicate that would be right if
+> shadowing meant *unrelated*, which is the one thing it cannot mean.
+
+### What §627 bought
+
+```
+§626   built, +0, three guards untested
+§627   probe: first guard passes; decline is in one of two   REVERTED
+§628   the second guard, replaced                            +4
+```
+
+**The revert cost nothing and the probe cost one run.** §627 wrote *"a probe that
+narrows the decline to two guards is worth more than the build that carried
+it"* and the next build tested exactly one hypothesis instead of three.
+
+### Seven helpers, seven rows
+
+`enclosing_class_declares_private_name` (§138) was the starting point and is
+still there, unchanged, for TS18013; this row needed a *different* question of
+the same members, so it got `class_declares_private_name` beside it rather than
+a widened one. **Widening is right when the callers ask the same question
+(§601, §621) and wrong when they ask different ones** — TS18013 asks *does any
+enclosing class declare it*, TS18014 asks *which is the nearest*.

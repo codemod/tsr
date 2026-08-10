@@ -456,6 +456,7 @@ impl Checker<'_, '_> {
                 self.check_readonly_assignment_target(node, ambient);
                 self.check_property_used_before_initialization(node);
                 self.check_private_property_access(node, ambient);
+                self.check_private_name_shadowing(node);
                 ambient
             }
             Node::AsExpression(_) | Node::TypeAssertion(_) => {

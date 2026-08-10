@@ -347,6 +347,134 @@ impl Checker<'_, '_> {
     }
 
     /// Does any enclosing class declare this `#name`?
+    /// TS18014 — `The property '{0}' cannot be accessed on type '{1}' within
+    /// this class because it is shadowed by another private identifier with the
+    /// same spelling.`
+    ///
+    /// `checker.go:11518`. Decided from the receiver's **written annotation**
+    /// rather than its type (§580's shape): `x: Base` names a class that
+    /// declares `#x`, the **nearest** enclosing class declares `#x` too, and the
+    /// two are different declarations.
+    ///
+    /// The nearest one, not any ancestor — `class Derived` is declared inside
+    /// `Base`'s constructor in the corpus's fixtures, so `Base` *is* an
+    /// ancestor of the access and an `ancestors().any()` identity test declines
+    /// every case. §627 bracketed the decline to this line. §628.
+    pub(crate) fn check_private_name_shadowing(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let Some(Node::PropertyAccessExpression(access)) = self.node_map.get(node) else { return };
+        let (Some(receiver), Some(tsr_ast::MemberName::PrivateIdentifier(name))) =
+            (access.expression, access.name)
+        else {
+            return;
+        };
+        let text = name.text;
+        let Some(at) = name.node_id else { return };
+        let Some(nearest) = self.nearest_class_declaring_private_name(node, text) else { return };
+        let Some(receiver_id) = receiver.node_id() else { return };
+        let Some(other) = self.annotated_class_of(receiver_id) else { return };
+        if other == nearest {
+            return;
+        }
+        if !self.class_declares_private_name(other, text) {
+            return;
+        }
+        let Some(class_name) = self.class_name_text(other) else { return };
+        let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
+        let span = self.nodes.span(at);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::THE_PROPERTY_0_CANNOT_BE_ACCESSED_ON_TYPE_1_WITHIN_THIS_CLASS_BECAUSE_IT_IS_SHADOWED_BY_ANOTHER_PRIVATE_IDENTIFIER_WITH_THE_SAME_SPELLING,
+                span,
+                [text.to_string(), class_name],
+            ),
+        );
+    }
+
+    /// The nearest enclosing class that declares `text`. §628.
+    fn nearest_class_declaring_private_name(&self, node: NodeId, text: &str) -> Option<NodeId> {
+        self.nodes
+            .ancestors(node)
+            .find(|&ancestor| self.class_declares_private_name(ancestor, text))
+    }
+
+    /// Does this class declaration declare the private name `text`? §628.
+    fn class_declares_private_name(&self, class: NodeId, text: &str) -> bool {
+        let members: &[tsr_ast::ClassElement<'_>] = match self.node_map.get(class) {
+            Some(Node::ClassDeclaration(n)) => n.members,
+            Some(Node::ClassExpression(n)) => n.members,
+            _ => return false,
+        };
+        members.iter().any(|member| {
+            let name = match member {
+                tsr_ast::ClassElement::PropertyDeclaration(n) => Some(n.name),
+                tsr_ast::ClassElement::MethodDeclaration(n) => Some(n.name),
+                tsr_ast::ClassElement::GetAccessorDeclaration(n) => Some(n.name),
+                tsr_ast::ClassElement::SetAccessorDeclaration(n) => Some(n.name),
+                _ => None,
+            };
+            matches!(name, Some(tsr_ast::PropertyName::PrivateIdentifier(p)) if p.text == text)
+        })
+    }
+
+    /// The class declaration a receiver's written annotation names. §628.
+    fn annotated_class_of(&mut self, receiver: NodeId) -> Option<NodeId> {
+        let text = self.identifier_text(receiver)?.to_string();
+        let symbol = self.binder.resolve_name(
+            self.nodes,
+            self.node_map,
+            receiver,
+            &text,
+            tsr_binder::SymbolFlags::VALUE,
+        )?;
+        let declarations =
+            self.binder.symbols().get(self.binder.merged_symbol(symbol)).declarations.clone();
+        for declaration in declarations {
+            let annotation = match self.node_map.get(declaration) {
+                Some(Node::ParameterDeclaration(p)) => p.r#type,
+                Some(Node::VariableDeclaration(v)) => v.r#type,
+                _ => None,
+            };
+            let Some(reference) = annotation.and_then(|a| a.node_id()) else { continue };
+            let Some(Node::TypeReferenceNode(reference)) = self.node_map.get(reference) else {
+                continue;
+            };
+            let Some(name) = reference.type_name.and_then(|n| n.node_id()) else { continue };
+            let Some(name_text) = self.identifier_text(name).map(str::to_string) else { continue };
+            let Some(class_symbol) = self.binder.resolve_name(
+                self.nodes,
+                self.node_map,
+                name,
+                &name_text,
+                tsr_binder::SymbolFlags::TYPE,
+            ) else {
+                continue;
+            };
+            return self
+                .binder
+                .symbols()
+                .get(self.binder.merged_symbol(class_symbol))
+                .declarations
+                .first()
+                .copied();
+        }
+        None
+    }
+
+    /// The written name of a class declaration. §628.
+    fn class_name_text(&self, class: NodeId) -> Option<String> {
+        match self.node_map.get(class)? {
+            Node::ClassDeclaration(n) => n.name.and_then(|name| name.node_id),
+            Node::ClassExpression(n) => n.name.and_then(|name| name.node_id),
+            _ => None,
+        }
+        .and_then(|id| self.identifier_text(id))
+        .map(str::to_string)
+    }
+
     fn enclosing_class_declares_private_name(&self, node: NodeId, text: &str) -> bool {
         self.nodes.ancestors(node).any(|ancestor| {
             let members: &[tsr_ast::ClassElement<'_>] = match self.node_map.get(ancestor) {
