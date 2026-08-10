@@ -31367,3 +31367,83 @@ Two lines in two cases: `overrideKeywordOrder(15,12)` — `async override m2()`,
 whose `override` arm this port has and which is therefore a *different* defect —
 and `privateNameStaticMethodAsync(11,11)`. Neither is another arm of the
 `precede` table.
+
+## §597 — TS1029: `static` must precede `override`
+
+§596 called `overrideKeywordOrder(15,12)` *"a different defect"* and it is —
+just not the one that reading suggested. The baseline says:
+
+```
+overrideKeywordOrder.ts(15,12): error TS1029: 'static' modifier must precede 'override' modifier.
+```
+
+which is `override static s1()`, reported **on the `static`** by the
+`KindStaticKeyword` arm — not by `override`'s, which this port already has. The
+arm is `grammarchecks.go:374`, and it sits **last** in its own cascade:
+
+```go
+case KindStaticKeyword:
+    …already seen… …readonly… …async… …accessor…
+    else if parent is ModuleBlock|SourceFile { … cannot_appear_on_a_module_or_namespace_element }
+    else if node is Parameter               { … cannot_appear_on_a_parameter }
+    else if flags&Abstract != 0             { … cannot_be_used_with, "static", "abstract" }
+    else if flags&Override != 0             { … must_precede, "static", "override" }
+```
+
+> **Four arms of one message, three positions, and the position is the rule.**
+> §595 added `abstract`'s pair with the guard its position gave it; this adds
+> `static`'s four with the same treatment, and the `override` entry needs the
+> `abstract` guard for exactly the same reason.
+
+The three arms before it that this port does not have — module element,
+parameter, `static abstract` — are the guard, and only the last can co-occur
+with `override` in practice.
+
+```
+bar:  +1 of 2 (cases blocked on TS1029 alone),  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **`static abstract` reports TS1029.** It is TS1243's, and the guard's purpose.
+2. **`static override` reports.** The legal order.
+3. **`static readonly` / `static async` change.** Those three entries are new
+   too and each has its own legal spelling in the corpus.
+
+## §598 — §597 built: **+2** of a bar of +1, and TS1029 is at one line
+
+```
+diagnostics   2,143 → 2,145   (bar was +1;  +2, 0 LOST)   39.09%
+extraonly     zero TS1029 and zero TS1243 lines
+TS1029        2 missing lines → 1;  2 cases blocked alone → 1
+```
+
+All three falsifiers negative. The extra case over the bar is
+`privateNameStaticMethodAsync`, which the `static`/`async` entry converted as a
+side effect — it was in the row's list and nothing had attributed it.
+
+### The row, across three builds
+
+```
+§593   `export`'s three, `default`'s inverted one    +2
+§595   `abstract`'s two                              +0 board, −1 line
+§597   `static`'s four                               +2
+                                                     ──
+       5 missing lines → 1                           +4
+```
+
+> **Each build added entries to one `match`, and each needed a different guard
+> from the one before it.** `export`'s arms needed none, `abstract`'s needed
+> `private`/`async`, `static`'s needed `abstract`. Nothing about the table says
+> that; it is entirely a property of where each arm sat in upstream's cascade,
+> and it had to be read three times.
+
+That is the concrete cost of the structure this port chose, stated plainly:
+the `precede` table is more readable than an `else if` chain and **loses the
+information that the chain encoded for free**. Neither §593, §595 nor §597 would
+have needed a guard at all in upstream's shape.
+
+### What is left
+
+One line: `privateNameStaticMethodAsync(11,11)`. Not another entry in the
+table — nothing in this row's remaining shape matches the four arms built.

@@ -5166,6 +5166,18 @@ impl Checker<'_, '_> {
                 // table is consulted before this port's equivalents — so the
                 // arm carries the guard its original position gave it for
                 // free. §595.
+                // `static`'s four (`grammarchecks.go:362-375`). The `override`
+                // entry sits after the `static abstract` check upstream, so it
+                // carries that guard here. §597.
+                SyntaxKind::StaticKeyword if !seen.contains(&SyntaxKind::AbstractKeyword) => [
+                    (SyntaxKind::ReadonlyKeyword, "readonly"),
+                    (SyntaxKind::AsyncKeyword, "async"),
+                    (SyntaxKind::AccessorKeyword, "accessor"),
+                    (SyntaxKind::OverrideKeyword, "override"),
+                ]
+                .into_iter()
+                .find(|(earlier, _)| seen.contains(earlier))
+                .map(|(_, name)| name),
                 SyntaxKind::AbstractKeyword
                     if !seen.contains(&SyntaxKind::PrivateKeyword)
                         && !seen.contains(&SyntaxKind::AsyncKeyword) =>
@@ -5316,6 +5328,7 @@ impl Checker<'_, '_> {
                     SyntaxKind::PrivateKeyword => "private",
                     SyntaxKind::ExportKeyword | SyntaxKind::DefaultKeyword => "export",
                     SyntaxKind::AbstractKeyword => "abstract",
+                    SyntaxKind::StaticKeyword => "static",
                     _ => "override",
                 };
                 let Some(id) = token.node_id else { return };
