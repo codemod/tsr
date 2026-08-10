@@ -6115,3 +6115,15 @@ ratio-mover is the 7: the mint prints member types through
 UNWIDENED literal member symbols — the §134-family initializer
 widening applied at the mint's member reads is the one candidate
 between 2.5:1 and ~5:1.
+
+**§142 record CORRECTED (the widening hypothesis measured ZERO):**
+the head case's 7 adverse are NOT unwidened member freshness — the
+widening arm at the mint's reads changed nothing byte-for-byte.
+They are the FUNCTION-EXPRESSION property family (`f: () => any`
+got, `() => number` want) — the same shapes iteration 5 converted
+and looseThis paid for. So §142's true remaining split: the
+methods-only form (+38/15 at 2.5:1, zero regressions) vs the
+fn-expr extension (+2 net, +17 R→G in looseThis whose contextual
+shapes need tracing). The park's ratio path runs through the
+looseThis trace, not widening. Corrected rather than silently
+edited; reverted byte-identical.
