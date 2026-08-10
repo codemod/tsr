@@ -5770,3 +5770,20 @@ priority order for the next window:
      target-keyed.
   4. `yield*` and value-used yields stay declined (contextual).
 Slices 1–3 are each one measurable edit inside the existing arm.
+
+**§135 slices 1+bare-yield MEASURED AND LANDED at iteration 2 —
++21 G→R / 1 G→W (21:1), plus a POPULATION REALIGNMENT: total
+aligned lines rose 470,881 → 471,010 (+129) as the newly-minted
+generator signatures re-aligned their cases' assertion streams; net
+right +143. 85.85% at coverage.** Slice 1: valued returns feed the
+R slot through the yield slot's own aggregation (single widens,
+multiple subtype-reduce, JS declines). Bare `yield;` contributes
+`undefined` under strict (non-strict declines — its `any` next is
+contextual). Iteration 2's fix: the statement-position gate runs
+BEFORE the bare-yield arm — `const value = yield;` feeds the NEXT
+slot from its declaration and must decline (the first pair's 3 G→W
+in generatorImplicitAny). Priced residue: generatorTypeCheck44 1.
+The thirty-fifth pin flipped (valued-return decline → computed).
+Remaining §135 slices: the down-level IterableIterator mint
+(target-keyed), `yield*` (iteration protocol), contextual
+next-types (the other lane's arc).

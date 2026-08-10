@@ -248,10 +248,12 @@ fn a_generator_declaration_infers_generator_of_its_yields() {
     );
     // `yield*` needs the iteration protocol and declines whole.
     assert_eq!(type_of_declaration_with_generator("function* g() { yield* [1]; }", "g"), "error");
-    // A valued return needs the subtype-reduced aggregate and declines whole.
+    // A valued return — **flipped by §135 slice 1** (the thirty-fifth
+    // stand-in): the R slot takes the return aggregate through the same
+    // widening the yield slot uses; `return 2` widens to `number`.
     assert_eq!(
         type_of_declaration_with_generator("function* g() { yield 1; return 2; }", "g"),
-        "error"
+        "() => Generator<number, number, unknown>"
     );
 }
 

@@ -1023,8 +1023,21 @@ impl<'a> Checker<'a, '_> {
                 return None;
             }
             let Body::Block(block) = body else { return None };
-            if self.return_expressions_of(block, declaration).iter().any(Option::is_some) {
-                return None;
+            // §135 slice 1: VALUED RETURNS feed the R slot through the same
+            // aggregation the yield slot uses — single distinct type widens
+            // (`getWidenedType`, checker.go:20224's sibling at :20231),
+            // multiple subtype-reduce, a gap declines whole. The old arm
+            // declined every valued return.
+            let mut return_types: Vec<TypeId> = Vec::new();
+            for expression in self.return_expressions_of(block, declaration) {
+                let Some(expression) = expression else { continue };
+                let t = self.check_expression(expression);
+                if t == self.intrinsics.error {
+                    return None;
+                }
+                if !return_types.contains(&t) {
+                    return_types.push(t);
+                }
             }
             let yields = self.yield_expressions_of(block, declaration);
             let mut operand_types: Vec<TypeId> = Vec::new();
@@ -1049,13 +1062,16 @@ impl<'a> Checker<'a, '_> {
                 //   no contextual signature" was the right premise about the
                 //   wrong position. Statement position is the one place the
                 //   value is provably unused.
-                let operand = operand?;
                 // Statement position and a computed property name are the two
                 // positions that provably give a yield **no contextual type**
                 // (`generatorTypeCheck42` pins the second: the yield's value
                 // becomes a property key and `next` still reads `unknown`).
                 // Everywhere else the contextual-typing subsystem decides, and
-                // it is refused — decline rather than model it.
+                // it is refused — decline rather than model it. The gate runs
+                // BEFORE the bare-yield arm: `const value = yield;` feeds the
+                // NEXT slot from its declaration (generatorImplicitAny wants
+                // `any`/contextual `string` there — the first §135 pair's 3
+                // G→W came from the bare arm skipping this test).
                 if self.nodes.parent(id).is_none_or(|parent| {
                     !matches!(
                         self.nodes.kind(parent),
@@ -1064,6 +1080,20 @@ impl<'a> Checker<'a, '_> {
                 }) {
                     return None;
                 }
+                // §135: a BARE `yield;` contributes `undefined` (strict) —
+                // generatorImplicitAny's `Generator<undefined, …>` want, the
+                // §15 bar's recorded leg. Under no-strict the contribution is
+                // `any`; decline there rather than model it this slice.
+                let Some(operand) = operand else {
+                    if !self.strict_null_checks {
+                        return None;
+                    }
+                    let undefined = self.intrinsics.undefined;
+                    if !operand_types.contains(&undefined) {
+                        operand_types.push(undefined);
+                    }
+                    continue;
+                };
                 let operand_type = self.check_expression(operand);
                 if operand_type == self.intrinsics.error {
                     return None;
@@ -1097,9 +1127,22 @@ impl<'a> Checker<'a, '_> {
                 }
             };
             let generator = self.global_type_symbol_with_arity("Generator", 3)?;
-            let void = self.intrinsics.void;
+            // §135 slice 1's R slot: the return aggregate, `void` when empty.
+            let return_slot = match return_types.as_slice() {
+                [] => self.intrinsics.void,
+                [single] => self.get_widened_literal_type(*single),
+                many => {
+                    if self.in_js_file(declaration) {
+                        return None;
+                    }
+                    let candidates = many.to_vec();
+                    self.union_with_subtype_reduction(&candidates)?
+                }
+            };
             let unknown = self.intrinsics.unknown;
-            return Some(self.create_type_reference(generator, vec![yield_type, void, unknown]));
+            return Some(
+                self.create_type_reference(generator, vec![yield_type, return_slot, unknown]),
+            );
         }
         // An async **declaration** with no valued return answers
         // `Promise<void>` — `getReturnTypeFromBody`'s zero-aggregate arm
