@@ -30387,3 +30387,94 @@ other workstream.
 
 Ten TS1109 cases remain, none of them yield-shaped, and none looked at. The row
 is a parser row and it is the largest one this session has found on that side.
+
+## §574 — TS1109: `++` takes a left-hand side, `!` takes a unary expression
+
+Three of the ten remaining TS1109 cases are one shape:
+
+```ts
+++ delete foo.bar          // parserUnaryExpression5
+async function bar1() { ++await 42; }   // await_unaryExpression_es6_3 / _es2017_3
+```
+
+`parse_unary_expression` (`expression.rs:405`) puts `++` and `--` in the same
+match arm as `+`, `-`, `~` and `!`, and gives all six
+`self.parse_unary_expression()` as the operand. The grammar does not:
+
+```
+UnaryExpression   :  ++ UnaryExpression                 ← wrong; this is what we do
+                     ! UnaryExpression
+UpdateExpression  :  ++ UnaryExpression                 ← ES: LeftHandSideExpression
+```
+
+Upstream's `parseUpdateExpression` takes `parseLeftHandSideExpressionOrHigher`,
+so `++ delete x` reaches `parsePrimaryExpression`, which falls through to
+`parseIdentifierWithDiagnostic(Expression_expected)` (`parser.go:5591`) — the
+diagnostic is produced by *failing to find a primary expression*, not by a check
+for `delete`.
+
+> **Six operators in one arm because they are spelled the same way.** §572 found
+> `yield` and `yield*` sharing a function and a wrong conditional; this is the
+> same shape in the same file, and both were written by grouping on syntax
+> rather than on grammar production. **The tell in both cases is an upstream
+> function name that does not appear in this port** — `parseUpdateExpression`
+> and `parseAssignmentExpression`.
+
+### The bar
+
+```
+bar:  +3 of 10 (parserUnaryExpression5, await_unaryExpression_es6_3, _es2017_3)
+      0 LOST,  WRONG delta <= +1
+      parser_typescript / printer_round_trip / binder_symbols stay at 100%
+```
+
+### Falsifiers
+
+1. **`++a` or `a++` changes.** Both are the common legal form and go through the
+   same two functions.
+2. **`parser_typescript` moves.** This changes which node `++x` produces for
+   every file in the corpus.
+3. **`+ +a` or `!!a` changes.** Those keep the unary operand and must not move.
+
+## §575 — §574 built: **+2** of a bar of +3, and TS1109 halves again
+
+```
+diagnostics          2,125 → 2,127   (bar was +3;  +2, 0 LOST)   38.76%
+parser_typescript    100%  ·  printer_round_trip  100%  ·  binder_symbols  100%
+extraonly            zero TS1109 lines
+TS1109               12 missing lines → 6;  10 cases blocked alone → 6
+```
+
+Six lines converted for two cases: the `await_unaryExpression` pair carries two
+lines each and one of them needs something further. Falsifier 2 was the one to
+watch — this changes the node `++x` produces in **every** file in the corpus —
+and `parser_typescript` and `printer_round_trip` are unmoved at 100%.
+
+### Two parser builds, one cause
+
+```
+§572   `yield` and `yield*` share a function; the operand test fits only one    +2
+§574   `++` and `!` share a match arm; the operand production fits only one     +2
+```
+
+> **Both were written by grouping on how the operator is *spelled*, and both
+> are wrong about which grammar production it belongs to.** The tell is the same
+> in each: an upstream function this port does not have —
+> `parseAssignmentExpression` after the asterisk, `parseUpdateExpression` for
+> the prefix. **A missing function name is a missing distinction**, and it is
+> visible without running anything.
+
+That is a grep this port can run: upstream's `parser.go` defines forty-odd
+`parseX` functions and `tsr-parser` names far fewer. Each absent name is a place
+where two productions were merged, and two of them have now paid +4 between
+them.
+
+**Recorded as a candidate sweep, unpriced** — §526's rule is that a sweep's size
+is what the measurement says, and nothing has measured this one. The two
+instances are evidence it is worth a look, not evidence of its size.
+
+### The residue
+
+Six TS1109 cases: `classExtendingPrimitive2`, two `importTag` JSDoc cases, two
+parser error-recovery fixtures, and `parserTypeAssertionInObjectCreationExpression1`.
+No shared shape, and none looked at.

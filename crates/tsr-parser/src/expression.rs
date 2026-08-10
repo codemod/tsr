@@ -403,12 +403,27 @@ impl<'a> Parser<'a> {
     pub(crate) fn parse_unary_expression(&mut self) -> Expression<'a> {
         let start = self.pos();
         match self.token.kind {
+            // **`++` and `--` take a *left-hand-side* expression**, not a unary
+            // one: `UpdateExpression : ++ LeftHandSideExpression`. Upstream
+            // routes them through `parseUpdateExpression`, so `++ delete x`
+            // reaches `parsePrimaryExpression` and fails there with
+            // `Expression expected` (`parser.go:5591`) — the diagnostic comes
+            // from not finding a primary, not from a test for `delete`.
+            // `docs/architecture/checker-notes-diag2.md` §574.
+            SyntaxKind::PlusPlusToken | SyntaxKind::MinusMinusToken => {
+                let operator = self.take_token();
+                let operand = self.parse_call_or_member_expression();
+                let node = self.finish_node(
+                    PrefixUnaryExpression::new(operator, Some(operand)),
+                    SyntaxKind::PrefixUnaryExpression,
+                    start,
+                );
+                Expression::PrefixUnaryExpression(node)
+            }
             SyntaxKind::PlusToken
             | SyntaxKind::MinusToken
             | SyntaxKind::TildeToken
-            | SyntaxKind::ExclamationToken
-            | SyntaxKind::PlusPlusToken
-            | SyntaxKind::MinusMinusToken => {
+            | SyntaxKind::ExclamationToken => {
                 let operator = self.take_token();
                 let operand = self.parse_unary_expression();
                 let node = self.finish_node(
