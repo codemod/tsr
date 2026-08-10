@@ -40807,3 +40807,77 @@ rather than through a diagnostic, each red under one mutation:
 The two true positives are the fast-path's own spellings — a re-export specifier
 and an `export import X = N` — because without them the change reads as "aliases
 are never exports", which is a different and equally wrong rule.
+
+## §809 — TS2408: setters cannot return a value
+
+```ts
+class C234 {
+    public set p1(arg1) {
+        if (true) { return arg1; }   // TS2408
+        else { return arg1; }        // TS2408
+    }
+}
+```
+
+`checkReturnStatement` (`checker.go:4111`):
+
+```go
+if c.strictNullChecks || exprNode != nil || returnType.flags&TypeFlagsNever != 0 {
+    if ast.IsSetAccessorDeclaration(container) {
+        if exprNode != nil { c.error(node, Setters_cannot_return_a_value) }
+    }
+```
+
+The outer condition is satisfied by `exprNode != nil` whenever the inner one is,
+so the rule reduces to: **a `return` with an expression whose containing
+function is a set accessor**. No type, no signature — the `getSignatureFromDeclaration`
+and `getReturnTypeOfSignature` above it feed the *other* branches.
+
+Second row from the ≤2-case tail, and §808's filter picked it: `setterWithReturn`
+and `returnValueInSetter` both state the rule.
+
+```
+bar:  +2 of 2 (returnValueInSetter, setterWithReturn),  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **A bare `return;` in a setter reports.** `exprNode != nil` is the condition
+   and a valueless return is legal there.
+2. **A `return x` in a getter reports.** Only the setter arm.
+3. **A `return x` inside a function *nested* in a setter reports.** The
+   container is the nearest function-like, which is the nested one.
+
+## §810 — §809 built: **+2 of 2**, row closed, and the filter has now picked two in a row
+
+```
+diagnostics             2,308 → 2,310   (bar was +2;  +2, 0 LOST)   42.09%
+extraonly               zero TS2408 lines
+TS2408 missing lines    3 → 0     — the row is closed
+```
+
+All three falsifiers negative — a bare `return;` in a setter stays silent, a
+getter's return is untouched, and a nested function's return resolves to its own
+container.
+
+### §808's filter, two for two
+
+```
+§807  quotedModuleNameMustBeAmbient   a name that states a rule   +2, closed
+§809  setterWithReturn                a name that states a rule   +2, closed
+```
+
+Both rows were **selected without opening a fixture**, both reduced to a
+syntactic test upstream wraps in type machinery it does not use for that branch,
+and both closed at exactly their case count with zero wrong lines.
+
+> §806 read twelve names and retired them; §807 and §809 read two and built them.
+> **The same one-line command sorted the band both ways**, and the sorting key is
+> whether the name describes a *type relationship* or a *syntactic rule*. That is
+> now the selection procedure for the tail, with four rows of evidence behind it.
+
+`checkReturnStatement`'s shape is worth noting for the same reason §786's was:
+the setter branch sits under `if c.strictNullChecks || exprNode != nil || …`,
+and the signature and return type computed above it belong to the *other*
+branches. **A guard that looks like a type dependency can be a type dependency
+for its neighbours only.**

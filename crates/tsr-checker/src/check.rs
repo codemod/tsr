@@ -429,7 +429,26 @@ impl Checker<'_, '_> {
                 self.check_const_is_initialized(node, declaration, ambient);
                 ambient
             }
-            Node::ReturnStatement(_) => {
+            Node::ReturnStatement(statement) => {
+                // `IsSetAccessorDeclaration(container) && exprNode != nil`
+                // (`checker.go:4111`). The outer condition there is satisfied by
+                // `exprNode != nil` whenever this one is, so the rule reduces to
+                // a `return` with an expression inside a set accessor — no type
+                // and no signature. §809.
+                if statement.expression.is_some()
+                    && self
+                        .nodes
+                        .ancestors(node)
+                        .find(|&a| self.is_function_like_or_static_block(a))
+                        .is_some_and(|owner| self.nodes.kind(owner) == SyntaxKind::SetAccessor)
+                    && let Some(file) = self.source_file_of_for_diagnostics(node)
+                {
+                    let span = self.error_span(node);
+                    self.report(
+                        file,
+                        Diagnostic::new(&messages::SETTERS_CANNOT_RETURN_A_VALUE, span),
+                    );
+                }
                 self.check_grammar_statement_in_ambient_context(node, ambient);
                 self.check_return_container(node, ambient);
                 self.check_return_statement(node, ambient);
