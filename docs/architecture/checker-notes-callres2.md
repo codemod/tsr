@@ -866,3 +866,49 @@ expressions.rs lane. Falsifier: if the harvest's uncontexted member
 pre-check freezes later contextual answers through node_types (the
 summit's cache pattern), the family will show it immediately and the
 harvest moves behind the literal's own check instead.
+
+## §135 LANDED (slice 1): intra-expression inference sites (+103/−54 gap −49, ZERO regressions)
+
+Five wires, each found by a trace that redirected the build in one run:
+
+1. **The predicate**: `is_context_sensitive_argument` extends into object
+   and array literals (upstream `isContextSensitive` walks them) — a
+   literal containing a context-sensitive function defers.
+2. **The benign-return unlock** — the biggest single discovery of the
+   session: `check_generic_call`'s shortcut for return types mentioning
+   no type parameter (`callIt<T>(obj): void`) skipped the ENTIRE
+   machinery, so no memo ever served the literal's members. Now the
+   machinery runs for its SIDE EFFECTS when CS arguments exist; every
+   decline after the shortcut answers `returned` (not `error`) for
+   benign calls — reproducing the old answer exactly, by construction.
+3. **The harvest**: pass-1 candidates from a deferred literal's
+   non-CS property values against the parameter's property types
+   (`inferFromIntraExpressionSites`, `inference.go:1285`).
+4. **Subtree eviction**: `evict_subtree` forgets node_types+symbol_types
+   under the whole argument before the contextual re-check (the summit's
+   freeze pattern, generalized from arrow+params to arbitrary depth via
+   `for_each_child_id`).
+5. **PERSISTENT member maps**: the object parameter type is
+   symbol-backed and cannot instantiate structurally, so the pass-1
+   substitution registers keyed by the literal's NodeId and the property
+   road instantiates MEMBER types at read time. A transient
+   register/remove window measured ZERO — member reads are lazy (the
+   walker asks long after the call resolved); upstream's resolved
+   signature mapper never expires, and neither does the map.
+
+**Custody note**: the first scratch test was a FALSE POSITIVE —
+`lookup_local` found the declaration's `(n: number)` parameter, not the
+arrow's. Renamed to a unique identifier before trusting it; the unit
+harness never checks statements, so it cannot pin this machinery at all
+(deleted; the conformance family is the pin).
+
+**Ledger** (full pair, zero ⚠ lines): GAP→RIGHT 49, WRONG→RIGHT 54.
+right 411,117/470,883. Sweeps: contextSensitiveReturnTypeInference +33,
+genericChainedCalls +28, typeArgumentInferenceWithConstraints +12
+(§134's leftover, recovered), intraExpressionInferences +15.
+
+**Slice 2 (not built, priced)**: object-literal METHODS
+(`produce() { return 0 }` — MethodDeclaration members), tuple/array
+element harvest, CS-members' return-side sites (`_a => 0` still
+contributes a return inference upstream), shorthand members. The
+family retains 199 gap / 135 wrong.

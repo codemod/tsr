@@ -267,6 +267,16 @@ pub struct Checker<'a, 'n> {
     /// types instead of erroring on the circularity.
     pub(crate) call_inference_signatures:
         rustc_hash::FxHashMap<tsr_ast::NodeId, crate::signatures::Signature>,
+    /// SS135: while a deferred OBJECT-LITERAL argument re-checks under the
+    /// serve memo, its node id maps to the pass-1 substitution so the
+    /// property road can serve MEMBER types instantiated - the object
+    /// parameter type itself is symbol-backed and cannot be instantiated
+    /// structurally, so the substitution applies at the property read
+    /// instead (`inferFromIntraExpressionSites`, `inference.go:1285`).
+    pub(crate) intra_expression_member_maps: rustc_hash::FxHashMap<
+        tsr_ast::NodeId,
+        (Vec<(crate::types::TypeId, crate::types::TypeId)>, Vec<crate::types::TypeId>, Vec<String>),
+    >,
     /// §52's operand memo — upstream's `getTypeOfExpression` is CACHED, and
     /// without the cache every equality re-types its operand, each typing
     /// re-entering other references' walks: exponential on condition
@@ -731,6 +741,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             shared_flows: Vec::new(),
             narrow_value_stack: std::collections::HashSet::new(),
             call_inference_signatures: rustc_hash::FxHashMap::default(),
+            intra_expression_member_maps: rustc_hash::FxHashMap::default(),
             narrow_value_types: rustc_hash::FxHashMap::default(),
             union_origin: rustc_hash::FxHashMap::default(),
             enum_value_types: rustc_hash::FxHashMap::default(),

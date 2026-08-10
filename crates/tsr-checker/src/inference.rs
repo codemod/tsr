@@ -232,15 +232,26 @@ impl Checker<'_, '_> {
         // not depend on inference at all: `f<T>(x: T): string` is `string`
         // however `T` resolves. Upstream reaches the same answer the long way,
         // by instantiating a type that the mapper leaves alone.
-        if !self.mentions_type_parameter(returned, &parameters, &names) {
+        //
+        // SS135: the shortcut is taken ONLY when no argument is
+        // context-sensitive - the machinery below has SIDE EFFECTS the
+        // arguments need (the serve memo that contextually types them:
+        // `callIt<T>(obj): void` still fixes T for `obj`'s members). For a
+        // benign return every decline below answers `returned` rather than
+        // `error`, which reproduces the shortcut's answer exactly - the
+        // machinery is run for its side effects, never to change the call's
+        // own type.
+        let benign = !self.mentions_type_parameter(returned, &parameters, &names);
+        if benign && !arguments.iter().any(is_context_sensitive_argument) {
             return returned;
         }
+        let decline = if benign { returned } else { error };
 
         // A rest parameter makes position-to-argument mapping a tuple problem
         // (`getSpreadArgumentType`, `checker.go`), so the whole signature is a
         // gap rather than the rest position alone.
         if signature.parameters.iter().any(|parameter| parameter.rest) {
-            return error;
+            return decline;
         }
         // One candidate per type parameter, from the positions typed by that
         // parameter *bare*. Inference from `x: T[]` against `number[]` is
@@ -258,7 +269,7 @@ impl Checker<'_, '_> {
         let required =
             signature.parameters.iter().filter(|parameter| !parameter.optional && !parameter.rest);
         if argument_types.len() < required.count() {
-            return error;
+            return decline;
         }
         // `inferTypes` (`inference.go:53`): every supplied argument walked
         // against its parameter's type, accumulating `(type parameter,
@@ -299,6 +310,44 @@ impl Checker<'_, '_> {
             // mention unmapped type parameters serve UNINSTANTIATED (the
             // SS75 semantics) rather than half-instantiated (the first
             // reunion's measured 363-G-to-W cause).
+            // SS135 intra-expression harvest (inferFromIntraExpressionSites,
+            // inference.go:1285): a deferred OBJECT LITERAL's
+            // non-context-sensitive property values infer against the
+            // parameter's corresponding property types BEFORE the serve map
+            // builds, so the literal's context-sensitive members see the
+            // committed inferences - callIt's produce fixes T for consume.
+            for &index in &deferred {
+                let Some(parameter_type) = signature.parameters.get(index).map(|p| p.r#type) else {
+                    continue;
+                };
+                let Some(&Expression::ObjectLiteralExpression(literal)) = arguments.get(index)
+                else {
+                    continue;
+                };
+                for property in literal.properties {
+                    let tsr_ast::ObjectLiteralElementLike::PropertyAssignment(assignment) =
+                        property
+                    else {
+                        continue;
+                    };
+                    let Some(value) = assignment.initializer else { continue };
+                    if is_context_sensitive_argument(&value) {
+                        continue;
+                    }
+                    let name = match assignment.name {
+                        tsr_ast::PropertyName::Identifier(name) => name.text,
+                        tsr_ast::PropertyName::StringLiteral(name) => name.text,
+                        _ => continue,
+                    };
+                    let Some(property_symbol) = self.get_property_of_type(parameter_type, name)
+                    else {
+                        continue;
+                    };
+                    let property_type = self.get_type_of_symbol(property_symbol);
+                    let checked = self.check_expression(value);
+                    self.infer_from_types(checked, property_type, &parameters, &mut infos, 0);
+                }
+            }
             let mut partial: Vec<(TypeId, TypeId)> = flatten_infos(&infos);
             // argument-partial OVER returnMapper: mapper entries fill only
             // parameters the arguments left empty.
@@ -375,7 +424,35 @@ impl Checker<'_, '_> {
             if owns_memo {
                 self.call_inference_signatures.insert(call_id, memo);
             }
+            // SS135: member-map registration for deferred literal arguments.
+            let mut registered_literals: Vec<tsr_ast::NodeId> = Vec::new();
+            if owns_memo {
+                for &index in &deferred {
+                    if let Some(&Expression::ObjectLiteralExpression(literal)) =
+                        arguments.get(index)
+                        && let Some(literal_id) = literal.node_id
+                    {
+                        self.intra_expression_member_maps.insert(
+                            literal_id,
+                            (
+                                partial.clone(),
+                                parameters.clone(),
+                                names.iter().map(|n| n.to_string()).collect(),
+                            ),
+                        );
+                        registered_literals.push(literal_id);
+                    }
+                }
+            }
             for &index in &deferred {
+                // SS135: the argument may have been checked EAGERLY during
+                // overload selection (calls.rs) with no memo present - the
+                // cached answers of its whole subtree are pre-context and
+                // must not survive into this contextual re-check (the
+                // summit's freeze pattern, third recurrence).
+                if let Some(id) = arguments[index].node_id() {
+                    self.evict_subtree(id);
+                }
                 let checked = self.check_expression(arguments[index]);
                 if let Some(slot) = argument_types.get_mut(index) {
                     *slot = checked;
@@ -386,6 +463,12 @@ impl Checker<'_, '_> {
             }
             if owns_memo {
                 self.call_inference_signatures.remove(&call_id);
+                // The member maps PERSIST - member reads are LAZY (the
+                // walker asks for property/parameter types long after this
+                // call resolved), and upstream's answer is stable because
+                // the resolved signature's mapper never expires. A window
+                // here measured ZERO: every read arrived after removal.
+                let _ = registered_literals;
             }
         } else {
             for &index in &deferred {
@@ -463,7 +546,7 @@ impl Checker<'_, '_> {
                     // would have to build without knowing whether subtype
                     // reduction applies (`removeSubtypes`, refused at
                     // `bd tsr-eak`).
-                    Some(previous) if previous != inferred => return error,
+                    Some(previous) if previous != inferred => return decline,
                     _ => candidate = Some(inferred),
                 }
             }
@@ -485,11 +568,11 @@ impl Checker<'_, '_> {
                 && !self.strict_null_checks
                 && matches!(self.type_to_string(inferred).as_str(), "null" | "undefined")
             {
-                return error;
+                return decline;
             }
             match candidate {
                 Some(inferred) if inferred != error => map.push((type_parameter, inferred)),
-                Some(_) => return error,
+                Some(_) => return decline,
                 None => {
                     // `fillMissingTypeArguments` (`checker.go:19458`), reduced
                     // to the fallback leg of `getInferredType`
@@ -520,7 +603,7 @@ impl Checker<'_, '_> {
                                 )
                         });
                     if structural_source_supplied {
-                        return error;
+                        return decline;
                     }
                     let Some(default) = signature
                         .type_parameters
@@ -541,7 +624,7 @@ impl Checker<'_, '_> {
                     // the same reason.
                     let image = self.instantiate_type(default, &map, &parameters, &names);
                     if image == error {
-                        return error;
+                        return decline;
                     }
                     map.push((type_parameter, image));
                 }
@@ -1873,6 +1956,24 @@ impl Checker<'_, '_> {
             None
         }
     }
+
+    /// SS135: forget every cached answer under `root` so a contextual
+    /// re-check recomputes rather than serving pre-context state - the
+    /// summit's freeze pattern generalized from "the arrow and its
+    /// parameters" to the whole argument subtree (an object literal's
+    /// member arrows live two levels down).
+    fn evict_subtree(&mut self, root: NodeId) {
+        let mut stack = vec![root];
+        while let Some(id) = stack.pop() {
+            self.node_types.remove(&id);
+            if let Some(symbol) = self.binder.symbol_of(id) {
+                self.symbol_types.remove(&symbol);
+            }
+            if let Some(node) = self.node_map.get(id) {
+                tsr_ast::for_each_child_id(node, |child| stack.push(child));
+            }
+        }
+    }
 }
 
 /// A function-like argument with any unannotated parameter (upstream's
@@ -1881,6 +1982,25 @@ fn is_context_sensitive_argument(argument: &Expression<'_>) -> bool {
     let parameters = match argument {
         Expression::ArrowFunction(node) => node.parameters,
         Expression::FunctionExpression(node) => node.parameters,
+        // SS135: a literal CONTAINING a context-sensitive function is itself
+        // context-sensitive (upstream isContextSensitive walks object and
+        // array literals) - it defers so its members can consume the
+        // intra-expression inferences harvested from its other members.
+        Expression::ObjectLiteralExpression(node) => {
+            return node.properties.iter().any(|property| {
+                matches!(
+                    property,
+                    tsr_ast::ObjectLiteralElementLike::PropertyAssignment(assignment)
+                        if assignment
+                            .initializer
+                            .as_ref()
+                            .is_some_and(is_context_sensitive_argument)
+                )
+            });
+        }
+        Expression::ArrayLiteralExpression(node) => {
+            return node.elements.iter().any(is_context_sensitive_argument);
+        }
         _ => return false,
     };
     parameters.iter().any(|p| p.r#type.is_none())

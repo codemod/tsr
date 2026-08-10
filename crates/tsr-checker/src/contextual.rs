@@ -576,7 +576,21 @@ impl<'a> Checker<'a, '_> {
         // maps over a union here; this port does not, so a union-typed context
         // finds nothing and gaps — which is the 20 rows in the table above.
         let property = self.get_property_of_type(contextual, name)?;
-        Some(self.get_type_of_symbol(property))
+        let property_type = self.get_type_of_symbol(property);
+        // SS135: a member of a literal re-checking under a serve memo reads
+        // its type through the pass-1 substitution - the object parameter
+        // itself is symbol-backed (uninstantiable structurally), so the
+        // instantiation happens here, at the property read.
+        if let Some((map, type_parameters, names)) =
+            self.intra_expression_member_maps.get(&object_literal).cloned()
+        {
+            let name_refs: Vec<&str> = names.iter().map(|n| n.as_str()).collect();
+            let image = self.instantiate_type(property_type, &map, &type_parameters, &name_refs);
+            if image != self.intrinsics.error {
+                return Some(image);
+            }
+        }
+        Some(property_type)
     }
 
     /// The type an expression is expected to have when it sits directly in the
