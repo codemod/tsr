@@ -1471,7 +1471,12 @@ impl Checker<'_, '_> {
     /// "does control reach the end" is not a question — it does, and no flow
     /// graph is consulted. The error node is the **return annotation**. §440.
     fn check_empty_body_returns_value(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
+        // **A return-type annotation in JavaScript is TS8010** — *"Type
+        // annotations can only be used in TypeScript files"* — and upstream
+        // stops there, so nothing that reads the annotation may speak. §779
+        // made the same correction to the type cascade and the value cascade
+        // has carried it from the start. §788.
+        if self.file_has_parse_errors || self.in_js_file(node) {
             return;
         }
         let (annotation, body, modifiers, asterisk) = match self.node_map.get(node) {

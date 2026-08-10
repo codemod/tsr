@@ -39871,3 +39871,63 @@ The sweeps now stand at:
 **Eight sweeps, one paid in cases, and six closed a question.** The one that paid
 was the first; the value of the rest is that nothing else is hiding where they
 looked.
+
+## §788 — TS2355 in a `.js` file, where the annotation is already TS8010
+
+```js
+// a.js
+function F(): number { }
+```
+
+A return-type annotation in JavaScript is **TS8010** — *"Type annotations can
+only be used in TypeScript files"* — and upstream stops there. `check_empty_body_returns_value`
+reads the annotation anyway and reports that the body returns nothing.
+
+**§779's fix, on a third rule.** The value cascade had a JavaScript decline from
+the start, the type cascade gained one at §779, and this rule never had one — and
+the shape is identical each time: *a TypeScript-only construct in a JavaScript
+file produces its own diagnostic, and everything that reads the construct must
+stay quiet.*
+
+> Third instance, and the first found by looking for it rather than by tripping
+> over it. The `.js` lines in `extraonly` were six at §779 and are five now
+> across three codes — **the column names them and the fix is one guard each.**
+
+```
+bar:  +1,  0 LOST,  WRONG delta <= 0
+```
+
+### Falsifiers
+
+1. **A JSDoc `@returns` annotation stops reporting.** JavaScript's own type
+   syntax is legitimate and upstream does check it — if this silences those, the
+   guard is too wide.
+2. **TS8010's row moves.** It is the code that replaces this one.
+3. **A `.ts` empty-bodied function stops reporting.** The guard is on the file.
+
+## §789 — §788 built: **+1**, third JavaScript guard, and the column keeps naming them
+
+```
+diagnostics             2,296 → 2,297   (bar was +1;  +1, 0 LOST)   41.85%
+extraonly               TS2355 wrong lines 5 → 4;  total 83 → 82
+```
+
+All three falsifiers negative — no JSDoc annotation lost its check, TS8010 did
+not move, and `.ts` empty-bodied functions are unaffected.
+
+### The JavaScript guard, three rules deep
+
+```
+check_value_identifier          had one from the start
+check_type_reference_name       §779
+check_empty_body_returns_value  §788
+```
+
+One shape, three rules, and **each was found by a wrong line rather than by a
+review of what reads a TypeScript-only construct.** The remaining `.js` entries in
+the column are four, across codes not yet looked at.
+
+> `extraonly` has now produced six builds (§777, §779, §781, §783, §785, §788):
+> **five landed, one was refused, thirty-six wrong lines went, and eleven cases
+> converted.** The column stood at 112 and stands at 82. Nothing about the
+> instrument changed — only the question asked of it.
