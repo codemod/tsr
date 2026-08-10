@@ -6885,3 +6885,17 @@ the tuple of widened element types instead of the union array.
 stays `number[]` — only pattern-default positions take the tuple;
 (b) spreads inside the literal decline the arm (tuple arity
 becomes a guess); (c) object-pattern defaults are NOT this arm.
+
+
+**Score (two iterations): ~+50 own-lane / 1 adverse (50:1) —
+LANDED.** (The raw pair carried checker-2's SS156 never-strike
++38, attributed.) destructuringWithLiteralInitializers2 15,
+destructuringParameterDeclaration2 5, the [] ||| never[] class,
+the rest spread. Iteration 2 restored the non-empty-pattern test
+after the pair's own R->W showed it: `[] = [1, 2, 3]` gives NO
+tuple context (emptyArrayBindingPatternParameter04 wants
+`number[]`) while `[p] = []` DOES tuple its empty default -- the
+emptiness tests sit on opposite operands and the first build
+conflated them. Residue: declarationEmitOptionalMapped* 1 G->W
+(a mapped-type interaction, priced). Lead (b) from the banked
+batch, closed by the print lane as predicted.

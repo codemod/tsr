@@ -118,6 +118,31 @@ impl<'a> Checker<'a, '_> {
                     _ => None,
                 }
             }
+            // §160 (`checker-notes-narrow.md`): a PARAMETER default is
+            // destructured by the parameter's own pattern the same way —
+            // `function f([p] = [1])` prints the default `[1]` as `[number]`
+            // (destructuringWithLiteralInitializers2), including the empty
+            // DEFAULT (`[p] = []` is the empty tuple). The pattern itself
+            // must be non-empty, same as the sibling arms: `[] = [1, 2, 3]`
+            // gives no tuple context and keeps `number[]`
+            // (emptyArrayBindingPatternParameter04, the pair's R→W).
+            tsr_ast::Node::ParameterDeclaration(parameter)
+                if parameter.r#type.is_none()
+                    && parameter.initializer.and_then(|i| i.node_id()) == Some(literal) =>
+            {
+                match parameter.name {
+                    Some(tsr_ast::BindingName::BindingPattern(pattern))
+                        if !pattern.elements.is_empty()
+                            && !pattern.elements.iter().any(|e| e.dot_dot_dot_token.is_some())
+                            && pattern.node_id.is_some_and(|p| {
+                                self.nodes.kind(p) == tsr_ast::SyntaxKind::ArrayBindingPattern
+                            }) =>
+                    {
+                        Some(PatternSlot::Binding(pattern))
+                    }
+                    _ => None,
+                }
+            }
             // §76.1: a pattern element's DEFAULT initializer is destructured
             // by the element's own pattern — `var [a2, [b2, c2] = ["abc",
             // …]] = …` prints the default `["abc", …]` as a tuple
