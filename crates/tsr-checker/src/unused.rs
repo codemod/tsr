@@ -418,6 +418,16 @@ impl Checker<'_, '_> {
             }
             Node::ImportEqualsDeclaration(n) => is(n.name.and_then(|n| n.node_id)),
             Node::NamespaceExport(n) => is(n.name.and_then(|n| n.node_id())),
+            // **§702 mirrored.** An import specifier's *property name* is the
+            // foreign one; an export specifier's *name* is. `export { x as y }`
+            // writes the local in `property_name` and the exported name in
+            // `name`, and a bare `export { x }` writes the local in `name` — so
+            // the name is skipped only when a property name is present. §726.
+            Node::ExportSpecifier(n) => {
+                n.property_name.is_some() && is(n.name.and_then(|n| n.node_id()))
+            }
+            // An attribute's name is never a variable.
+            Node::JsxAttribute(n) => is(n.name.and_then(|n| n.node_id())),
             Node::LabeledStatement(n) => is(n.label.and_then(|n| n.node_id)),
             _ => false,
         }

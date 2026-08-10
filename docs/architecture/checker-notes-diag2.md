@@ -37263,3 +37263,85 @@ left unmentioned, because the next reader of this list should not have to re-run
 it: function bodies are `Block`s and not expressions, the two synthetic kinds are
 never parsed, `ExternalModuleReference` holds a specifier, and `WithStatement` is
 declined downstream.
+
+## §726 — the declaration-name gate swept: `ExportSpecifier` is absent, and it is §702 mirrored
+
+```
+arms enumerated                        28
+nodes with a name-shaped field         65
+not enumerated                         38
+```
+
+Thirty-four of the thirty-eight are JSDoc tag names, JSX tag names, labels and
+`new.target` — none is a declaration name this pass should skip, and several
+(`ShorthandPropertyAssignment`'s `name`, a JSX tag name) **must** keep marking
+because they are genuine references.
+
+Two are real:
+
+- **`ExportSpecifier`** is not listed at all. `export { x as y }` writes the
+  local in `property_name` and the *exported* name in `name` — so `y` is
+  currently treated as a reference, resolves to the specifier's own symbol
+  (§713's finding, that the binder names it `y`), and marks it used.
+- **`JsxAttribute`**'s `name` is an attribute name, never a variable.
+
+**This is §702 mirrored.** There the import specifier's *property name* was the
+foreign one; here the export specifier's *name* is. The two nodes are spelled
+the same way and the foreign half is on opposite sides, which is exactly the
+shape a hand-written position list gets wrong.
+
+The `name` is skipped **only when `property_name` is present**: `export { x }`
+writes the local in `name`, and marking it is the whole reason a re-exported
+local is not reported unused.
+
+```
+bar:  +1,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **`export { x }` reports `x` unused.** The single-name form must keep
+   marking; this is the direction that breaks a hundred fixtures if wrong.
+2. **TS6133's row loses cases.** Same pass, and the change only ever *removes*
+   marks — so every effect is in the reporting direction.
+3. **A JSX tag name stops marking.** `JsxAttribute` is the attribute's name, not
+   the element's; the tag-name kinds are deliberately left out.
+
+## §727 — §726 measured: **+0, zero wrong lines, KEPT** — and the sweep's real result
+
+```
+diagnostics             2,252 → 2,252   (+0, 0 LOST)
+extraonly               zero TS6133, TS6192, TS6196, TS6138
+TS6133 missing lines    3 → 3;  TS6192 already at 0
+```
+
+Kept under §667's discriminator, second clause: it **transcribes an arm upstream
+runs**. `checkUnusedIdentifiers` marks from `getResolvedSymbol`, and an export
+specifier's exported name never goes through it — so upstream does not mark
+`y` in `export { x as y }` and now neither does this port. No corpus case
+distinguishes the two today; the fidelity is real and the payoff is not.
+
+### The sweep is the result, and it is a negative one
+
+```
+nodes with a name-shaped field   65
+enumerated                       28
+checked and correctly absent     36
+added                             2   (ExportSpecifier, JsxAttribute)
+cases moved                       0
+```
+
+**Thirty-six of thirty-eight absences were right.** JSDoc tag names, JSX tag
+names, labels, `new.target`, `ShorthandPropertyAssignment`'s `name` — the last
+of which *must* keep marking, because `{ x }` is a genuine reference to `x`.
+
+> §725's sweep of the sibling gate paid **+4 from two lines**, and this one paid
+> nothing. Both cost one script. **The category was worth re-asking and the
+> answer was no**, which is the outcome a cheap question is supposed to be
+> allowed to have — recording it is what stops the next session paying the same
+> script to learn the same thing.
+
+The two gates are now both swept and both documented with their residue, so
+`is_value_reference` and `is_declaration_or_member_name` are closed as sources
+of this defect family. **Eleven of the family's twelve members were single
+oversights; the two sweeps say the lists around them are otherwise sound.**
