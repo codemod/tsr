@@ -426,6 +426,7 @@ impl Checker<'_, '_> {
                 );
                 self.check_subsequent_declaration_type(node, declaration);
                 self.check_variable_like_declaration(node, declaration, ambient);
+                self.check_empty_binding_pattern_source(node, declaration, ambient);
                 self.check_const_is_initialized(node, declaration, ambient);
                 ambient
             }
@@ -5861,6 +5862,60 @@ impl Checker<'_, '_> {
             current = self.nodes.parent(id);
         }
         None
+    }
+
+    /// TS2532 — `Object is possibly 'undefined'`, for an **empty** binding
+    /// pattern whose initializer is `void`.
+    ///
+    /// `checkVariableLikeDeclaration`'s binding-pattern arm
+    /// (`checker.go:5860`): `needCheckWidenedType` is *"no element has a
+    /// name"*, and under `strictNullChecks` the initializer goes to
+    /// `checkNonNullNonVoidType` with **the declaration** as the reported node.
+    /// A declaration is not an entity name, so the reporter takes its
+    /// `Object is possibly …` arm rather than the `'{0}' is possibly …` twin —
+    /// which is the arm §846 measured as never reached.
+    ///
+    /// `docs/architecture/checker-notes-diag2.md` §847.
+    fn check_empty_binding_pattern_source(
+        &mut self,
+        node: NodeId,
+        declaration: &tsr_ast::VariableDeclaration<'_>,
+        ambient: bool,
+    ) {
+        if ambient || !self.strict_null_checks || self.file_has_parse_errors {
+            return;
+        }
+        // `IsArrayBindingPattern` takes the iterated-type path instead, so only
+        // an object pattern reaches this reporter.
+        let Some(tsr_ast::BindingName::BindingPattern(pattern)) = declaration.name else { return };
+        // The `kind` field is a **discriminator token** and holds the brace,
+        // not the node kind — `OpenBraceToken` for an object pattern. The node
+        // table is what answers the question. §847.
+        if pattern.node_id.is_none_or(|id| self.nodes.kind(id) != SyntaxKind::ObjectBindingPattern)
+        {
+            return;
+        }
+        if !pattern.elements.iter().all(|element| element.name.is_none()) {
+            return;
+        }
+        // `node.Parent.Parent.Kind != KindForInStatement` — a `for…in`
+        // initializer is already an error and upstream does not add this one.
+        let in_for_in = self
+            .nodes
+            .parent(node)
+            .and_then(|list| self.nodes.parent(list))
+            .is_some_and(|owner| self.nodes.kind(owner) == SyntaxKind::ForInStatement);
+        if in_for_in {
+            return;
+        }
+        let Some(initializer) = declaration.initializer else { return };
+        let initializer_type = self.check_expression(initializer);
+        if !self.type_of(initializer_type).flags.intersects(crate::flags::TypeFlags::VOID) {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let span = self.error_span(node);
+        self.report(file, Diagnostic::new(&messages::OBJECT_IS_POSSIBLY_UNDEFINED, span));
     }
 
     fn check_modifier_order(&mut self, node: NodeId, modifiers: &[ModifierLike<'_>]) {

@@ -42345,3 +42345,77 @@ const {} = v;          // TS2532 at the pattern, column 7
 
 a destructuring source that is `void`, which is neither flow nor the relation.
 Recorded as the one reachable case of the four rows, and not built here.
+
+## §847 — TS2532: destructuring a `void`
+
+```ts
+declare const v: void;
+const {} = v;          // TS2532 at column 7 — the declaration, not the pattern
+```
+
+`checkVariableLikeDeclaration`'s binding-pattern arm (`checker.go:5855`):
+
+```go
+needCheckWidenedType := !core.Some(name.Elements(), func(n) bool { return n.Name() != nil })
+if needCheckInitializer {
+    if c.strictNullChecks && needCheckWidenedType {
+        c.checkNonNullNonVoidType(initializerType, node)   // node is the DECLARATION
+```
+
+and `checkNonNullNonVoidType` (`checker.go:7437`) reports, for a node that is not
+an entity name, `Object is possibly 'undefined'`. **That is why the code is
+TS2532 and not TS18048**: the node handed to the reporter is the declaration, and
+a declaration has no entity name — which is exactly the `named == None` arm §846
+found dead. This build supplies the operand that arm was written for.
+
+`needCheckWidenedType` is *"no element has a name"* — an **empty** pattern.
+`const {a} = v` does not take this path at all.
+
+Column 7 is the declaration's own start: `const {} = v` puts `{` at 7, and the
+`VariableDeclaration` begins there rather than at `const`.
+
+```
+bar:  +1 of 1 (destructuringVoidStrictNullChecks),  0 LOST,  WRONG delta <= 0
+```
+
+### Falsifiers
+
+1. **`const {a} = v` reports.** The pattern has a named element.
+2. **`const {} = x` for a non-`void` `x` reports.** The type test is `void`.
+3. **TS18048's row moves.** It is the entity-name twin at the same site.
+
+## §848 — §847 built: **+1 of 1**, and TS2532 leaves the silent list
+
+```
+diagnostics             2,330 → 2,331   (bar was +1;  +1, 0 LOST)   42.47%
+extraonly               75, unchanged
+diagemit SILENT         4 rows → 3      — TS2532 now emits
+```
+
+§846 found the list; §847 read the one reachable row's upstream site; §848 took
+it. The remaining three (TS18047, TS18049, TS2531) share the *other* dead half —
+`maybe_null` is never true — and are one question, not three.
+
+### The `kind` field is a discriminator, not a kind
+
+The build measured `+0` once. A probe at the entry:
+
+```
+PROBE 2532 pattern kind=OpenBraceToken elems=0
+```
+
+`BindingPattern::kind` is the **synthetic token** §832's sweep classified as a
+discriminator, and it holds the `{`. The node's *kind* lives in the node table.
+Testing `pattern.kind.kind != SyntaxKind::ObjectBindingPattern` was therefore
+always true, and the rule declined every pattern in the corpus.
+
+> **A field named `kind` on a node that also has a kind is a trap with a
+> one-character surface.** §832 had already documented what that field is, for a
+> different purpose, three sections earlier — and this build still read it as the
+> node kind, and still needed a probe to say so. *The note existed and did not
+> transfer, because it had been written about the parser and this was a question
+> about the checker.*
+
+That is the fourth `+0`-then-probe in this session (§800, §820, §837, this), and
+in every one the probe cost a single run and the reasoning that preceded it cost
+more.
