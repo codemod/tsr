@@ -82,6 +82,13 @@ bitflags! {
         /// Upstream stores this on `NodeArray.HasTrailingComma`; this AST keeps
         /// child slices plain, so the enclosing node carries the same fact.
         const HAS_TRAILING_COMMA = 1 << 29;
+        /// The file is a DEFAULT LIBRARY file (`lib.*.d.ts`), stamped by the
+        /// loader from `default_library_path` exactly as
+        /// [`NodeFlags::JAVASCRIPT_FILE`] is stamped from the extension —
+        /// upstream's `SourceFile.LibReferenceDirectives`-adjacent
+        /// `isDefaultLib` bit, which the node builder consults when choosing
+        /// reference spellings (printseam §7's missing key).
+        const DEFAULT_LIBRARY = 1 << 30;
 
         /// Any block-scoped declaration form.
         const BLOCK_SCOPED = Self::LET.bits() | Self::CONST.bits() | Self::USING.bits();

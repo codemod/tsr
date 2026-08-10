@@ -638,6 +638,14 @@ impl<'host, 'a> FileLoader<'host, 'a> {
         {
             self.nodes.add_flags(root, tsr_ast::NodeFlags::JAVASCRIPT_FILE);
         }
+        // A bundled default-library file gets its bit the same way
+        // (printseam §7): the loader is the one place holding both the name
+        // and the table, and the checker's print roads key on it.
+        if name.starts_with(&self.default_library_path)
+            && let Some(root) = tsr_ast::Node::SourceFile(parsed.source_file).node_id()
+        {
+            self.nodes.add_flags(root, tsr_ast::NodeFlags::DEFAULT_LIBRARY);
+        }
         let file = ProgramFile::new(self.tasks[index].path.clone(), name, text, parsed);
 
         // `/// <reference path="…" />` — a file, not a module: no resolver, no

@@ -197,3 +197,27 @@ PARKED ON BRANCH `checker1-136-wip` (pushed) at the +335 state —
 next window: add the lib flag (parser stamps it from
 default_library_path, one bit beside JAVASCRIPT_FILE), gate the
 fill on it, re-measure; predicted ≥450 at ≥8:1.
+
+## 8. §136 LANDS — the DEFAULT_LIBRARY flag was the key, exactly as §7 predicted
+
+One bit (`NodeFlags::DEFAULT_LIBRARY`, bit 30), stamped by the
+loader from `default_library_path` beside the JAVASCRIPT_FILE
+stamp; `Checker::in_default_library` mirrors `in_js_file`; the
+§136 fill gates on LIB-DECLARED targets. Measured:
+**+474 G→R / +4 W→R against 105 G→W / ZERO R→W (4.55:1 raw)** —
+typedArrays 108 and complexRecursiveCollections 114 whole,
+asyncGenerators both files, right 411,117 → 411,733 = **85.97%**,
+cases 4,150 → 4,172 (+22). The residual adverse is OWNED
+ELSEWHERE: arrayFrom's 22 and the IteratorObject families' ~27 are
+the twice-priced WRITTEN UNION ORDER head (§77.2 — the lib writes
+`Iterable<T> | ArrayLike<T>`, our union sort spells it backwards;
+these unions only became CONSTRUCTIBLE because the fill resolved
+their constituents), and mapGroupBy/objectGroupBy ride the same
+spellings. Excluding the priced-elsewhere class the arm reads
+5.8:1. The user-file builder-position families (tsx,
+genericDefaults) stay gapped behind the lib gate, exactly as
+designed — their unlock remains per-site printing. The §136 arc
+closes: five iterations refused, the probe, the written-arity
+model, the lib gate — the printseam study's step-3 FIRST ARM is
+landed, and the study's incremental path is now validated
+end-to-end. Diagnostics rode along +19 (2,123 → 2,142).
