@@ -30565,3 +30565,100 @@ Three cases, one of which is `/fo(o/` — an unterminated group in a **regular
 expression literal**, which upstream validates in the *scanner*. That is a
 fourth subsystem after the checker, binder, parser and loader, and it has not
 been looked at once this session.
+
+## §578 — the scanner priced at one case, and TS2347
+
+### The scanner, enumerated and closed
+
+`scanner.go` emits **thirty-three** distinct messages. Every one priced against
+the corpus:
+
+```
+TS1499  Unknown regular expression flag          1 case blocked alone
+everything else                                  0
+```
+
+Unterminated strings, templates and regex literals; octal and binary digit
+errors; merge-conflict markers; bigint and numeric-separator rules; the whole
+regex-escape family — **all at zero**. The fourth subsystem is not an owner.
+
+> **Four subsystems enumerated, four different answers**: the loader gave four
+> cases (§531), the binder two rows in twenty-two messages (§552), the parser a
+> family worth twenty (§569) plus two grammar bugs worth four (§572, §574), and
+> the scanner one. **The only way to know which is which was to enumerate and
+> price each**, and each enumeration cost one `grep` plus one `diagmissing` per
+> code.
+
+That is the session's cheapest reusable procedure and it has now run four times.
+
+### TS2347
+
+```ts
+var x: any;
+var d = new x<any>(x);     // TS2347 — untyped calls may not accept type arguments
+```
+
+Two emit sites (`checker.go:8533` in `resolveCallExpression`, `:8595` in
+`resolveNewExpression`), and the second is the simpler: `IsTypeAny(expressionType)
+&& len(node.TypeArguments()) != 0`. The first adds `isUntypedFunctionCall`,
+which folds in signature counts; **`funcType` being `any` is the sufficient
+condition both share** and is what this builds.
+
+```
+bar:  +3 of 5,  0 LOST,  WRONG delta <= +1
+```
+
+Three, not five: `isUntypedFunctionCall`'s signature-count arm is not built, and
+at least one fixture (`invokingNonGenericMethodWithTypeArguments2`) is a
+non-generic *method*, which reaches the row by a route this does not model.
+
+### Falsifiers
+
+1. **A generic call reports.** `f<T>(x)` where `f` is generic is the normal case
+   and must not.
+2. **An error-typed callee reports.** Upstream's `!c.isErrorType(funcType)`
+   exists precisely because an error was already reported.
+
+## §579 — §578's TS2347 measured **−1** with five wrong lines: error-`any` is not `any`
+
+```
+diagnostics   2,130 → 2,129   (bar was +3;  −1)
+extraonly     five wrong TS2347 lines
+```
+
+```ts
+f(g<A, B>(7));     // `g` is undefined — baseline has TS2304 and nothing else
+```
+
+The rule tested `is_error(callee_type) || !flags.intersects(ANY)` — upstream's
+own two guards — and **`is_error` did not separate them**. §43 recorded the
+mechanism years of notes ago:
+
+> *"`errorType` … carries `TypeFlagsAny`."*
+
+so an unresolved callee is `any`-flagged, `is_error` answers false at this site,
+and every `g<A,B>(7)` with an undeclared `g` reports. Four of the five wrong
+lines are that exact shape.
+
+> **Transcribing upstream's guard is not the same as reproducing upstream's
+> distinction.** `!c.isErrorType(funcType) && IsTypeAny(funcType)` is two tests
+> on two type-system properties this port represents *differently*: upstream's
+> `errorType` is a distinguished type and here it is a flag combination that
+> `any` also has. The guard was ported correctly and does not do the same work.
+
+That is the fourth kind of gap after the predicate, the domain, the order and
+the input — **the same guard over a different representation** — and it is the
+one hardest to see by reading, because the code matches upstream line for line.
+
+### What it would take
+
+`anyAsConstructor` (`var x: any; new x<any>(x)`) is the shape that should
+convert: an **explicitly annotated** `any`. The sound narrowing is *the callee
+resolves to a symbol whose written annotation is `any`* — syntax rather than the
+type flag — which is the same move §456 made for an unconstrained type parameter
+and §563 made for the heritage graph.
+
+**Not attempted**: the row is five cases and the narrowing would convert at most
+two of them, with `isUntypedFunctionCall`'s signature-count arm still unported
+for the rest. Recorded with its price so the next attempt starts from the
+syntax, not the flag.
