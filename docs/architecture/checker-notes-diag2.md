@@ -38326,3 +38326,100 @@ from `redefinedPararameterProperty`. The sweep found no *new* diagnostics-side
 defect; what it produced is the assurance that there are no others, plus two
 leads for another workstream. **That is what a negative sweep is for**, and it
 is the third this session (§727, §742, this).
+
+## §751 — TS2729: the ancestor guard is `useDefineForClassFields`'s question
+
+```ts
+// @useDefineForClassFields: true
+class Base { a = 1; }
+class Derived extends Base {
+    b = this.a;                              // TS2729
+    constructor(public a: number) { super(); }
+}
+```
+```ts
+// @target: es2015   (no useDefineForClassFields)
+class X { x = 0; }
+class Y extends X {}
+class Z extends Y { old_x = this.x; x = 1; }  // silent
+```
+
+§748's ancestor walk is right and its *applicability* is not. Both fixtures have
+a derived class redeclaring a name an ancestor also declares, and upstream
+reports one and not the other. **The discriminator is in the directives**:
+
+```
+useBeforeDeclaration_superClass   @target: es2015              — no define semantics
+redefinedPararameterProperty      @useDefineForClassFields: true
+```
+
+With `[[Define]]` semantics the derived field is `undefined` until its own
+initialiser runs, so reading it above is an error; with assignment semantics the
+base's value is still there and it is not. `emitStandardClassFields` is
+upstream's name for the flag, and it defaults to `target >= ES2022`.
+
+> §317 measured the ancestor guard against a fixture that happens to have the
+> flag off, and read the result as *"an ancestor declaring it makes the use
+> safe"*. **The true statement is narrower — an ancestor declaring it makes the
+> use safe *when the derived field does not shadow at construction time*** — and
+> the two are indistinguishable on any corpus where the flag is uniform. The
+> corpus is not uniform, and the two fixtures differ by one directive line.
+
+The flag is already parsed (`options.use_define_for_class_fields`, and §646
+wired the directive into the harness); it is not yet on the `Checker`. This adds
+it the way §644 added `legacy_decorators`, with upstream's default.
+
+```
+bar:  +1 of 6 (redefinedPararameterProperty),  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **§317's two wrong lines return.** `useBeforeDeclaration_superClass` is the
+   fixture and its flag is off, so the guard must still fire there.
+2. **A class with no ancestor reports differently.** The guard is only consulted
+   when an ancestor declares the name.
+3. **TS2610 / TS2611 move.** They share `base_class_declaration_of`.
+
+## §752 — §751 built: **+1 of 1**, bar met, and §317's fixture held
+
+```
+diagnostics             2,266 → 2,267   (bar was +1;  +1, 0 LOST)   41.31%
+extraonly               zero TS2729, TS2610 and TS2611 lines
+TS2729 missing lines    12 → 11;  6 cases blocked alone → 5
+```
+
+Falsifier 1 was the one that mattered — §317's `useBeforeDeclaration_superClass`
+has the flag off and must keep declining — and it did.
+
+### A guard whose truth depended on a directive
+
+```
+§317   an ancestor declaring it makes the use safe
+§751   …when the derived field does not shadow at construction time
+```
+
+The second is upstream's rule and the first is what a corpus with a uniform flag
+looks like. **The two fixtures differ by one directive line**, and §317 had only
+the one with the flag off.
+
+> This is the fourth mechanism this session that a *compiler option* turned out
+> to decide — `module_kind` (§478), `experimental_decorators` (§644),
+> `no_implicit_this`, and now `emitStandardClassFields`. Each was invisible until
+> a fixture set it differently from the one the rule was written against.
+> **A rule measured on a corpus where an option never varies has been measured
+> against the option's default, not against the rule**, and the notes have not
+> been recording which option each rule's measurement assumed.
+
+### The option ledger, started
+
+```
+module_kind                 §478   paid three rows
+no_implicit_this            §582   paid two
+legacy_decorators           §644   paid one
+standard_class_fields       §751   paid one
+```
+
+Four options are now on the `Checker`. **Every one arrived because a rule was
+wrong without it**, never because the option looked important — which is the
+argument for adding the fifth the same way rather than in advance.

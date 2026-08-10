@@ -6898,7 +6898,13 @@ impl Checker<'_, '_> {
         // and a **negative** guard: leaving it out adds output rather than
         // withholding it. `useBeforeDeclaration_superClass` was both of §316's
         // wrong lines, and §309's base-class resolution is the machinery. §317.
-        if self.ancestor_class_declares(class, name.text) {
+        // **The guard is `emitStandardClassFields`'s question.** An ancestor
+        // declaring the name makes the use safe only when the derived field
+        // does *not* shadow at construction time — under `[[Define]]`
+        // semantics it does, and the base's value is gone. §317 measured this
+        // against a fixture whose flag is off and read the result as the
+        // general rule. §751.
+        if !self.standard_class_fields && self.ancestor_class_declares(class, name.text) {
             return;
         }
         let Some(file) = self.source_file_of_for_diagnostics(name_id) else { return };

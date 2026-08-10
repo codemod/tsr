@@ -342,6 +342,11 @@ pub struct Checker<'a, 'n> {
     pub(crate) module_kind: tsr_core::ModuleKind,
     /// `c.legacyDecorators` — `experimentalDecorators` is on. §644.
     pub(crate) legacy_decorators: bool,
+    /// `emitStandardClassFields` — `useDefineForClassFields` with upstream's
+    /// `target >= ES2022` default. A derived field shadows its base at
+    /// construction time only under `[[Define]]` semantics, which is what
+    /// TS2729's ancestor guard turns on. §751.
+    pub(crate) standard_class_fields: bool,
     /// `getAllowSyntheticDefaultImports` (§132): the explicit option, else
     /// `esModuleInterop`, else `module == System`. Consulted by the §131/§132
     /// deliberate-error arms only; a `true` keeps those gaps honest.
@@ -781,6 +786,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             no_implicit_this: false,
             module_kind: tsr_core::ModuleKind::None,
             legacy_decorators: false,
+            standard_class_fields: false,
             allow_synthetic_defaults: false,
             allow_importing_ts_extensions: false,
             no_unchecked_side_effect_imports: true,
@@ -887,6 +893,13 @@ impl<'a, 'n> Checker<'a, 'n> {
         self.strict_null_checks = options.strict_option_value(options.strict_null_checks);
         self.no_implicit_this = options.strict_option_value(options.no_implicit_this);
         self.legacy_decorators = options.experimental_decorators.is_true();
+        // `GetEmitStandardClassFields` — the flag, defaulting to
+        // `target >= ES2022`. §751.
+        self.standard_class_fields = match options.use_define_for_class_fields {
+            tsr_core::Tristate::True => true,
+            tsr_core::Tristate::False => false,
+            tsr_core::Tristate::Unknown => options.target >= tsr_core::ScriptTarget::ES2022,
+        };
         self.module_kind = if options.module == tsr_core::ModuleKind::None {
             if options.target >= tsr_core::ScriptTarget::ES2015 {
                 tsr_core::ModuleKind::ES2015
