@@ -2066,6 +2066,15 @@ impl Checker<'_, '_> {
         {
             return true;
         }
+        // `case ast.IsFunctionLike(node): return false` (`checker.go:2897`).
+        // **The boundary is function-like, not class-like** — a nested class's
+        // `super()` is necessarily inside that class's own constructor, which
+        // is function-like, so one test covers both. The same line is what
+        // excludes an arrow function's `super()`, a judgement upstream makes
+        // here rather than at the call site. §700.
+        if self.is_function_like_or_static_block(node) {
+            return false;
+        }
         let mut children = Vec::new();
         if let Some(typed) = self.node_map.get(node) {
             tsr_ast::for_each_child_id(typed, |child| children.push(child));

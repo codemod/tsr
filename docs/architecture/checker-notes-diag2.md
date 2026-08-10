@@ -36091,3 +36091,90 @@ Three cases, 32 lines: `classDeclarationShouldBeOutOfScopeInComputedNames`,
 a computed property name and a decorator — which is a different predicate from
 this one and the reason §83 bounded itself to `extends` in the first place.
 Named, priced at 32 lines, not built.
+
+## §700 — TS2377: the super-call search has no boundary
+
+```ts
+class A { }
+class C { }
+class B extends A {
+    constructor() {          // TS2377 — B's constructor never calls super()
+        class D extends C {
+            constructor() { super(); }   // this one belongs to D
+        }
+    }
+}
+```
+
+`subtree_has_super_call` (§470) recurses through **every** child, so the nested
+class's `super()` satisfies the enclosing constructor and TS2377 stays silent.
+
+`findFirstSuperCall` (`checker.go:2889`) is four lines and one of them is the
+boundary:
+
+```go
+case isSuperCall(node):     superCall = node; return true
+case ast.IsFunctionLike(node):                return false
+```
+
+**It does not stop at a class** — it stops at anything function-like, and a
+nested class's `super()` is necessarily inside that class's *constructor*, which
+is. The same line also excludes an arrow function's `super()`, which is a
+different judgement and upstream makes it here rather than at the call site.
+
+This is §699's shape once more: a helper written for the direct case, correct
+there, and reached by a path it has no test for. `is_function_like_or_static_block`
+already carries the kind list.
+
+```
+bar:  +3 of 4 (illegalSuperCallsInConstructor, superCallInsideClassDeclaration,
+      superCallInsideClassExpression),  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **`class B extends A { constructor() { super(); } }` reports.** The direct
+   case, and the walk must still find a `super()` in the body's own statements.
+2. **`constructor() { if (x) { super(); } }` reports.** A block is not
+   function-like and the recursion must go through it.
+3. **TS17009 or TS2337 moves.** Both are `super`-related rules sharing this
+   walk's neighbourhood.
+
+## §701 — §700 built: **+4 on a bar of +3**, row closed
+
+```
+diagnostics             2,225 → 2,229   (bar was +3;  +4, 0 LOST)   40.62%
+extraonly               zero TS2377, TS17009 and TS2337 lines
+TS2377 missing lines    5 → 0     — the row is closed
+```
+
+All three falsifiers negative. **Six lines of change, four cases, no new
+machinery** — the kind list was already written, in a helper two thousand lines
+away, for a different rule.
+
+### Three rows in three builds, all the same defect
+
+```
+§698  is_in_extends_clause   required the identifier to *be* the heritage expression
+§700  subtree_has_super_call had no function-like boundary at all
+§695  the fundule guard      tested a flag composite that could not express it
+```
+
+> Each is a helper that is **correct for the path it was written for** and has no
+> test for the path a later rule reaches it by. None was found by reading the
+> rule — all three had been read — and all three were found by printing a value.
+> **The port's remaining cheap rows are not missing rules; they are missing
+> boundaries on rules that exist**, and a boundary is invisible to review
+> precisely because the code that needs it is somewhere else.
+
+That is the practical form of §697's finding. The deepening pool is ~40 cases
+for this workstream, and three builds have taken 11 of them without adding a
+single new rule.
+
+### The fourth case
+
+`newNonReferenceType` was not on the bar and converted anyway — a case blocked on
+TS2377 *and* another code whose blocker was already gone. Second time this
+session (§687 was the first) that a bar priced from `diagmissing`'s
+blocked-alone count under-counted for that reason. **Blocked-alone is a lower
+bound on a row's value and should be read as one.**
