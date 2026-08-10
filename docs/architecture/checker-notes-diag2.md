@@ -34528,3 +34528,45 @@ Three cases: an intersection of readonly and mutable properties, a subclass of a
 class expression, and one more — all needing the *resolved* property's readonly
 flag rather than a declaration shape. **Named, and the arity argument above is
 why they are not another arm.**
+
+## §670 — the syntactically-decidable band is exhausted at ≥4 cases
+
+TS2554 was the last untested row above three cases. Its shapes:
+
+```ts
+function takeFirstTwoEntries(...[[k1, v1], [k2, v2]]) { }   // arity from a destructured rest
+declare function call<TS extends unknown[]>(h: (...a: TS) => void, ...args: TS): void;
+foo<string>("hello");                                        // overload set + type arguments
+```
+
+**All three need the type side** — tuple arity, inference, or overload
+resolution with type-argument filtering. Every remaining unoccupied row at four
+or more cases is now one of:
+
+```
+the structural relation   TS2345 110 · TS2339 101 · TS2741 45 · TS2353 32 · TS2352 22
+                          TS2430 · TS2769 · TS2420 · TS2394 · TS2365 · TS2344 · TS2739
+the type side             TS2403 31 (identity) · TS2554 · TS2349 · TS2493 · TS2303 · TS2783 · TS2661
+contextual typing         TS7006 14 (§583)
+```
+
+> **The syntactically-decidable band above three cases is empty.** That is the
+> session's terminal finding and it is a measurement, not a judgement: every one
+> of the twenty rows above was opened or has a recorded owner, and none of them
+> turns on a fact the syntax already carries. **§580's shape closed seven rows
+> and has no eighth of this size to reach.**
+
+### What is left, priced
+
+```
+grammar family, ≤3 cases each    38 codes, ~50 cases     §599's pool, two-thirds unbuilt
+column-only positions             7 cases                §617, no common cause (§618)
+JSDoc reparse                     ≥14 lines               §657, `tsr-parser`
+`grammarErrorAtPos` positions     2 cases                 §641, `tsr-ast`'s span model
+the relation                      ~3,250 cases            §156, the other workstream
+`diagreach`'s deepenable pool     1,241 cases             §658, mostly the same owner (§659)
+```
+
+**The next session's first decision is which owner to take**, not which row —
+and for the first time this session that question has a complete answer in front
+of it.
