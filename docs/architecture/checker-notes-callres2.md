@@ -1764,3 +1764,17 @@ hit (+10/2), §166 unreachable (+0), §167 unreachable (+0) — one in
 three, which prices the sweep honestly for the next window: read the
 tails, expect two thirds to be unreachable, and keep only what the
 board pays for.
+
+## §168 — the this-read substitution measured +0; the residue is the thisType SUBSYSTEM
+
+checker-1's named residue (instancePropertyInClassType 15 +
+staticPropertyNotInClassType 4 wanting `C` where signatures print
+`this`) probed: extending §29's call-result substitution to the
+property READ (getTypeWithThisArgument's read half) moves nothing —
+those rows are not property accesses off a receiver whose type is
+reachable that way. The residue joins the §139-refused thisType
+subsystem, whose full requirement is now twice-measured: interface
+types carrying a `thisType`, reference types extended with a this
+ARGUMENT (checker.go:19573-19582), and apparent-type application at
+the access site. That subsystem is the third ranked rock behind the
+fixing-mapper unit and the asserts machinery.
