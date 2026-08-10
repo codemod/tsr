@@ -1659,3 +1659,15 @@ three named pieces ARE this leg's spec, and the §153 lesson holds one
 more time: in this function family, every induced build has lost and
 every transcription has landed. Slice 2a rebuilds from flow.go:833
 verbatim or not at all.
+
+**§162 addendum — the rebuild spec completed (getInstanceType,
+flow.go:966-980, verbatim):** prototype property type (non-any) →
+that; else the UNION over construct signatures of
+`returnType(getErasedSignature(sig))` — ERASED, which is the detail
+§162's induced leg missed: the generic return's type parameters ERASE
+(to their constraints/any) rather than serving raw `Set<T>` or being
+skipped. Third piece: emptyObjectType for signature-less constructors,
+feeding the IsEmptyAnonymousObjectType guard at flow.go:840. The
+§162 rebuild = these three verbatim + the derivation gates already
+transcribed in §148.3 — every piece now on paper; nothing induced
+remains in the spec.
