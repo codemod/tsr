@@ -8859,6 +8859,22 @@ impl Checker<'_, '_> {
         if declarations.first() != Some(&node) {
             return;
         }
+        // **A class cycle is TS2506's, not this code's.**
+        // `resolveBaseTypesOfClass` checks the cycle first
+        // (`checker.go:16977`) and reaches the recursive-base check
+        // (`:19260`) only after it returns. §563 ported the second without the
+        // first, and the doubling was invisible until §745 built the first —
+        // the case failed for a missing TS2506 either way. §777.
+        if matches!(typed, Node::ClassDeclaration(_)) {
+            let mut at = self.base_class_declaration_of(node);
+            for _ in 0..MAX_ALIAS_HOPS {
+                let Some(base) = at else { break };
+                if base == node {
+                    return;
+                }
+                at = self.base_class_declaration_of(base);
+            }
+        }
         let mut seen = vec![symbol];
         let mut frontier = self.base_type_symbols(symbol);
         while let Some(next) = frontier.pop() {

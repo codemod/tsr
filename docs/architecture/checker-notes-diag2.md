@@ -39414,3 +39414,89 @@ in `checker-notes-modobj.md` §10.11 and in `resolve_alias`'s own rustdoc.
 
 **Four of five cases and seven of nine lines**, and the residue is one existing
 refusal rather than a new one. `checker-notes-modobj.md` §10.11 owns it.
+
+## §777 — TS2310 doubles TS2506 on a class cycle
+
+```ts
+class a extends b { }
+class b extends a { }
+```
+```
+-- expected --                    -- actual --
+  (1,7)  TS2506                     (1,7) TS2506
+                                    (1,7) TS2310   ← wrong
+  (1,17) TS2449                     (1,17) TS2449
+  (2,7)  TS2506                     (2,7) TS2506
+                                    (2,7) TS2310   ← wrong
+```
+
+`resolveBaseTypesOfClass` checks the **cycle** first (`checker.go:16977`, TS2506)
+and reaches the recursive-base check (`:19260`, TS2310) only after it returns. §563
+ported the second without the first, which was invisible until §745 built the
+first — **the case failed for a missing TS2506 either way, and the extra TS2310
+was hidden behind it.**
+
+This is the first row taken from `extraonly` rather than `diagmissing`. **Twenty
+wrong TS2310 lines sit in otherwise-passing cases**, which is the largest single
+entry in that column, and a wrong line blocks a case exactly as a missing one
+does.
+
+> Three hundred builds of reading `diagmissing` and `extraonly` has been used
+> only as a gate — *did this build add wrong lines* — never as a work list.
+> **The two columns are symmetric and only one has been mined.**
+
+```
+bar:  +2,  0 LOST,  WRONG delta <= 0   (the 20 lines must go)
+```
+
+### Falsifiers
+
+1. **An interface cycle stops reporting.** `interface I extends I {}` is TS2310's
+   own case and upstream reports it there — only the class path defers to TS2506.
+2. **TS2506's row moves.** §745's rule is untouched.
+3. **A class with a legitimate deep base chain reports.** The decline is
+   conditioned on the cycle, not on being a class.
+
+## §778 — §777 built: **+6**, the session's largest, and the second column was never mined
+
+```
+diagnostics             2,286 → 2,292   (bar was +2;  +6, 0 LOST)   41.76%
+extraonly               TS2310 wrong lines 20 → 0;  total 112 → 92
+TS2310 missing lines    1;  1 case blocked alone
+```
+
+All three falsifiers negative — `interface I extends I {}` still reports, TS2506
+did not move, and a deep legitimate chain is untouched because the decline is
+conditioned on the cycle rather than on the kind.
+
+**Six cases from removing wrong lines.** Every previous build this session added
+missing lines; this one removed twenty wrong ones, and the arithmetic is the
+same.
+
+### The column that was never mined
+
+```
+diagmissing   used as the work list from §156 onward
+extraonly     used as a gate — "did this build add wrong lines?" — and nothing else
+```
+
+Three hundred and eight builds, and `extraonly` was read after every one of them
+to check a bar. **It was never once sorted by code and read as a list of rows to
+fix**, though a wrong line blocks a case exactly as a missing line does and the
+two columns are symmetric.
+
+> The instrument was there, the discipline of running it was there, and the
+> question asked of it was the same 300 times. **A measurement used only to
+> answer one question stops being evidence about anything else** — and the
+> largest single build of this session came from asking the other one.
+
+### What the column holds now
+
+```
+TS2304 19 · TS2322 10 · TS2564 9 · TS1005 9 · TS7008 5 · TS2355 5 · TS7006 4
+TS2683 4 · TS1203 4 · TS2376 3 · TS2339 2 · …            92 lines in total
+```
+
+Each is a wrong line inside an **otherwise-passing** case, so each is worth a
+case if it can be removed. **That is the work list this session should have had
+from the beginning**, and it is written down now.
