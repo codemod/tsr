@@ -40289,3 +40289,52 @@ rather than about what it tests.
 question written down: put the new guard *after* the text extraction and
 re-measure. Three attempts have each removed one wrong idea; that is what the
 notes are for.
+
+## §799 — TS7008 stopped at four attempts, with §798's hypothesis disproved
+
+```
+guard after the text extraction   wrong 2, missing 2, board +0   — identical to §798
+```
+
+**The placement was not the cause.** §798 supposed that the guard sitting before
+the `Identifier | PrivateIdentifier` extraction was what silenced
+`tsxElementResolution`'s two lines; moving it after changes nothing, which
+disposes of that reading.
+
+The absences are at `tsxElementResolution.tsx(4,3)` and `(5,3)` — which, with the
+fixture's two directive lines stripped, are
+
+```ts
+foundFirst: { x: string };     // has an annotation — cannot be TS7008's
+'string_named';
+```
+
+**The first of those cannot be an unannotated member**, so the two absences are
+not both this rule's arm, and the mechanism is a fifth one this row has not
+touched.
+
+### The row, closed as a record
+
+```
+§794  any mention                            −3   the polarity argument
+§796  any constructor assignment             −1   the helper is right, its bounds are not
+§798  …not for a static member               +0   two of four wrong lines are fixable
+§799  …guard after the name extraction       +0   placement is not the cause
+```
+
+**Four attempts, four measurements, and every one narrowed something.** What is
+established: the assignment helper is correct, the static exclusion is correct,
+and together they halve the wrong lines. What is not: why two positions in one
+`.tsx` fixture stop being reported, when one of them is a member that carries an
+annotation.
+
+> §769 wrote that a probe settles the layer it prints and says nothing beneath.
+> **This row shows the same for a *fix*: four correct narrowings and the row is
+> still +0, because each was measured against the whole board rather than
+> against the thing it changed.** The measurement that has never been run here
+> is the one that would have cost least — `diagcase` on `tsxElementResolution`
+> before and after a *single* one of the four conditions.
+
+**Stopped and priced: 2 wrong lines, 1 case**, with that measurement named.
+Owner: this workstream, and the note is complete enough that the fifth attempt
+starts from a `diagcase` rather than from a hypothesis.
