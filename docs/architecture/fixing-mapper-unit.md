@@ -102,3 +102,84 @@ One lane builds this; the other holds the baseline and reviews phase
 gates. The §93 gate's conditions and calls.rs remain checker-2's to
 approve; inference.rs/contextual.rs arms are checker-1-era surfaces.
 Whoever opens the window claims it in STATUS §4 first.
+
+
+---
+
+## Phase 0 — the transcription (2026-08-10, checker-1)
+
+Read at the pinned submodule; every anchor is a real line.
+
+### The priority lattice (`checker.go:299-318`), all twelve classes
+
+`InferencePriority` is a BITSET, not a scalar rank — `n.priority`
+carries the active flags during a walk, and candidates recorded under a
+LOWER-valued active set displace higher ones (see `inferWithPriority`
+uses at `inference.go:125/239`): `None=0` (plain positions),
+`NakedTypeVariable=1<<0`, `SpeculativeTuple=1<<1`,
+`SubstituteSource=1<<2`, `HomomorphicMappedType=1<<3`,
+`PartialHomomorphicMappedType=1<<4`, `MappedTypeConstraint=1<<5`,
+`ContravariantConditional=1<<6`, `ReturnType=1<<7` ("lower priority than
+all other inferences", the `checker.go:9437` comment),
+`LiteralKeyof=1<<8`, `NoConstraints=1<<9` and `AlwaysStrict=1<<10`
+(behavior flags, not ranks), `MaxValue=1<<11` (the tracking seed,
+`inference.go:59`), `Circularity=-1` (less than everything).
+`PriorityImpliesCombination = ReturnType|MappedTypeConstraint|LiteralKeyof`
+— candidates under those combine (union) rather than compete.
+
+### The step-2 window (`inferTypeArguments`, `checker.go:9390-9495`)
+
+1. **Return-side seed**: contextual type of the CALL feeds the
+   signature's return type at `InferencePriorityReturnType`
+   (`:9437`), skipped for binding-pattern-derived contexts
+   (`:9405-9416` — those go ONLY into `context.returnMapper`); a
+   separate `returnContext` pass (`:9447-9458`) builds the
+   returnMapper used by `instantiateContextualType`.
+2. **Implied rest arity** (`:9462-9474`): a type-parameter rest slot
+   records `impliedArity` when no spread follows.
+3. **this-argument** (`:9475-9479`) at `None`.
+4. **THE ARGUMENT LOOP** (`:9480-9489`): per argument IN ORDER —
+   `checkExpressionWithContextualType(arg, paramType, context, mode)`
+   then `inferTypes(...)` at `None`. The context flows INTO the
+   argument's own checking: this is where earlier arguments' fixings
+   become later arguments' contextual parameter types.
+5. Spread tail (`:9490-9493`), then `getInferredTypes`.
+
+### Fixing (`inference.go:1251-1283`, `:1317-1412`)
+
+The context carries TWO mappers minted at construction
+(`:1280-1281`): `mapper` (fixing=true) and `nonFixingMapper`. The
+fixing mapper's application marks `isFixed` and computes
+`getInferredType` for the parameter; once `isFixed`, candidate
+collection REFUSES new candidates (`:183`, `:962`, `:1644`).
+`getInferredType` (`:1317`): covariant inference from candidates,
+contravariant from contraCandidates, the preference rule at
+`:1341-1354` (prefer covariant unless never/any, assignable to some
+contra, and no conflicting constrained sibling); NoDefault flag →
+silentNeverType wildcard; else the type-parameter DEFAULT
+(instantiated under backreference+nonFixing mappers, `:1368`); nil →
+any/unknown by flag (`:1376`); then the CONSTRAINT filter
+(`:1378-1399` — pure ReturnType inferences may drop non-assignable
+constituents to never, `:1385-1392`; a failing inference falls to
+fallbackType-if-it-fits else the constraint).
+
+### Ordered member sites (`inference.go:1285-1300+`)
+
+`addIntraExpressionInferenceSite` collects context-sensitive
+object/array literal MEMBERS during the omitted pass; the second pass
+infers from earlier sites before contextually typing later ones — the
+`foo([_a => 0, n => n.toFixed()])` example is upstream's own. This is
+piece 3's exact mechanism: "This happens automatically when the arrow
+functions are discrete arguments (because we infer from each argument
+before processing the next)".
+
+### Pass structure (the caller)
+
+The skip/re-serve two-pass lives in `getSignatureApplicabilityError` /
+`resolveCall`'s CheckMode plumbing (`CheckModeSkipContextSensitive`) —
+transcribe its exact gates when Phase 3 opens; the window above is
+complete for Phases 1–2.
+
+**Phase 0 gate: MET** — every priority class named with its anchor;
+fixing semantics and the ordered-sites mechanism transcribed. Phase 1
+(the lattice in `inference.rs`'s existing engine) is build-ready.
