@@ -36604,3 +36604,100 @@ Third caller of the alias walk, second since §693 extracted it as
 at the time and does not suit this one, which wants the **target symbol**.
 Recorded rather than refactored: merging them now would move two measured rules
 to serve an unmeasured third, and the duplication is eight lines.
+
+## §712 — TS2552: an export specifier that names nothing
+
+```ts
+type RoomInterfae = {};
+export type {
+    RoomInterface     // TS2552 — did you mean 'RoomInterfae'?
+};
+```
+
+`check_export_specifier_is_local` (§375) resolves the specifier's name to decide
+TS2661, and when the name resolves to **nothing** it returns. Upstream's
+`checkExportSpecifier` (`checker.go:5565`) goes through `resolveEntityName`,
+which reports `Cannot find name` there — with
+`getSuggestedSymbolForNonexistentSymbol` first, so a near miss is TS2552 and not
+TS2304.
+
+The rule already has the resolution and already has the early return; what it
+does not have is a **branch on why**. `None` from `resolve_name` is currently
+"not a global, so nothing to say", and it is really two answers: *this name is
+local* and *this name does not exist*.
+
+> §709 split gaps into rules that judge wrongly and rules that never see the
+> case. This is a third: **a rule that sees the case and discards the
+> distinction**, because the answer it wanted was a boolean and the lookup gave
+> it three outcomes. Same root as §711's *"a predicate is the wrong shape for a
+> walk"* — a shape chosen for one caller, losing information a second one needs.
+
+The suggestion is `spelling_suggestion` over the enclosing file's locals, which
+is `getSuggestedSymbolForNonexistentSymbol` scoped as narrowly as this port can
+scope it: upstream searches the whole symbol table chain, this searches the
+file. A miss is TS2304, which is the same code upstream falls back to.
+
+```
+bar:  +1 of 3 (duplicateErrorNameNotFound),  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **TS2304's row gains wrong lines.** Every export specifier this port cannot
+   resolve now reports something; if the resolver has blind spots, this is where
+   they surface.
+2. **`export { x } from './m'` reports.** A specifier with a module specifier
+   names an export of that module, not a local — the existing guard covers it
+   and must keep covering it.
+3. **TS2661's row moves.** Same rule, and the new branch sits on its early
+   return.
+
+## §713 — §712 measured: **−2 and 2 wrong lines**, reverted, and the question was wrong twice
+
+Three shapes, each measured:
+
+```
+1. report when `resolve_name` answers None          +0, 0 wrong   — never fires
+2. probe: the name *resolves*                       resolved=true
+3. report when the specifier's own alias has no target   −2, 2 wrong
+```
+
+### Why shape 1 never fired
+
+```ts
+type RoomInterfae = {};
+export type { RoomInterface };
+```
+
+**The binder gives `export { X }` a symbol named `X`.** So asking the scope
+whether `RoomInterface` exists always answers *yes* — the specifier is its own
+answer. §375's rule had been resolving that symbol and reading its declarations
+for the TS2661 test, which works because it then asks *where the declaration
+lives*; it does not work as an existence test.
+
+> This is the first time this session a lookup has been **defeated by the thing
+> being looked up**. §676 and §688 were aliases satisfying a meaning their
+> target lacked; here the name resolves to the very node under inspection. The
+> tell was the same in all three — a rule that never fires — and the probe was
+> the same one line.
+
+### Why shape 3 was worse
+
+Asking `resolve_alias(own).is_none()` is the right question and this port
+answers it too often: `resolve_alias` declines shapes it has not ported (§686's
+qualified reference, the synthetic-default and `module.exports` arms
+`checker-notes-modobj.md` §10.11 records), and each decline became a
+`Cannot find name`. Two wrong lines in `.js` decorator files and a duplicate
+package, and **−2 cases** — the reverted build lost more than the row was worth.
+
+### Refused, with the number
+
+```
+TS2552's export-specifier arm   3 cases   needs `getTargetOfExportSpecifier` to be total
+```
+
+**The arm is correct and its input is not**, which is §676's shape exactly —
+and, as there, the fix is not in this rule. `resolve_alias`'s declines are
+individually justified and collectively make "has no target" unusable as a
+proposition. Recorded with the three measurements so the next attempt starts
+from shape 3 and the 2 wrong lines, not from shape 1.
