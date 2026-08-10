@@ -40473,3 +40473,47 @@ compared against. §800 fixed the measurement and §801 took one arm.
 TS7008's two remaining wrong lines are `controlFlowAutoAccessor1`'s line 44 and
 `privateNameAmbientNoImplicitAny` — **named, and neither is in the missing
 column**, so the row is now clean in one direction and priced in the other.
+
+## §803 — the wrong-line column, priced with owners
+
+Seven builds have taken it from 112 to 76. What remains, by owner:
+
+```
+this workstream, reachable          — none priced above 1 line
+the relation                TS2322 10 · TS2415 1                       11
+the type side               TS2564  9 (§782's flag)  · TS7006 4 (contextual class expression)
+                            TS2790 1 · TS2465 1                        15
+the parser / recovery       TS1005  9 · TS1012 2 · TS1131 1 · TS1031 1
+                            TS1029 1 · TS2397 1                        15
+JavaScript / JSDoc (§657)   TS2683  4 (`@this` tag) · TS8010 1          5
+the program / loader        TS2306  2 · TS2304 3 (duplicate package)    5
+already-named singles       TS2708 1 (§766) · TS2403 1 · TS2391 1 · …
+```
+
+**TS2304's fourteen** break down as three duplicate-package lines (the loader
+dedups the second copy upstream and this port checks it), two
+`parserArrowFunctionExpression8`, and nine across parser error-recovery fixtures
+where the recovered tree carries names upstream never resolves.
+
+### What the seven builds established
+
+```
+§777  an ordering never ported      +6
+§779  a guard its sibling had       +1
+§781  an unportable flag test       refused, owner named
+§783  a conjunct never ported       +2
+§785  a second ordering             +1
+§788  a third JavaScript guard      +1
+§790  a guard too narrow            +2
+§792  a grammar error's consequence +1
+```
+
+**Fourteen cases and thirty-six wrong lines**, and the shapes were: two
+orderings, three JavaScript guards, one missing conjunct, one grammar
+consequence, one unportable flag. **Every one of them was a rule saying more than
+upstream does**, and none was visible in the missing column.
+
+> The column is not exhausted — it is **exhausted of things this workstream can
+> reach**. Fifteen of the remaining seventy-six are the parser's, fifteen the
+> type side's, eleven the relation's, five JavaScript's, five the loader's. That
+> is a handoff rather than a stopping point, and it is priced.
