@@ -5921,6 +5921,24 @@ impl Checker<'_, '_> {
                 );
                 return;
             }
+            // `async` in an ambient context (`grammarchecks.go:507`).
+            // Upstream's `flags` accumulates left to right over the modifier
+            // list, so `flags&Ambient != 0` is exactly *"a `declare` earlier in
+            // this same list"* — the `seen` vector already carries it. Placed
+            // after the shared `already seen` arm and before the must-precede
+            // arms, which is upstream's `else if` order. §817.
+            if kind == SyntaxKind::AsyncKeyword
+                && !seen.contains(&SyntaxKind::AsyncKeyword)
+                && (seen.contains(&SyntaxKind::DeclareKeyword)
+                    || self.is_in_ambient_context_for_overloads(node))
+            {
+                self.report_modifier_error(
+                    token,
+                    &messages::_0_MODIFIER_CANNOT_BE_USED_IN_AN_AMBIENT_CONTEXT,
+                    &["async".to_string()],
+                );
+                return;
+            }
             // `X_0_modifier_cannot_appear_on_a_module_or_namespace_element` —
             // in the accessibility chain **after** the must-precede arms below
             // and in the `static` chain after them too, so it is tested here

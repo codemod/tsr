@@ -41119,3 +41119,78 @@ The arm was not in the dispatch — `Node::SwitchStatement` appears there only i
 grouped `|` arm — so the check hangs off `check_switch_case_comparable`, which
 already had the node. §711's rule again, and it cost one failed edit rather than
 a wrong-function landing because the assertion caught it.
+
+## §817 — TS1040: `'async' modifier cannot be used in an ambient context`
+
+```ts
+declare async function foo(): Promise<void>;   // TS1040, on the `async`
+```
+
+`grammarchecks.go:507`, inside the per-keyword switch this port already ports as
+`check_modifier_order`:
+
+```go
+case ast.KindAsyncKeyword:
+    if flags&ModifierFlagsAsync != 0 {            // already seen
+    } else if flags&ModifierFlagsAmbient != 0 || node.Parent.Flags&NodeFlagsAmbient != 0 {
+        return c.grammarErrorOnNode(modifier, X_0_modifier_cannot_be_used_in_an_ambient_context, "async")
+    } else if node.Kind == ast.KindParameter {
+```
+
+`flags` accumulates **left to right over the modifier list**, so
+`flags&Ambient != 0` is exactly *"a `declare` earlier in this same list"* — which
+is `seen.contains(DeclareKeyword)`, the vector `check_modifier_order` already
+carries. The second disjunct is the enclosing declaration's ambient flag, which
+`is_in_ambient_context` answers.
+
+The arm goes **after** the shared `already seen` arm and before the
+must-precede arms — §183's rule that upstream's `else if` order *is* the
+specification, and the fourth time this session that placing an arm correctly in
+an existing chain was the whole build rather than writing a new rule.
+
+```
+bar:  +1 of 1 (asyncDeclare_es6),  0 LOST,  WRONG delta <= 0
+```
+
+### Falsifiers
+
+1. **A plain `async function` reports.** No `declare`, no ambient parent.
+2. **`declare` alone reports.** The arm is keyed on `async`.
+3. **TS1029/TS1030's rows move.** Those are the must-precede arms below this one;
+   placing the arm above them must not shadow them.
+
+## §818 — §817 built: **+1 of 1**, row closed; the chain took the arm
+
+```
+diagnostics             2,314 → 2,315   (bar was +1;  +1, 0 LOST)   42.18%
+extraonly               zero TS1040;  TS1029's one line predates (the same line §814 checked)
+TS1040 missing lines    1 → 0     — the row is closed
+```
+
+All three falsifiers negative — in particular the third, which was the risk:
+placing an arm **above** the must-precede arms could have shadowed them, and
+TS1029/TS1030 did not move.
+
+> The build was seventeen lines and none of them were a rule. `check_modifier_order`
+> already walked the list, already carried `seen`, already had
+> `report_modifier_error` and already knew where upstream's chain broke. **The
+> work was deciding which of the chain's twenty-odd arms this one sits between**,
+> and §183 had already written down that the `else if` order *is* the
+> specification.
+
+Fourth build this session where the whole task was placing an arm in a chain this
+port had already ported (§103, §183, §599, this). That is a different economy from
+a new rule: no falsifier about *behaviour*, one about *shadowing*.
+
+### §808's filter, five for five
+
+```
+§807  quotedModuleNameMustBeAmbient          +2
+§809  setterWithReturn                       +2
+§813  es6ImportWithoutFromClauseWithExport   +2
+§815  switchStatementsWithMultipleDefaults1  +1
+§817  asyncDeclare_es6                       +1
+```
+
+**Eight cases, five rows, five builds, zero wrong lines, every one selected by
+reading a filename**, and one refusal (TS1098) found the same way and priced.
