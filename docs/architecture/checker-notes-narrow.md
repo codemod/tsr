@@ -6748,3 +6748,24 @@ case is adversarial (aliases NAMED `exports`/`require`; upstream's
 collision renaming applies — 12 of the 34). Rebuild recipe: land
 (2) first behind a flag, then (1), measure jointly; predicted
 joint ceiling ~180 (privacyLocal* 184's class share).
+
+## §157 — alias-identifier type references mint the WRITTEN name (§156's half 2) [claimed: checker-1]
+
+`var v: IC = ...` with `import IC = m.C` wants `v : IC` — the
+site-spelled instance type. The §41 road already mints EXACTLY
+this shape for `m.C` written qualified (members-carrying named
+type, `new_named(OBJECT, written_text, resolved)`, keyed per
+(text, symbol)); the alias-identifier case is the same mint with
+the alias's written name: in the TypeReference Identifier arm,
+a resolved symbol that is an ALIAS resolves its target
+(resolve_alias, or §145's resolve_qualified_entity through the
+ImportEquals declaration) and mints the written text carrying the
+MERGED target. Argument-less slice only (the §41/§42 split
+respected); the alias DECLARATION line (`IC : typeof IC`) is
+§156's coupled half and stays gapped this slice. **Bar: ≥40 G→R
+at ≥5:1.** Falsifiers: (a) aliases to type-only targets
+(interfaces) ride the same mint — if their wants spell the TARGET
+instead, gate to class targets; (b) the §156 leak inverts here:
+minting instance spellings WITHOUT the constructor half must not
+convert constructor-position gaps to wrongs — the pair watches
+collision*/internalAliasClass* specifically.
