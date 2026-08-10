@@ -34570,3 +34570,98 @@ the relation                      ~3,250 cases            §156, the other works
 **The next session's first decision is which owner to take**, not which row —
 and for the first time this session that question has a complete answer in front
 of it.
+
+## §671 — TS2452: an enum member cannot have a numeric name
+
+```ts
+enum Nums {
+    1.0,        // TS2452
+    11e-1,      // TS2452
+    0.12e1,     // TS2452
+    "13e-1",    //  — silent
+    0xF00D      // TS2452
+}
+```
+
+`computeEnumMemberValue` (`checker.go:23958`), three arms:
+
+```go
+if ast.IsComputedNonLiteralName(member.Name())  -> TS1164
+else if ast.IsBigIntLiteral(member.Name())      -> TS2452
+else if isNumericLiteralName(text) && !IsInfinityOrNaNString(text) -> TS2452
+```
+
+and `isNumericLiteralName` is one line with fourteen of comment
+(`utilities.go:898`): **`ToString(ToNumber(name)) == name`**.
+
+The fixture's fourth member is the whole point of that round-trip. `"13e-1"`
+*looks* numeric and is not a numeric **name**, because indexing with it reaches
+the property `"13e-1"` and not the property `"1.3"`. `0xF00D` is the mirror: its
+text is not its `ToString`, but the parser normalises a numeric literal's text
+to `"61453"` before the checker sees it, so the round-trip holds. **The
+predicate is applied to the normalised text, and which node carried it is what
+decides the answer.**
+
+> This is the first row this session whose rule is *purely* a string predicate —
+> no symbol, no type, no relation, not even a parent walk. It is worth stating
+> because §670 has just recorded that the ≥4-case band is empty of exactly this:
+> **the small rows are where the syntax still decides things.**
+
+```
+bar:  +3 of 3 (parserEnum7, enumIdentifierLiterals, literalsInComputedProperties1)
+      0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **`"13e-1"` reports.** Then the predicate is testing "looks numeric" and not
+   the round-trip, and `0xF00D` will be passing for the wrong reason.
+2. **A normal enum member (`enum E { A, B }`) reports.** `ToNumber("A")` is
+   `NaN`, whose `ToString` is `"NaN"` ≠ `"A"`.
+3. **`enum E { Infinity }` or `enum E { NaN }` reports.** Upstream excludes both
+   explicitly, and they are the one place the round-trip holds for a name that
+   is a plain identifier.
+
+## §672 — §671 built: **+2 of 3**, and the round-trip was asked of the wrong text
+
+```
+diagnostics             2,199 → 2,201   (bar was +3;  +2, 0 LOST)   40.11%
+extraonly               zero TS2452 lines
+TS2452 missing lines    11 → 2;  3 cases blocked alone → 1
+```
+
+The first build read **+1** and left `0xF00D` behind. All three falsifiers were
+negative — `"13e-1"` silent, plain identifiers silent, no `Infinity`/`NaN` line —
+so the predicate was right and its **input** was not.
+
+> `GetTextOfPropertyName` on a numeric literal returns upstream's **normalised**
+> text, and a normalised text is `ToString(value)` by construction. Upstream's
+> round-trip therefore holds for *every* numeric literal, unconditionally. This
+> port keeps a numeric literal's written spelling in `text`, because
+> `printer_round_trip` is at 100% and reprints from it.
+
+So the port takes the conclusion rather than the computation:
+`NumericLiteral => true`, and the round-trip is asked only of a string literal
+or identifier name, where both trees agree on the text. **`0xF00D` converted and
+nothing else moved.**
+
+### The general shape
+
+```
+§578  transcribed a flag test whose flags mean something else here (errorType carries ANY)
+§671  transcribed a text test whose text means something else here (numeric spelling is kept)
+```
+
+**Twice this session a faithful transcription has been wrong because a value
+upstream reads is not the value this tree stores under that name.** §578's
+repair was to read the syntax instead; this one's is to note that upstream's
+computation is constant over the case that differs, and take its result. The
+diagnostic in both is the same: *the transcription was of the expression, and
+the fidelity question was about the operand.*
+
+### The residue
+
+One case, `literalsInComputedProperties1`, needs `[2]` — a **computed** name
+whose expression is a literal. `GetTextOfPropertyName` evaluates it; that is a
+constant-evaluation question rather than a syntactic one, and it is one line.
+Named, not built.

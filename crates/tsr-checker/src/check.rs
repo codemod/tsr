@@ -279,6 +279,11 @@ impl Checker<'_, '_> {
                 ambient
             }
             Node::EnumDeclaration(declaration) => {
+                for member in declaration.members {
+                    if let Some(at) = member.node_id {
+                        self.check_enum_member_name(at);
+                    }
+                }
                 ambient || has_modifier(declaration.modifiers, SyntaxKind::DeclareKeyword)
             }
             Node::BreakStatement(statement) => {

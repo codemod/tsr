@@ -112,6 +112,7 @@ pub mod computed_name;
 pub mod contextual;
 pub mod declared;
 pub mod destructure;
+pub mod enum_member_name;
 pub mod expressions;
 pub mod flags;
 pub mod flow;
