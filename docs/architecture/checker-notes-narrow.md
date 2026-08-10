@@ -5916,3 +5916,21 @@ non-const positions; (b) the §137 admission flag double-firing
 first and returns, so the mint override must only cover positions
 the carriage never reaches; a double fire would show as zero-delta
 churn, not wrongs).
+
+**§138 MEASURED AND REFUSED at 299:1,098 — reverted byte-identical,
+and the union-order question is now CLOSED with three distinct
+measured refusals.** The mint-side override converted 299 (the
+controlFlowAliasing/narrowing spellings it aimed at) and broke
+1,098: the override is PER-TYPE (unions intern; one TypeId serves
+every position) while the truth is PER-SITE — a union written
+`number | string` in one annotation overrode the shared sorted
+union at hundreds of COMPUTED positions upstream prints sorted
+(booleanLiteralTypes 92, instanceof families, inferTypePredicates).
+The three roads, each measured: origin machinery (§77.2, 35:249+),
+blanket written reuse (the −270), the mint override (this, 1:3.7
+inverted). THE ONLY WORKING FORM IS §137's: per-POSITION written
+carriage behind a same-set admission flag. The residue
+(controlFlowAliasing's 52 W→R this pair found, optionality-order,
+narrowing-rebuild spellings) belongs to per-site rendering — the
+printseam study's arm 3+, where the site is known. DO NOT attempt
+a fourth type-level road; the pair triple confirms the shape.
