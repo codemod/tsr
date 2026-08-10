@@ -1307,6 +1307,30 @@ its whole deliverable and accept that it converts nothing until finished.
 
 ## 5. Refused, with the number that refused it
 
+### New, this session, TS1016 and the true-positive audit
+
+- **TS1016 was missing `parameter.Initializer == nil`** (§554). A *defaulted*
+  parameter after an optional one was an error — the ordinary shape of a React
+  hook signature. It is **not** the same test as the arm above it: §288 had
+  correctly established that `seenOptionalParameter` is set by a `?` alone, and
+  the initialiser exclusion lives on a different arm and was never added. Repo
+  62 → 51, both snapshots byte-identical.
+
+- **Every rule touched this session was deleted outright to find which test
+  catches it** (§554). A fix that removes diagnostics can always be faked by
+  removing the rule, so each of the eight — TS1016, TS1192, TS1361, TS2304,
+  TS2339, TS2345, TS2686, TS7026 — now has a named true positive that fails
+  when the rule is gone. **Four did not exist and were written for the audit.**
+
+- **One true positive could not be written, and it is recorded rather than
+  dropped** (§554). `globalThis.blockScoped` over a script's `let` must report
+  TS2339 upstream; this port reports nothing, and **measurement shows §173's
+  guard is not the cause** — §33's minted `typeof globalThis` has no members
+  table, so the completeness gate declines first. The guard's block-scoped
+  branch is therefore unreachable code today. Kept, because it is upstream's
+  rule and becomes live when §33's mint grows members; pinned by a divergence
+  test whose assertion flips when it closes.
+
 ### New, this session, optional parameters
 
 - **An optional parameter's type includes `undefined`** (§541).
@@ -2338,6 +2362,7 @@ holds only the numbers.
 | 2026-08-09 | *(this session)* | 36.33% | 1,994 | **heritage positions: repo 104 → 84, every suite unmoved** | An interface's `extends` is a **type** position (`isIdentifierInNonEmittingHeritageClause`, `ast/utilities.go:3132`) and this port keyed the distinction on the `extends` keyword, which an interface also uses — **19 false TS1361 and 1 false TS2686** on a 22-package repository, all on `interface P extends VariantProps<…>` over an `import type`. **Answering it once in `is_value_reference` was the wrong fix**: it silenced three rules and lost `compiler/protoAssignment`, because upstream *does* report TS2304 there through `resolveEntityName` at type meaning. Three rules, three different upstream gates. Also `core.Every` was read as `any` in TS2686's declaration test, which made every reference to `React` inside `@types/react` an error. `diagnostics` no case changed verdict, `checker_types` identical. Residual recorded: 3 TS1361 behind `bullmq`'s barrel, a different mechanism. `checker-notes-diag2.md` §502 |
 | 2026-08-09 | *(this session)* | 36.86% | 2,023 | **TS1192's synthetic default: repo 162 → 84, both snapshots byte-identical** | The report is the **third** of three conjuncts (`checker.go:14566`) and only the first was ported. `canHaveSyntheticDefault` (`:14818`) is what makes `import React from "react"` legal against `export = React` — how every `@types` package ships and every consumer writes it — so TS1192 fired **78 times on a 22-package repository**, 12 in `packages/ui` alone (17 → 5). Both arms ported: the permissive declaration-file one (`:14850`) and `hasExportAssignmentSymbol` (`:14869`). `IsDeclarationFile` becomes a `ModuleHost` question (ADR-0016: no file name on the AST), defaulting to `false` so an ignorant host reports *more*, not less. The predicate itself already existed as `tsr_binder::is_declaration_file` and was made `pub` rather than rewritten — third time this session reading the tree beat writing the four-line version. Three unported suppressors named with their direction. `checker-notes-diag2.md` §531 |
 | 2026-08-09 | *(this session)* | 37.43% | 2,054 | **an optional parameter's type includes `undefined`: repo 84 → 62, both snapshots byte-identical** | `getTypeOfParameter` (`checker.go:17042`) adds optionality for a `?` **or** an initializer, so `b?: string` and `b: string = "d"` are both `string \| undefined`. The argument check took the written annotation alone, so every `T \| undefined` argument at such a position drew TS2345 — **23 → 1** on a 22-package repository. Both arms had it (`call` and `new`, one upstream function apart). **Not one line of either snapshot moved**, which is the number that matters for a change that widens a type: the risk was a silenced case and there was none — the corpus's TS2345 fixtures use required parameters. The survivor is optional-chain narrowing, already recorded as unbuilt. `checker-notes-diag2.md` §541 |
+| 2026-08-09 | *(this session)* | 37.76% | 2,072 | **TS1016's missing conjunct, and every rule this session paired with a true positive** | `checkGrammarParameterList` (`grammarchecks.go:714`) is `seenOptionalParameter && parameter.Initializer == nil`; the second conjunct was absent, so a **defaulted** parameter after an optional one was an error. Not the same test as the arm above it — §288 established that `seenOptionalParameter` is a `?` alone, and the initialiser exclusion is a separate arm. Repo 62 → 51, both snapshots byte-identical. **Then the audit**: each of the eight rules touched this session was deleted outright to find which test catches it, and four true positives were missing and are now written. **One could not be** — `globalThis.blockScoped` over a script `let` must report TS2339 and does not, and measurement shows §173's guard is *not* the cause (§33's minted type has no members, so completeness declines first), making that branch unreachable today; kept as upstream's rule and pinned by a divergence test. `checker-notes-diag2.md` §554 |
 | 2026-08-09 | `9f4698e` | **29.43%** | **1,615** | **+1, every rail unmoved** | **`parseObjectBindingElement` branches on `isBindingIdentifier`**, read *before* the property name — `{ while }` is one `':' expected` upstream and was four errors here. It costs one condition only because **§193's same-position guard had already landed** for a different row: the third time this session a general fix changed what a later build costs. `checker-notes-diag2.md` §204–§205 |
 | 2026-08-09 | `00d7d76` | 29.43% | 1,615 | **+0, and landed on purpose** | **A namespace in a `.d.ts` exports what it declares.** `bind_container`'s ambient test had three disjuncts and not `in_declaration_file`. Filed as *"imported namespace symbols carry no exports"* — imports had nothing to do with it. Landed at +0 because it is **observable and pinned** (a test red without the disjunct) where §207's +0 was unobservable; three rows queue behind it. `checker-notes-diag2.md` §208–§210 |
 | 2026-08-09 | `7373eff` | 29.43% | 1,615 | **TS7026 wrong 9 → 3, `checker_types` +8** | **The `@jsx` pragma path, rebuilt on §208's table.** §207 built it across three crates, measured +0, and reverted; §208 fixed the table its second hop reads and landed at +0 **because it was observable and pinned**. Had §208 been reverted for scoring zero this rebuild would be unreachable. *Unmeasured and unobservable are different.* `checker-notes-diag2.md` §207–§211 |

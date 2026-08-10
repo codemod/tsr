@@ -209,6 +209,22 @@ impl Checker<'_, '_> {
     /// **TS7017 is not ported here.** It is a different code with its own row,
     /// and reporting it from this file would put an implicit-any diagnostic in
     /// the nonexistent-property rule. What this function owes is the silence.
+    ///
+    /// # The block-scoped branch is unreachable today, and is kept anyway
+    ///
+    /// Measured: `let blockScoped = 1` in a script, then
+    /// `globalThis.blockScoped` from a module, reports **nothing** — with this
+    /// guard and without it. §33 of `checker-notes-narrow.md` mints
+    /// `typeof globalThis` when the *name* fails to resolve, and a minted type
+    /// carries no members table, so `declared_members_are_complete` declines
+    /// before this function is consulted.
+    ///
+    /// So the `TS2339`-for-a-block-scoped-global arm below cannot fire. It is
+    /// kept because it is upstream's rule and because it becomes live the
+    /// moment §33's mint grows members — writing the silence without it would
+    /// make a future members table silently wrong. The divergence is pinned by
+    /// `a_block_scoped_globalthis_member_records_a_known_divergence` in
+    /// `tests/real_repo_regressions.rs`, whose assertion flips when it closes.
     fn global_this_member_is_not_reported(
         &mut self,
         receiver_type: crate::types::TypeId,

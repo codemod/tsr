@@ -29304,3 +29304,84 @@ notes had priced the same family wrong** by reasoning about the Rust side (§105
 That is the clearest instance this session of a note paying for itself: one
 sentence about an absent guard, written in 2026-08, turned two later rows into
 one-measurement builds.
+## §554 — TS1016's missing conjunct, and a session-wide audit for true positives
+
+`checkGrammarParameterList` (`grammarchecks.go:714`):
+
+```go
+} else if seenOptionalParameter && parameter.Initializer == nil {
+    return c.grammarErrorOnNode(parameter.Name(), diagnostics.A_required_parameter_cannot_follow_an_optional_parameter)
+```
+
+The `parameter.Initializer == nil` conjunct was missing, so a **defaulted**
+parameter after an optional one was an error:
+
+```ts
+function useTreeKeyboardNavigation(
+    flatItems: TreeNode[],
+    toggleItem: (path: string) => void,
+    onItemClick?: (item: TreeNode) => void,
+    virtualizer?: Virtualizer<HTMLDivElement, Element>,
+    autoFocusOnMount = false,   // TS1016, and tsc says nothing
+) {}
+```
+
+**It is not the same test as the arm above it, and that is the trap.** §288
+correctly established that `isOptionalDeclaration` — which sets
+`seenOptionalParameter` — is `HasQuestionToken` *alone*, so `f(a = 1, b: string)`
+is legal. The initialiser exclusion lives on the *third* arm, separately, and
+was never added. Two arms, two different roles for the same syntax:
+
+| | sets `seenOptionalParameter` | exempt from TS1016 |
+|---|---|---|
+| `b?: T` | yes | — |
+| `b: T = v` | **no** | **yes** |
+
+Both directions are pinned by tests, because collapsing them either way is a
+one-character edit.
+
+Repo: **62 → 51**, TS1016 11 → 0, with both conformance snapshots
+byte-identical. Seventh defect this session only a real repository exhibits.
+
+### The audit, which is the more useful half of this section
+
+Every fix this session *removes* diagnostics, and a fix that removes
+diagnostics can always be faked by removing the rule. So each rule touched was
+**deleted outright** and the test suite re-run, to find which test catches it:
+
+| rule | test that fails when the rule is deleted |
+|---|---|
+| TS1016 | `a_genuinely_required_parameter_after_an_optional_one_still_reports` |
+| TS1192 | `a_default_import_of_a_module_with_neither_still_reports`, `a_declaration_file_that_declares_es_module_has_no_synthetic_default` |
+| TS1361 | `a_class_extends_over_a_type_only_import_still_reports` |
+| TS2304 | `an_unresolved_name_in_an_interfaces_extends_still_reports` |
+| TS2339 | `a_missing_member_of_a_module_object_still_reports` |
+| TS2345 | `a_required_parameter_still_rejects_undefined` |
+| TS2686 | `a_umd_global_in_a_value_position_still_reports` |
+| TS7026 | `nothing_declares_jsx_so_the_rule_still_reports` |
+
+Four of those did not exist and were written for the audit. The tests live in
+`crates/tsr-checker/tests/real_repo_regressions.rs`, renamed from
+`heritage_positions.rs` because that is what the file is now.
+
+### One true positive could not be written, and that is the finding
+
+`globalThis.blockScoped` where `blockScoped` is a script's top-level `let`
+**must** report TS2339 upstream — a `let`/`const`/`class`/`enum` lives in the
+global *scope* without being a property of the global *object*
+(`checker.go:11337-11340`). This port reports nothing.
+
+Measured, by deleting §173's guard and re-running the fixture: **the guard is
+not what silences it.** §33's `typeof globalThis` is minted when the *name*
+fails to resolve, and a minted type carries no members table, so
+`declared_members_are_complete` declines before the guard is consulted. The case
+was never reported, before §173 or after — but the guard's block-scoped branch
+is therefore **unreachable code today**.
+
+It is kept, because it is upstream's rule and because it becomes live the moment
+§33's mint grows members — at which point a silence written without it would be
+silently wrong. The divergence is pinned by
+`a_block_scoped_globalthis_member_records_a_known_divergence`, whose assertion
+flips from `[]` to `["TS2339"]` when it closes. **A suppression whose paired
+positive cannot be written is exactly the thing worth writing down**, and it is
+the one case in this session's eight where the pair is a gap rather than a test.

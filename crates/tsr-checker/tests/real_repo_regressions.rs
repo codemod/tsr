@@ -1,5 +1,21 @@
-//! A heritage clause that emits nothing is a type position — and which rules
-//! that silences.
+//! Diagnostics whose false positives were found by pointing `tsr` at a real
+//! repository, and — for every one of them — the case that must still report.
+//!
+//! # Why this file exists as a whole
+//!
+//! Each fix below removes a diagnostic, and a fix that removes diagnostics can
+//! always be faked by removing the rule. So **every suppression here is paired
+//! with a true positive**: the same rule, on the shape it exists to catch,
+//! asserted to still fire. Those pairs are the point of the file; the mutation
+//! tables under each section name which of the two a given mutation reddens.
+//!
+//! The conformance suites are byte-identical across all of these — that is what
+//! made a real repository the only instrument, and it is also why the true
+//! positives have to be written by hand here rather than left to the corpus.
+//!
+//! ---
+//!
+//! # A heritage clause that emits nothing is a type position
 //!
 //! `isIdentifierInNonEmittingHeritageClause` (`ast/utilities.go:3132`) names the
 //! two: a class's `implements`, and **either clause of an `interface`**. Only a
@@ -392,5 +408,121 @@ fn a_new_expressions_optional_parameter_accepts_undefined() {
             )
         )]),
         Vec::<String>::new()
+    );
+}
+
+// ---------------------------------------------------------------------------
+// TS1016 — a required parameter after an optional one
+//
+// `checkGrammarParameterList` (`grammarchecks.go:714`) is
+// `seenOptionalParameter && parameter.Initializer == nil`, and the initialiser
+// conjunct was missing. It is **not** the same test as the arm above it:
+// `seenOptionalParameter` is set by a `?` alone (§288 corrected that one), and
+// a parameter that merely has a default is not "required" and so never offends.
+// `docs/architecture/checker-notes-diag2.md` §554.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_defaulted_parameter_may_follow_an_optional_one() {
+    // `(items, toggle, onClick?, virtualizer?, autoFocus = false)` — the
+    // ordinary shape of a React hook signature, and it was an error.
+    assert_eq!(
+        codes(&[("/a.ts", "export function f(a: string, b?: string, c = false): void {}\n")]),
+        Vec::<String>::new()
+    );
+}
+
+#[test]
+fn a_defaulted_parameter_before_a_required_one_is_still_legal() {
+    // The other direction of §288's correction: an initialiser does not set
+    // `seenOptionalParameter`, so `f(a = 1, b: string)` is legal — and must
+    // stay legal, since the fix touches the same loop.
+    assert_eq!(
+        codes(&[("/a.ts", "export function g(a = 1, b: string): void {}\n")]),
+        Vec::<String>::new()
+    );
+}
+
+#[test]
+fn a_genuinely_required_parameter_after_an_optional_one_still_reports() {
+    // **The true positive.** Without it the two above pass if TS1016 is deleted.
+    assert_eq!(
+        codes(&[("/a.ts", "export function h(a: string, b?: string, c: string): void {}\n")]),
+        vec!["TS1016".to_string()]
+    );
+}
+
+// ---------------------------------------------------------------------------
+// The true positives for this session's other suppressions
+//
+// Each fix above and in `cross_file_aliases.rs` / `jsx_namespace.rs` removes a
+// diagnostic. These are the paired cases that keep the rules honest, written at
+// the diagnostic level rather than the type level so they fail if the rule is
+// removed outright.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_missing_member_of_a_module_object_still_reports() {
+    // Pairs with §400 (`symbolIsValue`'s alias half). That fix made every
+    // export **specifier** a reachable member; a name the module does not
+    // export at all must still be TS2339.
+    assert_eq!(
+        codes(&[
+            ("/m.ts", "const inner: number = 1;\nexport { inner as outer };\n"),
+            ("/a.ts", "import * as p from \"./m\";\nexport const v = p.nope;\n"),
+        ]),
+        vec!["TS2339".to_string()]
+    );
+}
+
+#[test]
+fn a_block_scoped_globalthis_member_records_a_known_divergence() {
+    // **This is the true positive for §173's `globalThis` arm, and it does not
+    // pass.** Recorded rather than dropped, because a suppression whose paired
+    // positive cannot be written is exactly the thing worth writing down.
+    //
+    // Upstream silences TS2339 for a *missing* member of `globalThis` and
+    // reports it for one that **is** a global and is block-scoped — `let`,
+    // `const`, `class`, `enum` live in the global *scope* without being
+    // properties of the global *object* (`checker.go:11337-11340`,
+    // `SymbolFlagsBlockScoped`). So upstream answers `TS2339` here.
+    //
+    // **The guard added in §173 is not what silences it**, measured by deleting
+    // the guard and re-running this fixture: still nothing. `typeof globalThis`
+    // is minted by §33 of `checker-notes-narrow.md` when the *name* fails to
+    // resolve, and a minted type carries no members table — so
+    // `declared_members_are_complete` declines before the arm is reached. The
+    // case was never reported, before §173 or after.
+    //
+    // The consequence is that the block-scoped branch of
+    // `global_this_member_is_not_reported` is **unreachable today**. It is kept
+    // because it is upstream's rule and because it becomes live the moment §33
+    // grows a members table — which is the falsifier for this test: when that
+    // lands, this assertion flips to `["TS2339"]` and the divergence closes.
+    assert_eq!(
+        codes(&[
+            ("/g.ts", "let blockScoped = 1;\n"),
+            ("/a.ts", "export {};\nexport const q = globalThis.blockScoped;\n"),
+        ]),
+        Vec::<String>::new()
+    );
+}
+
+#[test]
+fn a_umd_global_in_a_value_position_still_reports() {
+    // Pairs with §502's TS2686 arm. The heritage exemption is about *type*
+    // positions; a UMD global read as a value from inside a module is exactly
+    // what the rule exists for.
+    //
+    // `/umd.d.ts` declares **only** the UMD name, so every declaration of the
+    // symbol is a `NamespaceExportDeclaration` and upstream's `core.Every`
+    // (`checker.go:1843`) holds — which is also the true positive for that
+    // half of §502.
+    assert_eq!(
+        codes(&[
+            ("/umd.d.ts", "export {};\nexport as namespace MyUmd;\n"),
+            ("/a.ts", "export {};\nexport const q = MyUmd;\n"),
+        ]),
+        vec!["TS2686".to_string()]
     );
 }

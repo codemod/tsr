@@ -6639,7 +6639,22 @@ impl Checker<'_, '_> {
                 // TS1015 is §103's, reported once per list from its own arm.
                 continue;
             }
-            if seen_optional {
+            // `seenOptionalParameter && parameter.Initializer == nil`
+            // (`grammarchecks.go:714`). **The initialiser conjunct is on this
+            // arm, not on the one above**, and the two are not the same test:
+            // `seenOptionalParameter` is set by a `?` alone (§288), while a
+            // parameter that merely *has a default* is not "required" and so
+            // never offends here.
+            //
+            // ```ts
+            // function f(a?: string, b = false) {}   // legal — b has a default
+            // function g(a?: string, b: string) {}   // TS1016
+            // ```
+            //
+            // Missing it made every defaulted parameter after an optional one
+            // an error, which is the ordinary shape of a hook signature:
+            // `(items, toggle, onClick?, virtualizer?, autoFocus = false)`.
+            if seen_optional && declaration.initializer.is_none() {
                 self.report_grammar_at(
                     name,
                     &messages::A_REQUIRED_PARAMETER_CANNOT_FOLLOW_AN_OPTIONAL_PARAMETER,
