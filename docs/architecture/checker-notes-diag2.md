@@ -31761,3 +31761,76 @@ That is the answer to *"find opportunities to wire everything for diagnostics to
 work"* for this file, stated as a finding rather than a plan: **the file is
 built; the wiring is the work**, and it is found one row at a time by the `+0`
 that a correct rule produces when nothing reaches it.
+
+## §606 — TS1268: an index signature's key type, decided from the keyword
+
+```ts
+var foo: { [index: any]; };      // TS1268
+var foo2: { [index: RegExp]; };  // TS1268
+```
+
+`checkGrammarIndexSignatureParameters` (`grammarchecks.go:831`) tests
+`everyType(t, c.isValidIndexKeyType)`, and `isValidIndexKeyType` is
+`String|Number|ESSymbol`, a pattern-literal type, or an intersection of those.
+
+**The keyword half needs no type.** `any`, `boolean`, `void`, `never`, `unknown`
+and `object` are written as keywords and none is a valid key; `string`, `number`
+and `symbol` are the three that are. That is decidable from the annotation's
+`SyntaxKind` alone.
+
+**The other half is not**: `RegExp` is a type *reference*, and deciding it needs
+the resolved type — an interface is invalid, a template-literal alias is valid,
+and the difference is not in the syntax.
+
+> **Stated boundary, per §590**: keyword annotations only. `parserIndexSignature8`
+> carries one of each, so this build converts a line and not the case unless the
+> second fixture's is a keyword too.
+
+```
+bar:  +1 of 2,  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **`[k: string]` reports.** The three valid keywords are the whole point.
+2. **TS1269's row moves** — *"cannot be a literal type or generic type"* is the
+   arm immediately above and takes precedence upstream, so a literal annotation
+   must not land here.
+
+## §607 — TS1268 was already built, and `diagcase` said so in one command
+
+§606 designed the keyword half of TS1268 and `cargo build` answered:
+
+```
+error[E0592]: duplicate definitions with name `check_index_signature_key_type`
+```
+
+**Ninth time this session §143 has caught a rule already in the tree.** The
+existing one takes a `KeywordTypeNode`, reports for every keyword but `string`,
+`number` and `symbol`, and carries TS1021's arm beside it.
+
+`diagcase` then settled the row in one command:
+
+```
+-- expected --                      -- actual --
+  parserIndexSignature8.ts(1,13)      parserIndexSignature8.ts(1,13)
+  parserIndexSignature8.ts(2,14)
+```
+
+`[index: any]` **already converts**; `[index: RegExp]` does not, and cannot from
+the syntax — a type reference is invalid when it resolves to an interface and
+valid when it resolves to a template-literal alias.
+
+> **`diagcase` before `diagmissing`, when a row has one fixture.** `diagmissing`
+> says which lines are absent; `diagcase` says which are *present*, and the
+> difference between them is the part already built. This row read as *"two
+> missing lines, keyword-shaped"* from `diagmissing` alone and as *"half built,
+> the rest type-shaped"* from one `diagcase`.
+
+A guard removal was measured on the way past — the rule's `file_has_parse_errors`
+bail — at **+0 with no line moving**, and reverted under §568. It was not the
+blocker; the type side is.
+
+**Owner: `isValidIndexKeyType` over a resolved type reference.** Named, not
+attempted, and now with the keyword half explicitly recorded as done so nobody
+re-derives it a third time.
