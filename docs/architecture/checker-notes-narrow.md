@@ -6920,3 +6920,43 @@ union narrowing lands, and use the 63:213 pair as the baseline
 comparator. The stale-refusals discipline both ways in one day:
 §159 re-confirmed a park, §161 re-confirmed a refusal — neither
 was stale, and both now carry second measurements that date them.
+
+
+## §162 — a GENERIC CLASS's constructor infers its type arguments [claimed: checker-1]
+
+**§74's rule, transcribed onto the class side.** `new Set([0,1,2])`
+and `new Box(5)` answer `error` today: §74 gave constructor
+INTERFACES the inference road (candidates through
+`check_generic_call`, answers must agree) but a generic CLASS with
+no written type arguments still falls to
+`COUNTERS.new_type_parameters` and gaps — `expressions.rs`'s class
+branch has the written-arguments and defaults-fill arms and no
+inference arm at all. setMethods' 178 gaps root there
+(`let numberSet = new Set([0, 1, 2])`), plus every downstream
+member read off such a receiver.
+
+**The transcription** (`checker.go:20058-20061`,
+`getReturnTypeFromAnnotation`): *"if IsConstructorDeclaration(declaration)
+return getDeclaredTypeOfClassOrInterface(getMergedSymbol(
+declaration.Parent.Symbol()))"* — a constructor's return type IS the
+class's declared instance type, verbatim, no annotation road. With
+the class's own type parameters as the signature's, that makes
+`new C(args)` exactly the call road's problem, which
+`check_generic_call` already solves: infer the parameters from the
+arguments, instantiate the return.
+
+**The arm**: generic class, NO written type arguments, at least one
+argument; take the sole constructor declaration's signature
+(overload sets decline — §74's own rule), give it the class's type
+parameters and the declared type as its return, run
+`check_generic_call`. A gap or a disagreement keeps the gap.
+
+**Bar: ≥60 G→R at ≥5:1.** Falsifiers: (a) a class whose ctor is
+inherited from a base (no own ConstructorDeclaration) — the §343
+two-endings rule says no-ctor-no-base is the zero-arg implicit
+one, which cannot infer anything and must decline rather than
+answer the uninstantiated `C<T>`; (b) constructor OVERLOADS decline
+whole (§74's agreement rule, and the arity road's own
+`overloaded` bail); (c) a parameter-property constructor is an
+ordinary ctor here — no special case, and if the pair says
+otherwise the record says so.
