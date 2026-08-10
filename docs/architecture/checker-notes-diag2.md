@@ -38145,3 +38145,47 @@ Two lines, one case: `recursiveBaseCheck`'s five-line form, where the cycle runs
 through an `interface` as well as classes. The walk resolves at `CLASS`, so an
 interface link is not followed — **named, and it is one more meaning on one
 lookup**, not a new mechanism.
+
+## §747 — TS2506 closed, and §746's residue was misattributed too
+
+```
+diagnostics             2,264 → 2,265   (+1, 0 LOST)   41.27%
+extraonly               zero TS2506, TS2449 and TS2694 lines
+TS2506 missing lines    2 → 0     — the row is closed
+```
+
+### The correction, third of the session
+
+§746 recorded the residue as `recursiveBaseCheck`'s five-line form, *"where the
+cycle runs through an `interface`"*, and named the `CLASS` meaning as the cause.
+**That case matches its baseline exactly** — five expected, five actual — and the
+residue was `recursiveBaseCheck2`, which the *previous* shape had converted and
+the qualified fix had silenced.
+
+```
+§682   attributed from the fixture in hand      corrected at §683
+§717   attributed from the fixture in hand      corrected at §718
+§746   attributed from the fixture in hand      corrected here
+```
+
+**Three times, and §683 wrote the rule after the first.** The rule is one
+command — `diagmissing <code>` after the build — and each time I have instead
+read the fixture the build was looking at. That is not a lapse of knowledge; it
+is that the fixture is *on screen* and the command is not.
+
+### The build
+
+`qualified_member_of_namespace` resolved a **single-identifier** receiver, which
+is every shape TS2449's fixtures carry. `Box2D.Collision.Shapes.b2Shape` has
+three segments, so the receiver is itself a chain — the helper now recurses,
+resolving `Box2D` in scope and walking `Collision` and `Shapes` through each
+namespace's exports.
+
+> §698 built the helper, §745 used it, §747 deepened it, and **each build found
+> exactly the depth its own fixtures needed.** A helper written against one row's
+> corpus is correct for that row and silently shallow for the next — which is the
+> same shape as §701's family, one level up: not a missing arm in a list, but a
+> missing *iteration* in a walk.
+
+Both callers gained: TS2449 and TS2694 stayed at zero wrong lines with a deeper
+resolution underneath them.

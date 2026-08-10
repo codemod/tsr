@@ -4768,14 +4768,26 @@ impl Checker<'_, '_> {
             return None;
         }
         let receiver = access.expression.and_then(|expression| expression.node_id())?;
-        let receiver_text = self.identifier_text(receiver).map(str::to_string)?;
-        let mut at = self.binder.resolve_name(
-            self.nodes,
-            self.node_map,
-            receiver,
-            &receiver_text,
-            SymbolFlags::NAMESPACE | SymbolFlags::ALIAS,
-        );
+        // **A receiver may itself be a chain.** `Box2D.Collision.Shapes.b2Shape`
+        // resolves `Box2D` in scope and then walks `Collision` and `Shapes`
+        // through each namespace's exports. §698 handled a single-identifier
+        // receiver, which is every shape TS2449's fixtures had; TS2506's have
+        // three segments. §747.
+        let mut at =
+            if let Some(Node::PropertyAccessExpression(inner)) = self.node_map.get(receiver) {
+                let member = inner.name.and_then(|name| name.node_id())?;
+                let member_text = self.identifier_text(member).map(str::to_string)?;
+                self.qualified_member_of_namespace(member, &member_text)
+            } else {
+                let receiver_text = self.identifier_text(receiver).map(str::to_string)?;
+                self.binder.resolve_name(
+                    self.nodes,
+                    self.node_map,
+                    receiver,
+                    &receiver_text,
+                    SymbolFlags::NAMESPACE | SymbolFlags::ALIAS,
+                )
+            };
         for _ in 0..MAX_ALIAS_HOPS {
             let current = at?;
             let current = self.binder.merged_symbol(current);
