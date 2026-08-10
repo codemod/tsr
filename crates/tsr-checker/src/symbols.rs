@@ -818,7 +818,7 @@ impl<'a> Checker<'a, '_> {
     /// [`Checker::resolve_alias`] declines this shape for the printer's sake;
     /// see §686. Resolution itself is `resolveEntityName`, which this port
     /// already has.
-    fn qualified_alias_target(&mut self, symbol: SymbolId) -> Option<SymbolId> {
+    pub(crate) fn qualified_alias_target(&mut self, symbol: SymbolId) -> Option<SymbolId> {
         let declaration = self.declaration_of_alias_symbol(symbol)?;
         let Node::ImportEqualsDeclaration(node) = self.node_map.get(declaration)? else {
             return None;

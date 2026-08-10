@@ -85,6 +85,11 @@ const MAX_CHECK_DEPTH: u32 = 1_000;
 /// for those alone keeps the common node allocation-free.
 const INLINE_CHILDREN: usize = 8;
 
+/// How far an alias chain is followed before the answer is treated as unknown.
+///
+/// Upstream's `resolveAlias` recurses with a cycle guard; this is the bound. §692.
+const MAX_ALIAS_HOPS: usize = 8;
+
 impl Checker<'_, '_> {
     /// Report every diagnostic this port can produce for one source file.
     ///
@@ -4119,12 +4124,61 @@ impl Checker<'_, '_> {
         // other two are TS2709 and TS2749, which the cascade now selects —
         // reachable only since §166 stopped the globals fallback from
         // answering every meaning.
-        if self
-            .binder
-            .resolve_name(self.nodes, self.node_map, node, text, SymbolFlags::TYPE)
-            .is_some()
+        // **An alias is not a resolution; its target is.** `getSymbol`
+        // (`checker.go:1023`) admits an alias under a meaning only when
+        // `resolveAlias(symbol)` carries that meaning, so `import modes =
+        // _modes` does not satisfy a `TYPE` lookup and the cascade below gets
+        // to say TS2709.
+        //
+        // Three things this port must add, each measured against the wrong
+        // column (28 → 5 → 0 lines, §676 / §690 / §691 / §692):
+        //
+        // - `resolve_alias` declines a **qualified** module reference for the
+        //   printer's sake (§686), so `import I = ns.IMode` needs
+        //   [`Checker::qualified_alias_target`].
+        // - **A target that cannot be resolved is silence, not a negative.**
+        //   `import { Unresolved } from "foo"` with an unresolved `"foo"` has
+        //   no target to ask; upstream answers the module error and an error
+        //   type. §25's collapse.
+        // - **The chain is followed to a non-alias.** A re-export resolves one
+        //   hop to another alias, and upstream's `resolveAlias` recurses. The
+        //   last five wrong lines were all `import type` through a re-export.
+        //
+        // §692.
+        if let Some(hit) =
+            self.binder.resolve_name(self.nodes, self.node_map, node, text, SymbolFlags::TYPE)
         {
-            return;
+            // `getSymbol` tests `symbol.Flags & meaning` **first** and only
+            // then falls back to the alias. `import * as B from "./b"` merged
+            // with `interface B {}` carries both, and the interface half is a
+            // correct `TYPE` resolution — following the alias instead reports
+            // on a name that resolves. `noCrashOnImportShadowing` is the
+            // fixture and it was the last two wrong lines. §692.
+            let flags = self.binder.symbols().get(hit).flags;
+            if flags.intersects(SymbolFlags::TYPE) || !flags.intersects(SymbolFlags::ALIAS) {
+                return;
+            }
+            let mut target = Some(hit);
+            for _ in 0..MAX_ALIAS_HOPS {
+                let Some(current) = target else { break };
+                // The same `Flags & meaning` test at **every** hop, not just
+                // the first: `import { B } from "./a"` where a.ts's `B` merges
+                // `import * as B` with `interface B` resolves to a symbol that
+                // carries both, and walking past it reaches the module object
+                // and reports. §692.
+                let flags = self.binder.symbols().get(current).flags;
+                if flags.intersects(SymbolFlags::TYPE) || !flags.intersects(SymbolFlags::ALIAS) {
+                    break;
+                }
+                target =
+                    self.resolve_alias(current).or_else(|| self.qualified_alias_target(current));
+            }
+            let carries_type = target.is_none_or(|resolved| {
+                self.binder.symbols().get(resolved).flags.intersects(SymbolFlags::TYPE)
+            });
+            if carries_type {
+                return;
+            }
         }
         if self.report_meaning_mismatch_in_type_position(node, text) {
             return;

@@ -35633,3 +35633,63 @@ attempt starts from 5 wrong lines rather than 28.
 > the *last* thing.** The number to carry forward is 5, and the owner to carry
 > forward is the import-specifier target — both of which the original refusal
 > got wrong in a way no amount of re-reading §676 would have exposed.
+
+## §692 — the fourth and fifth mechanisms: **+3, zero wrong lines, TS2709 closed**
+
+```
+diagnostics             2,216 → 2,219   (+3, 0 LOST)   40.43%
+extraonly               zero TS2709, TS2708 and TS2304 lines
+TS2709 missing lines    3 → 0     — the row is closed
+```
+
+Five measurements, each removing one mechanism from the wrong column:
+
+```
+§676   the meaning test, bare                                 −7,  28 wrong
+§690   + qualified fallback (§686's tool)                     −6,  28 wrong
+§691   + an unresolvable target is silence (§25)              +0,   5 wrong
+§692a  + follow the alias chain to a non-alias                +2,   2 wrong
+§692b  + test `Flags & meaning` first, then the alias         +2,   1 wrong
+§692c  + test it at **every hop**, not just the first         +3,   0 wrong
+```
+
+The last three are all `getSymbol` (`checker.go:1023`) read more carefully:
+
+```go
+if symbol.Flags&meaning != 0 { return symbol }
+if symbol.Flags&ast.SymbolFlagsAlias != 0 {
+    target := c.resolveAlias(symbol)
+    if target.Flags&meaning != 0 { return symbol }
+}
+```
+
+**The meaning is tested before the alias, and `resolveAlias` recurses.** Two
+lines of Go; three separate measurements here to arrive at both. The fixture that
+forced each is worth recording, because each is a shape the others do not have:
+
+```
+import { Unresolved } from "foo"          — no target at all            §691
+import type { TypeFlag } from './b'       — target is itself an alias   §692a
+import * as B from "./b"; interface B {}  — symbol carries BOTH         §692b
+import { B } from "./a"  (a.ts's B merged) — a *hop* carries both       §692c
+```
+
+§692b and §692c are the same rule applied at different depths, and **the second
+was invisible until the first was fixed** — the merged symbol was reached by
+following a chain that §692a had only just made possible.
+
+### `bd tsr-8esz` was never touched
+
+The binder still hands an alias back for any meaning. **Six cases across two
+codes were blamed on that for sixteen builds; the whole of the fix was in the
+checker**, and TS2709's three have now converted with the binder exactly as
+§676 found it. TS2708's three remain — same rule, value branch, and §689 proved
+its cascade is unreachable for an unrelated reason.
+
+> §691 said *a refused build that moves the wrong column by 82% has failed to
+> find the last thing.* It had in fact failed to find **two** more things, and
+> both were in the same two lines of upstream as the first three. **The lesson is
+> not "read upstream more carefully" — five builds read it — but that a wrong
+> column is a *stack* of mechanisms, and each one hides the next.** The only way
+> through is one repair per measurement, which is what the falsifier discipline
+> buys.
