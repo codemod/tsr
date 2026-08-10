@@ -32554,3 +32554,36 @@ TS1805x +3  TS1194 +4  TS1359 +2  TS1184 +2
 ```
 
 Twelve codes closed of the sixty-two with cases.
+
+## §625 — §624's proposed check does not mechanize
+
+§624 wrote *"every bounded rule this session widens has a dispatch written to
+the old bound"* and that is true; the check it implies is not runnable. Attempted:
+compare each rule's dispatch arms with the `Node::` kinds its body names.
+Fourteen hits, and the top ones are all **correct**:
+
+```
+check_await_as_binding_name   dispatch=[Identifier]   body names FunctionExpression …
+check_index_signature_modifiers dispatch=[IndexSignature] body names ClassDeclaration …
+check_namespace_merge_position  dispatch=[ModuleDeclaration] body names FunctionDeclaration …
+```
+
+Every one names those kinds because it **walks to them** — a parent it tests, a
+declaration it resolves — not because it expects to be dispatched on them.
+
+> **A rule's body mentions the kinds it *inspects* as well as the kinds it *is*,
+> and nothing in the text distinguishes them.** §603's version of this sweep was
+> too narrow and missed `modifiers_of`; this one is too broad and cannot separate
+> a dispatch kind from a walk target. **The class is real and has produced nine
+> measured instances; the search for it is not automatable from the source.**
+
+Recorded as the third and final attempt. What *is* runnable, and what found all
+nine, is the measurement: **a correct rule that measures `+0` is a dispatch or an
+accessor, every time.** That is not a search, it is a diagnosis — and it costs
+one build to reach and one `grep` to confirm.
+
+§576 withdrew a sweep at a 1% signal rate, §603's returned a false null, and this
+one returns false positives. **Three sweeps proposed from measured instances,
+three failures**, against seven sweeps that worked when the domain was small and
+enumerable (§552's binder, §578's scanner, §599's grammar file). The difference
+is whether the thing being enumerated is a *list* or a *property*.
