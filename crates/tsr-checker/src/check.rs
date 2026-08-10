@@ -8426,6 +8426,39 @@ impl Checker<'_, '_> {
         self.report(file, Diagnostic::new(&messages::DECORATORS_ARE_NOT_VALID_HERE, span));
     }
 
+    /// Does this subtree contain an **assignment** to `this.<text>`?
+    ///
+    /// [`Self::subtree_accesses_this_member`] answers *"is `this.x` mentioned at
+    /// all"*, which is what TS2564 needs — for initialisation any mention is
+    /// enough to decline. TS7008 needs the narrower question: upstream infers an
+    /// unannotated member's type from a constructor **assignment**, and
+    /// `console.log(this.test)` gives it nothing. §795 measured the loose helper
+    /// at −3 in that caller.
+    ///
+    /// `docs/architecture/checker-notes-diag2.md` §796.
+    pub(crate) fn subtree_assigns_this_member(&self, node: NodeId, text: &str, depth: u32) -> bool {
+        if depth > 64 {
+            return false;
+        }
+        if let Some(Node::BinaryExpression(binary)) = self.node_map.get(node)
+            && binary.operator_token.is_some_and(|t| t.kind == SyntaxKind::EqualsToken)
+            && let Some(left) = binary.left.and_then(|left| left.node_id())
+            && let Some(Node::PropertyAccessExpression(access)) = self.node_map.get(left)
+            && Self::expression_is_this(access.expression)
+            && matches!(
+                access.name,
+                Some(tsr_ast::MemberName::Identifier(name)) if name.text == text
+            )
+        {
+            return true;
+        }
+        let mut children = Vec::new();
+        if let Some(typed) = self.node_map.get(node) {
+            tsr_ast::for_each_child_id(typed, |child| children.push(child));
+        }
+        children.into_iter().any(|child| self.subtree_assigns_this_member(child, text, depth + 1))
+    }
+
     /// Does the subtree rooted at `node` reach `this.<text>` in any position?
     ///
     /// The decidable part of `isPropertyInitializedInConstructor`

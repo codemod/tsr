@@ -47,6 +47,25 @@ use tsr_diagnostics::{Diagnostic, messages};
 use crate::{check::has_modifier, checker::Checker};
 
 impl Checker<'_, '_> {
+    /// Does the enclosing class's constructor assign `this.<name>`? §796.
+    fn constructor_assigns_this_member(&mut self, member: NodeId, text: &str) -> bool {
+        let Some(class) = self.nodes.parent(member) else { return false };
+        let members = match self.node_map.get(class) {
+            Some(Node::ClassDeclaration(class)) => class.members,
+            Some(Node::ClassExpression(class)) => class.members,
+            _ => return false,
+        };
+        members.iter().any(|each| {
+            let tsr_ast::ClassElement::ConstructorDeclaration(constructor) = each else {
+                return false;
+            };
+            constructor
+                .body
+                .and_then(|body| body.node_id())
+                .is_some_and(|body| self.subtree_assigns_this_member(body, text, 0))
+        })
+    }
+
     /// Every parameter of one function-like declaration that is an implicit
     /// `any`.
     ///
@@ -82,6 +101,7 @@ impl Checker<'_, '_> {
         if self.in_js_file(node) {
             return;
         }
+        let Some(typed_member) = self.node_map.get(node) else { return };
         let (name, annotation, initializer) = match self.node_map.get(node) {
             Some(Node::PropertyDeclaration(property)) => {
                 (property.name, property.r#type, property.initializer)
@@ -104,6 +124,16 @@ impl Checker<'_, '_> {
             tsr_ast::PropertyName::PrivateIdentifier(name) => name.text,
             _ => return,
         };
+        // **A constructor assignment gives an *instance* member its type.**
+        // `getTypeOfPropertyDeclaration` infers from `this.<name> = …`, and
+        // `this.sideLength = sideLength` types the instance member while saying
+        // nothing about `static sideLength` — §797's `staticVisibility2`, where
+        // both exist and only the static one reports. §800.
+        let is_static = crate::check::modifiers_of(typed_member)
+            .is_some_and(|m| tsr_ast::has_syntactic_modifier(m, SyntaxKind::StaticKeyword));
+        if !is_static && self.constructor_assigns_this_member(node, text) {
+            return;
+        }
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
         let span = self.error_span(node);
         self.report(

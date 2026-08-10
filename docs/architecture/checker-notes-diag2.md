@@ -40338,3 +40338,54 @@ annotation.
 **Stopped and priced: 2 wrong lines, 1 case**, with that measurement named.
 Owner: this workstream, and the note is complete enough that the fifth attempt
 starts from a `diagcase` rather than from a hypothesis.
+
+## §800 — the correction: §796–§799 were **strict improvements**, reverted three times
+
+`diagcase` on `tsxElementResolution` — §799's named measurement, which needs no
+build — shows the port emitting **nothing** there. The two expected lines are
+
+```ts
+interface IntrinsicElements {
+    'string_named';    // (4,3)
+    'var';             // (5,3)
+}
+```
+
+string-literal-named property signatures, which `check_implicit_any_member`'s
+name extraction returns on. **They are missing at baseline and have been all
+along.**
+
+```
+true baseline      wrong 5,  missing 2
+§798 / §799        wrong 2,  missing 2      — strictly better
+```
+
+### What went wrong, and it was not the code
+
+Every one of §796, §798 and §799 measured `missing 0 → 2` or `0 → 3` **against a
+number I never re-took**. `diagmissing 7008` was last run before the row began;
+each build compared its result to that stale figure, read a rise, and reverted a
+change that had not caused one. **Three reverts of an improvement, from one
+unmeasured baseline.**
+
+> The session's own rule covers this exactly — §629: *"the closing number comes
+> from a post-build `diagmissing`"* — and I applied it to the **closing** number
+> every time while taking the **opening** one from memory. §775 found the same
+> asymmetry for residues and wrote *"the number and the residue come from the
+> same command and I have been treating only one of them as measured."* **Here
+> it is the before and the after of one column.**
+>
+> **A delta needs two measurements and I have been taking one.**
+
+### Shipped
+
+```
+diagnostics             2,300 → 2,300   (+0, 0 LOST)
+extraonly               TS7008 wrong lines 5 → 2
+TS7008 missing lines    2 → 2, unchanged
+```
+
+Kept: three wrong lines removed with nothing lost, and §794's helper, §796's
+narrowing and §797's static exclusion are all correct as written. The row's
+residue is two string-literal-named signatures — **an extraction arm, not a flow
+question**, and the first time in five attempts that is visible.
