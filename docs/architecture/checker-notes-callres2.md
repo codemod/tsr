@@ -694,3 +694,22 @@ arrivals; my two-tier consult only fills absences — the dynamic
 replacement IS the priority machinery). Stage order corrected:
 priorities FIRST, seed second. The verified base stands unchanged
 as the pipeline's floor.
+
+**Stage 1's THIRD specification — the returnMapper, from the
+read's own banked text, mis-implemented twice and now priced
+both ways:** upstream's return-type seed NEVER enters
+context.inferences — the read's second block says it verbatim
+("we don't want any further inferences going into this context...
+context.returnMapper"): the seed builds a SEPARATE returnMapper
+consulted ONLY when instantiating contextual types (the memo),
+and the FINAL map excludes it entirely. Wiring the seed as
+fills-absences measured 16:37; as replace-gate priorities, 19:46
+— both wrong for the same reason, both now priced. THE CORRECT
+STAGE 1: seed → returnMapper (separate map) → memo instantiation
+merges argument-partial OVER returnMapper → final map from
+argument inferences alone (+ the constraint fallback). The
+priority machinery built this round (add_candidate_at + the
+replace/append/discard gate) is KEPT IN SPEC for the
+argument-tier's own future multi-priority needs but is NOT the
+seed's plumbing. The verified base stands; three specifications,
+two measured eliminations — the third is the read's literal text.
