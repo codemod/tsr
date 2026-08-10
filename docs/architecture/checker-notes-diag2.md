@@ -44104,3 +44104,48 @@ correction explains the gap: `want − have` counts lines of a code, not unmatch
 positions, and 320 of those wanted lines are in cases whose other diagnostics
 differ. **The row is finished as far as this workstream can finish it**, and the
 `diagemit` number will not reach `want` until those cases pass for other reasons.
+
+## §887 — TS2397 is for the declarations that are **not** types
+
+```ts
+class undefined { foo: string }        // TS2414   Class name cannot be 'undefined'
+interface undefined { member: number } // TS2427   Interface name cannot be 'undefined'
+namespace undefined { export var x }   // TS2397   Declaration name conflicts with built-in global
+```
+
+Three declarations of one name, three different codes, and this port emits
+TS2397 on the **class** — where TS2414 already spoke — and not on the namespace.
+
+`addUndefinedToGlobalsOrErrorOnRedeclaration` (`checker.go:1452`):
+
+```go
+for _, declaration := range targetSymbol.Declarations {
+    if !ast.IsTypeDeclaration(declaration) {
+        c.addDiagnostic(createDiagnosticForNode(declaration, Declaration_name_conflicts_with_built_in_global_identifier_0, name))
+    }
+}
+```
+
+`IsTypeDeclaration` (`ast/utilities.go:3585`) is a closed list — type parameter,
+class, interface, type alias, enum, and the type-only import/export forms — and
+each of those kinds has its **own** message for this name. The port's rule has no
+such exclusion, so it speaks over TS2414 and TS2427 and stays silent where it is
+the only speaker.
+
+> **Fifth of §875's class**, and the first found in the *missing* column rather
+> than the duplicate one: the same node carries a right diagnostic and a wrong
+> one, and the wrong one displaces nothing — it just sits there, while the right
+> position goes unreported. `diagdup` calls this a DUPLICATE at one position and
+> `diagmissing` calls it a gap at another; **neither view says they are the same
+> rule**, and the case is in §871's convertible eight because `extraonly` saw the
+> extra.
+
+```
+bar:  +1 (undefinedTypeAssignment4),  0 LOST via `diagpass`,  extraonly 78 -> 77
+```
+
+### Falsifiers
+
+1. **TS2414's or TS2427's rows move.** They are the messages this defers to.
+2. **A top-level `var undefined` stops reporting.** A variable is not a type
+   declaration and is exactly what this arm is for.

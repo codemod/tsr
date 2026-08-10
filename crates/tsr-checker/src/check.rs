@@ -1721,6 +1721,22 @@ impl Checker<'_, '_> {
                 _ => return,
             }
         }
+        // **`if !ast.IsTypeDeclaration(declaration)`** (`checker.go:1457`).
+        // The excluded kinds each have their own message for this name — a
+        // class is TS2414, an interface TS2427 — and without the exclusion this
+        // rule speaks over both and stays silent on the namespace, which is the
+        // one declaration it is for. `IsTypeDeclaration` is a closed list at
+        // `ast/utilities.go:3585`. §887.
+        if matches!(
+            self.nodes.kind(node),
+            SyntaxKind::TypeParameter
+                | SyntaxKind::ClassDeclaration
+                | SyntaxKind::InterfaceDeclaration
+                | SyntaxKind::TypeAliasDeclaration
+                | SyntaxKind::EnumDeclaration
+        ) {
+            return;
+        }
         let span = self.error_span(name);
         self.report(
             file,
