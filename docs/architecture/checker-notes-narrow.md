@@ -5727,3 +5727,26 @@ adjacent unions the CONSTANT flag doesn't cover at this seam).
 pair: the priced genericContextualTypes1 5 R→W were BOUGHT BACK by
 callres2-§134's returnMapper guard — the two lanes' rules compose
 to zero there, and the §133 record's price row is settled.
+
+## §135 — OPENER (sized, not built): generator return inference
+
+The board's FUNCTION declaration-name row (833 gap lines; near-miss
+204 cases) concentrates in generatorReturnTypeInference{,NonStrict}
+(21+21) and spreads wide. The wants are `checkFunctionExpression`'s
+generator half: `function* g() { yield 1 }` declares
+`() => Generator<number, void, any>` (strict: `unknown` third
+argument) — YIELD-type collection over the body (yield operands
+unioned; `yield*` delegates through the operand's iterator type),
+RETURN-type from return statements (void when none), and the
+NEXT-type from yield-expression CONTEXTUAL positions (the
+`[(1 | undefined)?, ...]` tuple wants show upstream unioning the
+observed next-usages). Mint: the global `Generator` (arity 3) via
+`global_type_symbol_with_arity`, `IterableIterator` for the
+down-level flavors. The cheap first slice: yield-operand union +
+return-void + `any`/`unknown`-by-strict next — the two head cases'
+simple functions. The generic and delegate forms
+(`<T>(x: T) => Generator<T, T, T>`, `yield*`) are later arms.
+Entry: `check_function_expression`'s return-type computation
+(wherever the non-generator inferred return lives — the
+`function_types.rs`/signatures seam). NOT built this window; the
+sizing is the deliverable.
