@@ -34372,3 +34372,89 @@ written by the same hand nine builds earlier.
 grammar family    +43   twenty-four codes closed of sixty-two with cases
 session total     +743  80 → 2,198, 27.5×
 ```
+
+## §666 — TS2540: assigning to a private accessor with no setter
+
+```ts
+class A {
+    get #roProp() { return ""; }
+    constructor() { this.#roProp = ""; }   // TS2540
+}
+```
+
+`isAssignmentToReadonlyEntity` (`checker.go:11376`) calls it readonly because the
+symbol is an accessor pair with a getter and **no setter**. For a *private* name
+that is decidable from the class's own members — the same move §628 made for
+TS18014, and §580's shape for the sixth time.
+
+Also recorded here: **§652's sweep is exhausted at one hit.** Its two untested
+members were re-checked after §665 warned against dismissing candidates:
+
+```
+check_implicit_any_return    does not gate on `ambient` at all
+check_get_accessor_returns   gates on it, but also requires a body — an ambient
+                             accessor has none, so the guard is redundant, not wrong
+```
+
+Neither is §664's shape. **The sweep listed six, one was a defect, and the other
+five are now checked rather than assumed** — which is what §665 said the
+dismissal had skipped.
+
+```
+bar:  +1 of 1 (privateNameAccessors),  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **`this.#prop = ""` reports**, where `#prop` has a setter — the fixture's own
+   control, one line above the error.
+2. **A read of `this.#roProp` reports.** Only an assignment target.
+3. **TS18013's or TS18014's rows move.** Both read the same class members.
+
+## §667 — §666 built: **+0 on the board, −1 missing line**, kept
+
+```
+diagnostics             2,198 → 2,198
+TS2540 missing lines    8 → 7
+extraonly               zero TS2540, TS18013 and TS18014 lines
+```
+
+`diagcase` shows the line emitted at exactly the baseline's position:
+
+```
+-- actual --
+  privateNameAccessors.ts(9,14) TS2540
+```
+
+so the path runs and produces a right line — §596's condition for keeping a
+`+0`, met for the second time this session. The case does not convert because it
+carries another missing code.
+
+> **Six `+0` builds, five kept and one reverted**, and the discriminator has held
+> every time: `§539 ×2` and `§649` read an input where upstream reads it, `§545`
+> and `§557` transcribe an arm upstream runs, `§595` and `§666` move a line —
+> and `§567`, `§586`, `§590`, `§656` could show none of those and went back.
+> **`+0` is not one outcome; it is four, and `diagmissing` and `diagcase`
+> separate them.**
+
+### §652's sweep, closed properly
+
+Its two untested members were re-checked here rather than assumed:
+
+```
+check_implicit_any_return    does not gate on `ambient` at all
+check_get_accessor_returns   gates on it and also requires a body, so an ambient
+                             accessor returns anyway — redundant, not wrong
+```
+
+**One defect in six rules, and the other five are now checked.** §665 said the
+dismissal had skipped that work; it is done.
+
+### §580's shape, sixth row
+
+```
+§580 TS2347 · §563 TS2310 · §628 TS18014 · §630 TS18014 · §636 TS1169 · §666 TS2540
+```
+
+A private accessor pair's writability is a fact about the class's member list,
+and upstream reads it off a symbol. **Six rows, no type-side work.**

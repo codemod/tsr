@@ -394,6 +394,61 @@ impl Checker<'_, '_> {
         );
     }
 
+    /// TS2540 — `Cannot assign to '{0}' because it is a read-only property.`
+    ///
+    /// `isAssignmentToReadonlyEntity` (`checker.go:11376`) for a **private
+    /// accessor pair with a getter and no setter**, which is decidable from the
+    /// declaring class's own members. §580's shape; §628 made the same move for
+    /// TS18014. §666.
+    pub(crate) fn check_private_accessor_is_writable(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let Some(Node::BinaryExpression(binary)) = self.node_map.get(node) else { return };
+        if binary.operator_token.is_none_or(|t| !t.kind.is_assignment_operator()) {
+            return;
+        }
+        let Some(left) = binary.left.and_then(|left| left.node_id()) else { return };
+        let Some(Node::PropertyAccessExpression(access)) = self.node_map.get(left) else { return };
+        let Some(tsr_ast::MemberName::PrivateIdentifier(name)) = access.name else { return };
+        let Some(class) = self.nearest_class_declaring_private_name(left, name.text) else {
+            return;
+        };
+        let members: &[tsr_ast::ClassElement<'_>] = match self.node_map.get(class) {
+            Some(Node::ClassDeclaration(n)) => n.members,
+            Some(Node::ClassExpression(n)) => n.members,
+            _ => return,
+        };
+        let matches_name = |member_name: tsr_ast::PropertyName<'_>| matches!(member_name, tsr_ast::PropertyName::PrivateIdentifier(p) if p.text == name.text);
+        let mut reads = false;
+        let mut writes = false;
+        for member in members {
+            match member {
+                tsr_ast::ClassElement::GetAccessorDeclaration(n) if matches_name(n.name) => {
+                    reads = true;
+                }
+                tsr_ast::ClassElement::SetAccessorDeclaration(n) if matches_name(n.name) => {
+                    writes = true;
+                }
+                _ => {}
+            }
+        }
+        if !reads || writes {
+            return;
+        }
+        let Some(at) = name.node_id else { return };
+        let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
+        let span = self.nodes.span(at);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::CANNOT_ASSIGN_TO_0_BECAUSE_IT_IS_A_READ_ONLY_PROPERTY,
+                span,
+                [name.text.to_string()],
+            ),
+        );
+    }
+
     /// The nearest enclosing class that declares `text`. §628.
     fn nearest_class_declaring_private_name(&self, node: NodeId, text: &str) -> Option<NodeId> {
         self.nodes

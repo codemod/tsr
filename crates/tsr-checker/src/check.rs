@@ -411,6 +411,7 @@ impl Checker<'_, '_> {
                 if binary.operator_token.is_some_and(|t| t.kind == SyntaxKind::EqualsToken) {
                     self.check_assignment_operator(binary, ambient);
                 }
+                self.check_private_accessor_is_writable(node);
                 self.check_reference_expression(node);
                 ambient
             }
