@@ -37933,3 +37933,56 @@ upstream's `if`.
 TS2364 and TS2703 did not move. The helper was complete at §181 and has needed
 nothing since — **only its callers were ever missing**, which is what §740 said
 before the gate turned out to matter more.
+
+## §742 — the discarded-verdict category, swept and closed
+
+§741 found a ported function that computed upstream's `ok` and returned `()`.
+That is a category, so it was swept.
+
+### By name: it does not work in this port
+
+```
+upstream `check*` functions returning bool   83
+matched to a port by snake-cased name         1
+```
+
+**This port renames.** `checkFunctionOrConstructorSymbol` is
+`check_function_or_constructor_symbol`, but `checkAndReportErrorForUsingNamespaceAsTypeOrValue`
+is `report_meaning_mismatch_in_value_position`, and most of the interesting ones
+are the second kind. A name-based cross-reference finds one in eighty-three.
+
+### By anchor: it does
+
+```
+anchors pointing into a bool-returning upstream function   56
+whose nearest ported item returns `()`                     28
+```
+
+Every ported item names its upstream counterpart in a doc comment
+(`docs/conventions.md`), and `cargo xtask anchors` keeps 2,770 of them resolving.
+**That convention is what made this sweep possible at all**, and it is the first
+time this session it has been used as an index rather than as documentation.
+
+Twenty-eight of the fifty-six are false positives of the heuristic — an anchor
+in a doc comment near a helper that is not a port of that function
+(`skip_reference_spine` beside `checkReferenceExpression`'s anchor, `push` beside
+`isThislessInterface`'s). The real question was asked of the remainder.
+
+### The answer is that the category is closed
+
+Only **two** upstream sites gate a *diagnostic* on a verdict, and both are
+`checkArithmeticOperandType` at `checker.go:10899` and `:10915` — the prefix and
+postfix increment forms §741 fixed together.
+
+The binary sibling (`:12380`) computes `leftOk`/`rightOk` and gates the **result
+type** on them, not another error:
+
+```go
+leftOk  := c.checkArithmeticOperandType(left,  …)
+rightOk := c.checkArithmeticOperandType(right, …)
+var resultType *Type
+```
+
+so nothing on the diagnostics side depends on it. **A category worth re-asking,
+asked, and closed at two members** — §733's lesson, and the second time this
+session that a cheap second question returned a firm negative rather than a row.
