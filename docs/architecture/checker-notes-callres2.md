@@ -1365,3 +1365,16 @@ per-constituent print inside narrowed_constituent for ONE failing row
 (lhs2 × the class-static rhs), which decides lookup-vs-ladder in one
 run. Family holds at 391 R / 2 G / 48 W; the arc's five landings
 (+104) all stand.
+
+## §148.3 — the trace ran: the remainder is BOOLEAN-hasInstance semantics
+
+The banked one-print trace decided lookup-vs-ladder in one run:
+`predicate=None` for every failing pairing — and that answer is
+CORRECT, because the failing rhs are Rhs7/8/9, the BOOLEAN-returning
+hasInstance shapes. The 48-W remainder is therefore the third
+semantics: what upstream narrows `x instanceof RhsN` to when
+hasInstance returns plain boolean (the wants suggest the method's
+PARAMETER domain participates). Anchor to read first next session:
+`narrowTypeByInstanceof`'s hasInstance half in flow.go — the boolean
+branch, not the predicate branch. The lookup road and the ladder are
+both exonerated; the arc's five landings stand.
