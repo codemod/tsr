@@ -43456,3 +43456,81 @@ bar:  +1 (parserIndexMemberDeclaration9),  0 LOST via `diagpass`,  extraonly 81 
 
 1. **TS1031's row loses a case.** The deferral is scoped to index signatures.
 2. **TS1071 stops firing.** It is the arm being deferred *to*.
+
+## §872 — TS2465 is a **class** computed name, not any computed name
+
+```ts
+function foo() { var obj = { [this.bar]: 0 } }
+```
+
+```
+expected   TS2683   'this' implicitly has type 'any'
+actual     TS2465   'this' cannot be referenced in a computed property name
+           TS2683
+```
+
+`checkThisExpression`'s container loop (`checker.go:12086`):
+
+```go
+if ast.IsComputedPropertyName(container) {
+    container = ast.GetThisContainer(container, !capturedByArrowFunction, false /*includeClassComputedPropertyName*/)
+    thisInComputedPropertyName = true
+    continue
+}
+```
+
+The flag is set only when the **container** is a computed property name — and
+`GetThisContainer`'s third argument, `includeClassComputedPropertyName`, is what
+decides whether a computed name counts as a container at all. Passed `false`
+here, an **object literal's** computed name is transparent: the container of
+`this` in `{ [this.bar]: 0 }` is `foo` directly, the arm never runs, and the
+`this` is an ordinary implicitly-any `this` — TS2683.
+
+This port's rule asks whether **any ancestor** is a `ComputedPropertyName`, which
+is true in both shapes.
+
+> §500 ported this arm from upstream's *reporting* line and not from the walk
+> above it, and the walk is where the discrimination lives. **A diagnostic's
+> condition is rarely on the line that emits it** — §861, §867 and this are the
+> third, fourth and fifth times this session the deciding test was above the
+> `c.error`, in a loop or a guard the port had flattened away.
+
+```
+bar:  +1 (computedPropertyNames18_ES6),  0 LOST via `diagpass`,  extraonly 80 -> 79
+```
+
+### Falsifiers
+
+1. **A class computed name stops reporting.** `class C { [this.x]: number }` is
+   the shape the arm is *for*.
+2. **TS2331's row moves.** §103 records that this rule's firing is what makes
+   `check_this_in_module_body` decline.
+
+## §873 — §872 built: **+1/−0**, and the fifth time the condition was above the emit
+
+```
+diagnostics   2,342 → 2,343   (bar was +1;  +1)   42.69%
+diagpass      LOST: (none)   GAINED: conformance/computedPropertyNames18_ES6
+extraonly     80 → 79
+TS2331        still 0 blocked   — falsifier 2 negative
+```
+
+Six of the eight convertible cases remain, and the pattern across the three
+worked so far is the same one:
+
+```
+§857   TS1042 beside TS1089   the chain's `return` was lost when the arm moved out
+§871   TS1031 beside TS1071   the same, one function away
+§872   TS2465 beside TS2683   the walk above the `c.error` was flattened away
+```
+
+> **Every one of these is a suppression that lived in upstream's control flow
+> rather than in its conditions**, and every one was lost the same way: the arm
+> was ported from the line that emits the diagnostic. That line is faithful in
+> all three cases. **A port that reads `c.error(...)` and its enclosing `if` has
+> read the sufficient condition and not the necessary one**, and nothing in this
+> workstream's instruments sees the difference until two rules land on one
+> column.
+
+`diagdup` is the instrument that sees it, and it took 873 sections to build
+because the shape only becomes visible once enough rules exist to collide.

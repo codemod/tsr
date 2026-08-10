@@ -2754,11 +2754,28 @@ impl Checker<'_, '_> {
         if self.file_has_parse_errors {
             return false;
         }
-        if !self
-            .nodes
-            .ancestors(node)
-            .any(|ancestor| self.nodes.kind(ancestor) == SyntaxKind::ComputedPropertyName)
-        {
+        // **A class computed name, not any computed name.** Upstream's walk
+        // (`checker.go:12086`) sets the flag only when the *container* is a
+        // computed property name, and `GetThisContainer` is passed
+        // `includeClassComputedPropertyName: false` — so an object literal's
+        // computed name is transparent and the `this` inside it is an ordinary
+        // implicitly-any `this` (TS2683). §500 ported this arm from the line
+        // that emits it rather than from the walk above it. §872.
+        let in_class_computed_name = self.nodes.ancestors(node).any(|ancestor| {
+            self.nodes.kind(ancestor) == SyntaxKind::ComputedPropertyName
+                && self.nodes.parent(ancestor).is_some_and(|member| {
+                    self.nodes.parent(member).is_some_and(|owner| {
+                        matches!(
+                            self.nodes.kind(owner),
+                            SyntaxKind::ClassDeclaration
+                                | SyntaxKind::ClassExpression
+                                | SyntaxKind::InterfaceDeclaration
+                                | SyntaxKind::TypeLiteral
+                        )
+                    })
+                })
+        });
+        if !in_class_computed_name {
             return false;
         }
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return true };
