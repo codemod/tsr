@@ -41031,3 +41031,91 @@ writes inside a larger function:
 > with other grammar checks are the cheapest thing left in this corpus**, and the
 > filter finds them by name because a fixture written for a grammar rule is named
 > after the rule.
+
+## §815 — the 1-case grammar tail, and a code the AST cannot express
+
+§814's filter is 3/3 on the ≤2-case rows, so it was run over the **194 one-case
+rows** — thirteen in the grammar range, four of which name a rule:
+
+```
+TS1113  switchStatementsWithMultipleDefaults1   a `default` clause cannot appear more than once
+TS1098  classWithEmptyTypeParameter             type parameter list cannot be empty
+TS1066  ambientEnum1                            ambient enum member must be a constant
+TS1040  asyncDeclare_es6                        `async` in an ambient context
+```
+
+### TS1098 is not representable, and the reason is ADR-0003's
+
+```go
+func (c *Checker) checkGrammarTypeParameterList(typeParameters *ast.NodeList, …) bool {
+    if typeParameters != nil && len(typeParameters.Nodes) == 0 {
+```
+
+The guard is *present but empty*. This port's `ClassDeclaration` holds
+
+```rust
+pub type_parameters: &'a [&'a TypeParameterDeclaration<'a>],
+```
+
+— a bare slice, so **`class C<>` and `class C` are the same tree.** The
+distinction upstream tests is erased at parse, not lost at check, and no rule in
+`tsr-checker` can recover it.
+
+> This is the first code refused because the **AST cannot express its
+> precondition**, as opposed to §641's span model, which expresses it one column
+> off. The fix is a `tsr-ast` one — an `Option<&[…]>` or a parser-recorded
+> empty-list span — and it is `tsr-ast`'s to make, not this workstream's. The
+> same erasure covers every `checkGrammarTypeParameterList` caller: class,
+> interface, type alias, and every signature.
+
+**Refused, owner `tsr-ast`, priced at 1 case.** Recorded in `STATUS.md` §5 with
+the number.
+
+### TS1113 — the second `default:` and no others
+
+```go
+if ast.IsDefaultClause(clause) && !hasDuplicateDefaultClause {
+    if firstDefaultClause == nil { firstDefaultClause = clause } else {
+        c.grammarErrorOnNode(clause, A_default_clause_cannot_appear_more_than_once…)
+        hasDuplicateDefaultClause = true
+    }
+}
+```
+
+The fixture has **three** `default:` clauses and the baseline has **one** line —
+`hasDuplicateDefaultClause` is a latch, so only the *second* reports. A count of
+duplicates would emit two lines and lose the case; §762's duplicate-index rule
+went the other way (report every one) and this is the mirror, which is why the
+latch is read off upstream rather than assumed either way.
+
+```
+bar:  +1 of 1 (switchStatementsWithMultipleDefaults1),  0 LOST,  WRONG delta <= 0
+```
+
+### Falsifiers
+
+1. **A switch with one `default:` reports.** Every switch in the corpus.
+2. **Two lines on this fixture.** That is the latch misread.
+3. **TS1114's row moves.** *"Duplicate label"* is a different latch.
+
+## §816 — §815 built: **+1 of 1**, row closed; the latch held
+
+```
+diagnostics             2,313 → 2,314   (bar was +1;  +1, 0 LOST)   42.16%
+extraonly               zero TS1113, zero TS1114
+TS1113 missing lines    1 → 0     — the row is closed
+```
+
+Three `default:` clauses, **one** diagnostic. The latch was read off upstream and
+not assumed; a count would have emitted two lines and lost the case outright.
+
+> §762 reports **every** duplicate index signature and §815 reports **only the
+> second** duplicate default clause. Neither is derivable from the other and both
+> are two lines of Go. **The shape of a duplicate rule is a fact about the rule,
+> not about duplicates**, and this is the second row this session where reading
+> the loop's own state variable was the whole build.
+
+The arm was not in the dispatch — `Node::SwitchStatement` appears there only in a
+grouped `|` arm — so the check hangs off `check_switch_case_comparable`, which
+already had the node. §711's rule again, and it cost one failed edit rather than
+a wrong-function landing because the assertion caught it.

@@ -3372,11 +3372,46 @@ impl Checker<'_, '_> {
     /// naming a **class**. A constructor object always carries `prototype`, so
     /// the empty-interface escape that made §409 decline TS2411 does not apply
     /// here. §414.
+    /// TS1113 — `A 'default' clause cannot appear more than once in a 'switch'
+    /// statement.`
+    ///
+    /// `hasDuplicateDefaultClause` is a **latch** (`checker.go:4180`): only the
+    /// *second* `default:` reports, however many follow. §762's duplicate-index
+    /// rule reports every one instead — the two are read off upstream rather
+    /// than assumed either way.
+    ///
+    /// `docs/architecture/checker-notes-diag2.md` §815.
+    fn check_duplicate_default_clause(&mut self, statement: &tsr_ast::SwitchStatement<'_>) {
+        let Some(case_block) = statement.case_block else { return };
+        let mut seen_default = false;
+        for clause in case_block.clauses {
+            let Some(id) = tsr_ast::Node::from(*clause).node_id() else { continue };
+            if self.nodes.kind(id) != SyntaxKind::DefaultClause {
+                continue;
+            }
+            if seen_default {
+                if let Some(file) = self.source_file_of_for_diagnostics(id) {
+                    let span = self.error_span(id);
+                    self.report(
+                        file,
+                        Diagnostic::new(
+                            &messages::A_DEFAULT_CLAUSE_CANNOT_APPEAR_MORE_THAN_ONCE_IN_A_SWITCH_STATEMENT,
+                            span,
+                        ),
+                    );
+                }
+                return;
+            }
+            seen_default = true;
+        }
+    }
+
     fn check_switch_case_comparable(&mut self, node: NodeId) {
         if self.file_has_parse_errors {
             return;
         }
         let Some(Node::SwitchStatement(statement)) = self.node_map.get(node) else { return };
+        self.check_duplicate_default_clause(statement);
         let Some(expression) = statement.expression else { return };
         let switch_type = self.check_expression(expression);
         let widened = self.get_base_type_of_literal_type(switch_type);
