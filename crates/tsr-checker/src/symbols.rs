@@ -2817,7 +2817,20 @@ impl<'a> Checker<'a, '_> {
         if self.combined_node_flags(declaration).intersects(NodeFlags::CONSTANT) {
             return id;
         }
-        let widened = self.get_widened_literal_type(id);
+        // §134 iteration 2: the UNION arm of `getWidenedLiteralType`
+        // (checker.go:25499, `mapType`) applied at THIS road only — the
+        // whole-function form measured 45:80 inverted (return-inference
+        // and array-literal consumers keep their union literals; the
+        // initializer is where `1 | T` declares as `number | T`).
+        let widened = if let crate::types::TypeData::Union { types, .. } = &self.store.get(id).data
+        {
+            let constituents = types.clone();
+            let mapped: Vec<_> =
+                constituents.iter().map(|&c| self.get_widened_literal_type(c)).collect();
+            if mapped == constituents { id } else { self.get_union_type(&mapped) }
+        } else {
+            self.get_widened_literal_type(id)
+        };
         // §65 (keyed on the decoded axis): under `noImplicitAny` the
         // `undefined`-identifier initializer widens to `any`
         // (`controlFlowNoImplicitAny`); without the flag it keeps

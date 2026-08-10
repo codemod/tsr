@@ -5714,3 +5714,16 @@ through the same function and rebuilds with `get_union_type`.
 whose SPELLING the rebuild loses (§77-family) — if the rebuild
 drops a written order that widening should keep, the arm needs the
 §53 origin carriage before it lands.
+
+**§134 MEASURED AND LANDED at iteration 2 — +34 W→R / 2 R→W (17:1),
+scoped to the INITIALIZER road.** The whole-function union arm
+measured 45:80 INVERTED — `getWidenedLiteralType`'s consumers are
+position-sensitive in this port (return-type inference and the
+array-literal roads rely on the union passthrough), so the mapType
+arm lives in `get_widened_literal_type_for_initializer` alone.
+Priced residue: constAssertions 1 + literalTypeWidening 1 (as-const
+adjacent unions the CONSTANT flag doesn't cover at this seam).
+§133's ledger annotation, confirmed by the other lane's merged
+pair: the priced genericContextualTypes1 5 R→W were BOUGHT BACK by
+callres2-§134's returnMapper guard — the two lanes' rules compose
+to zero there, and the §133 record's price row is settled.
