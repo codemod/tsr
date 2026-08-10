@@ -1104,3 +1104,22 @@ detector, and no assertion-to-any manufacture appeared in the
 pair. The arc's running total (§152+§153+§154): +295 net across
 three dispatch arms, each a one-read landing — the §116 lesson's
 complement: arms with NAMED consumer populations land at ratio.
+
+## §155 — NewExpression argument context through the arity road [claimed: checker-1]
+
+Probed (SS155): call arguments type through
+contextual_type_for_argument; NEW arguments decline (`new K((n) =>
+"x")` answers error/any beside the identical call shape typing).
+Upstream reaches both through resolveCall; this port's §90 arity
+road already extracts THE SOLE NON-GENERIC CONSTRUCTOR's written
+annotations positionally (`sole_constructor_parameters`, base-hop
+and overload rules measured in call_arity.rs). The arm: reuse it —
+argument index → annotation → type_from_annotation_id, declining
+wherever check_argument_types is false (generic/overloaded), no
+type_arguments, spreads decline positionally by the same rule the
+arity check uses. **Bar: ≥20 net at ≥5:1.** Falsifiers: (a) the
+recursion the module doc guards (resolve-while-checking) is never
+entered — the arity road reads declarations, not signatures;
+(b) derived-class constructors through base hops carry the §343
+two-endings rule — a fired falsifier there shows as wrong
+parameter types in derived `new`s.
