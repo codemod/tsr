@@ -1041,3 +1041,17 @@ gate-condition changes. **Bar: ≥30 net at ≥5:1.** Falsifiers:
 arm and decline; (b) self-referential lefts (`f = () => f()`)
 must not cycle — the guard's job, watch for stack growth;
 (c) JS files decline whole (§98's carve).
+
+**Score: +167 / 12 adverse (13.9:1) — LANDED.** 78 G→R + 89 W→R:
+assignmentCompatBug2 32, contextualTyping 40 across both columns,
+targetTypeTest1 12, generatedContextualTyping 6, the rest spread
+thin — the §116 lesson inverted: this arm HAS a consumer
+population because assignment-positioned arrows are everywhere.
+The 12 adverse (thisTypeInFunctions 10, looseThis 2): lefts whose
+signature carries an explicit `this` parameter — the contextual
+signature types the arrow but the arrow's PRINT drops the
+inherited `this` (`(this: void, x: number) => number` wanted,
+`(x: number) => number` printed). Priced within ratio; the
+this-carriage into contextual arrow prints is a named residue,
+NOT a falsifier firing — falsifiers (a) compound ops and (c) JS
+were exercised by the corpus and held.

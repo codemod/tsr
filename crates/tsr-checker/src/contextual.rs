@@ -410,6 +410,28 @@ impl<'a> Checker<'a, '_> {
                 Some(self.get_type_from_type_node(annotation))
             }
             Node::CallExpression(call) => self.contextual_type_for_argument(call, node),
+            // §152 (`checker-notes-ctx.md`): `getContextualTypeForBinaryOperand`'s
+            // equals arm (`checker.go:29809`) — the RIGHT operand of plain `=`
+            // answers the LEFT operand's type. The §98 walk built the same
+            // rule for object-literal members; this is it at the dispatch
+            // site, with the same reentrancy guard and JS-file decline.
+            Node::BinaryExpression(binary) => {
+                if binary
+                    .operator_token
+                    .is_none_or(|token| token.kind != tsr_ast::SyntaxKind::EqualsToken)
+                    || binary.right.and_then(|e| e.node_id()) != Some(node)
+                    || self.in_js_file(node)
+                {
+                    return None;
+                }
+                let left = binary.left?;
+                if !self.narrow_value_stack.insert(parent) {
+                    return None;
+                }
+                let checked = self.check_expression(left);
+                self.narrow_value_stack.remove(&parent);
+                (checked != self.intrinsics.error).then_some(checked)
+            }
             // SS115: a ternary BRANCH answers the conditional's own context;
             // the CONDITION answers nil
             // (getContextualTypeForConditionalOperand, checker.go:30022).
