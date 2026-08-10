@@ -1352,3 +1352,16 @@ family, +1 typeGuardIntersectionTypes kin). Family stands 48 W —
 walls (2)-(3) closed; the remainder is the member-id interning
 question (same-name members interned per-site defeating the identical-
 id inclusion test) plus rhs-shape any-arms, next census.
+
+## §148.2 — two zero-measured hypotheses, reverted; the 48-W remainder needs a per-row trace
+
+The owner-identity arm and the type-identity arm both measured ZERO on
+the remaining 48 (each reverted under the +0 rule). The remainder is
+NOT the interning question as guessed — the failing rows' narrowing
+never reaches the member rung at all (likely: the predicate LOOKUP
+fails for those rhs/lhs pairings, or a different flow road serves the
+un-narrowed union). Next session's first move on this family: a
+per-constituent print inside narrowed_constituent for ONE failing row
+(lhs2 × the class-static rhs), which decides lookup-vs-ladder in one
+run. Family holds at 391 R / 2 G / 48 W; the arc's five landings
+(+104) all stand.
