@@ -6001,3 +6001,18 @@ export= import-call flavors 2. The arm-2 pool's remaining ~1,000
 import-spelling lines split between checkExportsObjectAssign (JS
 exports), ramdaTools' inference carriers, and true per-site
 annotation positions.
+
+**Body-side `this` trace (window close): the ThisKeyword row's 511
+is NOT a standalone-print head — zero `this : X` assertion lines
+are non-right; the row counts `this`-RECEIVERS inside larger
+gapping expressions (`this.x` in object-literal methods and
+callback bodies). Their owner is the same pair of walls the other
+lane's §139-callres2 refusal traced: `getContextualThisParameterType`
+(unported, the fall-through this port's check_this_expression
+documents) and the POLYMORPHIC thisType model (apparent-type
+instantiation of `this: this`). THREE roads now converge on the
+one subsystem — the §139 print slot, the body-side receivers, and
+§127's asserts-this — which makes the thisType model the next
+properly-sized subsystem bar for whichever lane opens it (est.
+500+ lines across the three consumers). Recorded; not opened this
+window.**
