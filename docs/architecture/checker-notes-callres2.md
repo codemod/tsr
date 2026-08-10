@@ -1545,3 +1545,43 @@ is already specced in the §148.3 addendum as the boolean-hasInstance
 constructor-road piece (2); lead (a)'s ~113 lines are ITS payoff, not
 a one-rung graft's. The next flow window builds the worker verbatim
 and retires §83's keep/drop model whole.
+
+## §158 — checkDerived worker PHASE 0: the transcription (flow.go:860-965)
+
+The full `getNarrowedTypeWorker`, read and mapped. Structure:
+
+**False branch**: t==candidate → never; checkDerived → filter
+!isTypeDerivedFrom(t,candidate); else unknown→unknownUnionType, compute
+trueType = worker(t,candidate,TRUE,false), filter !isTypeSubsetOf(t,
+trueType), recombineUnknown.
+
+**True branch**: any|unknown → candidate; t==candidate → candidate.
+Then `mapType over the CANDIDATE's constituents n` (not t's!):
+1. keyPropertyName discriminant fast-path (union t with a key property:
+   n's key type picks t's constituent).
+2. inner mapType over t's constituents with the four-rung ladder —
+   checkDerived: derivedFrom(t,n)→t; derivedFrom(n,t)→n; else never.
+   predicate (non-derived): strictSubtype(t,n)→t; strictSubtype(n,t)→n;
+   subtype(t,n)→t; subtype(n,t)→n; else never. (The preference comment:
+   candidate wins mutual for predicates, t wins for instanceof —
+   generics aren't in prototype types.)
+3. non-never → answer; else the INSTANTIABLE leg: constituents with
+   maybeTypeOfKind(Instantiable) whose constraint is related (or nil)
+   → intersection [t, n]; else never.
+**Tail** (all-never): subtype(candidate,t)→candidate;
+assignable(t,candidate)→t; assignable(candidate,t)→candidate; else
+intersection [t, candidate].
+
+**Port mapping**: isTypeDerivedFrom = declared base chains
+(relater.go:4962; our class_extends_chain_contains + §146's
+plain-interface heritage walk are its two decidable slices);
+strictSubtype/subtype = the relater rungs our narrowed_constituent
+already consults; the keyProperty fast-path = our
+filter_union_by_member machinery's cousin; recombineUnknown +
+unknownUnionType are new; the instantiable-constraint leg is new.
+**Phase 1** (next window): build this as `narrowed_type_worker`
+replacing BOTH §83's keep/drop model and narrow_by_predicate_type's
+ladder — one worker, two checkDerived flavors, exactly upstream's
+call sites. Acceptance: lead (a)'s 113 + controlFlowInstanceof pair
++ optionalChain's non-asserts remainder; §157's 4:14 is the
+falsifier floor.
