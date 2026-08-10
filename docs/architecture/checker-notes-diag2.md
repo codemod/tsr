@@ -35312,6 +35312,96 @@ not syntactic.
 Three builds in seven where the upstream text was read correctly and applied to
 the wrong thing. **The transcription hazard this session keeps finding is not
 mistranslation; it is correct translation of the wrong fragment.**
+
+## §686 — TS2440: a refusal owned by the printer, inherited by a rule that prints nothing
+
+```ts
+namespace m { export var m = ''; }
+import x = m.m;    // TS2440
+var x = '';
+```
+
+`check_alias_symbol` (§232) is dispatched for `ImportEqualsDeclaration` and
+declines at its second line. The probe says which:
+
+```
+PROBE ieq declared=true target=false
+```
+
+`resolve_alias` refuses a **qualified** module reference, and its own comment
+says why:
+
+> *"A qualified name RESOLVES fine and prints wrong, for want of symbol
+> accessibility."*
+
+**The refusal is the `.types` consumer's.** It exists so a resolved target is
+not printed under a name this port cannot spell. TS2440 prints the *local*
+symbol's name, which it already has, and reads the target only for its
+**flags** — so it inherits a constraint that does not apply to it.
+
+> Second time in fourteen builds. §673 found a bound drawn for one arm being
+> inherited by another; this is a bound drawn for one *output channel* being
+> inherited by a different one. **A refusal is scoped to what it was measured
+> against, and neither the function it sits in nor the crate it sits in is that
+> scope.** The scope is written in the sentence that justified it, which is why
+> those sentences are worth the space.
+
+The narrow build: `check_alias_symbol` resolves a qualified module reference
+itself, through `resolve_entity_name`, and uses it for the flag test only.
+`resolve_alias` is untouched, so the printer's refusal stands exactly where it
+was measured.
+
+```
+bar:  +3 of 3 (importAndVariableDeclarationConflict1, 4,
+      varNameConflictsWithImportInDifferentPartOfModule),  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **`checker_types` moves.** The other workstream's suite is the one the
+   refusal was drawn for. Measured differentially; if it moves at all, the
+   change has leaked out of the flag test.
+2. **`import x = m.m` with no conflicting local declaration reports.** The
+   excluded-meaning test is what decides it, not the resolution.
+3. **TS2441's row moves.** Same rule, the export half.
+
+## §687 — §686 built: **+4 of 3**, row closed, and one case came free
+
+```
+diagnostics             2,212 → 2,216   (bar was +3;  +4, 0 LOST)   40.38%
+checker_types           4,260/9,538 both before and after — identical
+extraonly               zero TS2440 and zero TS2441 lines
+TS2440 missing lines    3 → 0     — the row is closed
+```
+
+**Falsifier 1 was the one worth running**, and it was measured differentially by
+stashing rather than by comparing against a remembered number: `checker_types`
+reads 4,260/9,538 with the change and 4,260/9,538 without it. The printer's
+refusal is intact where it was measured; only the flag test sees the resolved
+target.
+
+The fourth case is one no bar predicted — a case blocked on TS2440 *and*
+something else, whose other blocker was already gone. **Over-delivery on a bar
+is the same signal as under-delivery: the case list was priced from
+`diagmissing`'s blocked-alone count, which by construction cannot see it.**
+
+### Two refusals inherited in fourteen builds
+
+```
+§673   a bound drawn for one *arm* of a function, inherited by another arm
+§686   a bound drawn for one *output channel*, inherited by a different one
+```
+
+> **A refusal is scoped to what it was measured against, and neither the function
+> it sits in nor the crate it sits in is that scope.** The scope is written in
+> the sentence that justified it — `resolve_alias`'s *"prints wrong, for want of
+> symbol accessibility"* names the printer, and a rule that prints the local
+> symbol's own name is outside it. That is the practical value of writing the
+> justification rather than the decision: **the decision is inheritable and the
+> justification is not.**
+
+Both were found the same way — by probing the entry of a rule that was already
+correct, and reading the sentence attached to whatever answered `None`.
 ## §686 — the exhaustive switch's bypass edge, and a memo that cost a case
 let intervalGroup: string;
 switch (interval) {                 // "day" | "week" | "month"

@@ -812,6 +812,24 @@ impl<'a> Checker<'a, '_> {
         }
     }
 
+    /// The target of `import a = b.c`, for callers that need its **flags** and
+    /// not its name.
+    ///
+    /// [`Checker::resolve_alias`] declines this shape for the printer's sake;
+    /// see §686. Resolution itself is `resolveEntityName`, which this port
+    /// already has.
+    fn qualified_alias_target(&mut self, symbol: SymbolId) -> Option<SymbolId> {
+        let declaration = self.declaration_of_alias_symbol(symbol)?;
+        let Node::ImportEqualsDeclaration(node) = self.node_map.get(declaration)? else {
+            return None;
+        };
+        let ModuleReference::QualifiedName(name) = node.module_reference? else { return None };
+        self.resolve_entity_name(
+            tsr_ast::EntityName::QualifiedName(name),
+            SymbolFlags::VALUE | SymbolFlags::TYPE | SymbolFlags::NAMESPACE,
+        )
+    }
+
     /// The declaration an alias symbol's target is read from.
     ///
     /// Ported from `Checker.getDeclarationOfAliasSymbol` (`checker.go:16397`),
@@ -1303,7 +1321,17 @@ impl<'a> Checker<'a, '_> {
     /// declined — §197 excludes `allowJs` cases from the diagnostics suite.
     pub(crate) fn check_alias_symbol(&mut self, node: NodeId) -> Option<()> {
         let declared = self.binder.symbol_of(node)?;
-        let target = self.resolve_alias(declared)?;
+        let target = match self.resolve_alias(declared) {
+            Some(target) => target,
+            // [`Checker::resolve_alias`] refuses a **qualified** module
+            // reference — *"A qualified name RESOLVES fine and prints wrong,
+            // for want of symbol accessibility."* That refusal belongs to the
+            // `.types` consumer: it keeps a resolved target from being printed
+            // under a name this port cannot spell. This rule prints the *local*
+            // symbol's name, which it already has, and reads the target only
+            // for its flags — so the constraint does not reach it. §686.
+            None => self.qualified_alias_target(declared)?,
+        };
         // `symbol.ExportSymbol ?? symbol`, then merged: an exported alias has a
         // separate export symbol carrying the real flags (`declareModuleMember`).
         let local = self.binder.symbols().get(declared).export_symbol.unwrap_or(declared);
