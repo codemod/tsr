@@ -35467,3 +35467,84 @@ Landed carrying that debt, on §169's precedent and for its reasons: no case is
 lost, the cause is named rather than bounded, and the falsifier is written down.
 **If an expression-type cache ever lands, this becomes upstream's three-valued
 state and `exhaustiveSwitchCheckCircularity` is the case to re-run.**
+
+## §688 — TS2708: the value branch's half of §675's wrapper
+
+```ts
+namespace A { export interface Point { … } }
+namespace C {
+    import a = A;
+    var m: typeof a;    // TS2708 — Cannot use namespace 'a' as a value
+}
+```
+
+`checkAndReportErrorForUsingNamespaceAsTypeOrValue` (`checker.go:1641`) wraps
+**both** of its lookups in `resolveSymbol`:
+
+```go
+symbol := c.resolveSymbol(c.resolveName(errorLocation, name, ast.SymbolFlagsNamespaceModule, …))   // value branch
+symbol := c.resolveSymbol(c.resolveName(errorLocation, name, ast.SymbolFlagsModule, …))            // type branch
+```
+
+§675 built `resolve_symbol_under` and used it on the type branch only, where it
+measured `+0` with zero wrong lines and was kept as an arm upstream runs. The
+value branch still calls the bare `resolve_under`, so `import a = A` — which this
+binder gives an `ALIAS` symbol and none of the other three meanings, a fact
+`check_value_identifier`'s own comment has recorded since §79 — matches nothing
+and the arm stays silent.
+
+**This is the same wrapper, on the branch it was not applied to.** The asymmetry
+was not a decision; §675 stopped when the type branch's row failed to move for
+an unrelated reason (§676's alias targets) and never came back to the other half.
+
+```
+bar:  +1 of 1 (importStatementsInterfaces),  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **§164's 238-wrong-line family returns.** The value branch is the one that
+   produced them, and widening what it resolves is exactly the move that did it.
+   The heritage-clause bound (§164) is still in front; if it is no longer
+   sufficient, this reverts.
+2. **TS2709's row moves.** The type branch already has the wrapper; if the value
+   branch's copy changes it, they are sharing more than the helper.
+3. **`export = ns` reports TS2708.** The `is_export_assignment_expression_name`
+   guard is upstream's and sits inside the branch.
+
+## §689 — §688 measured: **+0, zero wrong lines, KEPT**, and the decline is §676's, probed
+
+```
+diagnostics             2,216 → 2,216   (bar was +1;  +0, 0 LOST)
+extraonly               zero TS2708 and zero TS2709 lines
+TS2708 missing lines    5 → 5     — unmoved
+```
+
+Kept: it transcribes an arm upstream runs (`checker.go:1643`), §545/§557's
+category, and the asymmetry it removes was an oversight rather than a decision.
+
+**The attribution was probed, not assumed** — §683's rule, applied one build
+later to the case that would have tempted it most:
+
+```
+PROBE value-cascade reached for 'a'      →  printed 0 times
+```
+
+`check_value_identifier`'s `resolve_name(…, VALUE)` succeeds for `import a = A`
+— this binder hands back the `ALIAS` — so the rule returns *before* the cascade
+and no arm inside it can matter. Identical mechanism to §676's type branch,
+identical owner.
+
+> Both halves of `checkAndReportErrorForUsingNamespaceAsTypeOrValue` are now
+> ported, both are correct, and **neither can fire until an alias stops
+> satisfying a meaning its target does not carry.** `bd tsr-8esz` now blocks six
+> cases across two codes rather than three across one, and the falsifier is
+> unchanged: restore §676's ten-line hunk and measure.
+
+### What a `+0` bought here
+
+Nothing on the board, and one thing off it: **the value branch is no longer a
+candidate.** Before this build, TS2708's five lines had two live hypotheses —
+the missing wrapper and the alias meaning. There is now one, and it already has
+an issue number. That is the whole return, and it is worth the build: a row with
+two suspects costs a rediscovery every time someone reads it.

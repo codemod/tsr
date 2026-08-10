@@ -150,7 +150,11 @@ impl Checker<'_, '_> {
         }
         // `checkAndReportErrorForUsingNamespaceAsTypeOrValue`
         // (`checker.go:1641`), value branch.
-        if self.resolve_under(node, text, SymbolFlags::NAMESPACE_MODULE).is_some() {
+        // `c.resolveSymbol(c.resolveName(…))` on **this** branch too
+        // (`checker.go:1643`). `import a = A` carries `ALIAS` and none of the
+        // other three meanings in this binder, so the bare lookup matches
+        // nothing. §688.
+        if self.resolve_symbol_under(node, text, SymbolFlags::NAMESPACE_MODULE).is_some() {
             // `export = ns` may legitimately name a namespace, and
             // `checkExportAssignment` decides whether that is an error.
             if !self.is_export_assignment_expression_name(node) {
