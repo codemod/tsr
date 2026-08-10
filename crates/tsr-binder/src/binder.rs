@@ -2817,54 +2817,7 @@ impl<'a, 'n> Binder<'a, 'n> {
     /// Upstream: the `hasExportModifier || container.Flags&NodeFlagsExportContext`
     /// test in `declareModuleMember`. Two ways to be exported from a namespace —
     /// say so, or be inside an ambient one that exports everything implicitly.
-    fn is_exported_from_container(&self, node: Node<'a>, flags: SymbolFlags) -> bool {
-        // **`declareModuleMember`'s alias fast-path** (`binder.go:376-381`), and
-        // it runs *before* the export-context test below:
-        //
-        // ```go
-        // if symbolFlags&ast.SymbolFlagsAlias != 0 {
-        //     if node.Kind == ast.KindExportSpecifier ||
-        //         (node.Kind == ast.KindImportEqualsDeclaration && hasExportModifier) {
-        //         return b.declareSymbol(ast.GetExports(container.Symbol()), …)
-        //     }
-        //     return b.declareSymbol(ast.GetLocals(container), …)
-        // }
-        // ```
-        //
-        // An alias is an export for **two** spellings and no others. In
-        // particular an `import` specifier is *never* one, however ambient its
-        // file — and that is the case this arm exists for, because a `.d.ts`
-        // with no `export {…}`/`export * from` statement **is** an export
-        // context (`setExportContextFlag`), so without the fast-path every
-        // `import type { X } from "./y"` in a declaration file became an export
-        // of it.
-        //
-        // Two symptoms, one cause, both on `bullmq`'s `classes/job.d.ts`
-        // (`import type { QueueEvents } from './queue-events'`):
-        //
-        // - `export * from "./job"` then re-exported that alias, so
-        //   `import { QueueEvents } from "bullmq"` resolved to the **type-only**
-        //   import rather than to `queue-events.d.ts`'s class, and using it as
-        //   a value was TS1361;
-        // - the name was not in `job.d.ts`'s own locals, so its use *inside that
-        //   file* was TS2304.
-        //
-        // `docs/architecture/checker-notes-diag2.md` §807.
-        if flags.contains(SymbolFlags::ALIAS) {
-            let is_export = matches!(node, Node::ExportSpecifier(_))
-                || (matches!(node, Node::ImportEqualsDeclaration(_))
-                    && self.has_export_modifier(node));
-            return match self.nodes.kind(self.container) {
-                SyntaxKind::ModuleDeclaration => is_export,
-                SyntaxKind::SourceFile => self.is_module && is_export,
-                _ => false,
-            };
-        }
-        self.is_exported_from_container_non_alias(node)
-    }
-
-    /// The non-alias half of `declareModuleMember`'s export test.
-    fn is_exported_from_container_non_alias(&self, node: Node<'a>) -> bool {
+    fn is_exported_from_container(&self, node: Node<'a>) -> bool {
         // An export specifier is *always* an export of its container, and there is
         // no `export` modifier on it to find — the keyword belongs to the
         // `export { … }` declaration two levels up, not to the specifier that gets
@@ -3660,7 +3613,7 @@ impl<'a, 'n> Binder<'a, 'n> {
 
         if destination == Destination::Locals
             && self.owner.is_some()
-            && self.is_exported_from_container(node, flags)
+            && self.is_exported_from_container(node)
         {
             let container = self.container;
             // An *export* of a default declaration is always called `default`,
