@@ -971,3 +971,19 @@ parenthesizedContexualTyping1 4+2 R→G — contexts that ground to a
 WRONG instantiation (object-literal-sourced type arguments, rest
 tuples). Each is an inference-correctness family, not a gate family;
 they price the next rungs.
+
+## §138 BAR (registered before code): §135 slice 3 — methods and tuple elements
+
+The harvest learns two member forms the §135/§137 machinery skips:
+(1) object-literal METHOD members (`produce() { return 0 }`) — non-CS
+methods contribute their signature type against the parameter's
+property type; CS methods make the literal defer (predicate arm);
+(2) ARRAY literal elements against tuple parameter element types
+(`callItT([() => 0, n => ...])`) — the §68.2 element road already
+serves instantiated tuples through the memo, so harvest is the only
+missing half.
+
+Prediction: intraExpressionInferences moves another +15–40 (the
+`produce()` method fixture block and both callItT lines); falsifier:
+if method members don't reach get_type_of_function_expression through
+their NodeId the harvest arm measures zero and the method half parks.
