@@ -6083,3 +6083,21 @@ match contextual cases too (their wants are literal-shaped).
 whose `this` differs from the literal (ThisType<T> remaps) —
 gate on has_no_contextual_type if they fire; (b) accessor/computed
 member circularities the lazy road can't dodge.
+
+**§142 PARKED after six iterations — the mechanism is PROVEN, the
+bar unmet (best 2.4:1).** The ladder: Anonymous mint fired zero
+(literal properties live in MEMBERS → Named); ungated Named +71/99;
+contextual gate +50/36; accessors/JS/computed-names out +38/16 with
+ZERO regressions (the reproducible best); the function-expression
+extension +40 but woke fatarrowfunctions (20 R→W) — killed by the
+noImplicitThis OPTION GATE (the inference is option-keyed upstream,
+the window's key discovery) — leaving looseThisTypeInFunctions'
+17 R→G (the mint's member road answers error where those lines
+were any-right; unprobed). Rebuild-from-record: iteration-4 arm
+(MethodDeclaration, parent ObjectLiteral, no_implicit_this +
+no-contextual + non-JS + no-computed-members, Named mint with the
+literal's symbol cached per literal). Next window: probe
+looseThis's 17 wants first; if they're `any`-family the fn-expr
+arm needs a per-member road fallback, and the combined form
+plausibly clears the bar (~+60 at ~4-6:1). Reverted
+byte-identical.
