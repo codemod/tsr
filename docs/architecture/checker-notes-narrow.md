@@ -6296,3 +6296,16 @@ VALUE-only declarations (VariableDeclaration, FunctionDeclaration)
 at least one class/interface among what remains. **Bar: ≥30 G→R at
 ≥5:1, zero R→W** (the same narrowing-a-conservative-gate argument
 as §124.1). This also un-poisons the nine-line §142 repro directly.
+
+**§124.2 MEASURED AND LANDED — +184 G→R / 7 G→W (26:1), ZERO R→W;
+right 412,603 → 412,801 = 86.19%, cases 4,214, diagnostics rode
++41 to 39.87%.** The fourteen-probe §142 ladder's terminal payout
+landed OUTSIDE §142: value-side merge declarations no longer
+disqualify establishment, so every lib-wrapper member miss in the
+corpus (`.length` on number, the ES2016+-method family's remaining
+31, parserRealSource9's 16, enumBasics2's 11) reads its
+deliberate error-any. The 7 residual: intersectionsOfLargeUnions.
+The §142 repro un-poisons by construction — its re-measure is now
+genuinely one command, and the ladder that looked like a park's
+dead-end produced TWO corpus-wide landings (§124.1 +14, §124.2
++184) before ever touching its own head.

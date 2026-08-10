@@ -1165,17 +1165,27 @@ impl Checker<'_, '_> {
         // table that was never the type's member list (mappedTypes2 21,
         // conditionalTypes1 26, recursiveIntersectionTypes 24 G→W on the
         // ungated pair — upstream computes real members there).
+        // §124.2: VALUE-only declarations are IGNORED by the test — a lib
+        // wrapper merges `interface Number` with `var Number:
+        // NumberConstructor`, and the var contributes nothing to the
+        // instance side; requiring all() of the raw list meant §123 never
+        // established a single lib-wrapper miss (probe 14's walk=false on
+        // `.length`-of-number, the §142 repro's final conjunct).
         let declared_only = {
             let symbol = self.binder.symbols().get(owner);
-            !symbol.declarations.is_empty()
-                && symbol.declarations.iter().all(|&declaration| {
-                    matches!(
-                        self.nodes.kind(declaration),
-                        tsr_ast::SyntaxKind::ClassDeclaration
-                            | tsr_ast::SyntaxKind::ClassExpression
-                            | tsr_ast::SyntaxKind::InterfaceDeclaration
-                    )
-                })
+            let mut type_side = 0usize;
+            let mut foreign = 0usize;
+            for &declaration in symbol.declarations.iter() {
+                match self.nodes.kind(declaration) {
+                    tsr_ast::SyntaxKind::ClassDeclaration
+                    | tsr_ast::SyntaxKind::ClassExpression
+                    | tsr_ast::SyntaxKind::InterfaceDeclaration => type_side += 1,
+                    tsr_ast::SyntaxKind::VariableDeclaration
+                    | tsr_ast::SyntaxKind::FunctionDeclaration => {}
+                    _ => foreign += 1,
+                }
+            }
+            type_side >= 1 && foreign == 0
         };
         if !declared_only {
             return false;
