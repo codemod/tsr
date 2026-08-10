@@ -40017,3 +40017,77 @@ silent. The remaining `.js` entries in the column are two — a `TS2403` and a
 
 **Thirteen cases and thirty-two wrong lines**, from a column that stood at 112
 and stands at 80.
+
+## §792 — a duplicate heritage clause's types are not checked
+
+```ts
+class C implements A implements B { }
+interface I extends A extends B { }
+```
+```
+-- expected --                    -- actual --
+  (1,20) TS2304   for `A`           (1,20) TS2304
+  (1,22) TS1175   the second clause  (1,22) TS1175
+                                     (1,33) TS2304   ← wrong, for `B`
+```
+
+A second `implements` (or `extends`) clause is a grammar error — TS1175 / TS1172
+— and upstream does not resolve the types inside it. The clause is not part of
+the class; it is recovered syntax the parser kept so the position could be
+reported.
+
+Six wrong lines across six cases (`parserClassDeclaration2`, `6`,
+`parserInterfaceDeclaration1`, `2`, `parserErrorRecovery_ObjectLiteral4`, `5`),
+all one shape.
+
+> **Third gate this session where a grammar error suppresses a type check**
+> (§783's ambient `export =`, §785's missing `super()`, this). In each, upstream
+> reports the syntactic problem and stops; this port reports the syntactic
+> problem *and* keeps going. **The grammar rule was ported and its consequence
+> was not** — and the consequence is not written down anywhere near the grammar
+> rule, which is why all three needed the wrong-line column to surface.
+
+The test is positional: a heritage clause that is not the **first** of its token
+kind among the declaration's clauses.
+
+```
+bar:  +2,  0 LOST,  WRONG delta <= 0
+```
+
+### Falsifiers
+
+1. **`class C extends A implements B` loses `B`.** Two clauses of *different*
+   kinds are both legal and both checked — the test is per token kind.
+2. **TS1175 / TS1172's rows move.** They are the diagnostics that replace this.
+3. **A single `implements A, B` loses `B`.** Multiple types in one clause are
+   legal; the duplicate is of the *clause*, not of the type.
+
+## §793 — §792 built: **+1 of 2**, and only one of the six cases converted
+
+```
+diagnostics             2,299 → 2,300   (bar was +2;  +1, 0 LOST)   41.91%
+extraonly               TS2304 wrong lines 15 → 14;  total 80 → 79
+```
+
+All three falsifiers negative — `extends A implements B` keeps both, TS1175 and
+TS1172 did not move, and `implements A, B` keeps both types.
+
+**One wrong line went and one case converted.** The other five cases named at
+§792 hold further faults, which is §780's finding restated: *the column is a work
+list, not a promise.* Six builds in, the ratio is now measurable —
+
+```
+§777  20 lines → 6 cases
+§783   4 lines → 2 cases
+§790   2 lines → 2 cases
+§792   1 line  → 1 case
+```
+
+— and it is **not** one case per line. §777's twenty bought six because they were
+spread across six cases that had nothing else wrong; §792's six were spread
+across six cases of which one was otherwise clean.
+
+> The useful predictor is not the line count but **how many distinct cases the
+> lines sit in and what else those cases are missing**, and `extraonly` shows the
+> first and not the second. **A count in that column is an upper bound on cases
+> and a lower bound on work.**

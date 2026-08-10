@@ -4250,6 +4250,15 @@ impl Checker<'_, '_> {
         {
             return;
         }
+        // **A duplicate heritage clause is recovered syntax.** `class C
+        // implements A implements B` is TS1175 and upstream does not resolve
+        // the types inside the second clause — the clause is not part of the
+        // class, it is what the parser kept so the position could be reported.
+        // The test is per token kind: `extends A implements B` is two legal
+        // clauses. §792.
+        if self.in_duplicate_heritage_clause(node) {
+            return;
+        }
         let Some(parent) = self.nodes.parent(node) else { return };
         // **An `implements` name is a type reference in a different node
         // kind.** `class C implements I` resolves `I` at `Type` and reports
@@ -11026,6 +11035,29 @@ impl Checker<'_, '_> {
                 [derived, member_name, base_name],
             ),
         );
+    }
+
+    /// Is this node inside a heritage clause that is not the **first** of its
+    /// token kind on its declaration? §792.
+    fn in_duplicate_heritage_clause(&self, node: NodeId) -> bool {
+        let Some(clause) =
+            self.nodes.ancestors(node).find(|&a| self.nodes.kind(a) == SyntaxKind::HeritageClause)
+        else {
+            return false;
+        };
+        let Some(Node::HeritageClause(this)) = self.node_map.get(clause) else { return false };
+        let Some(owner) = self.nodes.parent(clause) else { return false };
+        let clauses = match self.node_map.get(owner) {
+            Some(Node::ClassDeclaration(class)) => class.heritage_clauses,
+            Some(Node::ClassExpression(class)) => class.heritage_clauses,
+            Some(Node::InterfaceDeclaration(interface)) => interface.heritage_clauses,
+            _ => return false,
+        };
+        clauses
+            .iter()
+            .find(|each| each.token.kind == this.token.kind)
+            .and_then(|first| first.node_id)
+            .is_some_and(|first| first != clause)
     }
 
     /// A `declare` modifier on the declaration itself.
