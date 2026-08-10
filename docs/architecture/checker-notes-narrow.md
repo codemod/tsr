@@ -5964,3 +5964,23 @@ application (the other lane's files) or the §135-family member
 map's signature construction — FLAGGED to checker-2 rather than
 edited across the lane line. ~40+ lines in thisTypeInFunctions2
 alone; the ThisKeyword row's 511 partially hangs here.
+
+## §140 — dynamic import() expressions type as Promise<typeof import("spec")> [claimed: checker-1]
+
+**The arm-2 pool's largest mechanical slice, and it needs NO
+per-site machinery**: the import-spelling text is minted FOR the
+call, at the one place that holds the specifier verbatim.
+`checkImportCallExpression` (checker.go): `import("./m")` types as
+`Promise<NS>` where NS is the module namespace type — here an
+Anonymous type with text `typeof import("<specifier>")` carrying
+the MODULE SYMBOL (member reads flow through exports; `.then`
+signatures come free through the lib Promise + §136's fills).
+Candidates: the importCallExpression* families (~150 lines of
+`Promise<typeof import("./0")>` / awaited `typeof import("./0")`
+wants), ramdaToolsNoInfinite2's 53 partially.
+
+**Bar.** ≥60 G→R at ≥5:1. Falsifiers: (a) mode-variant spellings
+(importCallExpressionInCJS5's `require`-flavored wants may differ);
+(b) an unresolvable specifier keeps today's answer (the §31-family
+boundary owns those); (c) the minted NS text must intern per
+(module, spelling) or duplicate mints churn prints.
