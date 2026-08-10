@@ -29006,3 +29006,103 @@ the first is a second entry point into a rule that works.
 
 **No build attempted** — the finding is the deliverable, and it replaces a
 five-case row of unknown cause with two named owners.
+
+## §548 — TS2433/TS2434: a namespace merged with a class it cannot see
+
+`checkModuleDeclaration` (`checker.go:5174`), one predicate and a two-way branch
+— §497's bundling test, passed for the second time:
+
+```go
+if len(symbol.Declarations) > 1 {
+    first := getFirstNonAmbientClassOrFunctionDeclaration(symbol)
+    if first != nil {
+        if GetSourceFileOfNode(node) != GetSourceFileOfNode(first) {
+            … cannot_be_in_a_different_file_from …        // TS2433
+        } else if node.Pos() < first.Pos() {
+            … cannot_be_located_prior_to …               // TS2434
+        }
+    }
+}
+```
+
+```
+TS2433   5 cases blocked alone    cloduleSplitAcrossFiles, ClassAndModuleWithSameNameAndCommonRoot…
+TS2434   5 cases blocked alone
+```
+
+Everything it needs exists: `is_instantiated_module` (`check.rs:7745`, already
+ported), the symbol's declarations, and `source_file_of_for_diagnostics`. The
+error node is `node.Name()`, not the declaration — which the `(1,11)` and
+`(2,22)` columns confirm.
+
+### The guards, in upstream's order
+
+```
+ValueModule symbol · not ambient · instantiated · more than one declaration
+```
+
+**`isInstantiatedModule` is the one that matters.** A `namespace N { }` with no
+value members merges freely; upstream only complains about a namespace that
+*emits*. Getting this wrong reports on every `declare namespace` companion in
+the corpus.
+
+### The bar
+
+```
+bar:  +10 of 10,  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **A namespace *after* its class reports.** `node.Pos() < first.Pos()` is the
+   whole of TS2434 and the commonest legal shape in the corpus is the reverse.
+2. **An ambient companion reports.** `declare namespace N` beside `class N` is
+   legal and frequent.
+3. **A non-instantiated namespace reports** — type-only namespaces merge with
+   anything.
+4. **TS2433 and TS2434 fire together.** Upstream's `else if` makes them
+   exclusive; a same-file pair must choose the position arm.
+
+## §549 — §548 built: **+12** against a bar of +10, both rows closed
+
+```
+diagnostics   2,072 → 2,084   (bar was +10;  +12, 0 LOST)   37.97%
+extraonly     54 → 54 cases   — all four falsifiers negative
+```
+
+TS2433 and TS2434 are both at zero. The two extra cases over the bar were
+blocked by *both* codes at once — `diagmissing`'s "blocked alone" counts each
+code's exclusive cases, so a case needing both appears in neither five.
+
+> **A bar built from two "blocked alone" counts under-counts by exactly the
+> cases the two codes share.** That is not a flaw in the instrument — "blocked
+> alone" is the number you want when pricing *one* code — but when two arms of
+> one `else if` are built together, their intersection is invisible to it and
+> lands as upside. §521 bundled two rules and the intersection was **negative**;
+> here it is positive, and the difference is that these two arms are genuinely
+> exclusive.
+
+### The cleanest build of the session
+
+No probe, no revert, no correction. §143 ran first and found nothing to extend;
+§497's bundling test passed on the same evidence it did at §521 — *one predicate,
+a two-way branch* — and this time the rule really was absent. Everything it
+needed was already ported and named in place:
+
+```
+is_instantiated_module              §-, `check.rs:7745`
+declaration_is_in_an_ambient_context §508
+binder.symbol_of                     §523's finding
+source_file_of_for_diagnostics       §-
+```
+
+**Four earlier notes' leftovers assembled into one rule.** The session's
+expensive lessons — read the existing rule, name the arm you skip, measure the
+domain not the guard — are what made this one cost a single measurement.
+
+### The guard that mattered
+
+`isInstantiatedModule`. A type-only `namespace N { }` merges with anything, and
+without that test the rule reports on every `declare namespace` companion in the
+corpus — falsifiers 2 and 3, both negative because the guard was ported before
+the first measurement rather than after it.

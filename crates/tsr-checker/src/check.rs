@@ -235,6 +235,7 @@ impl Checker<'_, '_> {
             // not the keyword is repeated inside it.
             Node::ModuleDeclaration(declaration) => {
                 self.check_global_augmentation_position(node);
+                self.check_namespace_merge_position(node, ambient);
                 ambient
                     || has_modifier(declaration.modifiers, SyntaxKind::DeclareKeyword)
                     || self.is_ambient_module_node(node)
@@ -7739,6 +7740,60 @@ impl Checker<'_, '_> {
             Some(Node::ModuleDeclaration(_)) => self.is_instantiated_module(node),
             _ => true,
         }
+    }
+
+    /// TS2433 — `A namespace declaration cannot be in a different file from a
+    /// class or function with which it is merged.`
+    /// TS2434 — `A namespace declaration cannot be located prior to a class or
+    /// function with which it is merged.`
+    ///
+    /// `checkModuleDeclaration`'s merged-declaration branch
+    /// (`checker.go:5174`): one predicate and a two-way `else if`, so the two
+    /// codes are exclusive. The error node is the module's **name**, which the
+    /// corpus's `(1,11)` and `(2,22)` columns confirm.
+    ///
+    /// `docs/architecture/checker-notes-diag2.md` §548.
+    fn check_namespace_merge_position(&mut self, node: NodeId, ambient: bool) {
+        if ambient || self.file_has_parse_errors {
+            return;
+        }
+        let Some(Node::ModuleDeclaration(declaration)) = self.node_map.get(node) else { return };
+        if has_modifier(declaration.modifiers, SyntaxKind::DeclareKeyword)
+            || self.is_ambient_module_node(node)
+            || !self.is_instantiated_module(node)
+        {
+            return;
+        }
+        let Some(name) = declaration.name.and_then(|name| name.node_id()) else { return };
+        let Some(symbol) = self.binder.symbol_of(node) else { return };
+        let symbol = self.binder.merged_symbol(symbol);
+        if !self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::VALUE_MODULE) {
+            return;
+        }
+        let declarations = self.binder.symbols().get(symbol).declarations.clone();
+        if declarations.len() <= 1 {
+            return;
+        }
+        // `getFirstNonAmbientClassOrFunctionDeclaration` (`checker.go:5175`).
+        let Some(first) = declarations.iter().copied().find(|&candidate| {
+            matches!(
+                self.nodes.kind(candidate),
+                SyntaxKind::ClassDeclaration | SyntaxKind::FunctionDeclaration
+            ) && !self.declaration_is_in_an_ambient_context(candidate)
+        }) else {
+            return;
+        };
+        let Some(file) = self.source_file_of_for_diagnostics(name) else { return };
+        let span = self.error_span(name);
+        // **Exclusive**, as upstream's `else if` makes them.
+        let message = if self.source_file_of_for_diagnostics(first) != Some(file) {
+            &messages::A_NAMESPACE_DECLARATION_CANNOT_BE_IN_A_DIFFERENT_FILE_FROM_A_CLASS_OR_FUNCTION_WITH_WHICH_IT_IS_MERGED
+        } else if self.nodes.span(node).start < self.nodes.span(first).start {
+            &messages::A_NAMESPACE_DECLARATION_CANNOT_BE_LOCATED_PRIOR_TO_A_CLASS_OR_FUNCTION_WITH_WHICH_IT_IS_MERGED
+        } else {
+            return;
+        };
+        self.report(file, Diagnostic::new(message, span));
     }
 
     /// `IsInstantiatedModule` (`ast/utilities.go:2443`).
