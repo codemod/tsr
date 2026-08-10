@@ -292,6 +292,13 @@ impl Checker<'_, '_> {
             self.infer_from_types(outer, returned, &parameters, &mut return_mapper, 0);
         }
         let mut deferred: Vec<usize> = Vec::new();
+        // SS140: candidates collect into PER-ARGUMENT buckets merged in
+        // index order below, so a later argument's candidate cannot outrank
+        // an earlier literal member's (the E1-vs-E2 order bug) - while the
+        // EXECUTION order stays exactly SS135's (interleaving the checks
+        // themselves measured -610: early member checks freeze the summit
+        // families through the caches).
+        let mut buckets: Vec<Vec<InferenceInfo>> = vec![Vec::new(); arguments.len().max(1)];
         for (index, parameter) in signature.parameters.iter().enumerate() {
             let Some(&argument_expression) = arguments.get(index) else { continue };
             if is_context_sensitive_argument(&argument_expression) {
@@ -299,7 +306,7 @@ impl Checker<'_, '_> {
                 continue;
             }
             let Some(&argument) = argument_types.get(index) else { continue };
-            self.infer_from_types(argument, parameter.r#type, &parameters, &mut infos, 0);
+            self.infer_from_types(argument, parameter.r#type, &parameters, &mut buckets[index], 0);
         }
         if !deferred.is_empty()
             && let Some(call_id) = call
@@ -338,7 +345,7 @@ impl Checker<'_, '_> {
                                 checked,
                                 element_type,
                                 &parameters,
-                                &mut infos,
+                                &mut buckets[index],
                                 0,
                             );
                         }
@@ -372,7 +379,7 @@ impl Checker<'_, '_> {
                                 checked,
                                 property_type,
                                 &parameters,
-                                &mut infos,
+                                &mut buckets[index],
                                 0,
                             );
                         }
@@ -403,7 +410,17 @@ impl Checker<'_, '_> {
                     if is_context_sensitive_argument(&value)
                         && let Some(literal_id) = literal.node_id
                     {
-                        let so_far: Vec<(TypeId, TypeId)> = flatten_infos(&infos);
+                        let so_far: Vec<(TypeId, TypeId)> = {
+                            let mut merged: Vec<InferenceInfo> = Vec::new();
+                            for bucket in &buckets {
+                                for info in bucket {
+                                    for &candidate in &info.candidates {
+                                        add_candidate(&mut merged, info.type_parameter, candidate);
+                                    }
+                                }
+                            }
+                            flatten_infos(&merged)
+                        };
                         self.intra_expression_member_maps.insert(
                             literal_id,
                             (
@@ -417,7 +434,20 @@ impl Checker<'_, '_> {
                         }
                     }
                     let checked = self.check_expression(value);
-                    self.infer_from_types(checked, property_type, &parameters, &mut infos, 0);
+                    self.infer_from_types(
+                        checked,
+                        property_type,
+                        &parameters,
+                        &mut buckets[index],
+                        0,
+                    );
+                }
+            }
+            for bucket in buckets.drain(..) {
+                for info in bucket {
+                    for candidate in info.candidates {
+                        add_candidate(&mut infos, info.type_parameter, candidate);
+                    }
                 }
             }
             let mut partial: Vec<(TypeId, TypeId)> = flatten_infos(&infos);
@@ -543,6 +573,13 @@ impl Checker<'_, '_> {
                 let _ = registered_literals;
             }
         } else {
+            for bucket in buckets.drain(..) {
+                for info in bucket {
+                    for candidate in info.candidates {
+                        add_candidate(&mut infos, info.type_parameter, candidate);
+                    }
+                }
+            }
             for &index in &deferred {
                 let checked = self.check_expression(arguments[index]);
                 if let Some(slot) = argument_types.get_mut(index) {

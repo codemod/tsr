@@ -1065,3 +1065,21 @@ phase-split loop at the deferred literal's index. Prediction: the 5
 wrong rows convert; v3's own line stays a gap (the call errors
 upstream, T resolved E1 — the decline still answers error). Risk:
 none structural — the same candidates in the upstream order.
+
+## §140 LANDED: candidate order without execution order (+15 W→R / 5 R→W, zero collateral)
+
+The bar's first build moved the harvest INTO the phase-split loop —
+family won, world lost: **−610 right** (temporal 58, inferTypePredicates
+40, the whole summit belt) because interleaving the CHECKS runs member
+expressions before the memo exists and freezes their pre-context
+answers through the caches. The measured lesson, now twice-paid in
+this arc: **execution order is load-bearing; only CANDIDATE order was
+wrong.**
+
+The landed form: per-argument candidate BUCKETS. Pass-1 and the
+harvest each infer into `buckets[index]`; buckets merge into the
+collector in argument-index order before the serve map builds (both
+branches). Execution order stays exactly §135's. The §137 so_far reads
+the ordered merge. Full pair: only the family moved — 15 W→R against
+5 R→W (the rows whose want IS the later argument's candidate — the
+priority ladder's genuine residue, priced to InferenceInfo step 2).
