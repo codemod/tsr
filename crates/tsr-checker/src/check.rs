@@ -8178,6 +8178,62 @@ impl Checker<'_, '_> {
                     None,
                 );
             }
+            Node::AsExpression(n) => {
+                if let Some(at) = n.r#type.and_then(|t| t.node_id()) {
+                    self.report_js_only(
+                        at,
+                        &messages::TYPE_ASSERTION_EXPRESSIONS_CAN_ONLY_BE_USED_IN_TYPESCRIPT_FILES,
+                        None,
+                    );
+                }
+            }
+            Node::SatisfiesExpression(n) => {
+                if let Some(at) = n.r#type.and_then(|t| t.node_id()) {
+                    self.report_js_only(at, &messages::TYPE_SATISFACTION_EXPRESSIONS_CAN_ONLY_BE_USED_IN_TYPESCRIPT_FILES, None);
+                }
+            }
+            Node::HeritageClause(n) => {
+                if n.token.kind == SyntaxKind::ImplementsKeyword {
+                    self.report_js_only(
+                        node,
+                        &messages::IMPLEMENTS_CLAUSES_CAN_ONLY_BE_USED_IN_TYPESCRIPT_FILES,
+                        None,
+                    );
+                }
+            }
+            // The four type-only forms, each with its own printed spelling.
+            Node::ImportDeclaration(n) => {
+                if n.import_clause.is_some_and(|clause| {
+                    clause.phase_modifier.is_some_and(|m| m.kind == SyntaxKind::TypeKeyword)
+                }) {
+                    self.report_js_only(
+                        node,
+                        &messages::_0_DECLARATIONS_CAN_ONLY_BE_USED_IN_TYPESCRIPT_FILES,
+                        Some("import type"),
+                    );
+                }
+            }
+            Node::ExportDeclaration(n) if n.is_type_only => {
+                self.report_js_only(
+                    node,
+                    &messages::_0_DECLARATIONS_CAN_ONLY_BE_USED_IN_TYPESCRIPT_FILES,
+                    Some("export type"),
+                );
+            }
+            Node::ImportSpecifier(n) if n.is_type_only => {
+                self.report_js_only(
+                    node,
+                    &messages::_0_DECLARATIONS_CAN_ONLY_BE_USED_IN_TYPESCRIPT_FILES,
+                    Some("import...type"),
+                );
+            }
+            Node::ExportSpecifier(n) if n.is_type_only => {
+                self.report_js_only(
+                    node,
+                    &messages::_0_DECLARATIONS_CAN_ONLY_BE_USED_IN_TYPESCRIPT_FILES,
+                    Some("export...type"),
+                );
+            }
             _ => {}
         }
         // Type annotations and the `?` token, on the kinds that can carry them.
@@ -8187,8 +8243,40 @@ impl Checker<'_, '_> {
             Node::VariableDeclaration(n) => n.r#type.and_then(|t| t.node_id()),
             Node::FunctionDeclaration(n) => n.r#type.and_then(|t| t.node_id()),
             Node::MethodDeclaration(n) => n.r#type.and_then(|t| t.node_id()),
+            Node::ConstructorDeclaration(n) => n.r#type.and_then(|t| t.node_id()),
+            Node::GetAccessorDeclaration(n) => n.r#type.and_then(|t| t.node_id()),
+            Node::SetAccessorDeclaration(n) => n.r#type.and_then(|t| t.node_id()),
+            Node::FunctionExpression(n) => n.r#type.and_then(|t| t.node_id()),
+            // **One known wrong line.** `x ? y => ({y}) : z => ({z})` parses
+            // here with `: z` as the arrow's return type, because this parser
+            // applies TypeScript grammar to `.js` files — which is exactly the
+            // divergence upstream avoids by checking JS syntax *during*
+            // parsing. Keeping the arm is +7 against +3 without it, inside the
+            // build's stated tolerance. §571.
+            Node::ArrowFunction(n) => n.r#type.and_then(|t| t.node_id()),
+            Node::IndexSignatureDeclaration(n) => n.r#type.and_then(|t| t.node_id()),
             _ => None,
         };
+        // A type parameter list — upstream's second `switch`, first arm.
+        let type_parameters: &[&tsr_ast::TypeParameterDeclaration<'_>] = match typed {
+            Node::ClassDeclaration(n) => n.type_parameters,
+            Node::ClassExpression(n) => n.type_parameters,
+            Node::MethodDeclaration(n) => n.type_parameters,
+            Node::ConstructorDeclaration(n) => n.type_parameters,
+            Node::GetAccessorDeclaration(n) => n.type_parameters,
+            Node::SetAccessorDeclaration(n) => n.type_parameters,
+            Node::FunctionExpression(n) => n.type_parameters,
+            Node::FunctionDeclaration(n) => n.type_parameters,
+            Node::ArrowFunction(n) => n.type_parameters,
+            _ => &[],
+        };
+        if let Some(first) = type_parameters.first().and_then(|p| p.node_id) {
+            self.report_js_only(
+                first,
+                &messages::TYPE_PARAMETER_DECLARATIONS_CAN_ONLY_BE_USED_IN_TYPESCRIPT_FILES,
+                None,
+            );
+        }
         if let Some(annotation) = annotation {
             self.report_js_only(
                 annotation,
