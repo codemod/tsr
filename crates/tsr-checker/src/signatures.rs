@@ -2485,17 +2485,28 @@ impl<'a> Checker<'a, '_> {
         if unannotated
             && !self.has_no_contextual_type(node)
             && !self.argument_context_is_any(node)
-            // Iteration 4 arm (b): an argument position under a SINGLE
-            // GENERIC callee has a real context (the uninstantiated
-            // parameter type, arm (a)) - the arrow adopts its type
-            // parameters exactly as the SS75 annotation road's arrows do,
-            // so the gate lifts for precisely this shape.
-            && !(self.single_generic_argument_context(node)
-                // The 37-G->W fix: un-gate ONLY when the context actually
-                // MATERIALIZES - an un-gated arrow whose contextual
-                // signature answers None types standalone-any, a confident
-                // wrong where the gap was honest.
-                && self.contextual_signature(node).is_some())
+            // Iteration 4 arm (b), WIDENED by SS137: the gate lifts
+            // whenever a contextual signature actually MATERIALIZES -
+            // originally only the single-generic-argument shape, but a
+            // literal's member arrow served through the SS135 member map
+            // is exactly as real (the 37-G->W hazard was arrows whose
+            // contextual signature answers None typing standalone-any;
+            // materialization is the test, the position never was).
+            && {
+                // The GROUNDED refinement (measured: ungated-materialization
+                // alone was +497 right but +138 wrong): the lift requires
+                // the materialized signature's parameter types to mention no
+                // type parameter - a half-grounded context types arrows
+                // confidently wrong (generatedContextualTyping's 48 G->W).
+                let grounded = self.contextual_signature(node).is_some_and(|signature| {
+                    signature
+                        .parameters
+                        .iter()
+                        .all(|parameter| !self.mentions_any_type_parameter(parameter.r#type, 2))
+                });
+                !grounded && !(self.single_generic_argument_context(node)
+                    && self.contextual_signature(node).is_some())
+            }
         {
             return error;
         }

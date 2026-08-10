@@ -760,7 +760,7 @@ impl<'a> Checker<'a, '_> {
     /// arguments), a type-parameter type. Conservative: ANY type-parameter
     /// mention declines, not just the candidate's own — a callback's inner
     /// generic re-binds its names and cannot leak the outer parameter.
-    fn mentions_any_type_parameter(&mut self, id: TypeId, depth: u8) -> bool {
+    pub(crate) fn mentions_any_type_parameter(&mut self, id: TypeId, depth: u8) -> bool {
         if self.type_parameter_symbols.contains_key(&id) {
             return true;
         }

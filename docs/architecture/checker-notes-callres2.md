@@ -935,3 +935,39 @@ someGenerics6-class unchanged (no literal). Falsifier: if checking a CS
 member during harvest freezes its later full-literal re-check through a
 cache the eviction misses, the family will not move and the trace
 discipline resumes.
+
+## §137 LANDED: in-order CS-member harvest + the GROUNDED arm (b) (+490/+11 wrong/−501 gap)
+
+The bar's slice-2 machinery (in-order member processing, CS values
+checking under accumulated inferences) measured ZERO alone — the trace
+found the real wall in one run: **the §93 gate**. A literal's member
+arrow with a fully materialized, fully instantiated context
+(`(x: number) => void` served through the §135 member map) still
+answered `error`, because arm (b)'s un-gate only recognized the
+single-generic-DIRECT-argument position.
+
+Two-step widening, both measured on the full pair:
+
+1. **Materialization alone** (`contextual_signature(node).is_some()`):
+   +497 right but **+138 wrong** — half-grounded contexts (parameter
+   types still mentioning type parameters) type arrows confidently
+   wrong (generatedContextualTyping 48 G→W).
+2. **GROUNDED** (materialized AND every parameter type mentions no type
+   parameter): **+490 right / +11 wrong / −501 gap.** The 48-line price
+   flipped to +16 G→R. Landed.
+
+The slice-2 in-order harvest stays in (it is what grounds the member
+map for later members); the widened gate is what let the checks
+through.
+
+**Ledger** (full pair): G→R 314, W→R 57 against G→W 66, R→G 2, R→W 2.
+right 411,607/471,012. Winners: intraExpressionInferences +72,
+parenthesizedContexualTyping2 +59, generatedContextualTyping +16,
+subtypes-of-type-parameter pair +12.
+
+**Prices, named**: typeArgumentInferenceWithObjectLiteral 12 G→W,
+genericFunctionInference1 10, restTuplesFromContextualTypes 10,
+parenthesizedContexualTyping1 4+2 R→G — contexts that ground to a
+WRONG instantiation (object-literal-sourced type arguments, rest
+tuples). Each is an inference-correctness family, not a gate family;
+they price the next rungs.

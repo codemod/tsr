@@ -1708,7 +1708,14 @@ fn an_unannotated_parameter_is_any_only_where_no_contextual_type_can_supply_one(
     // types `x` from the contextual signature, so answering `any` would be a
     // wrong line dressed as a computed one.
     assert_eq!(type_of_initialiser("const f = x => {};"), "(x: any) => void");
-    assert_eq!(type_of_initialiser("const f: (x: number) => void = x => {};"), "error");
+    // SS137 (checker-notes-callres2.md): the GROUNDED arm (b) un-gates an
+    // arrow whose materialized contextual signature mentions no type
+    // parameter — the annotated form now types exactly as upstream does,
+    // where this line once pinned `error` as the honest gap.
+    assert_eq!(
+        type_of_initialiser("const f: (x: number) => void = x => {};"),
+        "(x: number) => void"
+    );
     // The same test guards a literal return. `const f = () => 1` widens to
     // `() => number` because nothing supplied a contextual return type;
     // `const f: () => 1 = () => 1` does not, because something did — so the

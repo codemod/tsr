@@ -331,9 +331,6 @@ impl Checker<'_, '_> {
                         continue;
                     };
                     let Some(value) = assignment.initializer else { continue };
-                    if is_context_sensitive_argument(&value) {
-                        continue;
-                    }
                     let name = match assignment.name {
                         tsr_ast::PropertyName::Identifier(name) => name.text,
                         tsr_ast::PropertyName::StringLiteral(name) => name.text,
@@ -344,6 +341,28 @@ impl Checker<'_, '_> {
                         continue;
                     };
                     let property_type = self.get_type_of_symbol(property_symbol);
+                    // SS137 (slice 2): members process IN ORDER, a
+                    // context-sensitive value checking under the inferences
+                    // accumulated so far (upstream's non-omitted pass with
+                    // inferFromIntraExpressionSites firing per site) - its
+                    // RETURN then contributes: `produce: _a => 0` infers
+                    // T := number for `consume`.
+                    if is_context_sensitive_argument(&value)
+                        && let Some(literal_id) = literal.node_id
+                    {
+                        let so_far: Vec<(TypeId, TypeId)> = flatten_infos(&infos);
+                        self.intra_expression_member_maps.insert(
+                            literal_id,
+                            (
+                                so_far,
+                                parameters.clone(),
+                                names.iter().map(|n| n.to_string()).collect(),
+                            ),
+                        );
+                        if let Some(value_id) = value.node_id() {
+                            self.evict_subtree(value_id);
+                        }
+                    }
                     let checked = self.check_expression(value);
                     self.infer_from_types(checked, property_type, &parameters, &mut infos, 0);
                 }
