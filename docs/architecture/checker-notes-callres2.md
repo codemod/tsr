@@ -987,3 +987,18 @@ Prediction: intraExpressionInferences moves another +15–40 (the
 `produce()` method fixture block and both callItT lines); falsifier:
 if method members don't reach get_type_of_function_expression through
 their NodeId the harvest arm measures zero and the method half parks.
+
+## §138 LANDED: slice 3 — methods and tuple elements (+15/−4/0)
+
+Both bar halves built and measured together: the CS predicate learns
+method members (unannotated parameter → the literal defers); non-CS
+methods harvest through `get_type_of_function_expression` (the NodeId
+road worked — the falsifier did not fire); array elements harvest
+against `tuple_element_lists` positions, the §68.2 element road
+serving the memo's instantiated tuple for the CS elements.
+
+Full pair: GAP→RIGHT 11, WRONG→RIGHT 4, nothing else moved.
+right 412,359/471,012. The family stands 508/125/122 — the remaining
+wrongs are E1-vs-E2 candidate-priority shapes and CS-member
+return-side sites under multi-parameter signatures, priced to the
+priority ladder (InferenceInfo step 2), not to this slice.

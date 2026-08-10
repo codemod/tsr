@@ -320,11 +320,64 @@ impl Checker<'_, '_> {
                 let Some(parameter_type) = signature.parameters.get(index).map(|p| p.r#type) else {
                     continue;
                 };
+                // SS138: ARRAY literal elements harvest against tuple
+                // element types - the SS68.2 element road serves the memo's
+                // instantiated tuple, so harvest is the missing half.
+                if let Some(&Expression::ArrayLiteralExpression(array)) = arguments.get(index) {
+                    let elements = self.tuple_element_lists.get(&parameter_type).cloned();
+                    if let Some((element_types, _)) = elements {
+                        for (position, &element) in array.elements.iter().enumerate() {
+                            if is_context_sensitive_argument(&element) {
+                                continue;
+                            }
+                            let Some(&element_type) = element_types.get(position) else {
+                                continue;
+                            };
+                            let checked = self.check_expression(element);
+                            self.infer_from_types(
+                                checked,
+                                element_type,
+                                &parameters,
+                                &mut infos,
+                                0,
+                            );
+                        }
+                    }
+                    continue;
+                }
                 let Some(&Expression::ObjectLiteralExpression(literal)) = arguments.get(index)
                 else {
                     continue;
                 };
                 for property in literal.properties {
+                    // SS138: a NON-context-sensitive method member harvests
+                    // its signature type against the property type.
+                    if let tsr_ast::ObjectLiteralElementLike::MethodDeclaration(method) = property
+                        && !method.parameters.iter().any(|p| p.r#type.is_none())
+                        && let Some(method_id) = method.node_id
+                    {
+                        let name = match method.name {
+                            tsr_ast::PropertyName::Identifier(name) => name.text,
+                            tsr_ast::PropertyName::StringLiteral(name) => name.text,
+                            _ => continue,
+                        };
+                        let Some(property_symbol) = self.get_property_of_type(parameter_type, name)
+                        else {
+                            continue;
+                        };
+                        let property_type = self.get_type_of_symbol(property_symbol);
+                        let checked = self.get_type_of_function_expression(method_id);
+                        if checked != error {
+                            self.infer_from_types(
+                                checked,
+                                property_type,
+                                &parameters,
+                                &mut infos,
+                                0,
+                            );
+                        }
+                        continue;
+                    }
                     let tsr_ast::ObjectLiteralElementLike::PropertyAssignment(assignment) =
                         property
                     else {
@@ -2009,15 +2062,17 @@ fn is_context_sensitive_argument(argument: &Expression<'_>) -> bool {
         // array literals) - it defers so its members can consume the
         // intra-expression inferences harvested from its other members.
         Expression::ObjectLiteralExpression(node) => {
-            return node.properties.iter().any(|property| {
-                matches!(
-                    property,
-                    tsr_ast::ObjectLiteralElementLike::PropertyAssignment(assignment)
-                        if assignment
-                            .initializer
-                            .as_ref()
-                            .is_some_and(is_context_sensitive_argument)
-                )
+            return node.properties.iter().any(|property| match property {
+                tsr_ast::ObjectLiteralElementLike::PropertyAssignment(assignment) => {
+                    assignment.initializer.as_ref().is_some_and(is_context_sensitive_argument)
+                }
+                // SS138: a method member with an unannotated parameter makes
+                // the literal context-sensitive exactly as an arrow value
+                // does (upstream isContextSensitive on the method).
+                tsr_ast::ObjectLiteralElementLike::MethodDeclaration(method) => {
+                    method.parameters.iter().any(|p| p.r#type.is_none())
+                }
+                _ => false,
             });
         }
         Expression::ArrayLiteralExpression(node) => {
