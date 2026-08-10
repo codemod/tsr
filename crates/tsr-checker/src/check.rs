@@ -7030,21 +7030,30 @@ impl Checker<'_, '_> {
         if !self.nodes.flags(list).intersects(tsr_ast::NodeFlags::BLOCK_SCOPED) {
             return;
         }
-        let Some(statement) = self.nodes.parent(list) else { return };
-        if self.nodes.kind(statement) != SyntaxKind::VariableStatement {
-            return;
-        }
-        let Some(container) = self.nodes.parent(statement) else { return };
-        let names_share_scope = match self.nodes.kind(container) {
-            SyntaxKind::Block => self
-                .nodes
-                .parent(container)
-                .is_some_and(|owner| self.is_function_like_or_static_block(owner)),
-            SyntaxKind::ModuleBlock | SyntaxKind::ModuleDeclaration | SyntaxKind::SourceFile => {
-                true
-            }
-            _ => false,
-        };
+        // **A `nil` container is a reason to report, not a reason to stop.**
+        // Upstream (`checker.go:6003`) leaves `container` nil when the list's
+        // parent is not a variable statement, and `namesShareScope` is
+        // `container != nil && …` — so nil falls straight through to the
+        // error. A `let` in a `for` initializer is exactly that shape: its
+        // list hangs off the `ForStatement`. Written as an early return, this
+        // read as *"a shape I cannot judge"* where upstream means *"a shape
+        // that always loses"*. §716.
+        let container = self
+            .nodes
+            .parent(list)
+            .filter(|&statement| self.nodes.kind(statement) == SyntaxKind::VariableStatement)
+            .and_then(|statement| self.nodes.parent(statement));
+        let names_share_scope =
+            container.is_some_and(|container| match self.nodes.kind(container) {
+                SyntaxKind::Block => self
+                    .nodes
+                    .parent(container)
+                    .is_some_and(|owner| self.is_function_like_or_static_block(owner)),
+                SyntaxKind::ModuleBlock
+                | SyntaxKind::ModuleDeclaration
+                | SyntaxKind::SourceFile => true,
+                _ => false,
+            });
         if names_share_scope {
             return;
         }

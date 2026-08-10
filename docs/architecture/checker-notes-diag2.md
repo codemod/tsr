@@ -36789,3 +36789,104 @@ which every non-constructor container answers the same way, function or not.
 > **A helper named after upstream's predicate is not automatically the right
 > predicate for upstream's call site.** The other seven were lists that meant to
 > be complete; this one was complete, and pointed at the wrong question.
+
+## §716 — TS2481: a `nil` container is a *reason to report*, not a reason to stop
+
+```ts
+function test1() { for (let v; ; ) { var v; } }   // TS2481
+for (let v of []) { var v; }                      // TS2481
+```
+
+Upstream (`checker.go:6003`):
+
+```go
+var container *ast.Node
+if ast.IsVariableStatement(varDeclList.Parent) && varDeclList.Parent.Parent != nil {
+    container = varDeclList.Parent.Parent
+}
+namesShareScope := container != nil && (…)
+if !namesShareScope { c.error(…) }
+```
+
+**`container` stays `nil` when the list's parent is not a variable statement**,
+and a `nil` container makes `namesShareScope` false, which is precisely the
+condition that reports. A `let` in a `for` initializer is exactly that shape:
+its list hangs off the `ForStatement`, not off a `VariableStatement`.
+
+This port wrote the same test as an early return:
+
+```rust
+if self.nodes.kind(statement) != SyntaxKind::VariableStatement { return; }
+```
+
+which reads as *"this shape is not one I can judge"* and means, upstream,
+*"this shape is one that always loses"*.
+
+> §714 was a helper answering the wrong question; this is a **guard inverted by
+> translation**. Go's zero value flows into a boolean that the `if` then negates;
+> the Rust transliteration turns the same fact into a control-flow exit. Both
+> readings are locally defensible and only one matches — and the difference is
+> invisible unless the `nil` path is traced to its use. **Ninth in the family,
+> and the second (with §700) where upstream's answer is reached by falling
+> through rather than by branching.**
+
+```
+bar:  +2 of 4 (for-of53, for-of54, shadowedFunctionScopedVariablesByBlockScopedOnes),
+      0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **`var v; let v;` at file scope reports twice.** That is TS2451's row — a
+   redeclaration, not a hoisting collision — and the `names_share_scope` arm
+   returns for a source-file container.
+2. **`function f() { let v; var v; }` reports.** A block whose parent is
+   function-like *does* share scope; only the for-initializer shape does not.
+3. **TS2451's row moves.** Same family, adjacent codes.
+
+## §717 — §716 built: **+3 of 2**, and one case remains
+
+```
+diagnostics             2,239 → 2,242   (bar was +2;  +3, 0 LOST)   40.85%
+extraonly               zero TS2481 and zero TS2451 lines
+TS2481 missing lines    9 → 4;  4 cases blocked alone → 1
+```
+
+All three falsifiers negative. Five of nine lines converted and three of four
+cases.
+
+### The family, nine deep, and two ways of being wrong
+
+```
+a list that meant to be complete
+  §695 flag composite · §698 clause test · §700 traversal limit
+  §702 struct field   · §704 marking key · §706 identity test
+  §708 enumeration
+
+a translation that changed what the code decides
+  §714 a faithful predicate at a call site asking a different question
+  §716 a `nil` that flows to the report, transliterated as an early return
+```
+
+The second pair is the more interesting one because **neither is a missing
+case**. §714's helper was complete; §716's guard tests exactly what upstream
+tests. What moved is the *meaning of not knowing*: upstream lets a `nil`
+container fall into `namesShareScope == false` and report, and the Rust reading
+made the same fact a reason to stop.
+
+> Go's zero values and early `nil` checks carry information into later boolean
+> expressions. A transliteration that turns each `nil` test into a `return` is
+> **locally faithful and globally different**, and the difference only shows
+> where the `nil` path had a use. Two of nine this session; worth a look
+> wherever a ported function has more early returns than upstream has branches.
+
+### The remaining case
+
+`shadowedFunctionScopedVariablesByBlockScopedOnes` keeps 4 lines: its later
+tests nest the collision inside a `catch` clause and a `switch` block, which
+`names_share_scope` classifies by container kind and upstream classifies by
+`IsBlock(container) && IsFunctionLike(container.Parent)`. A catch block's parent
+is a `CatchClause`, not a function — so upstream reports and this port's
+`Block` arm asks the wrong parent. **Named and priced at 4 lines**; it is the
+same shape again and the fix is one arm, but it is a fourth measurement and this
+build is already over bar.
