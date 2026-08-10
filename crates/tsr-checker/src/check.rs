@@ -257,7 +257,6 @@ impl Checker<'_, '_> {
                     || self.is_ambient_module_node(node)
             }
             Node::VariableStatement(statement) => {
-                self.check_modifier_on_nested_statement(node);
                 self.check_block_scoped_statement_container(node);
                 ambient || has_modifier(statement.modifiers, SyntaxKind::DeclareKeyword)
             }
@@ -623,6 +622,10 @@ impl Checker<'_, '_> {
         if matches!(typed, Node::GetAccessorDeclaration(_) | Node::SetAccessorDeclaration(_)) {
             self.check_grammar_accessor(node, typed);
         }
+        // **Every kind 's default arm names**, not
+        // just  — §623, and §600's dispatch class for the
+        // ninth time.
+        self.check_modifier_on_nested_statement(node);
         self.check_grammar_parameter_list(node);
         self.check_grammar_modifier_shapes(node, typed);
         self.check_jsx_intrinsic_element(node, typed);
@@ -2146,9 +2149,21 @@ impl Checker<'_, '_> {
         if self.file_has_parse_errors {
             return;
         }
-        let Some(Node::VariableStatement(statement)) = self.node_map.get(node) else { return };
-        let Some(tsr_ast::ModifierLike::Token(first)) = statement.modifiers.first() else {
-            return;
+        // `findFirstIllegalModifier`'s default arm (`grammarchecks.go:619`):
+        // each kind keeps at most one modifier at a nested position. §474 built
+        // the `VariableStatement` case and named the rest; §623 built them.
+        let except = match self.node_map.get(node) {
+            Some(Node::FunctionDeclaration(_)) => Some(SyntaxKind::AsyncKeyword),
+            Some(Node::ClassDeclaration(_)) => Some(SyntaxKind::AbstractKeyword),
+            Some(Node::EnumDeclaration(_)) => Some(SyntaxKind::ConstKeyword),
+            // Every modifier is illegal on these at a nested position.
+            Some(
+                Node::VariableStatement(_)
+                | Node::ClassExpression(_)
+                | Node::InterfaceDeclaration(_)
+                | Node::TypeAliasDeclaration(_),
+            ) => None,
+            _ => return,
         };
         let legal = self.nodes.parent(node).is_some_and(|parent| {
             matches!(self.nodes.kind(parent), SyntaxKind::ModuleBlock | SyntaxKind::SourceFile)
@@ -2156,6 +2171,13 @@ impl Checker<'_, '_> {
         if legal {
             return;
         }
+        let Some(modifiers) = self.node_map.get(node).and_then(modifiers_of) else { return };
+        let Some(first) = modifiers.iter().find_map(|modifier| match modifier {
+            tsr_ast::ModifierLike::Token(token) if Some(token.kind) != except => Some(token),
+            _ => None,
+        }) else {
+            return;
+        };
         let Some(id) = first.node_id else { return };
         let Some(file) = self.source_file_of_for_diagnostics(id) else { return };
         let span = self.nodes.span(id);

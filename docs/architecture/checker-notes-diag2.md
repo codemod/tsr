@@ -32449,3 +32449,108 @@ TS1194 +4  TS1359 +2
 ```
 
 Eleven codes closed of the sixty-two with cases.
+
+## §623 — the accessor sweep, re-run correctly, and TS1184's named arm
+
+### The sweep §622 showed was partial
+
+Re-run on *any* node-shaped accessor with a catch-all, regardless of return
+type — **31 in `tsr-checker`**, from six arms to twenty-eight:
+
+```
+ 6  member_is_abstract · note_member_name_at · this_parameter_type
+ 7  has_async_modifier · is_optional_declaration · declaration_body_of · …
+…
+24  modifiers_of · check_unused_identifiers · register_for_unused_check
+28  is_declaration_or_member_name
+```
+
+`has_async_modifier` — the one on the `async` path this thread has been
+following — enumerates all seven function-like kinds and is **complete**; it
+also duplicates `modifiers_of`'s job, which is §521's defect in miniature and
+harmless while both are right.
+
+**The map is the deliverable**, not a fix: §603's sweep was a null result on the
+wrong predicate and this one is a list on the right one, which the next
+`+0`-that-should-have-been-`+n` can be checked against in one read.
+
+### TS1184's named arm, built
+
+```ts
+export function foo() {
+   export function bar() { }     // TS1184 — Modifiers cannot appear here
+}
+```
+
+§474's rule bounded itself to `VariableStatement` and **named the rest in its own
+comment**: *"the arm's other sub-cases keep one each (`async` on a function,
+`abstract` on a class) and need `findFirstModifierExcept`"*. That is
+`grammarchecks.go:619`:
+
+```go
+case KindFunctionDeclaration:  findFirstModifierExcept(node, KindAsyncKeyword)
+case KindClassDeclaration:     findFirstModifierExcept(node, KindAbstractKeyword)
+case KindEnumDeclaration:      findFirstModifierExcept(node, KindConstKeyword)
+case KindClassExpression, KindInterfaceDeclaration, KindTypeAliasDeclaration:
+                               the first modifier at all
+```
+
+> **§501's discipline paying its own bill.** The arm was named when it was
+> skipped, so building it needed no rediscovery — only the line the earlier note
+> pointed at. That is the fourth time this session a `not ported` note has been
+> cashed directly (§508, §557, §594, §623) and the cheapest of the four.
+
+```
+bar:  +2 of 2 (cases blocked on TS1184 alone),  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **A top-level `export function` reports.** The parent test comes first.
+2. **`async function f() {}` nested in a function reports.** `async` is the
+   permitted one, and dropping the *except* is the arm's whole risk.
+
+## §624 — §623 built: **+2**, bar met, TS1184 closed, and the ninth dispatch
+
+```
+diagnostics   2,168 → 2,170   (bar was +2;  +2, 0 LOST)   39.54%
+extraonly     zero TS1184 lines
+TS1184        2 missing lines → 0
+```
+
+The rule was widened to five node kinds and measured **+0** until its **dispatch**
+was widened too — it had been called from the `VariableStatement` arm alone,
+which was correct when §474 bounded the rule to that kind and wrong the moment
+the rule grew. **Ninth instance of §380's class**, and the first where the
+dispatch was right when it was written.
+
+> **A rule's dispatch is part of its bound, and widening the rule without it
+> leaves the bound in place.** Eight earlier instances were dispatches that had
+> never matched the rule; this one matched perfectly until the rule changed
+> underneath it. That is a different failure with the same symptom, and it is
+> the one that will recur — every bounded rule this session widens has a
+> dispatch written to the old bound.
+
+### §501's discipline, cashed for the fourth time
+
+§474 wrote *"the arm's other sub-cases keep one each (`async` on a function,
+`abstract` on a class) and need `findFirstModifierExcept`"* and that sentence
+**was** the specification: `grammarchecks.go:619`, four cases, no rediscovery.
+
+```
+§508  §557  §594  §623      a `not ported` note cashed directly
+```
+
+Four for four, and the cheapest was the one whose note named the upstream
+function by name.
+
+### The grammar family after thirteen builds
+
+```
+TS1029 +4  TS1070 +4  TS1014 +3  TS1248 +2  TS2462 +2  TS1308 +1
+TS1805x +3  TS1194 +4  TS1359 +2  TS1184 +2
+                                                        ──
+                                                        +27
+```
+
+Twelve codes closed of the sixty-two with cases.
