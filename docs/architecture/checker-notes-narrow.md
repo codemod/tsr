@@ -5460,3 +5460,21 @@ root-shrink losses concentrated in config-bearing cases; (b) the
 config unit itself vanishing from the corpus denominator — the
 TOTAL population shifts, and any change there must match upstream's
 own baseline line count for those cases, not merely improve.
+
+**§129 MOOTED IN FLIGHT — the build landed from the other lane
+between this bar's commit and its first edit.** The diagnostics
+session's §533–§539 block gave `program_for_case` everything the
+bar specified: config units parsed (`parse_config_file` against a
+full-unit VFS), options layered under directives, roots from the
+config's file list (§535), the no-config LAST-UNIT ROOT HEURISTIC
+(§537 — which this bar had explicitly excluded as the trace
+runner's; the other lane measured it IN for the types harness,
+superseding that exclusion with a number), `@currentDirectory`
+(§539) and case sensitivity. This lane's visibility edits were
+reverted unlanded; the clean tree reads byte-identical to baseline.
+The LOADER entry's parked half is now BUILT — tsr-9or.1's ledger
+should re-census the pathMapping/self-name corpora fresh before
+anything further is priced against it. Two lanes converging on one
+seam within hours is the coordination protocol's first true
+collision; the section-number claim (bar to main first) is what
+kept it a no-op instead of a conflict.
