@@ -1190,3 +1190,24 @@ erroring member a real type — which is the gate's third state
 (§142's finding, unchanged): ungrounded-adopt for the member itself,
 so there is no error to propagate. The seam and the third state are
 ONE build, not two.
+
+## §144 BAR (registered before code): the third state — literal members ADOPT
+
+The §93 gate's three states, complete: (1) grounded-materialized →
+un-gate (§137); (2) unmaterialized → error (the honest gap); (3) NEW —
+materialized but UNGROUNDED, in LITERAL-MEMBER position (parent chain:
+PropertyAssignment → ObjectLiteralExpression) → un-gate and ADOPT (the
+§75 semantics: the arrow types `(x: A) => ...` with the context's own
+type parameter). This is the scoped form of the §137 fork's rejected
+global branch (+497/+138 there); the scope is exactly the population
+whose whole-literal error propagation starves inference (§142/§143's
+one-build finding — with the member typed, there is no error to
+propagate and the seam needs no condition).
+
+Prediction: badInference's head moves (the b-member types, the literal
+survives, the structural arm gets its candidates — IF the §142
+predicate-descent isn't also needed; measure will say), plus part of
+thislessFunctionsNotContextSensitive1's 6. Falsifier: T-adopt prints
+where upstream grounds (family G→W beyond ~2:1 gross:price) refuses
+the state again and the window records the third refusal of this
+head.
