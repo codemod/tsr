@@ -38,15 +38,18 @@ fn main() {
     let corpus = Corpus::from_repo_root(&repo_root());
     let cases = corpus.discover().expect("corpus");
     let rows: Vec<(String, Vec<String>)> = cases.par_iter().filter_map(measure).collect();
-    let mut lines = 0;
+    let (mut lines, mut duplicates) = (0, 0);
     for (name, dups) in &rows {
         for dup in dups {
             println!("{name}  {dup}");
             lines += 1;
+            if dup.ends_with("[DUPLICATE]") {
+                duplicates += 1;
+            }
         }
     }
-    println!("cases with a duplicate at a right position: {}", rows.len());
-    println!("duplicate lines: {lines}");
+    println!("cases with an extra at a right position: {}", rows.len());
+    println!("lines: {lines}  ({duplicates} DUPLICATE, {} shadow)", lines - duplicates);
 }
 
 /// The extras whose `(file, line, column)` the baseline also records — i.e. a
@@ -72,9 +75,22 @@ fn measure(case: &CaseEntry) -> Option<(String, Vec<String>)> {
             let at = expected.iter().find(|want| {
                 want.file == extra.file && want.line == extra.line && want.column == extra.column
             })?;
+            // **Two very different rows wear the same shape.** If this port
+            // also emits the wanted code at that position, a second rule spoke
+            // where upstream's chain stops after one — §858's TS1042 shape, and
+            // removing the extra converts the position. If it does **not**, the
+            // extra is the *shadow of a missing diagnostic*: upstream suppresses
+            // it precisely because the wanted one fired, so the fix is to report
+            // one MORE, not one fewer (§862 on TS2364, §863 on TS2357).
+            let both = actual.contains(at);
             Some(format!(
-                "{}({},{}) TS{} extra, beside TS{} wanted",
-                extra.file, extra.line, extra.column, extra.code, at.code
+                "{}({},{}) TS{} extra, beside TS{} wanted [{}]",
+                extra.file,
+                extra.line,
+                extra.column,
+                extra.code,
+                at.code,
+                if both { "DUPLICATE" } else { "shadow" }
             ))
         })
         .collect();

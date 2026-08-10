@@ -43073,3 +43073,49 @@ same type-side gap.
 **Kept at `+0`** on §835's rule: upstream has the gate, this port now has it, and
 when the type side supplies `this`'s type the 36 lines resolve without touching
 this rule again. Fourteenth `+0` kept for fidelity.
+
+## §863 — `diagdup` re-priced: **882 of 944 are shadows**, not duplicates
+
+§861 and §862 hit the same wall twice: a row reading *"TS2364 extra beside
+TS2362 wanted"* turned out to need **one more** diagnostic, not one fewer, and
+so did TS2357 beside TS2356:
+
+```
+decrementOperatorWithUnsupportedBooleanType.ts(33,26)   we emit TS2357, upstream emits TS2356
+                                                        we do NOT emit TS2356 anywhere
+```
+
+Two instances is a coincidence; the instrument can answer it for all 944. It now
+asks whether this port **also** emits the wanted code at that position:
+
+```
+lines: 944  (62 DUPLICATE, 882 shadow)
+```
+
+```
+DUPLICATE   both codes present at the position. A second rule spoke where
+            upstream's chain stops after one — §858's TS1042. Removing the
+            extra converts the position.
+shadow      only the extra is present. Upstream suppresses it *because* the
+            wanted one fired, so the extra is the shadow of a MISSING
+            diagnostic and the fix is to report one MORE.
+```
+
+> **A wrong line and a missing line can be the same defect seen from opposite
+> sides, and the wrong-line view is the one that reads like an instruction.**
+> "Extra: TS2364" invites deleting a report. In 882 of 944 cases that is the
+> wrong end of the problem entirely — and I acted on the wrong end twice, at
+> §861 and §862, before the pattern was cheap enough to see.
+
+### The actionable head is now a different list
+
+```
+13  TS1005 -> TS2304      6  TS2451 -> TS2300     4  TS2567 -> TS2300
+ 6  TS2304 -> TS1005      6  TS1005 -> TS2552     4  TS2300 -> TS1005
+```
+
+Sixty-two lines, and the largest class is nine times smaller than the one the
+unsplit view advertised. **That is the honest size of "a second rule spoke", and
+it is worth knowing before another build is spent on the other 882** — which are
+not `diagdup`'s to fix at all, but the missing side's, already ranked by
+`diagmissing` and owned where §862 and `bd tsr-gjze` put them.
