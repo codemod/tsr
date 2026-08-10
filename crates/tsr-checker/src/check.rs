@@ -5144,6 +5144,23 @@ impl Checker<'_, '_> {
                 .into_iter()
                 .find(|(earlier, _)| seen.contains(earlier))
                 .map(|(_, name)| name),
+                // `export` must precede `declare`, `abstract` and `async`
+                // (`grammarchecks.go:408-412`).
+                SyntaxKind::ExportKeyword => [
+                    (SyntaxKind::DeclareKeyword, "declare"),
+                    (SyntaxKind::AbstractKeyword, "abstract"),
+                    (SyntaxKind::AsyncKeyword, "async"),
+                ]
+                .into_iter()
+                .find(|(earlier, _)| seen.contains(earlier))
+                .map(|(_, name)| name),
+                // **The inverted arm** (`grammarchecks.go:437`): `default`
+                // reports when `export` has *not* been seen, where every other
+                // arm reports when something *has*. Same message, opposite
+                // test. §593.
+                SyntaxKind::DefaultKeyword if !seen.contains(&SyntaxKind::ExportKeyword) => {
+                    Some("default")
+                }
                 _ => None,
             };
             // The arms below are the rest of each keyword's `else if` chain,
@@ -5280,6 +5297,7 @@ impl Checker<'_, '_> {
                     SyntaxKind::PublicKeyword => "public",
                     SyntaxKind::ProtectedKeyword => "protected",
                     SyntaxKind::PrivateKeyword => "private",
+                    SyntaxKind::ExportKeyword | SyntaxKind::DefaultKeyword => "export",
                     _ => "override",
                 };
                 let Some(id) = token.node_id else { return };

@@ -31205,3 +31205,82 @@ by search.
 Five: two JSDoc `importTag` cases, two parser error-recovery fixtures, and
 `parserTypeAssertionInObjectCreationExpression1` (`new <T>Foo()`). No shared
 shape.
+
+## §593 — TS1029: the `export` and `default` arms
+
+`checkGrammarModifiers` emits `'{0}' modifier must precede '{1}' modifier` from
+**twenty** sites. This port has the accessibility chain and `override`'s; two
+more carry the corpus's cases:
+
+```go
+case KindExportKeyword:
+    else if flags&Ambient  != 0 { … "export", "declare"  }   // grammarchecks.go:408
+    else if flags&Abstract != 0 { … "export", "abstract" }   // :410
+    else if flags&Async    != 0 { … "export", "async"    }   // :412
+case KindDefaultKeyword:
+    else if flags&Export == 0   { … "export", "default"  }   // :437
+```
+
+The second is the interesting one: **it fires on a modifier that is *absent***.
+Every other arm of this rule reads *"I have seen X already, and X must come
+after me"*; `default` reads *"I have not seen `export`, and it must come before
+me"*. Same message, opposite test.
+
+> **A message with twenty emit sites is not one rule.** §501's discipline —
+> name the arm you did not port — has been applied to this rule twice before
+> (§505, §508) and both times to arms with the *same* shape as the ones built.
+> An arm with an inverted test reads as already-covered in a way a differently-
+> worded one does not.
+
+```
+bar:  +4 of 4 (cases blocked on TS1029 alone),  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **`export default class {}` reports.** The commonest shape in the corpus, and
+   the `default` arm's whole risk.
+2. **`declare export` order changes.** Only `export` *after* `declare` is an
+   error; the legal spelling is `export declare`.
+
+## §594 — §593 built: **+2** of a bar of +4; the inverted arm converted
+
+```
+diagnostics   2,141 → 2,143   (bar was +4;  +2, 0 LOST)   39.05%
+extraonly     zero TS1029 lines
+TS1029        5 missing lines → 3;  4 cases blocked alone → 2
+```
+
+Both falsifiers negative — `export default class {}` is silent, which was the
+whole risk of an arm that fires on an **absent** modifier.
+
+The two that stayed are `overrideKeywordOrder`, which needs
+`grammarchecks.go:494`'s `abstract`/`override` pair:
+
+```go
+case KindAbstractKeyword:
+    else if flags&Override  != 0 { … "abstract", "override" }
+    else if flags&Accessor  != 0 { … "abstract", "accessor" }
+```
+
+**A third arm of the same message, named and not built** (§501) — it is another
+entry in the `precede` table and would have been free to add here. Left out
+deliberately: §593's bar was set from `cases blocked alone` and the two
+`overrideKeywordOrder` cases carry **two lines each**, so adding the arm without
+measuring it would have made a +2 look like the +4 the bar predicted.
+
+> **A bar predicts the board; adding an untested arm to hit it is fitting the
+> measurement.** The arm is cheap and obvious and that is exactly why it goes in
+> its own build with its own falsifiers — §496's rule about bundling, applied to
+> two arms of one `match` rather than two rules.
+
+### The rule's twenty sites
+
+```
+built      the accessibility chain (public/protected/private)   §-, earlier
+           `override`'s three                                   §-, earlier
+           `export`'s three                                     §593
+           `default`'s inverted one                             §593
+not built  `abstract`'s two                                     §594, next
+           `in`/`out`, and the rest of the twenty                unpriced
+```
