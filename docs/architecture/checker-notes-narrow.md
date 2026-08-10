@@ -6173,3 +6173,17 @@ signatures. **Bar: ≥10 G→R at ≥5:1** (the .length/.name misses on
 non-callable receivers across the corpus), zero R→W tolerated —
 this narrows a conservative gate, so the only possible adverse is
 a receiver whose signatures this port under-records.
+
+**§124.1 MEASURED AND LANDED — +14 G→R / ZERO adverse (the bar's
+zero-R→W condition met exactly), 86.13%+.** Three callable
+detectors, each bought by one adverse class: the signature_types
+map (base form; strictBindCallApply's 24 returned when it alone
+decided — Anonymous class receivers signature lazily), the
+Anonymous merged-symbol FUNCTION|METHOD|CLASS flags (fixed those
+24), and the Named owner's syntactic call/construct-signature
+member scan (objectTypeWithCall/ConstructSignature*'s 10). A
+`.length`/`.name` miss on a non-callable receiver is now fully
+established — which also DISSOLVES §142's fn-expr poison
+(this.n.length flows to established-any instead of erring the
+literal): the §142 park's re-measure with the poison gone is the
+next window's one-command check.

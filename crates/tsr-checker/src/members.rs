@@ -1196,7 +1196,7 @@ impl Checker<'_, '_> {
         } else {
             false
         };
-        if !const_enum && self.function_family_declares(name) {
+        if !const_enum && self.function_family_declares(receiver, name) {
             return false;
         }
         self.named_walk_is_complete(receiver)
@@ -1208,8 +1208,50 @@ impl Checker<'_, '_> {
     /// all (`C.bind` under strictBindCallApply wants the specialized
     /// signature; strictBindCallApply1 measured 24 G→W through two
     /// iterations before this gate named the mechanism).
-    fn function_family_declares(&mut self, name: &str) -> bool {
-        for global in ["CallableFunction", "NewableFunction", "Function", "Object"] {
+    /// §124.1's third callable detector: any declaration of the symbol
+    /// carries a call- or construct-signature member.
+    fn symbol_declares_signature_member(&self, owner: SymbolId) -> bool {
+        self.binder.symbols().get(owner).declarations.iter().any(|&declaration| {
+            let members: &[tsr_ast::TypeElement<'_>] = match self.node_map.get(declaration) {
+                Some(Node::InterfaceDeclaration(node)) => node.members,
+                Some(Node::TypeLiteralNode(node)) => node.members,
+                _ => return false,
+            };
+            members.iter().any(|member| {
+                matches!(
+                    member,
+                    tsr_ast::TypeElement::CallSignatureDeclaration(_)
+                        | tsr_ast::TypeElement::ConstructSignatureDeclaration(_)
+                )
+            })
+        })
+    }
+
+    fn function_family_declares(&mut self, receiver: TypeId, name: &str) -> bool {
+        // §124.1: the Function-family interfaces only gate SIGNATURE-BEARING
+        // receivers — the §117 fallback never consults them otherwise, so a
+        // `.length` miss on `number` is fully established (§142's probe 5
+        // found the over-wide gate erring whole literals through inferred
+        // returns). Object's names gate unconditionally, mirroring its
+        // unconditional fallback.
+        let callable = self.signature_types.get(&receiver).is_some_and(|s| !s.is_empty())
+            || matches!(self.store.get(receiver).data,
+                crate::types::TypeData::Anonymous { symbol, .. }
+                    if self.binder.symbols().get(self.binder.merged_symbol(symbol)).flags.intersects(
+                        SymbolFlags::FUNCTION | SymbolFlags::METHOD | SymbolFlags::CLASS))
+            // Third detector: a NAMED owner whose declarations carry
+            // call/construct SIGNATURE members (`{ (): void; }` type
+            // literals and interfaces — objectTypeWithCallSignature*'s 10
+            // on the two-detector pair).
+            || matches!(self.store.get(receiver).data,
+                crate::types::TypeData::Named { members: Some(owner), .. }
+                    if self.symbol_declares_signature_member(owner));
+        let families: &[&str] = if callable {
+            &["CallableFunction", "NewableFunction", "Function", "Object"]
+        } else {
+            &["Object"]
+        };
+        for global in families {
             if let Some(interface) = self.global_type_symbol_with_arity(global, 0) {
                 let mut visiting = Vec::new();
                 if self.get_property_of_declared_symbol(interface, name, &mut visiting).is_some() {
