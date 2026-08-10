@@ -36519,3 +36519,88 @@ is declared in another class entirely.
 > reading — exactly like a rule that is correct and simply not reached. Six
 > builds found the first kind by printing what the rule decided on; this one
 > needed printing **what it was iterating**.
+
+## §710 — TS2314: the arity helper stops at an alias
+
+```ts
+// file0.ts
+class C<T> { foo: T; }
+export = C;
+// file1.ts
+import a = require('./file0');
+var v: a;   // TS2314 — Generic type 'C' requires 1 type argument
+```
+
+`declared_type_parameter_arity` resolves the written name at `TYPE` and then
+tests the symbol's flags against the kinds it can count (§681, §683). An
+**alias** carries none of them, so `a` answers `None` and the whole ladder is
+silent — including the `maximum == 0` branch and the TS2314 arm above it.
+
+§692 established the walk this needs and §693 extracted it: follow the alias to
+a target, through `qualified_alias_target` when `resolve_alias` declines for the
+printer's sake, and treat an unresolvable chain as unknown. Here the target's
+*identity* is wanted rather than a yes/no, so the loop is the same and the
+result is the symbol.
+
+> Third rule this session to need the alias target and the second to need it
+> **after** the walk existed. §693 wrote the helper as a predicate —
+> `alias_chain_carries(symbol, meaning) -> bool` — because both callers then
+> wanted a boolean. **A predicate is the wrong shape for a walk**: the third
+> caller wants the symbol, and the choice made two builds ago costs a
+> near-duplicate here. Recorded rather than refactored, because merging them now
+> would move two measured rules to serve an unmeasured third.
+
+```
+bar:  +1 of 2 (externalModuleExportingGenericClass),  0 LOST,  WRONG delta <= +1
+```
+
+The second case is `jsdocClassMissingTypeArguments`, a `.js` file — §657's JSDoc
+reparse owns it.
+
+### Falsifiers
+
+1. **TS2315's row moves.** The same helper feeds the *not generic* branch, and
+   an alias to a non-generic class now reaches it.
+2. **`import a = require(…)` to a non-class reports.** The kind list decides,
+   and a module object carries none of the countable kinds.
+3. **§692's TS2709 row moves.** Different call site, same walk.
+
+## §711 — §710 built: **+1 of 2**, bar met, and the edit landed in the wrong function first
+
+```
+diagnostics             2,235 → 2,236   (bar was +1;  +1, 0 LOST)   40.74%
+extraonly               zero TS2314, TS2315 and TS2709 lines
+TS2314 missing lines    2 → 1     — the remainder is §657's JSDoc reparse
+```
+
+All three falsifiers negative.
+
+### §547, again, and the compiler caught it this time
+
+The first edit was written as a textual replacement of
+
+```rust
+let symbol = self.binder.merged_symbol(symbol);
+let entry = self.binder.symbols().get(symbol);
+```
+
+and those two lines appear **twice** in `type_argument_arity.rs` — once in
+`declared_type_parameter_arity` and once in `check_call_type_argument_arity`.
+The replacement took the first, which is the wrong one, and the build failed
+with a type error at a `return None` in a function returning `()`.
+
+> §547 wrote *"a probe placed by textual match is a probe placed somewhere"*
+> after two `eprintln`s printed nothing. This is the same mistake in a build
+> rather than a probe, and the difference is that **the compiler caught it in
+> one run** where the probe version cost two. That is not luck: an edit that
+> changes control flow is checked by the type system and an edit that adds a
+> print is not. **Match on the function, not on the lines** — the fix here was to
+> locate `fn declared_type_parameter_arity` and edit relative to it.
+
+### A predicate is the wrong shape for a walk
+
+Third caller of the alias walk, second since §693 extracted it as
+`alias_chain_carries(symbol, meaning) -> bool`. That shape suited both callers
+at the time and does not suit this one, which wants the **target symbol**.
+Recorded rather than refactored: merging them now would move two measured rules
+to serve an unmeasured third, and the duplication is eight lines.

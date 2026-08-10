@@ -193,7 +193,7 @@ impl Checker<'_, '_> {
     /// `getMinTypeArgumentCount` (`checker.go`) counts the parameters up to the
     /// first one carrying a default: a parameter with a default may be omitted,
     /// and so may every parameter after it.
-    fn declared_type_parameter_arity(&self, name: NodeId) -> Option<(usize, usize)> {
+    fn declared_type_parameter_arity(&mut self, name: NodeId) -> Option<(usize, usize)> {
         // Only a simple name is asked. A qualified `N.C` needs the namespace
         // resolved first, which is `resolve_entity_name`'s job and a different
         // failure surface.
@@ -205,7 +205,21 @@ impl Checker<'_, '_> {
             identifier.text,
             SymbolFlags::TYPE,
         )?;
-        let symbol = self.binder.merged_symbol(symbol);
+        let mut symbol = self.binder.merged_symbol(symbol);
+        // **An alias carries none of the countable kinds.** `import a =
+        // require('./m')` where the module is `export = C<T>` answers `None`
+        // here and silences the whole ladder, so the chain is followed to its
+        // target — the same walk §692 measured, through
+        // `qualified_alias_target` when `resolve_alias` declines for the
+        // printer's sake (§686), and unresolvable is `None`. §710.
+        for _ in 0..8u8 {
+            if !self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::ALIAS) {
+                break;
+            }
+            let target =
+                self.resolve_alias(symbol).or_else(|| self.qualified_alias_target(symbol))?;
+            symbol = self.binder.merged_symbol(target);
+        }
         let entry = self.binder.symbols().get(symbol);
         // `checkNoTypeArguments` (`checker.go:23220`) asks nothing about the
         // kind at all — **any** symbol with no type parameters and a written
