@@ -1456,3 +1456,16 @@ literal="undefined")), the base strips undefined/null. +13 family,
 +4 typePredicatesOptionalChaining2, +1 narrowingTypeofDiscriminant.
 Family 82→69 W. The flow arc's continuous run (§149a→§152): +120,
 zero regressions.
+
+## §153 REFUSED at measured 1:15 — the equality chain-BASE strip needs the upstream text
+
+The induced rule (non-nullish literal strips on the equal branch,
+written nullish strips on the strict unequal branch) measured 1 W→R
+against 15 R→W: the true semantics of narrowTypeByEquality's
+optionalChainContainsReference half (flow.go:565-578, the
+`equalsUndefinedOnly`/coercion ladder) does not reduce to the two-case
+induction. The next attempt transcribes those fourteen upstream lines
+verbatim BEFORE building — this is §51.4's function-family where every
+prior induced guess (three of three now) has been wrong and every
+transcription has landed. The typeof half (§152) landed precisely
+because it was transcribed.
