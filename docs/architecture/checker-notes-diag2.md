@@ -44389,3 +44389,48 @@ removed the rule runs and the type is what is missing — which is what §862 sa
 
 `bd tsr-gjze`'s item (2) is **restored**, now with the verification §862 lacked:
 the rule runs, the operands reach it, and `this` types as nothing that decides.
+
+## §894 — the `file_has_parse_errors` class, priced: **+11 / −8**
+
+§892 removed one such gate for `+33` right lines. The class is large:
+
+```
+this port    136 uses of `file_has_parse_errors`
+upstream      13 uses of `hasParseDiagnostics`
+```
+
+Removing **all 127** removable ones at once, as one measurement over the class:
+
+```
+diagnostics   2,350 → 2,353   (+3 net)
+diagpass      GAINED 11,  LOST 8
+extraonly     77 → 104   (+27 wrong lines)
+```
+
+```
+GAINED   objectLiteralWithSemicolons5, parseCommaSeparatedNewlineNew, varArgWithNoParamName,
+         logicalNotOperatorInvalidOperations, objectLiteralShorthandPropertiesErrorWithModule,
+         parserArrowFunctionExpression3, parserErrorRecoveryArrayLiteralExpression3,
+         parserGreaterThanTokenAmbiguity2/3/4, parserObjectType5
+
+LOST     classFieldsBrokenConstructorEmitNoCrash1, parserUnparsedTokenCrash2, restParamModifier,
+         binaryIntegerLiteralError, classAbstractCrashedOnce, octalIntegerLiteralError,
+         parser509667, parserConstructorDeclaration8
+```
+
+**Reverted whole.** A `+3` bought with eight lost cases is not this session's
+kind of `+3`, and the invariant it would break has held for 388 builds.
+
+> The measurement is the deliverable. **Eleven cases are held back by these gates
+> and eight depend on them**, which is a far more useful sentence than either
+> *"the gates are wrong"* or *"the gates are load-bearing"* — and both of those
+> were defensible before the run.
+
+### What the next attempt has that this one did not
+
+The eight losses **name the gates that matter**, and they cluster:
+`binaryIntegerLiteralError`, `octalIntegerLiteralError`, `parserUnparsedTokenCrash2`,
+`parser509667` are scanner-level recoveries where a rule reading a malformed
+literal invents an operand. That is a much smaller question than 127 gates, and
+it is the one to answer first — **per file, not per rule**, since the gate is a
+file-level fact.
