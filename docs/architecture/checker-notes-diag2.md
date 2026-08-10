@@ -38423,3 +38423,85 @@ standard_class_fields       §751   paid one
 Four options are now on the `Checker`. **Every one arrived because a rule was
 wrong without it**, never because the option looked important — which is the
 argument for adding the fifth the same way rather than in advance.
+
+## §753 — TS2307 for an `import(...)` **type**
+
+```ts
+declare module "foo" { … }
+const x: import("fo") = { x: 0, y: 0 };   // TS2307 — typo
+```
+
+`check_module_specifier` (§357) resolves the specifier of an import or export
+*declaration*. An `import(...)` **type node** carries a specifier in exactly the
+same sense and reaches no such check — §489 built `check_import_type_argument`
+for its *shape* (is the argument a string literal type) and stopped there.
+
+`getTypeFromImportTypeNode` (`checker.go:24578`) resolves the module after that
+shape test, through the same `resolveExternalModuleName` every other specifier
+goes through, and reports the same code.
+
+> Sixteenth in §701's family and the third *caller* kind (with §688 and §740).
+> The pattern in all three: **a helper that resolves something, and a syntax that
+> carries the same something and was never handed to it.** An import type's
+> argument is a module specifier written in a type position, and the only reason
+> it looked different is that its node kind is different.
+
+The existing shape test runs first and returns on failure, so a non-literal
+argument still gets TS1141 and not this — upstream's order exactly.
+
+```
+bar:  +1 of 4 (importTypeAmbientMissing),  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **`import("foo")` for the declared ambient module reports.** The fixture
+   declares `"foo"` and uses `"fo"`; the resolver already consults ambient
+   modules ahead of the host (§677's finding), so the good one must stay silent.
+2. **TS1141's row moves.** The shape test is untouched and runs first.
+3. **A `.d.ts` `import("x")` reports where the module is absent from the
+   program.** `external_import_is_positioned_for_resolution` is the guard that
+   decides, and it is reused unchanged.
+
+## §754 — §753 built: **+1**, and the helper's entry point carried a test the caller could not pass
+
+```
+diagnostics             2,267 → 2,268   (bar was +1;  +1, 0 LOST)   41.33%
+extraonly               zero TS2307, TS1141 and TS7016 lines
+TS2307 missing lines    4 → 3
+```
+
+The first shape called `check_module_specifier` and measured **+0**. One probe:
+
+```
+PROBE cms kind=ImportType positioned=false unfindable=true
+```
+
+The specifier *was* unfindable — the resolution was right — and the entry point
+declined on `external_import_is_positioned_for_resolution`, which is
+`checkExternalImportOrExportDeclaration`'s test that a **declaration** sits at
+file or ambient-module-block level. An `import(...)` type is nested inside a type
+annotation and can never pass it.
+
+> §686 found a refusal scoped to one output channel; §673 found one scoped to one
+> arm. **This is a test scoped to one *syntax* and living in the entry point that
+> two syntaxes need.** The resolution underneath was shared and correct; only the
+> door was the wrong shape. Calling past it — resolution and report inline — is
+> what the build is, and the position test stays exactly where it was measured.
+
+Not ported here: the TS7016 branch, so an import type whose target is untyped
+JavaScript stays silent rather than getting TS2307. **Named, because the silent
+answer is the safe one and the wrong code at a right position is the failure
+§185's falsifier caught on another rule.**
+
+### Three caller-shaped gaps
+
+```
+§688  a wrapper applied to one of two branches
+§740  a third call site never wired
+§753  an entry point whose guard one caller cannot pass
+```
+
+All three had a **complete, correct helper** and a syntax that never reached it.
+The tell is identical each time — the row is missing and `extraonly` is clean —
+and each was found by a probe at the entry rather than by reading the helper.

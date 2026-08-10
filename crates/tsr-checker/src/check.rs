@@ -2406,6 +2406,38 @@ impl Checker<'_, '_> {
                     .is_some_and(|id| self.nodes.kind(id) == SyntaxKind::StringLiteral)
         );
         if is_string_literal_type {
+            // **A module specifier written in a type position.**
+            // `getTypeFromImportTypeNode` (`checker.go:24578`) resolves it
+            // after the shape test, through the same
+            // `resolveExternalModuleName` an import declaration's specifier
+            // goes through, and reports the same code. §753.
+            let literal = match self.node_map.get(argument) {
+                Some(Node::LiteralTypeNode(node)) => node.literal.and_then(|l| l.node_id()),
+                _ => None,
+            };
+            // **Not through `check_module_specifier`.** That entry point
+            // carries `checkExternalImportOrExportDeclaration`'s position test
+            // — a *declaration* must sit at file or ambient-module-block level
+            // — and an `import(...)` type is nested in an annotation, so the
+            // test declines it. `getTypeFromImportTypeNode` applies no such
+            // test. The TS7016 branch is not ported here; an untyped JavaScript
+            // target of an import type stays silent rather than getting the
+            // wrong code. §753.
+            if let Some(literal) = literal
+                && self.module_specifier_unfindable(literal)
+                && let Some(Node::StringLiteral(text)) = self.node_map.get(literal)
+                && let Some(file) = self.source_file_of_for_diagnostics(literal)
+            {
+                let span = self.error_span(literal);
+                self.report(
+                    file,
+                    Diagnostic::with_args(
+                        &messages::CANNOT_FIND_MODULE_0_OR_ITS_CORRESPONDING_TYPE_DECLARATIONS,
+                        span,
+                        [text.text.to_string()],
+                    ),
+                );
+            }
             return;
         }
         let Some(file) = self.source_file_of_for_diagnostics(argument) else { return };
