@@ -6835,3 +6835,20 @@ need the target-side spelling — if so they gate by declaration
 ancestry (ModuleDeclaration with augmentation shape), not by case;
 (b) re-export chains (`export { A } from`) are NOT import
 declarations and stay out regardless.
+
+**REFUSED at 213:72 (3.0:1) — the mechanism is the per-site
+re-render wall, and no declaration-kind gate can cut it.** The
+adverse wants are upstream re-spelling AT THE CONSUMING SITE:
+`import("../node_modules/...").SomeType` and
+`import("./color").default` appear where the alias's local name is
+not in scope in the consuming UNIT — the minted text travels
+through INFERRED types (function returns crossing files) and
+prints the wrong file's spelling. moduleAugmentation*'s `any`
+gots are a second, uncensused interaction (widening through
+augmented-module members), left unexplored once the primary
+mechanism refused the family. This is the printseam thesis at the
+alias family: texts minted once, spellings wanted per-site.
+ImportEquals aliases survive (§157's 8.4:1) because their targets
+are same-unit namespaces — nothing travels. The 207-line win pool
+(dynamicNames 69) stays priced behind per-site rendering, filed
+with §138/§136/§156-retry in that wall's ledger.

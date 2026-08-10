@@ -500,11 +500,13 @@ impl<'a> Checker<'a, '_> {
         // declaration line is §156's coupled half and stays gapped.
         if self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::ALIAS)
             && node.type_arguments.is_empty()
-            // Iteration 2's gate: ImportEquals aliases ONLY. The unrestricted
-            // arm measured 266:79 (3.4:1) — ES-import aliases carry their own
-            // spelling rules (moduleAugmentation* wants target-side texts,
-            // localImportNameVsGlobalName collides local against global) and
-            // are a different §-family.
+            // ImportEquals aliases ONLY. §158 measured the ES import kinds at
+            // 213:72 (3.0:1, refused): their minted texts TRAVEL — inferred
+            // types cross units and upstream re-spells per site
+            // (`import("...").SomeType` where the local name is not in scope
+            // at the consuming file) — the per-site re-render wall, which no
+            // declaration-kind gate can cut. ImportEquals targets are
+            // same-unit namespaces in practice, which is why §157 held.
             && self.declaration_of_alias_symbol(symbol).is_some_and(|declaration| {
                 matches!(self.node_map.get(declaration), Some(Node::ImportEqualsDeclaration(_)))
             })
