@@ -1273,3 +1273,21 @@ member-set inclusion (candidate's every property present identical in
 the constituent → Subtype; a missing required property with no index
 signature → NotRelated) — covers Point/Point3D/Line whole. Not built
 here; the window records the boundary and moves on.
+
+## §146 BAR (registered before code): the local member-set rung
+
+§145.1's decidable slice, built INSIDE `narrowed_constituent` only (the
+global relater untouched — zero ripple by construction): when both
+sides are Named interface types whose full member sets (own + bases via
+`base_symbols_of`) enumerate cleanly, candidate ⊆ constituent
+member-wise with IDENTICAL member TypeIds decides Subtype(constituent-
+is-narrower? no — candidate's properties all present in constituent →
+CONSTITUENT is the subtype: keep it); a candidate property MISSING from
+the constituent (no index signatures on either) decides NotRelated
+(drop on the true branch). Optionals, methods with differing ids,
+index signatures, or any enumeration refusal → Undecidable (the
+current decline, unchanged). Prediction: the hasInstance 76 W move
+substantially (Point/Point3D/Line are plain same-id-membered
+interfaces); falsifier: R→W in other predicate-narrowing families
+means the inclusion rule is wrong-way or the id-identity test too
+coarse.
