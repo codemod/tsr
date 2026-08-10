@@ -40168,3 +40168,75 @@ TS7008   4 wrong lines, 1 case   needs assignment vs mere reference in the const
 `controlFlowAutoAccessor1` has four members assigned in a constructor and one
 merely referenced. A helper that separates `this.x = …` from `this.x` would serve
 both rules; §87's does not, and this is the measurement that says so.
+
+## §796 — the helper §795 asked for: assignment, not mention
+
+§795 refused TS7008's constructor inference and named what was missing: a helper
+that separates `this.x = …` from `this.x`. §87's answers *"is `this.x` mentioned
+at all"*, which is what TS2564 needs and the opposite of what TS7008 does.
+
+The new one is the old one with one added condition — the matching property
+access must be the **left operand of an assignment**:
+
+```ts
+constructor(test: number) { this.test = test; }   // types `test`
+constructor()             { console.log(this.test); }   // does not
+```
+
+Written beside §87's rather than replacing it, because **TS2564's polarity makes
+the looser question correct there** and merging the two would move a measured
+rule to serve an unmeasured one — §686's rule, and the fourth time this session
+it has decided a helper's shape (§736, §686, §761, this).
+
+```
+bar:  +1 (controlFlowAutoAccessor1),  0 LOST,  WRONG delta <= 0
+```
+
+### Falsifiers
+
+1. **The fixture's genuine TS7008 at line 54 stops reporting.** That member is
+   only *referenced*, never assigned — the whole distinction this helper adds.
+2. **TS2564's row moves.** §87's helper is untouched and still has one caller.
+3. **A compound assignment counts.** `this.x += 1` reads before it writes and
+   does not give the member a type on its own; upstream infers from the
+   declared-type-less write, so the narrow reading — plain `=` only — is what
+   this ports.
+
+## §797 — §796 measured: **−1**, reverted, and the assignment is not the only inference
+
+```
+diagnostics             2,300 → 2,299   (bar was +1;  −1)
+TS7008 wrong lines      4 → 1   (only line 44 remains)
+TS7008 missing lines    0 → 3   in `staticVisibility2` and `tsxElementResolution`
+```
+
+The narrow helper is **right about three of the four** — `this.test = test` in a
+constructor types the member and the loose helper's over-decline is gone — and it
+declines three members upstream reports on:
+
+```ts
+// staticVisibility2.ts
+class Foo { static bar; }          // TS7008 upstream; no constructor at all
+```
+
+**A class with no constructor cannot assign anything**, so the helper answers
+`false` and the member should still report. It does — which means the three
+missing lines come from somewhere else in the same change, and the one that
+matters is that `constructor_assigns_this_member` walks the *enclosing* class's
+members and a **static** member is not initialised by a constructor at all.
+
+> Two attempts, two different over-declines: §794's was *any mention*, §796's is
+> *any constructor assignment, including for a static member*. **The second is a
+> smaller error than the first and still an error**, and the pattern is §769's —
+> each fix is right about the layer it addresses and wrong about the next.
+
+### Refused, with the number, and sharper than §795's
+
+```
+TS7008   1 wrong line, 3 missing   the inference is instance-only, and line 44 is a fourth shape
+```
+
+The next attempt has two conditions written down: **exclude `static` members**,
+and look at `controlFlowAutoAccessor1`'s line 44 to see what the fourth shape is.
+§795 named the helper; this names its bounds. **Owner still the flow side**, but
+the checker-side part is now two lines away rather than unknown.
