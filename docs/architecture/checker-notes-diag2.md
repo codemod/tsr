@@ -29598,3 +29598,56 @@ TS2694's eight cases need `resolveEntityName`'s **meaning parameter** —
 `SymbolFlags::VALUE | TYPE | NAMESPACE` selected by the syntactic position — not
 a deeper resolver. That is a real port of a real signature and it is named here
 rather than attempted (§501).
+
+## §558 — TS2694's residue needs **two** changes, and neither alone is positive
+
+A probe with the import-equals entry live answered the question §557 left open:
+
+```
+P/2694 left=Some("c.a")   exports=["b"]
+P/2694 left=Some("c.a.b") exports=[]
+```
+
+**`c.a.b`'s exports are legitimately empty** — `namespace c.a.b { import ma = a; }`
+exports nothing, because `import ma = a` without `export` is a local. That is
+*why* upstream reports TS2694 on `c.a.b.ma`, and §186's *"an empty exports table
+can be declined"* is what suppresses it.
+
+So the guard was narrowed: an empty table on a symbol whose declaration is a
+`ModuleDeclaration` **with a body** is one the binder walked, so it means
+*nothing was exported* rather than *nothing was recorded*.
+
+```
+part 2 alone                              −4    extraonly 54 → 62
+part 2 + the narrowed empty-table guard   −1    extraonly 54 → 62
+```
+
+**The extras are identical.** The narrowed guard converts three lines and the
+entry produces eight wrong ones no matter what the guard says — so §557's
+conclusion stands and this build adds a second condition rather than replacing
+it:
+
+```
+1  the entry needs resolveEntityName's MEANING parameter   §557, unbuilt
+2  §186's empty-table decline needs narrowing               §558, measured to convert 3
+```
+
+> **A row that needs two changes reads as two failed builds if you measure them
+> one at a time.** Both of these are correct and both measure negative alone,
+> because each unblocks cases the other one's absence then reports wrongly.
+> §496's *"bundle only what shares a guard"* is about avoiding a bundle you
+> cannot read; this is the opposite hazard, and the tell is that the **wrong**
+> column did not move between the two builds while the **right** column did.
+
+That is a new instrument reading, and it is the one to reach for next time a
+split measures negative on both halves: **compare the extras, not the totals.**
+Identical extras across two variants means the extra-producing change is common
+to both and the variable under test is innocent of them.
+
+### The row, fully owned
+
+TS2694's eight cases are blocked by a *pair*, both named, neither speculative,
+one of them measured. **Not attempted further** — the meaning parameter is a
+signature change through `resolve_entity_name_to_namespace` and its callers, and
+it should be built with the empty-table narrowing in the same commit, with the
+bar set on the pair.
