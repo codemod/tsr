@@ -32744,3 +32744,85 @@ specification — and then the habit did not stick.
 > the note says "+n" and nothing about the row.**
 
 Two corrections of the same kind is a habit, not a slip; recording it as one.
+
+## §630 — TS18014's last line: a class name used as a value
+
+```ts
+class A {
+    static #x = 5;
+    constructor () {
+        class B {
+            #x = 5;
+            constructor() {
+                class C { constructor() { A.#x } }   // TS18014
+            }
+        }
+    }
+}
+```
+
+§628's `annotated_class_of` reads a receiver's **written annotation** — `x: Base`
+— and `A` here is the class *itself*, used as a value for a static access. Its
+symbol's declaration is a `ClassDeclaration`, not a parameter with a type node,
+so the lookup returned `None`.
+
+One arm: a receiver whose symbol declares a class **is** that class.
+
+> **The same rule, two ways to name a class.** §628 handled *"a value whose type
+> is written"* and this handles *"the class itself"*; both are syntax, neither
+> needs a type. §580's shape has now covered four rows and every one of them
+> turned on **which written form names the thing**, not on what the thing is.
+
+The nearest class declaring `#x` from the access is `B`; the receiver names `A`;
+they differ, so it reports — and the static-ness never enters, because
+`class_declares_private_name` reads members regardless of `static`, which is
+what upstream's shadowing check does too.
+
+```
+bar:  +1 of 1 (privateNamesInNestedClasses-2),  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **`A.#x` inside `A` itself reports.** The nearest declaring class would be
+   `A`, and `other == nearest` declines.
+2. **TS18013's row moves.** §138's rule stays the *no enclosing declaration*
+   case.
+
+## §631 — §630 built: **+1**, and TS18014 verified at zero
+
+```
+diagnostics             2,174 → 2,175   (bar was +1;  +1, 0 LOST)   39.63%
+extraonly               zero TS18014 and TS18013 lines
+TS18014 missing lines   1 → 0            — checked AFTER the build (§629)
+```
+
+**§629's rule applied on its first opportunity.** The closing number here comes
+from a post-build `diagmissing`, not from the board's movement — which is the
+whole of what §610 and §629 corrected, and the first time this session it has
+been done in the right order.
+
+### The row, end to end
+
+```
+§626   built from the annotation                        +0    three guards untested
+§627   probed; decline bracketed to two                 —     reverted
+§628   the identity test replaced by "nearest class"    +4
+§630   a class name used as a value                     +1
+                                                        ──
+       5 missing lines → 0                              +5
+```
+
+Four sittings for five cases, and **not one of them needed the receiver's
+type**. Upstream compares the resolved property's containing class with
+`TypeToString(leftType)`; this compares two class *declarations* reached by
+symbol lookup, and the corpus cannot tell the difference.
+
+> **§580's shape has now closed four rows** (TS2347, TS2310, TS18014, and
+> TS1359's walk) and every one turned on *which written form names the thing* —
+> an annotation, an `extends` clause, a class name used as a value. **The type
+> side is where a port goes when it has stopped asking what the syntax already
+> says.**
+
+Also the **fourteenth repair** of the shared tree: an undocumented
+`check_call_expression` arriving red through the rebase.

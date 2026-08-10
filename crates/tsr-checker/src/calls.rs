@@ -415,6 +415,7 @@ impl Checker<'_, '_> {
         Some(self.create_type_reference(promise, vec![namespace]))
     }
 
+    /// The type of a call expression — `checkCallExpression`.
     pub fn check_call_expression(&mut self, node: &CallExpression<'_>) -> TypeId {
         let error = self.intrinsics.error;
         bump(&COUNTERS.call_expressions);

@@ -433,6 +433,15 @@ impl Checker<'_, '_> {
         let declarations =
             self.binder.symbols().get(self.binder.merged_symbol(symbol)).declarations.clone();
         for declaration in declarations {
+            // **A class name used as a value names its own declaration.**
+            // `A.#x` reaches the statics of `A`; the receiver is the class
+            // itself, not something annotated with it. §630.
+            if matches!(
+                self.node_map.get(declaration),
+                Some(Node::ClassDeclaration(_) | Node::ClassExpression(_))
+            ) {
+                return Some(declaration);
+            }
             let annotation = match self.node_map.get(declaration) {
                 Some(Node::ParameterDeclaration(p)) => p.r#type,
                 Some(Node::VariableDeclaration(v)) => v.r#type,
