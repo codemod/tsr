@@ -1055,3 +1055,18 @@ inherited `this` (`(this: void, x: number) => number` wanted,
 this-carriage into contextual arrow prints is a named residue,
 NOT a falsifier firing — falsifiers (a) compound ops and (c) JS
 were exercised by the corpus and held.
+
+## §153 — the PropertyDeclaration initializer context [claimed: checker-1]
+
+The VariableDeclaration arm's own comment named this gap: a CLASS
+property's annotation is the same upstream road
+(`getContextualTypeForVariableLikeDeclaration`, `checker.go:29438`)
+and was left unmeasured. Probed (SS153 repro): `f: (x: number) =>
+string = (x) => "a"` answers error/any while the variable and
+object-literal-member shapes both type. Arm: PropertyDeclaration
+with a type node → the annotation's type, initializer position
+only. ParameterDeclaration (annotation + default) rides if free.
+**Bar: ≥25 net at ≥5:1.** Falsifiers: (a) computed-name
+properties decline; (b) static/instance makes no difference to
+the rule — if the pair says otherwise, split; (c) accessors are
+NOT this arm.
