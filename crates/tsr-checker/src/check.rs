@@ -267,6 +267,9 @@ impl Checker<'_, '_> {
                 let ambient =
                     ambient || has_modifier(declaration.modifiers, SyntaxKind::DeclareKeyword);
                 self.check_property_initialization(declaration.members, ambient);
+                // §764's sweep: the rule's entry destructures `ClassExpression`
+                // and only `ClassDeclaration` ever reached it.
+                self.check_extends_primitive(node);
                 ambient
             }
             // `declare module "m" { … }` and `declare namespace N { … }` are

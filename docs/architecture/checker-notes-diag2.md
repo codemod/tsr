@@ -38874,3 +38874,51 @@ number moved the right way for the wrong reason.
 **A rule whose output is a strict subset of the baseline looks exactly like a
 rule that is correct and blocked.** `diagcase` separates them and `diagmissing`
 does not; §69 had only the latter.
+
+## §764 — the dispatch/entry sweep: **91 rules, 3 mismatches, 1 real, 0 cases**
+
+§760 and §762 both found a rule handling a node kind its dispatch never hands it,
+and the tell in both was *the row does not move and nothing else happens*. That
+is automatable: for each dispatched rule, compare the kinds its **entry
+destructure** names against the kinds the dispatch arms calling it name.
+
+```
+rules reached from the dispatch                        91
+whose entry names a kind the dispatch never hands      3
+of those, real                                          1
+cases moved                                             0
+```
+
+**Two of the three are artefacts of the question, not of the code.**
+`check_enum_member_name`'s entry is `EnumMember` and its dispatch is
+`EnumDeclaration` — because the enum arm calls it once per member, passing the
+member's id. `check_nonexistent_property`'s `StringLiteral` is an inner
+destructure the regex mistook for an entry.
+
+**`check_extends_primitive` is real**: its entry handles `ClassExpression` and
+only `ClassDeclaration` ever reached it, so `const C = class extends string {}`
+was silent. Wired, `+0` — the corpus has no such fixture — and **kept**, because
+the rule and its dispatch now agree about which kinds the rule is for.
+
+> The first narrowing — comparing *all* `Node::` kinds in a body — returned 34
+> hits, nearly all of them nodes the rule **walks to** rather than kinds it is
+> handed: `check_value_identifier` is dispatched on `Identifier` and mentions
+> `ClassDeclaration` because it walks to one. **The useful question was not "which
+> kinds does this rule mention" but "which kinds does this rule *begin* with"**,
+> and the difference between the two is 34 hits and 3.
+
+### Fourth negative sweep
+
+```
+§727  is_declaration_or_member_name   2 gaps, 0 cases
+§733  modifiers_of                    2 gaps, 0 cases
+§742  discarded verdicts              closed at 2 known members
+§750  class.members as membership     2 gaps, both another workstream's
+§764  dispatch vs entry kinds         1 gap, 0 cases
+```
+
+Five sweeps, and **only §725's paid in cases**. What the other four bought is the
+same thing each time: the assurance that a defect found twice by fixture is not
+sitting unfound elsewhere. **That is worth one script each and it is worth
+recording that it was bought**, so the next session does not re-derive the
+question and pay for the answer again.
