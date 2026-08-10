@@ -30054,3 +30054,100 @@ computed: a `ModuleDeclaration` with a body, and a `SourceFile` declaration.
 **Three copies, found three different ways** — by measurement (§561), by writing
 the second one (§558), and by §143's *read the existing rule first* (§565) —
 and the third route was available on all three occasions.
+
+## §567 — TS2305: following `export =` when its target is a namespace
+
+`namedImportNonExistentName` is §566's six-line case and it names the decline
+directly:
+
+```rust
+// `export =`: the member lives on the exported type, which
+// `get_external_module_member` already declines to read.
+if self.resolve_external_module_symbol(module_symbol) != module_symbol {
+    return None;
+}
+```
+
+Its two modules split exactly along the line this port can and cannot cross:
+
+```ts
+// foo.d.ts
+export = Foo;
+declare namespace Foo { function foo(); }     // members are SYMBOLS  → ours
+// foo2.ts
+declare let x: { a: string } | { b: number };
+export = x                                     // members are a TYPE → not ours
+```
+
+Four of the six lines are the second kind, so **this case does not close** —
+but the decline is currently whole where the distinction is available: an
+`export =` naming a namespace has an exports table, and an `export =` naming a
+value does not.
+
+> **A decline written for the hard half suppresses the easy half too.** §186's
+> empty-table decline was the same shape and took three narrowings; this is the
+> same author's instinct — *be careful when the answer might be unavailable* —
+> applied where availability is testable in one line.
+
+### The bar
+
+```
+bar:  +1,  0 LOST,  WRONG delta <= +1
+```
+
+One, not six: `namedImportNonExistentName` needs the type side for four of its
+lines and cannot convert. The bar is whatever *other* case in the residue is
+namespace-shaped, and the honest answer is that it may be none — in which case
+this is a **+0 kept for fidelity** on the §545/§557 pattern, or a revert.
+
+### Falsifiers
+
+1. **`extraonly` grows on `export =` modules.** The commonest ambient shape in
+   the corpus; a wrong membership test here reports on every legal import.
+2. **TS2724's row moves.** The suggestion list now comes from a different
+   table.
+
+## §568 — §567 measured **+0 with nothing moving**, and was reverted — which sharpens when a +0 is worth keeping
+
+```
+diagnostics   2,104 → 2,104
+extraonly     54 → 54
+TS2305        9 missing lines → 9        — not one line moved
+```
+
+The line count is the finding. §567 followed `export =` to a namespace target
+and **no line changed**, so the new path is not demonstrably exercised at all —
+it may be dead. That is different from the session's four earlier `+0` builds,
+and the difference decides the call:
+
+```
+§539  @currentDirectory            +0   KEPT   the directive is read where upstream reads it
+§539  @useCaseSensitiveFileNames   +0   KEPT   same
+§545  the shadowed assignment arm  +0   KEPT   upstream runs it; the corpus has no case
+§557  resolveEntityName recursion  +0   KEPT   upstream's shape; §530's falsifiers negative
+§567  following `export =`         +0   REVERTED  no evidence the path runs at all
+```
+
+> **A `+0` is worth keeping when you can show the port now does what upstream
+> does; it is not worth keeping when all you can show is that nothing broke.**
+> The four keeps each have a demonstration independent of the board — a
+> directive read, an arm reached, a shape transcribed. §567 has only the board,
+> and the board says nothing.
+
+An unexercised branch replacing an explicit decline is a net loss: the decline
+was **documentation of a known limitation**, and the branch is a claim nobody
+can check. Reverting restores the comment that names `export =` as unread.
+
+### What `namedImportNonExistentName` actually needs
+
+Its two modules split on the line this port cannot cross:
+
+```ts
+export = Foo;   declare namespace Foo { function foo(); }   // members are SYMBOLS
+export = x;     declare let x: { a: string } | { b: number }  // members are a TYPE
+```
+
+**Four of its six lines are the second kind**, so the case cannot close until
+the type side can enumerate a union's members — the owner already carrying
+TS2488/TS2713/TS2493. Recorded with the split counted, so the next session does
+not re-derive that four-of-six.
