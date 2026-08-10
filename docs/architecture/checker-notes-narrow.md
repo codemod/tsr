@@ -6866,3 +6866,22 @@ through an existing import want a spelling the reuse rule cannot
 see. The park stands, now with a second measurement dated to this
 board (right 414,106-era). Re-measure again only after a UMD-
 family or module-spelling change, not after general alias work.
+
+## §160 — array literals in binding-pattern default positions are TUPLES [claimed: checker-1]
+
+Lead (b) taken: 39 `[] ||| never[]` lines plus the tuple-want
+shapes beside them (destructuringWithLiteralInitializers2: want
+`[number]` got `number[]`, want `[string | undefined]` got
+`(string | undefined)[]`). Upstream types an array literal that
+is the DEFAULT of an array binding pattern as a TUPLE — the
+pattern supplies a tuple-ish contextual shape
+(`checkArrayLiteral`'s inDestructuringPattern/contextual road) —
+and the empty default is the empty tuple `[]`. Arm: in
+check_array_literal, when the literal initializes an
+ArrayBindingPattern (parameter default or variable declaration
+whose name is a pattern; also the binding ELEMENT default), build
+the tuple of widened element types instead of the union array.
+**Bar: ≥25 net at ≥5:1.** Falsifiers: (a) plain `const x = [1]`
+stays `number[]` — only pattern-default positions take the tuple;
+(b) spreads inside the literal decline the arm (tuple arity
+becomes a guess); (c) object-pattern defaults are NOT this arm.
