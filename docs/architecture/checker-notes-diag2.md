@@ -31117,3 +31117,91 @@ Three clippy repairs of the concurrent workstream's code — **eleventh repair**
 including one taken as a scoped `allow` rather than a rewrite, because
 factoring `intra_expression_member_maps`'s type is theirs to do and not a
 mechanical fix.
+
+## §591 — TS1109: `class C extends void {}`
+
+```ts
+class C4a extends void {}     // TS1109 — Expression expected
+class C5a extends null { }    // legal syntax; `classExtendingNull` is the checker's row
+```
+
+`parse_left_hand_side_for_heritage`'s fallback is
+`Expression::Identifier(self.parse_identifier_name())`, and an *IdentifierName*
+accepts keywords — so `void` parses as a name and nothing is reported. Its own
+comment explains the choice for `null`, which is right: upstream's
+`parsePrimaryExpression` has a `NullKeyword` case because `null` **is** a
+primary.
+
+`void` is not. Upstream reaches `parseIdentifierWithDiagnostic(Expression_expected)`
+(`parser.go:5591`) — the same fallback §574 found for `++ delete x`, one
+production over.
+
+> **Third instance of one shape**: a place where upstream calls
+> `parseLeftHandSideExpressionOrHigher` and this port accepts more. §572 was
+> `yield*`'s operand, §574 was `++`'s, and this is a heritage clause's. Each
+> time the port is *permissive* where upstream is *restrictive*, and each time
+> the diagnostic upstream emits is produced by the restriction itself rather
+> than by a check.
+
+### The narrowing
+
+A **reserved word** — `SyntaxKind::FIRST_RESERVED_WORD..=LAST_RESERVED_WORD`,
+minus the ones that are primaries (`null`, `this`, `super`, `true`, `false`,
+`import`, `new`, `typeof`, `void`… no: only the literal and reference forms) —
+cannot open a heritage expression. Contextual keywords (`async`, `type`, `of`)
+are ordinary identifiers and must keep parsing.
+
+```
+bar:  +1 of 6,  0 LOST,  WRONG delta <= +1,  parser rails stay at 100%
+```
+
+### Falsifiers
+
+1. **`extends null` stops parsing.** The comment's own case and a corpus family.
+2. **`extends async`/`extends type` reports.** Contextual keywords are
+   identifiers.
+3. **`parser_typescript` or `printer_round_trip` move.** Both read every class in
+   the corpus.
+
+## §592 — §591 built: **+1**, bar met, and the board passes 39%
+
+```
+diagnostics          2,140 → 2,141   (bar was +1;  +1, 0 LOST)   39.01%
+parser_typescript    100%  ·  printer_round_trip  100%  ·  binder_symbols  100%
+extraonly            zero TS1109 lines
+```
+
+All three falsifiers negative: `extends null` still parses, contextual keywords
+are unaffected, and both rails that read every class in the corpus are unmoved.
+
+### The permissive-parser family, three for three
+
+```
+§572   `yield*`'s operand           the test fit `yield`, not `yield*`        +2
+§574   `++`'s operand               the arm fit `!`, not `++`                 +2
+§591   a heritage clause's operand  the fallback fit `null`, not `void`       +1
+```
+
+> **Every one is the port accepting more than upstream, and every one's
+> diagnostic is produced by the restriction rather than by a check.** There is
+> no `if (operand is not a left-hand side) error` anywhere in `parser.go` — the
+> error falls out of `parsePrimaryExpression` having nowhere left to go. **A
+> port that is permissive in the same place emits nothing and looks correct**,
+> because a permissive parser produces a tree and a tree passes the round-trip
+> rail.
+
+That last clause is why `parser_typescript` and `printer_round_trip` at 100%
+were never evidence these were right: both suites ask whether the tree
+round-trips, and an over-permissive parse round-trips perfectly.
+
+**The three were found one at a time by reading a failing diagnostic fixture.**
+§576 priced the obvious generalisation — diffing upstream's `parseX` names
+against this port's — at a 1% signal rate and withdrew it. Nothing better has
+been proposed, and the honest position is that this family is found by rows, not
+by search.
+
+### TS1109's residue
+
+Five: two JSDoc `importTag` cases, two parser error-recovery fixtures, and
+`parserTypeAssertionInObjectCreationExpression1` (`new <T>Foo()`). No shared
+shape.

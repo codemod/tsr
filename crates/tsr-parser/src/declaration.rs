@@ -141,6 +141,30 @@ impl<'a> Parser<'a> {
             // The heritage operand is a LeftHandSideExpression, so `extends
             // null` parses — the fallback reads an identifier NAME, and the
             // checker owns any complaint (`classExtendingNull`).
+            // **A reserved word that is not a primary cannot open a heritage
+            // expression.** `null`, `this`, `super`, `true` and `false` are
+            // primaries upstream and keep parsing; `void`, `typeof`, `delete`
+            // and the rest reach
+            // `parseIdentifierWithDiagnostic(Expression_expected)`
+            // (`parser.go:5591`) — the same fallback §574 found for `++`.
+            // Contextual keywords are ordinary identifiers and are unaffected.
+            // `docs/architecture/checker-notes-diag2.md` §591.
+            kind if kind >= SyntaxKind::FIRST_RESERVED_WORD
+                && kind <= SyntaxKind::LAST_RESERVED_WORD
+                && !matches!(
+                    kind,
+                    SyntaxKind::NullKeyword
+                        | SyntaxKind::ThisKeyword
+                        | SyntaxKind::SuperKeyword
+                        | SyntaxKind::TrueKeyword
+                        | SyntaxKind::FalseKeyword
+                        | SyntaxKind::ImportKeyword
+                        | SyntaxKind::NewKeyword
+                ) =>
+            {
+                self.error_at_current(&messages::EXPRESSION_EXPECTED);
+                Expression::Identifier(self.parse_identifier_name())
+            }
             _ => Expression::Identifier(self.parse_identifier_name()),
         };
         loop {
