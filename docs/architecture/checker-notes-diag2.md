@@ -31632,3 +31632,50 @@ and upstream's `getEffectiveParameterDeclarations` has twelve.
 ```
 
 Three codes closed out of the sixty-two with cases.
+
+## §603 — §602's check, run: three accessors, one gap, and it was the one already fixed
+
+§602 stated the check — *enumerate a tree-reading helper's arms and compare them
+with the node kinds upstream's caller passes*. Run across `tsr-checker`, for
+every `&self -> Vec<NodeId> | Option<NodeId>` with a catch-all arm and three or
+more `Node::` cases:
+
+```
+16  type_parameters_of        (unused.rs)   complete
+12  parameters_of             (unused.rs)   complete — §601 widened it from seven
+10  implicit_any_candidates   (implicit_any.rs)
+```
+
+**Three helpers in the crate, and the only gap was the one §601 had just
+closed.** `type_parameters_of` sits *directly beside* `parameters_of` and has
+had all twelve kinds since it was written — which is the useful part of the
+result:
+
+> **Two accessors side by side, one complete and one not, is evidence that the
+> gap was an oversight and not a policy.** A sweep that finds nothing still
+> settles whether the instance it followed was systemic. This one says it was
+> not, and that closes the question at the cost of one `python` script.
+
+§576 withdrew a proposed sweep at a 1% signal rate; this one is the opposite
+case — a **small, exhaustively enumerable** domain where a null result is
+conclusive rather than uninformative. The difference is that 246 `parseX` names
+could not be checked and three accessors could.
+
+### TS1117, priced and declined
+
+```ts
+const t1 = {
+    [n]: 1,
+    [n]: 1,   // duplicate — TS1117
+}
+```
+
+Four of its five cases are **computed** names. `check_duplicate_object_literal_names`
+declines them, and its comment is right that
+`getEffectivePropertyNameForPropertyNameNode` returns `!ok` for a computed name —
+but upstream still catches these, through `checkObjectLiteral`'s
+`allPropertiesTable`, which carries **late-bound** names computed from the
+type of `n`.
+
+**Owner: late-bound property names**, the same machinery TS2464's §456 declined
+from the other side. Named, not attempted.
