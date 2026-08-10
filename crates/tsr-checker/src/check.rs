@@ -4108,7 +4108,10 @@ impl Checker<'_, '_> {
                 }
             }
             Node::ExportSpecifier(n) if n.is_type_only => Some(true),
-            Node::ExportSpecifier(_) => {
+            // `export type * as ns from './a'` binds a `NamespaceExport`, and
+            // it reaches its `type` the same way an `ExportSpecifier` does —
+            // off the enclosing declaration. §738.
+            Node::ExportSpecifier(_) | Node::NamespaceExport(_) => {
                 match self.node_map.get(enclosing(SyntaxKind::ExportDeclaration)?)? {
                     Node::ExportDeclaration(n) if n.is_type_only => Some(true),
                     _ => None,

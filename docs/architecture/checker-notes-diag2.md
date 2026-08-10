@@ -37753,3 +37753,92 @@ TS2515   5 cases   the derived class's own members are not reaching the rule
 
 Named and priced with the exact next measurement, so the next attempt starts at
 the probe rather than at the design.
+
+## §738 — TS1362: the type-only chain does not know `export type * as ns`
+
+```ts
+// c.ts
+export type * as ns from './a';
+// e.ts
+import { ns } from './c';
+ns.A;                        // TS1362
+```
+
+`report_type_only_alias_used_as_value` already emits **both** codes — §121 built
+the `import type` half and the `export type` half in one `if exported`. TS1362's
+six cases are a **reach** problem, and `declaration_is_type_only`'s kind list is
+where it stops:
+
+```
+ImportSpecifier · NamespaceImport · ImportClause · ExportSpecifier
+```
+
+`NamespaceExport` is absent, so `export type * as ns from './a'` is not
+recognised as type-only and the alias chain ends with `None`. Thirteenth in
+§701's family, and the arm beside it — `ExportSpecifier` falling through to its
+enclosing `ExportDeclaration` — is exactly the shape `NamespaceExport` needs.
+
+### What this does *not* reach, named
+
+```ts
+// b.ts
+export type * from './a';     // no specifier node at all
+// d.ts
+import { A } from './b';  A;  // TS1362, still missing
+```
+
+A bare `export type *` creates **no declaration for `A`** — the name arrives
+through the star's target module, and upstream records the type-only-ness during
+`resolveExportStar` rather than reading it off a node. **This port's chain reads
+declarations, so there is nothing for it to read.** That is a different kind of
+gap from the twelve before it — not a list missing an entry, but a *fact that
+only exists during resolution*. Named, not built.
+
+```
+bar:  +1 of 6 (exportNamespace4's e.ts half is blocked with d.ts, so the bar is
+      the single-line cases),  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **`export * as ns from './a'` (no `type`) reports.** The enclosing
+   declaration's `is_type_only` decides it, exactly as for `ExportSpecifier`.
+2. **TS1361's row moves.** Same rule, the other message.
+3. **TS2339 / TS2551 gain lines.** `ns.A` is a property access on a namespace
+   import and this makes the receiver an error where it was silent.
+
+## §739 — §738 built: **+1 of 1**, and the residue is a fact that only exists during resolution
+
+```
+diagnostics             2,253 → 2,254   (bar was +1;  +1, 0 LOST)   41.07%
+extraonly               zero TS1361 and zero TS1362 lines
+TS1362 missing lines    13 → 11;  6 cases blocked alone → 5
+```
+
+All three falsifiers negative — TS2339/TS2551 in particular, which was the real
+exposure: making `ns` an error where it was silent could have put a property
+error on every access through it, and did not.
+
+### The thirteenth is a list; the residue is not
+
+```
+§695 … §736   twelve entries missing from a list that meant to be complete
+§738          a thirteenth, `NamespaceExport` beside `ExportSpecifier`
+§739 residue  a fact that exists only during resolution
+```
+
+`export type * from './a'` creates **no declaration for `A` at all**. The name
+arrives through the star's target module, and upstream records the
+type-only-ness inside `resolveExportStar` — a property of the *resolution*, not
+of any node. This port's `declaration_is_type_only` reads declarations, so there
+is nothing for it to read, and no entry added to any list will change that.
+
+> Thirteen builds into this family, the first gap that **is not an enumeration**.
+> Every previous member could be fixed by naming one more kind, field or parent;
+> this one needs the resolver to carry a fact forward. **That is the boundary of
+> the method that has produced most of this session's cases**, and it is worth
+> knowing where it is: the family is not endless, and the next member of it may
+> be the last.
+
+Five cases remain, all behind that mechanism. **Owner: the alias resolver's
+export-star path.**
