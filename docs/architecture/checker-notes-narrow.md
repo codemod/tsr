@@ -6127,3 +6127,16 @@ fn-expr extension (+2 net, +17 R→G in looseThis whose contextual
 shapes need tracing). The park's ratio path runs through the
 looseThis trace, not widening. Corrected rather than silently
 edited; reverted byte-identical.
+
+**§142 looseThis trace, first pass:** the regressing literal is
+`{ n, explicitThis: function (m) {...}, implicitThis(m) {...} }`
+at an ASSIGNMENT/annotated position (fixture line ~27) whose
+fn-expr property admits the arm — so either §94's ladder answers
+no-contextual for a position it should cover (the assignment-root
+arm §98 added — check its reach for THIS shape), or the mint's
+presence poisons the literal's own type computation through a road
+the filtered dump can't show. NEXT INSTRUCTION (one run): rebuild
+the full arm with an env-gated eprintln AT THE FIRE SITE printing
+(literal node, has_no_contextual answer) on the looseThis filter —
+the admit/poison split names itself in one read. Reverted again;
+the park's map is now three probes deep.
