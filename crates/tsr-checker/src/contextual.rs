@@ -441,6 +441,27 @@ impl<'a> Checker<'a, '_> {
                 Some(self.get_type_from_type_node(annotation))
             }
             Node::CallExpression(call) => self.contextual_type_for_argument(call, node),
+            // §155 (`checker-notes-ctx.md`): a NEW argument's context through
+            // the §90 arity road — the sole non-generic constructor's written
+            // annotation at this position. The recursion the module doc
+            // guards is never entered: `sole_constructor_parameters` reads
+            // declarations, not signatures.
+            Node::NewExpression(new_expression) => {
+                if !new_expression.type_arguments.is_empty() {
+                    return None;
+                }
+                let index = new_expression
+                    .arguments
+                    .iter()
+                    .position(|argument| argument.node_id() == Some(node))?;
+                let callee = new_expression.expression.and_then(|e| e.node_id())?;
+                let arity = self.sole_constructor_parameters(callee)?;
+                if !arity.check_argument_types {
+                    return None;
+                }
+                let (annotation, _optional) = arity.annotations.get(index).copied().flatten()?;
+                self.type_from_annotation_id(annotation)
+            }
             // §152 (`checker-notes-ctx.md`): `getContextualTypeForBinaryOperand`'s
             // equals arm (`checker.go:29809`) — the RIGHT operand of plain `=`
             // answers the LEFT operand's type. The §98 walk built the same

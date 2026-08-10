@@ -238,7 +238,10 @@ impl<'a> Checker<'a, '_> {
     /// overloaded constructor (more than one, or one without a body), and a class
     /// with **no** constructor at all — the last because its signature comes from
     /// the base class, which is `getBaseConstructorTypeOfClass`.
-    fn sole_constructor_parameters(&mut self, callee: NodeId) -> Option<ConstructorArity> {
+    pub(crate) fn sole_constructor_parameters(
+        &mut self,
+        callee: NodeId,
+    ) -> Option<ConstructorArity> {
         let Some(Node::Identifier(identifier)) = self.node_map.get(callee) else { return None };
         let symbol = self.binder.resolve_name(
             self.nodes,
@@ -411,7 +414,7 @@ impl<'a> Checker<'a, '_> {
 
     /// `get_type_from_type_node` reached from a [`NodeId`] — ADR-0013's
     /// read-drop-recurse.
-    fn type_from_annotation_id(&mut self, node: NodeId) -> Option<crate::types::TypeId> {
+    pub(crate) fn type_from_annotation_id(&mut self, node: NodeId) -> Option<crate::types::TypeId> {
         let typed = tsr_ast::TypeNode::try_from(self.node_map.get(node)?).ok()?;
         Some(self.get_type_from_type_node(typed))
     }
@@ -776,15 +779,15 @@ impl<'a> Checker<'a, '_> {
 /// constructor has a perfectly well-defined `(minimum, maximum)` and no single
 /// instantiated parameter list, so the second half declines on its own —
 /// `checker-notes-diag2.md` §90.
-struct ConstructorArity {
+pub(crate) struct ConstructorArity {
     /// The written annotations of the sole signature, positionally, each with
     /// whether its parameter is optional — see
     /// [`Checker::parameter_target_type`].
-    annotations: Vec<Option<(NodeId, bool)>>,
+    pub(crate) annotations: Vec<Option<(NodeId, bool)>>,
     /// `getMinArgumentCount`, minimised over the overload set.
     minimum: usize,
     /// The parameter count, maximised over the overload set.
     maximum: usize,
     /// Whether the arguments may also be checked against `annotations`.
-    check_argument_types: bool,
+    pub(crate) check_argument_types: bool,
 }

@@ -1123,3 +1123,17 @@ entered — the arity road reads declarations, not signatures;
 (b) derived-class constructors through base hops carry the §343
 two-endings rule — a fired falsifier there shows as wrong
 parameter types in derived `new`s.
+
+**Score: +5 / 0 own-lane — the ≥20 VOLUME BAR MISSED, landed
+with the miss stated.** The pair's raw read (+43) carried
+checker-2's §149a (+38 hasInstance) arriving through the rebase —
+attributed and excluded. The own-lane 5 (contextualTyping 2,
+targetTypeBaseCalls 3): new-positioned function arguments are
+simply RARE — the module doc's original census never listed
+NewExpression among the ranked arms, and the census was right.
+Kept rather than reverted per the zero-adverse/shared-machinery
+argument (20 lines, no new surface: the §90 arity road already
+owns every rule the arm uses); the §116 revert precedent is about
+ZERO movers, and this moved. The lesson for the arc: the ranked
+census (module doc's table) remains the bar-setter — arms outside
+it should be priced small BEFORE barring, not after.
