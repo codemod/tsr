@@ -32026,3 +32026,88 @@ TS1029  +4    TS1070  +4    TS1014  +3    TS1248  +2    TS2462  +2
 
 Five codes closed. Also the **thirteenth repair** of the shared tree — a
 `redundant_closure` in `inference.rs`, the third time that file has arrived red.
+
+## §613 — TS1308: a class field initializer is an await-context boundary
+
+```ts
+async function foo() {
+    return new class {
+        baz = await bar();     // TS1308
+    };
+}
+```
+
+§268's rule is correct and its **container walk** is not:
+`getContainingFunctionOrClassStaticBlock` finds `foo`, which is `async`, so the
+`await` is silent. Upstream reads `NodeFlagsAwaitContext`, which the *parser*
+sets — and a **class property initializer is not in await context**, even inside
+an async function, because it is evaluated as its own function at construction.
+
+> **§515 found the same class of boundary from the failing side.** `yield`
+> propagates through nothing, `async` propagates into arrows, and this is the
+> third rule: **`await` propagates into arrows and stops at a class field
+> initializer.** All three are properties of a *flag the parser sets* that this
+> port reconstructs with a walk, and the walk has to know each boundary
+> separately.
+
+```
+await context   propagates into arrows      stops at:  a non-async function
+                                                       a class field initializer   ← this build
+                                                       a class static block (its own message, declined)
+```
+
+The static-block arm already returns silently — upstream gives it a different
+message and §268 declined it. The field initializer has no separate message: it
+is TS1308's.
+
+```
+bar:  +1 of 2 (awaitInClassInAsyncFunction),  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **`async function f() { await g(); }` reports.** The normal form.
+2. **A class field initializer with no `await` changes.** The stop is only
+   consulted from an `await`.
+3. **`class C { async m() { await g(); } }` reports.** A method's body is an
+   ordinary async container and the initializer boundary must not swallow it.
+
+## §614 — §613 built: **+1**, bar met, and the await-context boundary table completes
+
+```
+diagnostics   2,159   (bar was +1;  +1, 0 LOST)   39.34%
+extraonly     zero TS1308 lines
+```
+
+All three falsifiers negative — an ordinary `async` body, a method's body, and a
+field initializer without `await` are all unaffected.
+
+### The three context flags, measured
+
+```
+NodeFlagsAmbient        propagates through everything          walk works   §508  +5
+NodeFlagsAwaitContext   into arrows; stops at a field
+                        initializer and a static block         walk works   §613  +1
+NodeFlagsYieldContext   propagates through nothing             walk fails   §515  −4
+```
+
+**§514 claimed a walk could always substitute for a context flag, §516 corrected
+it to "when the propagation rule is *everything below*", and this is the third
+data point and the one that makes the corrected form usable**: `AwaitContext`
+does *not* propagate to everything below, and a walk still works — because its
+exceptions are **node kinds**, which a walk can see. `YieldContext`'s exception
+is a *function boundary the parser tracked while scanning*, which it cannot.
+
+> **A walk can substitute for a context flag exactly when the flag's exceptions
+> are visible in the tree.** That is sharper than §516's "everything below" and
+> it is what the three measurements support. Recorded as the final form.
+
+### The grammar family after nine builds
+
+```
+TS1029 +4   TS1070 +4   TS1014 +3   TS1248 +2   TS2462 +2   TS1308 +1
+                                                            ──
+                                                            +16
+```
+
+Six codes closed of the sixty-two with cases.

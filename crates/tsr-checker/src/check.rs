@@ -6927,14 +6927,32 @@ impl Checker<'_, '_> {
             return;
         }
         // `getContainingFunctionOrClassStaticBlock`.
-        let Some(container) = self
-            .nodes
-            .ancestors(node)
-            .find(|&ancestor| self.is_function_like_or_static_block(ancestor))
-        else {
+        // **A class field initializer is an await-context boundary.** Upstream
+        // reads `NodeFlagsAwaitContext`, which the parser does not set past a
+        // property declaration's initializer — it is evaluated as its own
+        // function at construction — so `class { x = await f() }` inside an
+        // `async` function is still an error. The container walk has to stop
+        // there or it finds the enclosing async function and stays silent.
+        // §613, and §515 for the same shape from the failing side.
+        let Some(container) = self.nodes.ancestors(node).find(|&ancestor| {
+            self.is_function_like_or_static_block(ancestor)
+                || self.nodes.kind(ancestor) == SyntaxKind::PropertyDeclaration
+        }) else {
             // No container: `IsInTopLevelContext`, declined above.
             return;
         };
+        if self.nodes.kind(container) == SyntaxKind::PropertyDeclaration {
+            let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+            let span = self.nodes.span(node);
+            self.report(
+                file,
+                Diagnostic::new(
+                    &messages::AWAIT_EXPRESSIONS_ARE_ONLY_ALLOWED_WITHIN_ASYNC_FUNCTIONS_AND_AT_THE_TOP_LEVELS_OF_MODULES,
+                    span,
+                ),
+            );
+            return;
+        }
         if self.nodes.kind(container) == SyntaxKind::ClassStaticBlockDeclaration {
             return;
         }
