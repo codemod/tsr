@@ -101,13 +101,19 @@ var b = { new<A>(x: A): C<A> { return new C<A>(x); } };";
 /// leg has been built and its pair here must move.
 #[test]
 fn the_refused_legs_stay_gaps() {
-    // No written type arguments: upstream infers them from the constructor's
-    // arguments (`inferTypeArguments`), which is unported — 155 lines in
-    // `newgen.rs`'s counterfactual.
+    // **This leg was BUILT by §162** (`checker-notes-narrow.md`) and its
+    // pair moved exactly as this test's own doc comment requires. The
+    // transcription: a ConstructorDeclaration's return type IS
+    // `getDeclaredTypeOfClassOrInterface` of its parent
+    // (`getReturnTypeFromAnnotation`, `checker.go:20058-20061`), so
+    // `new C(1)` is the call road's problem and `check_generic_call`
+    // answers it. `C<number>` rather than `C<1>` because the parameter is
+    // not at top level in the return type, so `getCovariantInference`
+    // widens (`inference.go:1442`).
     let inferred = "class C<T> { constructor(x: T) {} }
 var a = new C(1);
 var b = new C<number>(1);";
-    assert_eq!(type_of_declaration(inferred, "a"), "error");
+    assert_eq!(type_of_declaration(inferred, "a"), "C<number>");
     assert_eq!(type_of_declaration(inferred, "b"), "C<number>");
     // An arity that differs from the class's type parameters: upstream errors
     // the whole call (`checkTypeArguments`), and `fillMissingTypeArguments`'

@@ -125,10 +125,16 @@ fn an_overload_set_that_disagrees_is_still_a_gap() {
 
 #[test]
 fn a_generic_signature_member_infers_from_arguments() {
-    // This test pinned the OPPOSITE ("still a gap") until §74: a generic
-    // construct candidate now answers through `check_generic_call`, so
-    // `new C(1)` on `new <T>(value: T): Box<T>` is `Box<1>` — the fresh
-    // literal, exactly as the call road keeps it for `id(1)`.
+    // This test pinned the OPPOSITE ("still a gap") until §74, then pinned
+    // `Box<1>` on the reasoning "exactly as the call road keeps it for
+    // `id(1)`" — an INDUCTION, and §162 corrected it against the oracle:
+    // `getCovariantInference` widens a literal candidate unless the
+    // parameter is at top level IN THE RETURN TYPE
+    // (`isTypeParameterAtTopLevelInReturnType`, `inference.go:1442/1501`).
+    // `id(1)` returns `T` — top level, keep `1`. `new C(1)` returns
+    // `Box<T>` — NOT top level, widen. The corpus says so directly:
+    // `isomorphicMappedTypeInference` records `>box(42) : Box<number>` for
+    // `declare function box<T>(v: T): Box<T>`.
     assert_eq!(
         type_of_last(
             "interface Box<T> { value: T; }\n\
@@ -136,7 +142,7 @@ fn a_generic_signature_member_infers_from_arguments() {
              declare const C: BoxConstructor;\n\
              const made = new C(1);"
         ),
-        "Box<1>"
+        "Box<number>"
     );
 }
 

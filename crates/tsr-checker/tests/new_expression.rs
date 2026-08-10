@@ -111,8 +111,13 @@ fn new_on_a_non_class_callee_is_a_gap() {
     // `docs/architecture/checker-notes-namedcallee.md`), so the assertion is
     // rewritten as the **pair** rather than flipped: the plain construct
     // signature answers, and the generic one beside it — a gap until §74
-    // (`checker-notes-narrow.md`) — now INFERS through `check_generic_call`,
-    // keeping the fresh literal exactly as the call road does.
+    // (`checker-notes-narrow.md`) — now INFERS through `check_generic_call`.
+    // §162 corrected the literal half: "keeping the fresh literal exactly as
+    // the call road does" was an INDUCTION from `id(1)`, whose return IS the
+    // parameter at top level. `Box<T>` is not, so
+    // `getCovariantInference` WIDENS (`inference.go:1442`,
+    // `isTypeParameterAtTopLevelInReturnType` at `:1501`) — the corpus
+    // records `>box(42) : Box<number>` (isomorphicMappedTypeInference).
     assert_eq!(
         type_of_last("interface Ctor { new (): string; }\nvar C: Ctor;\nconst x = new C();"),
         "string"
@@ -124,6 +129,6 @@ fn new_on_a_non_class_callee_is_a_gap() {
              var C: Ctor;\n\
              const x = new C(1);"
         ),
-        "Box<1>"
+        "Box<number>"
     );
 }

@@ -647,11 +647,24 @@ impl Checker<'_, '_> {
                     }
                 }
             }
+            // §162 (`checker-notes-narrow.md`): `getCovariantInference`'s
+            // widening decision (`inference.go:1442`) —
+            // `widenLiteralTypes := !primitiveConstraint && inference.topLevel
+            // && (inference.isFixed || !isTypeParameterAtTopLevelInReturnType(..))`.
+            // This road never widened because every signature it served
+            // returned the parameter itself at top level (`<T>(x: T) => T`
+            // keeps `5`, which is upstream too). A CONSTRUCT signature
+            // returns `C<T>`, where the parameter is NOT at top level, and
+            // upstream widens: `new C(3)` is `C<number>`.
+            let widen_literals = !self.parameter_has_primitive_constraint(signature, position)
+                && !self.is_type_parameter_at_top_level_in_return_type(signature, type_parameter);
             let mut candidate = None;
             for &(from, inferred) in &candidates {
                 if from != type_parameter {
                     continue;
                 }
+                let inferred =
+                    if widen_literals { self.get_widened_literal_type(inferred) } else { inferred };
                 if has_other && inferred == never {
                     continue;
                 }
@@ -1462,6 +1475,18 @@ impl Checker<'_, '_> {
             Node::CallSignatureDeclaration(node) => node.type_parameters,
             Node::ConstructSignatureDeclaration(node) => node.type_parameters,
             Node::FunctionTypeNode(node) => node.type_parameters,
+            // §162 (`checker-notes-narrow.md`): a CONSTRUCTOR's type
+            // parameters are its CLASS's — upstream reaches them through
+            // `declaration.Parent.Symbol()` (`checker.go:20060`), the same
+            // hop that gives the constructor its return type.
+            Node::ConstructorDeclaration(_) => {
+                let parent = self.nodes.parent(signature.declaration)?;
+                match self.node_map.get(parent)? {
+                    Node::ClassDeclaration(class) => class.type_parameters,
+                    Node::ClassExpression(class) => class.type_parameters,
+                    _ => return None,
+                }
+            }
             _ => return None,
         };
         let symbols = declarations
@@ -2008,6 +2033,64 @@ impl Checker<'_, '_> {
     /// constraint is primitive-flavored (hasPrimitiveConstraint) and WIDEN to
     /// the base otherwise. Any non-literal or mixed-base set answers None and
     /// the caller keeps the decline.
+    /// `isTypeParameterAtTopLevel` (`inference.go:1493-1499`), verbatim over
+    /// the shapes this port has: the type IS the parameter, or a union whose
+    /// constituents contain it at top level. Intersections and conditionals
+    /// are the two arms whose `TypeData` this port does not walk; both answer
+    /// `false`, the conservative side (it widens where upstream might not,
+    /// and the pair watches that).
+    fn is_type_parameter_at_top_level(&self, id: TypeId, parameter: TypeId) -> bool {
+        if id == parameter {
+            return true;
+        }
+        match &self.store.get(id).data {
+            crate::types::TypeData::Union { types, .. } => {
+                types.iter().any(|&t| self.is_type_parameter_at_top_level(t, parameter))
+            }
+            _ => false,
+        }
+    }
+
+    /// `isTypeParameterAtTopLevelInReturnType` (`inference.go:1501-1507`)
+    /// over the return type; the type-predicate leg is unreachable here (a
+    /// construct signature carries none).
+    fn is_type_parameter_at_top_level_in_return_type(
+        &self,
+        signature: &Signature,
+        parameter: TypeId,
+    ) -> bool {
+        self.is_type_parameter_at_top_level(signature.r#type, parameter)
+    }
+
+    /// `hasPrimitiveConstraint`'s test as this port already spelled it inside
+    /// [`Checker::same_base_literal_supertype`], lifted so the single-candidate
+    /// road can ask the same question (§162).
+    fn parameter_has_primitive_constraint(
+        &self,
+        signature: &Signature,
+        parameter_position: usize,
+    ) -> bool {
+        use crate::flags::TypeFlags;
+        signature.type_parameters.get(parameter_position).and_then(|tp| tp.constraint).is_some_and(
+            |constraint| {
+                let flags = self.store.get(constraint).flags;
+                flags.intersects(
+                    TypeFlags::STRING
+                        | TypeFlags::NUMBER
+                        | TypeFlags::BOOLEAN
+                        | TypeFlags::BIG_INT
+                        | TypeFlags::UNIT,
+                ) || matches!(
+                    &self.store.get(constraint).data,
+                    crate::types::TypeData::Union { types, .. }
+                        if types.iter().all(|&t| {
+                            self.store.get(t).flags.intersects(TypeFlags::UNIT)
+                        })
+                )
+            },
+        )
+    }
+
     fn same_base_literal_supertype(
         &mut self,
         candidates: &[TypeId],
@@ -2041,26 +2124,8 @@ impl Checker<'_, '_> {
         // topLevel/isFixed refinements join with the foundation's steps
         // 2/4, and until then the base IS the widened union of same-base
         // literals).
-        let has_primitive_constraint = signature
-            .type_parameters
-            .get(parameter_position)
-            .and_then(|tp| tp.constraint)
-            .is_some_and(|constraint| {
-                let flags = self.store.get(constraint).flags;
-                flags.intersects(
-                    TypeFlags::STRING
-                        | TypeFlags::NUMBER
-                        | TypeFlags::BOOLEAN
-                        | TypeFlags::BIG_INT
-                        | TypeFlags::UNIT,
-                ) || matches!(
-                    &self.store.get(constraint).data,
-                    crate::types::TypeData::Union { types, .. }
-                        if types.iter().all(|&t| {
-                            self.store.get(t).flags.intersects(TypeFlags::UNIT)
-                        })
-                )
-            });
+        let has_primitive_constraint =
+            self.parameter_has_primitive_constraint(signature, parameter_position);
         if has_primitive_constraint {
             // The constraint branch: keep the literal union (+2/0 measured
             // pure — literalTypes2). The widen branch measured 9:7 pure and

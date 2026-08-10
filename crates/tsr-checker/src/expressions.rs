@@ -1713,6 +1713,77 @@ impl Checker<'_, '_> {
                     return self.create_type_reference(symbol, arguments);
                 }
             }
+            // §162 (`checker-notes-narrow.md`): with NO written type
+            // arguments the class's constructor INFERS them, which is §74's
+            // rule (constructor interfaces) on the class side. The
+            // transcription that makes it the call road's problem:
+            // `getReturnTypeFromAnnotation` (`checker.go:20058-20061`) —
+            // *a ConstructorDeclaration's return type IS
+            // `getDeclaredTypeOfClassOrInterface` of its parent's merged
+            // symbol* — so the signature is (class type parameters, ctor
+            // parameters, declared instance type) and `check_generic_call`
+            // does the rest. An OVERLOADED constructor declines whole
+            // (§74's agreement rule); a class with no constructor of its
+            // own declines rather than answer the uninstantiated `C<T>`
+            // (the §343 two-endings rule: the implicit zero-argument
+            // constructor can infer nothing).
+            if written.is_empty() && !node.arguments.is_empty() {
+                let constructors: Vec<NodeId> = match self.node_map.get(declaration) {
+                    Some(Node::ClassDeclaration(class)) => class
+                        .members
+                        .iter()
+                        .filter_map(|member| match member {
+                            tsr_ast::ClassElement::ConstructorDeclaration(ctor) => ctor.node_id,
+                            _ => None,
+                        })
+                        .collect(),
+                    Some(Node::ClassExpression(class)) => class
+                        .members
+                        .iter()
+                        .filter_map(|member| match member {
+                            tsr_ast::ClassElement::ConstructorDeclaration(ctor) => ctor.node_id,
+                            _ => None,
+                        })
+                        .collect(),
+                    _ => Vec::new(),
+                };
+                if let [constructor] = constructors.as_slice()
+                    && let Some(mut signature) = self.get_signature_from_declaration(*constructor)
+                {
+                    // The return is the class's declared type AS A
+                    // REFERENCE over its own parameters — upstream's
+                    // `getDeclaredTypeOfClassOrInterface` hands back the
+                    // generic type whose type arguments ARE its type
+                    // parameters, and only that shape is substitutable
+                    // (`instantiate_type` arm 3 reads
+                    // `type_reference_targets`). The raw declared type
+                    // prints `Box<T>` and substitutes nothing — the
+                    // iteration-1 reading.
+                    let own: Option<Vec<crate::types::TypeId>> = type_parameters
+                        .iter()
+                        .map(|parameter| {
+                            parameter
+                                .node_id
+                                .and_then(|id| self.binder.symbol_of(id))
+                                .map(|s| self.get_declared_type_of_symbol(s))
+                        })
+                        .collect();
+                    let declared = match own {
+                        Some(arguments) if arguments.iter().all(|&a| a != error) => {
+                            self.create_type_reference(symbol, arguments)
+                        }
+                        _ => error,
+                    };
+                    if declared != error {
+                        signature.r#type = declared;
+                        let answer = self.check_generic_call(&signature, None, node.arguments);
+                        if answer != error {
+                            bump(&COUNTERS.new_instantiated);
+                            return answer;
+                        }
+                    }
+                }
+            }
             bump(&COUNTERS.new_type_parameters);
             return error;
         }

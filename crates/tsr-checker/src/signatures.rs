@@ -2297,6 +2297,28 @@ impl<'a> Checker<'a, '_> {
                 body: node.body.and_then(|body| body.node_id()).map(Body::Block),
                 may_return_never: false,
             }),
+            // §162 (`checker-notes-narrow.md`): a CONSTRUCTOR is a
+            // function-like declaration like any other — upstream's
+            // `getSignatureFromDeclaration` switches on
+            // `declaration.Parameters()` (`checker.go:19836`), not on the
+            // kind. Its type parameters are the CLASS's (filled by the
+            // caller through `type_parameter_types`'s constructor arm) and
+            // its return type is the class's declared type
+            // (`getReturnTypeFromAnnotation`, `checker.go:20059`), which is
+            // why the annotation slot is None here.
+            Node::ConstructorDeclaration(node) => Some(SignatureParts {
+                modifiers: node.modifiers,
+                asterisk: false,
+                type_parameters: match self.nodes.parent(id).and_then(|p| self.node_map.get(p)) {
+                    Some(Node::ClassDeclaration(class)) => class.type_parameters.to_vec(),
+                    Some(Node::ClassExpression(class)) => class.type_parameters.to_vec(),
+                    _ => Vec::new(),
+                },
+                parameters: node.parameters,
+                return_annotation: None,
+                body: node.body.and_then(|body| body.node_id()).map(Body::Block),
+                may_return_never: false,
+            }),
             Node::MethodDeclaration(node) => Some(SignatureParts {
                 modifiers: node.modifiers,
                 asterisk: node.asterisk_token.is_some(),

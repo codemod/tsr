@@ -6960,3 +6960,50 @@ whole (§74's agreement rule, and the arity road's own
 `overloaded` bail); (c) a parameter-property constructor is an
 ordinary ctor here — no special case, and if the pair says
 otherwise the record says so.
+
+
+**Score: +432 G→R+W→R / 55 adverse (7.9:1) — LANDED, and it took
+TWO transcriptions plus THREE pin corrections.** The arm needed
+three pieces, each read before written: (1) `signature_parts_of`
+had NO ConstructorDeclaration arm at all — a constructor never
+produced a signature, which is why the class side of §74 was
+missing rather than declined (checker-2's under-searched-tail
+note, confirmed the same hour in another lane); (2) the return
+type, `getReturnTypeFromAnnotation` (`checker.go:20058-20061`) —
+a constructor's return IS `getDeclaredTypeOfClassOrInterface` of
+its parent, minted here as the reference over the class's own
+parameters so `instantiate_type` arm 3 can substitute (the raw
+declared type prints `Box<T>` and substitutes nothing — measured);
+(3) the type parameters, the same `declaration.Parent` hop, in
+BOTH `signature_parts_of` and `type_parameter_types`.
+
+**The second transcription, forced by the first's pair**:
+`getCovariantInference`'s widening (`inference.go:1442`) with
+`isTypeParameterAtTopLevelInReturnType` (`:1501`, itself
+`isTypeParameterAtTopLevel` at `:1493`). This road had NEVER
+widened a literal candidate, and correctly so for every signature
+it had served: `<T>(x: T) => T` returns the parameter at TOP
+LEVEL, so `id(1)` keeps `1`. A CONSTRUCT signature returns
+`C<T>` — not top level — and upstream widens. Without it the arm
+measured +203/154 (1.3:1); with it, 7.9:1.
+
+**Three pins corrected, and the failure mode is new**: two pins
+asserted `Box<1>` on the stated reasoning *"keeping the fresh
+literal exactly as the call road does"* — an INDUCTION from
+`id(1)`, written into tests where it reads as evidence. The
+oracle settles it directly: `isomorphicMappedTypeInference`
+records `>box(42) : Box<number>` for
+`declare function box<T>(v: T): Box<T>`. The third pin
+(`the_refused_legs_stay_gaps`) moved exactly as its own doc
+comment required. **Induced reasoning hides in pins** — now a
+conventions corollary.
+
+Residue, named and separable: `instancePropertyInClassType` 15 +
+`staticPropertyNotInClassType` 4 want `C` where the newly-reached
+signatures print `this` (upstream resolves a `this`-type return
+against the receiver at the call site — an unbuilt road, EXPOSED
+by this arm rather than minted by it); chainedCalls* 21 adverse
+against its own 99 wins; `inferFromGenericFunctionReturnTypes3` 3
+R→W. The setMethods family did NOT move — `new Set([0,1,2])` is a
+constructor INTERFACE, the §74 road, and its decline is a
+separate question.
