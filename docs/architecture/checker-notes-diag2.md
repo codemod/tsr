@@ -44276,3 +44276,37 @@ false for the only shape that matters.
 **Recorded as a stand-in, not a fix.** `super`'s type is still wrong and every
 other rule reading it still gets the wrong answer; `bd tsr-gjze` carries the
 number.
+
+
+## §891 — §862's attribution was itself unverified
+
+§862 measured `TS2364 beside TS2362` at 36 lines, observed that this port emits
+no TS2362 at those positions, and concluded **the root is `this`'s type** —
+filing it under `bd tsr-gjze` with TS2531 and TS2683.
+
+§890 had just shown that where the type is unavailable and the syntax is exact, a
+stand-in is legitimate, and `this` in a class body is exactly that: it denotes
+the instance, which is an object type, and no object type is assignable to
+`number` (§29's own argument). So the stand-in was built.
+
+**It never fired.** Three probes, each printing unconditionally at a later point
+than the last, produced **no output at all** for
+`compoundAssignmentLHSIsValue` — including one at the entry to the operand loop
+and one immediately after `check_expression(left)`.
+
+`check_arithmetic_operand_types` is **not entered** for that case. So the reason
+this port emits no TS2362 there is not that `this` types badly; it is that the
+rule does not run, and **§862 never checked.**
+
+> §880 wrote *"the rule is unreachable is not a location"* about a build. This is
+> the same error inside a **conclusion**: §862 reasoned from an absence to a
+> cause, named an owner, and filed an issue — all without one probe confirming
+> the rule ran. **An absence has at least two explanations and the cheap one is
+> always "it did not run"**, which is one `eprintln!` away and was not spent.
+>
+> The `bd tsr-gjze` entry for TS2364 is wrong on its face and has been corrected.
+
+**Reverted, nothing kept.** The row's real question is now the right one and one
+command from an answer: *which guard in `check_arithmetic_operand_types` returns
+first for `compoundAssignmentLHSIsValue`* — the ambient/parse-error gate, the
+operator test, or the error-typed-operand guard.
