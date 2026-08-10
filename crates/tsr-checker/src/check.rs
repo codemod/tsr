@@ -9902,6 +9902,17 @@ pub(crate) fn modifiers_of(typed: Node<'_>) -> Option<&[tsr_ast::ModifierLike<'_
         Node::MethodDeclaration(n) => n.modifiers,
         Node::ParameterDeclaration(n) => n.modifiers,
         Node::TypeParameterDeclaration(n) => n.modifiers,
+        // **The function-like kinds.** `async` lives on these and the walk that
+        // reads this accessor could not see it: `async function await() {}` and
+        // `async (await) => {}` are TS1359 and were silent. §621.
+        Node::FunctionExpression(n) => n.modifiers,
+        Node::ArrowFunction(n) => n.modifiers,
+        Node::ConstructorDeclaration(n) => n.modifiers,
+        Node::GetAccessorDeclaration(n) => n.modifiers,
+        Node::SetAccessorDeclaration(n) => n.modifiers,
+        Node::PropertySignatureDeclaration(n) => n.modifiers,
+        Node::MethodSignatureDeclaration(n) => n.modifiers,
+        Node::IndexSignatureDeclaration(n) => n.modifiers,
         _ => return None,
     })
 }

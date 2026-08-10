@@ -32366,3 +32366,86 @@ TS1029 +4  TS1070 +4  TS1014 +3  TS1248 +2  TS2462 +2  TS1308 +1  TS1805x +3  TS
 priced at §599 — a fifth of the family, taken in eleven builds, none of which
 needed anything outside `grammarchecks.go`, `checker.go`'s grammar arms, and the
 node kinds already in the tree.
+
+## §621 — TS1359: `modifiers_of` has sixteen arms and no function expression
+
+```ts
+var v = async function await(): Promise<void> { }   // TS1359
+var foo = async (await): Promise<void> => { }       // TS1359
+```
+
+§513's rule is dispatched for **every** identifier and its `named` test covers
+both shapes — a `FunctionExpression`'s name and a `ParameterDeclaration`'s. What
+fails is the walk:
+
+```rust
+modifiers_of(typed).is_some_and(|m| has_modifier(m, SyntaxKind::AsyncKeyword))
+```
+
+and `modifiers_of` enumerates sixteen node kinds with **no `FunctionExpression`,
+no `ArrowFunction`, no accessor and no constructor**. The `async` that makes
+these errors is on exactly those kinds.
+
+> **Eighth instance, and the second in the same accessor.** §601 widened
+> `parameters_of` from seven kinds to twelve; this widens `modifiers_of` from
+> sixteen to twenty-four. **A rule inherits every partial function between it
+> and the tree** (§602), and `modifiers_of` is the most-used of them — §569's JS
+> walk, §377's async check, and the modifier-order dispatch all read it.
+
+That reach is the falsifier, not a reason to duplicate: widening a shared
+accessor moves every reader at once, which is measurable, and copying it is
+§521's defect.
+
+```
+bar:  +4 of 4 (cases blocked on TS1359 alone),  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **`extraonly` grows with TS1029, TS1070 or TS8009.** All three read
+   `modifiers_of`, and function expressions and arrows now reach them.
+2. **`check_modifier_order`'s catch-all admits arrows.** Its `if !matches!(…)`
+   excludes six kinds by name; an arrow was previously invisible to it because
+   the accessor returned `None`, not because the guard excluded it.
+
+## §622 — §621 built: **+2** of a bar of +4, TS1359 to zero lines
+
+```
+diagnostics   2,166 → 2,168   (bar was +4;  +2, 0 LOST)   39.50%
+extraonly     zero TS1029, TS1070, TS8009 and TS1359 lines
+TS1359        4 missing lines → 0
+```
+
+**All four lines converted and two cases did not**, because the two `_es2017`
+variants carry a second missing code. Both falsifiers negative: widening the
+most-used accessor in the crate moved no other row's wrong-line count, which is
+the result that makes widening rather than copying safe to keep doing.
+
+### The accessor class, complete
+
+```
+§601   parameters_of    7 arms → 12    +3
+§621   modifiers_of    16 arms → 24    +2
+       type_parameters_of  12 arms      already complete (§603)
+```
+
+§603 swept the crate for helpers of this shape and found three; two of them had
+gaps and are now closed, and the sweep's null result on the third stands.
+
+> **The sweep at §603 was run on the wrong predicate.** It looked for
+> `-> Vec<NodeId> | Option<NodeId>` with a catch-all, and `modifiers_of` returns
+> `Option<&[ModifierLike]>` — so it was never in the list. The class was right
+> and the enumeration missed a member, which is exactly the defect the class
+> describes. **A sweep for partial functions can itself be partial**, and that
+> is the note's ending rather than its opening line.
+
+### The grammar family after twelve builds
+
+```
+TS1029 +4  TS1070 +4  TS1014 +3  TS1248 +2  TS2462 +2  TS1308 +1  TS1805x +3
+TS1194 +4  TS1359 +2
+                                                                  ──
+                                                                  +25
+```
+
+Eleven codes closed of the sixty-two with cases.
