@@ -42,7 +42,12 @@ fn main() {
     println!("{:<10} {:>8} {:>8}   rule", "code", "want", "have");
     let mut ranked: Vec<(&u32, &usize)> = want.iter().collect();
     ranked.sort_by_key(|(_, count)| std::cmp::Reverse(**count));
-    for (code, wanted) in ranked.iter().take(60) {
+    // The default keeps the historic view; a first argument widens it. §846
+    // needed the whole list to sweep for `**SILENT**` rows — codes this port
+    // has ported and never emits — and `.take(60)` was hiding them, which is
+    // §829's rule about the width of a grep applied to an instrument.
+    let limit = std::env::args().nth(1).and_then(|arg| arg.parse::<usize>().ok()).unwrap_or(60);
+    for (code, wanted) in ranked.iter().take(limit) {
         let emitted = have.get(code).copied().unwrap_or(0);
         let note = if !RULE_CODES.contains(code) {
             "unported"

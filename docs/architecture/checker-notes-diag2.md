@@ -42291,3 +42291,57 @@ All four are `reExportGlobalDeclaration1/2/3` and `exportSpecifier…`, 20 lines
 and they share the shape §837 named: a global re-exported through a **chain**
 rather than a single specifier over a script declaration. Still not this build's,
 and now the only shape left in the row.
+
+## §846 — the silent-arm sweep: **a rule can be built and four of its six arms never fire**
+
+§845 proposed a standing check — *before refusing a rule as unreachable, ask
+which other rules already visit the node*. Its complement is the sweep this
+section runs: **which ported codes does this port never emit at all?**
+
+`diagemit` already computed the answer and was hiding it behind `.take(60)`. The
+limit is now an optional argument; the default is unchanged.
+
+```
+cargo run --release -p tsr-conformance --example diagemit 100000 | grep SILENT
+
+TS2532    want 22   have 0   **SILENT**   Object is possibly 'undefined'
+TS18047   want 12   have 0   **SILENT**   '{0}' is possibly 'null'
+TS18049   want  5   have 0   **SILENT**   '{0}' is possibly 'null' or 'undefined'
+TS2531    want  4   have 0   **SILENT**   Object is possibly 'null'
+```
+
+**All four are arms of one rule**, `report_nullable_operand`
+(`nullable_operand.rs:127`), whose six arms are a 2×3 table over
+`(named, maybe_null, maybe_undefined)`. Two of the six fire; four never have.
+The table says exactly which halves are dead:
+
+```
+maybe_null is never true        kills TS18047, TS18049, TS2531
+named is never None             kills TS2532, TS2531
+```
+
+The second is the more interesting: `operand_entity_name_text` is faithful —
+identifiers and dotted names only, everything else `None` — so `named` *can* be
+`None`. It never is, which means **the rule is only ever entered with an
+identifier or a dotted name as its operand.** The `Object is possibly …` twins
+exist for the operands this port never brings to the rule.
+
+> A rule that emits *something* looks built by every instrument this workstream
+> has: `diagslice` counts its code as occupied, `diaggap` ranks it as ported,
+> `extraonly` shows nothing. **`have == 0` per code is the only view that
+> separates "built" from "reached", and it was one `.take()` away the whole
+> time.**
+
+### Where the four rows actually go
+
+TS2532's 22 wanted lines are 4 missing and the rest inside cases blocked
+elsewhere; of the 4, two are `narrowingOfQualifiedNames` and one is
+`narrowingTruthyObject` — **flow's owner**, already named. The exception is
+
+```ts
+declare const v: void;
+const {} = v;          // TS2532 at the pattern, column 7
+```
+
+a destructuring source that is `void`, which is neither flow nor the relation.
+Recorded as the one reachable case of the four rows, and not built here.
