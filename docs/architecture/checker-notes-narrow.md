@@ -5484,3 +5484,34 @@ ever):** the §533–§539 tsconfig block was the THIRD session's — the
 diagnostics-numbered lane — not checker-2's. The mooting story
 stands unchanged; the ledger now carries the true name. Corrected
 rather than edited silently.
+
+## §130 — the missing-export alias answers TS2305's any [claimed: checker-1]
+
+**The ALIAS census's post-§119 residue decomposed.** 488 want-any
+lines remain; the ES-import rows (ImportSpecifier 119, ImportClause
+75, NamespaceImport 50) are now FINDABLE modules — §119's arm
+passes them — whose target resolution fails one step later. The
+top case (es6ExportEqualsInterop 21) names the mechanism: the
+module resolves, the NAMED EXPORT does not exist (`export =`
+modules under non-interop, genuinely absent members), upstream
+reports TS2305/TS2614 and the alias reads errorType-printed-any at
+every use. The establishment machinery is ALREADY BUILT for the
+diagnostic (`report_missing_module_export`, symbols.rs:1005): module
+resolves in-program, `export =` declined, exports table non-empty
+(§186's empty-table guard), name absent through the star road.
+
+**The arm.** In `get_type_of_alias`, before the errorType fall-through:
+an ImportSpecifier-declared alias whose module RESOLVES and whose
+name's absence is ESTABLISHED by the same gates answers `any`.
+ExportSpecifier re-exports NOT admitted (§119 falsifier (a)'s
+scope, kept). The `export =` module case: upstream's named-import-
+against-export= IS TS2305-family (es6ExportEqualsInterop's wants)
+— the resolve_external_module_symbol≠module test routes it to the
+SAME answer, gated on the target symbol being resolvable.
+
+**Bar.** ≥60 G→R at ≥5:1. Falsifier: modules whose exports table
+this port under-fills (star chains through unresolved targets,
+late-bound exports) converting honest gaps to confident anys — the
+§186 empty-table guard plus a no-unresolved-star gate must hold it;
+if the class fires anyway, the gates get the establishment treatment
+§123 gave the member walk, and the price lands here.
