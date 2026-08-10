@@ -169,3 +169,31 @@ trim, all-declarations arity scan); (3) the trim applied in
 `reference_text_at` — stored mint texts UNTOUCHED. The next window
 gates the adverse families one at a time; +240 net right is sitting
 here behind ~5 small gates.
+
+## 7. §136's second window — the written-arity model, and where it stops
+
+The display-arity rework replaced the defaults-trim with the
+faithful mechanism: a default-filled reference CARRIES ITS WRITTEN
+ARITY (`reference_display_arity`), stamped at the annotation mint,
+propagated through instantiation rebuilds, consulted by the stored
+text and the composite re-render. Measured **+549 G→R / 212 G→W /
+6 R→W (2.5:1, net +335)** — the yield-call R→W class vanished
+(written-full preserved), R→W fell 49 → 6. Three position families
+now have MEASURED wants:
+  - WRITTEN-REUSE positions (the majority): written arity —
+    typedArrays 108, complexRecursiveCollections 114, asyncGenerators;
+  - BUILDER positions (inferred prints): FULL arity —
+    tsxLibraryManagedAttributes 37, arrayFrom, declarationEmit
+    (~87 lines G→W under the written model; flipping the composite
+    to full INVERTS the totals, 518:253 — the reuse family is 6×
+    the builder family);
+  - genericDefaults: both in one case (+43/−18).
+THE MISSING KEY, named: a **DEFAULT_LIBRARY NodeFlag** (or
+file-name access in the checker) — the builder-position adverse is
+user-file defaulted generics while every big win is lib-driven; a
+lib-file gate on the FILL was unbuildable this window because the
+checker cannot identify a lib file (no NodeFlag, no host hook).
+PARKED ON BRANCH `checker1-136-wip` (pushed) at the +335 state —
+next window: add the lib flag (parser stamps it from
+default_library_path, one bit beside JAVASCRIPT_FILE), gate the
+fill on it, re-measure; predicted ≥450 at ≥8:1.
