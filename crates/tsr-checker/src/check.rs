@@ -5273,6 +5273,27 @@ impl Checker<'_, '_> {
                 );
                 return;
             }
+            // `readonly` already seen — the same shape as TS1028's accessibility
+            // arm above, for a different keyword. §662.
+            if kind == SyntaxKind::ReadonlyKeyword && seen.contains(&SyntaxKind::ReadonlyKeyword) {
+                self.report_modifier_error(
+                    token,
+                    &messages::_0_MODIFIER_ALREADY_SEEN,
+                    &["readonly".to_string()],
+                );
+                return;
+            }
+            // `private abstract` — `abstract`'s own case reports TS1243 when
+            // `private` has been seen, which §595 guarded against and did not
+            // report. §662.
+            if kind == SyntaxKind::AbstractKeyword && seen.contains(&SyntaxKind::PrivateKeyword) {
+                self.report_modifier_error(
+                    token,
+                    &messages::_0_MODIFIER_CANNOT_BE_USED_WITH_1_MODIFIER,
+                    &["private".to_string(), "abstract".to_string()],
+                );
+                return;
+            }
             let precede: Option<&str> = match kind {
                 SyntaxKind::PublicKeyword
                 | SyntaxKind::ProtectedKeyword

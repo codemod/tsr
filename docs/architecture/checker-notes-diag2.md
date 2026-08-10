@@ -34197,3 +34197,90 @@ narrowing unconditionally.
 
 Twenty-two codes closed of the sixty-two with cases, **+41 of the 128 priced at
 §599** — a third of the family.
+
+## §662 — the site-count sweep, and two rows it found
+
+§661 wrote *"a message emitted from more places than the rule is dispatched from
+is the tell"*. That is **list-shaped**, so it was run: for every message this
+port emits, count upstream's emit sites against ours.
+
+```
+TS1029   upstream 20  ours 1     the `must precede` table (§593–§599 built four arms into one site)
+TS1243   upstream 11  ours 2     ← 1 case
+TS1030   upstream  9  ours 1     ← 1 case
+TS1156   upstream  3  ours 1     §660 built all three into one shared report
+TS2462   upstream  3  ours 1     §608/§611 likewise
+```
+
+> **The sweep's own false positives are the proof it works.** TS1156 and TS2462
+> show as gaps and are closed — because this port collapses several upstream
+> sites into one shared report, which is the right structure and makes the count
+> lie. **A ratio of upstream-sites to ours is a *candidate* generator, not a
+> defect detector**, and the two rows below are what survived pricing.
+
+```
+class C {
+    readonly readonly x: number;                    // TS1030 — 'readonly' already seen
+    constructor(readonly readonly y: number) {}
+}
+class D {
+    private abstract w : number;                    // TS1243 — 'private' with 'abstract'
+}
+```
+
+Both are arms of `check_modifier_order`'s `seen` loop, both one line, and their
+guards are different — so §496 would split them, but their **rows are separable
+after the fact** (`diagmissing` per code), which is the condition §496 exists to
+protect. Built together and read apart.
+
+```
+bar:  +2 of 2 (one case each),  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **`readonly x` reports TS1030.** One `readonly` is the normal form.
+2. **`abstract w` alone reports TS1243.** `private` is half the condition.
+3. **TS1029's row moves.** §597's `abstract` arm guards on `private` already and
+   must keep declining rather than start reporting.
+
+## §663 — §662 built: **+2**, both rows at zero, and the sweep is validated
+
+```
+diagnostics             2,192 → 2,194   (bar was +2;  +2, 0 LOST)   39.98%
+extraonly               one TS1029 line, PRE-EXISTING (1 before, 1 after)
+TS1030 → 0     TS1243 → 0               — both checked after the build (§629)
+```
+
+Both falsifiers negative and TS1029 unmoved, so §597's `abstract` arm still
+declines where §662's now reports.
+
+### The fifth list-shaped sweep, and the first to find rows
+
+```
+§552   the binder's 22 messages        2 rows
+§578   the scanner's 33                1 row
+§599   grammarchecks.go's 190          62 rows with cases, 128 cases
+§646   the corpus's 122 directives     2 rows
+§662   messages by upstream site count 2 rows          ← this one
+```
+
+**Five list-shaped sweeps, five useful answers; three property-shaped ones
+(§603, §624's check, §625) found nothing readable.** §651 stated the
+distinction and this is its fifth confirmation — but §662 adds a qualification
+worth keeping:
+
+> **A count of upstream sites against ours is a candidate generator, not a
+> defect detector.** TS1156 and TS2462 both appear as gaps and are *closed* —
+> this port collapses several upstream sites into one shared report, which is
+> the better structure. **The sweep's false positives are its own proof: it
+> ranks by a proxy, and the proxy is right about the two rows that survived
+> pricing and wrong about the two that did not.**
+
+### The grammar family after twenty-three builds
+
+```
++41 before   TS1030 +1   TS1243 +1   ──   +43
+```
+
+Twenty-four codes closed of the sixty-two with cases.
