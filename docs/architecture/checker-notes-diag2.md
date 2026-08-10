@@ -35146,3 +35146,67 @@ The second line is an `ExpressionWithTypeArguments` in `class C extends
 `declared_type_parameter_arity` refuses at its first line. That is upstream's
 `symbol == nil` branch, which prints the *written* name rather than the symbol's.
 Not built; one line.
+
+## §683 — **§682's residue was misread, and the probe said so**
+
+```
+diagnostics             2,211 → 2,212   (+1, 0 LOST)   40.31%
+extraonly               zero TS2315 and zero TS2314 lines
+TS2315 missing lines    2 → 1;  2 cases blocked alone → 1
+```
+
+### The correction
+
+§682 recorded the surviving line as *"a type alias declared inside a function
+body"* and named `tsr-binder`'s function-body type locals as its owner. **Both
+are wrong, and the fixture's own line numbering is what made it plausible.** The
+file carries one directive line, so every baseline position is `raw − 1`, and the
+inner block's five declarations map to stripped 17–21 — the last of which is
+
+```ts
+function f<U>() {
+    var v5: U<string>;   // stripped line 21 — TS2315
+}
+```
+
+a **type parameter**, not the type alias on the line above. `declared_type_parameter_arity`
+refused it explicitly, in the guard §681 had just written.
+
+Three probes were needed and each killed one hypothesis:
+
+```
+resolve_name for "T"        resolved=true, TYPE_ALIAS      — not the binder
+arity at the report site    Some((0,0)) twice, written=1   — not the helper's answer
+the two spans               195..204 and 374..383          — two distinct positions, both reported
+```
+
+The third is the one that turned it round: if both `T` references report, `T` is
+not the missing line, and the only other candidate on that line number is `U`.
+
+> **A residue attributed without a probe is a hypothesis wearing an owner's
+> name.** §629 established that the closing number comes from a post-build
+> `diagmissing`; this adds the same rule for the *leftover*: the line that did
+> not convert must be identified from the file, not from the rule you were just
+> looking at. It cost one build to correct and it had already been written into
+> `STATUS.md` as another crate's problem.
+
+### The build
+
+`checkNoTypeArguments` asks nothing about the kind. The helper's kind list is
+therefore a list of **what it can count**, and every kind on it that declares no
+list answers `(0, 0)`:
+
+```
+CLASS · INTERFACE · TYPE_ALIAS · TYPE_PARAMETER · REGULAR_ENUM · CONST_ENUM
+```
+
+TS2314's ladder did not move, which is the falsifier that matters for a type
+parameter — `U` has no parameters to count and can only reach the `maximum == 0`
+branch.
+
+### What is actually left
+
+One line: `declarationEmitExpressionInExtends4.ts(5,17)`, an
+`ExpressionWithTypeArguments` whose name is not an identifier — upstream's
+`symbol == nil` branch, which prints the written name. **Owner: this rule, one
+line, not another crate.**
