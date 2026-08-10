@@ -277,3 +277,28 @@ single-variable rule — WITH the slice-1 lattice plumbing
 (preserved in scratchpad phase1s1.py). The two land together or
 not at all; the existing assignability strike retires in the same
 commit.
+
+
+### Phase 1 iteration 2 — the WHOLE inferToMultipleTypes port measured net −41 and REVERTED (2026-08-10, checker-1)
+
+The amended spec built complete (per-source matched tracking with
+record-into-live-context, unmatched-union plain road, naked
+fallthrough, multi-variable arm, union-source distribution, the
+assignability strike and union-source bail retired): own-lane
+~+24 G→R (promiseType 12) against 57 G→W + 8 R→GAP — the
+promiseType/promiseTypeStrictNull families SPLIT (+16/−44), and
+unionTypeInference lost its §-era wins. Two findings for the
+rebuild: (1) the matched-quality approximation ("recorded any
+candidate" vs upstream's priority-equality test) is NOT exact even
+single-priority — the walk must report WHAT it recorded, i.e. the
+`inferencePriority` min-tracking out-param is LOAD-BEARING, not
+bookkeeping; (2) union-SOURCE distribution (new behavior — the old
+arm bailed on union sources) interacts with the T|PromiseLike<T>
+pattern: per-source-constituent inference into structured
+constituents records nested-variable candidates my matched test
+then counts, where upstream's quality test does not. The two
+probes now BOUND the rebuild: slice-1 (+4/9, lattice alone) and
+iteration-2 (−41, structure without the quality out-param). The
+Phase-1 build that lands carries: the lattice + the structure +
+the priority-report out-param, together. Fresh window, full
+inference.rs read, the promiseType pair as the first comparator.
