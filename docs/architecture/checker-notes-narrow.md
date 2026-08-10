@@ -6281,3 +6281,18 @@ ordinary single-fixture debug: probefile the repro, eprintln
 failing conjunct names itself. THE LADDER'S END STATE: thirteen
 probes, the fault reduced from "17 mystery regressions" to one
 establishment conjunct on one member read in nine lines.
+
+## §124.2 — declared_only ignores value-side merges [claimed: checker-1]
+
+**Probe 14 named §142's final conjunct, and it is §123's**: the
+`.length`-on-number miss reads walk=false because `declared_only`
+requires ALL of the owner's declarations to be class/interface —
+and every lib primitive wrapper (`interface Number` + `var Number:
+NumberConstructor`) merges with its constructor VAR, failing the
+all(). §123 never established a single lib-wrapper miss; its +381
+came from pure-interface receivers. The fix: the test ignores
+VALUE-only declarations (VariableDeclaration, FunctionDeclaration)
+— they contribute no members to the instance side — and requires
+at least one class/interface among what remains. **Bar: ≥30 G→R at
+≥5:1, zero R→W** (the same narrowing-a-conservative-gate argument
+as §124.1). This also un-poisons the nine-line §142 repro directly.
