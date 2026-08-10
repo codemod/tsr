@@ -1307,6 +1307,17 @@ its whole deliverable and accept that it converts nothing until finished.
 
 ## 5. Refused, with the number that refused it
 
+### New, this session, TS7031 for a variable's binding pattern — refused by −8 and 39 wrong lines
+
+- **A `for…of` head supplies a type without an initializer.** The arm was bounded
+  to a declaration with neither an initializer nor an annotation, on the reading
+  that nothing then supplies its type; `for (const [k, v] of entries)` has
+  neither field and gets its type from the iterable. **−8 cases and 39 wrong
+  lines.** The bound named a *syntactic* absence and claimed a *semantic* one —
+  §716's error in the other direction. A correct bound must name the **parents**
+  that supply a type rather than the fields that do, which is position
+  enumeration again. Two cases. §728–§729
+
 ### New, this session, TS2552's export-specifier arm — refused by −2 and 2 wrong lines
 
 - **The binder gives `export { X }` a symbol named `X`**, so asking the scope
@@ -2762,6 +2773,7 @@ holds only the numbers.
 | 2026-08-10 | HEAD | **41.03%** | **2,252** | **+4 from a two-line arm — a defect found by measurement is worth re-asking as a category** | §724 closed a row by adding one arm to `is_value_reference`, so the gate was swept: its **49** arms crossed against the **61** AST node kinds carrying an expression-shaped field. Twelve of the sixteen unenumerated are function bodies, transform-only nodes or specifier positions; `WithStatement` is declined two guards later. ***`JsxSpreadAttribute` is the real one***: `<a {...x} />` holds its expression **directly** where `<a b={x} />` wraps it in a `JsxExpression` the gate already lists — ***the JSX corpus was half-covered and the missing half looked exactly like the covered half***. Zero wrong lines. ***§724's arm took three probes chasing one row; this one took one script asking what else the same gate could be missing, and paid twice as much.*** §725 |
 | 2026-08-10 | `3a00a8c7` | **gradient 86.35%** | right **413,598**/478,954 | **§146.1 the heritage discriminator (+6, 0 regressions)** | Wall (1) of the hasInstance residue decoded against the oracle in ONE baseline read: a pure STRUCTURAL superset drops under a type predicate (upstream's subtype relation refuses Point3D vs Point) while a DECLARED-heritage subtype keeps (Point3D2 extends Point survives). The §146 rung's inclusion arm now discriminates by transitive base-chain walk. Composed with checker-1's §147/§150 (scanner escapes +258, tagged literals + evaluator ops +113): the two-day board reads 84.63% → **86.35%**. checker-2 session |
 | 2026-08-10 | HEAD | 41.03% | 2,252 | **+0, kept — the category was worth re-asking and the answer was no** | Swept `is_declaration_or_member_name` as §725 swept its sibling: **65** AST nodes with a name-shaped field against **28** arms. ***Thirty-six of the thirty-eight absences were right*** — JSDoc tag names, JSX tag names, labels, `new.target`, and `ShorthandPropertyAssignment`'s `name`, which ***must*** keep marking because `{ x }` is a genuine reference. Two were added: `JsxAttribute`'s name, and `ExportSpecifier`, which is ***§702 mirrored*** — an import specifier's *property name* is the foreign one, an export specifier's *name* is, and the two nodes are spelled the same way with the foreign half on opposite sides. **+0, zero wrong lines, kept** under §667's second clause (an arm upstream runs). ***§725's sweep paid +4 from two lines and this one paid nothing; both cost one script*** — recording the negative is what stops the next session buying the same answer. §726–§727 |
+| 2026-08-10 | HEAD | 41.03% | 2,252 | **−8 and 39 wrong lines — a bound that named a syntactic absence and claimed a semantic one** | **TS7031** for a variable's binding pattern. `var [a], {b};` is implicitly `any` by the plainest reading there is, and the arm was bounded to a declaration with ***neither an initializer nor an annotation***. ***A `for…of` head supplies a type without an initializer***: `for (const [k, v] of entries)` has neither field, and its type comes from the iterable — 39 wrong lines. ***§716's error in the other direction***: there a `nil` meant *always report* and was read as *cannot judge*; here a missing initializer means *cannot judge* and was read as *always report*. Reverted. A correct bound names the **parents** that supply a type, not the fields — position enumeration again, §701's family. Two cases, named and priced. §728–§729 |
 
 ## 8. Updating this file
 

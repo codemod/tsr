@@ -37345,3 +37345,91 @@ The two gates are now both swept and both documented with their residue, so
 `is_value_reference` and `is_declaration_or_member_name` are closed as sources
 of this defect family. **Eleven of the family's twelve members were single
 oversights; the two sweeps say the lists around them are otherwise sound.**
+
+## §728 — TS7031 for a **variable**'s binding pattern
+
+```ts
+// @noImplicitAny: true
+var [a], {b}, c, d;   // TS7031 on `a` and `b`
+```
+
+§373 built `report_binding_pattern_elements` and dispatched it from the
+parameter arm and from nested elements. A `var` whose name is a binding pattern
+never reaches it, so a destructured declaration with **no initializer and no
+annotation** — implicitly `any` by the plainest reading there is — says nothing.
+
+The node list is already right: the function accepts a `ParameterDeclaration` or
+a `BindingElement`, and adding `VariableDeclaration` is one arm. What needs care
+is the *gate*, because a variable declaration usually has an initializer and the
+element's type then comes from it:
+
+```ts
+var [a, b] = [undefined, null];   // TS7031 too, but only the type side knows it
+```
+
+`wideningTuples5` is that case and it is **not built**: whether `a` is
+implicitly `any` depends on the initializer's type widening, which is exactly
+the work this rule exists to avoid. So the arm is bounded to a declaration with
+**neither an initializer nor a type annotation** — where the answer is
+syntactic and total.
+
+> Twelfth in §701's family and §708's kind: an enumeration smaller than
+> upstream's. But the bound is new information rather than an oversight — **the
+> rule could not have been dispatched here when it was written, because half of
+> what it would meet needs a type.** Recording which half is what makes the
+> other half safe.
+
+```
+bar:  +1 of 2 (noImplicitAnyDestructuringVarDeclaration),  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **`var [a, b] = [1, 2];` reports.** It has an initializer and the bound
+   excludes it — this is the direction that would put wrong lines across the
+   whole corpus.
+2. **`var [a]: [number] = …;` reports.** An annotation supplies the type.
+3. **TS7005 / TS7006's rows move.** Sibling implicit-`any` codes sharing this
+   file's dispatch.
+
+## §729 — §728 measured: **−8 and 39 wrong lines**, reverted
+
+```
+diagnostics             2,252 → 2,244   (bar was +1;  −8)
+extraonly               TS7031 wrong lines 0 → 39
+```
+
+Falsifier 1 fired, and not in the shape it was written for. The bound excluded a
+declaration **with an initializer**, and the wrong lines are all declarations
+that have none *syntactically* because their value comes from the **loop**:
+
+```ts
+for (const [k, v] of entries) { … }    // TS7031 ×2, wrongly
+for (const { a } in obj) { … }
+```
+
+A `for…of` binding has no initializer node and no annotation, so the bound let
+every one of them through — and their types come from the iterable, which is
+exactly the type-side work the bound was drawn to avoid.
+
+> The bound was *"neither an initializer nor an annotation"*, and I read that as
+> *"nothing supplies its type"*. **A `for…of` head supplies a type without an
+> initializer**, and so does a `for…in`, and both are variable declarations with
+> a binding pattern. **The bound named a syntactic absence and claimed a
+> semantic one.** §716 was the same error in the other direction — there a `nil`
+> meant *always report* and was read as *cannot judge*; here a missing
+> initializer means *cannot judge* and was read as *always report*.
+
+### Refused, with the number
+
+```
+TS7031 for a variable's binding pattern   2 cases   needs the declaration's type source
+```
+
+The syntactic half is smaller than it looked: `var [a], {b};` is decidable, and
+`for (const [k, v] of …)` is not, and the two are the same node kind with the
+same fields empty. A correct bound would have to name the *parents* that supply
+a type — `ForOfStatement`, `ForInStatement` — rather than the fields that do,
+and at that point it is enumerating positions again, which is the family §701
+opened. **Named, priced at 2 cases, not built**; the next attempt should start
+from the parent list, not the field list.
