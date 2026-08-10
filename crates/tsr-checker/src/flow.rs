@@ -3532,6 +3532,107 @@ impl Checker<'_, '_> {
 
     /// The §22 ladder over a predicate type — shared by call-condition
     /// narrowing and §111's `[Symbol.hasInstance]` arm.
+    /// SS146: enumerate a Named interface's full member map (own + bases),
+    /// None on any shape this cannot prove (non-interface, computed names,
+    /// optional members, index signatures, unfollowable bases, cycles).
+    fn plain_member_map(
+        &mut self,
+        id: crate::types::TypeId,
+    ) -> Option<Vec<(String, crate::types::TypeId)>> {
+        let TypeData::Named { members: Some(owner), .. } = self.store.get(id).data else {
+            return None;
+        };
+        let mut map: Vec<(String, crate::types::TypeId)> = Vec::new();
+        let mut stack = vec![owner];
+        let mut seen = Vec::new();
+        while let Some(current) = stack.pop() {
+            if seen.contains(&current) {
+                return None;
+            }
+            seen.push(current);
+            let declarations: Vec<_> =
+                self.binder.symbols().get(current).declarations.iter().copied().collect();
+            for declaration in declarations {
+                let Some(Node::InterfaceDeclaration(interface)) = self.node_map.get(declaration)
+                else {
+                    return None;
+                };
+                for member in interface.members {
+                    let tsr_ast::TypeElement::PropertySignatureDeclaration(property) = member
+                    else {
+                        return None;
+                    };
+                    let tsr_ast::PropertyName::Identifier(name) = property.name else {
+                        return None;
+                    };
+                    if property.postfix_token.is_some() {
+                        return None;
+                    }
+                    let annotation = property.r#type?;
+                    let member_type = self.get_type_from_type_node(annotation);
+                    if member_type == self.intrinsics.error {
+                        return None;
+                    }
+                    if !map.iter().any(|(existing, _)| existing == name.text) {
+                        map.push((name.text.to_string(), member_type));
+                    }
+                }
+            }
+            match self.base_symbols_of(current) {
+                None => {
+                    let has_heritage = self
+                        .binder
+                        .symbols()
+                        .get(current)
+                        .declarations
+                        .iter()
+                        .copied()
+                        .collect::<Vec<_>>()
+                        .into_iter()
+                        .any(|d| {
+                            matches!(self.node_map.get(d),
+                                Some(Node::InterfaceDeclaration(i)) if !i.heritage_clauses.is_empty())
+                        });
+                    if has_heritage {
+                        return None;
+                    }
+                }
+                Some(bases) => stack.extend(bases),
+            }
+        }
+        Some(map)
+    }
+
+    /// SS146: the decidable member-set rung. `Some(...)` decides; `None`
+    /// falls through to the relater rungs.
+    fn member_set_rung(
+        &mut self,
+        constituent: crate::types::TypeId,
+        candidate: crate::types::TypeId,
+    ) -> Option<NarrowedConstituent> {
+        if constituent == candidate {
+            return None;
+        }
+        let candidate_map = self.plain_member_map(candidate)?;
+        let constituent_map = self.plain_member_map(constituent)?;
+        let mut missing = false;
+        let mut mismatched = false;
+        for (name, candidate_type) in &candidate_map {
+            match constituent_map.iter().find(|(n, _)| n == name) {
+                Some((_, constituent_type)) if constituent_type == candidate_type => {}
+                Some(_) => mismatched = true,
+                None => missing = true,
+            }
+        }
+        if missing && !mismatched {
+            return Some(NarrowedConstituent::Dropped);
+        }
+        if !missing && !mismatched {
+            return Some(NarrowedConstituent::Mapped(constituent));
+        }
+        None
+    }
+
     fn narrow_by_predicate_type(
         &mut self,
         t: TypeId,
@@ -3631,6 +3732,17 @@ impl Checker<'_, '_> {
         candidate: TypeId,
     ) -> NarrowedConstituent {
         use crate::relater::{Relation, Ternary};
+        // SS146 (checker-notes-callres2.md): the LOCAL member-set rung -
+        // decidable structural subtyping between plain Named interface
+        // types, scoped to this ladder only (the global relater untouched).
+        // Candidate's full member set present in the constituent with
+        // IDENTICAL member TypeIds -> the constituent narrows (kept as
+        // itself); a required candidate member missing from the constituent
+        // -> NotRelated (dropped on the true branch). Anything else falls
+        // through to the relater rungs unchanged.
+        if let Some(decided) = self.member_set_rung(constituent, candidate) {
+            return decided;
+        }
         for relation in [Relation::StrictSubtype, Relation::Subtype] {
             for (source, target, image) in
                 [(constituent, candidate, constituent), (candidate, constituent, candidate)]

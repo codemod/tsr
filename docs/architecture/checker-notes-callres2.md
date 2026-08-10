@@ -1291,3 +1291,19 @@ substantially (Point/Point3D/Line are plain same-id-membered
 interfaces); falsifier: R→W in other predicate-narrowing families
 means the inclusion rule is wrong-way or the id-identity test too
 coarse.
+
+## §146 LANDED: the local member-set rung (+34, zero regressions)
+
+Built exactly as barred — inside `narrowed_constituent` only, the
+global relater untouched. `plain_member_map` enumerates own+base
+members of plain Named interfaces (None on optionals, non-property
+members, computed names, index signatures, unfollowable heritage,
+cycles); inclusion with IDENTICAL member TypeIds keeps the constituent,
+a missing required member drops it, a same-name-different-id mismatch
+falls through undecided. Full pair: +34 (hasInstance 16 W→R,
+typePredicateInLoop 6, typePredicateWithThisParameter 6, guards-by-
+hasInstance 4), zero regressions — predicate-narrowing families beyond
+the census family lit up because every user type-guard runs the same
+ladder. Residue: 60 W in the head family (mismatched-id members —
+`start: Point` interned per-site? — and intersection shapes), priced
+to the id-interning question, not this rung.
