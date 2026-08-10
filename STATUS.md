@@ -1463,9 +1463,15 @@ its whole deliverable and accept that it converts nothing until finished.
   exports this binder does not keep — which makes the test stricter and the rule
   report less, the safe direction.
 
-- **Residual, recorded not groomed**: three TS1361 remain on that repository,
-  all at one `new QueueEvents(...)` behind a **plain** import through `bullmq`'s
-  all-`export *` barrel. A different mechanism from the above and pre-existing.
+- **Residual, recorded not groomed, and the earlier note CORRECTED**: one
+  TS1361 remains, at `new QueueEvents(...)` behind a **plain** import through
+  `bullmq`'s all-`export *` barrel. The note here said the chain contained no
+  type-only declaration; instrumenting shows otherwise — the walk lands on
+  `bullmq/dist/esm/classes/job.d.ts:4`'s `import type { QueueEvents }`, which is
+  a **local** and so should be unreachable through `export *`. **Three
+  synthetic reproductions of the obvious mechanisms are all clean**, including
+  the one matching `job.d.ts` exactly, so the trigger is not yet isolated and
+  the ruled-out shapes are listed in §502 so the next attempt skips them.
 
 ### New, this session, `symbolIsValue`
 

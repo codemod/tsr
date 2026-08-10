@@ -26755,11 +26755,39 @@ import { JobsOptions, Queue, QueueEvents } from "bullmq";   // NOT type-only
 queueEvents = new QueueEvents(name, { … });                  // TS1361 here
 ```
 
-A **plain** import, used as a value, through `bullmq`'s all-`export *` barrel —
-so `type_only_alias_declaration` is concluding type-only somewhere in a chain
-that contains no `export type` at all. That is a different mechanism from this
-section's and it predates it; it is not fixed here and it is not swept under the
-rug. `tsc` reports nothing on that package.
+A **plain** import, used as a value, through `bullmq`'s all-`export *` barrel.
+`tsc` reports nothing on that package. Not fixed, and the investigation is
+written down below so the next attempt does not repeat it.
+
+**Correction to the sentence that stood here.** It said the chain "contains no
+`export type` at all", implying nothing type-only was involved. That is wrong.
+Instrumenting `type_only_alias_declaration` shows the walk landing on a real
+type-only declaration — `bullmq/dist/esm/classes/job.d.ts:4`:
+
+```ts
+import type { QueueEvents } from './queue-events';
+```
+
+Two `QueueEvents` symbols exist in that program: the plain import in
+`src/index.ts` (correctly `None`) and `job.d.ts`'s type-only one (`Some(false)`,
+i.e. *imported* rather than *exported* type-only). The walk from the first
+reaches the second. `job.d.ts`'s import is a **local**, and `export *`
+re-exports a module's *exports*, so it should be unreachable from the barrel.
+
+**Three mechanisms were reproduced synthetically and all three are clean**, so
+none of them is the trigger:
+
+1. a plain named import through a two-level all-`export *` barrel;
+2. the same, with an unrelated `import type` statement earlier in the importing
+   file;
+3. an `export *` over a module that holds a **type-only local** of a name a
+   sibling module exports — the shape that matches `job.d.ts` exactly.
+
+So the trigger involves something further about the real program that is not
+yet isolated. What is established: the symbol reached is genuinely type-only, it
+belongs to another file, and the three obvious re-export shapes do not produce
+it. The next step is to find how `src/index.ts`'s specifier resolves to
+`job.d.ts`'s local rather than to `queue-events.d.ts`'s `export declare class`.
 
 ## §502 — both of §501's unbuilt siblings have **zero** blocked cases
 
