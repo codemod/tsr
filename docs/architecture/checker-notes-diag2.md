@@ -35052,3 +35052,97 @@ a message argument. Approximating either is a **wrong code at a right
 position** — the failure §185's falsifier caught on this very rule. The related-
 info spans upstream attaches are not built either, and cost nothing: the oracle
 compares `(file, line, column, code)`.
+
+## §681 — TS2315: the rule is built, and its arity helper knows two kinds
+
+```ts
+class C { }   interface I { }   enum E { }   type T = { };
+var v1: C<string>;   // reported
+var v2: I<string>;   // reported
+var v3: E<string>;   // silent
+var v4: T<string>;   // silent
+```
+
+`checkNoTypeArguments` (`checker.go:23220`) is three lines and takes **no
+interest in what kind of declaration it is looking at** — any symbol with no type
+parameters and a written argument list is TS2315.
+
+`declared_type_parameter_arity` (`type_argument_arity.rs:196`) takes a great deal
+of interest. Two guards drop out before the loop:
+
+```rust
+if entry.flags.intersects(SymbolFlags::TYPE_ALIAS | SymbolFlags::TYPE_PARAMETER) { return None }
+if !entry.flags.intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE) { return None }
+```
+
+so an enum fails the second and a type alias the first. Both are **correct for
+the arity ladder** the rest of the function serves — `Generic type '{0}' requires
+N type arguments` needs a parameter list to count against, and a type
+parameter's own arity is meaningless. Neither is correct for the `maximum == 0`
+branch §345 later hung off the same helper, which needs no parameter list at
+all.
+
+> §143 says read the existing rule before assuming the missing arm. **This is a
+> rule whose missing arm is in a *helper* it shares with an older caller, and
+> whose guards were right when they were written.** Adding kinds to the helper
+> is therefore not free: it changes what the arity ladder sees too.
+
+The narrow build: `TypeAliasDeclaration` and `EnumDeclaration` join the loop and
+the two flag guards widen to admit them. A type alias has a real parameter list,
+so it answers the ladder correctly as well; an enum has none, so it answers
+`(0, 0)` and can only ever reach the `maximum == 0` branch.
+
+```
+bar:  +3 of 3 (nonGenericTypeReferenceWithTypeArguments,
+      declarationEmitExpressionInExtends4, unusedInvalidTypeArguments)
+      0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **`type T<U> = …; var x: T<string>` reports.** A type alias *is* generic and
+   the ladder must count its parameters, not refuse them.
+2. **A bare `type T = {}` used as `var x: T` reports.** Zero written arguments is
+   the `written == 0` early return.
+3. **TS2314's row moves** (`Generic type requires N type arguments`). Widening
+   the helper feeds that ladder too, and a type alias with defaults is the shape
+   most likely to disagree.
+
+## §682 — §681 built: **+1 of 3**, kept, and the shortfall has one cause each
+
+```
+diagnostics             2,210 → 2,211   (bar was +3;  +1, 0 LOST)   40.29%
+extraonly               zero TS2315 and zero TS2314 lines
+TS2315 missing lines    7 → 2;  3 cases blocked alone → 2
+```
+
+All three falsifiers negative — TS2314's ladder did not move, which was the real
+risk in widening a shared helper.
+
+**Five of the seven lines converted.** The two that did not:
+
+```
+nonGenericTypeReferenceWithTypeArguments.ts(21,13)   a type alias declared *inside a function body*
+declarationEmitExpressionInExtends4.ts(5,17)         an expression heritage clause
+```
+
+The first is the sharper one. The file's *outer* `type T = {}` now reports and
+the identical declaration inside `function f<U>() { … }` does not, so the alias
+kind is handled and the **scope** is not: `resolve_name` does not find a
+block-scoped type alias in a function body, and the helper's `?` turns that into
+silence. Same file, same syntax, same rule — **the only difference is which
+table the name lives in.**
+
+> This is the third input-layer decline this session (§166's globals fallback,
+> §676's alias targets, this) and the first where the *same fixture* holds the
+> control. A rule that reports on line 10 and not on line 21 of one file cannot
+> be a rule problem, and the two lines cost one measurement to separate.
+
+**Owner: `tsr-binder`'s function-body type locals.** Recorded, not fixed — the
+falsifier is the fixture itself.
+
+The second line is an `ExpressionWithTypeArguments` in `class C extends
+(expr)<T>`, where the name is not an identifier at all and
+`declared_type_parameter_arity` refuses at its first line. That is upstream's
+`symbol == nil` branch, which prints the *written* name rather than the symbol's.
+Not built; one line.

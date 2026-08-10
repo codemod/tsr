@@ -207,10 +207,23 @@ impl Checker<'_, '_> {
         )?;
         let symbol = self.binder.merged_symbol(symbol);
         let entry = self.binder.symbols().get(symbol);
-        if entry.flags.intersects(SymbolFlags::TYPE_ALIAS | SymbolFlags::TYPE_PARAMETER) {
+        // A **type parameter** has no parameter list of its own and no arity to
+        // report; the other three kinds do. `checkNoTypeArguments`
+        // (`checker.go:23220`) asks nothing about the kind at all — a symbol
+        // with no type parameters and a written argument list is TS2315 —
+        // and the two kinds added here reach this helper only through that
+        // branch (§345) or, for an alias, through the ladder with a real list
+        // to count. §681.
+        if entry.flags.intersects(SymbolFlags::TYPE_PARAMETER) {
             return None;
         }
-        if !entry.flags.intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE) {
+        if !entry.flags.intersects(
+            SymbolFlags::CLASS
+                | SymbolFlags::INTERFACE
+                | SymbolFlags::TYPE_ALIAS
+                | SymbolFlags::REGULAR_ENUM
+                | SymbolFlags::CONST_ENUM,
+        ) {
             return None;
         }
         let mut arity: Option<(usize, usize)> = None;
@@ -219,6 +232,10 @@ impl Checker<'_, '_> {
                 Some(Node::ClassDeclaration(class)) => class.type_parameters,
                 Some(Node::ClassExpression(class)) => class.type_parameters,
                 Some(Node::InterfaceDeclaration(interface)) => interface.type_parameters,
+                Some(Node::TypeAliasDeclaration(alias)) => alias.type_parameters,
+                // An enum declares no type parameters, so its arity is `(0, 0)`
+                // — an answer, not a refusal. §681.
+                Some(Node::EnumDeclaration(_)) => &[],
                 // **"I have nothing to add" is not "nobody can answer."** A
                 // merged *value* declaration contributes no type parameters, so
                 // it is skipped rather than treated as evidence the answer is
