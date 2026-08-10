@@ -1228,3 +1228,21 @@ the return-side rung require upstream's actual fixing-mapper pipeline
 sites) built as ONE unit — the InferenceInfo step-2 window with all
 four pieces, not any subset. The three refusal ledgers are its
 requirements document.
+
+## §145 BAR (registered before code): `[Symbol.hasInstance]` members in type literals
+
+The hasInstance family's `any` wall decoded in one row-map: the RHS
+vars are typed by TYPE LITERALS whose only member is a
+`[Symbol.hasInstance]` method — a ComputedPropertyName, which the
+method arm of `get_type_from_type_literal` declines (Identifier-only),
+erroring the WHOLE literal (rows 105/110/115 GAP), so
+`has_instance_predicate_type` never sees a callee and every `&&`-narrow
+answers any (rows 107–117 W). The build: the method arm accepts a
+computed name whose expression is the well-known `Symbol.hasInstance`
+access, printing `[Symbol.hasInstance]`; the predicate road's
+declaration-reading leg should then light up unchanged. Prediction:
+the family's ~94 W and ~30 G move substantially (declare-class RHS rows
+are already right, so the literal-typed half is most of the residue);
+falsifier: if the member SYMBOL isn't reachable through the literal's
+Anonymous owner the predicate road stays dark and only the print rows
+convert.
