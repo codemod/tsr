@@ -6610,3 +6610,17 @@ must already answer error or the uses convert to a DIFFERENT
 wrong; (c) JS vars later ASSIGNED (`M = 0` beside them measures
 `number`) must not take the arm — the gate is declaration-shaped,
 assignment-typing is separate machinery we lack, watch the pair.
+
+**REFUSED at net −171 — the blanket gate measured 131 W→R against
+302 R→GAP, and the discriminator is real machinery, not a gate.**
+Inside the same file the same NAMES split: `y : any` where `y`'s
+assignment is parameter-fed (`(y = e)`, e: any) beside `T : error`
+where the assignment chain is var-circular (`T = v`, `v = f`,
+`f = f + 288`). Upstream is running its JS assignment-analysis
+road — a var's type is drawn from its assignments, cycles land
+errorType, parameter-fed lands any, and NO assignments lands the
+implicit any — machinery this port lacks entirely
+(`checker.go` getTypeOfVariableOrParameterOrProperty's JS half).
+The 344-line want-error class is priced at that subsystem, not at
+a declaration-shaped gate; falsifier (c) fired exactly as written.
+Reverted whole; the implicit-any arm stands.
