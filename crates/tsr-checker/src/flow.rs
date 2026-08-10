@@ -838,6 +838,157 @@ impl Checker<'_, '_> {
     /// constant receiver.
     /// §83: whether `derived`'s `extends` chain (identifier heritage
     /// expressions only, depth-capped) contains `base`.
+    /// SS159 (Phase 1 slice 1 of the checkDerived worker,
+    /// checker-notes-callres2.md SS158): is `t` DERIVED FROM `candidate` -
+    /// identity, class extends chains, or declared interface heritage
+    /// (SS146's walk). `Some(false)` is only answered where derivation is
+    /// REFUTABLE: primitives, nullish, and literals cannot derive from an
+    /// object candidate; two class/interface owners with followable chains
+    /// that do not meet. Everything else is `None` (undecidable) and the
+    /// caller declines to its old road.
+    fn is_derived_from_decidable(&mut self, t: TypeId, candidate: TypeId) -> Option<bool> {
+        if t == candidate {
+            return Some(true);
+        }
+        let flags = self.store.get(t).flags;
+        if flags.intersects(
+            TypeFlags::NULLABLE
+                | TypeFlags::UNIT
+                | TypeFlags::STRING
+                | TypeFlags::NUMBER
+                | TypeFlags::BOOLEAN
+                | TypeFlags::BIG_INT
+                | TypeFlags::ES_SYMBOL
+                | TypeFlags::VOID
+                | TypeFlags::NEVER
+                | TypeFlags::NON_PRIMITIVE,
+        ) {
+            return Some(false);
+        }
+        let owner_of = |checker: &Self, id: TypeId| -> Option<SymbolId> {
+            match checker.store.get(id).data {
+                TypeData::Named { members: Some(owner), .. } => Some(owner),
+                _ => None,
+            }
+        };
+        let (Some(t_owner), Some(c_owner)) = (owner_of(self, t), owner_of(self, candidate)) else {
+            return None;
+        };
+        if t_owner == c_owner {
+            return Some(true);
+        }
+        if self.class_extends_chain_contains(t_owner, c_owner) {
+            return Some(true);
+        }
+        let mut visiting = Vec::new();
+        if self.heritage_chain_contains(t_owner, c_owner, &mut visiting) {
+            return Some(true);
+        }
+        // Refutable only when BOTH chains are followable to their ends.
+        let mut visiting_t = Vec::new();
+        let mut visiting_c = Vec::new();
+        if self.walk_completes_for_narrowing(t_owner, &mut visiting_t)
+            && self.walk_completes_for_narrowing(c_owner, &mut visiting_c)
+        {
+            return Some(false);
+        }
+        None
+    }
+
+    /// SS159: every base link from `owner` resolves (the refutability
+    /// condition for a negative derivation answer).
+    fn walk_completes_for_narrowing(
+        &mut self,
+        owner: SymbolId,
+        visiting: &mut Vec<SymbolId>,
+    ) -> bool {
+        if visiting.contains(&owner) {
+            return false;
+        }
+        visiting.push(owner);
+        let has_heritage = self
+            .binder
+            .symbols()
+            .get(owner)
+            .declarations
+            .iter()
+            .copied()
+            .collect::<Vec<_>>()
+            .into_iter()
+            .any(|d| match self.node_map.get(d) {
+                Some(Node::ClassDeclaration(node)) => !node.heritage_clauses.is_empty(),
+                Some(Node::InterfaceDeclaration(node)) => !node.heritage_clauses.is_empty(),
+                _ => false,
+            });
+        match self.base_symbols_of(owner) {
+            Some(bases) => {
+                bases.into_iter().all(|base| self.walk_completes_for_narrowing(base, visiting))
+            }
+            None => !has_heritage,
+        }
+    }
+
+    /// SS159: `getNarrowedTypeWorker`'s checkDerived flavor (flow.go:860-965,
+    /// the SS158 transcription), over the DECIDABLE domain - `None` where any
+    /// rung is undecidable, and the caller keeps its old road. Slice 1 omits
+    /// the keyProperty fast-path, the instantiable-constraint leg, and the
+    /// all-never tail (each declines).
+    fn narrowed_type_worker_derived(
+        &mut self,
+        t: TypeId,
+        candidate: TypeId,
+        assume_true: bool,
+    ) -> Option<TypeId> {
+        if !assume_true {
+            if t == candidate {
+                return Some(self.intrinsics.never);
+            }
+            let constituents: Vec<TypeId> = match &self.store.get(t).data {
+                TypeData::Union { types, .. } => types.clone(),
+                _ => vec![t],
+            };
+            let mut kept = Vec::new();
+            for constituent in constituents {
+                match self.is_derived_from_decidable(constituent, candidate)? {
+                    true => {}
+                    false => kept.push(constituent),
+                }
+            }
+            if kept.is_empty() {
+                return Some(self.intrinsics.never);
+            }
+            return Some(self.rebuild_union_subset(t, &kept));
+        }
+        if self.store.get(t).flags.intersects(TypeFlags::ANY_OR_UNKNOWN) {
+            return Some(candidate);
+        }
+        if t == candidate {
+            return Some(candidate);
+        }
+        let constituents: Vec<TypeId> = match &self.store.get(t).data {
+            TypeData::Union { types, .. } => types.clone(),
+            _ => vec![t],
+        };
+        let mut mapped = Vec::new();
+        for constituent in constituents {
+            if self.is_derived_from_decidable(constituent, candidate)? {
+                mapped.push(constituent);
+                continue;
+            }
+            if self.is_derived_from_decidable(candidate, constituent)? {
+                mapped.push(candidate);
+                continue;
+            }
+            // never - dropped.
+        }
+        if mapped.is_empty() {
+            // The all-never tail (subtype/assignable/intersection) declines.
+            return None;
+        }
+        mapped.dedup();
+        Some(self.rebuild_union_subset(t, &mapped))
+    }
+
     fn class_extends_chain_contains(&mut self, derived: SymbolId, base: SymbolId) -> bool {
         let mut current = derived;
         for _ in 0..16 {
@@ -3043,6 +3194,14 @@ impl Checker<'_, '_> {
                                 })
                             });
                         return if keeps_any { t } else { instance };
+                    }
+                    // SS159: the checkDerived worker answers first over its
+                    // decidable domain; any undecidable rung falls through
+                    // to the SS83/SS126 roads unchanged.
+                    if let Some(narrowed) =
+                        self.narrowed_type_worker_derived(t, instance, assume_true)
+                    {
+                        return narrowed;
                     }
                     let TypeData::Union { types: members, .. } = &self.store.get(t).data else {
                         {

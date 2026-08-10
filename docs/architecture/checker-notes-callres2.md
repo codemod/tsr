@@ -1585,3 +1585,19 @@ ladder — one worker, two checkDerived flavors, exactly upstream's
 call sites. Acceptance: lead (a)'s 113 + controlFlowInstanceof pair
 + optionalChain's non-asserts remainder; §157's 4:14 is the
 falsifier floor.
+
+## §159 LANDED: the checkDerived worker, Phase 1 slice 1 (+13, zero regressions)
+
+The §158 transcription built over its DECIDABLE domain:
+`is_derived_from_decidable` (identity / class chains / §146 heritage;
+refutable-negative only when both chains walk to their ends;
+primitives-nullish-literals refuse derivation outright) +
+`narrowed_type_worker_derived` (both branches, the per-constituent
+map with candidate-wins), wired AHEAD of §83/§126 in the instanceof
+road with every undecidable rung falling through unchanged — which is
+why §157's 4:14 graft failure did not recur: the worker declines where
+the graft guessed. +13 (typeGuardOfFormInstanceOf 10,
+instanceOfAssignability 2, structurallyIdentical 1), zero regressions.
+Slice 2: the omitted legs (keyProperty fast-path, instantiable
+intersections, the all-never tail) and the PREDICATE flavor replacing
+narrow_by_predicate_type's ladder.
