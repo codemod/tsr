@@ -5161,6 +5161,23 @@ impl Checker<'_, '_> {
                 SyntaxKind::DefaultKeyword if !seen.contains(&SyntaxKind::ExportKeyword) => {
                     Some("default")
                 }
+                // **`abstract`'s pair sits after two `cannot_be_used_with`
+                // checks upstream** (`grammarchecks.go:487-497`), and this
+                // table is consulted before this port's equivalents — so the
+                // arm carries the guard its original position gave it for
+                // free. §595.
+                SyntaxKind::AbstractKeyword
+                    if !seen.contains(&SyntaxKind::PrivateKeyword)
+                        && !seen.contains(&SyntaxKind::AsyncKeyword) =>
+                {
+                    [
+                        (SyntaxKind::OverrideKeyword, "override"),
+                        (SyntaxKind::AccessorKeyword, "accessor"),
+                    ]
+                    .into_iter()
+                    .find(|(earlier, _)| seen.contains(earlier))
+                    .map(|(_, name)| name)
+                }
                 _ => None,
             };
             // The arms below are the rest of each keyword's `else if` chain,
@@ -5298,6 +5315,7 @@ impl Checker<'_, '_> {
                     SyntaxKind::ProtectedKeyword => "protected",
                     SyntaxKind::PrivateKeyword => "private",
                     SyntaxKind::ExportKeyword | SyntaxKind::DefaultKeyword => "export",
+                    SyntaxKind::AbstractKeyword => "abstract",
                     _ => "override",
                 };
                 let Some(id) = token.node_id else { return };

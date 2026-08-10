@@ -31284,3 +31284,86 @@ built      the accessibility chain (public/protected/private)   §-, earlier
 not built  `abstract`'s two                                     §594, next
            `in`/`out`, and the rest of the twenty                unpriced
 ```
+
+## §595 — TS1029: `abstract`'s pair, in its own build as §594 said
+
+```ts
+abstract class Test5 extends Base {
+  override abstract m1(): void;   // TS1029 — 'abstract' must precede 'override'
+}
+```
+
+`grammarchecks.go:493` and `:496`, and they sit **after** two
+`cannot_be_used_with` checks in the same block:
+
+```go
+if flags&Private != 0 { … "private", "abstract" }        // TS1243
+if flags&Async   != 0 { … "async",   "abstract" }        // TS1243
+if flags&Override != 0 { … "abstract", "override" }      // TS1029
+if flags&Accessor != 0 { … "abstract", "accessor" }      // TS1029
+```
+
+This port's `precede` table is consulted **before** its `cannot_be_used_with`
+arms, so adding `abstract` there without a guard would report TS1029 where
+upstream reports TS1243 — §528's ordering defect, this time predictable from
+reading rather than from a measurement.
+
+> **Porting an arm into a table changes its position in the chain.** The table
+> is a good structure and it is not upstream's `else if` cascade; every arm
+> moved into it has to carry whatever guard its original position gave it for
+> free. §517 met this from the other side, inserting a guard *above* one ported
+> earlier.
+
+The guard: `abstract`'s arm declines when `private` or `async` has been seen.
+
+```
+bar:  +2 of 2 (cases blocked on TS1029 alone),  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **`private abstract` reports TS1029.** Upstream reports TS1243 there, and it
+   is the guard's whole purpose.
+2. **`async abstract` reports TS1029.** Same.
+3. **`abstract override` reports.** The legal order.
+
+## §596 — §595 built: **+0 on the board, −1 missing line**, and kept on that evidence
+
+```
+diagnostics             2,143 → 2,143
+TS1029 missing lines    3 → 2
+extraonly               zero TS1029 and zero TS1243 lines
+```
+
+`overrideKeywordOrder`'s `override abstract m1()` converted; the case did not,
+because it carries a second missing line at `(15,12)` that this build does not
+address. All three falsifiers negative — `private abstract` and `async abstract`
+still take TS1243's path, which is what the guard was for.
+
+**Kept**, and the evidence is the line count:
+
+> §568: *"A `+0` is worth keeping when you can show the port now does what
+> upstream does."* Here the demonstration is direct — **a line that was missing
+> is no longer missing**. §590's revert and §586's had no such line; this one
+> does, and the board's stillness is a fact about the *case*, not about the
+> code.
+
+That distinction is worth having explicitly, because three builds this session
+have measured `+0` and two were reverted:
+
+```
+§586  +0, no line moved     REVERTED   the path was not shown to run
+§590  +0, no line moved     REVERTED   the narrowing's boundary excluded every case
+§595  +0, ONE LINE MOVED    KEPT       the path runs and produces a right line
+```
+
+**`diagnostics` counts cases and `diagmissing` counts lines, and a build that
+moves the second without the first is progress the board cannot show.** Reading
+only the board would have reverted this.
+
+### TS1029's residue
+
+Two lines in two cases: `overrideKeywordOrder(15,12)` — `async override m2()`,
+whose `override` arm this port has and which is therefore a *different* defect —
+and `privateNameStaticMethodAsync(11,11)`. Neither is another arm of the
+`precede` table.
