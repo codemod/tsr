@@ -627,6 +627,7 @@ impl Checker<'_, '_> {
         // just  — §623, and §600's dispatch class for the
         // ninth time.
         self.check_modifier_on_nested_statement(node);
+        self.check_dynamic_import_module_kind(node, typed);
         self.check_interface_computed_name(node, typed);
         self.check_grammar_for_generator(node, typed);
         self.check_grammar_parameter_list(node);
@@ -8947,6 +8948,39 @@ impl Checker<'_, '_> {
             }
             _ => false,
         }
+    }
+
+    /// TS1323 — `Dynamic imports are only supported when the '--module' flag is
+    /// set to es2020, es2022, esnext, commonjs, amd, system, umd, node16,
+    /// node18, node20, or nodenext.`
+    ///
+    /// `checkGrammarImportCallExpression`'s third arm
+    /// (`grammarchecks.go:2171`), which is one comparison against
+    /// `moduleKind`. The function's other arms are named and not built: the
+    /// `verbatimModuleSyntax` one needs an option this port does not read, the
+    /// `import.meta` one is TS18060 (§615), and the type-arguments one has no
+    /// corpus case. §642.
+    fn check_dynamic_import_module_kind(&mut self, node: NodeId, typed: Node<'_>) {
+        if self.file_has_parse_errors || self.module_kind != tsr_core::ModuleKind::ES2015 {
+            return;
+        }
+        let Node::CallExpression(call) = typed else { return };
+        if !matches!(
+            call.expression,
+            Some(tsr_ast::Expression::KeywordExpression(keyword))
+                if keyword.kind == SyntaxKind::ImportKeyword
+        ) {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let span = self.error_span(node);
+        self.report(
+            file,
+            Diagnostic::new(
+                &messages::DYNAMIC_IMPORTS_ARE_ONLY_SUPPORTED_WHEN_THE_MODULE_FLAG_IS_SET_TO_ES2020_ES2022_ESNEXT_COMMONJS_AMD_SYSTEM_UMD_NODE16_NODE18_NODE20_OR_NODENEXT,
+                span,
+            ),
+        );
     }
 
     /// `IsInstantiatedModule` (`ast/utilities.go:2443`).

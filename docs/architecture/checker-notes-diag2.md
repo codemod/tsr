@@ -33248,3 +33248,79 @@ by `grammarErrorAtPos` rather than `parseExpected` is off by the leading trivia.
 
 **Owner: `tsr-ast`'s span model**, and the honest price is two cases plus an
 unknown share of §617's pool.
+
+## §642 — TS1323: a dynamic import under `--module es2015`
+
+```ts
+// @module: es2015
+const m = import("./m");     // TS1323
+```
+
+`checkGrammarImportCallExpression` (`grammarchecks.go:2162`), whose third arm is
+one comparison:
+
+```go
+} else if c.moduleKind == core.ModuleKindES2015 {
+    return c.grammarErrorOnNode(node, Dynamic_imports_are_only_supported_when_the_module_flag_is_set_to_…)
+}
+```
+
+`module_kind` was ported at §478 and used again at §615 for the deferred-import
+clause; this is its **third** row. An import call is a `CallExpression` whose
+callee is a `KeywordExpression` with `ImportKeyword`, which `calls.rs:438`
+already tests — **the eighth rule this session built out of a predicate another
+one had written**.
+
+The function's other arms are named and not built (§501):
+
+```
+verbatimModuleSyntax + CommonJS      needs an option this port does not read
+a MetaProperty callee (`import.meta`) TS18060, built at §615 from the other side
+type arguments on an import call      TS1326, 0 corpus cases
+```
+
+```
+bar:  +2 of 2,  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **A dynamic import under `--module esnext` reports.** ES2015 alone is the
+   error, and every other module kind in the corpus is legal.
+2. **A static `import x from "m"` reports.** The rule is on the call form.
+
+## §643 — §642 built: **+2**, bar met, TS1323 at zero
+
+```
+diagnostics             2,181 → 2,183   (bar was +2;  +2, 0 LOST)   39.78%
+extraonly               zero TS1323 lines
+TS1323 missing lines    5 → 0            — checked after the build (§629)
+```
+
+Both falsifiers negative. Five lines for two cases, and the row closed.
+
+### `module_kind`, three rows from one port
+
+```
+§478   ported for `getEmitModuleKind`'s default
+§615   TS18060, the deferred-import clause
+§642   TS1323, a dynamic import under es2015
+```
+
+> **An option ported once has paid three times, and none of the three knew about
+> the others when it was written.** §478 was a support build for a row that
+> needed the module kind; §615 and §642 each found it already there. That is the
+> same economy as the seven helper reuses (§548, §508, §187, §523, §587, §601,
+> §636) and it is worth counting separately, because an *option* is cheaper to
+> port than a helper and pays the same way.
+
+### The grammar family after eighteen builds
+
+```
++33 before   TS1323 +2   ──   +35
+```
+
+Eighteen codes closed of the sixty-two with cases, **+35 of the 128 priced at
+§599** — a little over a quarter of the family, in eighteen builds, with two
+codes declined for measured reasons (§497's `const` at −5, §641's position
+arithmetic) and one owner named outside this crate (`tsr-ast`'s span model).
