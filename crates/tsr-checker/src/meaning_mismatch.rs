@@ -324,6 +324,13 @@ impl Checker<'_, '_> {
     /// The primitive-name branch of `checkAndReportErrorForUsingTypeAsValue`
     /// (`checker.go:1664-1678`): three dedicated heritage messages, then
     /// TS2693.
+    /// [`Self::report_primitive_type_as_value`] reached directly from the
+    /// value path's primitive-keyword decline, which returns before the ladder.
+    /// §880.
+    pub(crate) fn report_primitive_type_as_value_at(&mut self, node: NodeId, text: &str) {
+        self.report_primitive_type_as_value(node, text);
+    }
+
     fn report_primitive_type_as_value(&mut self, node: NodeId, text: &str) {
         let grandparent = self.nodes.parent(node).and_then(|parent| self.nodes.parent(parent));
         let heritage = grandparent.filter(|g| self.nodes.kind(*g) == SyntaxKind::HeritageClause);

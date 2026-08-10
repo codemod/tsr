@@ -43809,3 +43809,88 @@ pick the explanation that flatters the build. What it means for the method:
 
 `measure`'s numbers are not affected: `xtask measure` builds what it runs, and
 every board figure in this session came from it.
+
+## §880 — §879's question answered: the blocker is a **measured** decline, and it is upstream's wrong half
+
+Thirteen markers, one run, and the decline is nine guards down
+(`check.rs:4033`):
+
+```rust
+// `checkAndReportErrorForUsingTypeAsValue` (`checker.go:1681`) runs **before**
+// the suggestion arm, and a primitive type *keyword* used in a value position is
+// TS2693 — `class C extends string` is `conformance/classExtendingPrimitive`,
+// 9 wrong lines, plus `primitiveTypeAssignment`.
+if matches!(text, "string" | "number" | … | "void") {
+    return;
+}
+```
+
+A deliberate decline with a number on it. It returns **before** the ladder, so
+`report_primitive_type_as_value` — and with it TS2863, TS2864 and TS2840 — is
+unreachable from the value path, whatever §879 does to the heritage guard.
+
+> §879 tested the guard *inside* the ladder and never asked whether the ladder
+> was entered. The entry probe printed, the ladder probe did not, and the gap
+> between them was nine guards I had not read. **"The rule is unreachable" is not
+> a location**, and I spent a build treating it as one. §869's rule — read the
+> rule before assuming the missing arm — has a second corollary: **read the path,
+> not just the rule at each end of it.**
+
+### What the decline actually says
+
+The note is about **TS2693**, reported *everywhere*. `class C extends string` is
+one of its nine wrong lines — and TS2863 is the diagnostic upstream reports
+there. So the decline is right about TS2693 and wrong about the position: the
+heritage messages exist precisely to make those positions correct.
+
+The build that follows is to **route the primitive keywords into
+`report_primitive_type_as_value` instead of returning**, which is
+`checkAndReportErrorForUsingTypeAsValue`'s own shape — three heritage messages,
+then TS2693.
+
+```
+bar:  >= +1,  0 LOST via `diagpass`,  WRONG delta <= 0
+```
+
+### Falsifiers
+
+1. **`classExtendingPrimitive`'s nine lines return.** They are TS2693 at heritage
+   positions, which the three messages replace.
+2. **`primitiveTypeAssignment` regresses.** A primitive keyword in a *non*-heritage
+   value position must still decline, since TS2693 is not ported.
+
+## §881 — §880 built: **+1/−0**, and the nine wrong lines became nine right ones
+
+```
+diagnostics   2,344 → 2,345   (+1)   42.73%
+diagpass      LOST: (none)   GAINED: compiler/errorLocationForInterfaceExtension
+extraonly     78, unchanged
+diagemit      TS2863   0 → 9 of 9      no longer SILENT
+              TS2840   0 → 2 of 2      no longer SILENT
+              TS2864   still 0 of 9    no `class C implements string` in the corpus
+```
+
+The decline this replaced carried the number **9 wrong lines**, measured against
+a rule that reported TS2693 at those positions. The same nine positions now carry
+**TS2863**, which is what upstream reports there. *The lines were never wrong; the
+code was.*
+
+> A refusal with a number is the most trustworthy thing in this document, and
+> this one was accurate, honest, and **pointed at the wrong half of the
+> problem**. It said *"reporting here costs nine lines"* when what was true was
+> *"reporting **this code** here costs nine lines"*. **A measured refusal fixes
+> the position it was measured at; it does not license the position forever**,
+> and nothing re-reads one after the rule around it changes.
+
+### Two corrections inside one build
+
+The first attempt routed all ten keywords the decline listed and lost
+`classExtendingPrimitive2`: `class C4a extends void {}` is a **parse** error —
+TS1109, `Expression expected` — and upstream's `isPrimitiveTypeName` is **six**
+names, not ten. `void`, `object`, `symbol` and `bigint` are not on it. Narrowed,
+`+1/−0`.
+
+And §879's whole build was aimed at the wrong guard: it tested the heritage test
+*inside* the ladder without checking that the ladder was reached. Thirteen
+markers and one run found the real decline nine guards earlier. **"The rule is
+unreachable" is not a location.**

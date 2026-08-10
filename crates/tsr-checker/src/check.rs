@@ -4034,6 +4034,26 @@ impl Checker<'_, '_> {
                 | "unknown"
                 | "void"
         ) {
+            // **A heritage position has its own three messages**, and they are
+            // what makes those nine lines right rather than wrong: upstream's
+            // `checkAndReportErrorForUsingTypeAsValue` reports TS2863 / TS2864 /
+            // TS2840 for a primitive in an `extends` or `implements` clause and
+            // TS2693 elsewhere. The decline above was measured against a rule
+            // that reported TS2693 *everywhere*; the heritage arm is the half
+            // this port has. §880.
+            // **Upstream's `isPrimitiveTypeName` is six names**, and this
+            // list is ten: `void`, `object`, `symbol` and `bigint` are not on
+            // it. `class C4a extends void {}` is a *parse* error — TS1109,
+            // `Expression expected` — and reporting TS2863 beside it cost
+            // `classExtendingPrimitive2`, measured. §880.
+            if matches!(text, "any" | "string" | "number" | "boolean" | "never" | "unknown")
+                && self
+                    .nodes
+                    .ancestors(node)
+                    .any(|a| self.nodes.kind(a) == SyntaxKind::HeritageClause)
+            {
+                self.report_primitive_type_as_value_at(node, text);
+            }
             return;
         }
         // `OnPropertyWithInvalidInitializer` (`nameresolver.go`, reached from
