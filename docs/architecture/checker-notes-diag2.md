@@ -38278,3 +38278,51 @@ Both rules read `class.members` as *the members of the class*. **The sweep worth
 doing is which other rules read it for membership rather than for iteration** —
 named here, not run, because the two found so far were both found by a fixture
 rather than by a list.
+
+## §750 — the membership sweep, run: three reads, one harmless, two handed over
+
+§749 named the sweep — *which rules read `class.members` for **membership**
+rather than for iteration* — and it is cheap, so it was run.
+
+```
+class.members read as a set (any / all / find)   3 outside the two already fixed
+```
+
+**Harmless — `members.rs:1297`.** Looks for an `IndexSignatureDeclaration`. A
+parameter property is never an index signature and an inherited member cannot
+add one to this declaration, so the absent entries cannot change the answer.
+Checked and correctly left.
+
+**Real — `unions.rs:1163`, `has_privacy`.** Looks for a `private` modifier or a
+`#name` among the members. `constructor(private a: number)` **is** a private
+member and is not in the list, so a class whose only privacy is a parameter
+property reads as public.
+
+**Real — `member_completeness.rs:304`, `declaration_members_are_complete`.**
+`all(class_member_is_plain)` over a list that omits parameter properties, so a
+class whose only non-plain member is one reads as complete.
+
+### Both are the type side's, and that is where they go
+
+`has_privacy` gates union printing; `declaration_members_are_complete` gates
+whether a declaration's members can be read at all. Neither is consumed by a
+diagnostic — the `diagnostics` suite does not move on either — and both feed
+`checker_types`, **which this workstream does not touch**.
+
+> §686 established that a refusal is scoped to what it was measured against.
+> This is the same principle applied to a *finding*: the mechanism is the one
+> §708 and §748 fixed twice on the diagnostics side, the evidence is a two-line
+> grep, and **the measurement that would confirm it is a suite this workstream
+> must not move.** Handed over with the line numbers and the fixture shape
+> rather than fixed blind.
+
+Filed as `bd tsr-hkil` against the `.types` workstream.
+
+### What the sweep says about the method
+
+Two of five membership reads were wrong, and **both were found by a fixture
+before the sweep found them** — §708's from `propertyOverridesAccessors5`, §748's
+from `redefinedPararameterProperty`. The sweep found no *new* diagnostics-side
+defect; what it produced is the assurance that there are no others, plus two
+leads for another workstream. **That is what a negative sweep is for**, and it
+is the third this session (§727, §742, this).
