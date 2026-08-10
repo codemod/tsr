@@ -1469,3 +1469,21 @@ verbatim BEFORE building — this is §51.4's function-family where every
 prior induced guess (three of three now) has been wrong and every
 transcription has landed. The typeof half (§152) landed precisely
 because it was transcribed.
+
+## §153v2 — withdrawn as a DUPLICATE: the containment table already exists as §51.4
+
+The transcription was correct and already on main: the §51.4 arm
+(flow.rs ~3186, "the WHOLE containment table, flow.go:1032") implements
+exactly narrowTypeByOptionalChainContainment, ahead of the discriminant
+filter, composing per §51.5. My §153/§153v2 attempts were re-deriving
+it below the dispatch where only non-matching references arrive — the
+1:15 regression came from double-application. Withdrawn.
+
+The REAL residue question: row 1107 (`o?.foo === "abc"` … `o` wants
+`Thing`) does not narrow despite §51.4 — its guards (`chain_pair` via
+optional_chain_contains_reference, or `remove`'s every-tests over the
+checked value type) decline somewhere. ONE print inside §51.4's block
+on that row decides. Also noted for the next lane sync: this session's
+last full pair showed large import/privacy-family churn (R→G 86)
+from checker-1's in-flight work — their lane's window, not judged
+from mine.
