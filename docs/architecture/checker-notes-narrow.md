@@ -6016,3 +6016,24 @@ one subsystem — the §139 print slot, the body-side receivers, and
 properly-sized subsystem bar for whichever lane opens it (est.
 500+ lines across the three consumers). Recorded; not opened this
 window.**
+
+## §141 — object-literal methods rebind `this` (the walk's missing arm) [claimed: checker-1]
+
+**The probe that found it**: `const o = { x: 1, m() { return
+this.x; } }` errors EVERY line — `this` errors, so `m`'s return
+errors, so `o` errors: one missing arm poisons whole objects.
+`check_this_expression`'s walk has arms for functions (→ any),
+classes (instance/static), and this-parameters; a METHOD inside an
+OBJECT LITERAL falls off the end. Upstream's `tryGetThisTypeAtEx`
+fallthrough rebinds to `any` at a non-contextual literal method
+(the typed-this forms need contextual ThisType/this-parameters —
+the recorded subsystem). The arm: MethodDeclaration (plus
+accessors) whose PARENT is an ObjectLiteralExpression answers
+`any` — class methods are untouched (their parent is the class,
+and the class arm already owns them).
+
+**Bar.** ≥60 G→R at ≥5:1 (the un-poisoning compounds: every
+member of every such object). Falsifier: contextually-typed
+literals whose target assigns a REAL `this` (ThisType<T>, this-
+parameters) — answering any there converts honest gaps to wrongs;
+if that class is material, the arm gates on no-contextual-target.
