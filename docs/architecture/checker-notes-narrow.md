@@ -6819,3 +6819,19 @@ print road). Ceiling unchanged (~180); the third road is the
 blocker and is ALSO what localImportNameVsGlobalName's residue
 wants inverted. One §157-family follow-up remains free-standing:
 the ES-import spelling census.
+
+## §158 — the ES-import alias reference census [claimed: checker-1]
+
+§157 iteration 1's unrestricted arm carried ~266 G→R at 79
+adverse; the ImportEquals gate kept 59. The ES population
+(dynamicNames 69 head) goes back under the pair family-by-family:
+admit ImportSpecifier + ImportClause + NamespaceImport declaration
+kinds, inspect every adverse class for its MECHANISM (the
+moduleAugmentation* `any` gots looked like widening, not
+spelling — uncensused), gate by what the mechanisms say.
+**Bar: ≥100 net at ≥5:1** (the population justifies the higher
+volume floor). Falsifiers: (a) augmentation-scope aliases may
+need the target-side spelling — if so they gate by declaration
+ancestry (ModuleDeclaration with augmentation shape), not by case;
+(b) re-export chains (`export { A } from`) are NOT import
+declarations and stay out regardless.
