@@ -6101,3 +6101,17 @@ looseThis's 17 wants first; if they're `any`-family the fn-expr
 arm needs a per-member road fallback, and the combined form
 plausibly clears the bar (~+60 at ~4-6:1). Reverted
 byte-identical.
+
+**§142 probe answered (parked state re-verified):** the looseThis
+17 R→G came SOLELY from the function-expression arm — the
+methods-only + noImplicitThis form re-measured +38 G→R / 15 G→W
+with ZERO R→W and ZERO R→G (pure gap-trade, 2.5:1). Still under
+every landed precedent's ratio, so the park stands, but the state
+is now exactly characterized: the 15 adverse are 7 head-case
+literal-print spellings (the mint's members print through the
+literal symbol where the want's spelling differs), 2
+widening-on-use, 2 this-predicates, 4 singles. The next
+ratio-mover is the 7: the mint prints member types through
+UNWIDENED literal member symbols — the §134-family initializer
+widening applied at the mint's member reads is the one candidate
+between 2.5:1 and ~5:1.
