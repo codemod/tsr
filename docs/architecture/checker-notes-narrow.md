@@ -6563,3 +6563,24 @@ may be a SEPARATE mechanism (folding decline) — if cooking alone
 doesn't move the template half, map it separately rather than
 forcing; (c) TS1487/1488 spans must match upstream or the
 diagnostics suite pays — watch coverage.
+
+**Score (three iterations): +257 W→R / 0 adverse — LANDED; the
+family closed whole.** Iteration 1 (octal/\8-\9 cooking alone):
++91/21 at 4.3:1, under bar — the 21 were TAGGED templates whose
+no-report RAW values now length-matched the source and defeated
+§24's length-decline into folding raw text. Iteration 2 (raw-text
+survival for invalid \x and \u per `scanner.go:1819`/`:1786`, plus
+tagged-with-invalid → string): +148/13 at 11.4:1 — the residual 13
+exposed the REAL rule. Iteration 3: a TAGGED template's
+substitution form NEVER folds (`taggedTemplateStringsHexadecimalEscapes`
+wants `string` for VALID `\x0D` too — POSITION, not escape
+validity, decides; an invalid escape's undefined cooked value is
+the same answer by a different road), and §24's length-decline is
+DELETED outright: cooked values now match upstream's exactly, and
+`printing::quote`'s control-character arm re-escapes on the way
+out. +257/0. Side effects: diagnostics +7 (TS1487/TS1488 now
+emitted), scanners suite held 100% (falsifier (a) discharged),
+CONTAINS_INVALID_ESCAPE added to the scanner's TokenFlags subset
+with the bits-parity assertion. The `\8`/`\9` and template-raw
+no-report semantics mean STRING literals always cook (report=true)
+while TAGGED templates keep raw — both roads measured.

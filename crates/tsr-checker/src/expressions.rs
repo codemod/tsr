@@ -72,39 +72,25 @@ impl Checker<'_, '_> {
         if span_types.contains(&error) {
             return error;
         }
-        // The fold: every span a string/number literal whose stored data IS
-        // the evaluated text. A part whose SOURCE is longer than its cooked
-        // text carries escape sequences — the scanner's legacy-octal cooking
-        // diverges from upstream's there (`octalLiteralAndEscapeSequence`,
-        // the §24 measurement's second family), so escaped templates decline
-        // to gaps rather than fold wrongly.
-        let escaped = |id: Option<tsr_ast::NodeId>, text: &str, delimiters: usize| {
-            id.is_some_and(|id| {
-                let span = self.nodes.span(id);
-                // `saturating_sub`, not `-`: an error-recovered template part
-                // can carry a span whose end precedes its start, and a plain
-                // subtraction there panics under `overflow-checks` (debug) while
-                // wrapping to a huge value under release. Both profiles must
-                // reach the same verdict, and a span that cannot be measured is
-                // exactly the case this decline exists for — so saturate to 0,
-                // which never equals `text.len() + delimiters` (delimiters >= 2)
-                // and therefore declines, matching what release already did.
-                (span.end.saturating_sub(span.start)) as usize != text.len() + delimiters
-            })
-        };
-        let head_escaped = node.head.is_some_and(|head| escaped(head.node_id, head.text, 3));
-        let any_part_escaped = head_escaped
-            || node.template_spans.iter().any(|span| match span.literal {
-                Some(tsr_ast::TemplateMiddleOrTail::TemplateMiddle(part)) => {
-                    escaped(part.node_id, part.text, 3)
-                }
-                Some(tsr_ast::TemplateMiddleOrTail::TemplateTail(part)) => {
-                    escaped(part.node_id, part.text, 2)
-                }
-                None => true,
-            });
-        let mut folded: Option<String> =
-            if any_part_escaped { None } else { node.head.map(|head| head.text.to_string()) };
+        // §147 (`checker-notes-narrow.md`) replaced §24's length-based escape
+        // decline: part values are now cooked exactly as upstream cooks them
+        // (octal chars when reported, raw text otherwise), so folding an
+        // escaped part is CORRECT — and `printing::quote` re-escapes control
+        // characters on the way out. The one non-fold: a TAGGED template's
+        // substitution form is never folded (the second §147 pair —
+        // `taggedTemplateStringsHexadecimalEscapes` wants `string` for VALID
+        // escapes too, so this is position, not escape validity; an invalid
+        // escape's cooked value being undefined upstream is the same answer
+        // by a different road).
+        let tagged = node.node_id.is_some_and(|id| {
+            self.nodes
+                .parent(id)
+                .is_some_and(|p| self.nodes.kind(p) == SyntaxKind::TaggedTemplateExpression)
+        });
+        if tagged {
+            return self.intrinsics.string;
+        }
+        let mut folded: Option<String> = node.head.map(|head| head.text.to_string());
         for (span, &span_type) in node.template_spans.iter().zip(&span_types) {
             let Some(previous) = folded else { break };
             let piece = match &self.store.get(span_type).data {
@@ -324,11 +310,26 @@ impl Checker<'_, '_> {
                 TypeData::StringLiteral(node.text.to_string()),
                 true,
             ),
-            Expression::NoSubstitutionTemplateLiteral(node) => self.store.intern_literal(
-                TypeFlags::STRING_LITERAL,
-                TypeData::StringLiteral(node.text.to_string()),
-                true,
-            ),
+            Expression::NoSubstitutionTemplateLiteral(node) => {
+                // §147: TAGGED with an invalid escape → undefined cooked
+                // value upstream → `string` (see check_template_expression).
+                let tagged_invalid =
+                    node.token_flags.contains(tsr_ast::TokenFlags::CONTAINS_INVALID_ESCAPE)
+                        && node.node_id.is_some_and(|id| {
+                            self.nodes.parent(id).is_some_and(|p| {
+                                self.nodes.kind(p) == SyntaxKind::TaggedTemplateExpression
+                            })
+                        });
+                if tagged_invalid {
+                    self.intrinsics.string
+                } else {
+                    self.store.intern_literal(
+                        TypeFlags::STRING_LITERAL,
+                        TypeData::StringLiteral(node.text.to_string()),
+                        true,
+                    )
+                }
+            }
             Expression::NumericLiteral(node) => self.store.intern_literal(
                 TypeFlags::NUMBER_LITERAL,
                 TypeData::NumberLiteral(printing::normalise_number(node.text)),

@@ -935,7 +935,7 @@ impl<'a> Scanner<'a> {
                 let buffer = decoded.get_or_insert_with(|| {
                     self.source[start as usize..escape_start as usize].to_string()
                 });
-                self.scan_escape_into(buffer, true);
+                self.scan_escape_into(buffer, flags, true);
                 continue;
             }
             self.bump();
@@ -952,7 +952,11 @@ impl<'a> Scanner<'a> {
     }
 
     /// Decode one escape sequence, appending to `out`. The backslash is consumed.
-    fn scan_escape_into(&mut self, out: &mut String, report: bool) {
+    fn scan_escape_into(&mut self, out: &mut String, flags: &mut TokenFlags, report: bool) {
+        // The backslash's position, for the octal/decimal spans below —
+        // `scanEscapeSequence`'s `start` (`scanner.go:1691`) is taken BEFORE
+        // the first character is consumed.
+        let backslash = self.pos - 1;
         let Some(ch) = self.bump() else { return };
         match ch {
             'n' => out.push('\n'),
@@ -962,6 +966,54 @@ impl<'a> Scanner<'a> {
             'f' => out.push('\u{C}'),
             'v' => out.push('\u{B}'),
             '0' if !self.peek().is_some_and(|c| c.is_ascii_digit()) => out.push('\0'),
+            // §147 (`checker-notes-narrow.md`), from `scanEscapeSequence`
+            // (`scanner.go:1700-1743`): a legacy octal escape COOKS to its
+            // character when invalid escapes are reported (TS1487), and keeps
+            // its RAW text when they are not (a template's initial scan —
+            // the parser rescans untagged forms with reporting on). The
+            // cascade: '0' followed by a digit falls through, '1'-'3' take up
+            // to two more octal digits, '4'-'7' up to one; `\08` is NUL then
+            // a plain '8', which the '0' arm above already answered.
+            '0'..='7' => {
+                let mut digits = String::from(ch);
+                if matches!(ch, '0'..='3') && self.peek().is_some_and(|d| ('0'..='7').contains(&d))
+                {
+                    digits.push(self.bump().unwrap());
+                }
+                if self.peek().is_some_and(|d| ('0'..='7').contains(&d)) {
+                    digits.push(self.bump().unwrap());
+                }
+                *flags |= TokenFlags::CONTAINS_INVALID_ESCAPE;
+                if report {
+                    let code = u32::from_str_radix(&digits, 8).unwrap();
+                    self.error_with(
+                        &messages::OCTAL_ESCAPE_SEQUENCES_ARE_NOT_ALLOWED_USE_THE_SYNTAX_0,
+                        Span::new(backslash, self.pos),
+                        &[&format!("\\x{code:02x}")],
+                    );
+                    out.push(char::from_u32(code).unwrap_or(char::REPLACEMENT_CHARACTER));
+                } else {
+                    out.push('\\');
+                    out.push_str(&digits);
+                }
+            }
+            // `\8` and `\9`, the invalid decimal escapes (`scanner.go:1732`):
+            // reported, they cook to the bare digit (TS1488); unreported,
+            // the raw text survives.
+            '8' | '9' => {
+                *flags |= TokenFlags::CONTAINS_INVALID_ESCAPE;
+                if report {
+                    self.error_with(
+                        &messages::ESCAPE_SEQUENCE_0_IS_NOT_ALLOWED,
+                        Span::new(backslash, self.pos),
+                        &[&format!("\\{ch}")],
+                    );
+                    out.push(ch);
+                } else {
+                    out.push('\\');
+                    out.push(ch);
+                }
+            }
             'x' => {
                 let start = self.pos;
                 for _ in 0..2 {
@@ -972,11 +1024,20 @@ impl<'a> Scanner<'a> {
                 let digits = &self.source[start as usize..self.pos as usize];
                 match u32::from_str_radix(digits, 16).ok().and_then(char::from_u32) {
                     Some(c) if digits.len() == 2 => out.push(c),
-                    _ if report => self.error(
-                        &messages::HEXADECIMAL_DIGIT_EXPECTED,
-                        Span::new(self.pos, self.pos),
-                    ),
-                    _ => {}
+                    // §147: an invalid `\x` escape keeps its RAW text as the
+                    // value (`scanner.go:1819`) — reported or not — and marks
+                    // the token.
+                    _ => {
+                        *flags |= TokenFlags::CONTAINS_INVALID_ESCAPE;
+                        if report {
+                            self.error(
+                                &messages::HEXADECIMAL_DIGIT_EXPECTED,
+                                Span::new(self.pos, self.pos),
+                            );
+                        }
+                        let end = self.pos as usize;
+                        out.push_str(&self.source[backslash as usize..end]);
+                    }
                 }
             }
             'u' => {
@@ -984,6 +1045,12 @@ impl<'a> Scanner<'a> {
                 self.pos -= 1;
                 if let Some(cp) = self.scan_unicode_escape_ex(report) {
                     self.push_code_point(cp, out);
+                } else {
+                    // §147: an invalid `\u` escape keeps its RAW text as the
+                    // value (`scanner.go:1773`/`:1786`) and marks the token.
+                    *flags |= TokenFlags::CONTAINS_INVALID_ESCAPE;
+                    let end = self.pos as usize;
+                    out.push_str(&self.source[backslash as usize..end]);
                 }
             }
             c if is_line_break(c) => {
@@ -1106,7 +1173,7 @@ impl<'a> Scanner<'a> {
                 let buffer = decoded.get_or_insert_with(|| {
                     self.source[start as usize..escape_start as usize].to_string()
                 });
-                self.scan_escape_into(buffer, report_escapes);
+                self.scan_escape_into(buffer, flags, report_escapes);
                 continue;
             }
 
