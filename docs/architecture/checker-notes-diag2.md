@@ -38794,3 +38794,83 @@ the single-member message only      the plural forms need a joined list
 Nothing new. **Every piece existed and one of them had to be written locally
 rather than shared** — which is the whole of §686 restated as construction
 rather than as a refusal.
+
+## §762 — TS2374: upstream reports *every* duplicate index signature, not the extras
+
+```
+-- expected --        -- actual --
+  (4,5)  (5,5)          (5,5)
+  (9,5)  (10,5)         (10,5)
+```
+
+§69's rule keeps a `seen` list and reports a signature whose kind has already
+appeared. `checkObjectTypeForDuplicateDeclarations` reports **each declaration
+of a repeated kind**, first included: two `[x: number]` signatures produce two
+diagnostics, not one.
+
+The distinction is invisible on a fixture with one duplicate pair *unless the
+positions are compared*, which is exactly what the oracle does and what a
+reading of the rule does not. **The rule was measured at §69 against a case
+where its output was a subset of the baseline and the case still failed** — so
+the number moved the right way and the shape was never checked.
+
+> Sixth kind in §701's family: not a missing entry, caller, boundary, iteration
+> or verdict, but a **cardinality**. The rule answers *which* signatures are
+> duplicates correctly and answers *how many diagnostics that is* wrongly, and
+> the two are separable only against the baseline.
+
+```
+bar:  +2 of 5 (duplicateNumericIndexers, duplicateStringIndexers),
+      0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **A single index signature reports.** The group must have two members before
+   any of them is reported.
+2. **Three of a kind report twice.** Upstream reports all three.
+3. **TS2375's row moves.** The neighbouring index-signature codes share this
+   file.
+
+## §763 — §762 built: **+4**, and the row needed a cardinality *and* a dispatch
+
+```
+diagnostics             2,278 → 2,282   (bar was +2;  +4, 0 LOST)   41.58%
+extraonly               zero TS2374 and zero TS2375 lines
+TS2374 missing lines    32 → 2;  5 cases blocked alone → 1
+```
+
+Two changes, measured separately:
+
+**1. Every duplicate, not the extras.** §69 kept a `seen` list and reported a
+signature whose kind had already appeared;
+`checkObjectTypeForDuplicateDeclarations` reports **each** declaration of a
+repeated kind. 32 lines → 14, and **+0 on the board** — the shape was right and
+every case still had lines missing.
+
+**2. A type literal is a third dispatch site.** `var a: { [x: number]: string;
+[x: number]: string }` — §69's rule already matches `TypeLiteralNode`, and the
+dispatch called it from `ClassDeclaration` and `ClassExpression` only. 14 → 2,
+and the board moved +4.
+
+> **§760's two-guards shape, in a second rule and in the same session.** There
+> the rule's first line and the dispatch arm both named `BinaryExpression`; here
+> the rule's match named three kinds and the dispatch named two of them. The tell
+> is the same: a rule that handles a kind it is never handed, and **no symptom
+> beyond the row not moving.**
+
+### Cardinality is its own kind of gap
+
+The first change is the session's first defect of that shape. The rule identified
+the right signatures and emitted the wrong *number* of diagnostics — a subset of
+the baseline, so the case failed both before and after §69 measured it, and the
+number moved the right way for the wrong reason.
+
+```
+§69   measured +n with output ⊂ baseline    — shape never checked
+§762  measured  0 with output = baseline    — shape checked, cases still short
+```
+
+**A rule whose output is a strict subset of the baseline looks exactly like a
+rule that is correct and blocked.** `diagcase` separates them and `diagmissing`
+does not; §69 had only the latter.

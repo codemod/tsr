@@ -550,6 +550,11 @@ impl Checker<'_, '_> {
             }
             Node::TypeLiteralNode(_) => {
                 self.check_private_name_in_object_literal(node);
+                // A type literal carries index signatures exactly as an
+                // interface does, and §69's rule already matches the kind —
+                // only the dispatch named two of the three. §760's two-guards
+                // shape, in a second rule. §762.
+                self.check_duplicate_index_signatures(node);
                 ambient
             }
             Node::QualifiedName(_) => {

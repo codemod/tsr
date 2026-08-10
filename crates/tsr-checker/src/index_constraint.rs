@@ -125,9 +125,18 @@ impl Checker<'_, '_> {
         if signatures.len() < 2 {
             return;
         }
-        let mut seen: Vec<&'static str> = Vec::new();
+        // **Every declaration of a repeated kind, first included.**
+        // `checkObjectTypeForDuplicateDeclarations` reports each of them, so two
+        // `[x: number]` signatures produce two diagnostics. §69 kept a `seen`
+        // list and reported the extras, which is a subset of the baseline —
+        // invisible unless the positions are compared. §762.
+        let repeated: Vec<&'static str> = signatures
+            .iter()
+            .filter(|(kind, _)| signatures.iter().filter(|(seen, _)| seen == kind).count() > 1)
+            .map(|(kind, _)| *kind)
+            .collect();
         for (kind, at) in signatures {
-            if seen.contains(&kind) {
+            if repeated.contains(&kind) {
                 let Some(file) = self.source_file_of_for_diagnostics(at) else { continue };
                 let span = self.error_span(at);
                 self.report(
@@ -138,8 +147,6 @@ impl Checker<'_, '_> {
                         [kind.to_string()],
                     ),
                 );
-            } else {
-                seen.push(kind);
             }
         }
     }
