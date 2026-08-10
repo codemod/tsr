@@ -40640,6 +40640,70 @@ of machinery this port has not built.
 The small-row band is therefore **closed for this workstream**, which §670
 predicted for ≥4 cases and is now true down to three. What remains reachable
 here is the ≤2-case tail and whatever the other workstreams unblock.
+
+## §807 — TS1035: only ambient modules can use quoted names
+
+```ts
+module 'M' {}          // TS1035
+declare module 'M2' {} //  — ambient, legal
+```
+
+`checkModuleDeclaration`'s grammar arm (`checker.go:5151`):
+
+```go
+if !inAmbientContext && ast.IsStringLiteral(node.Name()) {
+    c.grammarErrorOnNode(node.Name(), Only_ambient_modules_can_use_quoted_names)
+}
+```
+
+Two conditions, both already available: the walk-threaded `ambient` and the
+name's node kind. The error is on the **name**, not the declaration.
+
+§806 closed the three-to-seven-case band and named the ≤2-case tail as what
+remains; this is the first row taken from it, and §805's reading picked it out —
+**`quotedModuleNameMustBeAmbient` states the rule in its filename.**
+
+```
+bar:  +2 of 2 (quotedModuleNameMustBeAmbient, parserModuleDeclaration1),
+      0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **`declare module 'M2' {}` reports.** The fixture carries it on the next line
+   as its own control.
+2. **A `.d.ts` file's `module 'M' {}` reports.** The file makes it ambient
+   without a `declare`.
+3. **`module M {}` reports.** An identifier name is legal at any ambience — the
+   test is on the name's kind.
+
+## §808 — §807 built: **+2 of 2**, row closed, first from the ≤2-case tail
+
+```
+diagnostics             2,306 → 2,308   (bar was +2;  +2, 0 LOST)   42.06%
+extraonly               zero TS1035 lines
+TS1035 missing lines    2 → 0     — the row is closed
+```
+
+All three falsifiers negative — the fixture's own `declare module 'M2' {}`
+control stays silent, `.d.ts` files are unaffected, and identifier-named modules
+are untouched.
+
+**Eight lines of code**, two conditions that were already in hand, and the row
+was selected by reading a filename.
+
+### The tail is not the same as the band above it
+
+§806 retired twelve rows of three to seven cases in one pass because their
+fixture names were all machinery vocabulary — *Narrowing*, *Spread*, *Mapped*.
+The ≤2-case tail reads differently: `quotedModuleNameMustBeAmbient`,
+`parserModuleDeclaration1`. **A name that states a rule is a grammar rule**, and
+grammar rules are what this workstream can still build.
+
+> That is a usable filter and it is the second thing §805's practice has bought.
+> **The band above was closed by names that describe *types*; the tail is open
+> wherever names describe *syntax*.** The distinction costs one `diagmissing`
+> per row and no builds at all.
 ## §807 — an import alias in a `.d.ts` was an EXPORT of it
 
 ```ts

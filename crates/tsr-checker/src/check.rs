@@ -276,6 +276,21 @@ impl Checker<'_, '_> {
             // ambient contexts, and so is an *ambient* module's body whether or
             // not the keyword is repeated inside it.
             Node::ModuleDeclaration(declaration) => {
+                // `!inAmbientContext && IsStringLiteral(node.Name())`
+                // (`checker.go:5151`), reported on the **name**. §807.
+                if !ambient
+                    && !self.file_is_ambient
+                    && !has_modifier(declaration.modifiers, SyntaxKind::DeclareKeyword)
+                    && let Some(tsr_ast::ModuleName::StringLiteral(name)) = declaration.name
+                    && let Some(at) = name.node_id
+                    && let Some(file) = self.source_file_of_for_diagnostics(at)
+                {
+                    let span = self.nodes.span(at);
+                    self.report(
+                        file,
+                        Diagnostic::new(&messages::ONLY_AMBIENT_MODULES_CAN_USE_QUOTED_NAMES, span),
+                    );
+                }
                 self.check_global_augmentation_position(node);
                 self.check_namespace_merge_position(node, ambient);
                 if let Some(name) = declaration.name.and_then(|n| n.node_id()) {
