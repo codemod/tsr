@@ -915,7 +915,10 @@ impl Checker<'_, '_> {
             if let Some(evaluated) = self.evaluate_conditional_alias(symbol, &substituted) {
                 return evaluated;
             }
-            return self.create_type_reference(symbol, substituted);
+            // §136: a rebuild keeps the source reference's written display
+            // arity — the spelling survives instantiation.
+            let display = self.reference_display_arity.get(&id).copied();
+            return self.create_type_reference_with_display(symbol, substituted, display);
         }
         if let TypeData::Union { types, .. } = &self.store.get(id).data {
             let types = types.clone();

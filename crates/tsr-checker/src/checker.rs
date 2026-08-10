@@ -203,6 +203,12 @@ pub struct Checker<'a, 'n> {
     /// it has no entry and no rebuild — see
     /// [`Checker::instantiate_type`](crate::Checker::instantiate_type).
     pub(crate) type_reference_targets: FxHashMap<TypeId, (SymbolId, Vec<TypeId>)>,
+    /// §136 (printseam §6): the WRITTEN arity of a default-filled reference —
+    /// prints show this many leading arguments, matching upstream's
+    /// written-annotation reuse (`Iterable<number>` written short prints
+    /// short; `Generator<Y, any, any>` written full prints full). Absent for
+    /// fully-written references. Propagated through instantiation rebuilds.
+    pub(crate) reference_display_arity: FxHashMap<TypeId, usize>,
     /// Types minted for a type reference whose **name does not resolve**.
     ///
     /// Upstream mints one `errorType` per unresolved alias key, carrying an
@@ -734,6 +740,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             this_types: FxHashMap::default(),
             instantiations: FxHashMap::default(),
             type_reference_targets: FxHashMap::default(),
+            reference_display_arity: FxHashMap::default(),
             unresolved_types: rustc_hash::FxHashSet::default(),
             resolutions: Resolutions::new(),
             flow_analysis_disabled: false,
@@ -1226,7 +1233,10 @@ impl<'a, 'n> Checker<'a, 'n> {
                 && !self.rendering_composites.contains(&id)
             {
                 self.rendering_composites.insert(id);
-                let rebuilt = self.reference_text_at(target, &arguments, reference);
+                // §136: a default-filled reference prints its WRITTEN arity.
+                let shown =
+                    self.reference_display_arity.get(&id).copied().unwrap_or(arguments.len());
+                let rebuilt = self.reference_text_at(target, &arguments[..shown], reference);
                 self.rendering_composites.remove(&id);
                 if let Some(out) = rebuilt {
                     return Some(out);
@@ -1355,6 +1365,9 @@ impl<'a, 'n> Checker<'a, 'n> {
         } else {
             target_name.to_string()
         };
+        if printed_arguments.is_empty() {
+            return Some(named);
+        }
         Some(format!("{named}<{}>", printed_arguments.join(", ")))
     }
 

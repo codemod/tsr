@@ -1294,7 +1294,17 @@ impl<'a> Checker<'a, '_> {
         parameters: usize,
     ) -> TypeId {
         let error = self.intrinsics.error;
-        if node.type_arguments.len() != parameters {
+        // §136 (printseam §6): a SHORTER written list is accepted when
+        // DEFAULTS cover the tail — `fillMissingTypeArguments`
+        // (checker.go:19458), the annotation half. Bare references keep
+        // today's road (position-sensitive default choice).
+        let fillable = !node.type_arguments.is_empty()
+            && node.type_arguments.len() < parameters
+            && self.local_type_parameters_of(symbol).len() == parameters
+            && self.local_type_parameters_of(symbol)[node.type_arguments.len()..]
+                .iter()
+                .all(|declaration| declaration.default_type.is_some());
+        if node.type_arguments.len() != parameters && !fillable {
             return error;
         }
         let mut arguments = Vec::with_capacity(parameters);
@@ -1307,6 +1317,32 @@ impl<'a> Checker<'a, '_> {
                 return error;
             }
             arguments.push(resolved);
+        }
+        // §136's fill: each tail position takes its DEFAULT instantiated
+        // under the map built so far (`<T, U = T>` substitutes the written
+        // argument; a later default sees earlier fills).
+        if fillable {
+            let Some(parameter_types) = self.local_type_parameter_types_of(symbol) else {
+                return error;
+            };
+            let types: Vec<TypeId> = parameter_types.iter().map(|&(t, _)| t).collect();
+            let names: Vec<String> = parameter_types.iter().map(|(_, n)| n.clone()).collect();
+            let declarations = self.local_type_parameters_of(symbol);
+            for index in arguments.len()..parameters {
+                let Some(default) = declarations[index].default_type else { return error };
+                let resolved = self.get_type_from_type_node(default);
+                if resolved == error {
+                    return error;
+                }
+                let map: Vec<(TypeId, TypeId)> =
+                    types.iter().copied().zip(arguments.iter().copied()).collect();
+                let name_refs: Vec<&str> = names.iter().map(String::as_str).collect();
+                let instantiated = self.instantiate_type(resolved, &map, &types, &name_refs);
+                if instantiated == error {
+                    return error;
+                }
+                arguments.push(instantiated);
+            }
         }
         // §36's second contained leg: an alias whose body is a CONDITIONAL
         // type over CONCRETE arguments is EVALUATED upstream (`Foo1<"*x*">`
@@ -1355,6 +1391,10 @@ impl<'a> Checker<'a, '_> {
             self.qualified_reference_types.insert(key, minted);
             self.type_reference_targets.insert(minted, (symbol, arguments));
             return minted;
+        }
+        if fillable {
+            let written = node.type_arguments.len();
+            return self.create_type_reference_with_display(symbol, arguments, Some(written));
         }
         self.create_type_reference(symbol, arguments)
     }
@@ -1722,10 +1762,27 @@ impl<'a> Checker<'a, '_> {
         symbol: SymbolId,
         arguments: Vec<TypeId>,
     ) -> TypeId {
+        self.create_type_reference_with_display(symbol, arguments, None)
+    }
+
+    /// §136 (printseam §6): a default-filled reference PRINTS its written
+    /// arity while carrying the full argument list — upstream's
+    /// written-annotation reuse (`Iterable<number>` written short prints
+    /// short; `Generator<Y, any, any>` written full prints full). `display`
+    /// is the written prefix; `None` prints everything. The arity is
+    /// registered in `reference_display_arity` so instantiation rebuilds and
+    /// the composite re-render keep the spelling.
+    pub(crate) fn create_type_reference_with_display(
+        &mut self,
+        symbol: SymbolId,
+        arguments: Vec<TypeId>,
+        display: Option<usize>,
+    ) -> TypeId {
         if let Some(&cached) = self.instantiations.get(&(symbol, arguments.clone())) {
             return cached;
         }
-        let printed = self.type_reference_text(symbol, &arguments);
+        let shown = display.unwrap_or(arguments.len()).min(arguments.len());
+        let printed = self.type_reference_text(symbol, &arguments[..shown]);
         // §90 (`checker-notes-narrow.md`): a TYPE_ALIAS target with a
         // TypeLiteral body mints the BODY's symbol — §46's admission, one
         // road lower, so `instantiate_type`'s arm-3 rebuilds keep their
@@ -1751,6 +1808,9 @@ impl<'a> Checker<'a, '_> {
         // instantiation could be one commit.
         let id = self.store.new_named(TypeFlags::OBJECT, printed, Some(member_symbol));
         self.instantiations.insert((symbol, arguments.clone()), id);
+        if shown < arguments.len() {
+            self.reference_display_arity.insert(id, shown);
+        }
         // The same pair, the other way round. Substitution starts from a
         // `TypeId` and needs the pair, which only exists here as a key — see
         // [`crate::checker::Checker::type_reference_targets`]. Written on the
