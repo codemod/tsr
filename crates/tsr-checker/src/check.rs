@@ -4802,6 +4802,17 @@ impl Checker<'_, '_> {
             node,
             SymbolFlags::VALUE,
         );
+        // **A quoted name is not a candidate for an identifier.** This port's
+        // `names_in_scope_with_meaning` returns an ambient module's symbol name
+        // verbatim — `"foobar"`, quotes included — and two inserted quotes is
+        // a Levenshtein distance of 2, inside the threshold for a six-character
+        // name. Upstream's value lookup never sees those symbols at all, so
+        // `declare module "foobar"; foobar;` is its TS2304 and was this port's
+        // TS2552. §859.
+        let candidates: Vec<&str> = candidates
+            .into_iter()
+            .filter(|candidate| !candidate.starts_with('"') && !candidate.starts_with('\''))
+            .collect();
         spelling_suggestion(text, &candidates).map(ToString::to_string)
     }
 
@@ -12277,10 +12288,18 @@ pub(crate) fn spelling_suggestion<'a>(name: &str, candidates: &[&'a str]) -> Opt
             continue;
         }
         if let Some(distance) = levenshtein_with_max(&target, &other, best_distance) {
+            // **Only a strict improvement replaces the best** (`core.go:599`),
+            // and a tie is broken by the comparator — `strings.Compare` for
+            // this caller, so lexicographically. Assigning outside the test
+            // accepted every candidate the distance function admitted and kept
+            // the *last*, which is a tie-break by iteration order and so not
+            // one. §859.
             if distance < best_distance {
                 best_distance = distance;
+                best = Some(candidate);
+            } else if best.is_none_or(|current| *candidate < current) {
+                best = Some(candidate);
             }
-            best = Some(candidate);
         }
     }
     best

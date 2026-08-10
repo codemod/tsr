@@ -42853,3 +42853,126 @@ elsewhere shadowed it.
 would have put together** (§820's evaluator leaf, §833's guard, this) — and each
 time the connection was a *duplicate at the same column*, which is the one shape
 the missing-side instruments cannot see at all.
+
+## §859 — `diagdup`, and the biggest wrong class on the board
+
+§858 found a **duplicate at a right position** by reading `extraonly` line by
+line. That shape is invisible to every other instrument here: the case carries
+the diagnostic upstream wants, at the column upstream wants, and fails because a
+second rule spoke at the same place. `diagmissing` and `diagreach` look at the
+missing side; `extraonly` lists extras but only for cases whose *sole* defect is
+an extra.
+
+`crates/tsr-conformance/examples/diagdup.rs` enumerates the class:
+
+```
+cases with a duplicate at a right position: 380
+duplicate lines: 946
+
+  59  TS2552 -> TS2304      a suggestion where upstream has none
+  46  TS1012 -> TS1128
+  36  TS2364 -> TS2362
+  31  TS2304 -> TS1127
+  27  TS1109 -> TS1011
+  22  TS6188 -> TS6189
+```
+
+**946 lines against `extraonly`'s 81.** The two views do not overlap much,
+because a case with a duplicate usually has other defects too — which is exactly
+why the duplicate never surfaced.
+
+### The head: a suggestion where upstream has none
+
+`spellingSuggestionModule`:
+
+```ts
+declare module "foobar" { export const x: number; }
+foobar;      // upstream: TS2304. this port: TS2552, "did you mean …"
+```
+
+`spelling_suggestion` already skips a candidate identical to the name, so that is
+not it. The defect is one line further down:
+
+```rust
+if let Some(distance) = levenshtein_with_max(&target, &other, best_distance) {
+    if distance < best_distance { best_distance = distance; }
+    best = Some(candidate);          // <- outside the test
+}
+```
+
+Upstream (`core.go:599`) updates the best **only on a strict improvement**, and
+breaks a tie with the comparator — for strings, lexicographic:
+
+```go
+if distance < bestDistance { bestDistance = distance; bestCandidate = candidate; hasBest = true
+} else if !hasBest || compare(candidate, bestCandidate) < 0 { bestCandidate = candidate; hasBest = true }
+```
+
+So this port accepts **any** candidate the distance function admits, and keeps
+the **last** rather than the best — a tie-break by iteration order, which is not
+a tie-break at all.
+
+```
+bar:  >= +0,  0 LOST via `diagpass`,  diagdup TS2552 -> TS2304 lines DOWN
+```
+
+### Falsifiers
+
+1. **`diagpass` shows any LOST.** A different suggestion is a different message,
+   and the suite compares codes rather than text — so a *changed* suggestion
+   cannot cost a case, but a *removed* TS2552 can.
+2. **TS2552's missing row grows.** The suggestion is what distinguishes it from
+   TS2304.
+
+## §860 — §859 built: **+1/−0**, and the ranking was not the cause
+
+```
+diagnostics   2,339 → 2,340   (+1)   42.64%
+diagpass      LOST: (none)   GAINED: compiler/spellingSuggestionModule
+diagdup       946 → 944 lines,  380 → 379 cases
+              TS2552 -> TS2304:  59 → 57
+```
+
+Two changes, and only one of them moved anything.
+
+**The accept condition** (`best = Some(candidate)` outside the strict-improvement
+test) is a real divergence from `core.go:599` and measured `+0`. Kept on §835's
+rule — upstream's tie-break is the comparator and this port's was iteration
+order, which is not a tie-break — but it is **not** what produced the
+suggestions.
+
+**The candidate list** was. A probe printed it:
+
+```
+PROBE 2552 candidates for foobar: ["\"foobar\"", "farboo", …]
+```
+
+`names_in_scope_with_meaning` returns an ambient module's symbol name
+**verbatim, quotes included**. Two inserted quotes is a Levenshtein distance of
+2, and the threshold for a six-character name is `floor(6 × 0.4) + 0.9 = 2.9`.
+So `declare module "foobar"; foobar;` suggested `"foobar"` for `foobar` —
+upstream's TS2304 became this port's TS2552.
+
+> I had two hypotheses and fixed the wrong one first. The ranking bug was
+> **visible in the code** and the candidate bug was not — and the code-visible
+> one is the one that reads like an explanation. **A defect you can see while
+> reading is not thereby the defect you are looking for**, and the probe that
+> settled it cost one run, after the measurement that did not move had cost
+> three.
+
+### What `diagdup` is worth
+
+946 lines across 380 cases, against `extraonly`'s 81. The two barely overlap: a
+case with a duplicate usually has other defects, which is precisely why the
+duplicate was never on any list. Its head is now
+
+```
+57  TS2552 -> TS2304      the remainder: a candidate scope still wider than upstream's
+46  TS1012 -> TS1128
+36  TS2364 -> TS2362
+31  TS2304 -> TS1127
+```
+
+and each row names **both** codes, which is the first question such a row raises
+— *which of the two is upstream's*, and therefore which rule is speaking out of
+turn.
