@@ -43364,3 +43364,43 @@ for, at a use in the **same** control-flow container.
 **Refused: TS2454's remaining 41 cases, 77 lines. Owner: flow**, alongside the
 narrowing rows §850 and §862 handed over. The dead-zone arm §867 built is
 independent of it and stays.
+
+## §870 — the reachable pool, classified: **76% is the relation**
+
+`diagreach` counts cases needing *no new rule* — only the rules this port already
+triggers, reporting more completely. There are **1,214**. Classifying them by the
+owner of the codes each is missing:
+
+```
+relation   839   76.3%   TS2322, TS2345, TS2741, TS2353, TS2416, TS2420, TS2430,
+                         TS2769, TS2352, TS2411 …
+type       165   15.0%   TS2339, TS7006, TS2554, TS2564, TS2683, TS2341, TS2445 …
+flow        76    6.9%   TS2454, TS2532, TS18047-9, TS2367, TS2365, TS2362 …
+other       19    1.7%
+TOTAL     1,099           (115 cases mix owners and are counted in none)
+```
+
+This is the aggregate `STATUS.md` §5 has never carried. Seventy-two individual
+refusals name their owners one at a time; **the shape of the remainder is not
+visible from any of them**, and it took one command over an instrument that has
+existed all along.
+
+> Every row this workstream sampled in its last eight builds landed on the type
+> side — TS2683, TS7006, TS2564, TS2531, TS2364, TS2451, TS2403, TS2341. That
+> read as bad luck while it was anecdotes. **It is not luck: 91% of what is
+> reachable belongs to the relation and the type machinery**, and the diagnostics
+> workstream's own remainder is the 1.7% plus whatever is not "reachable" at all.
+
+### What that means for this workstream
+
+The grammar and binder tail this session worked — §807 through §868 — was the
+part that *was* diagnostics'. It closed twenty-odd rows, and the classification
+says the well is genuinely shallow now rather than merely feeling that way. The
+honest ordering for a next session:
+
+1. **`bd tsr-gjze`** — `this`/`super` types. Three rows, wiring verified, and the
+   cheapest of the type-side items because the diagnostics half is done.
+2. **The `diagdup` DUPLICATE column**, 62 lines. The only pool where a *removal*
+   converts a case and no other owner is involved.
+3. Everything else waits on the relation, and 839 cases is 15% of the corpus
+   sitting behind one workstream's work.
