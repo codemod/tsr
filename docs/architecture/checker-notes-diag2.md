@@ -44149,3 +44149,48 @@ bar:  +1 (undefinedTypeAssignment4),  0 LOST via `diagpass`,  extraonly 78 -> 77
 1. **TS2414's or TS2427's rows move.** They are the messages this defers to.
 2. **A top-level `var undefined` stops reporting.** A variable is not a type
    declaration and is exactly what this arm is for.
+
+## §888 — `diagshift`: a code on both sides of one case's difference
+
+§887 was one rule producing two defects at once — TS2397 on the `class undefined`
+where TS2414 had already spoken, and nothing on the `namespace undefined` where
+it was the only speaker. `diagmissing` saw the gap, `extraonly` saw the extra,
+`diagdup` saw the extra sitting on a right position, and **none of the three says
+the two are the same rule reporting in the wrong place.**
+
+`crates/tsr-conformance/examples/diagshift.rs` asks that directly: which codes
+appear on **both** sides of a case's difference?
+
+```
+cases with a displaced diagnostic: 107
+codes displaced: 366
+
+115  TS1005    tsr-parser's recovery
+ 97  TS2322    the relation's
+ 27  TS1109    tsr-parser's
+ 26  TS2304
+ 15  TS2540  <- a checker rule, and not the relation's
+ 13  TS2411
+```
+
+A displaced diagnostic is worth separating from a missing one because it costs
+**two** lines and is usually one edit: the rule fires, computes the message, and
+is wrong only about the node.
+
+### What a row does not say
+
+Each missing line is paired with the **first** extra of the same code, so a rule
+that fires *once* where eight are wanted prints eight rows naming one reported
+position. TS2540's head is exactly that: `externalModuleImmutableBindings`
+mutates a namespace import eight ways and this port reports **one** TS2540, at a
+position the baseline does not want.
+
+> That is one wrong line and seven gaps, not eight displacements — and the
+> instrument cannot tell them apart, because *"the code is on both sides"* is all
+> it measures. **A view built to name one shape will name every shape that
+> resembles it**, and the doc comment now says so above the ranking rather than
+> below it.
+
+TS2540's row is a real find and its shape is named for the next attempt: the
+namespace-import immutability rule fires once and in the wrong place, where
+upstream reports on every mutation.
