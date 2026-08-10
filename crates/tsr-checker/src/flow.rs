@@ -4061,11 +4061,13 @@ impl Checker<'_, '_> {
         // either way, so nothing reachable is given up.
         let Some(value_type) = self.nullable_literal_type(value) else {
             // §52 (`checker-notes-narrow.md`): the comparable-filter half
-            // (`flow.go:580`) for a NON-nullable value — strict operators
-            // only, Kleene whole-decline.
-            if double_equals {
-                return t;
-            }
+            // (`flow.go:580`) for a NON-nullable value. SS155: LOOSE
+            // operators pass through when the whole comparison stays inside
+            // ONE primitive literal domain - coercion is identity there, so
+            // `isCoercibleUnderDoubleEquals` adds nothing and the
+            // comparable filter is exact (`const x = 1` … `x == 2` wants
+            // `never`). Any cross-domain or non-literal shape under a loose
+            // operator keeps the whole-decline.
             // Reentrancy: typing the operand can re-enter this same walk
             // through the operand's own narrowing (the recursion the
             // nullable-only port declined to risk) — a node already being
@@ -4108,6 +4110,30 @@ impl Checker<'_, '_> {
                 }
                 _ => vec![t],
             };
+            if double_equals {
+                let domain_of = |flags: TypeFlags| -> Option<u8> {
+                    if flags.intersects(TypeFlags::NUMBER_LITERAL) {
+                        Some(0)
+                    } else if flags.intersects(TypeFlags::STRING_LITERAL) {
+                        Some(1)
+                    } else if flags.intersects(TypeFlags::BIG_INT_LITERAL) {
+                        Some(2)
+                    } else if flags.intersects(TypeFlags::BOOLEAN_LITERAL) {
+                        Some(3)
+                    } else {
+                        None
+                    }
+                };
+                let Some(comparand_domain) = domain_of(value_flags) else {
+                    return t;
+                };
+                let same_domain = constituents.iter().all(|&constituent| {
+                    domain_of(self.store.get(constituent).flags) == Some(comparand_domain)
+                });
+                if !same_domain {
+                    return t;
+                }
+            }
             let total = constituents.len();
             let mut kept = Vec::new();
             if assume_true {
@@ -4156,7 +4182,12 @@ impl Checker<'_, '_> {
                 }
             }
             if kept.is_empty() || kept.len() == total {
-                if assume_true && kept.is_empty() {
+                if kept.is_empty() {
+                    // SS155: an emptied filter is `never` on BOTH branches
+                    // (upstream's filterType) — the false branch of
+                    // `x == 1` on `const x = 1` was returning t, and the
+                    // capturedLetConstInLoop family's `never` wants sat
+                    // exactly there.
                     return self.intrinsics.never;
                 }
                 return t;

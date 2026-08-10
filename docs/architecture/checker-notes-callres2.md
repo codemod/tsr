@@ -1511,3 +1511,13 @@ non-member arm. The remaining family (67 W) is dominated by the
 asserts-functions subsystem (effects signatures on call statements —
 the §148.3-addendum's neighbor in flow.go's getEffectsSignature) and
 `NonNullable<T>` alias prints.
+
+## §155 LANDED: same-domain loose equality + both-branch never (+48, zero regressions)
+
+checker-1's tail-sweep lead, converted at 48:0. Two arms: (1) loose
+operators pass the §52 comparable filter when comparand and every
+constituent are literals of ONE primitive domain (coercion is identity
+there — isCoercibleUnderDoubleEquals adds nothing); (2) an emptied
+filter is `never` on BOTH branches (upstream's filterType) — the false
+branch of `x == 1` on `const x = 1` was returning t, and the family's
+never-wants sat exactly there. capturedLetConstInLoop6/7(+ES6) whole.
