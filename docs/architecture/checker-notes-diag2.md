@@ -43615,3 +43615,82 @@ The remaining four convertibles are `jsFileCompilationBindErrors`,
 `undefinedTypeAssignment4`, `validRegexp`, `parserErrorRecovery_ObjectLiteral4`
 and `parserObjectCreation2` — the last two carry a spurious **TS1005** from
 `tsr-parser`, and `validRegexp` is §254's recovery difference, already owned.
+
+## §876 — the sweep §875 earned: nine chain codes emitted **outside** the chain
+
+Upstream's `checkGrammarModifiers` (`grammarchecks.go:214`–`:560`) emits 37
+distinct diagnostics, every arm ending in `return`. This port emits **three** of
+them from inside `check_modifier_order` and **nine** from outside it:
+
+```
+check_grammar_modifier_shapes        ABSTRACT_METHODS_CAN_ONLY_APPEAR_WITHIN_AN_ABSTRACT_CLASS
+                                     ABSTRACT_PROPERTIES_CAN_ONLY_APPEAR_WITHIN_AN_ABSTRACT_CLASS
+                                     A_PARAMETER_PROPERTY_MAY_NOT_BE_DECLARED_USING_A_BINDING_PATTERN
+                                     A_PARAMETER_PROPERTY_CANNOT_BE_DECLARED_USING_A_REST_PARAMETER
+check_grammar_default_and_const…     A_DEFAULT_EXPORT_CAN_ONLY_BE_USED_IN_AN_ECMASCRIPT_STYLE_MODULE
+                                     A_CLASS_MEMBER_CANNOT_HAVE_THE_0_KEYWORD     (also in the chain)
+check_abstract_modifier_position     ABSTRACT_MODIFIER_CAN_ONLY_APPEAR_ON_A_CLASS_METHOD_OR_PROPERTY
+check_illegal_decorator              DECORATORS_ARE_NOT_VALID_HERE
+check_modifier_on_nested_statement    MODIFIERS_CANNOT_APPEAR_HERE
+```
+
+None of them is *wrong*; all of them are **unguarded**. §857, §871, §872 and §874
+were four instances of the same thing found one at a time by `diagdup`, and this
+is the population they came from.
+
+### Upstream's own gate is the fix
+
+`checkGrammarModifiers` **returns a bool**, and its callers use it:
+
+```go
+if !c.checkGrammarModifiers(node) && node.Modifiers() != nil { … }   // checker.go:5278
+if !c.checkGrammarModifiers(node) && classLikeData.HeritageClauses != nil { … }  // grammarchecks.go:898
+```
+
+So the port's `check_modifier_order` should answer *"did I report?"*, and the
+parallel rules should decline when it did. **That is not a hack around a
+collision; it is the signature upstream already has**, and this port dropped the
+return value when it split the chain up.
+
+```
+bar:  >= +0,  0 LOST via `diagpass`,  extraonly and diagdup-DUPLICATE both DOWN
+```
+
+### Falsifiers
+
+1. **`diagpass` shows any LOST.** A gate that is too wide silences a right
+   diagnostic.
+2. **`diagdup`'s DUPLICATE count rises.** The gate would then be firing in the
+   wrong direction.
+
+## §877 — §876 built: **+0 cases, −3 duplicate lines**, and the gate is upstream's signature
+
+```
+diagnostics   2,344 → 2,344   (+0)   42.71%
+diagpass      LOST: (none)   GAINED: (none)
+extraonly     78, unchanged
+diagdup       944 → 940 lines,  62 → 59 DUPLICATE
+```
+
+`check_modifier_order` now records the nodes it reports on, and the two rules the
+dispatch runs in parallel with it — `check_grammar_modifier_shapes` and
+`check_abstract_modifier_position` — decline for those nodes. That is
+`if !c.checkGrammarModifiers(node) && …`, which is what **both** of upstream's
+callers do and what this port dropped when it split the chain into functions.
+
+Three duplicate lines gone, no case converted: the cases they were in need
+missing lines too. **A `+0` that removes wrong lines is not the same as a `+0`
+that removes nothing**, and `diagdup` is the only view that distinguishes them —
+`extraonly` did not move at all.
+
+> The four builds §857–§874 fixed four instances by hand, each with its own bar,
+> falsifiers and measurement. This one fixed the **mechanism** and cost less than
+> any of them, because by then the four had made the mechanism obvious. **The
+> instances were not wasted work — they were what turned "these rules collide"
+> into "this port dropped a return value"** — but the ordering was expensive, and
+> §856's rule (*the column finds the instance, the sweep prices the class*) now
+> has a fifth clause: **once the class has four members, stop fixing instances.**
+
+Fifteenth `+0` kept for fidelity. The remaining 59 DUPLICATE lines are mostly
+`TS1005` and `TS2304` pairs in parser-recovery cases, which §871's intersection
+prices at four convertible cases — two of them `tsr-parser`'s.

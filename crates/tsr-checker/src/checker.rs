@@ -531,6 +531,11 @@ pub struct Checker<'a, 'n> {
     pub(crate) function_symbol_checked: rustc_hash::FxHashSet<tsr_binder::SymbolId>,
     /// Symbols whose overload ambient agreement has been checked. §673.
     pub(crate) overload_agreement_checked: rustc_hash::FxHashSet<tsr_binder::SymbolId>,
+    /// Nodes for which `check_modifier_order` — this port's slice of upstream's
+    /// `checkGrammarModifiers` — has already reported. Upstream's callers are
+    /// gated on `!c.checkGrammarModifiers(node)`, and this port dropped that
+    /// return value when it split the chain into several functions. §876.
+    pub(crate) modifier_chain_reported: rustc_hash::FxHashSet<tsr_ast::NodeId>,
     /// `(element types, readonly) -> the tuple type`.
     ///
     /// Upstream interns a tuple through `createTypeReference` on a target
@@ -824,6 +829,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             ambient_statement_reported: rustc_hash::FxHashSet::default(),
             function_symbol_checked: rustc_hash::FxHashSet::default(),
             overload_agreement_checked: rustc_hash::FxHashSet::default(),
+            modifier_chain_reported: rustc_hash::FxHashSet::default(),
             tuple_types: FxHashMap::default(),
             tuple_element_lists: FxHashMap::default(),
             optional_tuple_types: FxHashMap::default(),

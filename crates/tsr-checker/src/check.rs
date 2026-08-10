@@ -794,7 +794,10 @@ impl Checker<'_, '_> {
         self.check_interface_computed_name(node, typed);
         self.check_grammar_for_generator(node, typed);
         self.check_grammar_parameter_list(node);
-        self.check_grammar_modifier_shapes(node, typed);
+        // §876: upstream calls these behind `!c.checkGrammarModifiers(node)`.
+        if !self.modifier_chain_reported.contains(&node) {
+            self.check_grammar_modifier_shapes(node, typed);
+        }
         self.check_jsx_intrinsic_element(node, typed);
         self.check_jsx_factory_in_scope(typed);
         self.check_strict_mode_eval_or_arguments_sites(node, typed, ambient);
@@ -817,7 +820,9 @@ impl Checker<'_, '_> {
         if matches!(typed, Node::MethodDeclaration(_)) {
             self.check_abstract_method_has_no_body(node);
         }
-        self.check_abstract_modifier_position(node, typed);
+        if !self.modifier_chain_reported.contains(&node) {
+            self.check_abstract_modifier_position(node, typed);
+        }
         if matches!(typed, Node::FunctionDeclaration(_) | Node::MethodDeclaration(_)) {
             self.check_empty_body_returns_value(node);
         }
@@ -6481,6 +6486,12 @@ impl Checker<'_, '_> {
         message: &'static tsr_diagnostics::Message,
         args: &[String],
     ) {
+        // §876: the chain's callers upstream are gated on `!checkGrammarModifiers(node)`,
+        // so a node that got a modifier diagnostic here must not get one from
+        // the rules this port split out of the chain.
+        if let Some(id) = token.node_id.and_then(|id| self.nodes.parent(id)) {
+            self.modifier_chain_reported.insert(id);
+        }
         let Some(id) = token.node_id else { return };
         let Some(file) = self.source_file_of_for_diagnostics(id) else { return };
         let span = self.error_span(id);
