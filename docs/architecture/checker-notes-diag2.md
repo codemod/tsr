@@ -32999,3 +32999,87 @@ function, the rule stands as written: **transcribe what you can see all of.**
 ```
 
 Fifteen codes closed of the sixty-two with cases.
+
+## §636 — TS1169: a computed property name in an interface
+
+```ts
+interface I {
+  [a = 0]      // TS1169
+}
+```
+
+`checkGrammarComputedPropertyName`'s interface arm (`grammarchecks.go:1472`)
+delegates to `checkGrammarForInvalidDynamicName`, whose **first** arm is
+syntactic:
+
+```go
+if !ast.IsEntityNameExpression(expression) {
+    return c.grammarErrorOnNode(node, message)
+}
+```
+
+`isNonBindableDynamicName` above it needs the name's *type* — a computed name is
+"dynamic" unless its type is a literal or a unique symbol. **The sufficient
+syntactic condition is the one that follows**: an expression that is not an
+entity name can never be late-bound, so it is always non-bindable, and the
+report follows without a type. `Symbol.iterator` is an entity name and is
+excluded by construction; a string or numeric literal is not dynamic at all and
+is excluded explicitly.
+
+> **§580's shape, fifth row.** The type test and the syntactic test are not the
+> same predicate — upstream's is narrower — but they agree wherever the
+> syntactic one fires, and disagree only by staying silent. Five rows have now
+> been closed on exactly that asymmetry.
+
+The two sibling messages — *in a type literal* and *in a method overload* —
+carry their own codes and are **not built** (§501); only the interface arm has
+corpus cases.
+
+```
+bar:  +2 of 2,  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **`[Symbol.iterator]()` in an interface reports.** The entity-name case, and
+   the reason the rule is written around that predicate.
+2. **`["x"]` reports.** A literal name is not dynamic.
+3. **A computed name in a class reports.** The parent test is the arm's guard.
+
+## §637 — §636 built: **+2**, bar met, TS1169 at zero
+
+```
+diagnostics             2,178 → 2,180   (bar was +2;  +2, 0 LOST)   39.72%
+extraonly               zero TS1169 lines
+TS1169 missing lines    2 → 0            — checked after the build (§629)
+```
+
+All three falsifiers negative, including `[Symbol.iterator]()`, which is the
+entity-name case the whole predicate is written around.
+
+### §580's shape, five rows
+
+```
+§580   TS2347    a callee annotated `any`
+§563   TS2310    a base-type cycle over `extends` names
+§628   TS18014   two class declarations reached by symbol lookup
+§630   TS18014   a class name used as a value
+§636   TS1169    an expression that is not an entity name
+```
+
+> **Every one replaces a type test with the syntax the type was derived from,
+> and every one is narrower than upstream in the direction of silence.** That
+> asymmetry is the whole licence: a syntactic proxy that could *over*-report
+> would trade a missing line for a wrong one, and none of these can.
+
+Five rows, twelve cases, and **no part of the type side touched** — which is the
+practical form of §157's original split between what this workstream owns and
+what the structural relation does.
+
+### The grammar family after sixteen builds
+
+```
++30 before   TS1169 +2   ──   +32
+```
+
+Sixteen codes closed of the sixty-two with cases.

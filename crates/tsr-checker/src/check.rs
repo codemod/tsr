@@ -627,6 +627,7 @@ impl Checker<'_, '_> {
         // just  — §623, and §600's dispatch class for the
         // ninth time.
         self.check_modifier_on_nested_statement(node);
+        self.check_interface_computed_name(node, typed);
         self.check_grammar_for_generator(node, typed);
         self.check_grammar_parameter_list(node);
         self.check_grammar_modifier_shapes(node, typed);
@@ -8876,6 +8877,76 @@ impl Checker<'_, '_> {
         let Some(file) = self.source_file_of_for_diagnostics(asterisk) else { return };
         let span = self.nodes.span(asterisk);
         self.report(file, Diagnostic::new(message, span));
+    }
+
+    /// TS1169 — `A computed property name in an interface must refer to an
+    /// expression whose type is a literal type or a unique symbol type.`
+    ///
+    /// `checkGrammarComputedPropertyName`'s interface arm
+    /// (`grammarchecks.go:1472`) through `checkGrammarForInvalidDynamicName`,
+    /// whose first arm is `!IsEntityNameExpression(expression)` — syntactic.
+    ///
+    /// The `isNonBindableDynamicName` test above it needs the name's type; an
+    /// expression that is not an entity name can never be late-bound, so the
+    /// syntactic condition is sufficient and silent everywhere it is not.
+    /// The *type literal* and *method overload* siblings carry their own codes
+    /// and are not built (§501). §636.
+    fn check_interface_computed_name(&mut self, node: NodeId, typed: Node<'_>) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let name = match typed {
+            Node::PropertySignatureDeclaration(n) => n.name,
+            Node::MethodSignatureDeclaration(n) => n.name,
+            _ => return,
+        };
+        let tsr_ast::PropertyName::ComputedPropertyName(computed) = name else { return };
+        if self
+            .nodes
+            .parent(node)
+            .is_none_or(|parent| self.nodes.kind(parent) != SyntaxKind::InterfaceDeclaration)
+        {
+            return;
+        }
+        let Some(expression) = computed.expression.and_then(|e| e.node_id()) else { return };
+        // An entity name — `a`, `A.b`, `Symbol.iterator` — may be late-bound, so
+        // it is upstream's own exclusion; a literal is not dynamic at all.
+        if self.is_entity_name_expression(expression)
+            || matches!(
+                self.nodes.kind(expression),
+                SyntaxKind::StringLiteral
+                    | SyntaxKind::NumericLiteral
+                    | SyntaxKind::NoSubstitutionTemplateLiteral
+            )
+        {
+            return;
+        }
+        let Some(at) = computed.node_id else { return };
+        let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
+        let span = self.nodes.span(at);
+        self.report(
+            file,
+            Diagnostic::new(
+                &messages::A_COMPUTED_PROPERTY_NAME_IN_AN_INTERFACE_MUST_REFER_TO_AN_EXPRESSION_WHOSE_TYPE_IS_A_LITERAL_TYPE_OR_A_UNIQUE_SYMBOL_TYPE,
+                span,
+            ),
+        );
+    }
+
+    /// `ast.IsEntityNameExpression` — an identifier, or a property access chain
+    /// of identifiers. §636.
+    fn is_entity_name_expression(&self, node: NodeId) -> bool {
+        match self.node_map.get(node) {
+            Some(Node::Identifier(_)) => true,
+            Some(Node::PropertyAccessExpression(access)) => {
+                matches!(access.name, Some(tsr_ast::MemberName::Identifier(_)))
+                    && access
+                        .expression
+                        .and_then(|e| e.node_id())
+                        .is_some_and(|inner| self.is_entity_name_expression(inner))
+            }
+            _ => false,
+        }
     }
 
     /// `IsInstantiatedModule` (`ast/utilities.go:2443`).
