@@ -42781,3 +42781,75 @@ by the *wrong-line column* first and only then generalised into a sweep. That
 ordering is worth keeping: **the column finds the instance, the sweep prices the
 class**, and running the sweep first would have cost five searches to find two
 builds.
+
+## §857 — TS1042 on a constructor: two diagnostics where upstream returns after one
+
+```ts
+class C { async constructor() { } }
+```
+
+```
+expected   asyncConstructor_es6.ts(2,3) TS1089
+actual     asyncConstructor_es6.ts(2,3) TS1089
+           asyncConstructor_es6.ts(2,3) TS1042      <- extra, same position
+```
+
+§823 built TS1089 — *"'async' modifier cannot appear on a constructor
+declaration"* — and closed the row's missing side. The case still fails, because
+a **second** rule reports `'async' modifier cannot be used here` at the same
+column.
+
+Upstream cannot: every arm of `checkGrammarModifiers` ends in
+`return c.grammarErrorOnNode(…)`, so a node gets **at most one** grammar
+diagnostic (§183 recorded that when the chain was first ported). TS1089's arm
+fires and the walk stops. This port's TS1042 rule lives outside that chain and
+has its own exclusion list — `MethodDeclaration`, `FunctionDeclaration`,
+`FunctionExpression`, `ArrowFunction` — which omits `Constructor`.
+
+> **A rule ported outside the chain it belongs to needs the chain's exclusions
+> restated, and nothing checks that they stayed in sync.** §823 added an arm to
+> the chain and could not have known a rule elsewhere shadowed it; the wrong-line
+> column is what connected them, four builds later. That is the third time this
+> session `extraonly` has linked two rules that no single reading would have put
+> together (§820, §833, this).
+
+```
+bar:  +1 of 1 (asyncConstructor_es6),  0 LOST via `diagpass`,  extraonly 82 -> 81
+```
+
+### Falsifiers
+
+1. **`async method()` stops reporting TS1042.** `MethodDeclaration` is already
+   excluded above, so nothing there changes.
+2. **TS1089's row moves.** It is the arm this defers to.
+
+## §858 — §857 built: **+1/−0**, and a clippy repair that blocked everyone
+
+```
+diagnostics   2,338 → 2,339   (bar was +1;  +1)   42.62%
+diagpass      LOST: (none)   GAINED: conformance/asyncConstructor_es6
+extraonly     82 → 81
+```
+
+The measurement did not run at first: `xtask measure` refuses on a red clippy,
+and clippy was red on **`flow.rs`** — two lints (`match` on a boolean, a
+redundant `continue`) in the concurrent workstream's `§159` commit, landed
+minutes earlier. Both fixed here; the tree builds for everyone again.
+**Twenty-first repair of the shared tree this session.**
+
+> `xtask measure` refusing on red clippy is the reason this was found in one
+> command rather than by someone else tomorrow. It is also the reason a lint in
+> *another* workstream's file is *this* workstream's problem: **a shared gate
+> makes shared code everyone's, whichever half of the tree it sits in.**
+
+### The build itself
+
+One line. `Constructor` joins the exclusion list of a rule that lives **outside**
+`checkGrammarModifiers`'s chain, where upstream's `return` after TS1089 does the
+same job. §823 added the arm four builds ago and could not have known a rule
+elsewhere shadowed it.
+
+**Third time this session `extraonly` has connected two rules no single reading
+would have put together** (§820's evaluator leaf, §833's guard, this) — and each
+time the connection was a *duplicate at the same column*, which is the one shape
+the missing-side instruments cannot see at all.

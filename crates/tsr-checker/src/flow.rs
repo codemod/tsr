@@ -949,9 +949,8 @@ impl Checker<'_, '_> {
             };
             let mut kept = Vec::new();
             for constituent in constituents {
-                match self.is_derived_from_decidable(constituent, candidate)? {
-                    true => {}
-                    false => kept.push(constituent),
+                if !self.is_derived_from_decidable(constituent, candidate)? {
+                    kept.push(constituent);
                 }
             }
             if kept.is_empty() {
@@ -977,7 +976,6 @@ impl Checker<'_, '_> {
             }
             if self.is_derived_from_decidable(candidate, constituent)? {
                 mapped.push(candidate);
-                continue;
             }
             // never - dropped.
         }

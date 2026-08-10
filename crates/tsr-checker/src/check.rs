@@ -1104,6 +1104,12 @@ impl Checker<'_, '_> {
                 | SyntaxKind::FunctionDeclaration
                 | SyntaxKind::FunctionExpression
                 | SyntaxKind::ArrowFunction
+                // **A constructor is TS1089's**, and upstream's chain returns
+                // there (`grammarchecks.go:547`) so this arm is never reached
+                // for one. This rule lives outside that chain and must restate
+                // its exclusions; §823 added the arm and this line is what
+                // stops the two from both reporting at the same column. §857.
+                | SyntaxKind::Constructor
         ) {
             return;
         }
