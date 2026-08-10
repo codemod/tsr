@@ -3605,6 +3605,26 @@ impl Checker<'_, '_> {
 
     /// SS146: the decidable member-set rung. `Some(...)` decides; `None`
     /// falls through to the relater rungs.
+    /// SS146.1: whether `owner`'s declared base chain (transitive,
+    /// `base_symbols_of`) contains `target`. An unfollowable link answers
+    /// `false` — the caller then DROPS, which is the oracle's answer for
+    /// every non-declared relation in this rung's domain.
+    fn heritage_chain_contains(
+        &mut self,
+        owner: tsr_binder::SymbolId,
+        target: tsr_binder::SymbolId,
+        visiting: &mut Vec<tsr_binder::SymbolId>,
+    ) -> bool {
+        if visiting.contains(&owner) {
+            return false;
+        }
+        visiting.push(owner);
+        let Some(bases) = self.base_symbols_of(owner) else { return false };
+        bases
+            .into_iter()
+            .any(|base| base == target || self.heritage_chain_contains(base, target, visiting))
+    }
+
     fn member_set_rung(
         &mut self,
         constituent: crate::types::TypeId,
@@ -3628,7 +3648,33 @@ impl Checker<'_, '_> {
             return Some(NarrowedConstituent::Dropped);
         }
         if !missing && !mismatched {
-            return Some(NarrowedConstituent::Mapped(constituent));
+            // SS146.1, decoded against the oracle (lhs2/rhs3): a PURE
+            // STRUCTURAL superset DROPS under the predicate (Point3D
+            // {x,y,z} narrowed by `x is Point` disappears - upstream's
+            // subtype relation refuses it) while a DECLARED-heritage
+            // subtype KEEPS (Point3D2 extends Point survives). The
+            // discriminator is the constituent's base chain declaring the
+            // candidate's owner.
+            let TypeData::Named { members: Some(candidate_owner), .. } =
+                self.store.get(candidate).data
+            else {
+                return None;
+            };
+            let TypeData::Named { members: Some(constituent_owner), .. } =
+                self.store.get(constituent).data
+            else {
+                return None;
+            };
+            let mut visiting = Vec::new();
+            return if self.heritage_chain_contains(
+                constituent_owner,
+                candidate_owner,
+                &mut visiting,
+            ) {
+                Some(NarrowedConstituent::Mapped(constituent))
+            } else {
+                Some(NarrowedConstituent::Dropped)
+            };
         }
         None
     }

@@ -1307,3 +1307,14 @@ the census family lit up because every user type-guard runs the same
 ladder. Residue: 60 W in the head family (mismatched-id members —
 `start: Point` interned per-site? — and intersection shapes), priced
 to the id-interning question, not this rung.
+
+## §146.1 LANDED: the heritage discriminator (+6, zero regressions)
+
+Wall (1) of the residue census decoded against the oracle in one
+baseline read (lhs2/rhs3): a PURE STRUCTURAL superset DROPS under the
+predicate (upstream's subtype relation refuses `Point3D {x,y,z}` vs
+`Point`) while a DECLARED-heritage subtype KEEPS (`Point3D2 extends
+Point` survives). The rung's inclusion arm now discriminates by
+`heritage_chain_contains` (transitive `base_symbols_of`; unfollowable
+→ drop, the oracle's answer for every non-declared relation in this
+domain). Family 60→54 W; full pair +6/0.
