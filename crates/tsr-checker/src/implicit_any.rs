@@ -119,9 +119,16 @@ impl Checker<'_, '_> {
         // Upstream reaches it through the same arm, exempting only
         // `isPrivateWithinAmbient` — which the `ambient` guard above already
         // answers. §379.
+        // A **string-literal** name is a member name. `'string_named';` in an
+        // interface is unannotated exactly as `foo;` is, and upstream prints it
+        // through `declarationNameToString` without caring which spelling it
+        // took. §379 added the private-identifier arm; this one was never
+        // there, and §800's removal of the wrong lines above it is what made
+        // the absence legible. §801.
         let text = match name {
             tsr_ast::PropertyName::Identifier(name) => name.text,
             tsr_ast::PropertyName::PrivateIdentifier(name) => name.text,
+            tsr_ast::PropertyName::StringLiteral(name) => name.text,
             _ => return,
         };
         // **A constructor assignment gives an *instance* member its type.**

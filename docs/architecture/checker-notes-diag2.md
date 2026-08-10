@@ -40389,3 +40389,87 @@ Kept: three wrong lines removed with nothing lost, and §794's helper, §796's
 narrowing and §797's static exclusion are all correct as written. The row's
 residue is two string-literal-named signatures — **an extraction arm, not a flow
 question**, and the first time in five attempts that is visible.
+
+## §801 — TS7008: a string-literal member name is a member name
+
+```ts
+declare namespace JSX {
+    interface IntrinsicElements {
+        'string_named';    // TS7008
+        'var';             // TS7008
+    }
+}
+```
+
+`check_implicit_any_member`'s name extraction:
+
+```rust
+let text = match name {
+    tsr_ast::PropertyName::Identifier(name) => name.text,
+    tsr_ast::PropertyName::PrivateIdentifier(name) => name.text,
+    _ => return,
+};
+```
+
+§379 added the private-identifier arm and the string-literal one was never there.
+`'string_named';` is an unannotated member exactly as `foo;` is, and upstream
+prints its name through `declarationNameToString` without caring which spelling
+it took.
+
+**Sixth arm added to a name-extraction list this session** (§702's import
+specifier, §704's member key, §757's computed spelling, §761's abstract member,
+§770's type-only kind, this) — and the fifth of those took a fixture to find.
+
+> §800 made this visible by removing the wrong lines that were sitting on top of
+> it. **Five attempts read the row as a flow question because the flow part was
+> the part that was wrong**; with that fixed, what remains is one match arm.
+> That is the argument for shipping a `+0` that removes wrong lines: it does not
+> move the board and it *changes what the row looks like*.
+
+```
+bar:  +1 (tsxElementResolution),  0 LOST,  WRONG delta <= 0
+```
+
+### Falsifiers
+
+1. **A computed name reports.** `[Symbol.iterator];` is `ComputedPropertyName`
+   and stays out — upstream prints it differently and §757 owns that spelling.
+2. **A numeric name reports.** `1;` as a member is legal and upstream's message
+   would carry `1`; not added without a fixture.
+3. **TS7010 / TS7006's rows move.** Sibling implicit-any codes.
+
+## §802 — §801 built: **+1**, TS7008's missing column closed
+
+```
+diagnostics             2,300 → 2,301   (bar was +1;  +1, 0 LOST)   41.93%
+TS7008 missing lines    2 → 0;  cases blocked alone 1 → 0
+extraonly               TS7008 wrong lines 2, unchanged
+```
+
+All three falsifiers negative — computed and numeric names stay out, TS7010 and
+TS7006 did not move.
+
+### The row, six attempts, and what actually closed it
+
+```
+§794  the loose helper                −3    reverted
+§796  the narrow helper               −1    reverted
+§798  + the static exclusion          +0    reverted
+§799  + guard placement               +0    reverted, hypothesis disproved
+§800  the true baseline               +0    the three reverts were wrong; shipped
+§801  one match arm                   +1    the missing column closes
+```
+
+**Four of the six were reverts and three of those were mistakes.** The code in
+§796–§798 was correct on its first writing; what was wrong was the number it was
+compared against. §800 fixed the measurement and §801 took one arm.
+
+> The row's real cost was not the five builds — it was that **an unmeasured
+> baseline made three correct builds look like regressions**, and each revert
+> also discarded the visibility the change bought. §800 shipped the same code
+> and the residue became legible immediately. **A wrong baseline does not just
+> mis-score a build; it hides what the build revealed.**
+
+TS7008's two remaining wrong lines are `controlFlowAutoAccessor1`'s line 44 and
+`privateNameAmbientNoImplicitAny` — **named, and neither is in the missing
+column**, so the row is now clean in one direction and priced in the other.
