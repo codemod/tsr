@@ -183,3 +183,29 @@ complete for Phases 1–2.
 **Phase 0 gate: MET** — every priority class named with its anchor;
 fixing semantics and the ordered-sites mechanism transcribed. Phase 1
 (the lattice in `inference.rs`'s existing engine) is build-ready.
+
+
+### Phase 1 pre-read correction (2026-08-10, checker-1)
+
+The opener's "engine partial" line UNDERSTATES the port:
+`check_generic_call` already carries much of the step-2 window from
+checker-2's SS135-SS141 arc — per-argument candidate BUCKETS merged in
+index order (SS140), deferred context-sensitive arguments SERVED from
+pass-1 inferences with consumed parameters marked fixed (the SS75
+uninstantiated-serve semantics), the intra-expression harvest for
+object-literal members IN ORDER with per-site so-far flattening
+(SS137 slice 2), array-element tuple harvest (SS138), and
+reference-member instantiation (SS141). What Phase 1 adds is
+PRECISELY the lattice and nothing else: `InferenceInfo` candidates
+carry no priority tag, so the three merge sites — the buckets merge,
+the `return_mapper` separation (structurally ReturnType-priority
+already), and the `so_far` flatten — cannot yet express "a
+lower-priority-value class displaces". Slot the tag into
+`add_candidate` and the merge points; do NOT restructure the pass
+shape (the SS135 interleaving already measured −610 once). The
+§142/§143/§144 refusals were measured ON this engine — their adverse
+classes remain Phase 3's falsifiers, and any Phase-1 change that
+moves intraExpressionInferences or typeArgumentInferenceWithObjectLiteral
+in EITHER direction is out of scope and reverts. Builder must read
+`inference.rs` whole plus checker-notes-callres2.md SS133-SS144
+before writing the first line.
