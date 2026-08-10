@@ -487,12 +487,14 @@ impl Checker<'_, '_> {
                 self.check_class_called_without_new(node);
                 self.check_call_arity(node);
                 self.check_call_type_argument_arity(node);
+                self.check_untyped_call_type_arguments(node, typed);
                 ambient
             }
             Node::NewExpression(_) => {
                 self.check_new_on_instance(node);
                 self.check_new_arity(node);
                 self.check_call_type_argument_arity(node);
+                self.check_untyped_call_type_arguments(node, typed);
                 ambient
             }
             Node::TypeReferenceNode(_) | Node::ExpressionWithTypeArguments(_) => {
@@ -8355,6 +8357,69 @@ impl Checker<'_, '_> {
             None => Diagnostic::new(message, span),
         };
         self.report(file, diagnostic);
+    }
+
+    /// TS2347 — `Untyped function calls may not accept type arguments.`
+    ///
+    /// `resolveCallExpression` (`checker.go:8533`) and `resolveNewExpression`
+    /// (`:8595`), whose shared condition is *the callee is `any`*.
+    ///
+    /// **Decided from the annotation, not the type.** §578 tested
+    /// `!is_error(t) && t.flags & ANY` — a transcription of upstream's two
+    /// guards — and measured −1 with five wrong lines, because an unresolved
+    /// callee reaches `any` by a route `is_error` does not cover (§579). A
+    /// written `: any` cannot be produced by a resolution failure.
+    ///
+    /// `isUntypedFunctionCall`'s signature-count arm is not ported (§501).
+    ///
+    /// `docs/architecture/checker-notes-diag2.md` §580.
+    fn check_untyped_call_type_arguments(&mut self, node: NodeId, typed: Node<'_>) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let (callee, type_arguments) = match typed {
+            Node::CallExpression(call) => (call.expression, call.type_arguments),
+            Node::NewExpression(new) => (new.expression, new.type_arguments),
+            _ => return,
+        };
+        if type_arguments.is_empty() {
+            return;
+        }
+        let Some(callee) = callee.and_then(|callee| callee.node_id()) else { return };
+        if !self.callee_is_annotated_any(callee) {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let span = self.error_span(node);
+        self.report(
+            file,
+            Diagnostic::new(&messages::UNTYPED_FUNCTION_CALLS_MAY_NOT_ACCEPT_TYPE_ARGUMENTS, span),
+        );
+    }
+
+    /// Does this callee name a variable written `: any`? §580.
+    fn callee_is_annotated_any(&mut self, callee: NodeId) -> bool {
+        if self.nodes.kind(callee) != SyntaxKind::Identifier {
+            return false;
+        }
+        let Some(text) = self.identifier_text(callee).map(str::to_string) else { return false };
+        let Some(symbol) =
+            self.binder.resolve_name(self.nodes, self.node_map, callee, &text, SymbolFlags::VALUE)
+        else {
+            return false;
+        };
+        let declarations =
+            self.binder.symbols().get(self.binder.merged_symbol(symbol)).declarations.clone();
+        declarations.iter().any(|&declaration| {
+            matches!(
+                self.node_map.get(declaration),
+                Some(Node::VariableDeclaration(variable))
+                    if variable
+                        .r#type
+                        .and_then(|t| t.node_id())
+                        .is_some_and(|t| self.nodes.kind(t) == SyntaxKind::AnyKeyword)
+            )
+        })
     }
 
     /// `IsInstantiatedModule` (`ast/utilities.go:2443`).

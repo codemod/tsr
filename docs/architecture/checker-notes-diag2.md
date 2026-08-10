@@ -30662,3 +30662,78 @@ and §563 made for the heritage graph.
 two of them, with `isUntypedFunctionCall`'s signature-count arm still unported
 for the rest. Recorded with its price so the next attempt starts from the
 syntax, not the flag.
+
+## §580 — TS2347 from the syntax, as §579 prescribed
+
+§579 ended: *"the sound narrowing is **the callee resolves to a symbol whose
+written annotation is `any`** — syntax rather than the type flag"*. Built here.
+
+`is_error` is `id == intrinsics.error || unresolved_types.contains(&id)`, so the
+distinguished type does exist; what §578 measured is that the callee in
+`g<A,B>(7)` does not reach it — four of its five wrong lines were unresolved or
+recovery-shaped callees whose type is `any` by another route. Rather than chase
+that representation question, this asks the question the row actually needs:
+
+```ts
+var x: any;
+var d = new x<any>(x);     // the callee is a variable ANNOTATED `any`
+```
+
+A written `: any` is unambiguous, needs no type at all, and cannot be produced
+by a resolution failure. It is the same move as §456 (an unconstrained type
+parameter, decided from the `TypeParameterDeclaration`) and §563 (a base-type
+cycle, decided from `extends` names).
+
+```
+bar:  +2 of 5,  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifier
+
+**Any of §578's five wrong lines returns.** `g<A,B>(7)`,
+`parserAmbiguity1`, `parserSuperExpression3`, `parserCommaInTypeMemberList2`
+and `invokingNonGenericMethodWithTypeArguments1` — none has a callee with a
+written `any` annotation, so all five must stay silent.
+
+## §581 — §580 built: **+2**, bar met exactly, five wrong lines gone
+
+```
+diagnostics   2,130 → 2,132   (bar was +2;  +2, 0 LOST)   38.85%
+TS2347 in extraonly   5 → 0
+```
+
+The falsifier was the whole build: §578's five wrong lines all had callees with
+no written annotation, and all five are silent.
+
+### The same row, twice, from two sides
+
+```
+§578   `!is_error(t) && t.flags & ANY`   upstream's guard, transcribed   −1, five wrong
+§580   the callee's written `: any`      the syntax underneath it        +2, none wrong
+```
+
+> **When a ported guard fails because the port represents a type differently,
+> the repair is usually not a better type test — it is the syntax the type was
+> derived from.** The annotation `: any` is what makes upstream's `IsTypeAny`
+> true here; reading it directly skips the representation entirely.
+
+That is now the fourth row this session decided from syntax where upstream
+decides from types:
+
+```
+§456  an unconstrained type parameter    from `TypeParameterDeclaration.constraint`
+§563  a base-type cycle                  from `extends` names
+§580  an untyped call                    from a written `: any`
+§550  a label on a declaration           from the statement's kind
+```
+
+Each is narrower than upstream and **wrong in the same direction every time** —
+it reports less, never differently — which is the property that makes the trade
+safe. A syntactic proxy that could over-report would not be worth the same risk.
+
+### What stays
+
+Three of five cases. `isUntypedFunctionCall`'s signature-count arm covers a
+callee whose *apparent type* has no call signatures without being annotated
+`any` — `invokingNonGenericMethodWithTypeArguments1`'s `x.f<T>()` is that shape,
+and it needs the apparent type, not the syntax. Named, not attempted.
