@@ -6539,3 +6539,27 @@ pipeline AS ONE UNIT. Both lanes' refusal ledgers now form that
 pipeline's requirements document. Priced: the 1,031-line `{...}`-
 with-`any` ceiling was an over-count — most `any`s there are
 legitimately-typed members beside a gapped neighbour.
+
+## §147 — octal and \8/\9 escape cooking per scanEscapeSequence [claimed: checker-1]
+
+**A WRONG-side family, found by the §146-close board sweep:**
+`octalLiteralAndEscapeSequence` (94 wrong) and
+`templateLiteralEscapeSequence` (91 wrong) diverge because our
+`scan_escape_into` pushes octal-escape DIGITS raw (`\55` → "55",
+the fallback arm's accident) where upstream's `scanEscapeSequence`
+(`scanner.go:1690`) COOKS them: with ReportInvalidEscapeErrors the
+value is the octal CHARACTER (`\55` → "-", TS1487 emitted;
+`\8`/`\9` → "8"/"9", TS1488) and without it the RAW text survives
+(`\55` → "\55" — templates' initial scan, rescanned with report
+by the parser for untagged forms). The cascade: '0'+digit falls
+through, 1–3 take up to two more octal digits, 4–7 up to one;
+`\08` is NUL then '8'. Both arms set CONTAINS_INVALID_ESCAPE.
+WRONG-side conversions pay double (a wrong right AND a right
+gained). **Bar: net ≥80 improvement (W→R plus G→R minus adverse)
+at ≥5:1.** Falsifiers: (a) scanners suite is 100% and compares
+token values against the oracle — it must STAY 100%, any drop
+kills the slice; (b) the template `string`-vs-literal divergence
+may be a SEPARATE mechanism (folding decline) — if cooking alone
+doesn't move the template half, map it separately rather than
+forcing; (c) TS1487/1488 spans must match upstream or the
+diagnostics suite pays — watch coverage.
