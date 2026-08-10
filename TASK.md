@@ -718,3 +718,14 @@ fixing, InferenceInfo priorities, ordered member sites, pass-3
 re-serve) is ONE build. The three refusal ledgers in
 checker-notes-callres2.md are its requirements document. Board:
 right 413,128/478,954 = 86.26% (checker-1's §145 included), clean.
+
+### Next-window census pointer (2026-08-10, checker-2)
+
+instanceofOperatorWithRHSHasSymbolHasInstance (94 wrong, family 317 R):
+the §111 predicate road exists and fires; the wrong cluster answers
+`any` where wants are `false | Point`-class — the wall is UPSTREAM of
+narrowing: expressions involving `declare class RhsN { static
+[Symbol.hasInstance](...): value is T }` answer any/error (likely the
+class value type under a static COMPUTED well-known member, or the &&
+result road). One trace at the `x instanceof Rhs10 && x` shape decides.
+Board at window end: right 413,136/478,954 = 86.26%, all synced.
