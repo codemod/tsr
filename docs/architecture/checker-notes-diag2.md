@@ -42521,3 +42521,59 @@ clarity in `extraonly` and, as far as the instruments can show, no case.
 make this assertion cheap and make every future net-positive-with-losses build
 legible. `casedelta.rs` already does exactly this for `checker_types` and is the
 model.
+
+## §851 — `diagpass`: the invariant this session asserted 360 times, now checkable
+
+`bd tsr-5wv0`, built. `crates/tsr-conformance/examples/diagpass.rs` prints the
+**set of passing case names**, one per line, over the suite's own judged
+population.
+
+```
+cargo run --release -p tsr-conformance --example diagpass > before.txt
+…edit…
+cargo run --release -p tsr-conformance --example diagpass > after.txt
+LC_ALL=C comm -23 before.txt after.txt    # LOST
+LC_ALL=C comm -13 before.txt after.txt    # GAINED
+```
+
+### §850, decomposed
+
+Run against `HEAD~1` in a detached worktree — 2,331, exactly the pre-§850 figure —
+and against `HEAD` — 2,334:
+
+```
+LOST:     (none)
+GAINED:   compiler/implicitConstParameters
+          conformance/nullishCoalescingOperator11
+          conformance/nullishCoalescingOperator4
+```
+
+**`+3/−0`.** §850 said it could not claim `0 LOST` and it was right not to; the
+answer turns out to be the one it declined to assume. *That is the point of
+declining to assume it* — the note that hedged is now the note that can be
+corrected with evidence, and a note that had claimed `+3, zero lost` would have
+been right by luck and unfalsifiable either way.
+
+### Three things this cost, all worth recording
+
+1. **The population.** The first version counted 7,069 cases: the suite treats an
+   **empty** baseline as `Skipped` — *"the case expects no diagnostics"* — and a
+   pass-set diff over the wrong population is worse than none. Matching
+   `diagnostics_suite.rs:123` brings it to 2,334, equal to the suite's `Passed`,
+   which is the check that the instrument measures what it claims to.
+2. **The stack.** Rayon's default worker stack overflows on this corpus; the
+   harness sets 8 MiB at `src/main.rs:83` and every long-running example does the
+   same. A crash, at least, is honest.
+3. **`LC_ALL=C`.** Rust sorts by bytes; `comm` under a UTF-8 locale collates
+   differently, warns on **stderr**, and **still prints a result**. The first
+   decomposition run printed a plausible answer alongside a warning nobody has to
+   read. **A wrong answer with a warning is worse than an error**, and the doc
+   comment now says so in the line above the command.
+
+### The worktree
+
+`HEAD~1` needed the corpus, which lives in the `vendor/typescript-go` submodule
+and is absent from a fresh worktree — the run returned **0 passing**, silently
+plausible for a broken build. Symlinking the submodule from the main checkout
+fixed it. Recorded because the next before/after decomposition will hit it, and
+`0 passing` is exactly the kind of number that gets believed.
