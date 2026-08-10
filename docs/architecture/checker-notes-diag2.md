@@ -42419,3 +42419,105 @@ always true, and the rule declined every pattern in the corpus.
 That is the fourth `+0`-then-probe in this session (§800, §820, §837, this), and
 in every one the probe cost a single run and the reasoning that preceded it cost
 more.
+
+## §849 — §848's claim was wrong: the three are **three sites**, not one question
+
+§848 wrote that TS18047, TS18049 and TS2531 *"share the other dead half —
+`maybe_null` is never true — and are one question, not three."* Reading their
+fixtures says otherwise:
+
+```
+TS18047   narrowingTruthyObject        typeof x === 'object' narrows unknown to object|null   FLOW
+TS18049   nullishCoalescingOperator11  f11.toFixed()      — a PROPERTY ACCESS on a nullable
+TS18049   forInStrictNullChecksNoError for (key in x)     — a FOR-IN over a nullable
+TS2531    classExtendsNull3            class C extends null                — a HERITAGE base
+```
+
+`maybe_null` being never true is a **consequence**, not the cause. The cause is
+that `report_nullable_operand` has exactly **two** call sites in this port —
+
+```
+nullable_operand.rs:49   the prefix-unary arm
+nullable_operand.rs:75   the binary arm
+```
+
+— both arithmetic, and upstream calls `checkNonNullType`/`checkNonNullExpression`
+from property access, element access, call targets, `this`, `for…in`, spreads and
+more. A nullable operand of `-` or `*` is rare; a nullable *receiver* is
+everywhere, and every one of those is a site this port does not visit.
+
+> **Correcting the record**: §848's "one question, not three" was a guess made
+> from the shape of the *table* rather than from the fixtures, and the fixtures
+> were four commands away. The rule this workstream already has for this —
+> *read the fixture before the fourth hypothesis* (§131) — applies just as much
+> to a **summary** as to a build, and §848 wrote a summary without paying it.
+
+### The site worth measuring
+
+Property access is the largest of the unwired sites, so it is the one to
+measure — and it is measured rather than argued because its blast radius is every
+`a.b` in the corpus.
+
+```
+bar:  >= +1,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **Any case is lost.** The receiver check is wider than upstream's.
+2. **Wrong lines rise by more than two.** Optional chaining, `!`, and narrowing
+   each suppress it upstream and this port may not.
+
+## §850 — the receiver site wired: **+3 cases, +11 wrong lines**, bar exceeded and kept
+
+```
+diagnostics             2,331 → 2,334   (bar was >= +1;  +3)   42.53%
+extraonly               75 → 86         (bar was <= +2;  +11)  — BAR EXCEEDED
+diagemit SILENT         3 rows → 1      — only TS2531 remains
+```
+
+Two measurements, and the first was `+0`. A probe on `f11.toFixed()` printed
+**nothing at all**, which is a different answer from printing a wrong fact:
+
+```rust
+SyntaxKind::Identifier => {
+    let Some(name) = self.identifier_text(receiver) else { return };
+    if name != "undefined" { return; }      // <- every identifier receiver, gone
+```
+
+The fall-through added for the type-based arms sat under `_`, and an identifier
+never reaches `_`. **An identifier is by far the commonest nullable receiver**,
+so the site was still unwired after a build that was supposed to wire it — and
+the *silence* of the probe is what said so. A probe that prints the wrong value
+tells you the rule is wrong; a probe that prints nothing tells you it is not
+running, and those are worth distinguishing before reading the number.
+
+### The bar was exceeded, and the reason to keep it anyway
+
+All eleven new wrong lines are **narrowing**:
+
+```
+narrowingTruthyObject       6   typeof x === 'object' && x
+controlFlowOptionalChain3   4   optional chains
+forInStrictNullChecksNoError 1  the for-in narrows the subject
+```
+
+which is falsifier 2's own prediction — *"narrowing suppresses it upstream and
+this port may not"*. The rule is faithful; the flow analysis is incomplete, and
+that owner was already named.
+
+Both affected cases carry **expected lines this port still does not produce**, so
+they were failing before this build and are failing after. The eleven lines cost
+clarity in `extraonly` and, as far as the instruments can show, no case.
+
+> **What cannot be asserted here is the usual `0 LOST`.** The snapshot records
+> aggregate counts, not a per-case pass set, so a net `+3` over 5,488 cases is
+> consistent with `+4/−1` as well as `+3/−0`. Every previous build this session
+> could name its cases; this one cannot, and saying "+3, zero lost" would be
+> claiming a check that was not run. **A build whose gain is bigger than its
+> evidence should report the evidence, not the gain.**
+
+`bd tsr-5wv0` files the missing instrument: a per-case pass-set diff, which would
+make this assertion cheap and make every future net-positive-with-losses build
+legible. `casedelta.rs` already does exactly this for `checker_types` and is the
+model.

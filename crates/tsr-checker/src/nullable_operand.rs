@@ -82,7 +82,7 @@ impl Checker<'_, '_> {
     /// Extracted so the prefix arm and the binary arm share it — the
     /// spelling test that chooses TS18050 over TS18048 and the five
     /// entity-name branches are the same for both. §759.
-    fn report_nullable_operand(&mut self, operand: tsr_ast::Expression<'_>) {
+    pub(crate) fn report_nullable_operand(&mut self, operand: tsr_ast::Expression<'_>) {
         let Some(id) = operand.node_id() else { return };
         let ty = self.check_expression(operand);
         // `getTypeFacts(t, IsUndefinedOrNull)` (`checker.go:7425`): the

@@ -3118,12 +3118,22 @@ impl Checker<'_, '_> {
             Some(Node::ElementAccessExpression(access)) => access.expression,
             _ => return,
         };
+        let receiver_expression = receiver;
         let Some(receiver) = receiver.and_then(|e| e.node_id()) else { return };
         let text = match self.nodes.kind(receiver) {
             SyntaxKind::NullKeyword => "null",
             SyntaxKind::Identifier => {
                 let Some(name) = self.identifier_text(receiver) else { return };
+                // **An identifier that is not `undefined` still has a type**,
+                // and it is by far the commonest nullable receiver. This arm
+                // returned here, so §849's fall-through never saw an
+                // identifier — a probe on `f11.toFixed()` printed nothing at
+                // all, which is what said the site was still unreached rather
+                // than the facts being wrong. §850.
                 if name != "undefined" {
+                    if let Some(expression) = receiver_expression {
+                        self.report_nullable_operand(expression);
+                    }
                     return;
                 }
                 // A shadowed `undefined` is legal; the arm is about the global.
@@ -3149,7 +3159,19 @@ impl Checker<'_, '_> {
                 }
                 "undefined"
             }
-            _ => return,
+            // **Not a literal spelling — the type-based arms.** Upstream's
+            // `checkNonNullExpression` reaches
+            // `reportObjectPossiblyNullOrUndefinedError`, whose first branch is
+            // the spelling test above and whose other five are keyed on the
+            // facts. This port had the reporter and wired it to two arithmetic
+            // sites only, which is why three of its six arms never fired
+            // (§846); a nullable *receiver* is the site that actually occurs.
+            // §849.
+            _ => {
+                let Some(expression) = receiver_expression else { return };
+                self.report_nullable_operand(expression);
+                return;
+            }
         };
         let Some(file) = self.source_file_of_for_diagnostics(receiver) else { return };
         let span = self.nodes.span(receiver);
