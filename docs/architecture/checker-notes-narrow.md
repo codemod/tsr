@@ -6140,3 +6140,17 @@ the full arm with an env-gated eprintln AT THE FIRE SITE printing
 (literal node, has_no_contextual answer) on the looseThis filter —
 the admit/poison split names itself in one read. Reverted again;
 the park's map is now three probes deep.
+
+**§142 probe 4 (the eprintln run):** the fn-expr arm fires with
+no_ctx=TRUE on looseThis's `let o = {` literal — which has NO
+annotation: §94's LADDER WAS RIGHT, the previous note's suspicion
+withdrawn. The 17 R→G are therefore a POISON inside the literal's
+own computation with the mint live: the body `return m +
+this.n.length` should flow mint→n:number→.length established-any→
+any (upstream's own want is `(m: number) => any`), but the LITERAL
+errors instead — some member-computation road rejects the minted
+this mid-inference. Probe 5 (queued): member-level eprintlns in
+the literal's property computation on the same filter. The park's
+map: methods-only is landable-shaped at 2.5:1 zero-regression; the
+fn-expr arm is one poison-trace from flipping ~24 more lines and
+the combined ~5:1.
