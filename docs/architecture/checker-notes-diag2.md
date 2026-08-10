@@ -40640,3 +40640,106 @@ of machinery this port has not built.
 The small-row band is therefore **closed for this workstream**, which §670
 predicted for ≥4 cases and is now true down to three. What remains reachable
 here is the ≤2-case tail and whatever the other workstreams unblock.
+## §807 — an import alias in a `.d.ts` was an EXPORT of it
+
+```ts
+import { QueueEvents } from "bullmq";   // a PLAIN import
+new QueueEvents(name, {})               // TS1361: imported using 'import type'
+```
+
+`tsc` says nothing. This survived three earlier attempts in this session, each
+of which reproduced the wrong shape.
+
+### The cause, and why the repros kept coming back clean
+
+`declareModuleMember` (`binder.go:376-381`) has an **alias fast-path** that runs
+*before* the export-context test:
+
+```go
+if symbolFlags&ast.SymbolFlagsAlias != 0 {
+    if node.Kind == ast.KindExportSpecifier ||
+        (node.Kind == ast.KindImportEqualsDeclaration && hasExportModifier) {
+        return b.declareSymbol(ast.GetExports(container.Symbol()), …)
+    }
+    return b.declareSymbol(ast.GetLocals(container), …)
+}
+```
+
+An alias is an export for exactly two spellings, and an import **specifier** is
+neither. This port had only the `ExportSpecifier` disjunct and then fell through
+to `export_context` — and a `.d.ts` with no `export {…}`/`export * from`
+statement *is* an export context (`setExportContextFlag`). So in a declaration
+file, **every `import type { X } from "./y"` became an export**.
+
+`bullmq/dist/esm/classes/job.d.ts:4` is exactly that:
+
+```ts
+import type { QueueEvents } from './queue-events';
+```
+
+`classes/index.d.ts` lists `export * from './job'` before
+`export * from './queue-events'`, so the barrel re-exported *job's type-only
+alias* and `import { QueueEvents } from "bullmq"` resolved to it. Two symptoms,
+one cause — the second visible in the reduced fixture:
+
+- using it as a value is **TS1361** (the reported bug);
+- the name is absent from `job.d.ts`'s own locals, so its use *inside that file*
+  is **TS2304**.
+
+**`.d.ts` was the missing ingredient in every earlier repro.** A two-level
+`export *` barrel, a type-only local of a name a sibling exports, an unrelated
+`import type` in the importing file — all reproduced with `.ts` files and all
+clean, because `export_context` requires a declaration file. Instrumenting the
+alias walk (two hops, second landing at `job.d.ts` offset 327) is what finally
+named it. **Three synthetic repros disagreeing with one real program meant the
+repro was wrong, not the program.**
+
+### What it cost, and the debt is real
+
+| | base | after |
+|---|---:|---:|
+| `binder_symbols` | 8,444/8,444 | 8,444/8,444 |
+| `diagnostics` | 2,300/5,488 | **byte-identical** |
+| `checker_types` cases | 4,284/9,538 | **4,285** — +1 |
+| `checker_types` lines | 414,032 (86.45%) | **413,976** (86.43%) |
+| the 22-package repository | **18** | **10** |
+
+**−56 assertion lines across 26 cases**, against +1 case. That is a larger debt
+than any other landing this session and it is not bounded away:
+
+The concentration is `compiler/privacyImportParseErrors` (−24) and
+`ramdaToolsNoInfinite2` (−11), and the shape is named. Inside
+
+```ts
+export declare module "use_glo_M1_public" {
+    import use_glo_M1_public = glo_M1_public;   // no export modifier
+    export var v1: { new (): use_glo_M1_public.c1 };
+}
+```
+
+the alias correctly moves from the module's *exports* to its *locals* — and the
+reference to it **inside the same module** then answers `error`. So this port
+resolves such a name through the module symbol's exports rather than through the
+container's locals. That is a **separate defect this change exposed**, not one it
+introduced: the lines were right before only because the symbol was in the wrong
+table, and both wrongs happened to cancel.
+
+Landed on §169's precedent — no case lost, one gained, the cause named rather
+than bounded — and the follow-up is stated: **make name resolution inside an
+ambient `declare module "x"` consult the container's locals.** When that lands,
+these 26 cases are the ones to re-measure, and they should return more than 56.
+
+### Tests
+
+Three in `crates/tsr-binder/tests/program.rs`, asserted at the symbol table
+rather than through a diagnostic, each red under one mutation:
+
+| mutation | reddens |
+|---|---|
+| revert the fast-path | the import-specifier test and the `export import` test |
+| make **every** alias a local | both true positives |
+| drop the export-modifier requirement on `import =` | the `export import` test |
+
+The two true positives are the fast-path's own spellings — a re-export specifier
+and an `export import X = N` — because without them the change reads as "aliases
+are never exports", which is a different and equally wrong rule.

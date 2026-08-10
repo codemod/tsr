@@ -1419,6 +1419,32 @@ its whole deliverable and accept that it converts nothing until finished.
   recorded in full at `checker-notes-diag2.md` §676 so the falsifier costs
   nothing: restore it and measure; zero wrong lines means the binder is fixed
   and TS2709's three cases come with it. §675–§676
+### New, this session, the alias fast-path
+
+- **An import alias in a `.d.ts` was an EXPORT of it** (§807).
+  `declareModuleMember` (`binder.go:376-381`) has an alias fast-path that runs
+  *before* the export-context test; this port had only its `ExportSpecifier`
+  disjunct and fell through to `export_context` — and a `.d.ts` with no
+  `export {…}` **is** an export context. So every `import type { X }` in a
+  declaration file became an export of it. `bullmq`'s `classes/job.d.ts` is
+  exactly that, its barrel re-exported the type-only alias, and a **plain**
+  `import { QueueEvents } from "bullmq"` resolved to it — TS1361 on a value use,
+  and TS2304 for the same name inside its own file.
+
+  **`.d.ts` was the missing ingredient in three earlier repros**, all written
+  with `.ts` files and all clean. Three synthetic repros disagreeing with one
+  real program meant the repro was wrong, not the program.
+
+- **Landed carrying the session's largest debt, named not bounded** (§807):
+  **−56 assertion lines across 26 cases** against +1 case, `binder_symbols` and
+  `diagnostics` untouched. The shape is identified — an unexported
+  `import X = Y` inside `declare module "x"` correctly moves from the module's
+  exports to its locals, and this port then fails to resolve it *from inside
+  that module*. A **separate defect the change exposed**: those lines were right
+  before only because the symbol sat in the wrong table and two wrongs cancelled.
+  Follow-up stated: make name resolution inside an ambient module consult the
+  container's locals; those 26 cases are the ones to re-measure.
+
 ### New, this session, the exhaustive switch
 - **An exhaustive `switch`'s bypass edge was never dropped** (§686). The binder
   already records it and already names it — a `SwitchClause` flow with an empty
@@ -2534,6 +2560,7 @@ holds only the numbers.
 | 2026-08-09 | *(this session)* | 37.76% | 2,072 | **TS1016's missing conjunct, and every rule this session paired with a true positive** | `checkGrammarParameterList` (`grammarchecks.go:714`) is `seenOptionalParameter && parameter.Initializer == nil`; the second conjunct was absent, so a **defaulted** parameter after an optional one was an error. Not the same test as the arm above it — §288 established that `seenOptionalParameter` is a `?` alone, and the initialiser exclusion is a separate arm. Repo 62 → 51, both snapshots byte-identical. **Then the audit**: each of the eight rules touched this session was deleted outright to find which test catches it, and four true positives were missing and are now written. **One could not be** — `globalThis.blockScoped` over a script `let` must report TS2339 and does not, and measurement shows §173's guard is *not* the cause (§33's minted type has no members, so completeness declines first), making that branch unreachable today; kept as upstream's rule and pinned by a divergence test. `checker-notes-diag2.md` §554 |
 | 2026-08-09 | *(this session)* | 39.89% | 2,189 | **TS2438 moved to its one real caller: repo 51 → 20, `diagnostics` +2** | `checkTypeNameIsReserved` has six callers and the `Import_name_cannot_be_0` one is `checkImportEqualsDeclaration` (`checker.go:5488`) — an *internal* `import X = A.B` whose target has a **type** meaning. This port had it on `ImportClause`, `NamespaceImport` and `ImportSpecifier`, three kinds that reach none of the six, so every `import { boolean } from "drizzle-orm/pg-core"` was an error — **31 on a 22-package repository**. **Unlike this session's other six, the corpus covered this and we were failing it**: the +2 are `reservedNameOnInterfaceImport` and `reservedNameOnModuleImportWithInterface`, the rule's own cases. The first attempt left the rule **dead** — `resolve_alias` declines a qualified module reference, which is the only shape it fires on — and it is resolved through the existing `resolve_entity_name` instead. `checker_types` byte-identical. `checker-notes-diag2.md` §660 |
 | 2026-08-10 | *(this session)* | 40.11% | 2,201 | **the exhaustive switch's bypass edge: repo 20 → 10, `diagnostics` byte-identical, 0 cases lost** | The binder already recorded the "matched no clause" edge and already named it; upstream drops it when the switch covers its discriminant (`flow.go:1292`). Without that every exhaustive `switch` reported TS2454 — **10 on a 22-package repository**. **The memo made it worse**: upstream's three-valued `exhaustiveState` guards a re-entrancy that is real, but caching its answer cost `exhaustiveSwitchCheckCircularity` outright (32/32 → 30/32), because upstream reaches the discriminant via `checkExpressionCached` and this port has no expression cache. Guarding without caching loses no case. Landed with a **one-line debt** — `+1 / −2` inside `exhaustiveSwitchStatements1`, the feature working once and the re-entrancy twice — named rather than bounded, with the falsifier written down. `checker-notes-diag2.md` §686 |
+| 2026-08-10 | *(this session)* | 41.91% | 2,300 | **an import alias in a `.d.ts` was an EXPORT of it: repo 18 → 10, +1 case, −56 lines** | `declareModuleMember`'s **alias fast-path** (`binder.go:376-381`) runs before the export-context test and this port had only its `ExportSpecifier` disjunct. A `.d.ts` with no `export {…}` is an export context, so every `import type { X }` in a declaration file became an **export** — `bullmq`'s `job.d.ts` is exactly that, its barrel re-exported the type-only alias, and a *plain* `import { QueueEvents }` resolved to it (TS1361 on a value use; TS2304 for the same name inside its own file). **`.d.ts` was the missing ingredient in three earlier repros**, all written with `.ts` and all clean — three repros disagreeing with one real program meant the repro was wrong. **Largest debt of the session and not bounded away: −56 lines over 26 cases**, concentrated in `privacyImportParseErrors` (−24), whose shape is identified as a *separate* defect this exposed — an unexported `import X = Y` in `declare module "x"` moves correctly to locals and is then unresolvable from inside that module, so those lines were right before only because two wrongs cancelled. `binder_symbols` and `diagnostics` untouched. `checker-notes-diag2.md` §807 |
 | 2026-08-09 | `9f4698e` | **29.43%** | **1,615** | **+1, every rail unmoved** | **`parseObjectBindingElement` branches on `isBindingIdentifier`**, read *before* the property name — `{ while }` is one `':' expected` upstream and was four errors here. It costs one condition only because **§193's same-position guard had already landed** for a different row: the third time this session a general fix changed what a later build costs. `checker-notes-diag2.md` §204–§205 |
 | 2026-08-09 | `00d7d76` | 29.43% | 1,615 | **+0, and landed on purpose** | **A namespace in a `.d.ts` exports what it declares.** `bind_container`'s ambient test had three disjuncts and not `in_declaration_file`. Filed as *"imported namespace symbols carry no exports"* — imports had nothing to do with it. Landed at +0 because it is **observable and pinned** (a test red without the disjunct) where §207's +0 was unobservable; three rows queue behind it. `checker-notes-diag2.md` §208–§210 |
 | 2026-08-09 | `7373eff` | 29.43% | 1,615 | **TS7026 wrong 9 → 3, `checker_types` +8** | **The `@jsx` pragma path, rebuilt on §208's table.** §207 built it across three crates, measured +0, and reverted; §208 fixed the table its second hop reads and landed at +0 **because it was observable and pinned**. Had §208 been reverted for scoring zero this rebuild would be unreachable. *Unmeasured and unobservable are different.* `checker-notes-diag2.md` §207–§211 |
