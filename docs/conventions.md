@@ -3389,3 +3389,14 @@ domain SLICES of a transcription are fine (§159's Kleene fallthrough);
 reordered or re-derived LOGIC is not. A refusal of an induced build
 records the upstream lines the rebuild must transcribe; that bound is
 the refusal's product.
+
+### Corollary (2026-08-10): induced reasoning hides in PINS
+
+checker-1's §162 found an induction that had already shipped *inside
+unit-test expectations* — pins encoding "keep the fresh literal", which
+looked like evidence for the behaviour they had themselves assumed.
+The transcription (`getCovariantInference`'s widening) corrected the
+code AND the pins. **A pin is only evidence if it was read off the
+oracle.** When a transcription contradicts a pin, check the baseline
+before believing the pin; a pin written from the port's own behaviour
+is an induction wearing a test's clothes.

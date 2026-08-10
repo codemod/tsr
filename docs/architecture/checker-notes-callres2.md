@@ -1751,3 +1751,16 @@ text is in this commit's history for whichever corpus grows into it.
 The §165 lesson still holds — unported tails ARE under-searched — but
 this one is under-searched because it is unreachable, not because it
 was missed.
+
+## §167 — the predicate road's two tails: transcribed, +0, reverted
+
+flow.go:318 (don't narrow from `any` when the predicate type is exactly
+global Object/Function) and flow.go:324 (the predicate argument reading
+the reference through a `?.` chain strips the base) — both genuinely
+absent from our `narrow_type_by_call_expression`, both transcribed,
+both measuring ZERO on the full pair. Reverted under the
+unexercised-branch rule. The tail sweep's ledger for this window: §165
+hit (+10/2), §166 unreachable (+0), §167 unreachable (+0) — one in
+three, which prices the sweep honestly for the next window: read the
+tails, expect two thirds to be unreachable, and keep only what the
+board pays for.
