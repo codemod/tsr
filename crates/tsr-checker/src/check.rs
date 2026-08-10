@@ -627,6 +627,7 @@ impl Checker<'_, '_> {
         // just  — §623, and §600's dispatch class for the
         // ninth time.
         self.check_modifier_on_nested_statement(node);
+        self.check_declaration_statement_container(node, typed);
         self.check_field_named_constructor(node, typed);
         self.check_decorated_private_name(node, typed);
         self.check_dynamic_import_module_kind(node, typed);
@@ -2776,10 +2777,36 @@ impl Checker<'_, '_> {
         } else {
             return;
         };
+        if !self.container_allows_block_scoped(node) {
+            self.report_block_scoped_container(node, keyword);
+        }
+    }
+
+    /// TS1156's other two sites — a **type alias** (`checker.go:6881`) and an
+    /// **interface** (`checker.go:4996`), which share
+    /// `containerAllowsBlockScopedVariable` with §395's variable form and could
+    /// not reach it while the predicate lived inside that rule. §624's rule,
+    /// third instance. §660.
+    fn check_declaration_statement_container(&mut self, node: NodeId, typed: Node<'_>) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let keyword = match typed {
+            Node::TypeAliasDeclaration(_) => "type",
+            Node::InterfaceDeclaration(_) => "interface",
+            _ => return,
+        };
+        if !self.container_allows_block_scoped(node) {
+            self.report_block_scoped_container(node, keyword);
+        }
+    }
+
+    /// `containerAllowsBlockScopedVariable` (`grammarchecks.go:1814`), which
+    /// recurses through a `LabeledStatement`. §660.
+    fn container_allows_block_scoped(&self, node: NodeId) -> bool {
         let mut parent = self.nodes.parent(node);
         while let Some(container) = parent {
             match self.nodes.kind(container) {
-                // `containerAllowsBlockScopedVariable` recurses through labels.
                 SyntaxKind::LabeledStatement => parent = self.nodes.parent(container),
                 SyntaxKind::IfStatement
                 | SyntaxKind::DoStatement
@@ -2787,22 +2814,29 @@ impl Checker<'_, '_> {
                 | SyntaxKind::WithStatement
                 | SyntaxKind::ForStatement
                 | SyntaxKind::ForInStatement
-                | SyntaxKind::ForOfStatement => {
-                    let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
-                    let span = self.nodes.span(node);
-                    self.report(
-                        file,
-                        Diagnostic::with_args(
-                            &messages::_0_DECLARATIONS_CAN_ONLY_BE_DECLARED_INSIDE_A_BLOCK,
-                            span,
-                            [keyword.to_string()],
-                        ),
-                    );
-                    return;
-                }
-                _ => return,
+                | SyntaxKind::ForOfStatement => return false,
+                _ => return true,
             }
         }
+        true
+    }
+
+    /// The shared report for TS1156's three sites. §660.
+    fn report_block_scoped_container(&mut self, node: NodeId, keyword: &str) {
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        // `getErrorRangeForNode` narrows a **named** declaration to its name, so
+        // `if (true) type s = string` reports on the `s`. A `VariableStatement`
+        // has no name and `error_span` leaves it alone, which is why §395's arm
+        // is unaffected. §660.
+        let span = self.error_span(node);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::_0_DECLARATIONS_CAN_ONLY_BE_DECLARED_INSIDE_A_BLOCK,
+                span,
+                [keyword.to_string()],
+            ),
+        );
     }
 
     /// TS18050 — `The value '{0}' cannot be used here.`

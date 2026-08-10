@@ -34119,3 +34119,81 @@ kept — the port was right and the guess was not.
 `Enum_name_cannot_be_0` (`:10459`) has no arm here. That is a **missing**
 diagnostic rather than a wrong one, so it is out of this change's direction; it
 is recorded here so the next reading of the reserved-name family starts with it.
+
+## §660 — TS1156: a type alias or interface in a single-statement position
+
+```ts
+function f1() {
+  if (true) type s = string;      // TS1156 — 'type' declarations …
+}
+function f2() {
+  if (true) interface I {}        // TS1156 — 'interface' …
+}
+```
+
+Three sites emit this message and this port has one:
+
+```
+grammarchecks.go:1807   a block-scoped VariableStatement   built, §395
+checker.go:6881         a type alias                       ← this build
+checker.go:4996         an interface                       ← this build
+```
+
+All three share `containerAllowsBlockScopedVariable(node.Parent)`, which this
+port ports correctly — **inside `check_block_scoped_statement_container`, bound
+to `VariableStatement`**, so the two declaration forms could never reach it.
+
+> **§624's rule, third instance: a rule's dispatch is part of its bound.** There
+> the bound was correct when written and the rule outgrew it; here the bound was
+> correct because §395 built only the variable form, and the *message* outgrew
+> the rule. **Both are the same repair — factor the predicate out and call it
+> from every site upstream calls it from** — and the tell in both is a message
+> emitted from more places than the rule is dispatched from.
+
+`containerAllowsBlockScopedVariable` recurses through `LabeledStatement`, which
+the existing walk already does; the extraction keeps it verbatim.
+
+```
+bar:  +2 of 2,  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **A top-level `type s = string` reports.** A `SourceFile` parent allows it,
+   and every type alias in the corpus is one.
+2. **`{ type s = string; }` in a block reports.** A `Block` parent allows it.
+3. **TS1156's variable row moves.** §395's arm must be untouched.
+
+## §661 — §660 built: **+2**, TS1156 at zero, and the column again
+
+```
+first form   2,188 → 2,188   (+0)   right lines, columns 13 and 5
+final form   2,188 → 2,190   (+2)   columns 18 and 15, as upstream
+extraonly    zero TS1156 lines
+TS1156 missing lines  4 → 0         — checked after the build (§629)
+```
+
+The extraction worked on the first attempt and the **position** did not:
+`grammarErrorOnNode` runs through `getErrorRangeForNode`, which narrows a
+**named** declaration to its name, so `if (true) type s = string` reports on the
+`s` and not the `type`.
+
+> **Third time this session a build has been `+0` on the column alone** (§616's
+> deferred-import clause, §640's rest-element `=`, this). Two were fixed by
+> finding the node upstream anchors to; one could not be (§641's trivia). **The
+> instrument is always `diagcase` and the question is always *which node*** —
+> and `error_span` versus `nodes.span` is the whole of the answer whenever the
+> node is a declaration.
+
+§395's variable arm is unaffected because a `VariableStatement` has no name for
+`error_span` to narrow to, which is why the shared report could take the
+narrowing unconditionally.
+
+### The grammar family after twenty-two builds
+
+```
++39 before   TS1156 +2   ──   +41
+```
+
+Twenty-two codes closed of the sixty-two with cases, **+41 of the 128 priced at
+§599** — a third of the family.
