@@ -37662,3 +37662,94 @@ declaration reports. **Owner: `tsr-binder`'s `getDeclarationName` for a default
 interface.** Not built here: `binder_symbols` is at 100% and a name-mapping
 change is the kind that moves it, so the row is worth 2 cases against a suite
 this workstream must not regress. Two cases, named and priced.
+
+## §736 — TS2515: a non-abstract class must implement inherited abstract members
+
+```ts
+class A { foo() {} }
+abstract class B extends A { abstract bar(); }
+class C extends B { }            // TS2515 — 'bar' from 'B'
+abstract class D extends B {}    //  — silent, D is abstract
+```
+
+`checkKindsOfPropertyMemberOverrides`'s `notImplementedInfo` pass
+(`checker.go:4664`). Upstream collects the abstract members of every base and
+subtracts what the derived type provides; the error node is the derived class's
+**name**, and the message carries three arguments — derived name, missed member,
+the class the member came from.
+
+The pieces are the ones §708 already built for TS2610: the base chain walked
+with a bound, and `class_member_shape` for names. What is added is the
+`abstract` modifier test on each side and the subtraction.
+
+Upstream's message has four forms by count (one, two-to-five, more than five,
+and a class-expression variant). **Only the single-member form is built** — the
+plural forms need a joined list this port would have to spell the same way
+upstream does, and a wrong argument is invisible to the oracle but wrong in the
+file. §679 declined TS2460 for the same reason and it is the same judgement.
+
+```
+bar:  +2 of 5 (classAbstractExtends, classAbstractOverrideWithAbstract),
+      0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **An abstract derived class reports.** `abstract class D extends B {}` is the
+   fixture's own control and inherits the obligation rather than discharging it.
+2. **A member implemented two levels down reports.** `class C extends B` where
+   `B` implements `A`'s abstract member — the walk must subtract at every level,
+   not only the immediate one.
+3. **TS2610 / TS2611 move.** Same helpers, same chain walk.
+
+## §737 — §736 measured: **+2 with 4 wrong lines**, over bar, reverted
+
+```
+diagnostics             2,253 → 2,255   (bar was +2;  +2)
+extraonly               TS2515 wrong lines 0 → 4   (bar allowed +2)
+```
+
+The rule fires and the arithmetic is wrong in one direction only: a derived
+class that **does** implement the abstract member still reports.
+
+```ts
+abstract class B extends A { abstract bar(); }
+class C extends B { }        // TS2515 — correct
+class E extends B { bar() {} }   // TS2515 — WRONG
+```
+
+The probe says why in one line, and it is not what the code reads as:
+
+```
+PROBE abs Some("C") provided=["bar", "foo"] missing=[("bar", "B")]
+PROBE abs Some("E") provided=["bar", "foo"] missing=[("bar", "B")]
+```
+
+**`C` and `E` produce the identical `provided` list**, and both entries come
+from the *base* walk — `bar` from `B`, `foo` from `A`. The derived class's own
+members contribute nothing, for `E` as much as for `C`, so the subtraction is
+between the bases and themselves.
+
+### Three things this row cost, all worth recording
+
+1. **`class_member_shape` omits methods on purpose**, because it serves TS2610's
+   property-versus-accessor question. §736 spotted that and wrote a local
+   enumeration rather than widening it — §686's lesson applied *before* the
+   measurement, and that part was right.
+2. **The derived members still do not arrive**, and the reason is not in the
+   probes yet. The next step is one line: print `class.members.len()` at the top
+   of the rule.
+3. **A fourth textual-match miss.** The probe meant to print that never ran,
+   because `cargo fmt` had reflowed the two lines it anchored on. §547 named
+   this, §711 repeated it, and the standing fix — *match on the function, not
+   the lines* — is the one I keep not applying to **probes**, only to edits.
+   **Probes are edits.**
+
+### Refused, with the number
+
+```
+TS2515   5 cases   the derived class's own members are not reaching the rule
+```
+
+Named and priced with the exact next measurement, so the next attempt starts at
+the probe rather than at the design.

@@ -1307,6 +1307,18 @@ its whole deliverable and accept that it converts nothing until finished.
 
 ## 5. Refused, with the number that refused it
 
+### New, this session, TS2515 — refused by 4 wrong lines against a bar of 2
+
+- **A derived class that implements the abstract member still reports.** The
+  probe shows `C` (which does not implement) and `E` (which does) producing the
+  **identical** `provided` list, both entries coming from the base walk — so the
+  derived class's own members contribute nothing and the subtraction is between
+  the bases and themselves. Two things were right: `class_member_shape` omits
+  methods on purpose (it serves TS2610), and §736 wrote a local enumeration
+  rather than widening it — §686's lesson applied *before* the measurement.
+  **The next step is one line: print `class.members.len()` at the top of the
+  rule.** Five cases. §736–§737
+
 ### New, this session, TS2528 — refused by −2 and 6 wrong lines, and the mistake was mine twice over
 
 - **TS2528 is already built, in `tsr-binder`.** §734 chose the row off
@@ -2791,6 +2803,7 @@ holds only the numbers.
 | 2026-08-10 | HEAD | **41.05%** | **2,253** | **+1 — the refusal note named the next attempt, and it cost one run** | **TS7031**, retried from §729's own prescription. ***One clause*** separates the two bounds: `no initializer and no annotation` measured **−8 / 39 wrong**, and `…and the declaration list's parent is a VariableStatement` measured **+1 / 0 wrong**. ***The field test asks what this declaration is missing; the parent test asks where its type comes from*** — and a `for…of` head is missing exactly the same two fields while missing no type at all. ***§729 wrote that fix before the measurement, from the wrong column alone***, and it cost nothing to write. ***The refusal note is worth more than the refusal, and it is worth most when it names the next attempt rather than the failure.*** §730–§731 |
 | 2026-08-10 | HEAD | 41.05% | 2,253 | **+0, kept — and the three-gate sweep closes** | Swept `modifiers_of`: **24** arms against **33** nodes carrying a `modifiers` field. Seven of the nine absences are kinds that ***cannot legally carry a modifier*** — the parser attaches recovered ones to whatever it was parsing. The two real gaps are `FunctionTypeNode` and `ConstructorTypeNode`: §-earlier widened this helper from sixteen arms to twenty-four to reach the **signature** kinds and ***stopped one short of the two type forms carrying the same modifiers in the same positions***. Kept under §667's first clause (reads an input where upstream reads it). Across three sweeps — `is_value_reference` **+4**, `is_declaration_or_member_name` **+0**, `modifiers_of` **+0** — ***five real gaps, one worth four cases and four worth none***, each sweep costing one script. ***All three gates were already known to be wrong; a list that has been wrong once is cheap to check and worth checking, and a list with no such history is not evidence of anything.*** §732–§733 |
 | 2026-08-10 | HEAD | 41.05% | 2,253 | **−2 and 6 duplicate lines — a rule recorded is not a rule applied** | **TS2528** is ***already built, in `tsr-binder`***, and §734 reported it a second time. The row was chosen off `diagslice`'s `0/N occupied` column read as *no rule emits this code* — ***and §697 had already recorded, in this session, that `occupied` is computed over the residual***. ***§143 says read the existing rule; §697 says the instrument's column definition is part of the measurement; this build broke both, and the second I had written myself.*** Reverted. What is actually missing: `export default interface A {}` never reaches the `default` name, so the binder's collision test never fires — owner `tsr-binder`'s `getDeclarationName`, ***not built because `binder_symbols` is at 100% and a name-mapping change is the kind that moves it***. §734–§735 |
+| 2026-08-10 | HEAD | 41.05% | 2,253 | **+2 with 4 wrong lines, over bar — and probes are edits** | **TS2515**, a non-abstract class not implementing an inherited abstract member. The rule fires and is wrong in one direction: ***`C` (which does not implement) and `E` (which does) produce the identical `provided` list***, both entries from the base walk, so the derived class's own members contribute nothing. Reverted at the wrong-line bar. Two things were right — `class_member_shape` omits methods **on purpose** because it serves TS2610, and §736 wrote a local enumeration rather than widening it, ***§686's lesson applied before the measurement rather than after***. And a fourth textual-match miss: the probe that would have answered this never ran, because `cargo fmt` had reflowed the lines it anchored on. §547 named it, §711 repeated it, and the fix — ***match on the function, not the lines*** — is one I keep applying to edits and not to probes. ***Probes are edits.*** §736–§737 |
 
 ## 8. Updating this file
 
