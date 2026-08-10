@@ -1943,10 +1943,12 @@ mod tests {
         // The other direction: a left that resolves to no namespace keeps the
         // `any` the general qualified-name rule gives it. This is the guard that
         // stops the rule turning 34 right answers into wrong ones.
+        // **`y` flipped by §144** (the thirty-eighth stand-in): the alias to
+        // an unresolvable-root entity reads the same error-any its pieces do.
         assert_eq!(
             typed("import y = Missing.thing;"),
             vec![
-                ("y".to_string(), "error".to_string()),
+                ("y".to_string(), "any".to_string()),
                 ("Missing".to_string(), "any".to_string()),
                 ("thing".to_string(), "error".to_string()),
             ],

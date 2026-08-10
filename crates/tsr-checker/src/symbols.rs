@@ -414,6 +414,43 @@ impl<'a> Checker<'a, '_> {
             self.symbol_types.insert(symbol, any);
             return any;
         }
+        // §144 (`checker-notes-narrow.md`): an ImportEquals ENTITY form
+        // whose ROOT name resolves to NOTHING reads upstream's TS2503-family
+        // error-any at every use — the §31/§119 boundary argument, entity
+        // flavor. A root that RESOLVES with a failing chain keeps the gap
+        // (that half is this port's qualified walk).
+        if let Some(declaration) = self.declaration_of_alias_symbol(symbol)
+            && let Some(Node::ImportEqualsDeclaration(node)) = self.node_map.get(declaration)
+            && let Some(reference) = node.module_reference
+            && !matches!(reference, ModuleReference::ExternalModuleReference(_))
+        {
+            let root = {
+                let mut entity = match reference {
+                    ModuleReference::Identifier(name) => Some(name),
+                    ModuleReference::QualifiedName(mut qualified) => loop {
+                        match qualified.left {
+                            Some(tsr_ast::EntityName::Identifier(name)) => break Some(name),
+                            Some(tsr_ast::EntityName::QualifiedName(inner)) => qualified = inner,
+                            None => break None,
+                        }
+                    },
+                    ModuleReference::ExternalModuleReference(_) => None,
+                };
+                entity.take()
+            };
+            if let Some(root) = root
+                && let Some(id) = root.node_id
+                && self
+                    .binder
+                    .resolve_name(self.nodes, self.node_map, id, root.text, SymbolFlags::NAMESPACE)
+                    .is_none()
+            {
+                let any = self.intrinsics.any;
+                let any = if self.resolutions.pop() { any } else { self.intrinsics.error };
+                self.symbol_types.insert(symbol, any);
+                return any;
+            }
+        }
         let target = self.resolve_alias(symbol);
         // `checker.go:18612`, and the `SymbolFlags::VALUE` test is the
         // stack-overflow guard, not a nicety. It is taken over

@@ -6424,3 +6424,16 @@ Falsifier: cross-FILE roots our single-file resolve_name misses but
 upstream's merged globals find — want-REAL-type lines converting to
 confident any; the want-any census says this class is small, and
 the pair decides.
+
+**§144 MEASURED AND LANDED — +27 G→R / 4 G→W (6.75:1), ZERO R→W;
+right 413,030 → 413,057, cases 4,248.** The count bar missed (27 vs
+≥60 — the 205-line class is mostly RESOLVING roots with failing
+chains, which the falsifier gate correctly keeps as this port's own
+gaps); the ratio carried it per the §121 precedent. Three pin
+flips (thirty-seventh, thirty-eighth): the interface-root,
+value-root, and missing-root ImportEquals forms all read upstream's
+error-any (aliasErrors' six conversions carry exactly those
+shapes), and the producer's qualified-entity `y` followed. The
+ALIAS row's want-any census after this arm: the resolving-chain
+residue is the port's qualified-walk work, correctly gapped, not
+an error-answer class.

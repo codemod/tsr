@@ -61,7 +61,7 @@ fn an_alias_to_a_same_file_namespace_has_the_targets_type_and_not_its_own_name()
 }
 
 #[test]
-fn an_alias_to_a_non_value_or_an_unresolvable_target_is_error_not_any() {
+fn an_alias_to_a_non_value_or_an_unresolvable_target_is_any() {
     // An interface target answers `error` — but **not** for the reason it is
     // tempting to write here. `SymbolFlags::INTERFACE` is not in
     // `SymbolFlags::NAMESPACE`, so this fails at the meaning filter in
@@ -81,16 +81,20 @@ fn an_alias_to_a_non_value_or_an_unresolvable_target_is_error_not_any() {
     // `namespace N { export interface I {} }` becomes the fixture that reaches
     // the guard, and it needs its own test at that point. Today that source
     // binds `N` as `VALUE_MODULE`, which was checked rather than assumed.
-    assert_eq!(type_of_declaration("interface I {}\nimport q = I;", "q"), "error");
+    // **Flipped by §144** with its siblings below: an interface root fails
+    // the NAMESPACE meaning filter, and upstream's answer there is the
+    // error-any, not a gap.
+    assert_eq!(type_of_declaration("interface I {}\nimport q = I;", "q"), "any");
 
     // A bare identifier resolves in NAMESPACE meaning only
-    // (`checker.go:14486`), so a plain value target is not found — and that is
-    // upstream's answer, not a gap. Resolving in VALUE too would turn this into
-    // a wrong line.
-    assert_eq!(type_of_declaration("const x = 1;\nimport q = x;", "q"), "error");
+    // (`checker.go:14486`), so a plain value target is not found — and
+    // **flipped by §144** (the thirty-seventh stand-in): upstream's answer
+    // at an unresolvable-in-namespace root is the TS2503-family error-any
+    // (`compiler/aliasErrors`' six conversions carry exactly these shapes).
+    assert_eq!(type_of_declaration("const x = 1;\nimport q = x;", "q"), "any");
 
-    // Nothing to resolve at all.
-    assert_eq!(type_of_declaration("import q = Missing;", "q"), "error");
+    // Nothing to resolve at all — the same §144 arm.
+    assert_eq!(type_of_declaration("import q = Missing;", "q"), "any");
 }
 
 #[test]
