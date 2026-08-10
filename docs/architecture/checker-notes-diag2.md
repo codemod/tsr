@@ -39323,3 +39323,57 @@ Two lines, one case: `exportDefault`'s `import type types from './c'` where `c`
 re-exports through `export =`. The chain reaches the re-export and stops — a
 depth question, not a kind or arm one, and the fourth distinct shape this
 function has needed. **Named, not built.**
+
+## §775 — §774's residue was misattributed, fourth of the session
+
+`exportDefault` matches its baseline exactly — four expected, four actual,
+including both TS1361 lines §774 claimed were missing from it. The residue is
+`importEquals1`:
+
+```ts
+// b.ts
+import type * as types from './a';
+export = types;
+// d.ts
+import types from './b';
+new types.A();          // TS1361, missing
+```
+
+d.ts's default import resolves through b.ts's `export =` to a **type-only
+namespace import**, so the chain must cross a re-export to reach the flag. Two of
+the fixture's four such files report (`e.ts`, `g.ts`) and two do not — **the
+chain crosses some `export =` hops and not others**, which is a sharper
+statement than §774's and points at `resolve_alias`'s export-assignment arm
+rather than at the loop.
+
+### The tally
+
+```
+§682   corrected at §683
+§717   corrected at §718
+§746   corrected at §747
+§774   corrected here
+```
+
+**Four residues attributed from the fixture in hand rather than from the
+post-build `diagmissing`.** §683 wrote the rule, §718 restated it, §747 called it
+*"the fixture is on screen and the command is not"*, and it happened again
+twenty-eight builds later.
+
+> The three corrections before this one each concluded that I should run the
+> command. **That has not worked, and the reason is legible in the transcript: I
+> run `diagmissing` for the *closing number* every time and read the *residue*
+> off whatever fixture the build was looking at.** The number and the residue come
+> from the same command and I have been treating only one of them as measured.
+> Recording that distinction is the only correction that has not yet been tried.
+
+### Where TS1361 stands
+
+```
+2 lines, 1 case   the chain crosses some `export =` hops and not others
+```
+
+`resolve_alias`'s `export_assignment_target` is the arm to print, and the useful
+print is *which hop returns `None`* on `importEquals1`'s d.ts against e.ts.
+**Named with the discriminating comparison**, which is what §769 said a stopped
+row needs.
