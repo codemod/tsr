@@ -6065,3 +6065,21 @@ therefore not §141's (the §85.1 rule). Owner unknown: candidate is
 alignment/ordering nondeterminism in that case family (the §87
 unicodeEscapes caveat's second instance). Re-accepted; any future
 single-case ±15 there is noise until traced.
+
+## §142 — literal-self `this`: the symbol-carrying mint [claimed: checker-1]
+
+§141's corrected mechanism, built: `this` in an object-literal
+method answers a per-literal Anonymous mint carrying the LITERAL'S
+SYMBOL — member reads flow lazily through the symbol road (no
+circularity: members resolve per-name), the §41 member-carrying
+shape. The text census read ZERO bare `this :` lines among every
+candidate failure, so the placeholder text is unobservable today
+(recorded as the mint's falsifier: the first bare print names the
+immutable-text wall's sixth consumer). UNGATED first — the §141
+damage came from answering ANY; the literal-shaped answer may
+match contextual cases too (their wants are literal-shaped).
+
+**Bar.** ≥60 G→R at ≥5:1. Falsifiers: (a) contextual targets
+whose `this` differs from the literal (ThisType<T> remaps) —
+gate on has_no_contextual_type if they fire; (b) accessor/computed
+member circularities the lazy road can't dodge.
