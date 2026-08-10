@@ -29859,3 +29859,102 @@ because the two paths serve different syntax. The corollary, now with a number:
 
 `aliasBug` is left, named and unmeasured — one line, one case, and no hypothesis
 offered.
+
+## §563 — TS2310: a base-type cycle, decided on the heritage graph
+
+```ts
+interface I5 extends I5 { }      // TS2310 at (1,11) — the NAME
+interface i8 extends i9 { }      // TS2310
+interface i9 extends i8 { }      // TS2310
+```
+
+`resolveBaseTypesOfInterface` (`checker.go:19260`):
+
+```go
+if t == reducedBaseType || c.hasBaseType(reducedBaseType, t) {
+    c.error(t.symbol.ValueDeclaration, Type_0_recursively_references_itself_as_a_base_type, …)
+}
+```
+
+**Upstream decides this on resolved types and it does not have to be.** `t ==
+reducedBaseType` is *extends itself*; `hasBaseType(base, t)` is *`t` is
+reachable from `base` through base types* — and for interfaces and classes the
+base-type graph is the **heritage clause graph**, which is symbols and syntax.
+No relation, no type construction, no instantiation.
+
+> **A rule written against the type graph is not necessarily a type rule.**
+> Nine of the eleven largest remaining rows are genuinely the structural
+> relation's; this one reads like theirs and is a reachability query over
+> `extends` names. §557 said the same of TS2694 from the other side — *the parts
+> of a rule that need no type are the parts that stay ours*.
+
+### The narrowing
+
+Reachability is computed over **symbols**, from each interface or class
+declaration's heritage names, resolved with `resolve_name` under the type
+meaning. A name that does not resolve stops that edge — an unresolvable base is
+TS2304's or TS2749's row, not this one.
+
+Reported **once per symbol**, at its first declaration: interfaces merge, and a
+three-declaration interface in a cycle would otherwise report three times
+against a multiset.
+
+### The bar
+
+```
+bar:  +5 of 5 (cases blocked on TS2310 alone),  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **A legal chain reports.** `interface A extends B {}` / `interface B {}` is
+   the overwhelmingly common shape; a reachability bug floods immediately.
+2. **A generic self-reference reports.** `interface A<T> extends B<A<T>> {}` is
+   legal — the cycle upstream forbids is through *base types*, not through type
+   arguments, and the syntactic walk must follow only the heritage name.
+3. **`extraonly` grows in class hierarchies.** Classes carry `implements` as
+   well as `extends`, and only `extends` contributes a base type for a class.
+
+## §564 — §563 built: **+4**, and a class has exactly one base type
+
+```
+first form    2,098 → 2,101   (+3)   extraonly 54 → 55, one wrong TS2310
+with §564     2,098 → 2,102   (+4)   extraonly 54 → 54
+TS2310        14 missing lines → 1;  5 cases blocked alone → 1
+```
+
+The one wrong line was `parserClassDeclaration4`:
+
+```ts
+class C extends A implements B extends C { }
+```
+
+**a recovery fixture this parser accepts and upstream rejects** — so
+`file_has_parse_errors`, which the rule does check, is false here and true
+upstream. Reading its *second* `extends` clause made `C` its own base.
+
+The fix is upstream's own shape rather than a guard against the fixture:
+`getEffectiveBaseTypeNode` returns **one** node, so a class contributes exactly
+one base type however many `extends` clauses a recovered tree carries. An
+interface may extend many, and does.
+
+> **When a recovered tree produces a wrong line, the fix is usually a bound
+> upstream already has, not a test for the recovery.** §554 tried the other
+> shape on TS1212 — relaxing a parse-error guard — and measured −1; here the
+> parse-error guard was already there and useless, and what closed the gap was
+> transcribing a cardinality upstream states in its accessor's return type.
+
+### The row
+
+Fourteen missing lines to one, five blocked cases to one, in one sitting — and
+**the rule is thirty lines of graph reachability over symbols**, no types
+touched. `hasBaseType` reads as type-system machinery and is, for interfaces and
+classes, the transitive closure of `extends`.
+
+That is the third row this session moved by noticing a type-shaped rule is
+symbol-shaped underneath (§533's inputs, §557's meanings, §563's reachability),
+and the remaining large rows genuinely are the relation's.
+
+**Left**: one line, `circularConstraintYieldsAppropriateError` — a *constraint*
+cycle rather than a base-type one, which is `getConstraintOfTypeParameter`'s
+graph and not this one. Named, not attempted.
