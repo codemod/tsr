@@ -37570,3 +37570,95 @@ was indistinguishable from the four that did not until it was measured.
 arms are reachable only from grammar rules that the `.types` producer does not
 run, and the diagnostics side moved nothing. **Stated rather than assumed** —
 if a later build finds otherwise, this sentence is the one that was wrong.
+
+## §734 — TS2528: two default exports in one file
+
+```ts
+export default interface A {}
+interface B {}
+export default B;              // both reported
+```
+
+`declareSymbol`'s duplicate arm (`binder.go:224`). Upstream reaches it while
+binding: a second declaration lands on the `default` export symbol, and because
+the node is a default export the duplicate message becomes
+`A_module_cannot_have_multiple_default_exports`, reported at
+`GetNameOfDeclaration(node)` — so `A` at column 26 and `B` at column 16, not the
+`export` keyword.
+
+This port's binder does not report duplicates, so the rule is stated where the
+checker can see it: **a source file whose statements contain more than one
+default export reports on each one's name.** Two shapes count, and upstream's
+comment is why both are needed:
+
+```
+export default class/interface/function   NodeFlags.Default on the declaration
+export default <expression>               an ExportAssignment that is not `export =`
+```
+
+> *"This one doesn't have NodeFlags.Default on (as export default doesn't
+> [count] as modifiers)"* — upstream's own note, and it is the reason a syntactic
+> port must look for two different node shapes rather than one modifier.
+
+```
+bar:  +2 of 2 (exportDefaultAlias_excludesEverything, exportDefaultTypeAndClass),
+      0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **A file with one default export reports.** The count is what fires it.
+2. **`export = X` reports.** Upstream excludes it explicitly
+   (`!node.AsExportAssignment().IsExportEquals`), and a file may have one of
+   those and nothing else.
+3. **TS2300's row moves.** The same binder arm produces `Duplicate identifier`
+   for every non-default case, and this must not take any of them.
+
+## §735 — §734 measured: **−2 and 6 wrong lines**, reverted, and the mistake was §697's own
+
+```
+diagnostics             2,253 → 2,251   (bar was +2;  −2)
+extraonly               TS2528 wrong lines 0 → 6
+```
+
+Every wrong line is a **duplicate of a line this port already emits**:
+
+```
+-- expected --                          -- actual --
+  multipleExportDefault2.ts(1,1)          (1,1)   ← the existing rule
+  multipleExportDefault2.ts(5,25)         (5,25)  ← the existing rule
+                                          (1,16)  ← §734
+                                          (5,25)  ← §734
+```
+
+**TS2528 is already built, in `tsr-binder`** (`binder.rs:3919`), with a comment
+explaining why one `name == INTERNAL_DEFAULT` test covers both of upstream's
+branches. §734 did not look, and reported the same diagnostic a second time.
+
+### The correction, and it is a repeat
+
+I chose this row off `diagslice`'s `0/N occupied` column, reading it as *"no rule
+emits this code"*. **§697 established, in this same session and after making the
+same mistake, that `occupied` is computed over the residual** — a code can be
+fully built and still read `0/N` when none of its *remaining* lines is emitted.
+The note said so in bold; I used the column the old way five builds later.
+
+> §143 is *read the existing rule before assuming the missing arm*. §697 is *the
+> instrument's column definition is part of the measurement*. **This build broke
+> both, and the second one I had written myself.** A rule recorded is not a rule
+> applied, and the gap between the two is where a session's cheapest errors live.
+
+### What is actually missing, named
+
+```ts
+export default interface A {}   // never lands on the `default` name
+interface B {}
+export default B;
+```
+
+The binder's test is `name == INTERNAL_DEFAULT`, and an **interface** default
+export is not reaching that name — so the collision never happens and neither
+declaration reports. **Owner: `tsr-binder`'s `getDeclarationName` for a default
+interface.** Not built here: `binder_symbols` is at 100% and a name-mapping
+change is the kind that moves it, so the row is worth 2 cases against a suite
+this workstream must not regress. Two cases, named and priced.
