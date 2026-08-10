@@ -6073,6 +6073,11 @@ impl Checker<'_, '_> {
         if self.file_has_parse_errors {
             return;
         }
+        // `reportObviousDecoratorErrors` returns from `checkGrammarModifiers`
+        // before the per-keyword switch (`grammarchecks.go:218`). §878.
+        if self.decorator_error_reported.contains(&node) {
+            return;
+        }
         // **A type member takes no modifier but `readonly`**
         // (`grammarchecks.go:288`), tested in the `else` branch *before* the
         // per-keyword switch — so it takes precedence over every `must precede`
@@ -8969,6 +8974,15 @@ impl Checker<'_, '_> {
         let Some(file) = self.source_file_of_for_diagnostics(decorator) else { return };
         let span = self.nodes.span(decorator);
         self.report(file, Diagnostic::new(&messages::DECORATORS_ARE_NOT_VALID_HERE, span));
+        // `reportObviousDecoratorErrors(node)` is the **first** test in
+        // `checkGrammarModifiers` and its `true` returns from the whole
+        // function (`grammarchecks.go:218`), so the per-keyword switch never
+        // runs for a node whose decorators are already illegal. §877 wired the
+        // chain's suppression of the rules split out of it; this is the
+        // suppression that runs in the other direction. §878.
+        if let Some(owner) = self.nodes.parent(decorator) {
+            self.decorator_error_reported.insert(owner);
+        }
     }
 
     /// Does this subtree contain an **assignment** to `this.<text>`?

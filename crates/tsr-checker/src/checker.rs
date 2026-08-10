@@ -536,6 +536,10 @@ pub struct Checker<'a, 'n> {
     /// gated on `!c.checkGrammarModifiers(node)`, and this port dropped that
     /// return value when it split the chain into several functions. §876.
     pub(crate) modifier_chain_reported: rustc_hash::FxHashSet<tsr_ast::NodeId>,
+    /// Nodes whose decorators were already rejected. `reportObviousDecoratorErrors`
+    /// is the first test in `checkGrammarModifiers` and returns from the whole
+    /// function, so the per-keyword switch never runs for them. §878.
+    pub(crate) decorator_error_reported: rustc_hash::FxHashSet<tsr_ast::NodeId>,
     /// `(element types, readonly) -> the tuple type`.
     ///
     /// Upstream interns a tuple through `createTypeReference` on a target
@@ -830,6 +834,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             function_symbol_checked: rustc_hash::FxHashSet::default(),
             overload_agreement_checked: rustc_hash::FxHashSet::default(),
             modifier_chain_reported: rustc_hash::FxHashSet::default(),
+            decorator_error_reported: rustc_hash::FxHashSet::default(),
             tuple_types: FxHashMap::default(),
             tuple_element_lists: FxHashMap::default(),
             optional_tuple_types: FxHashMap::default(),

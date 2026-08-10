@@ -43694,3 +43694,56 @@ that removes nothing**, and `diagdup` is the only view that distinguishes them �
 Fifteenth `+0` kept for fidelity. The remaining 59 DUPLICATE lines are mostly
 `TS1005` and `TS2304` pairs in parser-recovery cases, which §871's intersection
 prices at four convertible cases — two of them `tsr-parser`'s.
+
+## §878 — `RULE_CODES` was hand-kept, and §846's sweep only saw what it remembered
+
+Two changes, one inert and one that repairs an instrument.
+
+### The decorator suppression (inert, kept)
+
+`reportObviousDecoratorErrors(node)` is the **first** test in
+`checkGrammarModifiers` and its `true` returns from the whole function
+(`grammarchecks.go:218`), so the per-keyword switch never runs for a node whose
+decorators are already illegal. §877 wired the chain's suppression *of* the rules
+split out of it; this is the suppression that runs the other way.
+
+`+0`, and TS1206 emits 11 lines, so the mechanism is **live but never
+coincides** — no corpus node has both an illegal decorator and a modifier error.
+Kept as upstream's control flow, recorded as inert.
+
+### `RULE_CODES` (the real finding)
+
+`diagemit` labels a code `unported` when it is absent from a hand-kept list, and
+`**SILENT**` only when it is *present* and emits nothing. The list had **67**
+entries. This port emits **232** codes' worth of rules:
+
+```
+TS1005  877 lines   labelled "unported"
+TS2300  495         labelled "unported"
+TS1109  334         labelled "unported"
+TS7026  376,  TS1003 243,  TS1212 93,  TS2451 85 …
+```
+
+**So §846's silent-rule sweep could only ever see the rows someone had remembered
+to add**, and it reported *"four SILENT rows"* with confidence. Regenerated from
+every `messages::CONSTANT` referenced in `tsr-checker` and `tsr-binder` — 282
+constants, 232 codes — the same sweep now reports:
+
+```
+TS2863   9 lines   A class cannot extend a primitive type
+TS2864   9         A class cannot implement a primitive type
+TS2531   4         (§852's, owner: the type side)
+TS2840   2         An interface cannot extend a primitive type
+TS1253   1
+```
+
+Four rows §846 could not see. Only TS2840 has a case blocked on it alone; the
+rest sit in cases with other defects, which is why they never surfaced elsewhere
+either.
+
+> §829 wrote *"a claim is only as wide as the grep that made it"* about a
+> never-set-flag sweep, and then §846 built a sweep on a **hand-kept list** and
+> read its output as complete. **A derived list would have cost the same
+> afternoon and would not have needed remembering** — and the tell was visible in
+> the instrument's own output all along: a code labelled `unported` beside a
+> `have` of 877.
