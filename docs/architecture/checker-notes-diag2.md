@@ -44486,3 +44486,72 @@ the 21 semantic-only gates     −1,         extraonly +13
 **Refused: the `file_has_parse_errors` class, twice measured.** The eleven cases
 §894 named are still reachable, but only per-rule and only with the wrong-line
 cost checked each time — not by any rule about which kind of rule holds the gate.
+
+## §896 — §895's method, applied once: the TS2365 gate
+
+§895 closed the class and named the only remaining route: **per rule, with the
+wrong-line cost checked each time.** §894's eleven gained cases are the
+candidates, and three of them are a numbered family (§824):
+
+```ts
+// parserGreaterThanTokenAmbiguity2/3/4
+1 > > 2;
+```
+
+```
+expected   TS2365 at (1,1)   Operator '>' cannot be applied to types …
+           TS1109 at (1,5)   Expression expected
+actual     TS1109 at (1,5)
+```
+
+This port emits the parse error and then declines the semantic one **because it
+emitted the parse error** — `check_operator_operands` opens with
+`ambient || file_has_parse_errors || in_js_file`. Upstream reports both: the
+`>` still has two operands and they are still incomparable.
+
+One gate, one rule, measured on its own — which is the whole of what §895 left
+available.
+
+```
+bar:  >= +1 of the family's 3,  0 LOST via `diagpass`,  extraonly delta <= +2
+```
+
+### Falsifiers
+
+1. **`extraonly` rises above +2.** The recovered `> >` invents an operand and
+   this rule reports on it elsewhere in the corpus.
+2. **Any of §894's eight losses appears.** None of them is this rule's.
+
+## §897 — §896 built: **+4/−0**, and §895's route pays
+
+```
+diagnostics   2,350 → 2,354   (bar was >= +1;  +4)   42.89%
+diagpass      LOST: (none)
+              GAINED: parserGreaterThanTokenAmbiguity2, 3, 4,
+                      logicalNotOperatorInvalidOperations
+extraonly     77, unchanged
+```
+
+**Four of §894's eleven, from one line.** No wrong lines at all — the falsifier
+that priced the whole-class removal at `+27` does not fire for this rule, because
+this rule's operands are the binary expression's own and a recovered `> >` still
+has two of them.
+
+### The three measurements, in order
+
+```
+§894   all 127 gates          +11 / −8    extraonly +27    reverted
+§895   the 21 semantic ones    −1         extraonly +13    reverted
+§896   one rule's gate         +4 /  0    extraonly  +0    kept
+```
+
+> Two reverted experiments and then a `+4` from a single line the second
+> experiment had already touched and put back. **The class measurement said "not
+> wholesale"; it did not say "not at all", and the difference between those is
+> four cases.** §894 was right to revert, §895 was right to revert, and both were
+> right to record the case lists — which is the only reason §896 knew where to
+> point.
+
+Seven of the eleven remain, each its own measurement. The instruction §895 left —
+*per rule, with the wrong-line cost checked each time* — is now a method with a
+result behind it rather than a counsel of despair.

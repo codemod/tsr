@@ -39,7 +39,14 @@ const NOT_NUMERIC: TypeFlags = TypeFlags::STRING_LIKE
 impl Checker<'_, '_> {
     /// The operand check for one `+`, `+=`, `<`, `>`, `<=` or `>=`.
     pub(crate) fn check_operator_operands(&mut self, node: NodeId, ambient: bool) {
-        if ambient || self.file_has_parse_errors || self.in_js_file(node) {
+        // **No `file_has_parse_errors` gate**, for the reason §892 removed the
+        // one below: upstream's `checkBinaryLikeExpression` runs regardless, and
+        // `1 > > 2` is TS2365 **and** TS1109 upstream while this port emitted
+        // only the second — declining the semantic diagnostic *because it had
+        // emitted the parse error*. §895 measured the class as a whole at
+        // −1/+13 and closed it; this is one rule, measured on its own, which is
+        // the route it left open. §896.
+        if ambient || self.in_js_file(node) {
             return;
         }
         let Some(Node::BinaryExpression(binary)) = self.node_map.get(node) else { return };
