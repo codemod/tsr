@@ -6802,3 +6802,20 @@ the old 34) is upstream's collision-renaming, expected to persist
 — it prices the pair, and if it alone breaks the ratio the gate
 question is whether its lines are separable by mechanism, not by
 case name.
+
+**Retry REFUSED at 33:34 — and the coupling theory is CORRECTED
+(loudly): it was never instance annotations.** The §157-landed
+base removed nothing from the adverse: the 34 are EXPRESSION-ROAD
+prints — `x.c` property-access sites whose results, once the alias
+types, print written/qualified texts (`x.c`, `typeof x.c`) where
+upstream prints the target's SHORT name (`c`, `typeof c` — the
+best_name preference at expression positions). §156's first
+mechanism note ("instance sites") misread the same 34 lines;
+the internalAliasClass* wants are expression subjects, not
+annotations. The true joint set is THREE roads: constructor mint
++ §157's instance references (landed, independent) + the
+expression-position short-name print (unbuilt — members/typeof
+print road). Ceiling unchanged (~180); the third road is the
+blocker and is ALSO what localImportNameVsGlobalName's residue
+wants inverted. One §157-family follow-up remains free-standing:
+the ES-import spelling census.
