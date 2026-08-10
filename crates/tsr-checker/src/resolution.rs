@@ -143,7 +143,7 @@ pub trait ModuleHost {
         None
     }
 
-    /// §143: the file path of a SourceFile node, for the relative-specifier
+    /// §143: the file path of a `SourceFile` node, for the relative-specifier
     /// spelling. `None` (the default) declines the file half.
     fn file_path(&self, _file: NodeId) -> Option<String> {
         None

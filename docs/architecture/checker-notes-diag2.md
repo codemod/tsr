@@ -34284,3 +34284,91 @@ worth keeping:
 ```
 
 Twenty-four codes closed of the sixty-two with cases.
+
+## §664 — TS7008: §582's defect in a second rule, with a comment asserting otherwise
+
+```ts
+declare class C {
+    public publicMember;    // TS7008
+    private privateMember;  // legal — isPrivateWithinAmbient
+}
+```
+
+`check_implicit_any_member` declines on `ambient`, and its own comment says:
+
+> *"Upstream reaches it through the same arm, exempting only
+> `isPrivateWithinAmbient` — **which the `ambient` guard above already
+> answers**."*
+
+**It does not.** `ambient` answers *is it ambient*; `isPrivateWithinAmbient` is
+*ambient **and** private*. The guard exempts every ambient member, and upstream
+exempts only the private ones.
+
+> **This is §582 exactly, in a second rule, and §652's sweep listed that rule.**
+> §582 fixed the identical defect in `check_implicit_any_parameters` for +4 and
+> wrote *"a comment that states the narrow rule beside a guard that implements
+> the broad one reads as justification"*. §652 then enumerated the six rules of
+> this shape, saw `check_implicit_any_member` among them, and **I read its
+> comment as evidence it was handled** — which is the same failure the rule was
+> written up to prevent, one sweep later.
+
+The sweep was right, the enumeration was right, and the reading was wrong. **A
+sweep that lists a candidate has done its job; dismissing the candidate on the
+strength of a comment undoes it.**
+
+```
+bar:  +6 of 6 (cases blocked on TS7008 alone),  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **`declare class C { private p; }` reports.** The exemption is the whole
+   point.
+2. **A `.d.ts` member reports.** Every declaration file is ambient and most
+   members are annotated; an unannotated public one there *should* report,
+   which falsifier 1's fixture does not cover.
+3. **TS7010's or TS7006's rows move.** Both are siblings in the same file and
+   the same fixture.
+
+## §665 — §664 built: **+4**, the board passes **40%**
+
+```
+diagnostics             2,194 → 2,198   (bar was +6;  +4, 0 LOST)   40.05%
+extraonly TS7008/10/06  8 before → 9 after   — one new wrong line, inside tolerance
+TS7008 missing lines    8 → 2;  6 cases blocked alone → 1
+```
+
+**The board passes forty per cent**, from 1.46% when this workstream opened.
+
+The one new wrong line is `controlFlowAutoAccessor1`, an
+`accessor`-declared property in an ambient position — upstream's
+`isAutoAccessorPropertyDeclaration` takes a different arm there, which this rule
+does not model. **Named, inside the stated `WRONG delta <= +1`, and not fitted
+away**: guessing at an `accessor` exemption without reading that arm is §594's
+fitting-the-measurement.
+
+### What the sweep and the misreading cost
+
+```
+§582   the same defect, parameter rule      found by a row     +4
+§652   the sweep listed the member rule     dismissed by me    +0
+§664   the same defect, member rule         found by a sweep   +4
+```
+
+> **§652's sweep did its job and I undid it.** It enumerated six rules of this
+> shape, `check_implicit_any_member` was among them, and I read its comment —
+> *"which the `ambient` guard above already answers"* — as evidence rather than
+> as the exact claim §582 had just proved false. **A sweep that lists a
+> candidate has done its job; dismissing the candidate on the strength of a
+> comment undoes it.**
+
+That is the third time this session a comment has been believed over a
+measurement (§582, §652, §664), and the first where the note disproving it was
+written by the same hand nine builds earlier.
+
+### The grammar family and the board
+
+```
+grammar family    +43   twenty-four codes closed of sixty-two with cases
+session total     +743  80 → 2,198, 27.5×
+```

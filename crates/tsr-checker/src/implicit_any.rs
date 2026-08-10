@@ -68,7 +68,15 @@ impl Checker<'_, '_> {
     /// the blanket `.js` decline, which exists because JSDoc supplies types
     /// this port does not parse into one.
     pub(crate) fn check_implicit_any_member(&mut self, node: NodeId, ambient: bool) {
-        if !self.no_implicit_any || self.file_has_parse_errors || ambient {
+        // **`isPrivateWithinAmbient`, which the `ambient` guard does *not*
+        // answer.** `ambient` is *is it ambient*; upstream exempts *ambient
+        // **and** private*. §582 fixed the identical defect in the parameter
+        // rule and this comment used to assert the guard was sufficient. §664.
+        let is_private =
+            self.node_map.get(node).and_then(crate::check::modifiers_of).is_some_and(|m| {
+                tsr_ast::has_syntactic_modifier(m, tsr_ast::SyntaxKind::PrivateKeyword)
+            });
+        if !self.no_implicit_any || self.file_has_parse_errors || (ambient && is_private) {
             return;
         }
         if self.in_js_file(node) {
