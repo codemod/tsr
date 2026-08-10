@@ -6245,3 +6245,18 @@ tolerance (upstream computes the other members and errors only the
 one), which unlocks their pass-3 re-serve AND this ladder's
 methods+fn-expr combined form at once. Probe 10 (first move):
 bracket the exit with three eprintlns on the post-arm path lines.
+
+**§142 probe 10:** container-tagged brackets read `2× iter-top,
+2× post-match` PER LITERAL — but `o` has THREE properties, and
+uniq-collapse makes the two readings indistinguishable: either the
+properties list itself holds two entries (an AST/parse question for
+method-after-fn-expr-property literals — checkable by one
+probefile parse dump), or check_object_literal runs TWICE per
+literal with each invocation aborting after iteration 1
+(re-entrancy through the mint's member reads — the more likely
+given nine probes of pressure). PROBE-DESIGN LESSON THE LEDGER
+KEEPS: eprintln tags need ITERATION INDICES and INVOCATION
+COUNTERS — uniq collapses repeats, and two ambiguous probes
+(7 and 10) each cost a window. Probe 11: a per-invocation counter
+plus property index in every tag, one filtered run. The seam
+remains the two-lane joint head.
