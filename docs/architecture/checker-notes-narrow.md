@@ -6899,3 +6899,24 @@ emptiness tests sit on opposite operands and the first build
 conflated them. Residue: declarationEmitOptionalMapped* 1 G->W
 (a mapped-type interaction, priced). Lead (b) from the banked
 batch, closed by the print lane as predicted.
+
+
+## §161 — stale-refusal sweep: §125 re-measured at 63:213, narrowing-owned CONFIRMED TWICE [checker-1]
+
+The §125 union per-constituent establishment arm rebuilt verbatim
+from its own bar and re-measured over the post-flow-arc board
+(checker-2's +170 narrowing landings since the original): **63 G→R
+/ 213 G→W — the same ~1:3.4 ratio as the original 39:164.** The
++170 narrowed SOME receivers (the 57-win slice: instanceof-guard
+sites now read narrowed types), but the adverse EXPLODED in the
+same families (typeGuardOfForm* 84, controlFlowAliasing2 40,
+discriminant* 30): upstream narrows the receiver BEFORE the lookup
+at precisely the sites the arm claims error-any, and the flow arc
+has not reached discriminated-union and aliasing narrowing.
+Verdict: the class prices at DISCRIMINANT and ALIASING narrowing
+(the checkDerived-worker rock plus discriminant machinery), not at
+establishment. Re-measure a THIRD time only after discriminated-
+union narrowing lands, and use the 63:213 pair as the baseline
+comparator. The stale-refusals discipline both ways in one day:
+§159 re-confirmed a park, §161 re-confirmed a refusal — neither
+was stale, and both now carry second measurements that date them.
