@@ -651,13 +651,34 @@ impl<'a> Checker<'a, '_> {
             // candidates were collected for this call, so the fill is
             // total: `someGenerics6(n => n, ...)` wants
             // `(n: unknown) => unknown`, not the adopted `(n: A) => A`.
+            // §134 returnMapper guard, per-parameter: a call in CONTEXTUAL
+            // position has a return-position inference source (upstream's
+            // returnMapper), which sources exactly the parameters that
+            // APPEAR in the return type — those stay adopted
+            // (genericContextualTypes1's compose/pipe shapes); the rest
+            // fix to `unknown` even there
+            // (contextualTypingTwoInstancesOfSameTypeParameter).
+            let contextual_call = call
+                .node_id
+                .is_some_and(|call_id| self.get_contextual_type_of_call(call_id).is_some());
             let Some(type_parameter_ids) = self.type_parameter_types(&single) else {
                 return Some(parameter_type);
             };
             let names: Vec<&str> = single.type_parameters.iter().map(|p| p.name.as_str()).collect();
             let unknown = self.intrinsics.unknown;
-            let map: Vec<(TypeId, TypeId)> =
-                type_parameter_ids.iter().map(|&t| (t, unknown)).collect();
+            let returned = single.r#type;
+            let map: Vec<(TypeId, TypeId)> = type_parameter_ids
+                .iter()
+                .enumerate()
+                .filter(|&(position, &t)| {
+                    !(contextual_call
+                        && self.mentions_type_parameter(returned, &[t], &[names[position]]))
+                })
+                .map(|(_, &t)| (t, unknown))
+                .collect();
+            if map.is_empty() {
+                return Some(parameter_type);
+            }
             let image = self.instantiate_type(parameter_type, &map, &type_parameter_ids, &names);
             if image != self.intrinsics.error {
                 return Some(image);

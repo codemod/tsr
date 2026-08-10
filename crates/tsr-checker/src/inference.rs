@@ -323,15 +323,45 @@ impl Checker<'_, '_> {
             // always serve instantiated; `someGenerics6(n => n, ...)` is the
             // head case (upstream: `(n: unknown) => unknown`; the ladder
             // test's third flip).
-            for &type_parameter in &parameters {
-                if !partial.iter().any(|&(tp, _)| tp == type_parameter) {
-                    partial.push((type_parameter, self.intrinsics.unknown));
+            // §134 returnMapper guard, same as arm (a)'s: a call in
+            // contextual position keeps its unfixed parameters (upstream's
+            // returnMapper is a live source there); only a
+            // statement-position call fills to `unknown`.
+            // §134 refined per-parameter: the returnMapper sources only
+            // parameters that APPEAR in the return type, so a contextual
+            // call protects exactly those; everything else fixes
+            // (contextualTypingTwoInstancesOfSameTypeParameter's giveback
+            // found the coarse call-level guard wrong by 4).
+            let contextual_call = self.get_contextual_type_of_call(call_id).is_some();
+            let mut filled = false;
+            for (position, &type_parameter) in parameters.iter().enumerate() {
+                if partial.iter().any(|&(tp, _)| tp == type_parameter) {
+                    continue;
                 }
+                if contextual_call
+                    && self.mentions_type_parameter(returned, &[type_parameter], &[names[position]])
+                {
+                    continue;
+                }
+                partial.push((type_parameter, self.intrinsics.unknown));
+                filled = true;
             }
+            // Totality, not fill-count, is what licenses the unconditional
+            // serve below.
+            let filled = filled
+                && parameters
+                    .iter()
+                    .all(|&type_parameter| partial.iter().any(|&(tp, _)| tp == type_parameter));
             let mut memo = signature.clone();
             for parameter in &mut memo.parameters {
                 let image = self.instantiate_type(parameter.r#type, &partial, &parameters, &names);
-                if image != error {
+                // With the fill the map is TOTAL and the image always
+                // serves; without it (contextual-position call) the SS75
+                // mentions guard returns — a half-instantiated context was
+                // the first reunion's measured 363-G-to-W cause.
+                if image != error
+                    && (filled || !self.mentions_type_parameter(image, &parameters, &names))
+                {
                     parameter.r#type = image;
                     for &(consumed, _) in &partial {
                         if let Some(info) = infos.iter_mut().find(|i| i.type_parameter == consumed)
@@ -1255,7 +1285,12 @@ impl Checker<'_, '_> {
     /// the uninstantiated `T[]`, which prints `T[]` where upstream prints
     /// `number[]`. A false positive costs a gap; a false negative costs a wrong
     /// answer, so the bias is chosen.
-    fn mentions_type_parameter(&self, id: TypeId, parameters: &[TypeId], names: &[&str]) -> bool {
+    pub(crate) fn mentions_type_parameter(
+        &self,
+        id: TypeId,
+        parameters: &[TypeId],
+        names: &[&str],
+    ) -> bool {
         if parameters.contains(&id) {
             return true;
         }

@@ -813,3 +813,29 @@ genericContextualTypes1 (5 W) and typeArgumentInferenceWithConstraints
 promiseChaining uncertain (chained member calls). Falsifier: any
 substantial giveback of the +127 means statement-position was not the
 discriminator.
+
+## §134 LANDED (refined): the per-parameter returnMapper guard (+10/−5/0)
+
+The coarse call-level guard (fill only when the call has no contextual
+type) measured +6/−1 but gave back 4 in
+contextualTypingTwoInstancesOfSameTypeParameter — a contextual call
+whose type parameters do NOT all appear in the return type, where
+upstream still fixes. The bar's discriminator was wrong by one level:
+the returnMapper sources exactly the parameters MENTIONED IN THE
+RETURN TYPE, not every parameter of a contextual call.
+
+Refined per-parameter at both sites (arm (a) in contextual.rs; the
+deferred serve map in inference.rs): a parameter is protected from the
+unknown-fill iff the call is contextual AND the parameter appears in
+the signature's return type. The serve-side totality check licenses
+the unconditional serve only when the map actually covers every
+parameter (SS75's mentions guard returns otherwise — the 363-G-to-W
+hazard stays dead).
+
+Measured (full pair vs the §133 baseline): GAP→RIGHT 5, WRONG→RIGHT 5
+(genericContextualTypes1 all 5 back), ZERO regressions.
+right 410,915 / 470,881. promiseChaining (2) and
+typeArgumentInferenceWithConstraints (6 gaps) remain — the former's
+chained member calls and the latter's constraint-source shapes are
+priced to the full returnMapper machinery (the third spec), not this
+guard.
