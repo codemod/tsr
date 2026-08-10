@@ -6852,3 +6852,17 @@ ImportEquals aliases survive (§157's 8.4:1) because their targets
 are same-unit namespaces — nothing travels. The 207-line win pool
 (dynamicNames 69) stays priced behind per-site rendering, filed
 with §138/§136/§156-retry in that wall's ledger.
+
+
+## §159 — stale-refusal sweep: the §143 reuse arm RE-CONFIRMED at 11:4 [checker-1]
+
+Per the standing directive, the parked specifier-REUSE arm
+(existing_import_specifier) re-measured over the §147/§157/§152-155
+base: **+11 G→R / 4 G→W — the identical price as at its park.**
+The UMD-family adverse (checkMergedGlobalUMDSymbol,
+umd-augmentation-1/2, checkerInitializationCrash) is untouched by
+everything this window landed: UMD-namespace modules referenced
+through an existing import want a spelling the reuse rule cannot
+see. The park stands, now with a second measurement dated to this
+board (right 414,106-era). Re-measure again only after a UMD-
+family or module-spelling change, not after general alias work.
