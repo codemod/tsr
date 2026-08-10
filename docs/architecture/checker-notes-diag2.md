@@ -39377,3 +39377,40 @@ twenty-eight builds later.
 print is *which hop returns `None`* on `importEquals1`'s d.ts against e.ts.
 **Named with the discriminating comparison**, which is what §769 said a stopped
 row needs.
+
+## §776 — TS1361's last two lines: the synthetic default, already refused
+
+§775's discriminating print, run:
+
+```
+hop kind=ImportClause            verdict=Some(false) next=false    reports  (e.ts, g.ts)
+hop kind=NamespaceImport         verdict=Some(false) next=true     reports
+hop kind=ImportEqualsDeclaration verdict=None        next=true     continues
+hop kind=ImportClause            verdict=None        next=false    STOPS    (d.ts, f.ts)
+hop kind=NamespaceImport         verdict=None        next=false    STOPS
+```
+
+**The chain stops where `resolve_alias` cannot follow a default import to an
+`export =` module.** `import types from './b'` with `export = types` in b.ts is
+`esModuleInterop`'s synthetic default, and `import_clause_default_target` ports
+only `getTargetOfModuleDefault`'s plain half — the module's *real* `default`
+export. The synthetic-default and `module.exports` arms are recorded as unported
+in `checker-notes-modobj.md` §10.11 and in `resolve_alias`'s own rustdoc.
+
+> Five probes across §765–§776 and the answer is **an arm this port already knew
+> it had not built**, named in the function's own documentation. §769 concluded
+> that a probe settles the layer it prints and says nothing about the layer
+> beneath; **this row ends at a layer that was documented before any of the
+> probes ran.** The reading that would have saved them is not of upstream but of
+> `resolve_alias`'s rustdoc — the same file, three functions up.
+
+### TS1361, closed as far as this workstream reaches
+
+```
+§770  ImportEqualsDeclaration is type-only        +1
+§773  a default import's declaration is the clause +3
+§776  the last two lines                           the synthetic default, unported
+```
+
+**Four of five cases and seven of nine lines**, and the residue is one existing
+refusal rather than a new one. `checker-notes-modobj.md` §10.11 owns it.
