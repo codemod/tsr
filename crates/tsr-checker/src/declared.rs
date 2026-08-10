@@ -1341,8 +1341,8 @@ impl<'a> Checker<'a, '_> {
             let types: Vec<TypeId> = parameter_types.iter().map(|&(t, _)| t).collect();
             let names: Vec<String> = parameter_types.iter().map(|(_, n)| n.clone()).collect();
             let declarations = self.local_type_parameters_of(symbol);
-            for index in arguments.len()..parameters {
-                let Some(default) = declarations[index].default_type else { return error };
+            for declaration in &declarations[arguments.len()..parameters] {
+                let Some(default) = declaration.default_type else { return error };
                 let resolved = self.get_type_from_type_node(default);
                 if resolved == error {
                     return error;
