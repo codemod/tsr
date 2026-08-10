@@ -492,6 +492,51 @@ impl<'a> Checker<'a, '_> {
         {
             return bound;
         }
+        // §157 (`checker-notes-ctx.md` sibling in `checker-notes-narrow.md`):
+        // a reference THROUGH AN ALIAS prints the WRITTEN alias name —
+        // `var v: IC` wants `IC`, not the target class's own text. The §41
+        // mint with the alias's spelling, carrying the MERGED target so
+        // member reads flow through it. Argument-less only; the alias
+        // declaration line is §156's coupled half and stays gapped.
+        if self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::ALIAS)
+            && node.type_arguments.is_empty()
+            // Iteration 2's gate: ImportEquals aliases ONLY. The unrestricted
+            // arm measured 266:79 (3.4:1) — ES-import aliases carry their own
+            // spelling rules (moduleAugmentation* wants target-side texts,
+            // localImportNameVsGlobalName collides local against global) and
+            // are a different §-family.
+            && self.declaration_of_alias_symbol(symbol).is_some_and(|declaration| {
+                matches!(self.node_map.get(declaration), Some(Node::ImportEqualsDeclaration(_)))
+            })
+        {
+            let target = self.resolve_alias(symbol).or_else(|| {
+                let declaration = self.declaration_of_alias_symbol(symbol)?;
+                let Some(Node::ImportEqualsDeclaration(import)) = self.node_map.get(declaration)
+                else {
+                    return None;
+                };
+                let Some(tsr_ast::ModuleReference::QualifiedName(qualified)) =
+                    import.module_reference
+                else {
+                    return None;
+                };
+                self.resolve_qualified_entity(qualified)
+            });
+            if let Some(target) = target {
+                let merged = self.binder.merged_symbol(target);
+                if self.binder.symbols().get(merged).flags.intersects(SymbolFlags::TYPE) {
+                    let text = name.text.to_string();
+                    let key = (text.clone(), merged);
+                    if let Some(&existing) = self.qualified_reference_types.get(&key) {
+                        return existing;
+                    }
+                    let minted = self.store.new_named(TypeFlags::OBJECT, text, Some(merged));
+                    self.qualified_reference_types.insert(key, minted);
+                    return minted;
+                }
+            }
+            return error;
+        }
         let parameters = self.local_type_parameters_of(symbol).len();
         if parameters == 0 {
             // `checkNoTypeArguments` (`checker.go:23157`): arguments on a type

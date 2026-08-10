@@ -884,7 +884,7 @@ impl<'a> Checker<'a, '_> {
     /// §145's entity walk: root at NAMESPACE meaning, each right segment
     /// through merged exports. Any miss answers `None` — §144 owns the
     /// unresolvable-root error-answer; a resolving walk hands the leaf back.
-    fn resolve_qualified_entity(
+    pub(crate) fn resolve_qualified_entity(
         &mut self,
         qualified: &tsr_ast::QualifiedName<'a>,
     ) -> Option<SymbolId> {
@@ -911,7 +911,7 @@ impl<'a> Checker<'a, '_> {
         Some(symbol)
     }
 
-    fn declaration_of_alias_symbol(&self, symbol: SymbolId) -> Option<NodeId> {
+    pub(crate) fn declaration_of_alias_symbol(&self, symbol: SymbolId) -> Option<NodeId> {
         self.binder.symbols().get(symbol).declarations.iter().rev().copied().find(|&declaration| {
             match self.nodes.kind(declaration) {
                 SyntaxKind::ImportEqualsDeclaration

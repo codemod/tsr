@@ -6769,3 +6769,23 @@ instead, gate to class targets; (b) the §156 leak inverts here:
 minting instance spellings WITHOUT the constructor half must not
 convert constructor-position gaps to wrongs — the pair watches
 collision*/internalAliasClass* specifically.
+
+**Score (two iterations): +59 G→R / 7 adverse (8.4:1) — LANDED,
+gated to ImportEquals aliases.** Iteration 1 unrestricted (every
+ALIAS symbol): 266:79 at 3.4:1 — the volume proved the road but
+ES-import aliases carry different spelling rules
+(moduleAugmentation* wants target-side texts, synthetic defaults
+their own family). The ImportEquals gate kept 59 (arrayOfExportedClass,
+exportAssignmentOfDeclaredExternalModule, unusedImportDeclaration)
+at 7 adverse: 5 are localImportNameVsGlobalName's INVERSE — the
+file WRITES `Keyboard.Key` qualified and upstream prints the
+SHORTER alias `Key` (best_name's preference, a separate slice),
+plus constEnums/externalModuleExportingGenericClass singles. The
+ES-import population (the ~200 iteration-1 kept wins minus its 72
+adverse) is a NAMED FOLLOW-UP: it needs the per-family spelling
+split (which ES aliases print local vs target names) censused
+before re-admission. §156's constructor half remains coupled-
+parked; this slice proves the instance half stands alone when the
+POPULATION is gated, which revises §156's joint-landing theory:
+the coupling ran through the UNGATED downstream leak, not the
+halves themselves.
