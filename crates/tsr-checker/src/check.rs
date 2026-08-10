@@ -1356,11 +1356,47 @@ impl Checker<'_, '_> {
     ///
     /// `isTopLevelInExternalModuleAugmentation` is the one exempt shape —
     /// `declare module "x" { export = Y }`. §432.
+    /// `isContainedByNamespace` (`checker.go:5575`): the container is the
+    /// parent, or the parent's parent when the parent is not a source file —
+    /// **one or two hops, not an ancestor walk** — and it must be a
+    /// `ModuleDeclaration` that is **not** an ambient module. Written as an
+    /// ancestor walk first, which cost 27 cases: `declare module "x" { export =
+    /// Y }` is §432's exempt shape and every one of them reported. §826.
+    fn is_contained_by_namespace(&self, node: NodeId) -> bool {
+        let Some(parent) = self.nodes.parent(node) else { return false };
+        let container = if self.nodes.kind(parent) == SyntaxKind::SourceFile {
+            parent
+        } else {
+            let Some(grandparent) = self.nodes.parent(parent) else { return false };
+            grandparent
+        };
+        self.nodes.kind(container) == SyntaxKind::ModuleDeclaration
+            && !self.is_ambient_module_declaration(container)
+    }
+
     fn check_export_assignment_alone(&mut self, node: NodeId) {
         if self.file_has_parse_errors {
             return;
         }
         let Some(Node::ExportAssignment(assignment)) = self.node_map.get(node) else { return };
+        // TS1063 — `An export assignment cannot be used in a namespace.`
+        // `checkExportAssignment` (`checker.go:5599`), on the node. Emitted from
+        // the checker and **not** from `grammarchecks.go` — upstream's own
+        // comment there is `// TODO(danielr): should these be grammar errors?` —
+        // so a sweep of the grammar file alone would have missed it. §825.
+        if assignment.is_export_equals
+            && self.is_contained_by_namespace(node)
+            && let Some(file) = self.source_file_of_for_diagnostics(node)
+        {
+            let span = self.error_span(node);
+            self.report(
+                file,
+                Diagnostic::new(
+                    &messages::AN_EXPORT_ASSIGNMENT_CANNOT_BE_USED_IN_A_NAMESPACE,
+                    span,
+                ),
+            );
+        }
         // TS1120 — `An export assignment cannot have modifiers.`
         // `checkExportAssignment` (`checker.go:5607`), on the **first token**:
         // `declare export = x` errors at `declare`, column 1. §481 measured this

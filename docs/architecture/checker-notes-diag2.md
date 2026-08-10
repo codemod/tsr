@@ -41440,3 +41440,99 @@ outcome** — which is the sharpest statement yet of what §641 actually costs.
 
 **Thirteen cases, eight rows, eight builds, zero wrong lines, one refusal
 priced.**
+
+## §825 — TS1038 and TS1063, two more from the `parser*` family
+
+```ts
+// parserModuleDeclaration4.d.ts
+namespace M { declare namespace M1 { } }   // TS1038, on the `declare`
+
+// parserExportAssignment5.ts
+namespace M { export = A; }                // TS1063, on the `export`
+```
+
+```go
+grammarchecks.go:458   (node.Parent.Flags&Ambient != 0) && node.Parent.Kind == KindModuleBlock
+checker.go:5599        isContainedByNamespace(node) && isExportEquals
+```
+
+TS1038 is the **sixth** arm into `check_modifier_order`'s chain and sits in the
+`declare` branch, after the parameter and `using` arms and before the
+private-identifier one — §183's order again. Its two conjuncts are *the parent is
+a module block* and *the parent is ambient*, and a `.d.ts` makes everything
+ambient, which is why the fixture is a `.d.ts` and its sibling
+`parserModuleDeclaration4.ts` is not an error.
+
+TS1063 hangs off `check_export_assignment_alone`, which §432/§481/§512 already
+built for TS1120 on the same node — a **third** diagnostic for that function and
+no new walk. Upstream's own comment there is
+`// TODO(danielr): should these be grammar errors?`, which is worth recording:
+the code is emitted from `checkExportAssignment` and not from `grammarchecks.go`,
+so a sweep that looked only at the grammar file would have missed it.
+
+```
+bar:  +2 of 2 (parserModuleDeclaration4.d, parserExportAssignment5),
+      0 LOST,  WRONG delta <= 0
+```
+
+### Falsifiers
+
+1. **A top-level `export = A` reports.** Not contained by a namespace.
+2. **`declare namespace M1 {}` at top level of a `.d.ts` reports.** Its parent is
+   the source file, not a module block.
+3. **TS1120's row moves.** It is the sibling on the same function.
+
+## §826 — §825 measured: TS1063 **+1**, TS1038 refused at **91 wrong lines**
+
+```
+diagnostics             2,320 → 2,321   (bar was +2;  +1, 0 LOST)   42.29%
+extraonly               zero TS1063, zero TS1120
+TS1063 missing lines    1 → 0     — the row is closed
+```
+
+### TS1063 cost two corrections, both from reading the predicate
+
+The first draft spelled `isContainedByNamespace` as *"any `ModuleDeclaration`
+ancestor"* and measured **2,293 — twenty-seven cases lost.** Upstream:
+
+```go
+container := node.Parent
+if !ast.IsSourceFile(container) { container = container.Parent }
+return ast.IsModuleDeclaration(container) && !ast.IsAmbientModule(container)
+```
+
+Two things the paraphrase dropped: the container is **one or two hops, not a
+walk**, and it must **not be an ambient module** — which is exactly §432's
+exempt shape, `declare module "x" { export = Y }`, and there are twenty-seven of
+those. §432 had *already recorded that exemption for TS1120 on the same
+function*, four hundred sections ago, and the paraphrase still lost it.
+
+> **A named predicate is a specification; a paraphrase of its name is not.**
+> `isContainedByNamespace` sounds like an ancestor test and is not one. The rule
+> that would have caught this is the one this workstream already has — *read the
+> existing rule before assuming the missing arm* (§143) — applied to upstream's
+> helpers as well as to this port's.
+
+### TS1038 — refused, 91 wrong lines, and the open question is named
+
+`grammarchecks.go:458` is two conjuncts: the parent is a `ModuleBlock`, and the
+parent's own `Flags` carry `NodeFlagsAmbient`. Ported with
+`is_in_ambient_context_for_overloads(node)` standing in for the second, it
+produced **91 lines the corpus does not have** — measured, then reverted whole.
+
+`NodeFlagsAmbient` is a **parser context flag** (`parser.go:431` for a whole
+`.d.ts`, `parser.go:1139` for the subtree under any `declare`), so the two
+readings differ in ways this section did not pin down:
+
+```
+upstream    the ModuleBlock node's OWN flag, as the parser set it
+this port   an ancestor walk from the modifier, which is not the same question
+```
+
+**The falsifier for the next attempt is therefore precise:** find a corpus case
+among the 91 where the parent is a `ModuleBlock` and ask whether the *parser*
+would have set `Ambient` on that block. If this port does not record the flag on
+the node at all, the row is `tsr-parser`'s and joins §657 rather than being
+rebuilt here.
+
+**Refused, priced at 1 case, 91 wrong lines measured.**

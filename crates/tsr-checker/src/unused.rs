@@ -1261,7 +1261,7 @@ impl Checker<'_, '_> {
         true
     }
 
-    fn is_ambient_module_declaration(&self, node: NodeId) -> bool {
+    pub(crate) fn is_ambient_module_declaration(&self, node: NodeId) -> bool {
         matches!(
             self.node_map.get(node),
             Some(Node::ModuleDeclaration(declaration))
