@@ -5787,3 +5787,26 @@ The thirty-fifth pin flipped (valued-return decline → computed).
 Remaining §135 slices: the down-level IterableIterator mint
 (target-keyed), `yield*` (iteration protocol), contextual
 next-types (the other lane's arc).
+
+## §136 — annotation references fill their defaulted tail [claimed: checker-1]
+
+**Found through §135's residual, and it is corpus-wide.** A partial
+type-argument list against a DEFAULTED generic gaps in ANNOTATION
+position: `interface Foo<T, U = string>` + `declare const x:
+Foo<number>` answers error (probefile-verified; the full list
+works). The §38 fill (`fillMissingTypeArguments`, checker.go:19458)
+landed for CALL-side written arguments only; the annotation road's
+arity check rejects partial lists outright. The ENTIRE lib iterator
+family rides this — `Iterator<T, TReturn = any, TNext = undefined>`,
+`IterableIterator<number>`, `Generator` references in annotations —
+plus every user-defaulted generic. The arm: the annotation road's
+arity test accepts `written < params` when defaults cover the tail;
+tail positions instantiate their default under the map-so-far
+(§38's exact recipe), `unknown`/error-decline where a default is
+absent or does not compute.
+
+**Bar.** ≥150 G→R at ≥5:1 (the iterator-annotation class alone is
+wide; mechanism-sampled from the §135 residuals + probefile).
+Falsifier: defaults REFERENCING EARLIER PARAMETERS (`<T, U = T>`)
+must instantiate under the partial map — a raw default type would
+print `T` where upstream prints the substituted argument.
