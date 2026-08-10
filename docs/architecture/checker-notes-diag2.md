@@ -28858,3 +28858,95 @@ against twenty-five reverted for measuring negative — the distinction being
 ### The sweep, closed
 
 Three arms, one defect, +0. Recorded as **discharged**, not standing.
+
+## §546 — TS2341: the visibility rule is declined by its own `ambient` flag
+
+```ts
+class C { private static bar: string; }
+class D extends C { }
+namespace D {
+    export var y = D.bar;   // TS2341 — we emit nothing
+}
+```
+
+`diagcase` shows both of the case's TS2564 lines converting and only TS2341
+missing, so the receiver resolves and the property is found. Two `eprintln`
+probes — one after `get_property_of_type`, one after `check_expression` —
+**printed nothing at all**, which places the decline *before* the rule's body:
+
+```rust
+pub(crate) fn check_private_property_access(&mut self, node: NodeId, ambient: bool) {
+    if ambient || self.file_has_parse_errors || self.in_js_file(node) {
+```
+
+The file parses and is not JavaScript, so the returner is **`ambient`** — the
+walk-threaded flag §81 documents as widening at `VariableStatement`, and
+`export var y = D.bar` is one.
+
+> **A probe that prints nothing is a measurement.** Two silent probes bracket
+> the decline more precisely than a successful one would have: the first says
+> *not the property lookup*, the second says *not the receiver type*, and
+> together they leave exactly one guard. §131 says read the fixture before the
+> fourth hypothesis; this is the same economy applied to code — placing the
+> probe to *exclude* rather than to confirm.
+
+### The fix is **not** §508's — corrected after measurement
+
+The paragraph that stood here proposed replacing the walk-threaded `ambient`
+with `declaration_is_in_an_ambient_context`, on the reasoning that §445 measured
+that flag at −14 and §508 replaced it for +5. **Built and measured: +0, with
+`total missing TS2341 lines` unchanged at 11.** Reverted.
+
+So `ambient` is *not* what declines this case, and the two silent probes do not
+mean what the paragraph above claims they mean.
+
+> **A probe that prints nothing is a measurement only if you know it ran.** The
+> reasoning was: two probes silent ⟹ the decline precedes them ⟹ it is the only
+> guard before them. The conclusion followed from the premises and the premises
+> were not checked — there is no positive control showing the probe would have
+> printed had it been reached. §533's loader probe printed, which is what made
+> silence here feel informative, and that is a different binary and a different
+> code path.
+
+**What is actually established**, and all that is:
+
+```
+the case's two TS2564 lines convert            → the file is checked
+its TS2341 line does not                       → the row is open
+the walk-threaded `ambient` is not the cause   → measured, +0
+```
+
+**What is not established**: where the decline happens. The next attempt should
+begin with a *positive control* — a probe on a case this rule is known to
+convert — before drawing any conclusion from silence on one it does not.
+
+Recorded as a **refusal with a corrected diagnosis** rather than a lead, because
+a wrong lead costs the next session more than no lead. §546's original text is
+superseded above and left visible; the corpus's five TS2341 cases stay open,
+two of them behind the destructuring entry named below.
+
+The claim that this was a *third* appearance of §445's defect is withdrawn: it
+was two appearances and one guess. The walk-threaded `ambient` remains a
+parameter passed through the whole visitor that no rule taking it has measured,
+which is still worth someone's attention — but this build is not evidence for
+it.
+
+### The bar, and what it caught
+
+```
+bar:  +3 of 5,  0 LOST,  WRONG delta <= +1        measured: +0, reverted
+```
+
+Three, not five: two of the five blocked cases are **destructuring**
+(`destructureComputedProperty`, `destructuringAssignment_private`), which needs
+`checkPropertyAccessibility` reached from
+`checkObjectLiteralDestructuringPropertyAssignment` — a different entry, named
+here and not attempted (§501).
+
+### Falsifiers
+
+1. **A `.d.ts` reports TS2341.** §445's exact failure; the replacement must be
+   the precise helper, not the removal of the guard.
+2. **`extraonly` grows.** §67 records this rule's one historical loss and 12
+   wrong lines from a divergent accessor pair; widening its reach re-exposes
+   that surface.
