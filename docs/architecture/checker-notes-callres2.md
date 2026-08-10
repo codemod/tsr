@@ -912,3 +912,26 @@ genericChainedCalls +28, typeArgumentInferenceWithConstraints +12
 element harvest, CS-members' return-side sites (`_a => 0` still
 contributes a return inference upstream), shorthand members. The
 family retains 199 gap / 135 wrong.
+
+## §137 BAR (registered before code): §135 slice 2 — in-order CS-member harvest
+
+Upstream's non-omitted pass checks literal members IN ORDER, each
+member's check first consuming inferences from already-checked earlier
+members (`inferFromIntraExpressionSites` fires per site). Slice 1 only
+harvested NON-context-sensitive members; a CS member's return
+(`produce: _a => 0` — annotated param, inferable return) contributed
+nothing, so T filled `unknown` where upstream infers `number`.
+
+Slice 2: the harvest loop processes properties in order; a CS value
+registers the CURRENT partial as the literal's member map, evicts its
+subtree, checks (its context now serves through the map), and infers
+from the checked type against the property type — inferences accumulate
+member to member. The unknown-fill stays where it is (after harvest,
+§134-guarded).
+
+Prediction: the `number ||| unknown` family (10 rows) plus several
+GAP'd arrow prints convert; family net +20–40; typeArgumentInference's
+someGenerics6-class unchanged (no literal). Falsifier: if checking a CS
+member during harvest freezes its later full-literal re-check through a
+cache the eviction misses, the family will not move and the trace
+discipline resumes.
