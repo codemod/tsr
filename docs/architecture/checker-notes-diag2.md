@@ -38189,3 +38189,92 @@ namespace's exports.
 
 Both callers gained: TS2449 and TS2694 stayed at zero wrong lines with a deeper
 resolution underneath them.
+
+## §748 — TS2729: a parameter property is declared where its constructor is
+
+```ts
+class Derived extends Base {
+    b = this.a;                        // TS2729 — `a` is declared below
+    constructor(public a: number) { super(); }
+}
+```
+
+§316's rule compares two positions in the class's member list — the initializer
+that uses the name, and the `PropertyDeclaration` that declares it. **A parameter
+property is not a `PropertyDeclaration`**, so `a` is never found and the
+comparison never happens.
+
+This is §708's gap in a second rule. There the base member set was too small for
+TS2610; here the *own* member list is too small for TS2729, and the fix is the
+same fact stated once more: `constructor(public a: number)` declares `a` on the
+class, at the constructor's index in the member list.
+
+> Two rules, eight builds apart, both reading `class.members` as *the members*.
+> **It is not a list that is missing an entry — it is a list that does not
+> contain what the language says it contains**, and every rule that reads it
+> directly will need the same correction. §708 fixed one, this fixes two, and
+> the sweep worth doing is *which other rules read `class.members` for
+> membership rather than for iteration*.
+
+The index is the constructor's, which is what upstream's position comparison
+gets: the parameter property is initialised when the constructor runs, so a
+field initialiser above it runs first.
+
+```
+bar:  +1 of 6 (redefinedPararameterProperty),  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **`constructor(public a) {} b = this.a;` reports.** Order reversed, the
+   comparison must go the other way — the constructor's index is below `b`'s.
+2. **A plain parameter (no modifier) is treated as a member.** `constructor(a:
+   number)` declares nothing on the class.
+3. **TS2610's row moves.** It reads the same list through §708's arm.
+
+## §749 — §748 built: **+1**, and the wrong line was the same defect one level up
+
+```
+diagnostics             2,265 → 2,266   (bar was +1;  +1, 0 LOST)   41.29%
+extraonly               zero TS2729, TS2610 and TS2611 lines
+TS2729 missing lines    14 → 12
+```
+
+Two changes, and the second was forced by the first:
+
+**1. A parameter property is a member.** `constructor(public a: number)` declares
+`a` at the constructor's index, and `class.members` does not contain it. §708
+made the identical correction to TS2610's *base* member set eight builds ago.
+
+**2. One hop is not the ancestry.** With (1) in place the rule reported on
+`useBeforeDeclaration_superClass`:
+
+```ts
+class X { x = 0; }
+class Y extends X {}
+class Z extends Z { old_x = this.x; x = 1; }   // reported, wrongly
+```
+
+`isPropertyDeclaredInAncestorClass` is a **negative** guard — §317 says so in
+the rustdoc, *"leaving it out adds output rather than withholding it"* — and it
+checked the immediate base only. `x` lives on `X`, two hops up, so the guard
+answered *no ancestor declares it* and the rule fired.
+
+> §747 closed a row by turning a one-level resolution into a walk, and this build
+> hit the same thing in a different function two builds later. **A one-hop test
+> is correct exactly until the corpus has two hops**, and the corpus always
+> eventually does. The three walkers in this file — §692's alias chain, §736's
+> base chain, §745's cycle chain — are all bounded loops for that reason, and
+> §317's guard was the last single-hop test among them.
+
+### The lists that do not contain what the language says they contain
+
+```
+§708  base member set     missing parameter properties and inherited members
+§748  own member set      missing parameter properties
+```
+
+Both rules read `class.members` as *the members of the class*. **The sweep worth
+doing is which other rules read it for membership rather than for iteration** —
+named here, not run, because the two found so far were both found by a fixture
+rather than by a list.

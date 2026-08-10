@@ -6561,41 +6561,27 @@ impl Checker<'_, '_> {
     /// `isPropertyDeclaredInAncestorClass` (`checker.go:11720`), one hop —
     /// the same resolution §309 uses, and bounded the same way. §317.
     fn ancestor_class_declares(&mut self, class: NodeId, name: &str) -> bool {
-        let clauses = match self.node_map.get(class) {
-            Some(Node::ClassDeclaration(c)) => c.heritage_clauses,
-            Some(Node::ClassExpression(c)) => c.heritage_clauses,
-            _ => return false,
-        };
-        let Some(extends) =
-            clauses.iter().find(|clause| clause.token.kind == SyntaxKind::ExtendsKeyword)
-        else {
-            return false;
-        };
-        let Some(base) = extends.types.first() else { return false };
-        let Some(tsr_ast::Expression::Identifier(base_name)) = base.expression else {
-            return false;
-        };
-        let Some(at) = base_name.node_id else { return false };
-        let Some(symbol) = self.binder.resolve_name(
-            self.nodes,
-            self.node_map,
-            at,
-            base_name.text,
-            SymbolFlags::CLASS,
-        ) else {
-            return false;
-        };
-        let symbol = self.binder.merged_symbol(symbol);
-        let Some(declaration) = self.binder.symbols().get(symbol).value_declaration else {
-            return false;
-        };
-        let Some(Node::ClassDeclaration(base_class)) = self.node_map.get(declaration) else {
-            return false;
-        };
-        base_class.members.iter().any(|member| {
-            matches!(member, tsr_ast::ClassElement::PropertyDeclaration(property)
-                if matches!(property.name, tsr_ast::PropertyName::Identifier(it) if it.text == name))
-        })
+        // **One hop is not the ancestry.** `class Z extends Y {}` with `Y
+        // extends X` and `x` declared on `X` is `useBeforeDeclaration_superClass`,
+        // and §317 read it as a one-hop test because that fixture's own shape
+        // needed no more. §745's walker follows the chain, qualified bases
+        // included, bounded as every other walk here is. §748.
+        let mut at = self.base_class_declaration_of(class);
+        for _ in 0..MAX_ALIAS_HOPS {
+            let Some(base) = at else { return false };
+            let Some(Node::ClassDeclaration(base_class)) = self.node_map.get(base) else {
+                return false;
+            };
+            let declares = base_class.members.iter().any(|member| {
+                matches!(member, tsr_ast::ClassElement::PropertyDeclaration(property)
+                    if matches!(property.name, tsr_ast::PropertyName::Identifier(it) if it.text == name))
+            });
+            if declares {
+                return true;
+            }
+            at = self.base_class_declaration_of(base);
+        }
+        false
     }
     /// The kind a base class or any of its own bases declares `name` as.
     ///
@@ -6858,6 +6844,40 @@ impl Checker<'_, '_> {
             let Some(id) = element.node_id() else { continue };
             if id == member {
                 using_at = Some(index);
+            }
+            // **A parameter property is declared where its constructor is.**
+            // `constructor(public a: number)` declares `a` on the class, and
+            // `class.members` does not contain it — it is a parameter of a
+            // constructor that is. §708 made the same correction to TS2610's
+            // base member set. §748.
+            if let tsr_ast::ClassElement::ConstructorDeclaration(constructor) = element {
+                let declares = constructor.parameters.iter().any(|parameter| {
+                    let modifiers = parameter.modifiers;
+                    let is_parameter_property =
+                        tsr_ast::has_syntactic_modifier(modifiers, SyntaxKind::PublicKeyword)
+                            || tsr_ast::has_syntactic_modifier(
+                                modifiers,
+                                SyntaxKind::PrivateKeyword,
+                            )
+                            || tsr_ast::has_syntactic_modifier(
+                                modifiers,
+                                SyntaxKind::ProtectedKeyword,
+                            )
+                            || tsr_ast::has_syntactic_modifier(
+                                modifiers,
+                                SyntaxKind::ReadonlyKeyword,
+                            );
+                    is_parameter_property
+                        && matches!(
+                            parameter.name,
+                            Some(tsr_ast::BindingName::Identifier(written))
+                                if written.text == name.text
+                        )
+                });
+                if declares && target_at.is_none() {
+                    target_at = Some(index);
+                }
+                continue;
             }
             let tsr_ast::ClassElement::PropertyDeclaration(property) = element else { continue };
             let tsr_ast::PropertyName::Identifier(declared) = property.name else { continue };
