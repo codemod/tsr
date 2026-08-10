@@ -6057,3 +6057,11 @@ READS whose own lines print member types, not `this` itself —
 so a placeholder text may cost little. Next window: the
 symbol-carrying mint with a text census (how many assertion lines
 print `this` bare in these cases). Reverted byte-identical.
+
+**Instrument caveat (§141 window):** the post-revert clean tree
+read +15 in intraExpressionInferences vs the §140-accepted baseline
+(11 G→R + 4 W→R) — transitions that SURVIVED the revert and are
+therefore not §141's (the §85.1 rule). Owner unknown: candidate is
+alignment/ordering nondeterminism in that case family (the §87
+unicodeEscapes caveat's second instance). Re-accepted; any future
+single-case ±15 there is noise until traced.
