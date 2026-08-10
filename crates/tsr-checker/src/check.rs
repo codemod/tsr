@@ -539,6 +539,10 @@ impl Checker<'_, '_> {
                 ambient
             }
             Node::PrefixUnaryExpression(_) | Node::PostfixUnaryExpression(_) => {
+                // `checkPrefixUnaryExpression` wraps its operand in
+                // `checkNonNullType` exactly as the binary arms wrap theirs.
+                // §759.
+                self.check_nullable_operand(node, ambient);
                 // `if ok { checkReferenceExpression(...) }` — upstream gates
                 // the reference check on the arithmetic one so a non-numeric
                 // operand reports TS2356 alone. §741.

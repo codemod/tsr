@@ -38672,3 +38672,83 @@ Six lines, one case: `duplicateObjectLiteralProperty_computedName2`'s enum keys,
 `[E1.A]` and `[E2.B]`, where two different spellings resolve to the same string.
 That is the second row of the table above and it needs the value — **the late-
 bound member table this build stood in for, and the owner it belongs to.**
+
+## §759 — TS18050: a prefix operator's operand is a non-null position too
+
+```ts
+var ResultIsNumber7 = -undefined;   // TS18050
+var ResultIsNumber  = -null;        // TS18050
+```
+
+`checkPrefixUnaryExpression` wraps its operand in `checkNonNullType`
+(`checker.go:10899` and the arithmetic arms above it), exactly as
+`checkBinaryLikeExpression` wraps both sides. §50's rule ports the binary half
+and matches on `Node::BinaryExpression` at its first line, so a prefix `-`, `+`
+or `~` never reaches it.
+
+Everything the rule needs is already parameterised over an operand: the nullish
+facts, the `null`/`undefined` spelling test that chooses TS18050 over TS18048,
+and the entity-name printing for the other five branches. **Only the entry
+matches one node kind.**
+
+> Fourth caller-shaped gap (§688, §740, §753, §759), and the second where the
+> helper's *own first line* is the guard. **A rule that begins by destructuring
+> one node kind has its call sites written into it**, which is invisible from
+> the call site and obvious from the rule — and every one of these four was
+> found from the fixture, not from either.
+
+The `!`/`typeof`/`void` operators are excluded: upstream's non-null wrap is on
+the arithmetic arms only, and `!undefined` is legal.
+
+```
+bar:  +2 of 5 (negateOperatorWithAnyOtherType, bitwiseNotOperatorWithAnyOtherType),
+      0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **`!undefined` or `typeof undefined` reports.** Neither is an arithmetic
+   operand and both are legal.
+2. **TS18048's row moves.** The spelling test picks between the two codes and is
+   shared unchanged.
+3. **§741's increment arm double-reports.** `--undefined` reaches both
+   `check_increment_operand_type` and this; upstream's `checkNonNullType` runs
+   once.
+
+## §760 — §759 built: **+1**, and the guard was in *two* places
+
+```
+diagnostics             2,272 → 2,273   (bar was +2;  +1, 0 LOST)   41.42%
+extraonly               zero TS18050, TS18048 and TS18049 lines
+TS18050 missing lines    16 → 14;  5 cases blocked alone → 4
+```
+
+The prefix arm was added to the rule and measured **+0**. The rule was reached
+zero times, because the *dispatch* also names the kind:
+
+```rust
+Node::BinaryExpression(binary)
+    if binary.operator_token.is_some_and(|t| is_numeric_binary_operator(t.kind)) =>
+{
+    self.check_nullable_operand(node, ambient);
+}
+```
+
+**Two guards, both spelled as the same restriction, in two files.** The rule's
+first line matched `BinaryExpression`; the dispatch arm matched it again and
+carried the operator test besides. Widening one and not the other is a `+0` with
+no symptom at all — no wrong line, no moved line, nothing to read.
+
+> Fourth caller-shaped gap and the first with **two** doors. §754 said the
+> resolution was shared and correct and only the door was the wrong shape; here
+> there were two doors and I opened the inner one. **A rule reached through a
+> `match` on node kind has its dispatch as part of its signature**, and the
+> dispatch is a thousand lines away in another file.
+
+### The residue
+
+Fourteen lines, four cases: `-ANY2[0]`, `-obj1.x` and the other *expression*
+forms in the same fixtures, where the operand's nullability comes from an index
+signature or a property type rather than from a `null`/`undefined` literal.
+Those need the type, and this build's arm reaches them — **it is the facts that
+are missing, not the position.** Named; the type side owns it.

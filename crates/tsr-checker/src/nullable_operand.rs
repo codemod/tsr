@@ -31,6 +31,24 @@ impl Checker<'_, '_> {
         if ambient || self.file_has_parse_errors || !self.strict_null_checks {
             return;
         }
+        // **A prefix operator's operand is a non-null position too.**
+        // `checkPrefixUnaryExpression` wraps it in `checkNonNullType`
+        // (`checker.go:10899` and the arithmetic arms above it), exactly as
+        // `checkBinaryLikeExpression` wraps both sides. `!`, `typeof` and
+        // `void` are excluded — upstream's wrap is on the arithmetic arms only
+        // and `!undefined` is legal. §759.
+        if let Some(Node::PrefixUnaryExpression(unary)) = self.node_map.get(node) {
+            if !matches!(
+                unary.operator.kind,
+                SyntaxKind::MinusToken | SyntaxKind::PlusToken | SyntaxKind::TildeToken
+            ) {
+                return;
+            }
+            let Some(operand) = unary.operand else { return };
+            let _ = self.check_expression(operand);
+            self.report_nullable_operand(operand);
+            return;
+        }
         let Some(Node::BinaryExpression(binary)) = self.node_map.get(node) else { return };
         let Some(operator) = binary.operator_token else { return };
         if !is_numeric_operator(operator.kind) {
@@ -54,75 +72,80 @@ impl Checker<'_, '_> {
             }
         }
         for operand in [left, right] {
-            let Some(id) = operand.node_id() else { continue };
-            let ty = self.check_expression(operand);
-            // `getTypeFacts(t, IsUndefinedOrNull)` (`checker.go:7425`): the
-            // type **may be** nullish, which for a union is any constituent.
-            let (maybe_null, maybe_undefined) = self.nullish_facts(ty);
-            if !maybe_null && !maybe_undefined {
-                continue;
+            self.report_nullable_operand(operand);
+        }
+    }
+
+    /// One operand of an arithmetic position, reported per
+    /// `reportObjectPossiblyNullOrUndefinedError` (`checker.go:7455`).
+    ///
+    /// Extracted so the prefix arm and the binary arm share it — the
+    /// spelling test that chooses TS18050 over TS18048 and the five
+    /// entity-name branches are the same for both. §759.
+    fn report_nullable_operand(&mut self, operand: tsr_ast::Expression<'_>) {
+        let Some(id) = operand.node_id() else { return };
+        let ty = self.check_expression(operand);
+        // `getTypeFacts(t, IsUndefinedOrNull)` (`checker.go:7425`): the
+        // type **may be** nullish, which for a union is any constituent.
+        let (maybe_null, maybe_undefined) = self.nullish_facts(ty);
+        if !maybe_null && !maybe_undefined {
+            return;
+        }
+        // **This code is chosen by the node, not by the type.**
+        // `reportObjectPossiblyNullOrUndefinedError` (`checker.go:7455`)
+        // emits `The value '{0}' cannot be used here` only for a `null`
+        // keyword or for an identifier literally spelled `undefined`;
+        // every other nullable operand gets TS18048 / TS18049 / TS2531 /
+        // TS2532 with the same *facts*. `var x: typeof undefined; t < x`
+        // is upstream's TS18048 and was 64 wrong lines of this rule —
+        // `checker-notes-diag2.md` §50.3.
+        let written = match self.node_map.get(id) {
+            _ if self.nodes.kind(id) == SyntaxKind::NullKeyword => Some("null"),
+            Some(Node::Identifier(identifier)) if identifier.text == "undefined" => {
+                Some("undefined")
             }
-            // **This code is chosen by the node, not by the type.**
-            // `reportObjectPossiblyNullOrUndefinedError` (`checker.go:7455`)
-            // emits `The value '{0}' cannot be used here` only for a `null`
-            // keyword or for an identifier literally spelled `undefined`;
-            // every other nullable operand gets TS18048 / TS18049 / TS2531 /
-            // TS2532 with the same *facts*. `var x: typeof undefined; t < x`
-            // is upstream's TS18048 and was 64 wrong lines of this rule —
-            // `checker-notes-diag2.md` §50.3.
-            let written = match self.node_map.get(id) {
-                _ if self.nodes.kind(id) == SyntaxKind::NullKeyword => Some("null"),
-                Some(Node::Identifier(identifier)) if identifier.text == "undefined" => {
-                    Some("undefined")
-                }
-                _ => None,
-            };
-            let Some(file) = self.source_file_of_for_diagnostics(id) else { continue };
-            let span = self.error_span(id);
-            if let Some(written) = written {
-                self.report(
-                    file,
-                    Diagnostic::with_args(
-                        &messages::THE_VALUE_0_CANNOT_BE_USED_HERE,
-                        span,
-                        [written.to_string()],
-                    ),
-                );
-                continue;
+            _ => None,
+        };
+        let Some(file) = self.source_file_of_for_diagnostics(id) else { return };
+        let span = self.error_span(id);
+        if let Some(written) = written {
+            self.report(
+                file,
+                Diagnostic::with_args(
+                    &messages::THE_VALUE_0_CANNOT_BE_USED_HERE,
+                    span,
+                    [written.to_string()],
+                ),
+            );
+            return;
+        }
+        // The other five branches. `entityNameToString` gives the printed
+        // name for an identifier or a dotted name; anything else takes the
+        // `Object is possibly …` twin at the same position with the same
+        // facts (`checker.go:7455`, `checker-notes-diag2.md` §51).
+        let named = self.operand_entity_name_text(id).filter(|text| text.len() < 100);
+        match (named, maybe_null, maybe_undefined) {
+            (Some(text), true, true) => self.report(
+                file,
+                Diagnostic::with_args(&messages::_0_IS_POSSIBLY_NULL_OR_UNDEFINED, span, [text]),
+            ),
+            (Some(text), false, true) => self.report(
+                file,
+                Diagnostic::with_args(&messages::_0_IS_POSSIBLY_UNDEFINED, span, [text]),
+            ),
+            (Some(text), true, false) => self
+                .report(file, Diagnostic::with_args(&messages::_0_IS_POSSIBLY_NULL, span, [text])),
+            (None, true, true) => self.report(
+                file,
+                Diagnostic::new(&messages::OBJECT_IS_POSSIBLY_NULL_OR_UNDEFINED, span),
+            ),
+            (None, false, true) => {
+                self.report(file, Diagnostic::new(&messages::OBJECT_IS_POSSIBLY_UNDEFINED, span));
             }
-            // The other five branches. `entityNameToString` gives the printed
-            // name for an identifier or a dotted name; anything else takes the
-            // `Object is possibly …` twin at the same position with the same
-            // facts (`checker.go:7455`, `checker-notes-diag2.md` §51).
-            let named = self.operand_entity_name_text(id).filter(|text| text.len() < 100);
-            match (named, maybe_null, maybe_undefined) {
-                (Some(text), true, true) => self.report(
-                    file,
-                    Diagnostic::with_args(
-                        &messages::_0_IS_POSSIBLY_NULL_OR_UNDEFINED,
-                        span,
-                        [text],
-                    ),
-                ),
-                (Some(text), false, true) => self.report(
-                    file,
-                    Diagnostic::with_args(&messages::_0_IS_POSSIBLY_UNDEFINED, span, [text]),
-                ),
-                (Some(text), true, false) => self.report(
-                    file,
-                    Diagnostic::with_args(&messages::_0_IS_POSSIBLY_NULL, span, [text]),
-                ),
-                (None, true, true) => self.report(
-                    file,
-                    Diagnostic::new(&messages::OBJECT_IS_POSSIBLY_NULL_OR_UNDEFINED, span),
-                ),
-                (None, false, true) => self
-                    .report(file, Diagnostic::new(&messages::OBJECT_IS_POSSIBLY_UNDEFINED, span)),
-                (None, true, false) => {
-                    self.report(file, Diagnostic::new(&messages::OBJECT_IS_POSSIBLY_NULL, span));
-                }
-                (_, false, false) => {}
+            (None, true, false) => {
+                self.report(file, Diagnostic::new(&messages::OBJECT_IS_POSSIBLY_NULL, span));
             }
+            (_, false, false) => {}
         }
     }
 
