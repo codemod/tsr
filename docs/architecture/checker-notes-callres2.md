@@ -1434,3 +1434,14 @@ and fell through unchanged. One wrap after the predicate answers:
 truthy + strict + `optional_chain_contains_reference` →
 NE_UNDEFINED_OR_NULL. Family 96→88 W; next block is
 `number ||| string | number` ×16 (discriminated-chain narrowing).
+
+## §151 LANDED: union-comparand equality + the chain strip (+6, zero regressions)
+
+`o?.foo === value` with `value: number | undefined`: (1) the comparable
+filter goes constituent-wise over UNION comparands (any-true keeps,
+all-false drops, any-undecidable declines whole); the pure-nullable
+guard now exempts unions; (2) after the filter, a matched operand that
+spells a `?.` chain strips nullable from the true branch — the chain
+result's undefined is the CHAIN's, not the member's
+(`optionalChainContainsReference` after the comparable filter,
+flow.go:585-600 region). Family 88→82 W.

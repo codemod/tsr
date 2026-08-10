@@ -3283,14 +3283,20 @@ impl Checker<'_, '_> {
                 // and reads the value from the right; the reference can sit on
                 // either side, so both orders are tried and the *other* operand
                 // is the value.
-                let value = if self.is_matching_reference(state, left) {
-                    right
+                let (value, matched) = if self.is_matching_reference(state, left) {
+                    (right, left)
                 } else if self.is_matching_reference(state, right) {
-                    left
+                    (left, right)
                 } else {
                     return t;
                 };
-                self.narrow_type_by_equality(t, operator.kind, value, assume_true)
+                // SS151: `o?.foo === value` - the chain result's undefined
+                // is the CHAIN's, not the member's; the true branch strips
+                // nullable from the filtered member (upstream's
+                // optionalChainContainsReference strip after the
+                // comparable filter, flow.go:585-600 region).
+                let chain = self.spells_question_dot_chain(matched);
+                self.narrow_type_by_equality(t, operator.kind, value, assume_true, chain)
             }
             _ => t,
         }
@@ -3929,12 +3935,46 @@ impl Checker<'_, '_> {
         }
     }
 
+    /// SS151: does the expression at `node` read through at least one `?.`
+    /// (walking receivers down the access/call chain)?
+    fn spells_question_dot_chain(&self, node: NodeId) -> bool {
+        let mut current = Some(node);
+        while let Some(id) = current {
+            match self.node_map.get(id) {
+                Some(Node::PropertyAccessExpression(access)) => {
+                    if access.question_dot_token.is_some() {
+                        return true;
+                    }
+                    current = access.expression.and_then(|e| e.node_id());
+                }
+                Some(Node::ElementAccessExpression(access)) => {
+                    if access.question_dot_token.is_some() {
+                        return true;
+                    }
+                    current = access.expression.and_then(|e| e.node_id());
+                }
+                Some(Node::CallExpression(call)) => {
+                    if call.question_dot_token.is_some() {
+                        return true;
+                    }
+                    current = call.expression.and_then(|e| e.node_id());
+                }
+                Some(Node::ParenthesizedExpression(inner)) => {
+                    current = inner.expression.and_then(|e| e.node_id());
+                }
+                _ => return false,
+            }
+        }
+        false
+    }
+
     fn narrow_type_by_equality(
         &mut self,
         t: TypeId,
         operator: SyntaxKind,
         value: NodeId,
         assume_true: bool,
+        chain_strips_nullable: bool,
     ) -> TypeId {
         // `t.flags&TypeFlagsAny != 0` (`flow.go:557`): `any` narrows to
         // nothing. Identity against the intrinsic rather than the `ANY` flag,
@@ -3988,7 +4028,9 @@ impl Checker<'_, '_> {
             self.narrow_value_stack.remove(&value);
             let value_flags = self.store.get(value_type).flags;
             if value_type == self.intrinsics.error
-                || value_flags.intersects(TypeFlags::ANY_OR_UNKNOWN | TypeFlags::NULLABLE)
+                || value_flags.intersects(TypeFlags::ANY_OR_UNKNOWN)
+                || (value_flags.intersects(TypeFlags::NULLABLE)
+                    && !matches!(self.store.get(value_type).data, TypeData::Union { .. }))
             {
                 return t;
             }
@@ -4010,8 +4052,26 @@ impl Checker<'_, '_> {
             let total = constituents.len();
             let mut kept = Vec::new();
             if assume_true {
+                // SS151: a UNION comparand filters constituent-wise -
+                // comparable to ANY comparand constituent keeps; all-false
+                // drops; any undecidable declines whole (Kleene).
+                let comparand_constituents: Vec<TypeId> = match &self.store.get(value_type).data {
+                    TypeData::Union { types, .. } => types.clone(),
+                    _ => vec![value_type],
+                };
                 for constituent in constituents {
-                    match self.comparable_ternary(constituent, value_type) {
+                    let mut verdict = Some(false);
+                    for &comparand in &comparand_constituents {
+                        match self.comparable_ternary(constituent, comparand) {
+                            Some(true) => {
+                                verdict = Some(true);
+                                break;
+                            }
+                            Some(false) => {}
+                            None => verdict = None,
+                        }
+                    }
+                    match verdict {
                         Some(true) => kept.push(constituent),
                         Some(false) => {}
                         None => return t,
@@ -4044,7 +4104,12 @@ impl Checker<'_, '_> {
             }
             let filtered = self.get_union_type(&kept);
             if assume_true {
-                return self.replace_primitives_with_literals(filtered, value_type);
+                let replaced = self.replace_primitives_with_literals(filtered, value_type);
+                // SS151: the chain strip, after the filter.
+                if chain_strips_nullable && self.strict_null_checks {
+                    return self.get_type_with_facts(replaced, TypeFacts::NE_UNDEFINED_OR_NULL);
+                }
+                return replaced;
             }
             return filtered;
         };
