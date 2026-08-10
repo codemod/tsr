@@ -616,11 +616,30 @@ impl<'a> Checker<'a, '_> {
             // which is decided here rather than in the renderer.
             let signature = match member {
                 tsr_ast::TypeElement::MethodSignatureDeclaration(method) => {
-                    let tsr_ast::PropertyName::Identifier(name) = method.name else {
-                        return error;
+                    // SS145 (checker-notes-callres2.md): a computed name
+                    // whose expression is the well-known `Symbol.hasInstance`
+                    // access prints bracketed - the shape the hasInstance
+                    // narrowing family's RHS literals carry. Every other
+                    // computed name keeps the whole-literal decline.
+                    let name = match method.name {
+                        tsr_ast::PropertyName::Identifier(name) => name.text.to_string(),
+                        tsr_ast::PropertyName::ComputedPropertyName(computed)
+                            if computed.expression.is_some_and(|e| {
+                                matches!(e, tsr_ast::Expression::PropertyAccessExpression(access)
+                                    if matches!(access.name,
+                                        Some(tsr_ast::MemberName::Identifier(name))
+                                            if name.text == "hasInstance")
+                                        && matches!(access.expression,
+                                            Some(tsr_ast::Expression::Identifier(receiver))
+                                                if receiver.text == "Symbol"))
+                            }) =>
+                        {
+                            "[Symbol.hasInstance]".to_string()
+                        }
+                        _ => return error,
                     };
                     // A method groups with the properties: see the doc comment.
-                    Some((method.node_id, Some(name.text.to_string()), "", true))
+                    Some((method.node_id, Some(name), "", true))
                 }
                 tsr_ast::TypeElement::CallSignatureDeclaration(call) => {
                     Some((call.node_id, None, "", false))

@@ -1246,3 +1246,17 @@ are already right, so the literal-typed half is most of the residue);
 falsifier: if the member SYMBOL isn't reachable through the literal's
 Anonymous owner the predicate road stays dark and only the print rows
 convert.
+
+## §145 LANDED: `[Symbol.hasInstance]` members in type literals (+57, zero regressions)
+
+One row-map decoded the family (the `any` wall was the whole-literal
+computed-name decline), one arm fixed it: the method arm accepts the
+well-known `Symbol.hasInstance` computed name, printing bracketed. The
+predicate road's declaration-reading leg lit up as predicted for the
+single-member literals (+14 W→R narrows across the two hasInstance
+families); the prints delivered +43 G→R. Isolation note: the first
+pair against the stale baseline showed the SCANNER family (+258) —
+the standard re-accept cycle after multi-lane pulls, caught by the
+custody stash-check before any misattribution. Residue: 76 W in the
+head family (multi-member literals / non-predicate hasInstance
+shapes), priced to the next census.
