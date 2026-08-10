@@ -1616,3 +1616,15 @@ rows in controlFlowInstanceof did NOT move — their filter fails
 elsewhere (the union's constituents may not be reference-interned as
 assumed, or the loop context intervenes); ONE trace inside the filter
 on that fixture decides, banked as the next increment.
+
+## §160.1 — the Set-row trace ran: re-attributed to the calls lane
+
+`T160: declared=Set<string> | Set<number> assigned=error` ×28 — the
+assignment narrowing is starved by its INPUT: `new Set<number>()`
+types error (construct-signature resolution with written type
+arguments on the lib's SetConstructor interface — a calls-lane rung,
+generic NEW on interface construct signatures). The 24+ Set rows plus
+the downstream never/else rows belong to that build, not to flow. The
+narrowing machinery over these rows is now fully exonerated twice
+(§160's filter + this input trace). Next calls-lane census item:
+`new` on generic lib construct signatures.
