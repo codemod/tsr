@@ -708,3 +708,13 @@ byte-identical claim); size bars by MECHANISM SAMPLE not census
 bucket (five under-counts); tag the CONTAINER in multi-object
 probes; the stash→accept-clean→restore cycle before ANY
 measurement when the other lane is mid-landing.
+
+### Addendum (2026-08-10): the joint head closed three ways
+
+§142 (−21), §143 (0/+73), §144 (−16/+23) — predicate+fill, seam
+condition, gate third-state, each measured whole and reverted. Final
+verdict at 6675ba7d: the fixing-mapper pipeline (per-consumption
+fixing, InferenceInfo priorities, ordered member sites, pass-3
+re-serve) is ONE build. The three refusal ledgers in
+checker-notes-callres2.md are its requirements document. Board:
+right 413,128/478,954 = 86.26% (checker-1's §145 included), clean.
