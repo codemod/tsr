@@ -32285,3 +32285,84 @@ end.
 
 **The pool stays priced and unbuilt**, and the next session can skip the
 hypothesis that made it look like a group.
+
+## §619 — TS1194: export declarations in a namespace
+
+```ts
+namespace M {
+    export { x };                 // TS1194 on the statement   (checker.go:5525)
+}
+declare namespace N {
+    export { y } from "./m";      // TS1194 on the module name (checker.go:5345)
+}
+```
+
+Two sites, one message, and the **error node differs**: the statement for the
+clause-only form, the module *name* for the specifier form. That is the third
+row this session where one message's sites disagree about where to point
+(§608's TS2462, §616's clause-vs-modifier, this).
+
+The predicates are parent kinds and ambient flags, no types:
+
+```
+inAmbientExternalModule       parent is a ModuleBlock whose own parent is an ambient module
+inAmbientNamespaceDeclaration a ModuleBlock, no module specifier, and ambient
+report when                   the parent is not a SourceFile and neither of those holds
+```
+
+> **`export { x }` inside `declare namespace N { }` is legal and inside
+> `namespace M { }` is not**, which is the whole content of
+> `inAmbientNamespaceDeclaration` — and it is why the ambient flag has to be read
+> rather than assumed. §584 measured that flag as load-bearing across
+> forty-eight rules; this is the forty-ninth and the first where it decides a
+> *legal* case rather than suppressing a report.
+
+```
+bar:  +4 of 4 (cases blocked on TS1194 alone),  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **A top-level `export { x }` reports.** The parent is a `SourceFile` and it
+   is the commonest statement in the corpus.
+2. **`declare module "m" { export { x } }` reports.** `inAmbientExternalModule`.
+3. **`declare namespace N { export { y } }` reports.** `inAmbientNamespaceDeclaration`
+   — legal, and the arm most likely to be dropped.
+
+## §620 — §619 built: **+4**, bar met exactly, TS1194 closed
+
+```
+diagnostics   2,162 → 2,166   (bar was +4;  +4, 0 LOST)   39.47%
+extraonly     zero TS1194 lines
+TS1194        18 missing lines → 0
+```
+
+All three falsifiers negative, including the third — `declare namespace N {
+export { y } }` stays legal, which is the arm a port working from the message
+alone would have dropped.
+
+### Eighteen lines for four cases
+
+The row's line-to-case ratio is the highest of the session's closed rows:
+`es6ModuleInternalNamedImports` alone carries **eight** lines. §566 wrote *"the
+line count and the case count answer different questions"* after a five-case row
+clustered six-to-one; this is that at four-to-eighteen, and the bar — set from
+`cases blocked alone` per §551 — was exactly right while the line count would
+have predicted four times the movement.
+
+> **`cases blocked alone` has now been the right column for eight consecutive
+> bars.** §551 established it, §566 explained why the other column misleads, and
+> nothing since has needed a different one. That is settled.
+
+### The grammar family after eleven builds
+
+```
+TS1029 +4  TS1070 +4  TS1014 +3  TS1248 +2  TS2462 +2  TS1308 +1  TS1805x +3  TS1194 +4
+                                                                              ──
+                                                                              +23
+```
+
+**Ten codes closed of the sixty-two with cases**, and +23 of the 128 cases
+priced at §599 — a fifth of the family, taken in eleven builds, none of which
+needed anything outside `grammarchecks.go`, `checker.go`'s grammar arms, and the
+node kinds already in the tree.

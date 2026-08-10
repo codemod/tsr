@@ -682,6 +682,9 @@ impl Checker<'_, '_> {
         ) {
             self.check_rest_element_is_last(node, typed);
         }
+        if matches!(typed, Node::ExportDeclaration(_)) {
+            self.check_export_declaration_in_namespace(node, typed);
+        }
         if matches!(typed, Node::ImportDeclaration(_)) {
             self.check_deferred_import_clause(typed);
         }
@@ -8744,6 +8747,52 @@ impl Checker<'_, '_> {
             .and_then(|m| m.node_id)
             .map_or_else(|| self.nodes.span(at), |m| self.nodes.span(m));
         self.report(file, Diagnostic::new(message, span));
+    }
+
+    /// TS1194 — `Export declarations are not permitted in a namespace.`
+    ///
+    /// Two sites: `checker.go:5525` for the clause-only form, reporting on the
+    /// **statement**, and `checker.go:5345` for the form with a module
+    /// specifier, reporting on the **module name**.
+    ///
+    /// `inAmbientNamespaceDeclaration` is what makes
+    /// `declare namespace N { export { y } }` legal, so the ambient flag is
+    /// read rather than assumed. §584.
+    ///
+    /// `docs/architecture/checker-notes-diag2.md` §619.
+    fn check_export_declaration_in_namespace(&mut self, node: NodeId, typed: Node<'_>) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let Node::ExportDeclaration(declaration) = typed else { return };
+        let Some(parent) = self.nodes.parent(node) else { return };
+        if self.nodes.kind(parent) == SyntaxKind::SourceFile {
+            return;
+        }
+        let in_module_block = self.nodes.kind(parent) == SyntaxKind::ModuleBlock;
+        let in_ambient_external_module = in_module_block
+            && self.nodes.parent(parent).is_some_and(|owner| self.is_ambient_module_node(owner));
+        if in_ambient_external_module {
+            return;
+        }
+        let specifier = declaration.module_specifier.and_then(|s| s.node_id());
+        if specifier.is_none() && in_module_block && self.declaration_is_in_an_ambient_context(node)
+        {
+            // `inAmbientNamespaceDeclaration` — legal.
+            return;
+        }
+        // `export * from "m"` has no export clause and takes upstream's other
+        // branch entirely; only a named clause or a specifier reaches here.
+        if declaration.export_clause.is_none() && specifier.is_none() {
+            return;
+        }
+        let at = specifier.unwrap_or(node);
+        let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
+        let span = self.error_span(at);
+        self.report(
+            file,
+            Diagnostic::new(&messages::EXPORT_DECLARATIONS_ARE_NOT_PERMITTED_IN_A_NAMESPACE, span),
+        );
     }
 
     /// `IsInstantiatedModule` (`ast/utilities.go:2443`).
