@@ -5106,6 +5106,30 @@ impl Checker<'_, '_> {
         for modifier in modifiers {
             let ModifierLike::Token(token) = modifier else { continue };
             let kind = token.kind;
+            // **`const` outside an enum or a type parameter** — the first arm
+            // of upstream's per-keyword switch (`grammarchecks.go:302`). The
+            // message says *class member* and the test does not: it fires for
+            // any other node kind, and it reports on the **node**, not the
+            // modifier. §604.
+            if kind == SyntaxKind::ConstKeyword
+                && !matches!(
+                    self.nodes.kind(node),
+                    SyntaxKind::EnumDeclaration | SyntaxKind::TypeParameter
+                )
+            {
+                if let Some(file) = self.source_file_of_for_diagnostics(node) {
+                    let span = self.error_span(node);
+                    self.report(
+                        file,
+                        Diagnostic::with_args(
+                            &messages::A_CLASS_MEMBER_CANNOT_HAVE_THE_0_KEYWORD,
+                            span,
+                            ["const".to_string()],
+                        ),
+                    );
+                }
+                return;
+            }
             if is_type_member
                 && kind != SyntaxKind::ReadonlyKeyword
                 && let Some(text) = modifier_keyword_text(kind)

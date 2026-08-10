@@ -31679,3 +31679,85 @@ type of `n`.
 
 **Owner: late-bound property names**, the same machinery TS2464's §456 declined
 from the other side. Named, not attempted.
+
+## §604 — TS1248: a `const` modifier outside an enum or type parameter
+
+```ts
+class C { const x = 1; }        // TS1248 — A class member cannot have the 'const' keyword
+const c = class { const y; };
+```
+
+`grammarchecks.go:302`, the **first** arm of the per-keyword switch:
+
+```go
+case ast.KindConstKeyword:
+    if node.Kind != KindEnumDeclaration && node.Kind != KindTypeParameter {
+        return … A_class_member_cannot_have_the_0_keyword, "const"
+    }
+```
+
+Two details the message hides: it fires for **any** node that is not an enum or a
+type parameter — the wording says *class member* and the test does not — and it
+is reported **on the node**, not on the modifier, unlike every arm §593–§599
+added.
+
+> **The message names the case upstream expects; the predicate names the case
+> upstream checks.** §550 met the same gap between a name and a test (a *label*
+> rule that fires on declarations), and §593's `default` arm met it in the
+> guard's direction. Reading the message as the specification is the single
+> cheapest way to port a grammar rule wrong.
+
+```
+bar:  +2 of 2 (cases blocked on TS1248 alone),  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **`const enum E {}` reports.** The first exception, and common.
+2. **`class C<const T>` reports.** The second — a `const` type parameter is
+   ES2023 syntax and legal.
+3. **The error lands on the modifier.** Upstream's node is `node`; the corpus's
+   `(2,16)` and `(2,11)` are the declarations' spans.
+
+## §605 — §604 built: **+2**, bar met exactly, TS1248 closed
+
+```
+diagnostics   2,154 → 2,156   (bar was +2;  +2, 0 LOST)   39.29%
+extraonly     zero TS1248 lines
+TS1248        2 missing lines → 0
+```
+
+All three falsifiers negative — `const enum`, `const` type parameters, and the
+error node's position.
+
+### The grammar family after six builds
+
+```
+§593 §595 §597   TS1029   +4    closed
+§599             TS1070   +4    closed
+§601             TS1014   +3    closed
+§604             TS1248   +2    closed
+                          ──
+                          +13 of the 128 priced at §599
+```
+
+**Four codes closed of the sixty-two with cases**, and the pattern of the four is
+worth stating now that there are four:
+
+```
+TS1029   an arm whose guard came from its position in a cascade
+TS1070   a test whose node kinds the dispatch did not admit
+TS1014   a rule whose accessor returned nothing for its kinds
+TS1248   a predicate whose message names a narrower case than the test
+```
+
+> **Not one of the four was a missing rule.** Three were reachability — the arm,
+> the dispatch, the accessor — and the fourth was reading a message as a
+> specification. `grammarchecks.go` has been substantially ported for a long
+> time; what it lacked was the wiring between its rules and the nodes they are
+> about.
+
+That is the answer to *"find opportunities to wire everything for diagnostics to
+work"* for this file, stated as a finding rather than a plan: **the file is
+built; the wiring is the work**, and it is found one row at a time by the `+0`
+that a correct rule produces when nothing reaches it.
