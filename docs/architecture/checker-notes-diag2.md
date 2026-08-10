@@ -34458,3 +34458,73 @@ dismissal had skipped that work; it is done.
 
 A private accessor pair's writability is a fact about the class's member list,
 and upstream reads it off a symbol. **Six rows, no type-side work.**
+
+## §668 — TS2540: assigning through a namespace import
+
+```ts
+import * as a1 from "./a";
+a1.x = 1;   // TS2540
+a1.y = 1;   // TS2540
+```
+
+`isReadonlySymbol` calls an alias to a module's export readonly, and the two
+missing lines are exactly the **namespace-import** receiver — the bare
+identifier forms (`x = 1` after `import { x }`) already convert.
+
+The receiver's declaration decides it: `a1`'s symbol declares a
+`NamespaceImport`, so every property assignment through it is an assignment to
+an import. §580's shape, seventh row, sharing §666's assignment guard (§497).
+
+Upstream reaches the same conclusion from `isReadonlySymbol(symbol)` on the
+*resolved property*; the syntactic route is narrower — it says nothing about
+`a2.x` (an `import =`) or `a3.x` (an alias through a const), which the fixture
+carries as controls and which upstream also leaves alone.
+
+```
+bar:  +1 of 1 (importsImplicitlyReadonly),  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **`a2.x = 1` or `a3.x = 1` reports.** The fixture's two controls — an
+   `import =` and a `const` alias — and upstream is silent on both.
+2. **A read through `a1` reports.** Only an assignment target.
+3. **§666's private-accessor arm regresses.** Same rule, same guard.
+
+## §669 — §668 built: **+1**, bar met
+
+```
+diagnostics             2,198 → 2,199   (bar was +1;  +1, 0 LOST)   40.07%
+extraonly               zero TS2540 lines
+TS2540 missing lines    7 → 5;  4 cases blocked alone → 3
+```
+
+All three falsifiers negative — `a2.x` (an `import =`) and `a3.x` (a `const`
+alias) stay silent, which is what the fixture carries them for and what upstream
+does.
+
+### §580's shape, seventh row
+
+```
+§580 TS2347 · §563 TS2310 · §628 TS18014 · §630 TS18014 · §636 TS1169
+§666 TS2540 · §668 TS2540
+```
+
+**Two of the seven are the same code reached twice** — a private accessor pair
+and a namespace import are unrelated shapes that upstream decides with one call
+to `isReadonlySymbol`. That is the pattern's cost, stated plainly: **a syntactic
+port of a symbol predicate needs one arm per way the symbol can arise**, and
+`isReadonlySymbol` has more arms than this row has cases.
+
+> **The shape's limit is not accuracy but arity.** Six rows converted with no
+> wrong lines at all, so the narrowing has never over-reported — but each row
+> costs an arm, and upstream costs one call. **A port that took the type side
+> would pay once; this pays per shape, and pays only for shapes the corpus
+> exercises.**
+
+### TS2540's residue
+
+Three cases: an intersection of readonly and mutable properties, a subclass of a
+class expression, and one more — all needing the *resolved* property's readonly
+flag rather than a declaration shape. **Named, and the arity argument above is
+why they are not another arm.**

@@ -410,6 +410,28 @@ impl Checker<'_, '_> {
         }
         let Some(left) = binary.left.and_then(|left| left.node_id()) else { return };
         let Some(Node::PropertyAccessExpression(access)) = self.node_map.get(left) else { return };
+        // **A namespace import is readonly through every member.**
+        // `isReadonlySymbol` says so of the resolved property; the receiver's
+        // own declaration says so syntactically, and says nothing about an
+        // `import =` or a `const` alias — which is upstream's answer there too.
+        // §668.
+        if let Some(receiver) = access.expression.and_then(|e| e.node_id())
+            && self.receiver_is_namespace_import(receiver)
+            && let Some(tsr_ast::MemberName::Identifier(member)) = access.name
+            && let Some(at) = member.node_id
+            && let Some(file) = self.source_file_of_for_diagnostics(at)
+        {
+            let span = self.nodes.span(at);
+            self.report(
+                file,
+                Diagnostic::with_args(
+                    &messages::CANNOT_ASSIGN_TO_0_BECAUSE_IT_IS_A_READ_ONLY_PROPERTY,
+                    span,
+                    [member.text.to_string()],
+                ),
+            );
+            return;
+        }
         let Some(tsr_ast::MemberName::PrivateIdentifier(name)) = access.name else { return };
         let Some(class) = self.nearest_class_declaring_private_name(left, name.text) else {
             return;
@@ -447,6 +469,25 @@ impl Checker<'_, '_> {
                 [name.text.to_string()],
             ),
         );
+    }
+
+    /// Does this receiver name a `import * as ns` binding? §668.
+    fn receiver_is_namespace_import(&mut self, receiver: NodeId) -> bool {
+        let Some(text) = self.identifier_text(receiver).map(str::to_string) else { return false };
+        let Some(symbol) = self.binder.resolve_name(
+            self.nodes,
+            self.node_map,
+            receiver,
+            &text,
+            tsr_binder::SymbolFlags::VALUE | tsr_binder::SymbolFlags::ALIAS,
+        ) else {
+            return false;
+        };
+        let declarations =
+            self.binder.symbols().get(self.binder.merged_symbol(symbol)).declarations.clone();
+        declarations
+            .iter()
+            .any(|&declaration| self.nodes.kind(declaration) == SyntaxKind::NamespaceImport)
     }
 
     /// The nearest enclosing class that declares `text`. §628.
