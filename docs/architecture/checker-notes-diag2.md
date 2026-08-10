@@ -31546,3 +31546,89 @@ Also fixed here: a doc comment orphaned from its constant by an earlier edit of
 mine, which `clippy` caught as `empty_line_after_doc_comment`. The comment
 described `nullable_operand`'s operator list and had been left floating above an
 unrelated function.
+
+## §601 — TS1014: the seventh instance, and this time it is the *accessor*
+
+```ts
+interface I {
+    foo(...x: number[], ...y: number[]);   // TS1014 — a rest parameter must be last
+}
+```
+
+`check_grammar_parameter_list` is **dispatched unconditionally** and its rule is
+correct — §287 built it and it converts class methods and functions. Its
+fixtures here are interface members, and it sees nothing, because
+`parameters_of` knows seven kinds:
+
+```
+FunctionDeclaration  FunctionExpression  ArrowFunction  MethodDeclaration
+ConstructorDeclaration  GetAccessorDeclaration  SetAccessorDeclaration
+```
+
+and not `MethodSignatureDeclaration`, `CallSignatureDeclaration`,
+`ConstructSignatureDeclaration`, `FunctionTypeNode`, `ConstructorTypeNode` or
+`IndexSignatureDeclaration`.
+
+> **Sixth instance was the dispatch; this is the accessor, and the effect is
+> identical.** §600 wrote *"a rule added to a shared walk inherits that walk's
+> dispatch"*; the sharper statement is that **a rule inherits every partial
+> function between it and the tree** — the dispatch is one, an accessor like
+> `parameters_of` is another, and neither is visible from inside the rule.
+
+`parameters_of` is `pub(crate)` and `unused.rs` uses it for TS6133, so widening
+it moves two rows at once. **That is the falsifier, not a reason to duplicate
+the accessor**: a second copy would be §521's defect (a second implementation of
+an existing function) in a place where the first is right.
+
+```
+bar:  +3 of 3 (cases blocked on TS1014 alone),  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **TS6133's row moves.** `unused.rs` reads the same accessor and a signature's
+   parameters have no body to be unused in — upstream does not report them.
+2. **`extraonly` grows with TS1014 or TS1016.** The same loop reports
+   `A rest parameter cannot be optional` and the initialiser message.
+
+## §602 — §601 built: **+3**, bar met, and the partial-function class named
+
+```
+diagnostics   2,151 → 2,154   (bar was +3;  +3, 0 LOST)   39.25%
+extraonly     zero TS1014, TS1016 and TS6133 lines
+TS6133        unchanged at 5 cases blocked alone
+```
+
+Both falsifiers negative. `unused.rs`'s caller is guarded by the declaration
+having a body, so widening the shared accessor could not reach TS6133 — which is
+why the accessor was widened rather than copied.
+
+### Seven instances, two mechanisms, one shape
+
+```
+§380 §402 §412 §543 §599   the DISPATCH did not admit the node
+§601                       the ACCESSOR returned nothing for it
+```
+
+> **A rule inherits every partial function between it and the tree.** The
+> dispatch is one, an accessor is another, and neither is visible from inside
+> the rule — which is why all seven were found by measuring `+0` and none by
+> reading the rule. The rule is always correct in these cases; that is what
+> makes them expensive.
+
+The check that would find them is now precise enough to state: **for a rule that
+reads the tree through a helper, enumerate the helper's arms and compare them
+with the node kinds upstream's caller passes.** `parameters_of` had seven arms
+and upstream's `getEffectiveParameterDeclarations` has twelve.
+
+### The grammar family after five builds
+
+```
+§593 §595 §597   TS1029   +4, closed
+§599             TS1070   +4, closed
+§601             TS1014   +3, closed
+                          ──
+                          +11 of the 128 priced at §599
+```
+
+Three codes closed out of the sixty-two with cases.

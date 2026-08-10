@@ -1057,6 +1057,17 @@ impl Checker<'_, '_> {
             Some(Node::ConstructorDeclaration(n)) => collect(n.parameters),
             Some(Node::GetAccessorDeclaration(n)) => collect(n.parameters),
             Some(Node::SetAccessorDeclaration(n)) => collect(n.parameters),
+            // **The signature kinds.** A rule reached through this accessor
+            // sees only what it enumerates, and `check_grammar_parameter_list`
+            // was dispatched for every node while this returned nothing for an
+            // interface member — §601. `unused.rs`'s own caller is guarded by
+            // the declaration having a body, so widening here does not reach
+            // TS6133.
+            Some(Node::MethodSignatureDeclaration(n)) => collect(n.parameters),
+            Some(Node::CallSignatureDeclaration(n)) => collect(n.parameters),
+            Some(Node::ConstructSignatureDeclaration(n)) => collect(n.parameters),
+            Some(Node::FunctionTypeNode(n)) => collect(n.parameters),
+            Some(Node::ConstructorTypeNode(n)) => collect(n.parameters),
             _ => Vec::new(),
         }
     }
