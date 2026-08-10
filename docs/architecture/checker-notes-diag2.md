@@ -39055,3 +39055,45 @@ this row needs and the first one not yet run.
 print which of `resolve_name`'s three returns answers `X` inside
 `export { X }`. The additive binder function is reverted rather than left
 unused — it is correct and it is not yet known to be the right tool.
+
+## §768 — TS2661, the probe §767 asked for, and what it settles
+
+```
+PROBE rn return#1                     — resolve_name has exactly one `return Some`
+PROBE rn decls=[NodeId(2)]            — the found symbol has one declaration
+(§766) PROBE ces kind=ExportSpecifier — and that declaration is the specifier
+```
+
+Three facts, one run each, and together they close every question §765–§767
+guessed at:
+
+```
+§765 asked   is the specifier one of several declarations?     no — it is the only one
+§766 asked   is the specifier a separate symbol?               yes, and it is the one found
+§767 asked   which return answers?                             the only one there is
+```
+
+**So §767's filter was placed correctly and did not fire.** It compared
+`declarations.as_slice() != [exclude]` at that return, the declaration list is
+exactly `[the specifier]`, and the lookup still returned — which leaves the
+comparison or the value passed as `exclude`, and nothing else.
+
+> Four builds and five probes on one row, and **the three probes that settled it
+> cost one run each and could all have been written on the first day.** §724 said
+> a rule, its caller and its gate are three suspects; §767 said this row had
+> three return points. Both were true and neither was *asked* until the fourth
+> build. **The discipline that has produced this session's cases is "print the
+> thing it decided on" — and the failure mode is deciding what to print from a
+> model instead of from the code.**
+
+### Where it stands
+
+```
+TS2661   8 cases, 35 lines   the exclusion is one comparison away, and untested
+```
+
+The remaining work is to print `exclude` beside `decls` at that return and see
+why two values that should be equal are not. **That is the sixth probe and the
+first that cannot be guessed wrong** — everything around it is now measured.
+Recorded here rather than attempted, because this row has had four builds and
+the next one should start from the print, not from a fix.
