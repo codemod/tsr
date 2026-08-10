@@ -1253,7 +1253,29 @@ impl<'a, 'n> Checker<'a, 'n> {
             let printed = self.type_to_string(id);
             return self.qualified_name_at(id, printed, reference);
         };
-        self.module_name_at(module, reference).map(|name| format!("typeof {name}"))
+        if let Some(name) = self.module_name_at(module, reference) {
+            return Some(format!("typeof {name}"));
+        }
+        // §143 slice 1 (`checker-notes-narrow.md`): a container NO alias
+        // reaches spells the import form — `getSpecifierForModuleSymbol`'s
+        // AMBIENT half: a module declared ONCE as `declare module "name"`
+        // prints `typeof import("name")` verbatim (privacyImportParseErrors'
+        // wants). The NONE case only — an ambiguous container means upstream
+        // picked some alias (`module_alias_at`'s tri-state); AUGMENTED
+        // ambients (2+ declarations, moduleAugmentationExtend*'s bare-name
+        // wants) gate out; FILE modules wait for the relative-specifier
+        // half.
+        if matches!(self.module_alias_at(module, reference), Err(false)) {
+            let declarations = &self.binder.symbols().get(module).declarations;
+            if let [declaration] = declarations.as_slice()
+                && let Some(tsr_ast::Node::ModuleDeclaration(node)) =
+                    self.node_map.get(*declaration)
+                && let Some(tsr_ast::ModuleName::StringLiteral(literal)) = node.name
+            {
+                return Some(format!("typeof import(\"{}\")", literal.text));
+            }
+        }
+        None
     }
 
     /// §99's member-form twin of [`crate::objects::signature_member_text`]:

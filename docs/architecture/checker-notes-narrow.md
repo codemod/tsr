@@ -6348,3 +6348,19 @@ re-census first, the board has moved). Falsifiers: (a) the
 augmented-ambient bare-name class; (b) specifiers upstream spells
 through baseUrl/paths rather than relative (tsconfig-bearing cases
 — decline those files this slice).
+
+**§143 slice 1 MEASURED AND LANDED — +168 G→R / 16 G→W (10.5:1),
+ZERO R→W; right 412,862 → 413,030 = 86.24%, cases 4,246 (+32).**
+The ambient half alone cleared the whole-arm bar first pair: a
+single-declaration `declare module "name"` container no alias
+reaches spells `typeof import("name")` verbatim at the module
+road's fall-through — es6ExportEqualsInterop's namespace residue
+(+10), privacyImport* families, exportEquals corpora, spread over
+~40 cases. Priced residue (16): privacyGloImportParseErrors 3
+(nested-namespace ambients), the augmentExportEquals family 3
+(export=-augmentation slips the single-declaration gate — the
+augment lives on the export= symbol, not the module; next gate if
+it grows), relative-name ambients 1. The thirty-sixth pin flipped
+(shorthand ambients spell their import form). The FILE-module
+relative-specifier half stays with the §143 bar for the next
+window.

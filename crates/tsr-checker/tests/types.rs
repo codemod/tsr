@@ -1489,10 +1489,14 @@ fn a_shorthand_ambient_module_is_any_and_not_a_gap() {
     let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
     let id = checker.get_type_of_symbol(symbol);
     assert_ne!(id, checker.intrinsics().error, "the module object now has a type");
+    // **Flipped by §143** (`checker-notes-narrow.md`; the thirty-sixth
+    // stand-in): with no alias in scope, a single-declaration ambient
+    // module spells the import form — `getSpecifierForModuleSymbol`'s
+    // ambient half, `typeof import("x")` verbatim.
     assert_eq!(
         checker.type_to_string_at(id, root),
-        None,
-        "and no alias is in scope, so the rendered line is still a gap"
+        Some("typeof import(\"x\")".to_string()),
+        "no alias is in scope, so the ambient spells its import form"
     );
 }
 

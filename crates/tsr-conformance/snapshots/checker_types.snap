@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 4214/9538 (44.18%)
-Assertion lines: 412862/478954 (86.20%)  — a gradient, not a pass rate
-Failed         : 5324
+Passed         : 4246/9538 (44.52%)
+Assertion lines: 413030/478954 (86.24%)  — a gradient, not a pass rate
+Failed         : 5292
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 5324 failures:
+First 100 of 5292 failures:
 compiler/2dArrays
   2dArrays.ts: >allShipsSunk : error — expected >allShipsSunk : () => boolean
 compiler/ClassDeclaration26
@@ -48,7 +48,7 @@ compiler/addMoreCallSignaturesToBaseSignature2
 compiler/aliasBug
   aliasBug.ts: >booz : error — expected >booz : typeof booz
 compiler/aliasDoesNotDuplicateSignatures
-  demo.d.ts: >'demoModule' : error — expected >'demoModule' : typeof import("demoModule")
+  demo.d.ts: >alias : typeof demoNS — expected >alias : typeof alias
 compiler/aliasErrors
   aliasErrors.ts: >booz : error — expected >booz : typeof booz
 compiler/aliasInaccessibleModule
@@ -101,14 +101,12 @@ compiler/ambientClassDeclarationWithExtends
   ambientClassDeclarationExtends_singleFile.ts: >new D() : error — expected >new D() : D
 compiler/ambientExportDefaultErrors
   foo.d.ts: >Foo : error — expected >Foo : typeof import("./foo")
-compiler/ambientExternalModuleInAnotherExternalModule
-  ambientExternalModuleInAnotherExternalModule.ts: >"ext" : error — expected >"ext" : typeof import("ext")
 compiler/ambientExternalModuleReopen
   ambientExternalModuleReopen.ts: >"fs" : error — expected >"fs" : typeof import("fs")
 compiler/ambientExternalModuleWithRelativeExternalImportDeclaration
-  ambientExternalModuleWithRelativeExternalImportDeclaration.ts: >"OuterModule" : error — expected >"OuterModule" : typeof import("OuterModule")
+  ambientExternalModuleWithRelativeExternalImportDeclaration.ts: >x : error — expected >x : m2.c
 compiler/ambientExternalModuleWithRelativeModuleName
-  ambientExternalModuleWithRelativeModuleName.ts: >"./relativeModule" : error — expected >"./relativeModule" : typeof import("./relativeModule")
+  ambientExternalModuleWithRelativeModuleName.ts: >".\\relativeModule" : typeof import(".\relativeModule") — expected >".\\relativeModule" : typeof import(".\\relativeModule")
 compiler/ambientModuleWithTemplateLiterals
   ambientModuleWithTemplateLiterals.ts: >Foo.c : Bar.a — expected >Foo.c : Foo.Bar.a
 compiler/ambientPropertyDeclarationInJs
@@ -118,7 +116,7 @@ compiler/ambiguousOverload
 compiler/ambiguousOverloadResolution
   ambiguousOverloadResolution.ts: >f(x, x) : error — expected >f(x, x) : number
 compiler/amdLikeInputDeclarationEmit
-  deps/BaseClass.d.ts: >"deps/BaseClass" : error — expected >"deps/BaseClass" : typeof import("deps/BaseClass")
+  ExtendedClass.js: >(BaseClass) => {            const ExtendedClass = BaseClass.extends({        f: function() {            return "something";        }    });    // Exports the module in a way tsc recognize class export     const module = {};    module.exports = ExtendedClass    return module.exports;} : error — expected >(BaseClass) => {            const ExtendedClass = BaseClass.extends({        f: function() {            return "something";        }    });    // Exports the module in a way tsc recognize class export     const module = {};    module.exports = ExtendedClass    return module.exports;} : (BaseClass: typeof import("deps/BaseClass")) => any
 compiler/anonClassDeclarationEmitIsAnon
   wrapClass.ts: >wrapClass : error — expected >wrapClass : (param: any) => typeof Wrapped
 compiler/anonterface
@@ -213,3 +211,5 @@ compiler/arrayDestructuringInSwitch1
   arrayDestructuringInSwitch1.ts: >Expression : error — expected >Expression : Expression
 compiler/arrayDestructuringInSwitch2
   arrayDestructuringInSwitch2.ts: >n : 1 | undefined — expected >n : never
+compiler/arrayEvery
+  arrayEvery.ts: >foo.every(isString) : error — expected >foo.every(isString) : boolean
