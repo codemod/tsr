@@ -32111,3 +32111,90 @@ TS1029 +4   TS1070 +4   TS1014 +3   TS1248 +2   TS2462 +2   TS1308 +1
 ```
 
 Six codes closed of the sixty-two with cases.
+
+## §615 — TS18058/TS18059/TS18060: the deferred-import clause
+
+```ts
+import defer foo from "./a";       // TS18058 — default imports
+import defer { x } from "./a";     // TS18059 — named imports
+                                   // TS18060 — --module must be esnext or preserve
+```
+
+`checkGrammarImportClause`'s `KindDeferKeyword` case (`grammarchecks.go:2127`) —
+three arms, one guard, in order, each reporting on the **clause**:
+
+```go
+case ast.KindDeferKeyword:
+    if node.Name() != nil                                    { … 18058 }
+    if node.NamedBindings.Kind == KindNamedImports           { … 18059 }
+    if moduleKind != ESNext && moduleKind != Preserve        { … 18060 }
+```
+
+**§497's bundling test passes on its own terms**: one predicate
+(`phase_modifier == defer`), three exclusive arms, and every one returns. This
+is the third time that test has been applied and the first where all three arms
+have corpus cases (2, 1 and 0 respectively).
+
+`module_kind` was ported at §478 for a different row and is what makes the third
+arm free — **the sixth rule this session assembled from a helper another build
+left behind**.
+
+```
+bar:  +3 of 3 (TS18058's two cases and TS18059's one),  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **`import defer * as ns from "…"` reports.** A namespace import is the *legal*
+   deferred form and the only one.
+2. **`import type foo from "…"` reports TS18058.** The `type` phase modifier is
+   the sibling case immediately above and has its own two messages.
+3. **TS18060 fires under `--module esnext`.** The corpus's deferred fixtures set
+   it, so a wrong comparison shows up as an extra on the cases the other two arms
+   convert.
+
+## §616 — §615 built: **+3**, bar met, and the column was the build
+
+```
+first form   2,159 → 2,159   (+0)   the line emitted at column 14
+final form   2,159 → 2,162   (+3)   at column 8, as upstream
+extraonly    zero TS18058/18059/18060 lines
+```
+
+`diagmissing` reported **zero missing lines** for TS18058 while the board sat at
+`+0`, which is the pair of readings §596 and §607 were written for and neither
+covers alone:
+
+```
+diagmissing   0 missing lines      the line is emitted somewhere on the right LINE
+diagcase      b.ts(1,14) vs (1,8)  and at the wrong COLUMN
+board         +0                   so the case does not convert
+```
+
+> **`diagmissing` matches on the line and the suite matches on the column.**
+> Three instruments, three answers, and only `diagcase` distinguishes *emitted
+> wrongly* from *not emitted*. That is the second time this session `diagcase`
+> has been the deciding read (§607 was the first) and the first time it caught a
+> **position** rather than a presence.
+
+### Why the column differed
+
+Upstream's `grammarErrorOnNode(&node.Node)` takes the **clause's** range, and
+upstream's clause begins at the phase modifier. **This parser puts the modifier
+outside the clause's span**, so the clause alone starts at the `foo` of
+`import defer foo`. Reporting at the modifier reproduces the column exactly.
+
+**The faithful fix is widening the clause's span in `tsr-parser`** and it is not
+taken here: it would move every `import type` position too, and nothing has
+measured that. Named, with the workaround's reason written where the workaround
+is.
+
+### The grammar family after ten builds
+
+```
+TS1029 +4  TS1070 +4  TS1014 +3  TS1248 +2  TS2462 +2  TS1308 +1  TS1805x +3
+                                                                  ──
+                                                                  +19
+```
+
+Nine codes closed of the sixty-two with cases.
