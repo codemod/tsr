@@ -747,3 +747,16 @@ entry's history; the pipeline window opens here, with the landed
 summit beneath it and the ladder test's third flip as its win
 condition. This window's landed total stands: the summit at
 +494/−193/−301 net, the day at +1.15 points across the lanes.
+
+**The pipeline window's opening state, complete:** the third rung's
+true site is the WRITTEN-TYPE-ARGUMENTS branch (found by one trace:
+the family never defers — explicit generics return early), and the
+re-check block wired THERE measures zero the same way the summit's
+freeze did — the arrows' answers survive node_types+symbol_types
+eviction at this site too. The cache-enumeration discipline that
+broke the summit's freeze (per-link prints until the survivor
+names itself) is the opening act, at this site, with this block
+(text in history). Everything else stands landed: the summit at
+net +494/−193/−301, the day at +1.15 points, the ladder test
+pinning the middle rung. The next window starts HERE with the
+method that has now broken one freeze already.
