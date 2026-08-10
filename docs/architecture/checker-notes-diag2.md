@@ -32587,3 +32587,86 @@ one returns false positives. **Three sweeps proposed from measured instances,
 three failures**, against seven sweeps that worked when the domain was small and
 enumerable (§552's binder, §578's scanner, §599's grammar file). The difference
 is whether the thing being enumerated is a *list* or a *property*.
+
+## §626 — TS18014: a private name shadowed by a nested class
+
+```ts
+class Base {
+    #x;
+    constructor() {
+        class Derived {
+            #x;
+            testBase(x: Base) { console.log(x.#x); }   // TS18014
+        }
+    }
+}
+```
+
+`checker.go:11518`. The access resolves `#x` against the **nearest enclosing
+class** — `Derived` — and the receiver is a `Base`, whose `#x` is a different
+private name with the same spelling. Upstream compares the resolved property's
+containing class with the receiver's type.
+
+**Decided from the annotation** (§580's shape): the receiver is a parameter
+written `x: Base`, `Base` names a class that declares `#x`, the enclosing class
+declares `#x` too, and they are different declarations. Every step is syntax and
+a symbol lookup; the receiver's *type* is never constructed.
+
+`enclosing_class_declares_private_name` was built at §138 for TS18013 and is
+half of this — **the seventh rule this session assembled from a helper another
+build left behind**.
+
+```
+bar:  +3 of 3 (the three privateNameNestedClass… fixtures),  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **`this.#x` reports.** The receiver is the enclosing class itself and there is
+   no shadowing.
+2. **A single class with `#x` reports.** Shadowing needs two declarations.
+3. **TS18013's row moves.** §138's rule is the *no enclosing declaration* case
+   and this is the *two declarations* case; they must stay exclusive.
+
+## §627 — §626 measured **+0**, reverted, with the decline bracketed
+
+```
+diagnostics             2,170 → 2,170
+TS18014 missing lines   5 → 5
+```
+
+The rule was built, dispatched and reached — a probe on its first guard printed
+
+```
+P text="#x" encl=true
+P text="#x" encl=true
+```
+
+twice, once per access in the fixture. **So the private name resolves, the
+enclosing class declares it, and the decline is in one of the two guards after
+it**: `annotated_class_of` (does `x: Base` reach `Base`'s declaration?) or the
+identity test (is the enclosing class genuinely a different one?).
+
+Reverted under §568 — the path runs but produces nothing, and *"a `+0` is worth
+keeping when you can show the port now does what upstream does"* is not met by a
+guard that fires and a rule that stays silent.
+
+> **A probe that narrows the decline to two guards is worth more than the build
+> that carried it.** §547 established the positive control, §586 established
+> that eliminating a path beats a speculative `+0`, and this is both at once: the
+> next attempt starts at `annotated_class_of` with the first guard already
+> proven.
+
+### What is established
+
+```
+the access is reached                    MEASURED, the probe printed twice
+`#x` resolves and the enclosing class
+  declares it                            MEASURED, encl=true
+the decline is `annotated_class_of`
+  or the identity test                   MEASURED by elimination
+the receiver's TYPE is never needed      by construction — §580's shape holds
+```
+
+The last line is the one worth keeping: **TS18014 does not need the type side.**
+Five cases sit behind a symbol lookup this note has bracketed to two functions.
