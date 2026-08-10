@@ -37221,3 +37221,45 @@ by every value-position rule in the checker. The missing arm was an
 `ArrowFunction` whose `body` is the expression — **the only place in the grammar
 where an expression hangs directly off a function**, which is exactly why a list
 of thirty could look complete without it.
+
+## §725 — the gate swept, and a two-line arm worth **+4**
+
+```
+diagnostics             2,248 → 2,252   (+4, 0 LOST)   41.03%
+extraonly               19 lines across TS2304/2552/2693/2749/6133 — unchanged
+```
+
+§724 closed a row by adding one arm to `is_value_reference`. A gate that had
+been wrong once is worth sweeping, so its arms were crossed against every AST
+node carrying an expression-shaped field:
+
+```
+arms enumerated          49
+candidate node kinds     61
+not enumerated           16
+```
+
+Twelve of the sixteen are function bodies, transform-only nodes
+(`PartiallyEmittedExpression`, `SyntheticReferenceExpression`) or positions that
+hold a string literal (`ExternalModuleReference`) — none is a value reference.
+`WithStatement` is one, and `is_inside_with_statement` declines it two guards
+later, so adding it would change nothing.
+
+**`JsxSpreadAttribute` is the real one.** `<a {...x} />` holds its expression
+*directly*, where `<a b={x} />` wraps it in a `JsxExpression` the gate already
+lists — so the JSX corpus was half-covered and the half that was missing looked
+exactly like the half that was not.
+
+> **Two lines, four cases, and the sweep that found it cost one script.** §724's
+> arm was found by three probes chasing one row; this one was found by asking
+> what else the same gate could be missing. **A defect found by measurement is
+> worth re-asking as a category** — the second question is nearly free and this
+> time it paid twice the first.
+
+### The residue of the sweep, stated
+
+The remaining fifteen are recorded as *checked and correctly absent* rather than
+left unmentioned, because the next reader of this list should not have to re-run
+it: function bodies are `Block`s and not expressions, the two synthetic kinds are
+never parsed, `ExternalModuleReference` holds a specifier, and `WithStatement` is
+declined downstream.

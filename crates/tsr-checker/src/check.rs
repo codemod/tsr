@@ -4507,6 +4507,9 @@ impl Checker<'_, '_> {
             // could look complete without it. `private c = () => x` was the
             // fixture. §723.
             Node::ArrowFunction(n) => is(n.body.and_then(|e| e.node_id())),
+            // `<a {...x} />` holds its expression directly rather than through
+            // a `JsxExpression`, so the arm above it does not cover it. §725.
+            Node::JsxSpreadAttribute(n) => is(n.expression.and_then(|e| e.node_id())),
             Node::SpreadElement(n) => is(n.expression.and_then(|e| e.node_id())),
             Node::SpreadAssignment(n) => is(n.expression.and_then(|e| e.node_id())),
             Node::TemplateSpan(n) => is(n.expression.and_then(|e| e.node_id())),
