@@ -658,19 +658,27 @@ impl<'a> Checker<'a, '_> {
     /// minimum, so it costs a *wrong* diagnostic rather than a missing one —
     /// which is why the shapes it does not cover are named rather than assumed:
     /// an alias for `void`, and a type parameter instantiated with it.
-    fn parameter_annotation_is_void(&self, parameter: &tsr_ast::ParameterDeclaration<'_>) -> bool {
+    fn parameter_annotation_is_void(
+        &mut self,
+        parameter: &tsr_ast::ParameterDeclaration<'a>,
+    ) -> bool {
         let Some(annotation) = parameter.r#type else { return false };
-        let Some(id) = annotation.node_id() else { return false };
-        match self.node_map.get(id) {
-            Some(Node::KeywordTypeNode(keyword)) => keyword.kind == SyntaxKind::VoidKeyword,
-            Some(Node::UnionTypeNode(union)) => union.types.iter().any(|member| {
-                member.node_id().and_then(|id| self.node_map.get(id)).is_some_and(|node| {
-                    matches!(node, Node::KeywordTypeNode(keyword)
-                        if keyword.kind == SyntaxKind::VoidKeyword)
-                })
-            }),
-            _ => false,
+        // **The type, not the spelling.** The comment above records what the
+        // syntactic form declined — aliases and generic instantiations — and
+        // that a decline here costs a *wrong* diagnostic. §854 measured the
+        // same substitution on TS2355 at +4/−0, so this one is measured too.
+        // §855.
+        let annotated = self.get_type_from_type_node_unprinted(annotation);
+        if self.type_of(annotated).flags.intersects(crate::flags::TypeFlags::VOID) {
+            return true;
         }
+        if let crate::types::TypeData::Union { types, .. } = &self.store.get(annotated).data {
+            let members = types.clone();
+            return members.iter().any(|&member| {
+                self.type_of(member).flags.intersects(crate::flags::TypeFlags::VOID)
+            });
+        }
+        false
     }
 
     /// `getTypeOfParameter` (`checker.go:17042`) — the parameter's declared type

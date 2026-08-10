@@ -42703,3 +42703,81 @@ name.
 ago for the computed-name rule and true everywhere. **This session has now spent
 two builds rediscovering consequences of it** (§819's evaluator split, this) —
 which is an argument for the note index rather than against the note.
+
+## §855 — the spelling-test sweep
+
+§839 and §854 were the same defect twice: a **syntactic** test standing in for
+the **flag** test upstream writes. The instrument is a grep for keyword kinds
+used as type tests.
+
+```
+28 uses of Void/Any/Undefined/Never/NullKeyword in tsr-checker
+   signatures.rs   printing — a spelling is what it wants
+   declared.rs     building the type FROM the keyword — the spelling is the input
+   call_arity.rs   parameter_annotation_is_void   <- candidate
+   calls.rs        an `any` annotation test         <- candidate
+```
+
+Both candidates are **documented declines**, not oversights.
+`parameter_annotation_is_void`'s own comment says what it costs:
+
+> *"this asks the annotation, which answers the same for `void` and for
+> `T | void` and declines every alias and generic instantiation that would need
+> the type. **A decline here raises the minimum, so it costs a *wrong*
+> diagnostic** rather than a missing one — which is why the shapes it does not
+> cover are named rather than assumed."*
+
+That is a note written by someone who could not measure the alternative and said
+so. It can be measured now, and §854 is the precedent for what happens when it
+is.
+
+```
+bar:  >= +0,  0 LOST verified with `diagpass`,  WRONG delta <= 0
+```
+
+### Falsifiers
+
+1. **`diagpass` shows any LOST.** The type test admits shapes the spelling
+   declined, and this rule's declines *raise* an arity minimum.
+2. **TS2554's row moves the wrong way.** It is the code this feeds.
+
+## §856 — §855 measured: **+0**, and the note it tested was right about everything but the corpus
+
+```
+diagnostics   2,338 → 2,338   (+0)   42.60%
+diagpass      LOST: (none)   GAINED: (none)
+extraonly     82, unchanged
+```
+
+`parameter_annotation_is_void`'s comment predicted that its syntactic form
+declines *"every alias and generic instantiation that would need the type"*, and
+that such a decline **costs a wrong diagnostic**. Both halves are true; the
+corpus contains **no such shape** for this rule, so the cost is zero.
+
+**Kept**, on §835's rule: upstream tests `TypeFlagsVoid` on the type at that
+position, not the annotation's spelling, so the substitution moves the port
+towards upstream rather than towards internal symmetry.
+
+> One thing to record against it, since nothing in the five gates would catch it:
+> the rule now **computes a type** where it read syntax, and it runs per
+> parameter per call site. `bd tsr-m9a` (a per-PR performance gate) is open and
+> unbuilt, so this trade is being made without the instrument that would price
+> it. **A +0 that is faithful and slower is still a decision, and it should be
+> visible as one.**
+
+### The sweep, closed
+
+```
+28 uses of a type keyword in tsr-checker
+   signatures.rs, declared.rs   the spelling IS the subject — not candidates
+   call_arity.rs                measured here: +0, kept
+   calls.rs                     an `any` annotation test, same shape
+   check.rs (TS2355)            §854: +4/−0
+```
+
+Fifth sweep this session to terminate. **Three of the five found nothing** — and
+the two that found something (§833's guard, §854's spelling test) were both found
+by the *wrong-line column* first and only then generalised into a sweep. That
+ordering is worth keeping: **the column finds the instance, the sweep prices the
+class**, and running the sweep first would have cost five searches to find two
+builds.
