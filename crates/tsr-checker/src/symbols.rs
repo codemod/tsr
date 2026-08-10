@@ -398,6 +398,22 @@ impl<'a> Checker<'a, '_> {
             self.symbol_types.insert(symbol, any);
             return any;
         }
+        // §131 (`checker-notes-narrow.md`): a DEFAULT import whose module
+        // resolves, exports things, carries no `default`, and CANNOT have a
+        // synthetic one (TS files never do unless they `export =` —
+        // `canHaveSyntheticDefault`'s tail, already ported for the TS1192
+        // diagnostic) reads upstream's TS1192 error-any. A module that CAN
+        // have one keeps the gap — upstream resolves synthetically through
+        // machinery this port lacks.
+        if let Some(declaration) = self.declaration_of_alias_symbol(symbol)
+            && self.nodes.kind(declaration) == SyntaxKind::ImportClause
+            && self.missing_default_established(declaration)
+        {
+            let any = self.intrinsics.any;
+            let any = if self.resolutions.pop() { any } else { self.intrinsics.error };
+            self.symbol_types.insert(symbol, any);
+            return any;
+        }
         let target = self.resolve_alias(symbol);
         // `checker.go:18612`, and the `SymbolFlags::VALUE` test is the
         // stack-overflow guard, not a nicety. It is taken over
@@ -1190,6 +1206,41 @@ impl<'a> Checker<'a, '_> {
         // may spell the same export two ways — absence under one spelling
         // proves nothing (exportSpecifiers' 2 G→W, wants the literal `0`).
         !entry.exports.is_empty()
+            && !entry.exports.contains_key(INTERNAL_EXPORT_STAR)
+            && entry
+                .exports
+                .keys()
+                .all(|key| key.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '$'))
+    }
+
+    /// §131's establishment: the default import's module resolves in-program
+    /// to a plain module whose non-empty, star-free, identifier-keyed
+    /// exports lack `default`, and `can_have_synthetic_default` answers
+    /// false (a TS module file with no `export =`).
+    fn missing_default_established(&mut self, clause: NodeId) -> bool {
+        let Some(import) = self.nodes.parent(clause) else { return false };
+        let Some(module_specifier) = self.external_module_name(import) else { return false };
+        let Some(module_symbol) = self.resolve_external_module_name(import, module_specifier)
+        else {
+            return false;
+        };
+        if self.resolve_external_module_symbol(module_symbol) != module_symbol {
+            return false;
+        }
+        if self.can_have_synthetic_default(module_symbol) {
+            return false;
+        }
+        // Node16/NodeNext resolve synthetic defaults by USAGE/TARGET module
+        // format (`canHaveSyntheticDefault`'s head arms — ESM importing CJS
+        // always has one), a mode road this port's predicate does not model
+        // (nodeNextCjsNamespaceImportDefault1's 4 G→W on the first pair).
+        if matches!(self.module_kind, tsr_core::ModuleKind::Node16 | tsr_core::ModuleKind::NodeNext)
+        {
+            return false;
+        }
+        let entry = self.binder.symbols().get(module_symbol);
+        !entry.exports.is_empty()
+            && !entry.exports.contains_key("default")
             && !entry.exports.contains_key(INTERNAL_EXPORT_STAR)
             && entry
                 .exports

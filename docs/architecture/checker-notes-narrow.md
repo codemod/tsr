@@ -5555,3 +5555,18 @@ skip). Falsifier: the synthetic-default predicate mis-derived from
 options — upstream's `canHaveSyntheticDefault` consults module
 kind, file extension, and the resolution mode, and a too-coarse
 port of it fires the arm exactly where upstream resolves.
+
+**§131 MEASURED AND LANDED at iteration 2 — +10 G→R / 0 adverse,
+right 410,326 → 410,336.** The mechanism-sampled bar (≥15) STILL
+over-predicted by a third — the fifth under-count, and this one
+was sized from the mechanism, which sharpens the rule: the census's
+want-any rows include cases whose OTHER lines already fail for
+different reasons, so even a correctly-scoped arm converts only the
+near-miss fraction. Iteration 2's gate: Node16/NodeNext excluded
+whole — `canHaveSyntheticDefault`'s head arms resolve synthetic
+defaults by USAGE/TARGET format (ESM importing CJS always has one),
+a mode road this port's predicate does not model
+(nodeNextCjsNamespaceImportDefault1's 4 G→W). The
+`can_have_synthetic_default` predicate built for TS1192's
+diagnostic answered the TYPE question unchanged — ADR-0040's
+channel split, crossed in the profitable direction for once.

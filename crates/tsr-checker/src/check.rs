@@ -2242,7 +2242,7 @@ impl Checker<'_, '_> {
     /// Each of those is a **false positive** rather than a missed diagnostic,
     /// which is the direction this rule is already too loud in; they are
     /// recorded here so the next reading of its wrong column starts with them.
-    fn can_have_synthetic_default(&self, module: tsr_binder::SymbolId) -> bool {
+    pub(crate) fn can_have_synthetic_default(&self, module: tsr_binder::SymbolId) -> bool {
         let file = self
             .binder
             .symbols()
