@@ -40881,3 +40881,76 @@ the setter branch sits under `if c.strictNullChecks || exprNode != nil || …`,
 and the signature and return type computed above it belong to the *other*
 branches. **A guard that looks like a type dependency can be a type dependency
 for its neighbours only.**
+
+## §811 — TS1186: a rest element cannot have an initializer
+
+```ts
+var [...x = a] = a;   // TS1186, on the `=`
+[...x = a] = a;       // TS1186, on the `=`
+```
+
+Two upstream sites for one code, and the fixtures are one each:
+
+```go
+grammarchecks.go:1551   node.DotDotDotToken != nil && node.Initializer != nil
+                        grammarErrorAtPos(node, Initializer.Pos()-1, 1)
+checker.go:12688        a spread element whose expression is `x = a`
+                        c.error(restExpression.OperatorToken, …)
+```
+
+**Both report on the `=`.** The second has the token in hand; the first computes
+it as *one character before the initializer's trivia-inclusive start*, which is
+§641's shape — this port's spans are not trivia-inclusive, so `start - 1` lands
+on the space rather than the `=`.
+
+So the two halves differ in what this port can express:
+
+```
+the destructuring assignment   the operator token's own span   exact
+the binding element            `Initializer.Pos() - 1`         §641's gap
+```
+
+Both are built and measured together; if the binding-element half lands a column
+off, the measurement says so and it is §641's owner rather than a new one.
+
+```
+bar:  +1 of 2 (restElementWithInitializer2),  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **`var [...x] = a` reports.** No initializer, no error.
+2. **`var [x = a] = a` reports.** No rest token — this is an ordinary default.
+3. **TS2462's row moves.** *"A rest element must be last"* is the sibling arm at
+   the same site and §-earlier ported it.
+
+## §812 — §811 built: **+1**, one half exact and one half §641's
+
+```
+diagnostics             2,310 → 2,311   (bar was +1;  +1, 0 LOST)   42.11%
+extraonly               zero TS1186 and zero TS2462 lines
+TS1186 missing lines    2 → 1
+```
+
+§811 predicted the split and the measurement confirmed it exactly:
+
+```
+the destructuring assignment   the operator token's own span     exact, shipped
+the binding element            `Initializer.Pos() - 1`           column 12, expected 11
+```
+
+`var [...x = a] = a;` — upstream's `Pos()` is the **end of the previous token**,
+so `Pos() - 1` is the `=`. This port's `span(initializer).start` is the
+initializer's own first character, so `start - 1` is the space before it. **One
+column, and it is §641's trivia-inclusive span model**, which is `tsr-ast`'s and
+has now blocked three rows (§641's TS1005/TS1186, and this).
+
+> The prediction was written into the bar — *"if the binding-element half lands a
+> column off, the measurement says so and it is §641's owner rather than a new
+> one"* — and it did. **A build that names both outcomes before running costs
+> nothing extra and turns a half-failure into a half-result.** That is the third
+> time this session a bar has been written to cover two shapes (§673, §784, this).
+
+The assignment half needed no position arithmetic at all: upstream reports on
+`restExpression.OperatorToken` and this port has the token's node id, so the span
+is exact by construction.

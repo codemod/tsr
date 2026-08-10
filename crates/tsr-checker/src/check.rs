@@ -558,6 +558,34 @@ impl Checker<'_, '_> {
                 self.check_private_name_in_object_literal(node);
                 ambient
             }
+            // `[...x = a] = a` — a spread element in a destructuring assignment
+            // whose expression is `x = a`. Upstream reports on the **operator
+            // token** (`checker.go:12688`), which this port has directly;
+            // the binding-element half of the same code computes its position
+            // as `Initializer.Pos() - 1` and lands one column off here, which
+            // is §641's trivia-inclusive span gap and its owner. §811.
+            Node::SpreadElement(spread) => {
+                if let Some(inner) = spread.expression.and_then(|e| e.node_id())
+                    && let Some(Node::BinaryExpression(binary)) = self.node_map.get(inner)
+                    && let Some(token) = binary.operator_token
+                    && token.kind == SyntaxKind::EqualsToken
+                    && let Some(at) = token.node_id
+                    && self
+                        .nodes
+                        .parent(node)
+                        .is_some_and(|p| self.nodes.kind(p) == SyntaxKind::ArrayLiteralExpression)
+                    && let Some(file) = self.source_file_of_for_diagnostics(node)
+                {
+                    self.report(
+                        file,
+                        Diagnostic::new(
+                            &messages::A_REST_ELEMENT_CANNOT_HAVE_AN_INITIALIZER,
+                            self.nodes.span(at),
+                        ),
+                    );
+                }
+                ambient
+            }
             Node::DeleteExpression(_) => {
                 self.check_reference_expression(node);
                 self.check_delete_operand_is_optional(node, typed);
