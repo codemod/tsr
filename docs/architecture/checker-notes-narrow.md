@@ -6393,3 +6393,17 @@ the referencing file's import declarations for one resolving to
 the module; reuse its specifier text; only compute a relative path
 when NO import exists. Slice-2 arm reverted; the option plumbing,
 directive parse, and file_path hook stay landed as infrastructure.
+
+**§143 slice 2's reuse arm MEASURED AND PARKED at +11/4 (2.75:1,
+net +7, zero R→W):** the unifier was RIGHT about the adverse (the
+path-computation wrongs all vanished — no case wants a computed
+path where an import exists) but the positive pool is thin: most
+alias-less file-module positions have no import in the referencing
+file either, and were honest gaps all along. The 4 adverse are the
+UMD-merge family (single-SourceFile gate did not split them —
+their merge lives on the namespace side; umd-augmentation-1/2,
+checkMergedGlobalUMDSymbol). §143's FINAL STATE: slice 1 LANDED
+(+168 ambient spellings), the reuse arm and path arm both parked
+with complete pairs — the head's remaining value is small and
+priced. The infrastructure (file_path hook, option plumbing,
+directive parse) is landed for whoever returns.
