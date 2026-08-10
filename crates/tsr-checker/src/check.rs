@@ -3719,6 +3719,18 @@ impl Checker<'_, '_> {
         if self.in_js_file(node) && cannot_find_name_message(text).is_some() {
             return;
         }
+        // **A decorator is TypeScript-only syntax in a JavaScript file**, and
+        // upstream neither resolves its name nor reports on it. The decline
+        // above is narrower than this one — it fires only for names carrying a
+        // specific *cannot find name* message — so the general case walked
+        // past it. §779 and §788 added the same guard to two other rules; this
+        // is the first where one existed and was written for another purpose.
+        // §790.
+        if self.in_js_file(node)
+            && self.nodes.ancestors(node).any(|a| self.nodes.kind(a) == SyntaxKind::Decorator)
+        {
+            return;
+        }
         // Inside a `with` block upstream reports TS2410 — *"All symbols in a
         // 'with' block will have type 'any'"* — and resolves nothing
         // (`NodeFlagsInWithStatement`, read at `checker.go:29344` and four other

@@ -39931,3 +39931,89 @@ the column are four, across codes not yet looked at.
 > **five landed, one was refused, thirty-six wrong lines went, and eleven cases
 > converted.** The column stood at 112 and stands at 82. Nothing about the
 > instrument changed — only the question asked of it.
+
+## §790 — TS2304 inside a decorator in a `.js` file
+
+```js
+// a.js
+@SomeDecorator
+class SomeClass { foo(x: number) { } }
+```
+```
+-- expected --          -- actual --
+  a.js(3,12) TS8010       a.js(1,2)  TS2304   ← wrong
+                          a.js(3,12) TS8010
+```
+
+A decorator is TypeScript-only syntax in a JavaScript file, and upstream neither
+resolves its name nor reports on it — the file's one diagnostic is the parameter
+annotation's TS8010.
+
+`check_value_identifier` carries a JavaScript decline already, and it is narrow:
+
+```rust
+if self.in_js_file(node) && cannot_find_name_message(text).is_some() { return; }
+```
+
+It fires only for names with a *specific* "cannot find name" message —
+`SomeDecorator` has none, so it falls through to the general TS2304.
+
+**Fourth instance of the same shape** (§779, §788, and the value cascade's own),
+and the first where the guard exists and is too narrow rather than absent.
+
+> The three before this each added `in_js_file(node)` to a rule that had no
+> JavaScript decline. This one has one, written for a different purpose — the
+> named-global messages — and the general case walked past it. **A guard that
+> exists is harder to see as missing than one that does not**, which is why this
+> was the last of the four to surface.
+
+```
+bar:  +2 (decoratorInJsFile, decoratorInJsFile1),  0 LOST,  WRONG delta <= 0
+```
+
+### Falsifiers
+
+1. **An ordinary unresolved name in a `.js` file stops reporting.** JavaScript
+   files do get TS2304 for real references — the decline must be scoped to the
+   decorator.
+2. **TS8010's row moves.** It is the file's actual diagnostic.
+3. **A decorator in a `.ts` file stops reporting.** The guard is the conjunction.
+
+## §791 — §790 built: **+2**, and the JavaScript guard is four rules deep
+
+```
+diagnostics             2,297 → 2,299   (bar was +2;  +2, 0 LOST)   41.89%
+extraonly               TS2304 wrong lines 17 → 15;  total 82 → 80
+```
+
+All three falsifiers negative — ordinary unresolved names in `.js` files still
+report, TS8010 did not move, and decorators in `.ts` files are untouched.
+
+### The shape, complete for what the column shows
+
+```
+check_value_identifier          a narrow decline from the start, widened here
+check_type_reference_name       §779
+check_empty_body_returns_value  §788
+check_value_identifier          §790, the decorator case the narrow one missed
+```
+
+**Four rules, one fact:** a TypeScript-only construct in a JavaScript file
+produces its own diagnostic, and anything that reads the construct must stay
+silent. The remaining `.js` entries in the column are two — a `TS2403` and a
+`TS2683` pair — neither of which is this shape.
+
+> §790's was the last to surface because a guard *existed* there. §779 and §788
+> were absences, visible to anyone comparing the three rules; this one was a
+> guard written for named globals that happened to sit where the general guard
+> belonged. **The three absences took one look each and the presence took six
+> builds of the column to reach.**
+
+### `extraonly`, seven builds
+
+```
+§777 +6 · §779 +1 · §781 refused · §783 +2 · §785 +1 · §788 +1 · §790 +2
+```
+
+**Thirteen cases and thirty-two wrong lines**, from a column that stood at 112
+and stands at 80.
