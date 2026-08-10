@@ -387,6 +387,34 @@ impl Checker<'_, '_> {
     /// `super(…)` call, an `import(…)` call, a call with explicit type arguments,
     /// a call to a callee with no call signature, and an overloaded call outside
     /// what [`Checker::choose_overload`] can decide.
+    /// §140: the dynamic-import call's type. `None` keeps the caller's
+    /// errorType — an unresolvable or non-literal specifier, a module file
+    /// with no symbol, or a missing Promise global each decline.
+    fn check_import_call_expression(&mut self, node: &CallExpression<'_>) -> Option<TypeId> {
+        let specifier = node.arguments.first().copied()?;
+        let specifier_id = tsr_ast::Node::from(specifier).node_id()?;
+        let tsr_ast::Expression::StringLiteral(literal) = specifier else { return None };
+        let module = self.resolve_external_module_name(specifier_id, specifier_id)?;
+        // Interned per (module, written spelling): duplicate mints would
+        // churn prints (the bar's falsifier c).
+        let text = format!("typeof import(\"{}\")", literal.text);
+        let key = (text.clone(), module);
+        let namespace = if let Some(&existing) = self.qualified_reference_types.get(&key) {
+            existing
+        } else {
+            let minted = self.store.new_anonymous(
+                crate::flags::TypeFlags::OBJECT,
+                text.clone(),
+                module,
+                false,
+            );
+            self.qualified_reference_types.insert(key, minted);
+            minted
+        };
+        let promise = self.global_type_symbol_with_arity("Promise", 1)?;
+        Some(self.create_type_reference(promise, vec![namespace]))
+    }
+
     pub fn check_call_expression(&mut self, node: &CallExpression<'_>) -> TypeId {
         let error = self.intrinsics.error;
         bump(&COUNTERS.call_expressions);
@@ -399,6 +427,22 @@ impl Checker<'_, '_> {
                 if keyword.kind == tsr_ast::SyntaxKind::SuperKeyword
         ) {
             return self.intrinsics.void;
+        }
+        // §140 (`checker-notes-narrow.md`): `import("./m")` types as
+        // `Promise<typeof import("./m")>` — `checkImportCallExpression`. The
+        // namespace type is minted HERE, the one place holding the specifier
+        // verbatim, so the import-spelling needs no per-site machinery. An
+        // unresolvable specifier keeps today's error (the §31-family
+        // boundary owns those).
+        if matches!(
+            callee,
+            Expression::KeywordExpression(keyword)
+                if keyword.kind == tsr_ast::SyntaxKind::ImportKeyword
+        ) {
+            if let Some(result) = self.check_import_call_expression(node) {
+                return result;
+            }
+            return error;
         }
         let raw_callee_type = self.check_expression(callee);
         // `checkCallChain` (`checker.go:8300` family): the callee strips its

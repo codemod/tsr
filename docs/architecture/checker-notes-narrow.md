@@ -5984,3 +5984,20 @@ wants), ramdaToolsNoInfinite2's 53 partially.
 (b) an unresolvable specifier keeps today's answer (the §31-family
 boundary owns those); (c) the minted NS text must intern per
 (module, spelling) or duplicate mints churn prints.
+
+**§140 MEASURED AND LANDED — +122 G→R / 11 G→W (11:1), right
+412,344 → 412,466 = 86.12%, first measurement over the bar.**
+`import("./m")` types as `Promise<typeof import("./m")>`: the
+namespace type minted AT THE CALL (Anonymous, the module's symbol,
+interned per module+spelling through qualified_reference_types),
+wrapped in the lib Promise — `.then` signatures and awaited reads
+compose free through the Promise members and §136's fills. The
+import-spelling head's premise ("needs PER-FILE printing context")
+was TOO STRONG for this family: the call site holds the specifier
+verbatim, so the spelling is creation-time-mintable. Priced
+residue: interop default-wrapping flavors (esModuleInteropImportCall
+3, dynamicImportsDeclaration 3 — `{ default: ... }` shapes), the
+export= import-call flavors 2. The arm-2 pool's remaining ~1,000
+import-spelling lines split between checkExportsObjectAssign (JS
+exports), ramdaTools' inference carriers, and true per-site
+annotation positions.
