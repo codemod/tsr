@@ -6704,3 +6704,29 @@ pipeline (fixing-mapper), conditional instantiation, flow/
 predicate synthesis**. The gate-sized middle is thin; next
 sessions should either open a wall as a phased arc or sweep the
 long tail of sub-20-line cases.
+
+## §156 — qualified ImportEquals CLASS leaves: the alias-name constructor mint [claimed: checker-1]
+
+**A §145 refusal re-priced on new evidence, the stale-refusals
+discipline working as designed.** §145 refused class leaves as
+"texts embed their own names, per-site" — but its iteration-2/3
+adverse came from get_type_of_symbol printing TARGET-named
+constructor texts; the ALIAS-NAME spelling was never tried on the
+class branch (only on namespaces, where it died). The baseline
+says privacyLocal*'s class-leaf aliases want EXACTLY the §145
+mint: `im_private_c_private : typeof im_private_c_private` at the
+declaration, `typeof <alias>` at constructor uses, `<alias>` as
+the instance spelling at annotation uses. Slice 1, CONSTRUCTOR
+side only: a resolved qualified-entity CLASS leaf mints Anonymous
+`typeof <alias-name>` carrying the target class symbol (member
+reads flow through the target, the §140/§143/§145 keying);
+INSTANCE-side spellings stay gapped (the instance text is minted
+once with the class's own name — re-spelling it per-alias is the
+§95 transient question, not this slice). **Bar: ≥40 G→R at
+≥5:1.** Falsifiers: (a) §145-iteration-1's aliasBug-vs-
+typeofInternalModules split may reappear FOR CLASSES — if some
+corpus class-alias wants the TARGET chain at its declaration, the
+pair shows it (collision* 18 is the suspect pool); (b) `new
+alias()` instance results printing the alias name would DOUBLE
+the win but is not required — watch it doesn't print WRONG
+instead.
