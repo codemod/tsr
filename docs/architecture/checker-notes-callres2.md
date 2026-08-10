@@ -1498,3 +1498,16 @@ not the equality form at all). Next: map row 1107 to its SOURCE line
 print the RETURN value at each exit of the BinaryExpression arm for
 that one shape. The window closes here; the trace's 453-pass fact is
 the next session's floor.
+
+## §154 LANDED: the switch chain-base strip (+2, zero regressions)
+
+Row 1107's condition was a SWITCH (`switch (o?.foo) { case "abc": }`),
+not an equality — the §51.4 hunt was in the wrong function family, and
+the guard trace's 453-pass fact belonged to OTHER rows. The strip
+composes into the member-switch arm (question-dot access + clause
+range excluding nullish and default → NE_UNDEFINED_OR_NULL on the
+base), with `switch_clause_range_covers_nullish` shared by the
+non-member arm. The remaining family (67 W) is dominated by the
+asserts-functions subsystem (effects signatures on call statements —
+the §148.3-addendum's neighbor in flow.go's getEffectsSignature) and
+`NonNullable<T>` alias prints.

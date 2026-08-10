@@ -2265,6 +2265,18 @@ impl Checker<'_, '_> {
         {
             let member = name.text.to_string();
             let narrowed = self.narrow_union_by_member_switch(incoming.t, &member, switch, &clause);
+            // SS154: `switch (o?.foo)` - when the access reads through `?.`
+            // and this clause range excludes undefined (and any default),
+            // the BASE strips undefined/null, COMPOSED with the member
+            // discrimination (the switch twin of SS51.5's assignment).
+            let narrowed = if self.strict_null_checks
+                && access.question_dot_token.is_some()
+                && !self.switch_clause_range_covers_nullish(switch, &clause)
+            {
+                self.get_type_with_facts(narrowed, TypeFacts::NE_UNDEFINED_OR_NULL)
+            } else {
+                narrowed
+            };
             return FlowType { t: narrowed, incomplete: incoming.incomplete };
         }
         let narrowed = if expr.node_id().is_some_and(|id| self.is_matching_reference(state, id)) {
@@ -2276,6 +2288,18 @@ impl Checker<'_, '_> {
                 .is_some_and(|id| self.is_matching_reference(state, id))
         {
             self.narrow_type_by_switch_on_typeof(incoming.t, switch, &clause)
+        } else if self.strict_null_checks
+            && expr.node_id().is_some_and(|id| self.optional_chain_contains_reference(state, id))
+        {
+            // SS154: `switch (o?.foo) { case "abc": ... }` - the clause
+            // range excluding undefined (and any default) proves the chain
+            // result defined, so the BASE strips undefined/null
+            // (upstream's switch containment twin of the SS51.4 table).
+            if self.switch_clause_range_covers_nullish(switch, &clause) {
+                incoming.t
+            } else {
+                self.get_type_with_facts(incoming.t, TypeFacts::NE_UNDEFINED_OR_NULL)
+            }
         } else {
             incoming.t
         };
@@ -2455,6 +2479,27 @@ impl Checker<'_, '_> {
     /// any clause type is missing, non-unit, or a comparability the relation
     /// cannot decide, so the failure mode is the unnarrowed status quo. The
     /// unknown-ground path is unported (stated in §16).
+    /// SS154: does this clause range possibly cover a nullish discriminant -
+    /// a default clause, an unreadable clause list, or any nullable-flagged
+    /// clause type? `false` licenses the chain-base strip.
+    fn switch_clause_range_covers_nullish(
+        &mut self,
+        switch: &tsr_ast::SwitchStatement<'_>,
+        clause: &tsr_binder::SwitchClause,
+    ) -> bool {
+        let Some(clause_types) = self.switch_clause_types(switch) else {
+            return true;
+        };
+        let (start, end) = (clause.clause_start as usize, clause.clause_end as usize);
+        let slice = &clause_types[start.min(clause_types.len())..end.min(clause_types.len())];
+        if start == end || slice.contains(&self.intrinsics.never) {
+            return true;
+        }
+        slice
+            .iter()
+            .any(|&clause_type| self.store.get(clause_type).flags.intersects(TypeFlags::NULLABLE))
+    }
+
     fn narrow_type_by_switch_on_discriminant(
         &mut self,
         t: TypeId,
