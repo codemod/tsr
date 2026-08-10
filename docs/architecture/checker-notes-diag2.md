@@ -30737,3 +30737,101 @@ Three of five cases. `isUntypedFunctionCall`'s signature-count arm covers a
 callee whose *apparent type* has no call signatures without being annotated
 `any` — `invokingNonGenericMethodWithTypeArguments1`'s `x.f<T>()` is that shape,
 and it needs the apparent type, not the syntax. Named, not attempted.
+
+## §582 — TS7006: `declare class B { public foo(a); }` reports, and the note said so
+
+```ts
+declare class A { private foo(a); }   // OK — private in an ambient class
+declare class B { public  foo(a); }   // TS7006 — public in an ambient class
+```
+
+`check_implicit_any_parameters` carries this comment:
+
+> *"'Report an implicit any error if there is no body … and node is not a
+> private method in an ambient context' is the return type arm; **a parameter in
+> an ambient context still reports** … The ambient flag is threaded here only so
+> a `.d.ts` stays silent."*
+
+and then:
+
+```rust
+if ambient {
+    continue;
+}
+```
+
+**The comment is right and the code is the blanket it warns against.** The
+walk-threaded `ambient` is true inside `declare class B` in an ordinary `.ts`
+file, so the public method's parameter is skipped along with the `.d.ts` case
+the guard was for.
+
+> **A comment that states the narrow rule beside a guard that implements the
+> broad one is the most expensive kind of documentation** — it reads as
+> justification. §579's guard was wrong because the port represents types
+> differently; this one is wrong because nobody re-read the sentence next to it.
+> The tell was free: the note names the exception (`isPrivateWithinAmbient`) that
+> the code does not test.
+
+### The narrowing
+
+Skip when the **file** is ambient — the `.d.ts` case the comment names — or when
+the member is `private` and in an ambient context, which is upstream's
+`isPrivateWithinAmbient`.
+
+```
+bar:  +1 of 15,  0 LOST,  WRONG delta <= +1
+```
+
+One: fourteen of TS7006's fifteen blocked cases are contextual-typing shapes
+(`contextualTyping38`, `contextualSignatureInArrayElement…`) that need a
+contextual type this port declines to compute.
+
+### Falsifiers
+
+1. **A `.d.ts` parameter reports.** That is the case the guard exists for and
+   every declaration file in the corpus is one.
+2. **`declare class A { private foo(a); }` reports.** The exception upstream
+   names.
+
+## §583 — §582 built: **+4** against a bar of +1, and the extras were already there
+
+```
+diagnostics          2,132 → 2,136   (bar was +1;  +4, 0 LOST)   38.92%
+TS7006 in extraonly  4 before, 4 after — stash differential, §577's method
+```
+
+Four cases for a bar of one: `declare class` with public members is a commoner
+shape than the one fixture suggested. Both falsifiers negative — `.d.ts` files
+stay silent and `private foo(a)` in an ambient class still does.
+
+### The comment was the instrument
+
+The guard's own comment named the exception the guard did not test:
+
+> *"a parameter in an ambient context still reports … threaded here only so a
+> `.d.ts` stays silent"*
+
+> **A comment that states the narrow rule beside a guard that implements the
+> broad one reads as justification, and that is what makes it expensive.** Every
+> reader who checked whether the guard was right found a sentence explaining
+> that it was — including, four times this session, me. The tell was free: the
+> comment names `isPrivateWithinAmbient` and the code tests `ambient`.
+
+This is now the third distinct way a guard has been wrong in this session, each
+with its own signature:
+
+```
+§541/§524   the guard has no upstream counterpart   → measure removing it
+§579        the guard's types are represented differently → decide from syntax
+§582        the guard is broader than its own comment → read the comment
+```
+
+The third is the cheapest to find and was found last.
+
+### What stays
+
+Eleven of TS7006's fifteen. Every one is a contextual-typing shape
+(`contextualTyping38`, `contextualSignatureInArrayElementLibEs5`,
+`contextualOverloadListFromUnionWithPrimitiveNoImplicitAny`) — a parameter has
+no implicit `any` when a contextual type supplies one, and computing that is the
+same machinery the `.types` workstream owns. **Not this workstream's row.**

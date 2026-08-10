@@ -9511,7 +9511,7 @@ const NEVER_CALLABLE: crate::flags::TypeFlags = crate::flags::TypeFlags::STRING_
     .union(crate::flags::TypeFlags::ES_SYMBOL_LIKE)
     .union(crate::flags::TypeFlags::BIG_INT_LIKE);
 
-fn modifiers_of(typed: Node<'_>) -> Option<&[tsr_ast::ModifierLike<'_>]> {
+pub(crate) fn modifiers_of(typed: Node<'_>) -> Option<&[tsr_ast::ModifierLike<'_>]> {
     Some(match typed {
         Node::ClassDeclaration(n) => n.modifiers,
         Node::ClassExpression(n) => n.modifiers,

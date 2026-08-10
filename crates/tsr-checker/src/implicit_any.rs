@@ -109,6 +109,12 @@ impl Checker<'_, '_> {
     }
 
     pub(crate) fn check_implicit_any_parameters(&mut self, node: NodeId, ambient: bool) {
+        // `isPrivateWithinAmbient` (`checker.go:3449`) — computed once for the
+        // whole signature, as upstream computes it per declaration. §582.
+        let private_within_ambient =
+            self.node_map.get(node).and_then(crate::check::modifiers_of).is_some_and(|modifiers| {
+                tsr_ast::has_syntactic_modifier(modifiers, tsr_ast::SyntaxKind::PrivateKeyword)
+            });
         if !self.no_implicit_any || self.file_has_parse_errors {
             return;
         }
@@ -159,7 +165,12 @@ impl Checker<'_, '_> {
             // `ParameterList4` is an ordinary declaration. The ambient flag is
             // threaded here only so a `.d.ts` stays silent, matching every other
             // rule in `crate::check`.
-            if ambient {
+            // **`isPrivateWithinAmbient`, which the comment above names and the
+            // old guard did not test.** A `.d.ts` stays silent; so does a
+            // `private` member in an ambient context. A *public* method in a
+            // `declare class` reports, and the walk-threaded `ambient` was
+            // skipping it along with them. §582.
+            if self.file_is_ambient || (ambient && private_within_ambient) {
                 continue;
             }
             let rest = declaration.dot_dot_dot_token.is_some();
