@@ -40091,3 +40091,80 @@ across six cases of which one was otherwise clean.
 > lines sit in and what else those cases are missing**, and `extraonly` shows the
 > first and not the second. **A count in that column is an upper bound on cases
 > and a lower bound on work.**
+
+## §794 — TS7008: a constructor assignment gives the member its type
+
+```ts
+class Example {
+  accessor test;                                    // no TS7008
+  constructor(test: number) { this.test = test; }
+}
+```
+
+`getTypeOfPropertyDeclaration` infers an unannotated member's type from
+assignments to `this.<name>` in the constructor, so a member the constructor
+assigns is not implicitly `any`. §-whenever `check_implicit_any_member` was
+written it reads only the declaration — annotation absent, initializer absent,
+report — and the fixture has four such members and one genuine error.
+
+**§87 built the stand-in this needs for TS2564**:
+`subtree_accesses_this_member(body, name, 0)`, whose rustdoc says *"a constructor
+body that never mentions `this.<name>` cannot assign it on any path"*. The same
+question, the same answer, and the helper is two files away.
+
+This is the ranked pick from §793's selection rule: **56 cases carry wrong
+lines**, and `controlFlowAutoAccessor1` is the cleanest — four lines, one code,
+one case, and the case's only fault.
+
+```
+bar:  +1 (controlFlowAutoAccessor1),  0 LOST,  WRONG delta <= 0
+```
+
+### Falsifiers
+
+1. **The fixture's genuine TS7008 at line 54 stops reporting.** That member is
+   not assigned in any constructor and is the case's one expected line.
+2. **TS2564's row moves.** It uses the same helper for the opposite conclusion —
+   an assignment there means *initialised*, here it means *typed*.
+3. **A member assigned in a method rather than the constructor stops
+   reporting.** Only the constructor infers.
+
+## §795 — §794 measured: **−3**, reverted, and the two rules want opposite answers
+
+```
+diagnostics             2,300 → 2,297   (bar was +1;  −3)
+TS7008 missing lines    0 → 5;  0 cases blocked → 4
+```
+
+The stand-in silences four wrong lines and creates five missing ones. **§87's
+helper answers a question neither rule actually asks**, and the two rules need
+opposite defaults from it:
+
+```
+TS2564   "the constructor never mentions this.x"  →  report          a *safe* over-report
+TS7008   "the constructor never mentions this.x"  →  report          a *safe* over-report
+```
+
+Both want to report when the helper says *no mention* — and TS7008 additionally
+needs *what kind of mention*. `this.test = test` types the member;
+`console.log(this.test)` does not, and `subtree_accesses_this_member` cannot tell
+them apart because TS2564 never needed it to: for initialisation, **any**
+mention is enough to decline.
+
+> §87's rustdoc says the helper answers *"cannot assign it on any path"* — a
+> lower bound, chosen because TS2564 declines on it and a false decline is
+> silence. **TS7008 declines on it too, so the same lower bound becomes a false
+> decline of the opposite thing**, and the direction that was safe for one rule
+> is unsafe for the other. A helper's safety is a property of the caller's
+> polarity, not of the helper.
+
+### Refused, with the number
+
+```
+TS7008   4 wrong lines, 1 case   needs assignment vs mere reference in the constructor
+```
+
+**Owner: the flow side**, and the discriminating fixture is in hand:
+`controlFlowAutoAccessor1` has four members assigned in a constructor and one
+merely referenced. A helper that separates `this.x = …` from `this.x` would serve
+both rules; §87's does not, and this is the measurement that says so.

@@ -1307,6 +1307,18 @@ its whole deliverable and accept that it converts nothing until finished.
 
 ## 5. Refused, with the number that refused it
 
+### New, this session, TS7008's constructor inference — refused by −3
+
+- **A helper's safety is a property of the caller's polarity, not of the
+  helper.** §87's `subtree_accesses_this_member` answers *"the constructor never
+  mentions `this.x`"* — a lower bound chosen because TS2564 **declines** on it
+  and a false decline is silence. TS7008 declines on it too, so the same bound
+  becomes a false decline of the opposite thing: four wrong lines silenced, five
+  missing ones created. TS7008 needs *what kind of mention* — `this.test = test`
+  types the member and `console.log(this.test)` does not — and TS2564 never
+  needed the distinction. **Owner: the flow side**; the discriminating fixture is
+  `controlFlowAutoAccessor1`. §794–§795
+
 ### New, this session, TS2564's error-type skip — refused by −3
 
 - **`t.flags & AnyOrUnknown` is upstream's test and is not portable.** It removes
@@ -2863,6 +2875,7 @@ holds only the numbers.
 | 2026-08-10 | HEAD | **41.85%** | **2,297** | **+1 — the JavaScript guard, three rules deep** | **TS2355** for `function F(): number { }` in a `.js` file: the annotation is **TS8010** and upstream stops there, so nothing that reads it may speak. ***§779's fix on a third rule*** — the value cascade had the guard from the start, the type cascade gained it at §779, and this rule never had one. ***One shape, three rules, and each was found by a wrong line rather than by a review of what reads a TypeScript-only construct.*** `extraonly` has now produced six builds (§777, §779, §781, §783, §785, §788): ***five landed, one refused, thirty-six wrong lines gone, eleven cases converted***, and the column stands at **82** against 112 when it was first read. ***Nothing about the instrument changed — only the question asked of it.*** §788–§789 |
 | 2026-08-10 | HEAD | **41.89%** | **2,299** | **+2 — a guard that exists is harder to see as missing than one that does not** | **TS2304** inside `@SomeDecorator` in a `.js` file: a decorator is TypeScript-only syntax there, and upstream neither resolves its name nor reports on it. `check_value_identifier` ***already had*** a JavaScript decline — written for names carrying a specific *cannot find name* message — and the general case walked past it. ***Fourth instance of one shape*** (§779, §788, the value cascade's own, and this), and ***the first where the guard existed and was too narrow rather than absent***: the three absences took one look each, the presence took six builds of the column to reach. `extraonly` across seven builds: **thirteen cases and thirty-two wrong lines**, from a column that stood at 112 and stands at **80**. §790–§791 |
 | 2026-08-10 | HEAD | **41.91%** | **2,300** | **+1 — a count in the wrong column is an upper bound on cases and a lower bound on work** | **TS2304** inside a **duplicate heritage clause**: `class C implements A implements B` is TS1175 and upstream does not resolve the second clause's types — ***the clause is not part of the class, it is what the parser kept so the position could be reported***. ***Third gate this session where a grammar error suppresses a type check*** (§783, §785, this): in each, upstream reports the syntactic problem and stops, and ***this port ported the grammar rule and not its consequence***. One wrong line went and one of six named cases converted; the ratio across six `extraonly` builds is **20→6, 4→2, 2→2, 1→1**, so ***the predictor is not the line count but how many distinct cases the lines sit in and what else those cases are missing*** — and the column shows the first and not the second. §792–§793 |
+| 2026-08-10 | HEAD | 41.91% | 2,300 | **−3 — a helper's safety is a property of the caller's polarity** | **TS7008**: `accessor test;` with `constructor(test: number) { this.test = test }` is not implicitly `any`, because upstream infers the member's type from the constructor assignment. §87's `subtree_accesses_this_member` looked like the stand-in — it is the helper TS2564 uses for the same syntax — and it measured **−3**: four wrong lines silenced, ***five missing ones created***. ***The helper answers "the constructor never mentions `this.x`", a lower bound chosen because TS2564 declines on it and a false decline is silence***; TS7008 declines on it too, so the same bound becomes a false decline of the opposite thing. TS7008 needs ***what kind of mention*** — `this.test = test` types the member, `console.log(this.test)` does not — and TS2564 never needed the distinction. Owner: the flow side. §794–§795 |
 
 ## 8. Updating this file
 
