@@ -2047,7 +2047,9 @@ impl EvaluatedValue {
 /// Identifiers, property accesses, bitwise/shift operators, and anything
 /// else answer `None` — a `None` anywhere keeps the type-level answer, so
 /// this only ever adds folds.
-fn evaluate_constant_expression(expr: &tsr_ast::Expression<'_>) -> Option<EvaluatedValue> {
+pub(crate) fn evaluate_constant_expression(
+    expr: &tsr_ast::Expression<'_>,
+) -> Option<EvaluatedValue> {
     use tsr_ast::SyntaxKind;
     match expr {
         tsr_ast::Expression::NumericLiteral(n) => {
@@ -2124,6 +2126,16 @@ fn evaluate_constant_expression(expr: &tsr_ast::Expression<'_>) -> Option<Evalua
                 }
                 _ => None,
             }
+        }
+        // A no-substitution template is a **string literal with different
+        // delimiters** and upstream's evaluator folds it as one
+        // (`evaluator/evaluator.go:106`, alongside `KindStringLiteral`). §101 built
+        // this evaluator for template *folding* and did not need the leaf,
+        // because a template head already carries its own text; §819's consumer
+        // reads `None` as *"not a constant"* and the omission became three
+        // wrong lines on `enumConstantMemberWithTemplateLiterals`. §820.
+        tsr_ast::Expression::NoSubstitutionTemplateLiteral(literal) => {
+            Some(EvaluatedValue::Text(literal.text.to_string()))
         }
         tsr_ast::Expression::TemplateExpression(node) => {
             let mut folded = node.head.map(|head| head.text.to_string())?;

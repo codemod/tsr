@@ -41194,3 +41194,98 @@ a new rule: no falsifier about *behaviour*, one about *shadowing*.
 
 **Eight cases, five rows, five builds, zero wrong lines, every one selected by
 reading a filename**, and one refusal (TS1098) found the same way and priced.
+
+## §819 — TS1066, and a `None` that means two different things
+
+```ts
+declare enum E1 { y = 4.23 }            // fine, a constant
+declare enum E2 { x = 'foo'.length }    // TS1066, on the initializer
+```
+
+`computeEnumMemberValues` (`checker.go:24016`) is a switch on the **constant
+evaluator's** answer:
+
+```go
+case result.Value != nil:                       …
+case isConstEnum:                               const enum member must be constant
+case member.Parent.Flags&NodeFlagsAmbient != 0: In_ambient_enum_declarations_member_initializer_must_be_constant_expression
+```
+
+This port has an evaluator — `evaluate_constant_expression`
+(`expressions.rs:2050`) — but §101 built it deliberately **symbol-free**:
+
+> *"Identifiers, property accesses, bitwise/shift operators, and anything else
+> answer `None` — a `None` anywhere keeps the type-level answer, so this only ever
+> adds folds."*
+
+That was sound for its consumer, which *folds* on `Some` and is silent on `None`.
+This consumer **reports** on `None`, and the same `None` now covers two
+unrelated situations:
+
+```
+'foo'.length         not a constant           — upstream also says nil       report
+a + 1   in an enum   needs the enum's symbols — upstream folds it to a value  DO NOT report
+E1.y                 needs the enum's symbols — upstream folds it to a value  DO NOT report
+```
+
+**A predicate reused across a direction change is not the same predicate.**
+§25's collapse is the same shape and this is its fourth appearance: a
+three-valued answer read as two-valued is safe in the direction that ignores the
+third value and wrong in the direction that reports on it.
+
+### The split
+
+Report only when the `None` **cannot** be a symbol shortfall: the initializer's
+subtree contains no identifier in *reference* position. `'foo'.length` has a
+string-literal base and only a property **name** identifier, so it qualifies;
+`a + 1` and `E1.y` do not, and are declined under the silence policy.
+
+```
+bar:  +1 of 1 (ambientEnum1),  0 LOST,  WRONG delta <= 0
+```
+
+### Falsifiers
+
+1. **A non-ambient `enum E { x = f() }` reports.** The parent must be ambient.
+2. **`declare enum E { y = 4.23 }` reports.** The evaluator folds it.
+3. **TS2553 / TS2474's rows move.** Those are the const-enum siblings at the same
+   switch and this arm must not take their cases.
+
+## §820 — §819 built: **+1 net**, and the new consumer found a hole in the evaluator
+
+```
+diagnostics             2,315 → 2,316   (bar was +1;  +1 net, 0 LOST)   42.20%
+TS1066 missing lines    1 → 0     — the row is closed
+extraonly               zero TS1066 (after the repair below)
+```
+
+The first measurement read **2,315 — unchanged** with the fixture matching
+exactly. `+1 and −1`, not `+0`: `ambientEnum1` came in and
+`enumConstantMemberWithTemplateLiterals` went out on **three** wrong TS1066
+lines.
+
+```ts
+declare enum T7 { a = `1`, b = `1` + `1`, c = "2" + `1` }
+```
+
+`evaluate_constant_expression` had no `NoSubstitutionTemplateLiteral` arm.
+§101 built the evaluator for template **folding**, where the leaf never arises —
+a `TemplateExpression`'s head carries its own text — so the omission was
+invisible to its only consumer for as long as that consumer was silent on `None`.
+
+> **A predicate acquires new obligations when it acquires a new consumer.** §819
+> predicted exactly this class of failure and split the `None` for the *symbol*
+> case; it did not think of the *leaf* case, because the reasoning was about what
+> `None` means and not about what the evaluator forgot. The split was right and
+> incomplete, and the measurement supplied the rest.
+
+One line of Go (`evaluator/evaluator.go:106`, where `KindStringLiteral` and
+`KindNoSubstitutionTemplateLiteral` share an arm) and three wrong lines gone.
+
+### The anchor gate earned its keep
+
+The first draft cited `evaluate.go`, a file that does not exist upstream — the
+evaluator lives in `internal/evaluator/evaluator.go`. `cargo run -p xtask --
+anchors` failed the build on it. That is the third time this session the anchor
+gate has caught a cited path that was plausible and wrong, and it is the only
+gate that can: **`cargo test` cannot know that a doc comment lies.**

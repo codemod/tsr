@@ -45,9 +45,92 @@ fn is_numeric_literal_name(name: &str) -> bool {
 }
 
 impl Checker<'_, '_> {
+    /// TS1066 — `In ambient enum declarations member initializer must be
+    /// constant expression.`
+    ///
+    /// `computeEnumMemberValues` (`checker.go:24016`) switches on the constant
+    /// evaluator's answer. This port's evaluator is deliberately **symbol-free**
+    /// (§101), so its `None` covers two unrelated situations: *not a constant*,
+    /// which upstream also rejects, and *needs the enum's symbols*, which
+    /// upstream folds. Only the first may report, so the rule additionally
+    /// requires that the initializer contain no identifier in **reference**
+    /// position — `'foo'.length` qualifies, `a + 1` and `E1.y` do not and are
+    /// declined under the silence policy.
+    ///
+    /// `docs/architecture/checker-notes-diag2.md` §819.
+    fn check_ambient_enum_member_initializer(
+        &mut self,
+        node: NodeId,
+        member: &tsr_ast::EnumMember<'_>,
+    ) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let Some(initializer) = member.initializer else { return };
+        let Some(at) = initializer.node_id() else { return };
+        let Some(parent) = self.nodes.parent(node) else { return };
+        // The parent must be an **ambient, non-`const`** enum: `isConstEnum`
+        // takes precedence at the same switch and owns its own message.
+        let Some(Node::EnumDeclaration(declaration)) = self.node_map.get(parent) else { return };
+        let is_const = declaration.modifiers.iter().any(
+            |m| matches!(m, tsr_ast::ModifierLike::Token(t) if t.kind == tsr_ast::SyntaxKind::ConstKeyword),
+        );
+        let is_ambient = declaration
+            .modifiers
+            .iter()
+            .any(|m| matches!(m, tsr_ast::ModifierLike::Token(t) if t.kind == tsr_ast::SyntaxKind::DeclareKeyword));
+        if is_const || !is_ambient {
+            return;
+        }
+        if crate::expressions::evaluate_constant_expression(&initializer).is_some() {
+            return;
+        }
+        if self.subtree_has_reference_identifier(at, 0) {
+            return;
+        }
+        if let Some(file) = self.source_file_of_for_diagnostics(at) {
+            let span = self.error_span(at);
+            self.report(
+                file,
+                Diagnostic::new(
+                    &messages::IN_AMBIENT_ENUM_DECLARATIONS_MEMBER_INITIALIZER_MUST_BE_CONSTANT_EXPRESSION,
+                    span,
+                ),
+            );
+        }
+    }
+
+    /// Does this subtree mention an identifier in **reference** position — one
+    /// that could resolve to an enum member and so make the symbol-free
+    /// evaluator's `None` a shortfall rather than a verdict? A property
+    /// **name** does not count. §819.
+    fn subtree_has_reference_identifier(&self, root: NodeId, depth: u32) -> bool {
+        if depth > 64 {
+            return false;
+        }
+        if self.nodes.kind(root) == tsr_ast::SyntaxKind::Identifier {
+            let is_property_name = self.nodes.parent(root).is_some_and(|parent| {
+                matches!(
+                    self.node_map.get(parent),
+                    Some(Node::PropertyAccessExpression(access))
+                        if access.name.and_then(|n| n.node_id()) == Some(root)
+                )
+            });
+            if !is_property_name {
+                return true;
+            }
+        }
+        let mut children = Vec::new();
+        if let Some(typed) = self.node_map.get(root) {
+            tsr_ast::for_each_child_id(typed, |child| children.push(child));
+        }
+        children.into_iter().any(|child| self.subtree_has_reference_identifier(child, depth + 1))
+    }
+
     /// The name check for one enum member. §671.
     pub(crate) fn check_enum_member_name(&mut self, node: NodeId) {
         let Some(Node::EnumMember(member)) = self.node_map.get(node) else { return };
+        self.check_ambient_enum_member_initializer(node, member);
         let (at, numeric) = match member.name {
             tsr_ast::PropertyName::BigIntLiteral(literal) => (literal.node_id, true),
             // **A numeric literal's name is always a numeric name.** Upstream
