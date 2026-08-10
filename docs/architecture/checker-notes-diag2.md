@@ -33598,3 +33598,88 @@ Nothing enumerable. The 51 unread names are `@filename`, `@link`,
 emit options**, neither of which the diagnostics suite reads. **The input side is
 done**, which is a sentence this session can now write about exactly one of its
 five priced classes.
+
+## §650 — TS1039: a member's own `declare`, for the third time
+
+```ts
+class C {
+    declare foo = 1;     // TS1039 — Initializers are not allowed in ambient contexts
+}
+```
+
+`check_ambient_initializer` is dispatched for `PropertyDeclaration` (§379 fixed
+that) and gated on the **walk-threaded `ambient`**, which §135 recorded as blind
+to a member's own `declare`:
+
+> *"§81's hazard: the walk-threaded `ambient` widens at `VariableStatement` and
+> `FunctionDeclaration` and nowhere else, so a **member's own** `declare` is
+> invisible to it."*
+
+**Third rule to hit that exact hazard.** §135 hit it in the type-only alias rule
+and swept for it; §508 hit it in TS1038 and fixed it with
+`declaration_is_in_an_ambient_context` for +5; this is the third, and §135's
+sweep did not reach it because the sweep was written for
+`check_computed_property_name`'s callers.
+
+> **A hazard documented in one rule's comment does not protect the next rule.**
+> §135 wrote the sentence, §508 measured the fix, and both are three screens
+> away from this call site. **The note is only reachable from the rule that
+> carries it**, which is the same structural problem as §582's comment that
+> described the narrow rule beside the broad guard.
+
+The fix is the member's own modifier, read directly — not
+`declaration_is_in_an_ambient_context`, which walks ancestors for a `declare`
+that a class property's parent will not have.
+
+```
+bar:  +2 of 2,  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **A `.d.ts` property changes.** `ambient` is already true there and the widened
+   test must be a superset, not a replacement.
+2. **`class C { foo = 1; }` reports.** No `declare`, no rule.
+3. **TS1255's row moves** — *A definite assignment assertion is not permitted in
+   this context* shares the ambient-property surface.
+
+## §651 — §650 built: **+2**, bar met, TS1039 at zero
+
+```
+diagnostics             2,185 → 2,187   (bar was +2;  +2, 0 LOST)   39.85%
+extraonly               zero TS1039, TS1254 and TS1255 lines
+TS1039 missing lines    2 → 0            — checked after the build (§629)
+```
+
+All three falsifiers negative.
+
+### The member's-own-`declare` hazard, three rules and one sweep
+
+```
+§135   the type-only alias rule    hit it, fixed it, swept for it
+§508   TS1038                      hit it, fixed it        +5
+§650   TS1039                      hit it, fixed it        +2
+```
+
+§135's sweep covered `check_computed_property_name`'s callers and stopped there.
+**Two rules found since, both by a failing row, neither by the sweep.**
+
+> **A hazard is found by the rows it blocks, not by the sweep that named it.**
+> That is the same conclusion §625 reached for the dispatch class after three
+> failed searches, and it now has a second, independent instance. **Three
+> sweeps of a *property* have found nothing this session; four sweeps of a
+> *list* have found everything.**
+
+The distinction is exact and worth carrying: `check_computed_property_name`'s
+callers are a list and §135 enumerated them correctly — but *"rules that read
+the walk-threaded `ambient`"* is a property, and forty-eight of them read it
+(§584). **§135 swept the list it could see and the hazard lived in the property
+it could not.**
+
+### The grammar family after twenty builds
+
+```
++36 before   TS1039 +2   ──   +38
+```
+
+Twenty codes closed of the sixty-two with cases.

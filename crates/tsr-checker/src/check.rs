@@ -6002,7 +6002,16 @@ impl Checker<'_, '_> {
         annotation: Option<tsr_ast::TypeNode<'_>>,
         ambient: bool,
     ) {
-        if !ambient || self.file_has_parse_errors {
+        // **A member's own `declare` is invisible to the walk-threaded flag**
+        // (§81/§135), so `class C { declare foo = 1 }` reached this rule with
+        // `ambient == false`. Read the modifier here, as §508 did for TS1038.
+        // §650.
+        let own_declare = self
+            .node_map
+            .get(node)
+            .and_then(modifiers_of)
+            .is_some_and(|modifiers| has_modifier(modifiers, SyntaxKind::DeclareKeyword));
+        if (!ambient && !own_declare) || self.file_has_parse_errors {
             return;
         }
         let Some(initializer) = initializer else { return };
