@@ -2959,6 +2959,32 @@ impl Checker<'_, '_> {
                     if instance == self.intrinsics.error {
                         return t;
                     }
+                    // SS149b (the hasInstance arc's last arm): a declared
+                    // any/unknown/object narrows TO the class instance on
+                    // the TRUE branch (upstream's constructor road,
+                    // flow.go:836-843), EXCEPT any against the global
+                    // Object/Function instances, which keeps any. The false
+                    // branch keeps the declared type (an any/unknown/object
+                    // minus one class is not expressible).
+                    if t == self.intrinsics.any
+                        || t == self.intrinsics.unknown
+                        || t == self.intrinsics.non_primitive
+                    {
+                        if !assume_true {
+                            return t;
+                        }
+                        let keeps_any = t == self.intrinsics.any
+                            && ["Function", "Object"].iter().any(|name| {
+                                self.global_type_symbol_with_arity(name, 0).is_some_and(|symbol| {
+                                    matches!(
+                                        self.store.get(instance).data,
+                                        TypeData::Named { members: Some(owner), .. }
+                                            if owner == symbol
+                                    )
+                                })
+                            });
+                        return if keeps_any { t } else { instance };
+                    }
                     let TypeData::Union { types: members, .. } = &self.store.get(t).data else {
                         {
                             // Non-union: `x: Base` with `x instanceof Derived`

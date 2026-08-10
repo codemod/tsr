@@ -1410,3 +1410,18 @@ Family: 429 R / 2 G / 10 W. The true boolean-hasInstance remainder
 (Rhs7/8 shapes wanting the union unchanged, and the constructor-road
 semantics) is the §148.3-addendum spec, now correctly scoped to ~10
 lines.
+
+## §149b LANDED: the constructor road's declared-top arm (+25, zero regressions) — THE FAMILY CLOSES
+
+A declared any/unknown/object narrows TO the class instance on the
+true branch (flow.go:836-843), with the any-vs-global-Object/Function
+guard verbatim; the false branch keeps the declared type. Isolated
+marginal +25 (hasInstance 10 — the family's LAST TEN — plus
+noImplicitReturnsExclusions 7, nonPrimitiveNarrow 2, controlFlow kin).
+
+**instanceofOperatorWithRHSHasSymbolHasInstance: 439 R / 2 G / 0 W.**
+From 317/38/86 at the arc's open: seven landings (§145, §146, §146.1,
+§148, §148.1, §149a, §149b), +167 right, zero regressions, one record
+correction stated, three zero-measured hypotheses reverted. The two
+remaining gaps are the rhs0/rhs1 literal prints under a decline that
+predates the arc.
