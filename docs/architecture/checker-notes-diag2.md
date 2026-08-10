@@ -36701,3 +36701,91 @@ and, as there, the fix is not in this rule. `resolve_alias`'s declines are
 individually justified and collectively make "has no target" unusable as a
 proposition. Recorded with the three measurements so the next attempt starts
 from shape 3 and the 2 wrong lines, not from shape 1.
+
+## §714 — TS2337: a property initializer is a container the walk does not name
+
+```ts
+class D extends C {
+    x = super();          // TS2337
+    constructor() { super(); }
+}
+```
+
+§482's rule walks ancestors and decides on the first container it recognises:
+
+```rust
+ConstructorDeclaration          → legal, return
+is_function_like_or_static_block → break, report
+SourceFile                      → return
+```
+
+A **property declaration's initializer** is none of the three. The walk passes
+straight through it to the `SourceFile` arm and stays silent, so a `super()`
+call in a field initializer — which upstream rejects — reads as legal.
+
+`is_function_like_or_static_block` already covers a method, an accessor and a
+static block; only the property is missing, and it is missing because the list
+was written from `IsFunctionLike` and a property declaration is not function-like.
+**Upstream does not use that list here** — `isLegalUsageOfSuperExpression`
+(`checker.go:7938`) asks whether the container is the constructor, and every
+other container is illegal whether or not it is a function.
+
+> Sixth in the family §701 opened, and the first where the missing entry is
+> **absent for a good reason**. The other five were oversights in lists that
+> meant to be complete; this one is a faithful port of `IsFunctionLike` used
+> where upstream asks a different question. **A helper named after upstream's
+> predicate is not automatically the right predicate for upstream's call site.**
+
+```
+bar:  +1 of 2 (superCallOutsideConstructor),  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **`class D extends C { constructor() { super(); } }` reports.** The
+   constructor arm comes first and must keep winning.
+2. **A `super.foo()` in a field initializer reports.** This arm is `super` as a
+   *call callee* only; a property access on `super` is legal there.
+3. **TS2376's row moves.** It shares the neighbourhood and reads the same
+   constructor statements.
+
+## §715 — §714 built: **+2 of 2**, row closed, and the wrong lines were already there
+
+```
+diagnostics             2,237 → 2,239   (bar was +1;  +2, 0 LOST)   40.80%
+extraonly               TS2337 + TS2376 wrong lines: 3 before, 3 after
+TS2337 missing lines    2 → 0     — the row is closed
+```
+
+Falsifier 3 appeared to fire — three TS2376 lines in `staticPropSuper` — and a
+stash-and-remeasure showed **all three predate this build**. Falsifiers 1 and 2
+negative.
+
+> **A falsifier that names a code rather than a delta cannot be read off one
+> run.** This is the second time this session (§687 was the first) that the
+> honest answer needed the *same measurement without the change*, and both times
+> the differential took one extra command. The bar's `WRONG delta <= +1` says
+> *delta*; reading `extraonly`'s absolute count against it is a category error I
+> made and the stash corrected.
+
+### The family, six deep
+
+```
+§695  a flag composite that could not express the position it named
+§698  a clause test that required the identifier to *be* the expression
+§700  a subtree search with no function-like boundary
+§702  a position list that enumerates the right node and the wrong field
+§704  a marking key too coarse for the members it decides
+§706  an identity test comparing one of the three things identity means
+§708  an enumeration smaller than the set upstream computes
+§714  a faithful predicate used where upstream asks a different question
+```
+
+Eight now. §714 is the one worth separating: `is_function_like_or_static_block`
+is a **correct** port of `IsFunctionLike`, and the bug was using it at a call
+site where upstream asks *"is the container the constructor"* — a question for
+which every non-constructor container answers the same way, function or not.
+
+> **A helper named after upstream's predicate is not automatically the right
+> predicate for upstream's call site.** The other seven were lists that meant to
+> be complete; this one was complete, and pointed at the wrong question.

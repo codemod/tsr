@@ -1908,7 +1908,15 @@ impl Checker<'_, '_> {
             if matches!(self.node_map.get(ancestor), Some(Node::ConstructorDeclaration(_))) {
                 return;
             }
-            if self.is_function_like_or_static_block(ancestor) {
+            // **A property initializer is a container upstream rejects and
+            // `IsFunctionLike` does not name.** `isLegalUsageOfSuperExpression`
+            // (`checker.go:7938`) asks whether the container is *the
+            // constructor*; every other container is illegal whether or not it
+            // is a function, and a field initializer is the one such container
+            // this list omitted. §714.
+            if self.is_function_like_or_static_block(ancestor)
+                || matches!(self.nodes.kind(ancestor), SyntaxKind::PropertyDeclaration)
+            {
                 break;
             }
             if matches!(self.nodes.kind(ancestor), SyntaxKind::SourceFile) {
