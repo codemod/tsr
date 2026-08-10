@@ -3226,9 +3226,10 @@ impl Checker<'_, '_> {
                             .get_property_of_type(callee_type, "prototype")
                             .map(|p| self.get_type_of_symbol(p))
                             .filter(|&i| i != self.intrinsics.error && i != self.intrinsics.any);
-                        let instance = match prototype_instance {
-                            Some(instance) => instance,
-                            None => {
+                        let instance = if let Some(instance) = prototype_instance {
+                            instance
+                        } else {
+                            {
                                 // getInstanceType's second leg
                                 // (flow.go:971-975): the UNION over construct
                                 // signatures of the ERASED return (type

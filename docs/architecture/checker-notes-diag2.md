@@ -43894,3 +43894,56 @@ And §879's whole build was aimed at the wrong guard: it tested the heritage tes
 *inside* the ladder without checking that the ladder was reached. Thirteen
 markers and one run found the real decline nine guards earlier. **"The rule is
 unreachable" is not a location.**
+
+
+## §882 — the shortfall view, and a hypothesis that never fired
+
+§878's corrected `RULE_CODES` makes a view possible that the hand-kept one could
+not: **ported rules ranked by how far short they fall.**
+
+```
+470  TS2339   701 / 231      the relation's
+430  TS2362   863 / 433
+334  TS2363   768 / 434
+169  TS2304  2735 / 2566
+134  TS2454  4015 / 3881    flow's (§869)
+101  TS7006   385 / 284      contextual typing's
+ 99  TS2554   198 / 99
+ 88  TS2300   583 / 495
+ 65  TS2341   111 / 46
+```
+
+That is a work list this workstream has never had, and it is the honest
+complement to §870's *reachable-pool* classification: **§870 says which cases
+need no new rule; this says which rules are furthest from finishing.**
+
+### The hypothesis, and its measurement
+
+TS2362/TS2363 are 764 lines short between them, and §862 showed those absences
+are **why** TS2364 appears beside them. `operand_is_definitely_not_numeric`
+reaches the relation through two gates that decline first, so the obvious move is
+a flag path ahead of them: `string`, `boolean`, `void`, `undefined`, `null`,
+symbol and non-primitive are not numeric whatever the relater says — §29's
+`object_against_primitive` argument, extended from structured types to the
+intrinsics.
+
+```
+diagnostics   2,345 → 2,345   (+0)
+TS2362        433 / 863,  unchanged
+TS2363        434 / 768,  unchanged
+extraonly     78, unchanged
+```
+
+**The path never fires.** Not *fires and is declined* — never reached. So the 764
+missing lines are not in this predicate, and the shortfall is somewhere between
+the dispatch and here: upstream calls `checkArithmeticOperandType` from several
+sites and this port's `check_arithmetic_operand_types` is one arm of one match.
+
+**Reverted.** §880's lesson, one build later and not yet learned: *"the rule is
+unreachable" is not a location*, and neither is *"the rule is incomplete"*. The
+next attempt must **find where the missing lines are** — `diagmissing 2362`, one
+fixture, one probe at the dispatch — before touching the predicate.
+
+The `flow.rs` clippy repair from the same build is kept: a `match` on a single
+pattern in the concurrent workstream's code, red on `-D warnings` and blocking
+`xtask measure` for everyone. **Twenty-third repair of the shared tree.**
