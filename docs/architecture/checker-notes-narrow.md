@@ -6673,3 +6673,13 @@ demanded the casts be spelled as allow-annotated helpers (MSRV
 templateLiteralEscapeSequence (numeric conversion of a cooked
 octal char) remains — it needs `-`/`*` STRING coercion in the
 evaluator (ToNumber on text), unbarred, priced small.
+
+**§150 rider 2: legacy octal numeric literals in normalise_number
+— +10/0.** `tag`0${055}`` wants `45`: the pre-ES5 octal spelling
+(leading zero, all-octal digits) reads base 8, the branch
+`jsnum::numeric_value` carried and `printing::normalise_number`
+lacked — the two parsers had drifted. `08`/`09`/`0.5` fall
+through to decimal, pinned in the unit test. Hits
+octalLiteralAndEscapeSequence 5, parseBigInt 2,
+templateLiteralEscapeSequence 2 (its last 2 wrongs; the case is
+now fully green), +1 elsewhere.

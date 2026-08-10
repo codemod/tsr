@@ -170,6 +170,16 @@ pub fn normalise_number(text: &str) -> String {
         u128::from_str_radix(rest, 8).ok().map(|v| v as f64)
     } else if let Some(rest) = cleaned.strip_prefix("0b").or_else(|| cleaned.strip_prefix("0B")) {
         u128::from_str_radix(rest, 2).ok().map(|v| v as f64)
+    } else if cleaned.len() > 1
+        && cleaned.starts_with('0')
+        && cleaned.bytes().all(|b| b.is_ascii_digit())
+        && !cleaned.contains(['8', '9'])
+    {
+        // §150 rider (`checker-notes-narrow.md`): the LEGACY octal literal —
+        // leading zero, every digit octal — reads base 8 (`055` is `45`),
+        // the same branch `tsr_core::jsnum::numeric_value` already carries.
+        // A non-octal digit (`08`, `09`) or a `.` falls through to decimal.
+        u128::from_str_radix(&cleaned[1..], 8).ok().map(|v| v as f64)
     } else {
         cleaned.parse::<f64>().ok()
     };
@@ -213,6 +223,9 @@ mod tests {
         assert_eq!(normalise_number("0x1"), "1");
         assert_eq!(normalise_number("0b101"), "5");
         assert_eq!(normalise_number("0o17"), "15");
+        assert_eq!(normalise_number("055"), "45");
+        assert_eq!(normalise_number("08"), "8");
+        assert_eq!(normalise_number("0.5"), "0.5");
         assert_eq!(normalise_number("1_000"), "1000");
         assert_eq!(normalise_number("1.5"), "1.5");
     }
