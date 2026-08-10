@@ -516,6 +516,8 @@ pub struct Checker<'a, 'n> {
     /// function reports three times and the `diagnostics` suite compares
     /// multisets.
     pub(crate) function_symbol_checked: rustc_hash::FxHashSet<tsr_binder::SymbolId>,
+    /// Symbols whose overload ambient agreement has been checked. §673.
+    pub(crate) overload_agreement_checked: rustc_hash::FxHashSet<tsr_binder::SymbolId>,
     /// `(element types, readonly) -> the tuple type`.
     ///
     /// Upstream interns a tuple through `createTypeReference` on a target
@@ -806,6 +808,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             checked_files: rustc_hash::FxHashSet::default(),
             ambient_statement_reported: rustc_hash::FxHashSet::default(),
             function_symbol_checked: rustc_hash::FxHashSet::default(),
+            overload_agreement_checked: rustc_hash::FxHashSet::default(),
             tuple_types: FxHashMap::default(),
             tuple_element_lists: FxHashMap::default(),
             optional_tuple_types: FxHashMap::default(),

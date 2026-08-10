@@ -263,6 +263,7 @@ impl Checker<'_, '_> {
             Node::FunctionDeclaration(declaration) => {
                 self.check_overload_implementation_return(node);
                 self.check_function_or_constructor_symbol(node, ambient);
+                self.check_overload_ambient_agreement(node);
                 let ambient =
                     ambient || has_modifier(declaration.modifiers, SyntaxKind::DeclareKeyword);
                 self.check_generator_in_ambient_context(declaration.asterisk_token, ambient);
@@ -422,6 +423,7 @@ impl Checker<'_, '_> {
             }
             Node::MethodDeclaration(_) | Node::ConstructorDeclaration(_) => {
                 self.check_function_or_constructor_symbol(node, ambient);
+                self.check_overload_ambient_agreement(node);
                 self.check_implicit_any_parameters(node, ambient);
                 self.check_implicit_any_return(node, ambient);
                 ambient
@@ -9608,6 +9610,118 @@ impl Checker<'_, '_> {
         }
         // "We must be parented by a statement. If so, there's no need to report
         // the error as our parent will have already done it."
+        false
+    }
+
+    /// `checkFlagAgreementBetweenOverloads` (`checker.go:3497`), the **Ambient**
+    /// arm.
+    ///
+    /// TS2384 `Overload signatures must all be ambient or non-ambient.`
+    ///
+    /// Separate from [`Self::check_function_or_constructor_symbol`] because
+    /// upstream runs the agreement check unconditionally (`checker.go:3685`),
+    /// outside the different-container and class-merge bounds that rule draws
+    /// for the implementation-presence arms — and one of this row's three cases
+    /// is precisely a different-container symbol.
+    ///
+    /// `docs/architecture/checker-notes-diag2.md` §673.
+    fn check_overload_ambient_agreement(&mut self, node: NodeId) {
+        let Some(symbol) = self.binder.symbol_of(node) else { return };
+        let symbol = self.binder.merged_symbol(symbol);
+        if !self.overload_agreement_checked.insert(symbol) {
+            return;
+        }
+        let declarations: Vec<NodeId> =
+            self.binder.symbols().get(symbol).declarations.iter().copied().collect();
+        if declarations.len() < 2 {
+            return;
+        }
+        if !declarations.iter().all(|&declaration| {
+            matches!(
+                self.nodes.kind(declaration),
+                SyntaxKind::FunctionDeclaration
+                    | SyntaxKind::MethodDeclaration
+                    | SyntaxKind::MethodSignature
+                    | SyntaxKind::Constructor
+            )
+        }) {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        // The single-file bound, as in §64: upstream groups by file and takes a
+        // per-file canonical, and a cross-file group needs each file's own
+        // ambient context.
+        if declarations
+            .iter()
+            .any(|&declaration| self.source_file_of_for_diagnostics(declaration) != Some(file))
+        {
+            return;
+        }
+        let ambients: Vec<bool> =
+            declarations.iter().map(|&d| self.is_in_ambient_context_for_overloads(d)).collect();
+        // `someOverloadFlags ^ allOverloadFlags` for a single flag is exactly
+        // "the declarations disagree".
+        if ambients.iter().all(|&a| a) || ambients.iter().all(|&a| !a) {
+            return;
+        }
+        // Upstream's `switch` reaches the **export** arm before the ambient one
+        // and emits TS2395 there. Rather than guess which fires, a symbol whose
+        // declarations also disagree on `export` is declined whole.
+        let exports: Vec<bool> = declarations
+            .iter()
+            .map(|&d| {
+                self.node_map
+                    .get(d)
+                    .and_then(modifiers_of)
+                    .is_some_and(|m| tsr_ast::has_syntactic_modifier(m, SyntaxKind::ExportKeyword))
+            })
+            .collect();
+        if !(exports.iter().all(|&e| e) || exports.iter().all(|&e| !e)) {
+            return;
+        }
+        // `getCanonicalOverload`: the implementation's flags when it shares a
+        // container with the first declaration, and the first declaration's
+        // otherwise.
+        let implementation = declarations.iter().position(|&d| self.declaration_has_body(d));
+        let canonical = match implementation {
+            Some(index)
+                if self.nodes.parent(declarations[index]) == self.nodes.parent(declarations[0]) =>
+            {
+                index
+            }
+            _ => 0,
+        };
+        for (index, &declaration) in declarations.iter().enumerate() {
+            if ambients[index] == ambients[canonical] {
+                continue;
+            }
+            let Some(name) = self.declaration_name_of(declaration) else { continue };
+            let span = self.nodes.span(name);
+            self.report(
+                file,
+                Diagnostic::new(
+                    &messages::OVERLOAD_SIGNATURES_MUST_ALL_BE_AMBIENT_OR_NON_AMBIENT,
+                    span,
+                ),
+            );
+        }
+    }
+
+    /// `node.Flags & ast.NodeFlagsAmbient` for an overload declaration — the
+    /// `declare` modifier *or* an enclosing ambient container. §673.
+    fn is_in_ambient_context_for_overloads(&self, node: NodeId) -> bool {
+        if self.file_is_ambient {
+            return true;
+        }
+        let mut at = Some(node);
+        while let Some(current) = at {
+            if let Some(modifiers) = self.node_map.get(current).and_then(modifiers_of)
+                && tsr_ast::has_syntactic_modifier(modifiers, SyntaxKind::DeclareKeyword)
+            {
+                return true;
+            }
+            at = self.nodes.parent(current);
+        }
         false
     }
 

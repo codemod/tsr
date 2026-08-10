@@ -34665,3 +34665,110 @@ One case, `literalsInComputedProperties1`, needs `[2]` — a **computed** name
 whose expression is a literal. `GetTextOfPropertyName` evaluates it; that is a
 constant-evaluation question rather than a syntactic one, and it is one line.
 Named, not built.
+
+## §673 — TS2384: overload signatures must all be ambient or non-ambient
+
+```ts
+declare function EF1(a: number, b: number): number;   // TS2384
+function EF1(a, b) { return a + b; }
+```
+```ts
+declare namespace M { export function f(); }
+namespace M { export function f() { } }               // TS2384 — on the *implementation*
+```
+
+`checkFlagAgreementBetweenOverloads` (`checker.go:3497`), the Ambient arm. Two
+things about it decide where the error lands, and the two fixtures above differ
+on exactly that:
+
+```go
+implementationSharesContainerWithFirstOverload := implementation != nil &&
+    implementation.Parent == overloads[0].Parent
+if implementationSharesContainerWithFirstOverload { return implementation }
+return overloads[0]
+```
+
+The canonical set of flags is the **implementation's** when it sits in the same
+container as the first overload, and the **first overload's** otherwise — so in
+the first fixture the ambient declaration deviates and is reported, and in the
+second the *implementation* deviates and is reported. **The comment above that
+line says why: an overload in `lib.d.ts` must not be blamed for the local file's
+choice.**
+
+`overloads` is the full declaration list, implementation included (`checker.go:3685`
+passes `declarations`), which is what lets the implementation be its own
+deviation.
+
+### Why this is a separate rule and not another arm of the ported one
+
+`check_function_or_constructor_symbol` declines a symbol whose declarations sit
+in **different containers** (§64's second bound) — and the second fixture is
+exactly that symbol. Upstream runs the flag agreement unconditionally at
+`checker.go:3685`, *outside* everything the existing port's bounds were drawn
+for. **Adding the arm inside those bounds would have silently excluded one of
+the three cases; the bound is right for what it guards and wrong for this.**
+
+`declaration_is_ambient` is also not the predicate here — it reads the `declare`
+modifier, and the second fixture's ambient overload has none. It is ambient by
+**context**, so `is_in_ambient_context` is what this asks.
+
+```
+bar:  +3 of 3 (constructorOverloads7, targetTypeTest1,
+      overloadsInDifferentContainersDisagreeOnAmbient),  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **Two ambient overloads plus an ambient implementation report.** `some ^ all`
+   is zero when every declaration agrees, and that is the common case.
+2. **A deviation in `export` reports TS2384.** Upstream's `switch` reaches the
+   export arm *first* and emits TS2395. This declines instead of guessing.
+3. **A single declaration reports.** One declaration cannot deviate from itself.
+
+## §674 — §673 built: **+3 of 3**, bar met exactly
+
+```
+diagnostics             2,201 → 2,204   (bar was +3;  +3, 0 LOST)   40.16%
+extraonly               zero TS2384 lines
+TS2384 missing lines    3 → 0     — the row is closed
+```
+
+All three falsifiers negative. **The row closed at exactly its case count with
+no wrong lines**, which is the fourth time that has happened this session and
+the first since §636.
+
+### The bound that was right for what it guarded, and wrong for this
+
+The build's one real decision was **not** to add the arm to
+`check_function_or_constructor_symbol`. That rule declines a symbol whose
+declarations sit in different containers (§64's second bound) — and
+`overloadsInDifferentContainersDisagreeOnAmbient` is, by name, exactly that
+symbol. Upstream runs the flag agreement at `checker.go:3685`, unconditioned on
+anything the bound was drawn for.
+
+> A refusal recorded against one arm is not a refusal against the function. §64
+> declined different-container symbols because the *implementation-presence*
+> arms cannot judge them; the *flag-agreement* arm exists to judge them. Reading
+> the bound as a property of `checkFunctionOrConstructorSymbol` rather than of
+> the arm would have cost a third of the row silently — and the loss would have
+> looked like "+2 of 3", a shortfall with no visible cause.
+
+That is a new failure mode for this session's ledger, and it is the mirror of
+§143: **§143 is "read the existing rule before assuming the missing arm"; this
+is "read the existing rule's *refusal* before inheriting it."**
+
+### Where the error lands
+
+`getCanonicalOverload` returns the implementation's flags only when the
+implementation shares a container with the first overload. So:
+
+```
+declare function EF1(...): number;     canonical = implementation → the ambient decl is blamed
+function EF1(a, b) { ... }
+
+declare namespace M { export function f(); }   canonical = first overload
+namespace M { export function f() { } }        → the *implementation* is blamed
+```
+
+Both baselines agree, and the comment above that line says why: an overload in
+`lib.d.ts` must not be blamed for the local file's choice.
