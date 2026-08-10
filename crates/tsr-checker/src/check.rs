@@ -396,6 +396,7 @@ impl Checker<'_, '_> {
             // the element. §718.
             Node::BindingElement(_) => {
                 self.check_outer_scoped_variable(node);
+                self.check_renamed_binding_element_in_signature(node);
                 ambient
             }
             Node::VariableDeclaration(declaration) => {
@@ -11091,6 +11092,122 @@ impl Checker<'_, '_> {
             .find(|each| each.token.kind == this.token.kind)
             .and_then(|first| first.node_id)
             .is_some_and(|first| first != clause)
+    }
+
+    /// TS2842 — `'{0}' is an unused renaming of '{1}'. Did you intend to use it
+    /// as a type annotation?`
+    ///
+    /// `checkVariableLikeDeclaration`'s binding-element arm
+    /// (`checker.go:5813`), whose candidate test is entirely syntactic: a
+    /// property name, an identifier name, part of a parameter declaration, and
+    /// a containing function with **no body**. Upstream's comment is the
+    /// rationale — *"variable renaming in function type notation is confusing,
+    /// so we forbid it even if `noUnusedLocals` is not enabled."*
+    ///
+    /// `checkUnusedRenamedBindingElements` then requires zero reference kinds.
+    /// In a body-less signature nothing can reference the name, so that test is
+    /// upstream being careful rather than discriminating, and it is left out —
+    /// the same set on this corpus, stated rather than assumed.
+    ///
+    /// `docs/architecture/checker-notes-diag2.md` §804.
+    fn check_renamed_binding_element_in_signature(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let Some(Node::BindingElement(element)) = self.node_map.get(node) else { return };
+        let Some(property_name) = element.property_name else { return };
+        let Some(tsr_ast::BindingName::Identifier(name)) = element.name else { return };
+        let Some(name_id) = name.node_id else { return };
+        // `IsPartOfParameterDeclaration` — the walk out of nested patterns ends
+        // at a parameter — and `NodeIsMissing(GetContainingFunction(node).Body())`.
+        let mut at = self.nodes.parent(node);
+        let mut in_parameter = false;
+        while let Some(current) = at {
+            match self.nodes.kind(current) {
+                SyntaxKind::BindingElement
+                | SyntaxKind::ObjectBindingPattern
+                | SyntaxKind::ArrayBindingPattern => {}
+                SyntaxKind::Parameter => in_parameter = true,
+                _ => break,
+            }
+            at = self.nodes.parent(current);
+        }
+        if !in_parameter {
+            return;
+        }
+        let Some(function) = at else { return };
+        if !self.is_function_like_or_static_block(function) {
+            return;
+        }
+        if self.function_like_has_body(function) {
+            return;
+        }
+        // **`referenceKinds == 0` is not free.** §804 dropped upstream's
+        // reference test on the premise that a body-less signature has nothing
+        // that could reference the name; `({ name: alias }: Named) => typeof
+        // alias` is the fixture's own counter-example and was eighteen wrong
+        // lines. The scan is of the containing signature, for the name used
+        // anywhere but as this element's own binding. §805.
+        let renamed = self.identifier_text(name_id).unwrap_or_default().to_string();
+        if self.subtree_mentions_identifier(function, &renamed, name_id, 0) {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(name_id) else { return };
+        let span = self.nodes.span(name_id);
+        let original = property_name
+            .node_id()
+            .and_then(|id| self.identifier_text(id))
+            .unwrap_or_default()
+            .to_string();
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::_0_IS_AN_UNUSED_RENAMING_OF_1_DID_YOU_INTEND_TO_USE_IT_AS_A_TYPE_ANNOTATION,
+                span,
+                [renamed, original],
+            ),
+        );
+    }
+
+    /// Does this subtree mention `text` as an identifier, other than at
+    /// `except`? §805.
+    fn subtree_mentions_identifier(
+        &self,
+        node: NodeId,
+        text: &str,
+        except: NodeId,
+        depth: u32,
+    ) -> bool {
+        if depth > 64 {
+            return false;
+        }
+        if node != except
+            && let Some(Node::Identifier(identifier)) = self.node_map.get(node)
+            && identifier.text == text
+        {
+            return true;
+        }
+        let mut children = Vec::new();
+        if let Some(typed) = self.node_map.get(node) {
+            tsr_ast::for_each_child_id(typed, |child| children.push(child));
+        }
+        children
+            .into_iter()
+            .any(|child| self.subtree_mentions_identifier(child, text, except, depth + 1))
+    }
+
+    /// Does this function-like node have a body? §804.
+    fn function_like_has_body(&self, node: NodeId) -> bool {
+        match self.node_map.get(node) {
+            Some(Node::FunctionDeclaration(f)) => f.body.is_some(),
+            Some(Node::FunctionExpression(f)) => f.body.is_some(),
+            Some(Node::ArrowFunction(f)) => f.body.is_some(),
+            Some(Node::MethodDeclaration(m)) => m.body.is_some(),
+            Some(Node::ConstructorDeclaration(c)) => c.body.is_some(),
+            Some(Node::GetAccessorDeclaration(a)) => a.body.is_some(),
+            Some(Node::SetAccessorDeclaration(a)) => a.body.is_some(),
+            _ => false,
+        }
     }
 
     /// A `declare` modifier on the declaration itself.

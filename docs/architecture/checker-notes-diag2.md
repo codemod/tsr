@@ -40517,3 +40517,90 @@ upstream does**, and none was visible in the missing column.
 > reach**. Fifteen of the remaining seventy-six are the parser's, fifteen the
 > type side's, eleven the relation's, five JavaScript's, five the loader's. That
 > is a handoff rather than a stopping point, and it is priced.
+
+## §804 — TS2842: a renamed binding element in a signature's parameter
+
+```ts
+interface C {
+    ({p: name}): any;          // TS2842 — 'name' is an unused renaming of 'p'
+    new ({p: boolean}): any;   // TS2842
+}
+```
+
+`checkVariableLikeDeclaration`'s binding-element arm (`checker.go:5813`) collects
+the candidates, and its condition is entirely syntactic:
+
+```go
+propName != nil && ast.IsIdentifier(node.Name()) &&
+ast.IsPartOfParameterDeclaration(node) &&
+ast.NodeIsMissing(ast.GetContainingFunction(node).Body())
+```
+
+with upstream's own comment: *"variable renaming in function type notation is
+confusing, so we forbid it even if `noUnusedLocals` is not enabled."*
+
+`checkUnusedRenamedBindingElements` then requires zero reference kinds — and in a
+**body-less** signature there is nothing that could reference the name, so the
+reference test is upstream being careful rather than upstream discriminating.
+This port takes the syntactic condition and leaves the reference test out, which
+is the same set on this corpus and is stated rather than assumed.
+
+The related-info span (*"We can only write a type for '{0}' by adding a type for
+the entire parameter here"*) is not ported; the oracle compares
+`(file, line, column, code)`.
+
+```
+bar:  +2 of 6 (paramterDestrcuturingDeclaration, excessPropertyCheckWithSpread),
+      0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **`function f({a: b}) { return b; }` reports.** The containing function has a
+   body, so it is not a candidate at all — this is the guard that keeps every
+   ordinary destructuring parameter out.
+2. **`const {a: b} = x;` reports.** Not part of a parameter declaration.
+3. **`({a}: T) => a` reports.** Shorthand has no property name.
+
+## §805 — §804 built: **+5**, past 42%, and the test I argued away was the one that mattered
+
+```
+diagnostics             2,301 → 2,306   (bar was +2;  +5, 0 LOST)   42.02%
+extraonly               zero TS2842 lines
+TS2842 missing lines    34 → 2;  6 cases blocked alone → 1
+```
+
+The first shape measured **+4 with 18 wrong lines**. §804 had written:
+
+> *"`checkUnusedRenamedBindingElements` then requires zero reference kinds — and
+> in a **body-less** signature there is nothing that could reference the name, so
+> the reference test is upstream being careful rather than upstream
+> discriminating."*
+
+The fixture's own names say otherwise:
+
+```ts
+let notReferencedFnType:                    ({ name: alias }: Named) => void;          // reports
+let referencedInSignartureReturnTypeFnType: ({ name: alias }: Named) => typeof alias;  // does not
+```
+
+**`typeof alias` in the same signature references it.** Eighteen wrong lines, and
+the counter-example was in the fixture I was reading, named
+`referencedInSignartureReturnType`.
+
+> The note *argued* the test away and did not check it against the file already
+> open. §804's falsifier list has three entries and none of them is *"a name
+> referenced later in the same signature"* — **the one shape the fixture is
+> built to exercise**. A falsifier list written from the rule's logic misses what
+> a list written from the fixture's *identifiers* would have caught: the corpus
+> names its own cases, and `referencedInSignartureReturnTypeFnType` is a
+> sentence.
+
+### The build
+
+The reference test is a subtree scan of the containing signature for the name,
+excluding the binding element's own identifier — no symbol table, no
+`noUnusedLocals` dependency, and it is the whole of upstream's `referenceKinds ==
+0` for a body-less function.
+
+Thirty-two of thirty-four lines, five of six cases, **zero wrong**.
