@@ -3789,6 +3789,19 @@ impl Checker<'_, '_> {
         if let Some(decided) = self.member_set_rung(constituent, candidate) {
             return decided;
         }
+        // SS148 (wall 2 of the SS145.1 census): a declared `object`
+        // constituent narrows TO an object-flagged Named/Anonymous
+        // candidate - upstream's `subtype(candidate, object)` rung answers
+        // the candidate (`x is Point` on `lhs: object` wants `Point`).
+        if constituent == self.intrinsics.non_primitive
+            && matches!(
+                self.store.get(candidate).data,
+                TypeData::Named { .. } | TypeData::Anonymous { .. }
+            )
+            && self.store.get(candidate).flags.intersects(TypeFlags::OBJECT)
+        {
+            return NarrowedConstituent::Mapped(candidate);
+        }
         for relation in [Relation::StrictSubtype, Relation::Subtype] {
             for (source, target, image) in
                 [(constituent, candidate, constituent), (candidate, constituent, candidate)]

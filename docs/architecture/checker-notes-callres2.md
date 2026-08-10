@@ -1333,3 +1333,10 @@ question resolves as PRE-EXISTING, surfaced by cross-vintage baseline
 comparison. Filed as a flow-lane row; rows 378-381 in the same file
 (`any`/`never` vs literal unions) are switch-exhaustiveness narrowing,
 also flow-lane.
+
+## §148 LANDED: the `object` micro-rung (+2 family, zero regressions)
+
+Wall (2): a declared `object` (NON_PRIMITIVE intrinsic) constituent
+narrows TO an object-flagged Named/Anonymous candidate — upstream's
+`subtype(candidate, object)` rung. Walls (3)-(4) (intersection minting
+site; downstream && rows) remain, 52 W, next census.
