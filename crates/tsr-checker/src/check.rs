@@ -8901,13 +8901,19 @@ impl Checker<'_, '_> {
             _ => return,
         };
         let tsr_ast::PropertyName::ComputedPropertyName(computed) = name else { return };
-        if self
-            .nodes
-            .parent(node)
-            .is_none_or(|parent| self.nodes.kind(parent) != SyntaxKind::InterfaceDeclaration)
-        {
-            return;
-        }
+        // Upstream keys the message on the **parent kind** and shares
+        // everything else (`grammarchecks.go:1471-1475`). The method-overload
+        // sibling has no corpus case and is not built (§501). §638.
+        let Some(parent) = self.nodes.parent(node) else { return };
+        let message = match self.nodes.kind(parent) {
+            SyntaxKind::InterfaceDeclaration => {
+                &messages::A_COMPUTED_PROPERTY_NAME_IN_AN_INTERFACE_MUST_REFER_TO_AN_EXPRESSION_WHOSE_TYPE_IS_A_LITERAL_TYPE_OR_A_UNIQUE_SYMBOL_TYPE
+            }
+            SyntaxKind::TypeLiteral => {
+                &messages::A_COMPUTED_PROPERTY_NAME_IN_A_TYPE_LITERAL_MUST_REFER_TO_AN_EXPRESSION_WHOSE_TYPE_IS_A_LITERAL_TYPE_OR_A_UNIQUE_SYMBOL_TYPE
+            }
+            _ => return,
+        };
         let Some(expression) = computed.expression.and_then(|e| e.node_id()) else { return };
         // An entity name — `a`, `A.b`, `Symbol.iterator` — may be late-bound, so
         // it is upstream's own exclusion; a literal is not dynamic at all.
@@ -8924,13 +8930,7 @@ impl Checker<'_, '_> {
         let Some(at) = computed.node_id else { return };
         let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
         let span = self.nodes.span(at);
-        self.report(
-            file,
-            Diagnostic::new(
-                &messages::A_COMPUTED_PROPERTY_NAME_IN_AN_INTERFACE_MUST_REFER_TO_AN_EXPRESSION_WHOSE_TYPE_IS_A_LITERAL_TYPE_OR_A_UNIQUE_SYMBOL_TYPE,
-                span,
-            ),
-        );
+        self.report(file, Diagnostic::new(message, span));
     }
 
     /// `ast.IsEntityNameExpression` — an identifier, or a property access chain

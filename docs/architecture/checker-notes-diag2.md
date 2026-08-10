@@ -33083,3 +33083,77 @@ what the structural relation does.
 ```
 
 Sixteen codes closed of the sixty-two with cases.
+
+## §638 — TS1170: the type-literal sibling §636 named
+
+§636 built `checkGrammarComputedPropertyName`'s **interface** arm and named its
+two siblings as not built. One of them has a case:
+
+```
+TS1168  a method overload   0 cases
+TS1170  a type literal      1 case
+```
+
+Upstream keys all three on the **parent kind** and shares everything else:
+
+```go
+} else if node.Parent.Kind == KindInterfaceDeclaration { … in_an_interface … }
+} else if node.Parent.Kind == KindTypeLiteral         { … in_a_type_literal … }
+```
+
+so this is one line in §636's rule, not a second rule. **That is the same
+completion §635 argued for** — the function is small enough to see whole, and
+§636 saw it whole and built one third of it because only one third had cases.
+
+> **A named-and-not-built arm is worth revisiting the moment its price is
+> known.** §637 wrote the two siblings down with their message texts; pricing
+> them cost one `diagmissing` each and one of them was a case. **§501's
+> discipline is what makes that lookup possible at all** — an arm skipped
+> silently is not a candidate, it is invisible.
+
+```
+bar:  +1 of 1,  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **TS1169's row regresses.** The two arms are keyed on different parents and
+   must stay exclusive.
+2. **A computed name in a class type position reports TS1170.** Only a
+   `TypeLiteral` parent takes this message.
+
+## §639 — §638 built: **+1**, both computed-name arms at zero
+
+```
+diagnostics             2,180 → 2,181   (bar was +1;  +1, 0 LOST)   39.74%
+extraonly               zero TS1169 and TS1170 lines
+TS1169 → 0     TS1170 → 0               — checked after the build (§629)
+```
+
+Both falsifiers negative: the arms are keyed on different parents and stay
+exclusive.
+
+### What §501 bought, priced
+
+```
+§636   built the interface arm, named two siblings with their message texts
+§637   recorded them in the note
+§638   priced both (one `diagmissing` each) and built the one with a case   +1
+```
+
+> **An arm skipped silently is not a candidate, it is invisible.** The cost of
+> §501's discipline is one sentence per skip; the return here was a `+1` found
+> by re-reading a note rather than by re-reading upstream. That is the fifth
+> `not ported` note cashed this session (§508, §557, §594, §623, §638) and the
+> only one cashed **two builds after it was written**.
+
+The method-overload sibling stays at zero cases and unbuilt — **named for the
+third time**, which is what a genuinely empty row should cost.
+
+### The grammar family after seventeen builds
+
+```
++32 before   TS1170 +1   ──   +33
+```
+
+Seventeen codes closed of the sixty-two with cases.
