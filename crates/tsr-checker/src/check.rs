@@ -5108,6 +5108,59 @@ impl Checker<'_, '_> {
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
         let span = self.error_span(node);
         self.report(file, Diagnostic::with_args(message, span, [text.to_string()]));
+        // **A temporal dead zone is also an unassigned read.** Upstream reports
+        // TS2454 at the same column when the flow type at the use is
+        // unassigned, which for a block-scoped variable read before its own
+        // declaration it always is — *unless the declared type is `any`*, where
+        // an unassigned read is not an error. `let l1;` is `any` and gets
+        // TS2448 alone; `let v1 = 0` is `number` and gets both. §867.
+        // **TS2454 is about *reading* an unassigned variable.**
+        // `classStaticBlock16` writes to one in its temporal dead zone —
+        // `getX = (obj) => …` before `let getX` — and upstream reports TS2448
+        // alone. Measured: without this, one more case lost. §867.
+        let is_write = self.nodes.parent(node).is_some_and(|parent| {
+            matches!(self.node_map.get(parent), Some(Node::BinaryExpression(binary))
+                if binary.operator_token.is_some_and(|t| t.kind.is_assignment_operator())
+                    && binary.left.and_then(|left| left.node_id()) == Some(node))
+        });
+        if !is_write
+            && message.code()
+                == messages::BLOCK_SCOPED_VARIABLE_0_USED_BEFORE_ITS_DECLARATION.code()
+            && self.declaration_has_a_decidable_type(declaration)
+        {
+            self.report(
+                file,
+                Diagnostic::with_args(
+                    &messages::VARIABLE_0_IS_USED_BEFORE_BEING_ASSIGNED,
+                    span,
+                    [text.to_string()],
+                ),
+            );
+        }
+    }
+
+    /// Does this variable declaration give its symbol something better than
+    /// `any`? An initializer or an annotation does; a bare `let x;` does not,
+    /// and an unassigned read of an `any` is not TS2454. §867.
+    fn declaration_has_a_decidable_type(&mut self, declaration: NodeId) -> bool {
+        let Some(Node::VariableDeclaration(variable)) = self.node_map.get(declaration) else {
+            return false;
+        };
+        if variable.initializer.is_none() && variable.r#type.is_none() {
+            return false;
+        }
+        // **A `const` is TS2448 alone.** `{ c1; const c1 = 0; }` is
+        // `constDeclarations-useBeforeDefinition`, which expects the temporal
+        // dead zone and nothing else — a `const` cannot be read unassigned in
+        // any other way, so the second message adds nothing upstream chooses to
+        // say. Measured: without this, two cases lost. §867.
+        let list = self.nodes.parent(declaration);
+        if list.is_some_and(|list| self.nodes.flags(list).intersects(tsr_ast::NodeFlags::CONST)) {
+            return false;
+        }
+        let declared = self.get_widened_type_for_variable_like_declaration(declaration);
+        !self.is_error(declared)
+            && !self.type_of(declared).flags.intersects(crate::flags::TypeFlags::ANY)
     }
 
     /// The member a property access names, when its receiver resolves to a

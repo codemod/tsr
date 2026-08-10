@@ -43247,3 +43247,82 @@ defaulted"*) already exists to make.
 The `flow.rs` clippy repair from the same build is kept: a wildcard arm that
 matched one variant, in the concurrent workstream's §159 code, red on `-D
 warnings` and blocking `xtask measure` for everyone. **Twenty-second repair.**
+
+## §867 — TS2454 beside TS2448: a temporal dead zone is also an unassigned read
+
+42 cases sit on TS2454 alone. The clearest is
+`letDeclarations-useBeforeDefinition`:
+
+```ts
+{ l1; let l1; }          // TS2448 only
+var v1;
+{ v1; let v1 = 0; }      // TS2448 AND TS2454
+```
+
+The difference is **the type**. `let l1;` is `any`, and an `any` read is never
+*used before being assigned*; `let v1 = 0` is `number`, so the read at the top of
+the block is a genuine unassigned use and upstream reports both codes at the same
+column.
+
+This port already computes the position: `check_block_scoped_use_before_declaration`
+resolves the symbol, finds the single declaration of the right kind, applies the
+ambient exclusion, and compares `declaration.Pos() <= usage.Pos()`. **Everything
+TS2454 needs at this site is already in hand at the moment TS2448 is reported.**
+
+The added arm is upstream's `checkIdentifier` flow result narrowed to what is
+decidable syntactically here: a **block-scoped variable** whose declaration
+carries an initializer or a non-`any` annotation, read before that declaration,
+is unassigned at the read.
+
+> §866 was refused an hour ago for treating `any` as a type; this arm uses `any`
+> in the other direction — as the **absence** of a decidable answer — which is
+> the reading §338 and §866 both endorse. **The same value, used as evidence of
+> ignorance rather than as a type, is sound.**
+
+```
+bar:  >= +3 of 42,  0 LOST via `diagpass`,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **`{ l1; let l1; }` reports TS2454.** No initializer, no annotation — `any`.
+2. **A use *after* the declaration reports.** The position test already excludes
+   it and is shared.
+3. **TS2448's row moves.** The arm is added beside it, not in place of it.
+
+## §868 — §867 built: **+1/−0**, after a first version that was `+2/−2`
+
+```
+first version    +2 / −2   (net 0)   constDeclarations-useBeforeDefinition, classStaticBlock16 lost
+with two guards  +1 / −0             letDeclarations-useBeforeDefinition gained
+extraonly        81, unchanged
+```
+
+Under the bar (`>= +3 of 42`), and the reason is worth more than the point: the
+first version was **net zero and looked like `+2`**. Only `diagpass` said it had
+also broken two cases, and the two it broke named the two guards:
+
+```
+constDeclarations-useBeforeDefinition   `{ c1; const c1 = 0; }`   TS2448 alone
+                                        a `const` gets the dead zone and nothing else
+
+classStaticBlock16                      `getX = …` before `let getX`   TS2448 alone
+                                        TS2454 is about READING an unassigned
+                                        variable, and that is a write
+```
+
+Adding both cost one of the two gains — `classStaticBlockUseBeforeDef3` is a
+write too — and removed both losses. **A smaller true gain over a larger net
+zero.**
+
+> Seventeen builds ago this would have shipped as `+2` and quietly cost two
+> cases, because a net of zero over 5,488 reads as *"nothing happened"* and the
+> instruments that existed could not say otherwise. `diagpass` is nine sections
+> old and has now changed the outcome of a build twice — once by proving a zero
+> (§854) and once by **refuting** one.
+
+The `any` reading here is the mirror of §866's, one build apart: there `any` was
+wrongly used as *a type to compare*, here it is used as *the absence of a
+decidable answer* — `let l1;` gets TS2448 alone precisely because its type is
+`any`. **The same value is sound as evidence of ignorance and unsound as
+evidence of anything else**, which is now recorded on both sides.
