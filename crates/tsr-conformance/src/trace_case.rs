@@ -428,6 +428,11 @@ pub fn apply_test_directives(
         check_js: tristate("checkjs", base.check_js),
         strict: tristate("strict", base.strict),
         no_implicit_any: tristate("noimplicitany", base.no_implicit_any),
+        // **Dropped by the harness until §646.** §416 built rules on
+        // `no_implicit_this`, which reaches the checker as
+        // `strict_option_value` — so without this the option was `strict` and
+        // nothing else, for the 51 corpus files that set it directly.
+        no_implicit_this: tristate("noimplicitthis", base.no_implicit_this),
         // The rest of what the checker reads. These land in `CompilerOptions`
         // **unresolved** — as the `Tristate` the directive wrote, not as the
         // `bool` the checker wants — because resolving them is

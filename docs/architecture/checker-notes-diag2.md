@@ -33419,3 +33419,96 @@ checker never took it. Neither is visible from the other.
 
 Nineteen codes closed. TS1206 keeps one line — `parameterDecoratorsEmitCrash`,
 which needs a different arm of `nodeCanBeDecorated`.
+
+## §646 — the directive sweep: **122 used, 71 read, 51 dropped**
+
+§645 found one directive the harness never set. That is a **list-shaped**
+domain — the kind §625 said sweeps work on — so it was enumerated:
+
+```
+122 distinct `// @name:` directives in the corpus
+ 71 names read by `apply_test_directives`
+```
+
+The unread ones, by corpus frequency, with the noise removed (`@filename`,
+`@link`, `@baselineFile` and friends are harness plumbing, not options):
+
+```
+ 998  @noEmit                998 files      an emit option; no diagnostics
+ 379  @noTypesAndSymbols     a baseline selector
+ 303  @noEmitHelpers         emit
+ 190  @sourceMap             emit
+ 144  @skipLibCheck          suppresses lib diagnostics       ← candidate
+ 130  @emitDeclarationOnly   emit
+ 106  @useDefineForClassFields                                ← candidate
+  89  @noImplicitOverride                                     ← candidate
+  51  @noImplicitThis        §416 built rules on this option  ← this build
+  46  @allowUnusedLabels                                      ← candidate
+```
+
+`no_implicit_this` reaches the checker as
+`options.strict_option_value(options.no_implicit_this)` — so today it is **`strict`
+and nothing else**, and every fixture that sets `@noImplicitThis: true` without
+`@strict` gets `false`.
+
+> **A sweep works when the domain is a list, and this one is 122 long.** §625
+> closed three attempts at property-shaped sweeps; this is the fourth
+> list-shaped one after the binder's messages (§552), the scanner's (§578) and
+> the grammar file's (§599), and it is the first that enumerates *inputs* rather
+> than *outputs*.
+
+```
+bar:  net >= 0 with a named mechanism, on `diagnostics` AND `checker_types`
+```
+
+Not `+n`: turning an option **on** for 51 files can move rows either way, and the
+falsifier decides — the same shape as §537's root heuristic.
+
+### Falsifiers
+
+1. **`checker_types` falls.** The producer is shared; measured stash/unstash in
+   one pair of runs (§534).
+2. **Files without the directive change.** `strict_option_value` must still
+   answer `strict` for them.
+
+## §647 — §646 built: **+1**, and 51 files' worth of reach for one line
+
+```
+                without §646   with §646
+diagnostics         2,184        2,185    +1
+checker_types       4,202        4,202     0     — differential, §534's method
+```
+
+Both falsifiers negative. **One case for a directive fifty-one files set**,
+which is the honest yield and worth stating plainly: turning an option on does
+not convert a row unless a rule was waiting for it, and §416's rules were mostly
+already reachable through `strict`.
+
+> **A dropped input's corpus frequency is not its value** — §540 said the same
+> of `@currentDirectory` (50 files, +0) and this is the second measurement of
+> it. **The 51 files are the option's *reach*, not its *yield*; the yield is
+> whichever of them had a rule that fired and a baseline that agreed.**
+
+### The sweep's remaining candidates, unpriced
+
+```
+@skipLibCheck            144 files   suppresses lib diagnostics
+@useDefineForClassFields 106
+@noImplicitOverride       89         TS4114/TS4113 have their own rows
+@allowUnusedLabels        46         TS7028
+```
+
+**Each is one line and one measurement**, and none is priced — §526's rule
+stands: the size is what the measurement says. What §646 establishes is the
+*list*, which is the part that was missing; three earlier sweeps enumerated
+outputs and this is the first that enumerates inputs.
+
+### Two directives wired, two yields
+
+```
+§644   @experimentalDecorators   dropped by harness AND absent from checker   +1
+§646   @noImplicitThis           dropped by harness only                      +1
+```
+
+Both +1, and the second had **fifty-one times the corpus reach** of the first.
+That is the clearest available demonstration that reach and yield are unrelated.
