@@ -627,6 +627,7 @@ impl Checker<'_, '_> {
         // just  — §623, and §600's dispatch class for the
         // ninth time.
         self.check_modifier_on_nested_statement(node);
+        self.check_grammar_for_generator(node, typed);
         self.check_grammar_parameter_list(node);
         self.check_grammar_modifier_shapes(node, typed);
         self.check_jsx_intrinsic_element(node, typed);
@@ -8842,6 +8843,39 @@ impl Checker<'_, '_> {
             file,
             Diagnostic::new(&messages::EXPORT_DECLARATIONS_ARE_NOT_PERMITTED_IN_A_NAMESPACE, span),
         );
+    }
+
+    /// TS1221 — `Generators are not allowed in an ambient context.`
+    /// TS1222 — `An overload signature cannot be declared as a generator.`
+    ///
+    /// `checkGrammarForGenerator` (`grammarchecks.go:992`) in full: one guard
+    /// on the asterisk and two exclusive arms, both reporting on the
+    /// **asterisk** rather than the declaration.
+    ///
+    /// Transcribed whole because the function is eleven lines and has no third
+    /// arm to decline — §634, and §633 for why that distinction decides between
+    /// transcribing and taking arms.
+    fn check_grammar_for_generator(&mut self, node: NodeId, typed: Node<'_>) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let (asterisk, body_is_present) = match typed {
+            Node::FunctionDeclaration(n) => (n.asterisk_token, n.body.is_some()),
+            Node::FunctionExpression(n) => (n.asterisk_token, n.body.is_some()),
+            Node::MethodDeclaration(n) => (n.asterisk_token, n.body.is_some()),
+            _ => return,
+        };
+        let Some(asterisk) = asterisk.and_then(|token| token.node_id) else { return };
+        let message = if self.declaration_is_in_an_ambient_context(node) {
+            &messages::GENERATORS_ARE_NOT_ALLOWED_IN_AN_AMBIENT_CONTEXT
+        } else if !body_is_present {
+            &messages::AN_OVERLOAD_SIGNATURE_CANNOT_BE_DECLARED_AS_A_GENERATOR
+        } else {
+            return;
+        };
+        let Some(file) = self.source_file_of_for_diagnostics(asterisk) else { return };
+        let span = self.nodes.span(asterisk);
+        self.report(file, Diagnostic::new(message, span));
     }
 
     /// `IsInstantiatedModule` (`ast/utilities.go:2443`).

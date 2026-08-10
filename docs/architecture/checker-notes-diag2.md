@@ -32916,3 +32916,86 @@ TS1805x +3  TS1194 +4  TS1359 +2  TS1184 +2  TS1182 +2
 ```
 
 Thirteen codes closed of the sixty-two with cases.
+
+## §634 — TS1221/TS1222: `checkGrammarForGenerator`, whole
+
+```ts
+declare function* f(): void;    // TS1221 — generators not allowed in an ambient context
+function* g();                  // TS1222 — an overload signature cannot be a generator
+```
+
+`grammarchecks.go:992` — **the whole function is eleven lines**, one guard and
+two exclusive arms:
+
+```go
+if asteriskToken != nil {
+    if node.Flags&Ambient != 0 { … Generators_are_not_allowed_in_an_ambient_context }
+    if body == nil            { … An_overload_signature_cannot_be_declared_as_a_generator }
+}
+```
+
+**Transcribed whole rather than arm by arm**, which §633 argued for and §497
+warned about — the difference being that this function has *no third arm to
+decline*. §497's `const` measured −5 because `checkGrammarVariableDeclaration`
+has five arms and one of them is wrong here; `checkGrammarForGenerator` has two
+and both are decidable.
+
+> **Transcribe a whole function when you can see all of it; take arms when you
+> cannot.** Eleven lines is small enough to read entirely, and reading it
+> entirely is what shows there is nothing to decline. §633's cost — three
+> re-derivations of one chain — is paid only by functions too large to hold at
+> once.
+
+The error node is the **asterisk**, not the declaration: `grammarErrorOnNode(
+bodyData.AsteriskToken)`.
+
+```
+bar:  +4 of 4 (TS1221's two cases and TS1222's two),  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **`function* g() {}` reports.** A generator with a body is the normal form.
+2. **`declare function f(): void;` reports.** No asterisk, no rule.
+3. **The error lands on the declaration.** Upstream's node is the asterisk, and
+   the corpus's columns will say so.
+
+## §635 — §634 built: **+1** of a bar of +4, both rows at zero
+
+```
+diagnostics             2,177 → 2,178   (bar was +1×4;  +1, 0 LOST)   39.69%
+extraonly               zero TS1221 and TS1222 lines
+TS1221 missing lines    2 → 0     TS1222 missing lines  2 → 0
+```
+
+**Both rows closed and the board moved one.** Four lines converted across four
+cases, and three of those cases carry a second missing code — which is §566's
+observation from the other side: there the lines clustered on one case, here
+they scatter across four that each need something else.
+
+> **A bar from `cases blocked alone` predicts the board and a row at zero says
+> the rule is done; the two are independent and this build is the cleanest
+> example of it.** Nothing here is wrong: the bar was four because four cases
+> listed these codes as their only *missing* code at the time it was set, and
+> three of them have since acquired one — the other workstream lands rows
+> continuously, and `blocked alone` is a snapshot.
+
+That last point is new and worth keeping: **`cases blocked alone` is measured
+against a moving corpus**, so a bar set before a build and a board measured after
+it are not quite the same population. Eight consecutive bars landed anyway; this
+is the first where the gap shows.
+
+### Transcribing whole, once
+
+§634 transcribed an eleven-line function entire rather than taking an arm, on
+§633's reasoning, and it was right — **there was nothing to decline**, both arms
+converted, and no re-derivation will be needed. Against §497's −5 on a five-arm
+function, the rule stands as written: **transcribe what you can see all of.**
+
+### The grammar family after fifteen builds
+
+```
++29 before   TS1221 +1 with TS1222   ──   +30
+```
+
+Fifteen codes closed of the sixty-two with cases.
