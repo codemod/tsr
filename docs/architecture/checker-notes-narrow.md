@@ -6658,3 +6658,18 @@ ToUint32: trunc, mod 2^32; shifts mask the count to 31; `>>>`
 answers unsigned). **Bar: ≥50 net at ≥5:1.** Falsifier: float
 edge-cases (NaN/Infinity → 0; negatives rem_euclid) — a wrong
 fold is a wrong literal, worse than the string it replaces.
+
+**§150 score, with the §147 fourth-pair rider: +113 W→R / 0
+adverse — LANDED.** The rider first: the tagged-position `string`
+rule was OVER-BROAD by one form — a tagged NO-SUB template reads
+the literal of its raw value (`templateLiteralEscapeSequence`
+0:100-109 want `"\u{}"`, `"\x"` AS literals), so the NoSubstitution
+gate came out (+41). Then the §150 operators as barred: `& | ^ <<
+>> >>>` with ToInt32/ToUint32 (rem_euclid mod 2^32, non-finite→0,
+shift counts masked to 31, `>>>` unsigned), +72 across the
+templateStringBinaryOperations quartet. Both zero-adverse; clippy
+demanded the casts be spelled as allow-annotated helpers (MSRV
+1.85 blocks cast_unsigned). The 45-vs-55 want pair in
+templateLiteralEscapeSequence (numeric conversion of a cooked
+octal char) remains — it needs `-`/`*` STRING coercion in the
+evaluator (ToNumber on text), unbarred, priced small.

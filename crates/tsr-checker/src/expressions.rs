@@ -310,26 +310,16 @@ impl Checker<'_, '_> {
                 TypeData::StringLiteral(node.text.to_string()),
                 true,
             ),
-            Expression::NoSubstitutionTemplateLiteral(node) => {
-                // §147: TAGGED with an invalid escape → undefined cooked
-                // value upstream → `string` (see check_template_expression).
-                let tagged_invalid =
-                    node.token_flags.contains(tsr_ast::TokenFlags::CONTAINS_INVALID_ESCAPE)
-                        && node.node_id.is_some_and(|id| {
-                            self.nodes.parent(id).is_some_and(|p| {
-                                self.nodes.kind(p) == SyntaxKind::TaggedTemplateExpression
-                            })
-                        });
-                if tagged_invalid {
-                    self.intrinsics.string
-                } else {
-                    self.store.intern_literal(
-                        TypeFlags::STRING_LITERAL,
-                        TypeData::StringLiteral(node.text.to_string()),
-                        true,
-                    )
-                }
-            }
+            // §147's fourth pair: the tagged-position `string` rule holds for
+            // the SUBSTITUTION form only — a tagged NO-SUB template's node
+            // reads the literal of its (raw, no-report) value, invalid
+            // escapes included (`templateLiteralEscapeSequence` 0:100-109
+            // want `"\u{}"`, `"\x"` as literals in tagged position).
+            Expression::NoSubstitutionTemplateLiteral(node) => self.store.intern_literal(
+                TypeFlags::STRING_LITERAL,
+                TypeData::StringLiteral(node.text.to_string()),
+                true,
+            ),
             Expression::NumericLiteral(node) => self.store.intern_literal(
                 TypeFlags::NUMBER_LITERAL,
                 TypeData::NumberLiteral(printing::normalise_number(node.text)),
@@ -2088,12 +2078,46 @@ fn evaluate_constant_expression(expr: &tsr_ast::Expression<'_>) -> Option<Evalua
                     (a, b) => Some(EvaluatedValue::Text(a.render() + &b.render())),
                 },
                 (EvaluatedValue::Number(a), EvaluatedValue::Number(b), operator) => {
+                    // §150 (`checker-notes-narrow.md`): the bitwise family
+                    // folds with ECMA ToInt32/ToUint32 semantics — NaN and
+                    // the infinities land 0, negatives wrap mod 2^32, and a
+                    // shift count masks to its low five bits.
+                    // The wrap IS the semantics: ToInt32 maps [0, 2^32) onto
+                    // i32's two's-complement range, and rem_euclid's result
+                    // is exact in f64 (< 2^32), so the truncating casts are
+                    // deliberate.
+                    #[allow(
+                        clippy::cast_possible_wrap,
+                        clippy::cast_possible_truncation,
+                        clippy::cast_sign_loss
+                    )]
+                    let to_int32 = |v: f64| -> i32 {
+                        if !v.is_finite() {
+                            return 0;
+                        }
+                        v.trunc().rem_euclid(4_294_967_296.0) as u32 as i32
+                    };
+                    // A shift count reads only its low five bits, so the
+                    // sign-losing cast is the ECMA `& 31` mask itself.
+                    #[allow(clippy::cast_sign_loss)]
+                    let unsigned = |v: i32| v as u32;
+                    let shift = move |v: f64| unsigned(to_int32(v)) & 31;
                     let value = match operator {
                         SyntaxKind::MinusToken => a - b,
                         SyntaxKind::AsteriskToken => a * b,
                         SyntaxKind::SlashToken => a / b,
                         SyntaxKind::PercentToken => a % b,
                         SyntaxKind::AsteriskAsteriskToken => a.powf(b),
+                        SyntaxKind::AmpersandToken => f64::from(to_int32(a) & to_int32(b)),
+                        SyntaxKind::BarToken => f64::from(to_int32(a) | to_int32(b)),
+                        SyntaxKind::CaretToken => f64::from(to_int32(a) ^ to_int32(b)),
+                        SyntaxKind::LessThanLessThanToken => f64::from(to_int32(a) << shift(b)),
+                        SyntaxKind::GreaterThanGreaterThanToken => {
+                            f64::from(to_int32(a) >> shift(b))
+                        }
+                        SyntaxKind::GreaterThanGreaterThanGreaterThanToken => {
+                            f64::from(unsigned(to_int32(a)) >> shift(b))
+                        }
                         _ => return None,
                     };
                     Some(EvaluatedValue::Number(value))
