@@ -40240,3 +40240,52 @@ The next attempt has two conditions written down: **exclude `static` members**,
 and look at `controlFlowAutoAccessor1`'s line 44 to see what the fourth shape is.
 §795 named the helper; this names its bounds. **Owner still the flow side**, but
 the checker-side part is now two lines away rather than unknown.
+
+## §798 — TS7008, third measurement: statics fixed, and a new absence unexplained
+
+```
+diagnostics             2,300 → 2,300   (+0)
+TS7008 wrong lines      4 → 2
+TS7008 missing lines    0 → 2   in `tsxElementResolution`
+```
+
+§797's first condition works: excluding `static` members recovers
+`staticVisibility2`, where `this.sideLength = sideLength` types the *instance*
+member and says nothing about the static one of the same name. Two of the four
+wrong lines go.
+
+The two that appear are a shape neither §794 nor §796 touched:
+
+```ts
+declare namespace JSX {
+    interface IntrinsicElements {
+        'string_named';      // TS7008 upstream
+        'var';
+    }
+}
+```
+
+A `PropertySignature` with a **string-literal name** and no type. The rule's text
+extraction handles `Identifier` and `PrivateIdentifier` and returns on anything
+else — but that return is *after* the report in the original ordering, and my
+edit inserted the new guard *before* it. **Whether that is the cause is not
+measured**, and §769's rule says a fix that is not measured at the layer it
+touches is the next attempt's problem, not this one's.
+
+### Three attempts, and what each established
+
+```
+§794  any mention                     −3    the polarity argument (§795)
+§796  any constructor assignment      −1    the helper is right, its bounds are not
+§798  …and not for a static member    +0    two of four wrong lines are genuinely fixable
+```
+
+**Nothing has been lost and the row is better understood than at any point
+before it**: the assignment helper is correct, the static exclusion is correct,
+and one shape remains that is about *where the guard sits in the function*
+rather than about what it tests.
+
+**Refused, priced at 2 wrong lines and 1 case**, with the fourth attempt's
+question written down: put the new guard *after* the text extraction and
+re-measure. Three attempts have each removed one wrong idea; that is what the
+notes are for.
