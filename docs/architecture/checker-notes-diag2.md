@@ -33719,3 +33719,76 @@ Reverted under §568.
 is no fourth *in this list* — the hazard's remaining surface, if any, is in the
 forty-two rules that take `ambient` and are **not** dispatched from a class
 member, which §584 measured as load-bearing and nothing has enumerated.
+
+## §653 — TS18006: a class field named `"constructor"`
+
+```ts
+class X1 { "constructor" = 3; }    // TS18006
+class X2 { ["constructor"] = 3; }  // legal — a computed name is not the same name
+```
+
+`checkGrammarProperty` (`grammarchecks.go:1888`), two conditions:
+
+```go
+if ast.IsClassLike(node.Parent) {
+    if ast.IsStringLiteral(propertyName) && propertyName.Text() == "constructor" { … }
+```
+
+**A string-literal name, not an identifier one** — `class X { constructor = 3 }`
+is a different error entirely, and `["constructor"]` is legal because a computed
+name is late-bound. The fixture carries both to make exactly that point.
+
+The three arms below it in the same function are `checkGrammarForInvalidDynamicName`
+(§636's family, with the class-property message this time),
+`isAutoAccessorPropertyDeclaration`, and the mapped-type check above — **named,
+not built**, none with corpus cases.
+
+```
+bar:  +1 of 1,  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **`class X { constructor() {} }` reports.** The identifier form is a
+   constructor, not a field.
+2. **`["constructor"] = 3` reports.** The fixture's own control.
+3. **An interface property named `"constructor"` reports.** `IsClassLike(parent)`
+   is the guard.
+
+## §654 — §653 built: **+1**, TS18006 at zero
+
+```
+diagnostics             2,187 → 2,188   (bar was +1;  +1, 0 LOST)   39.87%
+extraonly               zero TS18006 lines
+TS18006 missing lines   1 → 0            — checked after the build (§629)
+```
+
+All three falsifiers negative, including the fixture's own control:
+`["constructor"] = 3` stays silent.
+
+### Twenty-one codes, and what a one-case row costs now
+
+```
+read the fixture and the upstream site      2 commands
+write the rule and its falsifiers           1 edit
+measure, verify the row, gate, commit       5 commands
+                                            ──
+                                            one iteration
+```
+
+> **A one-case row is worth taking when the rule is smaller than the note.**
+> That is true here — the rule is twenty lines and the reasoning is four — and it
+> is the practical floor this session has converged on. **Below it the note
+> costs more than the case is worth; above it the row is not a one-case row.**
+
+The three arms of `checkGrammarProperty` left unbuilt have **no corpus cases**,
+which is the other half of the floor: an empty arm costs one sentence and is
+named for the next reader rather than measured again.
+
+### The grammar family after twenty-one builds
+
+```
++38 before   TS18006 +1   ──   +39
+```
+
+Twenty-one codes closed of the sixty-two with cases.

@@ -627,6 +627,7 @@ impl Checker<'_, '_> {
         // just  — §623, and §600's dispatch class for the
         // ninth time.
         self.check_modifier_on_nested_statement(node);
+        self.check_field_named_constructor(node, typed);
         self.check_decorated_private_name(node, typed);
         self.check_dynamic_import_module_kind(node, typed);
         self.check_interface_computed_name(node, typed);
@@ -9032,6 +9033,46 @@ impl Checker<'_, '_> {
         // decorator's `@`.
         let span = self.nodes.span(node);
         self.report(file, Diagnostic::new(&messages::DECORATORS_ARE_NOT_VALID_HERE, span));
+    }
+
+    /// TS18006 — `Classes may not have a field named 'constructor'.`
+    ///
+    /// `checkGrammarProperty` (`grammarchecks.go:1888`): a class property whose
+    /// name is the **string literal** `"constructor"`. The identifier form is a
+    /// constructor rather than a field, and a computed `["constructor"]` is
+    /// late-bound and legal — the corpus fixture carries both as controls.
+    ///
+    /// The siblings in that function — the mapped-type check, the class
+    /// property's `checkGrammarForInvalidDynamicName` (§636's family) and the
+    /// auto-accessor question mark — have no corpus cases and are not built
+    /// (§501). §653.
+    fn check_field_named_constructor(&mut self, node: NodeId, typed: Node<'_>) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let name = match typed {
+            Node::PropertyDeclaration(n) => n.name,
+            _ => return,
+        };
+        let tsr_ast::PropertyName::StringLiteral(literal) = name else { return };
+        if literal.text != "constructor" {
+            return;
+        }
+        if self.nodes.parent(node).is_none_or(|parent| {
+            !matches!(
+                self.nodes.kind(parent),
+                SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
+            )
+        }) {
+            return;
+        }
+        let Some(at) = literal.node_id else { return };
+        let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
+        let span = self.nodes.span(at);
+        self.report(
+            file,
+            Diagnostic::new(&messages::CLASSES_MAY_NOT_HAVE_A_FIELD_NAMED_CONSTRUCTOR, span),
+        );
     }
 
     /// `IsInstantiatedModule` (`ast/utilities.go:2443`).
