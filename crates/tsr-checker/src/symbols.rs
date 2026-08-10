@@ -471,6 +471,15 @@ impl<'a> Checker<'a, '_> {
             // NAMELESS-text leaves - functions, variables, properties -
             // answer here; the rest keep the gap.
             let flags = self.binder.symbols().get(self.binder.merged_symbol(target)).flags;
+            // §156 (`checker-notes-narrow.md`): the alias-name constructor
+            // mint for CLASS leaves measured 58:34 — the constructor half
+            // cannot land alone. Typing the alias unlocks annotation
+            // resolution downstream, and INSTANCE sites then print the
+            // target-chain spelling where the baseline wants the ALIAS name
+            // (`exports : mOfGloalFile.c` got, `exports` wanted). Both
+            // halves — the typeof-mint AND an alias-named instance
+            // re-spelling at alias-rooted reference sites (the §95 transient
+            // question) — must land JOINTLY. Reverted; classes keep the gap.
             if !flags.intersects(SymbolFlags::NAMESPACE | SymbolFlags::CLASS | SymbolFlags::ENUM)
                 && self.get_symbol_flags(target).intersects(SymbolFlags::VALUE)
             {

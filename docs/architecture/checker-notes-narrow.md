@@ -6730,3 +6730,21 @@ pair shows it (collision* 18 is the suspect pool); (b) `new
 alias()` instance results printing the alias name would DOUBLE
 the win but is not required — watch it doesn't print WRONG
 instead.
+
+**REFUSED at 58:34 (1.7:1) — and the refusal is UPGRADED with the
+mechanism: the halves are coupled.** The constructor mint alone
+measured 38 G→R / 34 G→W: typing the alias unlocks annotation
+resolution downstream, and INSTANCE sites then print the
+target-chain spelling where the baseline wants the alias name
+(`exports` wanted, `mOfGloalFile.c` got — internalAliasClass*
+12, declFileInternalAliases 2). This is NOT §145's per-site
+preference wall: within the class family the ALIAS name is the
+spelling BOTH ways; what failed is landing one road without the
+other. The joint requirement: (1) the typeof-mint at
+get_type_of_alias AND (2) an alias-named INSTANCE re-spelling at
+alias-rooted TypeReference sites — the §95 transient-composite
+question. Also excluded from any future pair: the collision*
+case is adversarial (aliases NAMED `exports`/`require`; upstream's
+collision renaming applies — 12 of the 34). Rebuild recipe: land
+(2) first behind a flag, then (1), measure jointly; predicted
+joint ceiling ~180 (privacyLocal* 184's class share).
