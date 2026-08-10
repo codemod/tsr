@@ -44194,3 +44194,37 @@ position the baseline does not want.
 TS2540's row is a real find and its shape is named for the next attempt: the
 namespace-import immutability rule fires once and in the wrong place, where
 upstream reports on every mutation.
+
+## §889 — TS2540's displacement is `CheckFlagsReadonly` on a module namespace
+
+`externalModuleImmutableBindings` mutates a namespace import eight ways:
+
+```ts
+import * as stuff from './f1';
+stuff.x = 0;   stuff['x'] = 1;   stuff.blah = 2;   stuff[n] = 3;
+stuff.x++;     stuff['x']++;     …
+```
+
+Every one is TS2540 upstream. This port reports **one**, and at a position the
+baseline does not want — §888's TS2540 head.
+
+`isReadonlySymbol` (`checker.go:13849`) does not mention namespace imports at
+all. Its first disjunct is `symbol.CheckFlags&ast.CheckFlagsReadonly != 0`, and
+the properties of a **module namespace object** carry that flag because upstream
+sets it when it builds the namespace type — not because this rule knows anything
+about imports.
+
+So the rule is right and its input is not: `get_property_of_type` on a namespace
+import's type answers a property this port has never marked readonly.
+
+> Third row in five builds whose residue is *"the rule is faithful and the type
+> it reads is incomplete"* — TS2531 (§852), TS2364 (§862), this. **§870 measured
+> that at 91% of the reachable pool and each of these is one more confirmation
+> arriving from a different direction.** The value of the classification is not
+> that it was surprising; it is that it stops each new instance being treated as
+> a new question.
+
+**Refused: TS2540's 15 displaced lines and the 8-line case. Owner: the type
+side**, with `bd tsr-gjze`'s neighbours — the wanted change is
+`CheckFlagsReadonly` on the members of a module namespace object, at the point
+that type is built.
