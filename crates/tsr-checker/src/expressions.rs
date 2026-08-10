@@ -998,7 +998,6 @@ impl Checker<'_, '_> {
                     if self.nodes.parent(id).is_some_and(|parent| {
                         self.nodes.kind(parent) == SyntaxKind::ObjectLiteralExpression
                             && self.no_implicit_this
-                            && self.no_implicit_this
                             && self.has_no_contextual_type(parent)
                             && !self.in_js_file(parent)
                             && !self.literal_has_computed_member(parent)

@@ -1175,7 +1175,7 @@ impl Checker<'_, '_> {
             let symbol = self.binder.symbols().get(owner);
             let mut type_side = 0usize;
             let mut foreign = 0usize;
-            for &declaration in symbol.declarations.iter() {
+            for &declaration in &symbol.declarations {
                 match self.nodes.kind(declaration) {
                     tsr_ast::SyntaxKind::ClassDeclaration
                     | tsr_ast::SyntaxKind::ClassExpression
