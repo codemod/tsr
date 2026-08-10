@@ -1532,3 +1532,16 @@ head converted logicalAnd 14 + logicalOr 12 + intersectionReduction 8
 + nullishCoalescing 4 + expr 2 at one G→W (a no-strict declaration
 print). Leads (a)/(b)/(d) remain banked in checker-1's message for
 the next flow window.
+
+## §157 REFUSED at 4:14 — lead (a) needs the real ladder, not a rung graft
+
+The candidate-wins map (base constituent → derived candidate on the
+true branch) grafted onto §83's keep/drop model measured 4 W→R against
+14 R→W: the composition (re-derived match flags, dedup, the
+false-branch interplay) is not upstream's — upstream runs the FULL
+getNarrowedTypeWorker per-constituent ladder (strictSubtype both ways,
+subtype both ways, then drop) with checkDerived semantics. That ladder
+is already specced in the §148.3 addendum as the boolean-hasInstance
+constructor-road piece (2); lead (a)'s ~113 lines are ITS payoff, not
+a one-rung graft's. The next flow window builds the worker verbatim
+and retires §83's keep/drop model whole.
