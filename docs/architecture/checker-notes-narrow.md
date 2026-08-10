@@ -6214,3 +6214,17 @@ spellings — the ripple is either RIGHT-er (wants match the new
 shape → those 17 convert on their own) or names the final
 divergence. Six probes, two hypotheses killed, the mechanism
 intact.
+
+**§142 probe 8:** under the arm, o's WANT lines (`{ n;
+explicitThis: (m) => any; implicitThis(m): number; }`) still GAP —
+yet probe 7 showed n and explicitThis computing non-error, and the
+METHOD member (implicitThis) never printed a kind tag at all: the
+literal's decline fires BETWEEN the assign members' computation
+and the method member's dispatch. Suspects, in probe-9 order: the
+method arm's `get_signature_from_declaration` on implicitThis
+RETURNING None under the mint (its body types `m` — should be
+clean), or a post-member check aborting. Probe 9 needs PER-LITERAL
+node tags on every eprintln (the two-literal interleave made probe
+7's uniq ambiguous — a probe lesson worth the ledger: tag the
+container, not just the member). The ladder: eight probes, the
+poison now cornered to one dispatch site.
