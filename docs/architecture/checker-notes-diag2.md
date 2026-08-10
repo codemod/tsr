@@ -35721,3 +35721,97 @@ its cascade is unreachable for an unrelated reason.
 > column is a *stack* of mechanisms, and each one hides the next.** The only way
 > through is one repair per measurement, which is what the falsifier discipline
 > buys.
+
+## §693 — TS2708: the same test, on the value lookup
+
+```ts
+namespace A { export interface Point { … } }
+namespace C {
+    import a = A;
+    var m: typeof a;    // TS2708 — Cannot use namespace 'a' as a value
+}
+```
+
+§689 probed the value cascade and found it **reached zero times**:
+`check_value_identifier`'s `resolve_name(…, VALUE | EXPORT_VALUE)` succeeds for
+`import a = A` because this binder hands back the `ALIAS`, so the rule returns
+before the arm §688 had just finished porting.
+
+That is §676's mechanism on the other lookup, and §692 built the answer: test
+`Flags & meaning` first, follow the alias chain, at every hop, and treat an
+unresolvable target as silence. **The walk is extracted rather than copied** —
+one helper, two call sites, because a rule this fiddly diverging between the two
+branches is exactly how §675's asymmetry happened.
+
+`A` is a namespace whose only member is an interface, so it carries
+`NAMESPACE_MODULE` and not `VALUE`. Upstream's `Value &^ Type` lookup fails there
+too; that is *why* the cascade's value branch exists.
+
+```
+bar:  +3 of 3 (importStatementsInterfaces, aliasOnMergedModuleInterface,
+      importDeclWithClassModifiers),  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **§164's 238-wrong-line family returns.** The value ladder is the one that
+   produced them; this widens what falls through to it.
+2. **TS2709's row reopens.** Same helper now, so a change to the walk shows on
+   both.
+3. **`import a = A; a.x` reports**, where `A` *is* instantiated. A namespace with
+   a value member carries `VALUE` and the chain finds it.
+
+## §694 — §693 built: **+1 of 3**, one wrong line, and a regression test earned its place
+
+```
+diagnostics             2,219 → 2,220   (bar was +3;  +1, 0 LOST)   40.45%
+checker_types           4,260/9,538 with and without — identical
+extraonly               one TS2708 line;  TS2304 unchanged at 19
+TS2708 missing lines    5 → 3;  3 cases blocked alone → 1
+```
+
+### The test that caught it
+
+The first shape was a `.filter` ahead of the existing `.is_some_and`, which reads
+naturally and is wrong:
+
+```
+a_class_extends_over_a_type_only_import_still_reports  FAILED
+```
+
+`import type { Base } from "./b"; export class C extends Base {}` must report
+TS1361, and that report is a **side effect inside the closure the filter would
+have skipped**. The line has two jobs — decide the early return, and report the
+type-only misuse on the way past — and a filter silently keeps only the first.
+
+> **The suite caught a loss the conformance number could not**, because TS1361's
+> corpus cases were already passing for other reasons and the board moved `+1`
+> either way. §112 wrote that test after a build lost TS1361 in a different
+> place; it has now paid for itself twice. **A regression test is worth its space
+> when it fails for a reason the metric cannot see.**
+
+The fix is one line of placement: the chain test gates the `return`, not the
+report above it.
+
+### The wrong line, named
+
+```ts
+namespace A.M {
+    import M = Z.M;
+    import M = Z.I;    // duplicate
+    M.bar();           // TS2708, wrongly
+}
+```
+
+Two `import M` declarations for one name. `getDeclarationOfAliasSymbol` is
+`FindLast`, so the chain follows `Z.I` — an interface, no value — and reports;
+upstream is silent because the duplicate identifier is itself the error and its
+`getSymbol` sees a merged symbol this binder does not build. **One line, one
+degenerate fixture, inside the bar's `WRONG delta <= +2`.** Recorded rather than
+chased: the shape is `bd tsr-8esz`'s neighbour, not this rule's.
+
+### Two of TS2708's three lines converted
+
+The third is `importDeclWithClassModifiers`, whose three lines sit behind
+`export public import a = x.c` — modifiers that are themselves grammar errors,
+so the file's parse-error state gates the rule. Named, not built.

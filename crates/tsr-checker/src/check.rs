@@ -3705,7 +3705,19 @@ impl Checker<'_, '_> {
                 // `VALUE` where upstream's do not (§119), so the test belongs
                 // here rather than on the meaning ladder below. §121.
                 self.report_type_only_alias_used_as_value(node, value, text);
-                true
+                // `getSymbol` again, on the **value** lookup: `import a = A`
+                // where `A` is an uninstantiated namespace carries `ALIAS` here
+                // and satisfies nothing upstream, so the cascade's value branch
+                // gets to say TS2708. §689 probed this return and found the
+                // cascade reached zero times.
+                //
+                // **The test gates the early return, not the report above it.**
+                // Written as a `filter` ahead of that call it also suppressed
+                // TS1361 for `import type { Base }; class C extends Base` —
+                // `a_class_extends_over_a_type_only_import_still_reports` went
+                // red, and it is in the suite precisely because this line has
+                // two jobs. §693.
+                self.alias_chain_carries(value, SymbolFlags::VALUE | SymbolFlags::EXPORT_VALUE)
             })
         {
             return;
@@ -4154,29 +4166,7 @@ impl Checker<'_, '_> {
             // correct `TYPE` resolution — following the alias instead reports
             // on a name that resolves. `noCrashOnImportShadowing` is the
             // fixture and it was the last two wrong lines. §692.
-            let flags = self.binder.symbols().get(hit).flags;
-            if flags.intersects(SymbolFlags::TYPE) || !flags.intersects(SymbolFlags::ALIAS) {
-                return;
-            }
-            let mut target = Some(hit);
-            for _ in 0..MAX_ALIAS_HOPS {
-                let Some(current) = target else { break };
-                // The same `Flags & meaning` test at **every** hop, not just
-                // the first: `import { B } from "./a"` where a.ts's `B` merges
-                // `import * as B` with `interface B` resolves to a symbol that
-                // carries both, and walking past it reaches the module object
-                // and reports. §692.
-                let flags = self.binder.symbols().get(current).flags;
-                if flags.intersects(SymbolFlags::TYPE) || !flags.intersects(SymbolFlags::ALIAS) {
-                    break;
-                }
-                target =
-                    self.resolve_alias(current).or_else(|| self.qualified_alias_target(current));
-            }
-            let carries_type = target.is_none_or(|resolved| {
-                self.binder.symbols().get(resolved).flags.intersects(SymbolFlags::TYPE)
-            });
-            if carries_type {
+            if self.alias_chain_carries(hit, SymbolFlags::TYPE) {
                 return;
             }
         }
@@ -10199,6 +10189,52 @@ impl Checker<'_, '_> {
                 [text],
             ),
         );
+    }
+
+    /// `getSymbol` (`checker.go:1023`): does this symbol satisfy `meaning`,
+    /// following an alias chain when it does not carry it directly?
+    ///
+    /// ```go
+    /// if symbol.Flags&meaning != 0 { return symbol }
+    /// if symbol.Flags&ast.SymbolFlagsAlias != 0 {
+    ///     target := c.resolveAlias(symbol)
+    ///     if target.Flags&meaning != 0 { return symbol }
+    /// }
+    /// ```
+    ///
+    /// Three things this port must add, each measured against the wrong column
+    /// (§676 / §690 / §691 / §692 took one caller from 28 wrong lines to 0):
+    ///
+    /// - [`Checker::resolve_alias`] declines a **qualified** module reference
+    ///   for the printer's sake (§686), so `import I = ns.IMode` needs
+    ///   [`Checker::qualified_alias_target`].
+    /// - **A target that cannot be resolved is silence, not a negative.**
+    ///   `import { Unresolved } from "foo"` with an unresolved `"foo"` has no
+    ///   target to ask, and upstream answers the module error and an error
+    ///   type. §25's collapse.
+    /// - **The meaning is tested at every hop**, not only the first: a hop may
+    ///   merge an alias with a real declaration of that meaning, and walking
+    ///   past it reaches the module object.
+    ///
+    /// One helper rather than one per caller: §675 split this test across two
+    /// branches of one upstream function and the halves drifted for fourteen
+    /// builds. §693.
+    fn alias_chain_carries(&mut self, symbol: tsr_binder::SymbolId, meaning: SymbolFlags) -> bool {
+        let mut at = Some(symbol);
+        for _ in 0..MAX_ALIAS_HOPS {
+            let Some(current) = at else { break };
+            let flags = self.binder.symbols().get(current).flags;
+            if flags.intersects(meaning) {
+                return true;
+            }
+            if !flags.intersects(SymbolFlags::ALIAS) {
+                return false;
+            }
+            at = self.resolve_alias(current).or_else(|| self.qualified_alias_target(current));
+        }
+        // An unresolvable or over-long chain is unknown, and this rule reports
+        // on a negative — so unknown is silence.
+        at.is_none()
     }
 
     /// A `declare` modifier on the declaration itself.

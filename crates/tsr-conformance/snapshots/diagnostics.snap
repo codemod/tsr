@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; scanner, parser and binder only, with no checker (bd tsr-4sc)
-Passed         : 2219/5488 (40.43%)
-Failed         : 3269
+Passed         : 2220/5488 (40.45%)
+Failed         : 3268
 Skipped        : 6956 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -11,7 +11,7 @@ Skipped        : 6956 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 3269 failures:
+First 100 of 3268 failures:
 compiler/ClassDeclaration26
   2 unexpected (first TS1005 at ClassDeclaration26.ts(2,22)), 5 missing
 compiler/TransportStream
@@ -44,8 +44,6 @@ compiler/aliasInstantiationExpressionGenericIntersectionNoCrash1
   1 missing (first TS2352 at aliasInstantiationExpressionGenericIntersectionNoCrash1.ts(10,1))
 compiler/aliasInstantiationExpressionGenericIntersectionNoCrash2
   1 missing (first TS2352 at aliasInstantiationExpressionGenericIntersectionNoCrash2.ts(15,1))
-compiler/aliasOnMergedModuleInterface
-  1 missing (first TS2708 at aliasOnMergedModuleInterface_1.ts(5,16))
 compiler/aliasUsageInGenericFunction
   1 missing (first TS2352 at aliasUsageInGenericFunction_main.ts(10,19))
 compiler/aliasUsageInOrExpression
@@ -212,3 +210,5 @@ compiler/asyncIteratorExtraParameters
   2 missing (first TS2504 at asyncIteratorExtraParameters.ts(11,27))
 compiler/augmentExportEquals1
   2 missing (first TS2671 at file2.ts(5,16))
+compiler/augmentExportEquals5
+  1 missing (first TS2454 at consumer.ts(4,11))
