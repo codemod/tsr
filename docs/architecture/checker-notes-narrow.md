@@ -5750,3 +5750,23 @@ Entry: `check_function_expression`'s return-type computation
 (wherever the non-generator inferred return lives — the
 `function_types.rs`/signatures seam). NOT built this window; the
 sizing is the deliverable.
+
+**§135 opener SHARPENED (the read the sizing owed):** the generator
+arm EXISTS — `return_type_from_body`'s asterisk half
+(signatures.rs:1009, the §15-callres bar) already aggregates
+statement-position yield operands, dedups unwidened, subtype-reduces
+multi-operand sets, and mints `Generator<Y, void, unknown>`. The
+declines that own generatorReturnTypeInference's 42 lines, in
+priority order for the next window:
+  1. VALUED RETURNS decline whole (line 1026) — the R slot wants
+     the return aggregate through the SAME machinery the
+     non-generator road has; `Generator<number, string, any>`-class
+     wants.
+  2. The NEXT slot is hardcoded `unknown` — the non-strict flavor
+     wants `any` (generatorReturnTypeInferenceNonStrict); key it on
+     strict_null_checks per upstream :20245.
+  3. `IterableIterator<number>` wants — the DOWN-LEVEL mint
+     (target < ES2018 uses IterableIterator arity 1); the mint is
+     target-keyed.
+  4. `yield*` and value-used yields stay declined (contextual).
+Slices 1–3 are each one measurable edit inside the existing arm.
