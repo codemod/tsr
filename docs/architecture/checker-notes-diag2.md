@@ -29385,3 +29385,114 @@ silently wrong. The divergence is pinned by
 flips from `[]` to `["TS2339"]` when it closes. **A suppression whose paired
 positive cannot be written is exactly the thing worth writing down**, and it is
 the one case in this session's eight where the pair is a gap rather than a test.
+
+## §554 — TS1212: §161's own falsifier, cashed
+
+§143 first, and the rule is **fully ported** — future-reserved-word range,
+`is_identifier_name` transcribed arm for arm, the three-way message. Its two
+remaining lines are:
+
+```
+asiPreventsParsingAsInterface02.ts(2,5)     asiPreventsParsingAsInterface03.ts(4,5)
+```
+
+both **ASI recovery** fixtures, and the rule opens with `file_has_parse_errors`.
+
+Unlike §524's and §541's, **this guard is upstream's**:
+
+```go
+if len(b.file.Diagnostics()) == 0 && … {
+```
+
+so removing it is not a port-local correction. It is only right if **our** parse
+errors are wider than upstream's on these files — and the baselines say they
+are, because upstream reached the check at all and reported TS1212.
+
+§161 wrote the test before the question came up:
+
+> *"`len(b.file.Diagnostics()) == 0` — stated explicitly upstream, so ported
+> rather than measured. §161's third falsifier is the re-measure if the wrong
+> column turns out to concentrate in recovered trees."*
+
+> **A guard ported without measurement should carry the measurement that would
+> retire it.** §161 could not know these two cases existed; it knew the guard was
+> unmeasured and named the circumstance under which to check. That is the whole
+> difference between a decline and a debt.
+
+### What the measurement means either way
+
+```
++2 and no wrong lines   →  our parse-error set is wider than upstream's here,
+                           and the guard protects nothing in this rule
++0                      →  something else blocks these two; the guard stays
+negative                →  the guard is load-bearing and §161 was right to port it
+```
+
+The third outcome is the informative one: it would say the recovered trees this
+rule sees are genuinely unsafe to read, which is a fact about **`tsr-parser`'s
+recovery**, not about this rule.
+
+### The bar
+
+```
+bar:  +2 of 2 (cases blocked on TS1212 alone),  0 LOST,  WRONG delta <= +1
+```
+
+## §555 — §554 measured **−1**: the third outcome, and §161 was right to port the guard
+
+```
+diagnostics   2,091 → 2,090   (−1)
+extraonly     54 → 55 cases
+TS1212        2 missing lines → 2 missing lines     — unchanged
+```
+
+**The two ASI cases did not convert**, and two wrong lines appeared —
+`errorRecoveryInClassDeclaration.ts(4,13)` and `restParamModifier.ts(2,20)`,
+both **TS1213**, a sibling message from the same three-way choice. Reverted.
+
+§554 wrote the three outcomes in advance and this is the one it called
+informative:
+
+> *"negative → the guard is load-bearing and §161 was right to port it… it would
+> say the recovered trees this rule sees are genuinely unsafe to read, which is
+> a fact about `tsr-parser`'s recovery, not about this rule."*
+
+That reading holds, with one correction to §554's own framing: it assumed the
+guard was *"declining on a divergence rather than on upstream's condition"* and
+that the two ASI lines were behind it. **Both halves were wrong.** The guard
+declines a real hazard, and the ASI cases are blocked by something else that
+this build did not identify.
+
+> **A hypothesis with three named outcomes still has to be right about which
+> lever it is pulling.** §554's falsifier table was correct and its premise was
+> not: it inferred from *"these two fixtures are recovery tests"* that the
+> recovery guard was what stopped them, and the measurement says the guard is
+> innocent of those two lines while guilty of two others.
+
+### What is now known about TS1212
+
+```
+the rule is fully ported                     §161, verified by reading it
+the parse-error guard is load-bearing        §555, measured at −1 with 2 wrong lines
+the two ASI lines are blocked by something
+  that is NOT the parse-error guard          §555, measured — they did not move
+```
+
+**Owner: unidentified**, and stated as such rather than guessed. The next
+attempt should probe `asiPreventsParsingAsInterface02` directly with a positive
+control (§547's method), not reason from the fixture's family name — which is
+exactly the error §554 made.
+
+### The session's fourth guard probe, and the first that failed
+
+```
+§524   file_has_parse_errors, port-local        +4
+§541   file_has_parse_errors, port-local        +1
+§545   match-arm order                          +0, kept
+§554   file_has_parse_errors, UPSTREAM'S        −1, reverted
+```
+
+The difference is in the third column and it was visible before the build:
+**§524's and §541's guards had no upstream counterpart and §554's is transcribed
+from `binder.go:1303`.** That distinction is the one to lead with next time a
+guard looks like it is blocking a row.
