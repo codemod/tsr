@@ -33683,3 +33683,39 @@ it could not.**
 ```
 
 Twenty codes closed of the sixty-two with cases.
+
+## §652 — the ambient hazard as a *list*: six rules, one gap, and it was already fixed
+
+§651 argued that list-shaped sweeps work and property-shaped ones do not, so the
+hazard was reformulated as a list: **rules dispatched from a class-member arm
+that take `ambient`**. Six:
+
+```
+check_ambient_initializer      own-`declare` read   ← §650 fixed it
+check_annotated_initializer    not read             ← tested here
+check_get_accessor_returns     not read
+check_implicit_any_member      not read             §92 documents its own handling
+check_implicit_any_parameters  not read             §582 fixed its ambient guard
+check_implicit_any_return      not read
+```
+
+`check_annotated_initializer` is the **reverse** shape — it *declines* on
+ambient, so the blindness makes it over-report rather than under-report — and
+that is the more interesting case, because a suppression bug hides in
+`extraonly` rather than in `diagmissing`.
+
+**Measured: `diagnostics` unchanged, `extraonly` unchanged at 62 cases.**
+Reverted under §568.
+
+> **A list-shaped sweep can still return nothing, and that is a different fact
+> from a property-shaped one returning noise.** §625's three failures were
+> *unreadable* results; this is a *readable* null. **The list was right, the
+> enumeration was complete, and five of six rules simply do not have the bug** —
+> which is worth exactly as much as finding one would have been, because the
+> next session does not have to look.
+
+§650's fix stands as the only instance in this list. The three earlier ones
+(§135, §508, §650) were all found by failing rows, and this sweep confirms there
+is no fourth *in this list* — the hazard's remaining surface, if any, is in the
+forty-two rules that take `ambient` and are **not** dispatched from a class
+member, which §584 measured as load-bearing and nothing has enumerated.
