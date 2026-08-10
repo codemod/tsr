@@ -33512,3 +33512,89 @@ outputs and this is the first that enumerates inputs.
 
 Both +1, and the second had **fifty-one times the corpus reach** of the first.
 That is the clearest available demonstration that reach and yield are unrelated.
+
+## §648 — the four remaining directives, priced as a group
+
+§647 named four unread directives, each one line. **All four options already
+exist in `tsr-core`**; none is read from a fixture:
+
+```
+@skipLibCheck            144 files
+@useDefineForClassFields 106
+@noImplicitOverride       89
+@allowUnusedLabels        46
+```
+
+Priced as a group first, per §526 — the blanket probe's job is to say whether
+the class is worth taking apart, and four one-line changes are cheaper to
+measure together than in sequence.
+
+> **§526 measured a blanket at +4 and took it per-rule; §584 measured one at −49
+> and took none of it. The probe's value is the same either way and it is not
+> the change itself** — it is the decision about whether to spend four more
+> measurements.
+
+```
+bar:  net >= 0 with a named mechanism, on `diagnostics` AND `checker_types`
+```
+
+If the group is positive, each is split out and measured alone (§496) before
+anything ships; if it is negative, the split says which one is the cost.
+
+### Falsifiers
+
+1. **`checker_types` moves.** The producer is shared; stash/unstash differential
+   (§534).
+2. **Any file without the directive changes.** All four are `strict`-independent
+   tristates and must default exactly as they do now.
+
+## §649 — §648 measured **+0** for all four, and the sweep closes at +2
+
+```
+                without §648   with §648
+diagnostics         2,185        2,185     0
+checker_types       4,202        4,202     0
+```
+
+**Kept**, on §539's precedent rather than reverted on §568's: these are *input
+plumbing*, not code paths. The demonstration §568 asks for is independent of the
+board — **four directives that 385 corpus files set are now read where upstream
+reads them**, and the next reader of `apply_test_directives` will not have to
+rediscover that they were absent.
+
+That is the same call §539 made for `@currentDirectory` and
+`@useCaseSensitiveFileNames`, and the distinction from §567's reverted `export =`
+branch holds: **an unexercised *branch* is a claim nobody can check; an unread
+*input* that is now read is a fact about the harness.**
+
+### The directive sweep, closed
+
+```
+122 directives used · 71 read before · 5 wired · 51 remaining are harness plumbing or emit
+
+§644   @experimentalDecorators     1 file     +1
+§646   @noImplicitThis            51 files    +1
+§648   @skipLibCheck             144 files    +0
+       @useDefineForClassFields  106 files    +0
+       @noImplicitOverride        89 files    +0
+       @allowUnusedLabels         46 files    +0
+                                              ──
+                                              +2
+```
+
+> **387 files of corpus reach, two cases.** The sweep is closed at its measured
+> value, and the shape of the answer is the fourth confirmation of §647's rule —
+> **reach and yield are unrelated**, and the only way to learn a yield is to
+> measure it.
+
+`@skipLibCheck` at 144 files converting nothing is the sharpest instance: it
+suppresses lib diagnostics, and this port emits so few of them that suppressing
+them changes no case.
+
+### What is left of the input class
+
+Nothing enumerable. The 51 unread names are `@filename`, `@link`,
+`@baselineFile`, `@noEmit`, `@sourceMap` and their kin — **harness plumbing and
+emit options**, neither of which the diagnostics suite reads. **The input side is
+done**, which is a sentence this session can now write about exactly one of its
+five priced classes.

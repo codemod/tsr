@@ -433,6 +433,14 @@ pub fn apply_test_directives(
         // `strict_option_value` — so without this the option was `strict` and
         // nothing else, for the 51 corpus files that set it directly.
         no_implicit_this: tristate("noimplicitthis", base.no_implicit_this),
+        // §648's group probe — the four §647 named, priced together.
+        skip_lib_check: tristate("skiplibcheck", base.skip_lib_check),
+        use_define_for_class_fields: tristate(
+            "usedefineforclassfields",
+            base.use_define_for_class_fields,
+        ),
+        no_implicit_override: tristate("noimplicitoverride", base.no_implicit_override),
+        allow_unused_labels: tristate("allowunusedlabels", base.allow_unused_labels),
         // The rest of what the checker reads. These land in `CompilerOptions`
         // **unresolved** — as the `Tristate` the directive wrote, not as the
         // `bool` the checker wants — because resolving them is
