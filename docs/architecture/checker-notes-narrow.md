@@ -6437,3 +6437,25 @@ shapes), and the producer's qualified-entity `y` followed. The
 ALIAS row's want-any census after this arm: the resolving-chain
 residue is the port's qualified-walk work, correctly gapped, not
 an error-answer class.
+
+## §145 — qualified ImportEquals resolve under the ALIAS's own name [claimed: checker-1]
+
+**The §144-fenced residue, and the tsr-4jk constraint's own key
+unlocks it**: `import booz = foo.bar.baz` resolves fine (an
+exports walk) and was gapped ONLY because the target would print
+its own name where `aliasBug.types` wants `typeof booz` — the
+ALIAS's name. But the alias's name is IN HAND at get_type_of_alias:
+mint the module object AS `typeof <alias-name>` (Anonymous, the
+TARGET symbol carried — member reads flow through the target's
+exports; the §143-ambient pattern, third confirmation). Entity
+walk: root via resolve_name(NAMESPACE), each right segment via
+merged exports; any miss keeps the gap (§144 owns the
+unresolvable-root half; a MID-chain miss is upstream's TS2503 too —
+admitted, same establishment as §144's root form when the holder's
+exports are readable). **Bar: ≥60 G→R at ≥5:1.** Falsifiers:
+(a) non-namespace targets (a VALUE leaf — `import q = E.A` enum
+members) have their own print forms (enumAssignmentCompat's
+`E.A`) — leaf typing goes through get_type_of_symbol, only the
+NAMESPACE-flagged leaf takes the typeof-mint; (b) multi-alias
+scopes where upstream picks another name — the §-family ambiguity
+lesson, watch the pair.
