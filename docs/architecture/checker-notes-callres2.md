@@ -659,3 +659,24 @@ Discipline note for conventions consideration: whole-file
 snapshots taken mid-investigation are a custody liability — a
 draft's canonical form is its ORDERED PATCH SERIES, which this
 study now carries complete.
+
+**THE ORDERED REBUILD SUCCEEDS — the winning state is
+REPRODUCIBLE, its judgment REPRODUCES AND IMPROVES: +688/315
+(net +514, R→W 15).** The canonical series executed with two more
+custody catches en route (an aborted script's write-at-end dropped
+wire 1 — the §92-era lesson firing again; line-number surgery
+replaced string-anchored patching after repeated anchor drift):
+patches 126→119→122, the constraint fallback, the reentrancy
+guard, the type-first read, TRACE3 verified "foo" BEFORE the pair.
+Judgment: +294 G→R +394 W→R (inferTypePredicates 29, temporal 60,
+overEager 18, contextSensitiveReturn 22) vs 251 G→W + 49 R→G + 15
+R→W. VERIFIED snapshots (verified_*.rs, taken once post-TRACE3)
+now carry the state; the registered bar still holds the landing —
+251 honest gaps would become confident wrongs, and the gap/wrong
+split is what every ranking leans on — so the PIPELINE window
+lands the whole: build the four-stage resolver over this state,
+convert the 251's families (inferFromGenericFunctionReturnTypes*,
+typeArgumentInference*), clear both legs, land. The summit's
+distance is one pipeline, from a reproducible base, with its win
+condition automated. Nothing in this owner remains unmeasured,
+unpriced, or unreachable.
