@@ -35548,3 +35548,88 @@ candidate.** Before this build, TS2708's five lines had two live hypotheses —
 the missing wrapper and the alias meaning. There is now one, and it already has
 an issue number. That is the whole return, and it is worth the build: a row with
 two suspects costs a rediscovery every time someone reads it.
+
+## §690 — `bd tsr-8esz` retried, with §686's tool
+
+§676 measured upstream's alias-meaning test at **−7 and 28 wrong TS2709 lines**
+and filed the binder as its owner. §686 then found, for an unrelated row, that
+`resolve_alias` declines a **qualified** module reference for the *printer's*
+sake and built `qualified_alias_target` to resolve one for its flags.
+
+**Those are the same 28 lines.** An `import I = ns.IMode` is a qualified alias:
+`resolve_alias` answers `None`, so §676's test — *"admit the alias only when its
+target carries the meaning"* — concluded the target carries nothing and reported
+TS2709 on names that resolve perfectly well. The binder was never the fault;
+`resolve_alias`'s printer-scoped refusal was, and it is the third row this
+session to turn on that same sentence.
+
+> §686 said *a refusal is scoped to what it was measured against*. This is the
+> compounding cost of getting that wrong: **the inherited refusal did not just
+> cost its own row, it produced 28 wrong lines in a different row and sent a
+> correct diagnosis to the wrong crate.** `bd tsr-8esz` is a real defect — the
+> binder does hand an alias back for any meaning — but it is not what blocks
+> these six cases.
+
+The retry: §676's hunk, with `qualified_alias_target` behind `resolve_alias`.
+
+```
+bar:  +6 of 6 (TS2709 ×3, TS2708 ×3),  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **The 28 wrong lines come back.** That is the whole hypothesis; if the count
+   is anything but zero the qualified fallback is not what was missing.
+2. **`checker_types` moves.** `resolve_alias` is still untouched, so it must not.
+3. **TS2304's row moves.** Names that now fail the `TYPE` lookup fall through to
+   the cascade, and its last arm is `Cannot find name`.
+
+## §691 — the retry, twice: **28 → 5 wrong lines**, still reverted, and §676's owner was wrong
+
+```
+§676   alias-meaning test, bare                      −7,  28 wrong lines
+§690   + qualified fallback (§686's tool)            −6,  28 wrong lines
+§691   + unresolvable target is silence (§25)        +0,   5 wrong lines
+```
+
+Reverted at +0 with 5 wrong. But the three measurements together say something
+the first one could not, and it is a correction:
+
+> **§676 filed `bd tsr-8esz` — "this binder hands an alias back for any meaning"
+> — as the owner of these six cases. That is a real defect and it is not what
+> blocks them.** Two repairs entirely inside the checker took the wrong column
+> from 28 to 5 without touching the binder at all.
+
+The two:
+
+1. **`resolve_alias` declines a qualified module reference for the printer's
+   sake** (§686). `import I = ns.IMode` answers `None`, which §676's test read
+   as "the target carries no meaning" and reported on. *Third row this session
+   to turn on that one sentence.*
+2. **A target that cannot be resolved is silence, not a negative.** `import
+   { Unresolved } from "foo"` where `"foo"` does not resolve has no target to
+   ask; upstream answers the module error and an error type. §25's collapse,
+   and 23 of the 28.
+
+### The five that remain
+
+```
+noCrashOnImportShadowing            a.ts(7,10)     index.ts(3,10)
+enums                               /b.ts(6,12)    /c.ts(3,14)
+exportDeclaration_moduleSpecifier   /c.ts(2,18)
+```
+
+All five are **cross-file `import type` / import-specifier aliases**, where the
+target lives in another file's export table. That is a fourth mechanism, not a
+residue of the first three, and it is where the next attempt should start —
+**not** at the binder.
+
+`bd tsr-8esz` is amended: it is still a real defect, it is no longer claimed as
+this row's blocker, and the three measurements are recorded on it so the next
+attempt starts from 5 wrong lines rather than 28.
+
+> Two sessions' worth of value in one revert. **A refused build that moves the
+> wrong column by 82% has not failed to find anything; it has failed to find
+> the *last* thing.** The number to carry forward is 5, and the owner to carry
+> forward is the import-specifier target — both of which the original refusal
+> got wrong in a way no amount of re-reading §676 would have exposed.
