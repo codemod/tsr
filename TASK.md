@@ -669,3 +669,42 @@ Next window opens on: the gate's THIRD STATE (ungrounded-adopt for
 literal members under an active inference context + pass-3 re-serve),
 then InferenceInfo step 2 (priority bits; E1/0 common-supertype pair
 — rows banked in §140/§141 records).
+
+
+---
+
+CHECKER-1 HANDOFF, THE STALE-REFUSALS SESSION (2026-08-10, board at
+86.15%, right 412,603/478,954 at 962a5adb-merged):
+
+THE DAY: 84.63% → 86.15%, +1.52 points across both lanes — the
+largest on record, twice re-broken. checker-1's ledger: §118–§142
+in checker-notes-narrow.md plus §124.1, TWENTY-EIGHT numbered
+outcomes. Landed: the @symlink/@link harness fix (§118), five
+un-refused stale entries (§119 ES-import any +235, §120
+intersections +172, §123/§124 established misses +464, §137 union
+order +308 at 154:1), the boundary arms (§121/§122/§130/§131),
+the CALL-flow seam (§126/§127/§128), generators (§135), dynamic
+import() (§140 +122), the DEFAULT_LIBRARY-gated default-fill
+(§136 +478 — the printseam study validated end-to-end), §124.1's
+three-detector gate. REFUSED with maps: §125 (union-miss,
+narrowing-owned), §138 (union order is PER-SITE — closed three
+ways), §141→§142 (the literal-self this mint, PARKED at nine
+probes with the mechanism proven and the fault cornered).
+
+READ FIRST: checker-notes-printseam.md (the five-walls-are-one
+study + its §5-§8 arc), then §142's nine-probe ladder tail.
+
+THE JOINT HEAD both lanes' records agree on: the LITERAL
+ERROR-PROPAGATION SEAM in check_object_literal (one member's error
+gaps the whole literal; upstream errors only the member) — it
+unlocks checker-2's pass-3 re-serve AND §142's combined form.
+Probe 10 is written at the §142 tail. After it: per-site rendering
+arm 2 (modulespecifiers), the thisType model (three consumers
+recorded), resolver parity (tsr-9or.1).
+
+TRAPS THIS SESSION PAID FOR: rtk masks cargo exit codes AND
+Compiling lines (rtk proxy + recompile-check before any
+byte-identical claim); size bars by MECHANISM SAMPLE not census
+bucket (five under-counts); tag the CONTAINER in multi-object
+probes; the stash→accept-clean→restore cycle before ANY
+measurement when the other lane is mid-landing.
