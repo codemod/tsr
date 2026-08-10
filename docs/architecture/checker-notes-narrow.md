@@ -5653,3 +5653,26 @@ lines beside temporal's 400 and import-spelling's 128. Three heads
 became four; the subsystem's price rises with each window that
 touches its boundary. DO NOT extend this arm past ambient+var
 without the naming study.
+
+## §133 — type parameters are subtype-reduction-free ternary branches [claimed: checker-1]
+
+**The ConditionalExpression root's biggest concentration** (gaproot:
+637 lines, subtypesOfTypeParameterWithConstraints2 108 +
+subtypesOfTypeParameter 84 + unionTypeReduction2 54). The §7-era
+fence declines any non-primitive branch; the baselines show
+upstream's SUBTYPE reduction keeps a type parameter beside every
+branch flavor these fixtures write — `T | null`, `T | undefined`,
+`number | T`, `1 | T`, `T | RegExp`, `T | { foo: number; }`,
+`T | (() => void)` — INCLUDING a constrained `T extends number`
+beside bare `number` (:124's want `number | T`, uncollapsed). A
+type parameter is never subtype-collapsed into a sibling in these
+prints. The arm: `TypeFlags::TYPE_PARAMETER` joins the fence's
+SAFE set — and because the OTHER branch may then be any shape
+(`T | RegExp` wants an object sibling), a branch pair where ONE
+side is a type parameter is reduction-free WHOLE.
+
+**Bar.** ≥100 G→R at ≥5:1. Falsifier: a `c ? t : u` pair of two
+CONSTRAINT-RELATED parameters that upstream DOES collapse
+(subtypesOfTypeParameterWithConstraints's T-extends-U forms) — if
+its wants show single-parameter answers, the two-parameter pair
+needs a decline while the parameter-beside-nonparameter form lands.
