@@ -79,24 +79,30 @@ impl Checker<'_, '_> {
             .modifiers
             .iter()
             .any(|m| matches!(m, tsr_ast::ModifierLike::Token(t) if t.kind == tsr_ast::SyntaxKind::DeclareKeyword));
-        if is_const || !is_ambient {
+        if !is_const && !is_ambient {
             return;
         }
         if crate::expressions::evaluate_constant_expression(&initializer).is_some() {
             return;
         }
-        if self.subtree_has_reference_identifier(at, 0) {
+        // §819's guard is a **negative** test — *"nothing here could need
+        // symbols"* — and it declines `Math.floor(…)`, which upstream reports.
+        // Its positive complement: upstream's evaluator has no call arm at all,
+        // so a subtree containing a call or a `new` is non-constant whatever
+        // its identifiers resolve to. §821.
+        if self.subtree_has_reference_identifier(at, 0) && !self.subtree_has_call(at, 0) {
             return;
         }
+        // Upstream's arm order (`checker.go:24014`): `isConstEnum` first, so a
+        // `const enum` in a `.d.ts` gets TS2474 and not TS1066.
+        let message = if is_const {
+            &messages::CONST_ENUM_MEMBER_INITIALIZERS_MUST_BE_CONSTANT_EXPRESSIONS
+        } else {
+            &messages::IN_AMBIENT_ENUM_DECLARATIONS_MEMBER_INITIALIZER_MUST_BE_CONSTANT_EXPRESSION
+        };
         if let Some(file) = self.source_file_of_for_diagnostics(at) {
             let span = self.error_span(at);
-            self.report(
-                file,
-                Diagnostic::new(
-                    &messages::IN_AMBIENT_ENUM_DECLARATIONS_MEMBER_INITIALIZER_MUST_BE_CONSTANT_EXPRESSION,
-                    span,
-                ),
-            );
+            self.report(file, Diagnostic::new(message, span));
         }
     }
 
@@ -125,6 +131,27 @@ impl Checker<'_, '_> {
             tsr_ast::for_each_child_id(typed, |child| children.push(child));
         }
         children.into_iter().any(|child| self.subtree_has_reference_identifier(child, depth + 1))
+    }
+
+    /// Does this subtree contain a call or a `new`? Upstream's constant
+    /// evaluator has **no call arm**, so such a subtree is non-constant
+    /// whatever its identifiers resolve to — the positive complement to
+    /// `subtree_has_reference_identifier`'s negative test. §821.
+    fn subtree_has_call(&self, root: NodeId, depth: u32) -> bool {
+        if depth > 64 {
+            return false;
+        }
+        if matches!(
+            self.nodes.kind(root),
+            tsr_ast::SyntaxKind::CallExpression | tsr_ast::SyntaxKind::NewExpression
+        ) {
+            return true;
+        }
+        let mut children = Vec::new();
+        if let Some(typed) = self.node_map.get(root) {
+            tsr_ast::for_each_child_id(typed, |child| children.push(child));
+        }
+        children.into_iter().any(|child| self.subtree_has_call(child, depth + 1))
     }
 
     /// The name check for one enum member. §671.

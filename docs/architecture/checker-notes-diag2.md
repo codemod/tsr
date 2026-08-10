@@ -41289,3 +41289,78 @@ evaluator lives in `internal/evaluator/evaluator.go`. `cargo run -p xtask --
 anchors` failed the build on it. That is the third time this session the anchor
 gate has caught a cited path that was plausible and wrong, and it is the only
 gate that can: **`cargo test` cannot know that a doc comment lies.**
+
+## §821 — TS2474, and §819's guard turned the right way round
+
+```ts
+const enum D {
+    e = 199 * Math.floor(Math.random() * 1000),   // TS2474
+    f = d - (100 * Math.floor(Math.random() % 8)),
+}
+```
+
+`isConstEnum` is the arm **immediately above** TS1066 in the same switch
+(`checker.go:24014`), so §819's machinery already covers it — except that
+§819's guard declines both of these. `Math` is an identifier in reference
+position, so the guard reads *"the evaluator's `None` may be a symbol
+shortfall"* and stays silent.
+
+It is not a shortfall. **Upstream's evaluator has no call arm at all**, so a
+subtree containing a `CallExpression` is non-constant *whatever* its identifiers
+resolve to. §819's guard is a negative test — *"nothing here could need
+symbols"* — and it needs its positive complement:
+
+```
+no reference identifier anywhere        'foo'.length            not constant
+a call or a `new` anywhere              Math.floor(…)           not constant, whatever `Math` is
+otherwise                                a + 1,  E1.y            decline — upstream folds these
+```
+
+> §819 reasoned about **what `None` might be hiding** and got a sound but weak
+> predicate. The complement reasons about **what upstream cannot fold either**,
+> and the two together are far tighter than the conservative one alone. This is
+> the second time in two sections that §819's split was right and incomplete —
+> and both completions came from reading upstream's evaluator rather than
+> re-reasoning about this port's.
+
+The arm order is upstream's: `isConstEnum` first, ambient second, so a
+`const enum` in a `.d.ts` gets TS2474 and not TS1066.
+
+```
+bar:  +1 of 1 (constEnum2),  0 LOST,  WRONG delta <= 0
+```
+
+### Falsifiers
+
+1. **`const enum E { a = 1 }` reports.** The evaluator folds it.
+2. **TS1066's row moves.** The const arm is tested first and must take these.
+3. **A non-enum call anywhere reports.** The rule is scoped to enum members.
+
+## §822 — §821 built: **+1 of 1**, row closed; both enum rows now shut
+
+```
+diagnostics             2,316 → 2,317   (bar was +1;  +1, 0 LOST)   42.22%
+extraonly               zero TS2474, zero TS1066
+TS2474 missing lines    2 → 0     — the row is closed
+TS1066                  still 0   — falsifier 2 negative, the const arm took its cases
+```
+
+Three sections, three enum rows, one predicate:
+
+```
+§819   the None split (symbols)     TS1066    +1
+§820   the evaluator's missing leaf TS1066    the −1 repaid, three wrong lines gone
+§821   the None split (calls)       TS2474    +1
+```
+
+> The whole of §821 was **eleven lines and one boolean**, because §819 had
+> already found the switch, the parent walk, the const/ambient split and the
+> evaluator, and §820 had already repaired the evaluator. **A predicate that took
+> three sections to get right then paid for a second row at almost no cost** —
+> which is the argument for writing the guard as two named tests
+> (`subtree_has_reference_identifier`, `subtree_has_call`) rather than one
+> condition: the second row needed exactly one of them inverted.
+
+The remaining const-enum siblings, TS2477 and TS2478 (*non-finite* and *NaN*),
+are already at zero missing — they need the evaluator to **succeed** and produce
+an out-of-range number, which it does.
