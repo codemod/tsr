@@ -39812,3 +39812,62 @@ cases the gate was there to exclude.
 > variable's name says what it computes rather than what it guards. `superCall`,
 > `mainModule`, `ok` — three of this session's rows turned on one, and none of
 > them reads as a guard at the site that needs it.
+
+## §787 — the binding-as-gate sweep: **38 sites, 9 reach a ported diagnostic, and the ones that mattered are done**
+
+§786 named the shape — upstream writes
+
+```go
+x := c.findSomething(...)
+if x != nil { …a diagnostic this port emits… }
+```
+
+— and observed that a port can take the body and drop the `if` without any local
+sign of it. Sweeping `checker.go` for the pattern:
+
+```
+`x := c.f(…)` immediately followed by `if x != nil {`      38 sites
+of those, whose block names a message this port emits       9
+```
+
+```
+checker.go:1591   suggestion := getSuggestedSymbolForNonexistentSymbol   TS2552
+checker.go:1643   symbol := resolveSymbol                                TS2708   §692
+checker.go:1653   symbol := resolveSymbol                                TS2709   §692
+checker.go:2847   superCall := findFirstSuperCall                        TS2377   §785
+checker.go:5999   localDeclarationSymbol := resolveName                  TS2481   §716
+checker.go:11558  promisedType := GetPromisedTypeOfPromise               TS2339 …
+checker.go:11569  suggestion := getSuggestedSymbolForNonexistentProperty TS2339 …
+checker.go:27020  prop := getPropertyOfType                              TS2540
+checker.go:27471  errorNode := getConstraintDeclaration                  TS2313
+```
+
+**Four of the nine are rows this session already closed** — §692 built both
+`resolveSymbol` wrappers, §716 ported the `nil`-container reading, §785 added the
+super-call gate. Of the remaining five, `extraonly` shows **zero** wrong lines
+for TS2540, TS2313 and TS2552, and TS2339's two are a different mechanism
+(`ENUM.B` in an arithmetic operand, not a suggestion gate).
+
+> Seventh sweep, and the second whose value is the *absence* it establishes.
+> §786 wrote that this shape is invisible locally; the sweep says **there are
+> thirty-eight of them upstream, nine touch code this port has, and every one
+> that could have been wrong has been measured.** That is a closed category on
+> the diagnostics side, and it took one script after three rows had been found
+> by hand.
+
+The sweeps now stand at:
+
+```
+§725  is_value_reference             +4
+§727  is_declaration_or_member_name  +0
+§733  modifiers_of                   +0
+§742  discarded verdicts             closed at 2
+§750  class.members as membership    2 handed to another workstream
+§764  dispatch vs entry kinds        +0
+§772  the type-only kind list        closed, complete
+§787  binding-as-gate                closed, 4 already built
+```
+
+**Eight sweeps, one paid in cases, and six closed a question.** The one that paid
+was the first; the value of the rest is that nothing else is hiding where they
+looked.
