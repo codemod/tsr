@@ -32718,3 +32718,29 @@ the same members, so it got `class_declares_private_name` beside it rather than
 a widened one. **Widening is right when the callers ask the same question
 (§601, §621) and wrong when they ask different ones** — TS18013 asks *does any
 enclosing class declare it*, TS18014 asks *which is the nearest*.
+
+## §629 — correcting §628: TS18014 went 5 → **1**, not 5 → 0
+
+```
+total missing TS18014 lines: 1
+cases blocked on TS18014 alone: 1
+```
+
+§628 recorded *"5 missing lines → 0"*. The **+4 is right** and four of the five
+lines converted; one remains, in a fixture whose receiver is not a plainly
+annotated parameter.
+
+**This is §610's error, repeated eighteen builds later, by the same hand and in
+the same shape**: a row asserted closed from the board's movement rather than
+from the row's own count. §610 wrote *"corrected per `CLAUDE.md`; the object arm
+gets its own build"* and the correction there produced the next build's
+specification — and then the habit did not stick.
+
+> **The check costs one command and it is the same command that produced the
+> bar.** `diagmissing` is run *before* every build in this workstream to set the
+> bar and *not* run after, which is exactly backwards for a claim about the
+> row's state. The rule this session should have adopted at §610 and is
+> adopting now: **the closing number comes from a post-build `diagmissing`, or
+> the note says "+n" and nothing about the row.**
+
+Two corrections of the same kind is a habit, not a slip; recording it as one.
