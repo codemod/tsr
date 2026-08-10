@@ -3491,6 +3491,49 @@ impl Checker<'_, '_> {
         };
         let declarations = self.binder.symbols().get(owner).declarations.clone();
         for declaration in declarations {
+            // SS149a (correcting SS148.3's mis-attribution: Rhs9-13 are
+            // PREDICATE-carrying and this leg skipped ClassDeclaration
+            // whole): a class's STATIC [Symbol.hasInstance] method carries
+            // the predicate the same way.
+            if let Some(Node::ClassDeclaration(class)) = self.node_map.get(declaration) {
+                for member in class.members {
+                    let tsr_ast::ClassElement::MethodDeclaration(method) = member else {
+                        continue;
+                    };
+                    if !method.modifiers.iter().any(|modifier| {
+                        matches!(modifier, tsr_ast::ModifierLike::Token(token)
+                            if token.kind == SyntaxKind::StaticKeyword)
+                    }) {
+                        continue;
+                    }
+                    let tsr_ast::PropertyName::ComputedPropertyName(computed) = method.name else {
+                        continue;
+                    };
+                    let is_has_instance = matches!(
+                        computed.expression,
+                        Some(tsr_ast::Expression::PropertyAccessExpression(access))
+                            if matches!(access.expression,
+                                Some(tsr_ast::Expression::Identifier(root))
+                                    if root.text == "Symbol")
+                                && matches!(access.name,
+                                    Some(tsr_ast::MemberName::Identifier(name))
+                                        if name.text == "hasInstance")
+                    );
+                    if !is_has_instance {
+                        continue;
+                    }
+                    let symbol = method.node_id.and_then(|id| self.binder.symbol_of(id))?;
+                    let member_type = self.get_type_of_symbol(symbol);
+                    let signatures = self.signatures_of_type(member_type)?;
+                    let [signature] = signatures.as_slice() else { return None };
+                    let predicate = signature.predicate.clone()?;
+                    if predicate.asserts {
+                        return None;
+                    }
+                    return predicate.r#type;
+                }
+                continue;
+            }
             let members: &[tsr_ast::TypeElement<'_>] = match self.node_map.get(declaration) {
                 Some(Node::TypeLiteralNode(node)) => node.members,
                 Some(Node::InterfaceDeclaration(node)) => node.members,

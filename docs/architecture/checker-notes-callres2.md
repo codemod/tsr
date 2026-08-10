@@ -1391,3 +1391,22 @@ road approximates this without the empty-class-instance and
 class values, (2) the checkDerived variant of the ladder (declared
 derivation only — `isTypeDerivedFrom`), (3) the any/Object/Function
 guards verbatim. Bounded, fixture-verifiable, next window.
+
+## §149a LANDED: the class-static predicate arm (+38, zero regressions) — CORRECTING §148.3
+
+**The record corrected, and how the error happened**: §148.3 read
+`predicate=None` for Rhs8 AND Rhs9 in one trace line and
+pattern-matched BOTH to "boolean-returning, None is correct" — but
+Rhs9-13 are PREDICATE-carrying (`value is Point` et al.), and the None
+was a lookup BUG: the declaration-reading leg handled TypeLiteralNode
+and InterfaceDeclaration and skipped ClassDeclaration statics whole.
+One arm (static modifier + the same computed-name match) converted 38
+lines. The lesson is §148.3's own custody rule turned on itself: a
+trace line that CONFIRMS a hypothesis for one datum does not confirm
+it for the datum beside it — read the fixture declaration before
+classifying the trace.
+
+Family: 429 R / 2 G / 10 W. The true boolean-hasInstance remainder
+(Rhs7/8 shapes wanting the union unchanged, and the constructor-road
+semantics) is the §148.3-addendum spec, now correctly scoped to ~10
+lines.
