@@ -6326,3 +6326,25 @@ two premises corrected by measurement, fourteen probes, §124.1
 (+14) and §124.2 (+184) landed from its walls, and the arm's own
 +48 net. The literal-self this mint is the thisType subsystem's
 first standing piece.
+
+## §143 — BAR (build next window): the import("spec") spelling at alias-less sites
+
+Per-site arm 2's first slice. `module_alias_at` already answers
+tri-state (unique alias / ambiguous / NONE); the §-arm takes the
+NONE case only — upstream's `getSpecifierForModuleSymbol`: a
+FILE-module container no alias reaches prints
+`import("<specifier>").Name`, the specifier computed RELATIVE TO
+THE REFERENCING FILE (the per-file context this head was deferred
+for — now reachable because the reference site is in hand at this
+road). Ambient modules print their quoted name — but the qualnamep
+census's 21-line AT-RISK class (moduleAugmentationExtendAmbient*)
+wants BARE names at augmented ambients; that class gates OUT.
+Entry: symbol_chain's fall-through + resolution.rs's
+resolved_module_path host hook for file paths; relative-path +
+extension-strip helpers likely in tsr_path. **Bar: ≥60 G→R at
+≥5:1** (privacyImportParseErrors 60-class, the es6ExportEquals
+alias residue, the ~640-line decline census's live fraction —
+re-census first, the board has moved). Falsifiers: (a) the
+augmented-ambient bare-name class; (b) specifiers upstream spells
+through baseUrl/paths rather than relative (tsconfig-bearing cases
+— decline those files this slice).
