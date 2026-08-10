@@ -42577,3 +42577,49 @@ and is absent from a fresh worktree — the run returned **0 passing**, silently
 plausible for a broken build. Symlinking the submodule from the main checkout
 fixed it. Recorded because the next before/after decomposition will hit it, and
 `0 passing` is exactly the kind of number that gets believed.
+
+## §852 — TS2531, the last SILENT row: the site is reached, the **type** is wrong
+
+```ts
+class C1 extends null {
+  static method() { super.oops; }   // TS2531 — `Object is possibly 'null'`
+}
+```
+
+§850 wired the receiver site, and `super` is not an entity name, so this is
+exactly the `(None, true, false)` arm — `OBJECT_IS_POSSIBLY_NULL`. It does not
+fire, and a probe says why in one run:
+
+```
+PROBE 2531 super null=false undef=false
+PROBE 2531 super null=false undef=false
+```
+
+**Twice, matching the two expected lines.** The rule is entered, at the right
+node, the right number of times. `check_expression(super)` does not answer a type
+containing `null` when the heritage base is `null`, so the facts are `(false,
+false)` and the reporter returns before its table.
+
+> Three sections ago this row was *"a silent arm"*, two sections ago it was
+> *"an unwired site"*, and it is neither: it is a **type**. Each of those three
+> readings was the correct next hypothesis given what had been measured, and each
+> was refuted by one probe. **The SILENT list did not tell me what was wrong with
+> these four rows — it told me where to point the probe**, which is a smaller
+> claim and the one worth keeping.
+
+**Refused: TS2531, 1 case, 4 lines. Owner: the type side** — `super`'s type under
+a `null` heritage base. The diagnostics wiring for it is complete and verified by
+the probe, so when the type arrives the row closes with no further work here.
+
+### The SILENT sweep, closed
+
+```
+§846  found 4      TS2532, TS18047, TS18049, TS2531 — all arms of one reporter
+§848  TS2532       built (+1) — the operand its dead arm was written for
+§850  TS18047      now emits, on narrowing cases the flow owner still loses
+      TS18049      built (+3 with the receiver site)
+§852  TS2531       refused to the type side, with the probe that proves the wiring
+```
+
+Four rows, three sections, **+4 cases**, one refusal with an owner and a
+falsifier that has already been run.
