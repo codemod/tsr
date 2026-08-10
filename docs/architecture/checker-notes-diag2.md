@@ -33922,3 +33922,57 @@ The capability itself is large: upstream reparses JSDoc into real modifier and
 type nodes (`NodeFlagsReparsed` marks them, and appears in a dozen guards this
 session has read past). **Owner: `tsr-parser`'s JSDoc reparse**, which no note
 had named as a diagnostics owner before this one.
+
+## §658 — `diagreach`: **1,241 cases reachable by deepening existing rules**
+
+An instrument built earlier in this workstream and unused all session.
+Its headline is a number nothing has recorded:
+
+```
+cases reachable by deepening existing rules: 1241
+```
+
+grouped by the **set** of codes a case is missing:
+
+```
+489  TS2322                    the structural relation
+110  TS2345      101  TS2339   the same
+ 48  TS2454       45  TS2741
+ 22  TS2411       20  TS2416    15  TS2304    14  TS7006
+ 13  TS2322+TS2741             10  TS2362+TS2363
+ 11  TS2420       11  TS2554    10  TS2365
+```
+
+> **Deepening an existing rule reaches 1,241 cases; the whole session has moved
+> 735.** That is not a promise — the top five groups are the relation's and are
+> another workstream's — but it is the first measured statement of how much of
+> the board sits behind rules that already exist rather than rules that do not.
+> **§599's grammar family (128 cases) and this (1,241) are the two priced pools,
+> and they barely overlap**: the grammar file's rows are mostly *absent* rules,
+> and these are all *present* ones.
+
+### TS2362/TS2363, characterised
+
+`exponentiationOperatorWithInvalidSimpleUnaryExpressionOperands` is the largest
+single case in the non-relation tail:
+
+```
+expected 38 lines · actual 12 · missing 26 · extra 0
+```
+
+**Zero wrong lines and a third of the file emitted.** Every missing line is
+TS2362 on the *left* operand of `**`:
+
+```ts
+(! --temp) ** 3;    // missing
+(!temp--) ** 3;     // emitted
+```
+
+so `check_arithmetic_operand_types` fires for some `!`-expressions and not
+others — a *within-rule* gap, not a missing rule, which is exactly what
+`diagreach` is counting. **Not built here**: the discriminator between the two
+shapes is not visible without a probe, and this iteration's budget went to the
+pool's measurement rather than to one of its members.
+
+Recorded so the next session starts from *1,241 cases behind existing rules*
+rather than from the row it happens to open.
