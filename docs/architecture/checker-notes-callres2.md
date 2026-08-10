@@ -680,3 +680,17 @@ typeArgumentInference*), clear both legs, land. The summit's
 distance is one pipeline, from a reproducible base, with its win
 condition automated. Nothing in this owner remains unmeasured,
 unpriced, or unreachable.
+
+**Pipeline stage 1 (the seed) measured ALONE on the verified base:
+16:37 in-family — underwater; the family requires the
+candidate-priority machinery, not the seed.** The clean
+single-variable experiment the mixed-generation era couldn't run:
+verified base + seed only, inferFromGenericFunctionReturnTypes*
+filtered — +3 G→R +13 W→R against 37 G→W. The seed's inferences
+reach the memo but mislead where the argument tier should have
+outranked or refined them mid-inference (upstream's
+ReturnType-priority candidates are REPLACED by argument-priority
+arrivals; my two-tier consult only fills absences — the dynamic
+replacement IS the priority machinery). Stage order corrected:
+priorities FIRST, seed second. The verified base stands unchanged
+as the pipeline's floor.
