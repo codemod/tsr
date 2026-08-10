@@ -7696,7 +7696,7 @@ impl Checker<'_, '_> {
         }) {
             return;
         }
-        let mut seen: Vec<&str> = Vec::new();
+        let mut seen: Vec<String> = Vec::new();
         let mut repeats: Vec<(NodeId, String)> = Vec::new();
         for property in literal.properties {
             let name_id = match property {
@@ -7710,12 +7710,24 @@ impl Checker<'_, '_> {
             };
             let Some(name_id) = name_id else { continue };
             // `getEffectivePropertyNameForPropertyNameNode` returns `!ok` for a
-            // computed name, which upstream `continue`s past.
-            let Some(text) = self.identifier_text(name_id) else { continue };
-            if seen.contains(&text) {
-                repeats.push((name_id, text.to_string()));
+            // computed name, which upstream `continue`s past — it catches those
+            // through the late-bound member table instead. This port has no
+            // late binding and does have the **written expression**: two
+            // computed names spelled identically name the same property when
+            // the spelling is an identifier or a chain of them. The key sits in
+            // its own namespace, so `{ x: 1, [x]: 2 }` does not collide —
+            // `x` and the value of `x` are different properties. §757.
+            let key = match self.identifier_text(name_id) {
+                Some(text) => text.to_string(),
+                None => match self.computed_name_spelling(name_id) {
+                    Some(spelling) => format!("[]{spelling}"),
+                    None => continue,
+                },
+            };
+            if seen.contains(&key) {
+                repeats.push((name_id, key));
             } else {
-                seen.push(text);
+                seen.push(key);
             }
         }
         for (name_id, text) in repeats {
@@ -10822,6 +10834,36 @@ impl Checker<'_, '_> {
             self.binder.resolve_name(self.nodes, self.node_map, base, &text, SymbolFlags::CLASS)?
         };
         self.binder.symbols().get(self.binder.merged_symbol(symbol)).value_declaration
+    }
+
+    /// The written spelling of a computed property name, when it is an
+    /// identifier or a chain of them.
+    ///
+    /// `[Symbol.isConcatSpreadable]` answers `Symbol.isConcatSpreadable`; `[f()]`
+    /// answers `None`, because a call is textually identical between two
+    /// occurrences and names nothing upstream would late-bind. §757.
+    fn computed_name_spelling(&self, name: NodeId) -> Option<String> {
+        let Some(Node::ComputedPropertyName(computed)) = self.node_map.get(name) else {
+            return None;
+        };
+        let mut at = computed.expression.and_then(|expression| expression.node_id())?;
+        let mut parts: Vec<String> = Vec::new();
+        loop {
+            match self.node_map.get(at)? {
+                Node::Identifier(identifier) => {
+                    parts.push(identifier.text.to_string());
+                    break;
+                }
+                Node::PropertyAccessExpression(access) => {
+                    let member = access.name.and_then(|member| member.node_id())?;
+                    parts.push(self.identifier_text(member)?.to_string());
+                    at = access.expression.and_then(|expression| expression.node_id())?;
+                }
+                _ => return None,
+            }
+        }
+        parts.reverse();
+        Some(parts.join("."))
     }
 
     /// A `declare` modifier on the declaration itself.

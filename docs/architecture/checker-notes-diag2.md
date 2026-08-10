@@ -38582,3 +38582,93 @@ Two lines, both in `.js` files — `noCrashOnParameterNamedRequire` and
 `tslibInJs`, where a `require(...)` call in JavaScript is a module reference and
 in TypeScript is an ordinary call. **§657's JSDoc/JavaScript owner**, and the
 third row this session to end there.
+
+## §757 — TS1117: two computed names spelled the same way
+
+```ts
+var x = {
+    [Symbol.isConcatSpreadable]: 0,
+    [Symbol.isConcatSpreadable]: 1     // TS1117
+}
+const t1 = { [n]: 1, [n]: 1 }          // TS1117
+```
+
+`checkGrammarObjectLiteralExpression`'s duplicate scan keys on
+`getEffectivePropertyNameForPropertyNameNode`, which **fails for a computed
+name** — upstream `continue`s past it there and catches these through the
+late-bound member table instead, where `[Symbol.isConcatSpreadable]` and `[n]`
+have resolved to `"Symbol(Symbol.isConcatSpreadable)"` and `"1"`.
+
+This port has no late binding. What it has is the **written expression**, and
+two computed names spelled identically name the same property whenever the
+spelling is an identifier or a chain of them:
+
+```
+[Symbol.isConcatSpreadable]  →  key "Symbol.isConcatSpreadable"
+[n]                          →  key "n"
+[f()]                        →  no key, declined
+```
+
+The key lives in a separate namespace from an ordinary name, so `{ x: 1, [x]: 2 }`
+does not collide — `x` and the *value of* `x` are different properties and only
+the type side can say whether they coincide.
+
+> **Narrower than upstream in one direction only.** Two spellings of one value —
+> `const a = "k", b = "k"; { [a]: 1, [b]: 2 }` — are missed, and that is silence.
+> A call or any other expression is declined outright, because `{ [f()]: 1,
+> [f()]: 2 }` is textually identical and upstream reports nothing.
+
+```
+bar:  +1 of 4 (symbolProperty36),  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **`{ [f()]: 1, [f()]: 2 }` reports.** The whole risk of a textual key, and
+   the reason only identifier chains get one.
+2. **`{ x: 1, [x]: 2 }` reports.** Separate namespaces; this would be a wrong
+   line on a common shape.
+3. **TS2300's row moves.** The duplicate-identifier family shares this scan's
+   neighbourhood.
+
+## §758 — §757 built: **+3 of 1**, and a textual key stood in for late binding
+
+```
+diagnostics             2,269 → 2,272   (bar was +1;  +3, 0 LOST)   41.40%
+extraonly               zero TS1117 and zero TS2300 lines
+TS1117 missing lines    15 → 6;  4 cases blocked alone → 1
+```
+
+All three falsifiers negative — including `{ [f()]: 1, [f()]: 2 }`, which is
+textually identical and correctly declined, and `{ x: 1, [x]: 2 }`, which the
+separate key namespace keeps apart.
+
+**Nine of fifteen lines**, and three of four cases, from a key made of the
+written spelling.
+
+### What the substitution actually is
+
+Upstream resolves `[Symbol.isConcatSpreadable]` and `[n]` to `"Symbol(...)"` and
+`"1"`, then compares. This port compares the spelling and never learns the value.
+The two agree exactly when **equal spellings imply equal values**, which holds
+for an identifier or a chain of them and fails for a call.
+
+```
+same spelling, same value      caught       [n] twice
+different spelling, same value missed       [a] and [b], both "k"
+same spelling, different value declined     [f()] twice
+```
+
+> The third row is why the identifier restriction is not a convenience. **A
+> textual key is sound only where the text determines the value**, and a call is
+> the shape where it does not — so the restriction is the correctness argument,
+> not a simplification of it. §706 made the same trade for type-parameter
+> constraints and was narrow in the same direction: **missing rather than
+> wrong.**
+
+### The residue
+
+Six lines, one case: `duplicateObjectLiteralProperty_computedName2`'s enum keys,
+`[E1.A]` and `[E2.B]`, where two different spellings resolve to the same string.
+That is the second row of the table above and it needs the value — **the late-
+bound member table this build stood in for, and the owner it belongs to.**
