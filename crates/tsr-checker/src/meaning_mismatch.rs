@@ -234,12 +234,19 @@ impl Checker<'_, '_> {
         let global = if text == "undefined" || text == "globalThis" {
             true
         } else {
-            let Some(symbol) = self.binder.resolve_name(
+            // **Resolve from the parent scope**, which is what upstream's
+            // `resolveEntityName` does here — the alias this specifier itself
+            // created is not a candidate. §836 added the mode (`bd tsr-8esz`);
+            // §765's attempt to drop the specifier from the *declaration list*
+            // measured `+0` because the reality is two symbols, not one symbol
+            // with two declarations.
+            let Some(symbol) = self.binder.resolve_name_excluding(
                 self.nodes,
                 self.node_map,
                 named,
                 text,
                 SymbolFlags::VALUE | SymbolFlags::TYPE | SymbolFlags::MODULE | SymbolFlags::ALIAS,
+                Some(node),
             ) else {
                 return;
             };
@@ -251,14 +258,7 @@ impl Checker<'_, '_> {
             // for TS2552; upstream's `resolveEntityName` skips the specifier's
             // own symbol and this port's lookup does not, so the skip goes
             // here. §765.
-            let Some(&first) = self
-                .binder
-                .symbols()
-                .get(symbol)
-                .declarations
-                .iter()
-                .find(|&&declaration| declaration != node)
-            else {
+            let Some(&first) = self.binder.symbols().get(symbol).declarations.first() else {
                 return;
             };
             self.declaration_container_is_a_script(first)

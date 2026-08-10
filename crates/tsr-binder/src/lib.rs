@@ -425,6 +425,61 @@ impl<'a> BindResult<'a> {
         name: &str,
         meaning: SymbolFlags,
     ) -> Option<SymbolId> {
+        self.resolve_name_excluding(nodes, node_map, start, name, meaning, None)
+    }
+
+    /// Do **all** of this symbol's declarations lie inside `exclude`? Such a
+    /// symbol is the excluded declaration's own, and not an answer to a lookup
+    /// that must resolve from the parent scope. §836.
+    fn symbol_is_declared_within(
+        &self,
+        symbol: SymbolId,
+        exclude: Option<NodeId>,
+        nodes: &NodeTable,
+    ) -> bool {
+        let Some(exclude) = exclude else { return false };
+        let declarations = &self.symbols.get(self.merged_symbol(symbol)).declarations;
+        if declarations.is_empty() {
+            return false;
+        }
+        declarations.iter().all(|&declaration| {
+            let mut current = Some(declaration);
+            while let Some(node) = current {
+                if node == exclude {
+                    return true;
+                }
+                current = nodes.parent(node);
+            }
+            false
+        })
+    }
+
+    /// [`Binder::resolve_name`], with a declaration whose own symbol is not an
+    /// answer.
+    ///
+    /// Upstream's `resolveEntityName` resolves an export specifier's name from
+    /// the **parent** scope, so the alias the specifier itself created is not a
+    /// candidate. This port's binder gives `export { X }` a symbol named `X`
+    /// whose declaration list is exactly `[the specifier]`, and a plain lookup
+    /// finds it and stops.
+    ///
+    /// The exclusion is applied at the `locals` hit rather than to the
+    /// resulting declaration list: §765 tried the latter and measured `+0`,
+    /// because the assumption was one symbol with two declarations and the
+    /// reality is **two symbols**. A candidate whose declarations all lie
+    /// within `exclude` is skipped and the walk continues outward.
+    ///
+    /// `docs/architecture/checker-notes-diag2.md` §836, `bd tsr-8esz`.
+    #[must_use]
+    pub fn resolve_name_excluding(
+        &self,
+        nodes: &NodeTable,
+        node_map: &NodeMap<'a>,
+        start: NodeId,
+        name: &str,
+        meaning: SymbolFlags,
+        exclude: Option<NodeId>,
+    ) -> Option<SymbolId> {
         // Upstream's `lastLocation`: the node the walk came *from*. The static
         // rule below is a question about it, not about the class.
         let mut last: Option<NodeId> = None;
@@ -435,7 +490,9 @@ impl<'a> BindResult<'a> {
             // `GetContainerFlags`), so no node ever owns both tables and swapping
             // these two turns no test red. Stated rather than pinned by a test
             // that could not bite.
-            if let Some(found) = self.lookup_scoped(self.locals.get(&node), name, meaning) {
+            if let Some(found) = self.lookup_scoped(self.locals.get(&node), name, meaning)
+                && !self.symbol_is_declared_within(found, exclude, nodes)
+            {
                 return Some(found);
             }
             if matches!(
@@ -514,6 +571,11 @@ impl<'a> BindResult<'a> {
                 && let Some(symbol) = self.symbol_of(node)
                 && let Some(&found) = self.symbols.get(symbol).exports.get(name)
                 && self.symbols.get(found).flags.intersects(meaning & mask)
+                // An `export { X }` specifier's own symbol lives in the file's
+                // **exports**, not its `locals`, so the exclusion belongs on
+                // this arm too — §836's first measurement found the specifier
+                // here after the `locals` arm had been filtered.
+                && !self.symbol_is_declared_within(found, exclude, nodes)
             {
                 return Some(self.merged_symbol(found));
             }

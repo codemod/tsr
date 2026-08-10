@@ -41899,3 +41899,93 @@ zero-width-span test on the value path      REVERTED  upstream has no such test 
 Eleventh `+0` kept for fidelity, and the fourth sweep this session to close with
 a complete answer. Two of the four found something; two found nothing; **all four
 cost one command each because the instrument was written down before the search.**
+
+## §836 — the binder variant `bd tsr-8esz` asked for
+
+Three rows have been waiting on one missing resolver mode, named in the issue:
+
+> *"a `resolve_name` variant that starts the scope walk above a given
+> declaration. All three rows want the same mode."*
+
+```
+TS2661   8 cases, 35 lines   export { X } where X is a global
+TS2552   3 cases (§713)      the export-specifier arm
+TS2708   3 cases             (needs the alias half as well)
+```
+
+`checkExportSpecifier` (`checker.go:5560`) resolves the exported name and reports
+when the answer is `undefined`, `globalThis`, or a symbol whose first
+declaration's container **is a global source file**:
+
+```go
+symbol := c.resolveName(exportedName, exportedName.Text(), Value|Type|Namespace|Alias, …)
+if symbol != nil && (symbol == c.undefinedSymbol || symbol == c.globalThisSymbol ||
+    symbol.Declarations != nil && ast.IsGlobalSourceFile(ast.GetDeclarationContainer(symbol.Declarations[0]))) {
+```
+
+`check_export_specifier_is_local` is already built against exactly this text and
+already carries §713's note that **the specifier is its own answer** — the binder
+gives `export { X }` a symbol named `X`, so the lookup finds the specifier itself
+and its container is never a script. §765 tried skipping the specifier *among the
+symbol's declarations* and measured `+0`, because the assumption was one symbol
+with two declarations and the reality is **two symbols**.
+
+The mode that fixes it is a filter at the `locals` hit, not at the declaration
+list: a candidate whose declarations all lie **within the excluded node** is not
+an answer, and the walk continues outward.
+
+```
+bar:  >= +4 cases of TS2661's 8,  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **A local `const X = 1; export { X }` reports.** The local is found in the
+   same scope and its declaration is not inside the specifier.
+2. **`export { X } from "m"` reports.** The module-specifier arm returns early.
+3. **TS2552's or TS2304's rows lose cases.** The new mode is used only here.
+
+## §837 — §836 built: **+3**, and the exclusion belonged on *two* arms
+
+```
+diagnostics             2,324 → 2,327   (bar was >= +4;  +3, 0 LOST)   42.40%
+binder_symbols          100%            — unchanged
+extraonly               no new wrong lines
+TS2661                  8 cases → 5,  35 lines → 22
+```
+
+**Under the bar and kept**: +3 with no losses is a keep, and the bar's job is to
+stop a build being talked up, which it did.
+
+The first measurement was `+0`. `resolve_name_excluding` filtered the `locals`
+hit — the arm the issue's wording pointed at — and a probe at the rule's entry
+showed the resolved symbol was still the `ExportSpecifier`:
+
+```
+PROBE 2661 resolved decls=1
+PROBE 2661 first kind=ExportSpecifier script=false
+```
+
+**An `export { X }` specifier's own symbol lives in the file's `exports` table,
+not its `locals`.** With the filter on both arms the same probe reads
+`first kind=ClassDeclaration script=true` and the case reports.
+
+> This is the third attempt at the same row and the third different wrong place:
+> §765 filtered the **declaration list** (`+0`, because it is two symbols and not
+> one), §836 filtered the **`locals` arm** (`+0`, because the symbol is an
+> export), §837 filtered **both arms** (`+3`). Each attempt was a correct
+> statement about a table that did not hold the symbol. **"Resolve from the
+> parent scope" is one sentence in upstream and three tables here**, and the
+> probe — not the reasoning — is what named the right one, each time in one run.
+
+`bd tsr-8esz` is updated rather than closed: half (2) is built, half (1) — the
+alias-meaning gap blocking TS2708's 3 cases — is untouched, and TS2552's arm does
+not use the new mode yet.
+
+### The five that remain
+
+TS2661 keeps 5 cases and 22 lines. `reExportGlobalDeclaration1` alone is 12 of
+them, which makes the row's tail a **different shape** from its head: a global
+re-exported through a chain rather than a single specifier over a script
+declaration. Not this build's, and named here so the next attempt starts from the
+shape rather than the count.
