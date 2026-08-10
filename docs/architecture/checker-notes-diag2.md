@@ -28950,3 +28950,59 @@ here and not attempted (§501).
 2. **`extraonly` grows.** §67 records this rule's one historical loss and 12
    wrong lines from a divergent accessor pair; widening its reach re-exposes
    that surface.
+
+## §547 — TS2341 diagnosed properly: `declared_members_are_complete` declines the clodule
+
+§546 asked for a positive control before trusting silence. Two facts supplied
+one immediately, at no cost:
+
+```
+39 baselines carry TS2341        the rule works
+11 lines are missing             the row is partial, not dead
+```
+
+**A rule that converts 28 lines elsewhere cannot be dead**, so §546's "the
+dispatch or an early guard declines it" was already excluded before any probe
+ran. A staged probe then walked the function:
+
+```
+P1  P2  P3 text=bar  P4        ← reached
+P4b err=false anyunk=false complete=false
+P5                              ← never reached
+```
+
+**`declared_members_are_complete(receiver_type)` is `false`** for `D`, a class
+merged with a namespace. That is the port-local conservative gate — the same
+family as §186's *"an empty exports table can be declined; a partial one cannot"*
+— and it is doing exactly what it was written to do.
+
+### Two probing errors, both worth recording
+
+1. **§546's silent probes.** A `python` `replace(..., 1)` hit the **first**
+   occurrence of `if self.is_error(receiver_type)` in the file, which is in
+   `check_readonly_assignment_target` at line 82, not `inaccessible_property` at
+   line 394. The probe was never in the function under test.
+2. The correction repeated it once more before the anchor was made unique.
+
+> **A probe placed by textual match is a probe placed somewhere.** Three of this
+> file's functions open with the same four lines, which is *why* the rule reads
+> the way it does — and it makes every non-unique anchor a coin flip. The fix is
+> mechanical: anchor on a line that exists once, and print something that proves
+> which copy ran.
+
+§546 corrected its conclusion and kept its method; the method was the part that
+was wrong.
+
+### The row, precisely owned
+
+```
+2 cases   destructuring entry            checkObjectLiteralDestructuringPropertyAssignment
+3 cases   `declared_members_are_complete` on a class+namespace merge
+```
+
+Neither is a rule defect. The second is the **type side's** merged-static
+representation and belongs with the owner already carrying TS2488/TS2713/TS2493;
+the first is a second entry point into a rule that works.
+
+**No build attempted** — the finding is the deliverable, and it replaces a
+five-case row of unknown cause with two named owners.
