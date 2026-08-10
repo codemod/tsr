@@ -268,7 +268,14 @@ impl Checker<'_, '_> {
     /// Returns `leftOk && rightOk` (`checker.go:12380`) — whether the caller
     /// may go on to `checkAssignmentOperator`, which is TS2364's site. §861.
     pub(crate) fn check_arithmetic_operand_types(&mut self, node: NodeId, ambient: bool) -> bool {
-        if ambient || self.file_has_parse_errors || self.in_js_file(node) {
+        // **No `file_has_parse_errors` gate.** Upstream's
+        // `checkArithmeticOperandType` runs regardless, and this rule declining
+        // the whole file is why `compoundAssignmentLHSIsValue` — which carries
+        // TS1012 and TS1005 lines of this port's own making elsewhere — gets no
+        // TS2362 at all. §254 measured the *blanket* version of this gate on
+        // `check_value_identifier` at −14 cases and kept it off; this one was
+        // never measured. §892.
+        if ambient || self.in_js_file(node) {
             return true;
         }
         let Some(Node::BinaryExpression(binary)) = self.node_map.get(node) else { return true };

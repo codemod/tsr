@@ -44310,3 +44310,82 @@ rule does not run, and **§862 never checked.**
 command from an answer: *which guard in `check_arithmetic_operand_types` returns
 first for `compoundAssignmentLHSIsValue`* — the ambient/parse-error gate, the
 operator test, or the error-typed-operand guard.
+
+## §892 — §891's command, run: it is `file_has_parse_errors`
+
+Seven markers, one run:
+
+```
+34 × PROBE-G guard 1 line 272
+```
+
+```rust
+if ambient || self.file_has_parse_errors || self.in_js_file(node) {
+    return true;
+}
+```
+
+Not ambient, not a `.js` file — so **`file_has_parse_errors`**.
+`compoundAssignmentLHSIsValue.ts` carries TS1012 and TS1005 lines of this port's
+own making elsewhere in the file, and this rule declines the **whole file** on
+account of them.
+
+Upstream has no such gate: `checkArithmeticOperandType` runs regardless, which is
+why its TS2362 lines are there and this port's are not. §254 measured a *blanket*
+`file_has_parse_errors` on `check_value_identifier` at **−14 cases** and kept it
+off; this rule has one and nobody has measured it.
+
+> Three sections to find a one-line guard, and the chain of wrong answers is
+> worth keeping: §862 blamed a **type**, §891 blamed the **rule not running**,
+> and both were describing the same silence from further away. **Each step was
+> cheaper than the last and none of them was the first thing tried** — the first
+> thing tried was a build.
+
+```
+bar:  >= +1,  0 LOST via `diagpass`,  WRONG delta <= +3,  checker_types UNMOVED
+```
+
+### Falsifiers
+
+1. **`extraonly` rises by more than three.** A recovered tree invents operands
+   and this gate is what has been hiding them.
+2. **`diagpass` shows any LOST.**
+
+## §893 — §892 built: **+0 cases, +33 lines**, and both earlier readings were half right
+
+```
+diagnostics     2,350 → 2,350   (+0)   42.82%
+diagpass        LOST: (none)   GAINED: (none)
+extraonly       77, unchanged
+TS2362          543 → 568   (+25 lines)
+TS2363          511 → 519   (+8)
+checker_types   unmoved
+```
+
+Thirty-three lines the corpus wants, previously suppressed by a gate upstream
+does not have. Kept on §835's rule; **seventeenth `+0` for fidelity**, and one
+that `extraonly` cannot see the value of — only `diagemit` can.
+
+### The resolution of §862 and §891
+
+With the gate gone, `check_arithmetic_operand_types` **runs** on
+`compoundAssignmentLHSIsValue` and still emits no TS2362 for `this *= value`.
+
+```
+§862   "the root is `this`'s type"          unverified, and correct
+§891   "the rule is not entered"            verified, and correct
+```
+
+**Both were true, in sequence.** §891's correction of §862 was itself too strong:
+the rule was not entered *because of the parse-error gate*, and with the gate
+removed the rule runs and the type is what is missing — which is what §862 said.
+
+> Two blockers on one row, discovered in the wrong order, and each looked like
+> the whole answer from where it was found. §891's rebuke of §862 — *"an absence
+> has at least two explanations"* — was right about the method and wrong to
+> conclude the first explanation was therefore false. **The lesson survives the
+> correction: an absence has at least two explanations, and finding one does not
+> retire the others.**
+
+`bd tsr-gjze`'s item (2) is **restored**, now with the verification §862 lacked:
+the rule runs, the operands reach it, and `this` types as nothing that decides.
