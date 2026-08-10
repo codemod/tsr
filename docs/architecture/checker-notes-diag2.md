@@ -44434,3 +44434,55 @@ The eight losses **name the gates that matter**, and they cluster:
 literal invents an operand. That is a much smaller question than 127 gates, and
 it is the one to answer first — **per file, not per rule**, since the gate is a
 file-level fact.
+
+
+## §895 — the grammar/semantics split does not work either, and the class closes
+
+§894 priced removing **all 127** `file_has_parse_errors` gates at `+11 / −8`.
+Its eight losses all wanted **TS1xxx** codes, which suggested upstream's own
+division: `hasParseDiagnostics` is consulted from **grammar error reporters
+only** — thirteen sites, none of them on `checkExpression`'s road.
+
+Six files in this port hold nothing but semantic rules, and their codes confirm
+it:
+
+```
+implicit_any          5 codes,  no TS1xxx      5 gates
+readonly_target      10 codes,  no TS1xxx      6
+assignreport          3 codes,  no TS1xxx      4
+heritage_conformance  3 codes,  no TS1xxx      2
+index_constraint      2 codes,  no TS1xxx      2
+type_argument_arity   4 codes,  no TS1xxx      2
+```
+
+Twenty-one gates, not one guarding a grammar diagnostic. Removing exactly those:
+
+```
+diagnostics   2,350 → 2,349   (−1)
+extraonly     77 → 90         (+13 wrong lines)
+```
+
+**Reverted.** The gate is load-bearing for semantic rules too: a recovered tree
+invents operands, and a semantic rule reading one reports a diagnostic about a
+node the user never wrote.
+
+### The class, closed with two measurements
+
+```
+all 127 gates removed          +11 / −8,   extraonly +27
+the 21 semantic-only gates     −1,         extraonly +13
+```
+
+> Upstream can afford to gate only its grammar reporters because **its recovered
+> tree is upstream's own** — the same parser, the same invented nodes, the same
+> types over them. This port's recovery differs (§254, §641, §831), so the gate
+> is doing work here that `hasParseDiagnostics` does not do there: it is standing
+> in for *"our recovery and theirs disagree"*, which is a different proposition
+> from *"this file failed to parse"*.
+>
+> **A guard can be unfaithful in form and load-bearing in fact**, and the only way
+> to tell was to remove it in two different shapes and measure both.
+
+**Refused: the `file_has_parse_errors` class, twice measured.** The eleven cases
+§894 named are still reachable, but only per-rule and only with the wrong-line
+cost checked each time — not by any rule about which kind of rule holds the gate.
