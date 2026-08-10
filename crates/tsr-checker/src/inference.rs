@@ -437,7 +437,7 @@ impl Checker<'_, '_> {
                             (
                                 partial.clone(),
                                 parameters.clone(),
-                                names.iter().map(|n| n.to_string()).collect(),
+                                names.iter().map(ToString::to_string).collect(),
                             ),
                         );
                         registered_literals.push(literal_id);

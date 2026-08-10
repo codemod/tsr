@@ -31038,3 +31038,82 @@ Met at +4 of a barred +4, after the narrowing. The first form met the *board* at
 +2 and failed the *wrong-line* clause, which is the clause that caught it —
 worth noting because eleven builds this session have had a wrong-line tolerance
 and this is the first time it, rather than the total, decided the shape.
+
+## §589 — TS2698: a spread of a primitive
+
+```ts
+const a = { ...s, y: 6 };     // `s: S` where `type S = ${number}` — TS2698
+```
+
+`checkObjectLiteral`'s spread arm (`checker.go:13304`) reports when
+`isValidSpreadType` is false, and that function is not flag-testable in full:
+
+```go
+s := c.removeDefinitelyFalsyTypes(c.mapType(t, c.getBaseConstraintOrType))
+return s.flags&(Any|NonPrimitive|Object|InstantiableNonPrimitive) != 0 ||
+    s.flags&UnionOrIntersection != 0 && Every(s.Types(), c.isValidSpreadType)
+```
+
+`getBaseConstraintOrType` and `removeDefinitelyFalsyTypes` are the type side's.
+**A plain non-union primitive needs neither**: `string`, `number`, a string
+literal, a template-literal type — none of them has a base constraint that turns
+it into an object, and none is falsy-removable into one.
+
+So this reports only for a spread whose type is primitive **and** not a union,
+not `any`/`unknown`, and not an object. That is §580's shape again — narrower
+than upstream, and wrong only in the direction of silence.
+
+```
+bar:  +3 of 7 (cases blocked on TS2698 alone),  0 LOST,  WRONG delta <= +1
+```
+
+Three, not seven: `spreadObjectOrFalsy` is a **union** with a falsy member, which
+is exactly what `removeDefinitelyFalsyTypes` exists for, and the two `.tsx`
+cases spread JSX attributes through a different call site.
+
+### Falsifiers
+
+1. **A spread of an object reports.** `{...o}` is the normal form.
+2. **A spread of a union reports.** Excluded by construction, and
+   `spreadObjectOrFalsy` is the corpus's witness that unions need the falsy
+   removal first.
+3. **A spread of a type parameter reports.** `InstantiableNonPrimitive` is valid
+   upstream and a bare `T` must stay silent.
+
+## §590 — §589 measured **+0 with nothing moving**: the primitive case is not the corpus's case
+
+```
+diagnostics             2,140 → 2,140
+TS2698 missing lines    18 → 18
+extraonly               zero TS2698 lines
+```
+
+The narrow test — a spread whose type is a plain non-union primitive — reported
+nothing. **All eighteen lines need the machinery it was written to avoid**:
+`spreadObjectOrFalsy` is a union, the two `.tsx` cases go through JSX attribute
+spreading, and `spreadNonObject1`'s `s: S` is a template-literal type reached
+through `getBaseConstraintOrType` from a mapped callback parameter, which this
+port does not compute.
+
+§568's rule, third application this session, and the first where the *narrowing
+itself* was the thing that failed rather than the path being unreachable:
+
+> *"A `+0` is worth keeping when you can show the port now does what upstream
+> does; it is not worth keeping when all you can show is that nothing broke."*
+
+Reverted. **The row's residue is now known to be entirely
+constraint-and-union-shaped**, which is a better description than the
+`no — needs the whole rule` that `diagslice` printed, and it cost one build.
+
+> **A narrowing that converts nothing has still measured something: that the
+> row's cases are all on the far side of the line it drew.** That is the useful
+> product when the build fails, and it only exists because the narrowing was
+> written to a stated boundary (`plain non-union primitive`) rather than to a
+> guess.
+
+### Kept from this build
+
+Three clippy repairs of the concurrent workstream's code — **eleventh repair** —
+including one taken as a scoped `allow` rather than a rewrite, because
+factoring `intra_expression_member_maps`'s type is theirs to do and not a
+mechanical fix.

@@ -584,7 +584,7 @@ impl<'a> Checker<'a, '_> {
         if let Some((map, type_parameters, names)) =
             self.intra_expression_member_maps.get(&object_literal).cloned()
         {
-            let name_refs: Vec<&str> = names.iter().map(|n| n.as_str()).collect();
+            let name_refs: Vec<&str> = names.iter().map(String::as_str).collect();
             let image = self.instantiate_type(property_type, &map, &type_parameters, &name_refs);
             if image != self.intrinsics.error {
                 return Some(image);

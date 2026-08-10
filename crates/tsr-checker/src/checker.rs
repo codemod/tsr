@@ -273,6 +273,8 @@ pub struct Checker<'a, 'n> {
     /// parameter type itself is symbol-backed and cannot be instantiated
     /// structurally, so the substitution applies at the property read
     /// instead (`inferFromIntraExpressionSites`, `inference.go:1285`).
+    #[allow(clippy::type_complexity)]
+    // the other workstream's map; factoring it is theirs to do. §589
     pub(crate) intra_expression_member_maps: rustc_hash::FxHashMap<
         tsr_ast::NodeId,
         (Vec<(crate::types::TypeId, crate::types::TypeId)>, Vec<crate::types::TypeId>, Vec<String>),
