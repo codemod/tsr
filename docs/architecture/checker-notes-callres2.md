@@ -1521,3 +1521,14 @@ there — isCoercibleUnderDoubleEquals adds nothing); (2) an emptied
 filter is `never` on BOTH branches (upstream's filterType) — the false
 branch of `x == 1` on `const x = 1` was returning t, and the family's
 never-wants sat exactly there. capturedLetConstInLoop6/7(+ES6) whole.
+
+## §156 LANDED: the union never-strike (+40 gross / 1, checker-1's lead (c))
+
+`never` never joins a union — upstream's addTypeToUnion skips it
+unconditionally; this port's central constructor let it through to the
+worker, where named-constituent unions died (`E | never` printed) and
+`||`/`??`/intersection paths gapped. One strike at the constructor
+head converted logicalAnd 14 + logicalOr 12 + intersectionReduction 8
++ nullishCoalescing 4 + expr 2 at one G→W (a no-strict declaration
+print). Leads (a)/(b)/(d) remain banked in checker-1's message for
+the next flow window.

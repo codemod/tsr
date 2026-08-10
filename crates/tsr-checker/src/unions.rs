@@ -351,6 +351,15 @@ impl Checker<'_, '_> {
         if types.len() == 1 {
             return types[0];
         }
+        // SS156 (checker-notes-callres2.md): `never` never joins a union —
+        // upstream's addTypeToUnion skips it unconditionally, and the one
+        // road here that could carry it (`&&`'s falsy-extraction union)
+        // printed `E | never` where the corpus wants `E`.
+        if types.contains(&self.intrinsics.never) {
+            let never = self.intrinsics.never;
+            let kept: Vec<TypeId> = types.iter().copied().filter(|&t| t != never).collect();
+            return self.get_union_type(&kept);
+        }
         // §85's join reduction: a `T & {}`-family mint beside its own BASE is
         // subsumed by it (upstream's subtype reduction over the real
         // intersection; the mint is opaque to the general reducer). Without
