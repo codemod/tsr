@@ -1905,18 +1905,18 @@ impl<'a> Checker<'a, '_> {
     }
 
     /// The written text of an annotation whose node the builder would reuse,
-    /// for the rule on [`Parameter::written_text`]. **Only a `TypeQueryNode`
-    /// qualifies**, and the scope is a measured negative, not an oversight: a
-    /// `UnionTypeNode` leg — print the written constituent order where the
-    /// computed union's is sorted, guarded on the written constituents mapping
-    /// one-to-one onto the computed text's pieces — was built and **measured
-    /// net-negative** (+323 gained, −270 lost, `promiseTypeStrictNull` alone
-    /// −244), because upstream renders lib signature declarations *sorted*
-    /// where the guard said reuse: upstream's gate involves the builder's
-    /// enclosing declaration, not only the node's type. That family — written
-    /// unions in `<T extends [number] | [string]>` and rest-parameter
-    /// annotations, 9 lines — belongs to `bd tsr-5o2`, which now carries this
-    /// measurement.
+    /// for the rule on [`Parameter::written_text`].
+    ///
+    /// **History, corrected by §137**: this comment used to say "only a
+    /// `TypeQueryNode` qualifies" and record the blanket union-reuse leg's
+    /// −270 (`promiseTypeStrictNull` −244). §137 landed the union leg at
+    /// **+308/2** with the guard the blanket form lacked: TOP-LEVEL unions
+    /// only, admitted ONLY when the fresh render holds the SAME constituent
+    /// set in a DIFFERENT order — a fresh render with different constituents
+    /// means the resolved type diverges from the written spelling, which is
+    /// exactly the promiseTypeStrictNull class the old guard admitted and
+    /// lost. The admission-flag walk below (§77/§77.1/§108.1/§137) is the
+    /// gate's home; `bd tsr-5o2`'s 9-line family stays recorded.
     pub(crate) fn written_annotation_text(&mut self, annotation: TypeNode<'a>) -> Option<String> {
         if let Some(text) = Self::type_query_written_text(annotation) {
             return Some(text);
@@ -1950,6 +1950,9 @@ impl<'a> Checker<'a, '_> {
                 // ONLY: a fresh render with different constituents means the
                 // resolved type diverges and the written text is not its
                 // spelling.
+                // (§137.1 measured ZERO transitions widening this to
+                // single-union-argument references — no corpus population;
+                // reverted rather than kept as unpinned surface.)
                 if matches!(annotation, TypeNode::UnionTypeNode(_)) {
                     let resolved = self.get_type_from_type_node(annotation);
                     if resolved != self.intrinsics.error {
