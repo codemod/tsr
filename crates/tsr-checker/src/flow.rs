@@ -1816,6 +1816,27 @@ impl Checker<'_, '_> {
         let mut types: Vec<TypeId> = Vec::with_capacity(antecedents.len());
         let never = self.intrinsics.never;
         for antecedent in antecedents {
+            // `!c.isExhaustiveSwitchStatement(bypassFlow.…SwitchStatement)`
+            // (`flow.go:1292`). The **bypass** antecedent is the path where the
+            // `switch` matched no clause; when every value of the discriminant
+            // is covered there is no such path, and its contribution must not
+            // join the union. Without this,
+            //
+            // ```ts
+            // let g: string;
+            // switch (interval) {          // "day" | "week" | "month"
+            //   case "day": g = "d"; break;
+            //   case "week": g = "w"; break;
+            //   case "month": g = "m"; break;
+            // }
+            // return g;                    // TS2454, wrongly
+            // ```
+            //
+            // the bypass path carries the pre-switch `undefined` into the join
+            // and every exhaustive switch reports "used before being assigned".
+            if self.bypass_of_exhaustive_switch(antecedent) {
+                continue;
+            }
             let t = self.get_type_at_flow_node(state, antecedent).t;
             // `never` from a path means that path cannot reach here, so it
             // contributes nothing — which is what makes `if (x) {} else { throw }`
@@ -1838,6 +1859,132 @@ impl Checker<'_, '_> {
             }
         };
         FlowType { t, incomplete: false }
+    }
+
+    /// Is this antecedent the **unmatched** edge of a `switch` that in fact
+    /// covers every case?
+    ///
+    /// `data.ClauseStart == data.ClauseEnd && c.isExhaustiveSwitchStatement(…)`,
+    /// which upstream asks in two places for the same reason —
+    /// `getTypeAtFlowBranchLabel` (`flow.go:1292`) when joining, and
+    /// `isReachableFlowNodeWorker` (`:2572`) when asking reachability. Only the
+    /// join is ported; the reachability walk has no counterpart here.
+    fn bypass_of_exhaustive_switch(&mut self, antecedent: FlowId) -> bool {
+        let Some(clause) = self.binder.flow().switch_clause(antecedent) else { return false };
+        // `is_empty()` is `ClauseStart == ClauseEnd` — the binder's own name for
+        // "fell through every clause without matching".
+        if !clause.is_empty() {
+            return false;
+        }
+        self.is_exhaustive_switch_statement(clause.switch_statement)
+    }
+
+    /// `computeExhaustiveSwitchStatement`'s **literal** arm (`flow.go:1967`):
+    ///
+    /// ```go
+    /// t := c.getBaseConstraintOrType(c.checkExpressionCached(node.Expression()))
+    /// if !isLiteralType(t) { return false }
+    /// switchTypes := c.getSwitchClauseTypes(node)
+    /// if len(switchTypes) == 0 || core.Some(switchTypes, isNeitherUnitTypeNorNever) { return false }
+    /// return c.eachTypeContainedIn(c.mapType(t, c.getRegularTypeOfLiteralType), switchTypes)
+    /// ```
+    ///
+    /// # The `typeof` arm is not ported, and it fails the wrong way
+    ///
+    /// `switch (typeof x)` has its own road (`flow.go:1950-1966`) through
+    /// `getNotEqualFactsFromTypeofSwitch` and the type-facts table. Omitting it
+    /// means such a switch reads as **non**-exhaustive, so this rule keeps
+    /// reporting where upstream is silent — a remaining false positive rather
+    /// than a new one, and the direction is named here so the next reading of
+    /// TS2454's wrong column starts with it.
+    ///
+    /// # Re-entrancy is guarded; the ANSWER is deliberately not memoised
+    ///
+    /// Upstream carries `exhaustiveState` — `Unknown`/`Computing`/`True`/`False`
+    /// — on the switch's links (`flow.go:1933-1947`), which both guards
+    /// re-entry *and* caches the result. Only the guard is ported, and the
+    /// difference is measured rather than stylistic.
+    ///
+    /// Upstream reaches the discriminant through `checkExpressionCached`, so
+    /// its first computation is normally **not** re-entrant and the cached
+    /// answer is the real one. This port has no expression-type cache, so this
+    /// function calls `check_expression` and, inside a loop, re-enters the very
+    /// flow walk that called it:
+    ///
+    /// ```ts
+    /// while (true) {
+    ///     let key: string;
+    ///     switch (unionVal) { case "A": { key = "AA"; break; } }
+    ///     functionB(key);
+    /// }
+    /// ```
+    ///
+    /// Caching the first answer therefore freezes a value computed *during* a
+    /// cycle. Measured: memoising cost `compiler/exhaustiveSwitchCheckCircularity`
+    /// outright (32/32 → 30/32), where guarding without memoising loses no case
+    /// at all. Recomputing costs a `check_expression` per query on a path that
+    /// only runs for a switch with no `default`.
+    ///
+    /// **The falsifier**: if an expression-type cache ever lands, this should
+    /// become upstream's three-valued state, and that case is the one to re-run.
+    fn is_exhaustive_switch_statement(&mut self, switch: NodeId) -> bool {
+        // Re-entry resolves to `false`, which is upstream's own resolution at
+        // `flow.go:1944` and is also the conservative answer: a switch that
+        // cannot be shown exhaustive keeps its bypass edge.
+        if !self.exhaustive_switches.insert(switch) {
+            return false;
+        }
+        let computed = self.compute_exhaustive_switch_statement(switch);
+        self.exhaustive_switches.remove(&switch);
+        computed
+    }
+
+    /// `computeExhaustiveSwitchStatement` (`flow.go:1949`), the literal arm.
+    fn compute_exhaustive_switch_statement(&mut self, switch: NodeId) -> bool {
+        let Some(Node::SwitchStatement(statement)) = self.node_map.get(switch) else {
+            return false;
+        };
+        let Some(expression) = statement.expression else { return false };
+        // The `typeof` arm, declined whole — see above.
+        if expression
+            .node_id()
+            .is_some_and(|id| self.nodes.kind(id) == SyntaxKind::TypeOfExpression)
+        {
+            return false;
+        }
+        let discriminant = self.check_expression(expression);
+        // `getBaseConstraintOrType` is **not** ported: a type parameter
+        // discriminant declines below instead of being constrained first, so a
+        // generic `switch (k)` over `K extends "a" | "b"` reads as
+        // non-exhaustive and keeps reporting. Same direction as the `typeof`
+        // decline, and named for the same reason.
+        //
+        // `isLiteralType` — every constituent is a unit type.
+        let constituents: Vec<TypeId> = match &self.store.get(discriminant).data {
+            TypeData::Union { types, .. } => types.clone(),
+            _ => vec![discriminant],
+        };
+        if constituents.is_empty()
+            || !constituents.iter().all(|&t| self.type_of(t).flags.intersects(TypeFlags::UNIT))
+        {
+            return false;
+        }
+        let Some(clause_types) = self.switch_clause_types(statement) else { return false };
+        // `len == 0 || Some(isNeitherUnitTypeNorNever)`. A `default` clause
+        // contributes `never` here, which is *allowed* — `isNeitherUnitTypeNorNever`
+        // admits it — and a switch with a `default` has no bypass edge anyway.
+        if clause_types.is_empty()
+            || clause_types.iter().any(|&t| {
+                t != self.intrinsics.never && !self.type_of(t).flags.intersects(TypeFlags::UNIT)
+            })
+        {
+            return false;
+        }
+        // `eachTypeContainedIn(mapType(t, getRegularTypeOfLiteralType), switchTypes)`.
+        constituents.into_iter().all(|constituent| {
+            let regular = self.get_regular_type_of_literal_type(constituent);
+            clause_types.contains(&regular)
+        })
     }
 
     /// The declared type, or `never` when a junction has no way in at all.

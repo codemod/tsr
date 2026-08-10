@@ -20,6 +20,7 @@
 //! below are `pub(crate)` because every one of those modules writes to a memo.
 
 use rustc_hash::FxHashMap;
+
 use tsr_ast::{Node, NodeFlags, NodeId, NodeMap, NodeTable, SyntaxKind};
 use tsr_binder::{BindResult, SymbolFlags, SymbolId};
 
@@ -419,6 +420,13 @@ pub struct Checker<'a, 'n> {
     /// `compilerOptions.noImplicitAny` through `GetStrictOptionValue`
     /// (`checker.go:922`) — it follows `strict` when unset, like
     /// `strictNullChecks`.
+    /// `switch` statements whose exhaustiveness is being computed right now.
+    ///
+    /// The `Computing` half of `switchStatementLinks.exhaustiveState`
+    /// (`internal/checker/flow.go:1934`) and **only** that half — see
+    /// `Checker::is_exhaustive_switch_statement` for why the result is not
+    /// cached and what would have to land first.
+    pub(crate) exhaustive_switches: rustc_hash::FxHashSet<NodeId>,
     pub(crate) no_implicit_any: bool,
     /// The identifier the JSX namespace hangs off, `getJsxNamespace`'s
     /// `c._jsxNamespace` (`internal/checker/jsx.go:1372-1382`).
@@ -785,6 +793,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             allow_unreachable_code: false,
             unreachable_code_is_error: false,
             preserve_const_enums: false,
+            exhaustive_switches: rustc_hash::FxHashSet::default(),
             no_implicit_any: false,
             jsx_namespace: "React".to_string(),
             jsx_emit: tsr_core::JsxEmit::None,

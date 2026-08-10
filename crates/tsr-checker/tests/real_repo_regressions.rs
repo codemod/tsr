@@ -608,3 +608,75 @@ fn a_reserved_type_alias_name_still_reports() {
     // and the guess was not.
     assert_eq!(codes(&[("/d.ts", "export type boolean = string;\n")]), vec!["TS2457".to_string()]);
 }
+
+// ---------------------------------------------------------------------------
+// TS2454 and the exhaustive switch
+//
+// `isReachableFlowNodeWorker` (`flow.go:2572`) and `getTypeAtFlowBranchLabel`
+// (`:1292`) both drop the **bypass** antecedent — the "no clause matched" edge,
+// which the binder records with an empty clause range — when the switch covers
+// every value of its discriminant. Without it every exhaustive switch left the
+// pre-switch `undefined` in the join, and `let x: T` assigned in every case was
+// "used before being assigned": 10 on a 22-package repository.
+//
+// | mutation | reddens |
+// |---|---|
+// | drop the bypass skip in `get_type_at_flow_branch_label` | [`an_exhaustive_switch_definitely_assigns`] |
+// | make `is_exhaustive_switch_statement` return `true` unconditionally | [`a_non_exhaustive_switch_still_reports`] and [`a_switch_over_a_non_literal_still_reports`] |
+//
+// `docs/architecture/checker-notes-diag2.md` §686.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn an_exhaustive_switch_definitely_assigns() {
+    // Every member of the union has a case, so there is no path on which the
+    // variable is unassigned.
+    assert_eq!(
+        codes(&[(
+            "/a.ts",
+            "export function f(i: \"day\" | \"week\" | \"month\"): string {\n  let g: string;\n  switch (i) {\n    case \"day\": g = \"d\"; break;\n    case \"week\": g = \"w\"; break;\n    case \"month\": g = \"m\"; break;\n  }\n  return g;\n}\n"
+        )]),
+        Vec::<String>::new()
+    );
+}
+
+#[test]
+fn a_non_exhaustive_switch_still_reports() {
+    // **The true positive.** One member of the union has no case, so the bypass
+    // edge is real and the variable genuinely may be unassigned.
+    assert_eq!(
+        codes(&[(
+            "/a.ts",
+            "export function g(i: \"day\" | \"week\"): string {\n  let x: string;\n  switch (i) {\n    case \"day\": x = \"d\"; break;\n  }\n  return x;\n}\n"
+        )]),
+        vec!["TS2454".to_string()]
+    );
+}
+
+#[test]
+fn a_switch_over_a_non_literal_still_reports() {
+    // `isLiteralType(t)` (`flow.go:1968`). A `string` discriminant can never be
+    // covered by a finite set of cases, so exhaustiveness must not be claimed —
+    // and this is the arm that a "return true" mutation walks straight past.
+    assert_eq!(
+        codes(&[(
+            "/a.ts",
+            "export function h(i: string): string {\n  let x: string;\n  switch (i) {\n    case \"day\": x = \"d\"; break;\n    case \"week\": x = \"w\"; break;\n  }\n  return x;\n}\n"
+        )]),
+        vec!["TS2454".to_string()]
+    );
+}
+
+#[test]
+fn a_switch_with_a_default_is_unaffected() {
+    // A `default` clause means the binder builds no bypass edge at all, so this
+    // path never consults exhaustiveness. Asserted so that a future change to
+    // the clause-range test cannot quietly start reporting here.
+    assert_eq!(
+        codes(&[(
+            "/a.ts",
+            "export function k(i: \"day\" | \"week\"): string {\n  let x: string;\n  switch (i) {\n    case \"day\": x = \"d\"; break;\n    default: x = \"o\";\n  }\n  return x;\n}\n"
+        )]),
+        Vec::<String>::new()
+    );
+}

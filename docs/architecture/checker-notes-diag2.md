@@ -35312,3 +35312,68 @@ not syntactic.
 Three builds in seven where the upstream text was read correctly and applied to
 the wrong thing. **The transcription hazard this session keeps finding is not
 mistranslation; it is correct translation of the wrong fragment.**
+## §686 — the exhaustive switch's bypass edge, and a memo that cost a case
+let intervalGroup: string;
+switch (interval) {                 // "day" | "week" | "month"
+  case "day":   intervalGroup = "DATE(series.date)";   break;
+  case "week":  intervalGroup = "DATE_TRUNC('week', …)"; break;
+  case "month": intervalGroup = "DATE_TRUNC('month', …)"; break;
+sql.raw(intervalGroup)              // TS2454, and tsc says nothing
+10 of them on a 22-package repository.
+### The bypass edge
+The binder already records it and already names it: a `SwitchClause` flow whose
+clause range is empty is *"the `switch` fell through every clause without
+matching"* (`tsr_binder::SwitchClause::is_empty`). Upstream drops that edge when
+the switch is exhaustive, in two places for the same reason —
+`getTypeAtFlowBranchLabel` (`flow.go:1292`) when joining, and
+`isReachableFlowNodeWorker` (`:2572`) when asking reachability. Only the join is
+ported; this port has no reachability walk to put the other in.
+Without it the bypass path carries the pre-switch `undefined` into the join, so
+**every** exhaustive switch reports "used before being assigned".
+`computeExhaustiveSwitchStatement`'s literal arm (`:1967`) is what decides it,
+and two of its inputs are declined here — the `typeof` road (`:1950-1966`, which
+needs the type-facts table) and `getBaseConstraintOrType` on the discriminant.
+Both declines answer *non*-exhaustive, so both leave this rule **reporting**
+where upstream is silent: remaining false positives rather than new ones, named
+so the next reading of TS2454's wrong column starts with them.
+### The memo made it worse, and the corpus said which way
+A first draft carried upstream's three-valued `exhaustiveState`
+(`Unknown`/`Computing`/`True`/`False`, `flow.go:1933-1947`), and its rustdoc
+argued the state machine was needed because a `while (true)` re-enters this
+function through its own discriminant. The re-entrancy is real. **The memo is
+not what fixes it, and caching made things strictly worse:**
+| | `checker_types` cases | `exhaustiveSwitchStatements1` |
+|---|---:|---:|
+| base | 4,250 | 368/382 |
+| guard **+ memo** | **4,249** | 367/382 |
+| guard alone | 4,250 | 367/382 |
+Memoising cost `compiler/exhaustiveSwitchCheckCircularity` outright, 32/32 →
+30/32. The reason is one call upstream makes and this port cannot:
+`checkExpressionCached`. Upstream's first computation is normally *not*
+re-entrant, so the answer it caches is the real one; here `check_expression`
+re-enters the flow walk that called it, and caching freezes a value computed
+mid-cycle. Guarding re-entry without caching the result keeps the safety and
+loses no case.
+**Two rustdoc claims were written and then disproved by measurement in the same
+sitting** — "no memo needed" and then "the memo is needed". What settled it was
+running the corpus twice, and the file now records the third position with the
+numbers that produced it.
+### What it cost
+| | base | after |
+|---|---:|---:|
+| `binder_symbols` | 8,444/8,444 | 8,444/8,444 |
+| `diagnostics` | 2,201/5,488 | **byte-identical** |
+| `checker_types` cases | 4,250/9,538 | **4,250 — none lost** |
+| `checker_types` lines | 413,128 | 413,127 |
+| the 22-package repository | **20** | **10** |
+The single line is inside `exhaustiveSwitchStatements1` and is **+1 / −2**, not
+a flat loss:
+:132   WRONG number|undefined  ->  RIGHT area : number     ← the feature working
+:345   RIGHT stats : number    ->  WRONG any               ← the re-entrancy
+:347   RIGHT stats : number    ->  WRONG any
+The two losses are the `while (true)` / `const stats = foo` shape above — the
+same re-entrancy, showing up as a wrong type rather than a wrong diagnostic.
+Landed carrying that debt, on §169's precedent and for its reasons: no case is
+lost, the cause is named rather than bounded, and the falsifier is written down.
+**If an expression-type cache ever lands, this becomes upstream's three-valued
+state and `exhaustiveSwitchCheckCircularity` is the case to re-run.**
