@@ -6646,3 +6646,15 @@ fixing-mapper pipeline's requirements ledger (§146's close).
 The un-probed residue — non-temporal cases in the 456 — may hold
 smaller admissible slices; a future pass should census by case
 before re-pricing the whole class at the wall.
+
+## §150 — the constant evaluator's bitwise/shift operators [claimed: checker-1]
+
+§149's census: the templateStringBinaryOperations* quartet (~72
+lines) wants folded template literals whose SPANS are constant
+BINARIES the §101 evaluator declines — `` `${ 3 & 4 }` `` wants
+`"0"`. Upstream's evaluator carries `& | ^ << >> >>>` with ToInt32
+semantics; ours stops at arithmetic. Add them (ECMA ToInt32/
+ToUint32: trunc, mod 2^32; shifts mask the count to 31; `>>>`
+answers unsigned). **Bar: ≥50 net at ≥5:1.** Falsifier: float
+edge-cases (NaN/Infinity → 0; negatives rem_euclid) — a wrong
+fold is a wrong literal, worse than the string it replaces.
