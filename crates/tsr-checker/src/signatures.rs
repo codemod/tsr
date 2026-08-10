@@ -1937,9 +1937,34 @@ impl<'a> Checker<'a, '_> {
                 &mut single_quoted,
                 &mut array_headed,
                 &mut void_union,
-            ) && (single_quoted || array_headed || void_union)
-            {
-                return Some(text);
+            ) {
+                if single_quoted || array_headed || void_union {
+                    return Some(text);
+                }
+                // §137 (checker-notes-narrow): the FOURTH admission flag — a
+                // TOP-LEVEL written union whose constituent order differs
+                // from the fresh render's sort keeps its written order
+                // (arrayFrom's `Iterable<T> | ArrayLike<T>`, the
+                // IteratorObject families — lib annotations whose unions
+                // became constructible with §136). Same-set-different-order
+                // ONLY: a fresh render with different constituents means the
+                // resolved type diverges and the written text is not its
+                // spelling.
+                if matches!(annotation, TypeNode::UnionTypeNode(_)) {
+                    let resolved = self.get_type_from_type_node(annotation);
+                    if resolved != self.intrinsics.error {
+                        let fresh = self.type_to_string(resolved);
+                        let written: Vec<&str> = text.split(" | ").collect();
+                        let rendered: Vec<&str> = fresh.split(" | ").collect();
+                        let mut written_sorted = written.clone();
+                        let mut rendered_sorted = rendered.clone();
+                        written_sorted.sort_unstable();
+                        rendered_sorted.sort_unstable();
+                        if written != rendered && written_sorted == rendered_sorted {
+                            return Some(text);
+                        }
+                    }
+                }
             }
         }
         // §36.1 (`checker-notes-callres.md`): a bare alias name whose target

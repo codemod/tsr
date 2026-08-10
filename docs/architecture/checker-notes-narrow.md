@@ -5861,3 +5861,23 @@ agreed). Falsifier: positions where upstream genuinely SORTS a
 written union (the §77.2-retry's const-context class) — if the
 flag admits those, the gate needs the annotation-position test
 before the flag.
+
+**§137 MEASURED AND LANDED — +308 W→R / 2 R→W (154:1), ZERO G→W;
+right 411,733 → 412,039 = 86.03%, cases 4,172 → 4,183. The 86%
+line crossed.** The fourth admission flag is the principle's
+LARGEST confirmation (quote +370, Array-head, void +22, now
+written-union-order +308): a TOP-LEVEL written union whose
+constituent order differs from the fresh sort keeps its written
+order, same-set-different-order only, zero threading (the test
+lives at the admission site — resolve, compare split-sets). The
+candidates were 6× the bar's sizing because the flag corrects
+WRONGS the census never counted: every written-union parameter
+this port ever printed sorted-wrong (stringLiteralTypesOverloads,
+unionAndIntersectionInference3, taggedTemplates...) — §136's ~60
+constructible lines were the tip. The 2 R→W (builtinIterator):
+positions where upstream itself sorts — the §77.2-retry's
+const-context class, priced. The twice-refused §77.2 head is now
+THREE-QUARTERS LANDED through the door neither refusal tried: not
+the union mint, the ADMISSION GATE. Its residue (optionality-built
+and narrowing-rebuilt union order — narrowingUnionWithBang,
+controlFlowAliasing) stays with the §52.1 site-sensitivity class.
