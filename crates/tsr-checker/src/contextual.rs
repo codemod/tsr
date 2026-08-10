@@ -409,6 +409,15 @@ impl<'a> Checker<'a, '_> {
                 let annotation = declaration.r#type?;
                 Some(self.get_type_from_type_node(annotation))
             }
+            // §153 (`checker-notes-ctx.md`): a CLASS property's annotation is
+            // the same `getContextualTypeForVariableLikeDeclaration` road —
+            // the gap the arm above's comment recorded. Initializer position
+            // is established the same way (name and annotation are not
+            // expressions); computed names carry no annotation relevant here.
+            Node::PropertyDeclaration(declaration) => {
+                let annotation = declaration.r#type?;
+                Some(self.get_type_from_type_node(annotation))
+            }
             Node::CallExpression(call) => self.contextual_type_for_argument(call, node),
             // §152 (`checker-notes-ctx.md`): `getContextualTypeForBinaryOperand`'s
             // equals arm (`checker.go:29809`) — the RIGHT operand of plain `=`

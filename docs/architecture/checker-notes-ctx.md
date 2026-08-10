@@ -1070,3 +1070,12 @@ only. ParameterDeclaration (annotation + default) rides if free.
 properties decline; (b) static/instance makes no difference to
 the rule — if the pair says otherwise, split; (c) accessors are
 NOT this arm.
+
+**Score: +58 / 1 adverse (58:1) — LANDED.** 27 G→R + 31 W→R,
+generatedContextualTyping carrying 42 of them plus a 4-line
+spillover into hasInstance narrowing (a contextually typed
+property arrow now types its parameter, and a downstream guard
+sharpened). The 1 adverse (classPropertyErrorOnNameOnly): a
+property whose ANNOTATION errors now hands the error to its
+initializer's context where the gap previously hid it — the same
+file gained 2 W→R, net positive inside itself. Falsifiers unfired.
