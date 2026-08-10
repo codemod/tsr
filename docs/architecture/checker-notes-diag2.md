@@ -43747,3 +43747,65 @@ either.
 > afternoon and would not have needed remembering** — and the tell was visible in
 > the instrument's own output all along: a code labelled `unported` beside a
 > `have` of 877.
+
+
+## §879 — three heritage messages that never fire, and a measurement I could not reproduce
+
+§878's regenerated `RULE_CODES` surfaced three built-but-silent rows:
+
+```
+TS2863   9 lines   A class cannot extend a primitive type like 'x'
+TS2864   9         A class cannot implement a primitive type like 'x'
+TS2840   2         An interface cannot extend a primitive type like 'x'   (1 case blocked alone)
+```
+
+All three are built together in `report_primitive_type_as_value`
+(`meaning_mismatch.rs:327`), a faithful port of `checker.go:1664-1678` including
+upstream's silent `else`.
+
+### The hypothesis, and its measurement
+
+The ladder they are a rung of begins with §164's guard:
+
+```rust
+if self.nodes.ancestors(node).any(|a| self.nodes.kind(a) == SyntaxKind::HeritageClause) {
+    return false;
+}
+```
+
+so the obvious reading is that **the guard which made the cascade safe in
+heritage clauses is what disables the cascade's three heritage-specific
+messages**. Exempting the six primitive spellings — an exact match, not a
+resolution, so §164's 232 wrong lines cannot return through it — measured:
+
+```
+diagnostics  2,344 → 2,344   (+0)
+extraonly    78, unchanged
+diagemit     TS2863/2864/2840 still **SILENT**
+```
+
+**Reverted.** The hypothesis is wrong, or incomplete, and the three rows stay
+where §878 found them. Something above this guard declines first, and naming it
+is the next attempt's first move rather than this one's guess.
+
+### The part worth more than the row
+
+Mid-investigation, a `diagcase` run printed `TS2840` at the expected position —
+the result the hypothesis predicted. A clean rebuild
+(`touch` the crate, `cargo build --release -p tsr-conformance --examples`) does
+not reproduce it, five consecutive runs agree, and the source is unchanged
+between them.
+
+I cannot explain it, and the honest form of that is to say so rather than to
+pick the explanation that flatters the build. What it means for the method:
+
+> **`xtask measure` and `cargo run --example` are separate builds**, and a reading
+> taken from an example immediately after an edit is not guaranteed to be a
+> reading of that edit. Every `diagcase`, `diagemit` and `diagmissing` number in
+> this session that was taken between an edit and the next `measure` carries that
+> risk. The mitigation is one command — `cargo build --release -p tsr-conformance
+> --examples` — and the reason to write it down is that **the one time it bit, it
+> bit in the direction of confirming what I already believed.**
+
+`measure`'s numbers are not affected: `xtask measure` builds what it runs, and
+every board figure in this session came from it.
