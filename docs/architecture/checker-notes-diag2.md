@@ -43947,3 +43947,90 @@ fixture, one probe at the dispatch — before touching the predicate.
 The `flow.rs` clippy repair from the same build is kept: a `match` on a single
 pattern in the concurrent workstream's code, red on `-D warnings` and blocking
 `xtask measure` for everyone. **Twenty-third repair of the shared tree.**
+
+## §883 — §882 corrected twice: the shortfall view, and the union that defeated its own fix
+
+### The view was mis-stated
+
+`diagemit`'s `want` and `have` are **per-code totals over the judged corpus, not
+per-position matches**. `want − have` is therefore *"how many fewer lines of this
+code we emit"*, which is **not** *"how many wanted lines we are missing"* — a
+line emitted at the wrong column counts in `have`.
+
+```
+TS2362   diagemit shortfall   430
+         diagmissing          26      <- the actual missing lines, one case
+```
+
+**§882 published that column as a work list.** It is a useful signal — a rule
+emitting half as many lines as the corpus wants is worth looking at — but it is
+not a count of anything, and the head of the list is off by more than an order of
+magnitude for the row I acted on. Corrected here rather than in place, per this
+project's rule about numbers.
+
+### And the fix defeated itself
+
+The 26 lines are one case, and the operator is `**`, which
+`is_arithmetic_operator` already covers. The operands are
+
+```ts
+(! --temp) ** 3;   (!temp--) ** 3;   (!3) ** 4;
+```
+
+— parenthesised `!`, so **`boolean`**. §882's flag path tested
+`BOOLEAN_LIKE` and then excluded anything carrying `UNION`… and in TypeScript's
+model `boolean` **is** the union `true | false`. The path declined the exact type
+it was written for.
+
+The union exclusion was itself reasoned from §52 — *"a union carries `UNION` and
+not its constituents' flags"* — which is true and is why `string | number` cannot
+be misread as string-like. **`boolean` is the exception the rule's own evidence
+did not mention**, and one measurement would have shown it if the path had been
+measured against a fixture rather than against the board.
+
+```
+bar:  +1 (exponentiationOperatorWithInvalidSimpleUnaryExpressionOperands),
+      0 LOST via `diagpass`,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **`string | number` reports.** Its flags are `UNION` alone; the path cannot
+   see string-like there.
+2. **An enum operand reports.** `NUMBER_LIKE` is tested before this.
+
+## §884 — §883 built: **+2/−0**, and the two rules gained 177 lines
+
+```
+diagnostics   2,345 → 2,347   (bar was +1;  +2)   42.77%
+diagpass      LOST: (none)
+              GAINED: decrementOperatorWithUnsupportedBooleanType
+                      incrementOperatorWithUnsupportedBooleanType
+extraonly     78, unchanged
+TS2362        433 → 533   (+100 lines)
+TS2363        434 → 511   (+77)
+```
+
+The case that started it — `exponentiationOperatorWithInvalidSimpleUnaryExpressionOperands`
+— did **not** convert; it wants more than TS2362. Two other boolean-operand cases
+did, and the rules gained **177 lines** between them, which is the part the case
+count does not show.
+
+§862's `TS2364 beside TS2362` duplicates are still 36: those operands are `this`
+in a constructor, which is `bd tsr-gjze`'s and was never this predicate's.
+
+> Three builds on one predicate, and the shape of the error moved each time:
+> §882 reasoned from the board and never checked a fixture; §883 checked the
+> fixture and found the union that defeated §882's own fix; §884 measured **+177
+> lines from two words removed**. **The fixture was three commands away
+> throughout**, and §131's rule — *read the fixture before the fourth
+> hypothesis* — was written for exactly this and did not fire because §882 felt
+> like a first hypothesis rather than a fourth.
+
+### What `boolean` cost
+
+`boolean` is `true | false` **and** carries `BOOLEAN_LIKE`. §52's note — *a union
+carries `UNION` and not its constituents' flags* — is true of every union this
+port builds and false of the one the language builds for you. **A rule derived
+from a note about unions needs the note's own counter-example**, and neither §52
+nor §882 had it. It is written into the predicate now.

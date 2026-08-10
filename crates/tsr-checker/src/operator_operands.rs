@@ -345,6 +345,30 @@ impl Checker<'_, '_> {
         {
             return false;
         }
+        // **The flags settle an intrinsic operand without the relation**, and
+        // the two gates below decline exactly where the relater would say
+        // nothing: `pair_is_reportable` refuses anything carrying
+        // `UNDECIDABLE_HERE`, `either_is_composite` refuses every union.
+        // §29 makes this argument for structured types — *"nothing structured
+        // is assignable to `number` whatever its shape turns out to be"* — and
+        // this is the same claim for the intrinsics.
+        //
+        // **No union exclusion here.** §52 records that a union carries `UNION`
+        // and not its constituents' flags, so `string | number` cannot be
+        // misread as string-like; but `boolean` **is** the union `true | false`
+        // *and* carries `BOOLEAN_LIKE`, and §882's first attempt excluded unions
+        // and so declined the exact type it was written for — `(!temp--) ** 3`,
+        // 26 lines. §883.
+        if self.type_of(operand).flags.intersects(
+            TypeFlags::STRING_LIKE
+                .union(TypeFlags::BOOLEAN_LIKE)
+                .union(TypeFlags::ES_SYMBOL)
+                .union(TypeFlags::UNIQUE_ES_SYMBOL)
+                .union(TypeFlags::VOID)
+                .union(TypeFlags::NON_PRIMITIVE),
+        ) {
+            return true;
+        }
         if !self.pair_is_reportable(operand, self.intrinsics.number) {
             return false;
         }
