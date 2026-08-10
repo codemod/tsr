@@ -39017,3 +39017,41 @@ TS2661   8 cases, 35 lines   needs a scope lookup that excludes the specifier's 
 end at that door (`bd tsr-8esz`'s six cases, §691's five wrong lines, this).
 Filed alongside them rather than separately, because the fix is one resolver mode
 and all three want it.
+
+## §767 — TS2661, third measurement: the filter was on the wrong lookup
+
+An additive `resolve_name_excluding` was added to the binder — `resolve_name`
+untouched, so `binder_symbols` could not move, and it did not (8,444/8,444). It
+skips a candidate whose **only** declaration is the excluded node, applied at the
+`lookup_scoped(self.locals…)` return.
+
+```
+diagnostics    2,282 → 2,282   (+0)
+binder_symbols 8,444/8,444     100.00%, unchanged as designed
+TS2661         35 lines, unmoved
+```
+
+**The symbol does not come from that lookup.** `resolve_name` has three return
+points — the scope's `locals`, `lookup_type_member`, and the globals fallback —
+and the filter was applied to one. Which one answers here is the fourth probe
+this row needs and the first one not yet run.
+
+### Three measurements, three different wrong models
+
+```
+§765   one symbol, the specifier among its declarations   skip it        +0
+§766   two symbols, the lookup returns the specifier's    (diagnosed)    —
+§767   filter the locals lookup                           wrong return   +0
+```
+
+> Each was a smaller error than the one before and each cost a build. **The row
+> is not hard; it is *badly observed*** — three models of one lookup, none of
+> them checked against a print of which branch fires. §724 established that a
+> rule, its caller and its gate are three suspects separable by one `eprintln`
+> each; this row has three *return points* and the same remedy was available
+> from the start.
+
+**Named, priced at 8 cases and 35 lines, with the next probe written down**:
+print which of `resolve_name`'s three returns answers `X` inside
+`export { X }`. The additive binder function is reverted rather than left
+unused — it is correct and it is not yet known to be the right tool.
