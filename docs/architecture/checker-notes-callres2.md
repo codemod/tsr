@@ -1425,3 +1425,12 @@ From 317/38/86 at the arc's open: seven landings (§145, §146, §146.1,
 correction stated, three zero-measured hypotheses reverted. The two
 remaining gaps are the rhs0/rhs1 literal prints under a decline that
 predates the arc.
+
+## §150 LANDED: chain-base narrowing for CALL conditions (+13, zero regressions)
+
+`if (o?.f())` — the §51.4 chain-base strip applies to call conditions
+too; the CallExpression dispatch arm answered only the predicate half
+and fell through unchanged. One wrap after the predicate answers:
+truthy + strict + `optional_chain_contains_reference` →
+NE_UNDEFINED_OR_NULL. Family 96→88 W; next block is
+`number ||| string | number` ×16 (discriminated-chain narrowing).

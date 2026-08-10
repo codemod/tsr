@@ -2786,7 +2786,21 @@ impl Checker<'_, '_> {
             // (upstream's dispatch reaches the call arm before any
             // truthiness question, exactly as here).
             Node::CallExpression(call) => {
-                self.narrow_type_by_call_expression(state, t, call, assume_true)
+                let narrowed = self.narrow_type_by_call_expression(state, t, call, assume_true);
+                // SS150 (checker-notes-callres2.md): `if (o?.f())` — the
+                // SS51.4 chain-base narrowing applies to CALL conditions
+                // too (upstream's truthiness arm checks
+                // optionalChainContainsReference regardless of the
+                // condition's form); the predicate half answered first,
+                // exactly as the dispatch orders it.
+                if narrowed == t
+                    && self.strict_null_checks
+                    && assume_true
+                    && self.optional_chain_contains_reference(state, condition)
+                {
+                    return self.get_type_with_facts(t, TypeFacts::NE_UNDEFINED_OR_NULL);
+                }
+                narrowed
             }
             // `if (x)`, `if (a.b)`, `while (o["k"])`: the reference itself as
             // the condition. Every form [`Checker::is_matching_reference`] can
