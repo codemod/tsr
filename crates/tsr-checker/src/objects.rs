@@ -519,9 +519,37 @@ impl Checker<'_, '_> {
                     tsr_ast::Expression::Identifier(identifier),
                 ),
             };
-            if member_type == error {
-                return error;
-            }
+            // §146 (`checker-notes-narrow.md`): a member whose error is
+            // UPSTREAM'S OWN — a bare identifier `resolve_name(VALUE)` finds
+            // NOWHERE, the TS2304 form, §144's establishment argument at
+            // expression level — prints `any` and the literal PROCEEDS.
+            // Every other error member keeps the whole-literal rule: a
+            // partial object type is a wrong answer that looks right.
+            let member_type = if member_type == error {
+                let unresolved = match &value {
+                    PropertyValue::Initializer(tsr_ast::Expression::Identifier(identifier))
+                    | PropertyValue::Shorthand(identifier) => {
+                        identifier.node_id.is_some_and(|id| {
+                            self.binder
+                                .resolve_name(
+                                    self.nodes,
+                                    self.node_map,
+                                    id,
+                                    identifier.text,
+                                    SymbolFlags::VALUE,
+                                )
+                                .is_none()
+                        })
+                    }
+                    PropertyValue::Initializer(_) => false,
+                };
+                if !unresolved {
+                    return error;
+                }
+                self.intrinsics.any
+            } else {
+                member_type
+            };
             // The declaration-level `getWidenedType` would turn this into `any`
             // and this port has no call site for it. See the module docs.
             if self.store.get(member_type).flags.intersects(TypeFlags::NULLABLE) {

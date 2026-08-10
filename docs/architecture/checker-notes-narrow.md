@@ -6519,3 +6519,23 @@ it for a port reason — if the pair shows this class, gate on
 single-unit or on lib-presence; (c) the nullable-member and
 method-signature gaps are NOT admitted — only the established
 TS2304 member.
+
+**Score: +4/0 — LANDED, and the class is EXHAUSTED; the head's
+remainder REFUSED to the contextual-typing wall (probe SS146p1's
+histogram is the map).** The TS2304-establishment slice fired
+exactly 4 lines (argumentsUsedInClassFieldInitializer*). The probe
+tagged every whole-literal error firing by member-initializer
+kind: **ArrowFunction 232 of ~420** (unbuildable signatures —
+unannotated parameters wanting the contextual type), nested
+ObjectLiteral 37, resolved-but-error Shorthand 32,
+PropertyAccess 22, FunctionExpression 22, Call 19, the rest
+scattered singles. The dominant class is the port's OWN gap,
+correctly kept: contextual typing (checkExpressionForMutableLocation's
+first two branches + signature-from-context) is the wall, and
+checker-2 closed the same head from three directions the same day
+(their §142/§143/§144, `checker-notes-callres2.md`) with the
+verdict: badInference's head needs upstream's fixing-mapper
+pipeline AS ONE UNIT. Both lanes' refusal ledgers now form that
+pipeline's requirements document. Priced: the 1,031-line `{...}`-
+with-`any` ceiling was an over-count — most `any`s there are
+legitimately-typed members beside a gapped neighbour.
