@@ -31447,3 +31447,102 @@ have needed a guard at all in upstream's shape.
 
 One line: `privateNameStaticMethodAsync(11,11)`. Not another entry in the
 table — nothing in this row's remaining shape matches the four arms built.
+
+## §599 — the grammar family, **priced at 128 cases**, and TS1070
+
+§598 closed TS1029 and the obvious question is what else `checkGrammarModifiers`
+and its file carry. Enumerated: `grammarchecks.go` emits **190 distinct codes**,
+**62 of which have corpus cases**, totalling **128 cases**.
+
+```
+TS2300   19   TS2304   15        already partly ours; the two largest
+TS2480    4   occupied 13/13     fully converted
+TS1118    4   occupied  4/4      fully converted
+TS1117    4   an object literal with duplicate properties
+TS1070    4   a modifier on a type member          ← this build
+TS1014    3   a rest parameter must be last
+…58 more, all 1–3 cases
+```
+
+> **128 cases behind 62 codes is a long tail with no head.** §552 priced the
+> binder's twenty-two messages at two rows; §578 priced the scanner's
+> thirty-three at one. This is the third such enumeration and the first that
+> found *many small* rows rather than a few large ones — which is a different
+> shape of answer and worth recording as one, because it says the work here is
+> **paced by builds, not by discovery**.
+
+### TS1070
+
+```ts
+interface I {
+    public x: number;     // TS1070 — 'public' modifier cannot appear on a type member
+}
+```
+
+`grammarchecks.go:288`, in the `else` branch **before** the per-keyword switch —
+so it takes precedence over every arm §593–§597 added:
+
+```go
+if modifier.Kind != KindReadonlyKeyword {
+    if node.Kind == KindPropertySignature || node.Kind == KindMethodSignature {
+        return … X_0_modifier_cannot_appear_on_a_type_member …
+    }
+```
+
+`readonly` is legal on a type member and is the only exception.
+
+```
+bar:  +4 of 4 (cases blocked on TS1070 alone),  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **`readonly x: number` in an interface reports.** The one legal modifier.
+2. **A class property reports.** `PropertyDeclaration` is not
+   `PropertySignature`, and every `public x` in a class is legal.
+3. **TS1029's rows regress.** This arm returns before them, and §598 just closed
+   that row.
+
+## §600 — §599 built: **+4**, TS1070 to zero, and the dispatch again
+
+```
+diagnostics   2,145 → 2,149   (bar was +4;  +4, 0 LOST)   39.16%
+extraonly     zero TS1070 and zero TS1029 lines
+TS1070        9 missing lines → 0
+```
+
+The rule was written first and measured **+0**, because `check_modifier_order`
+is dispatched for `PropertyDeclaration` and `MethodDeclaration` and **not for
+`PropertySignatureDeclaration` or `MethodSignatureDeclaration`** — the two kinds
+its new arm tests for. §380's *dispatch never called*, **sixth instance this
+session**:
+
+```
+§380  §402  §412  §543  §599        and one of them (§543) cost three builds to see
+```
+
+> **Six instances and every one was found by measuring `+0`, never by reading.**
+> §543 wrote *"a predicate written twice is a predicate that will be widened
+> once"*; this is the other half — **a rule added to a shared walk inherits that
+> walk's dispatch, and the dispatch is invisible from inside the rule.** The
+> cheapest check is one line and nobody runs it: `grep -n "check_modifier_order("`.
+
+### The grammar family after four builds
+
+```
+§593   TS1029  `export`, `default`        +2
+§595   TS1029  `abstract`                 +0 board, −1 line
+§597   TS1029  `static`                   +2
+§599   TS1070  a modifier on a type member +4
+                                          ──
+       two codes closed                    +8
+```
+
+**128 cases were priced across 62 codes** (§599) and eight have been taken from
+two of them. The remaining sixty are 1–3 cases each, which is the shape §599
+recorded: *a long tail with no head*, paced by builds rather than by discovery.
+
+Also fixed here: a doc comment orphaned from its constant by an earlier edit of
+mine, which `clippy` caught as `empty_line_after_doc_comment`. The comment
+described `nullable_operand`'s operator list and had been left floating above an
+unrelated function.

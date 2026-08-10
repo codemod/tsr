@@ -570,6 +570,11 @@ impl Checker<'_, '_> {
             Node::ModuleDeclaration(n) => self.check_illegal_decorator(n.modifiers),
             Node::ImportDeclaration(n) => self.check_illegal_decorator(n.modifiers),
             Node::ExportDeclaration(n) => self.check_illegal_decorator(n.modifiers),
+            // **Signatures reach the same walk**: TS1070's arm is inside it and
+            // fires only for these two kinds, so without these arms it was
+            // §380's dispatch-never-called for the sixth time. §599.
+            Node::PropertySignatureDeclaration(n) => self.check_modifier_order(node, n.modifiers),
+            Node::MethodSignatureDeclaration(n) => self.check_modifier_order(node, n.modifiers),
             Node::PropertyDeclaration(n) => self.check_modifier_order(node, n.modifiers),
             Node::MethodDeclaration(n) => self.check_modifier_order(node, n.modifiers),
             Node::GetAccessorDeclaration(n) => self.check_modifier_order(node, n.modifiers),
@@ -5089,10 +5094,29 @@ impl Checker<'_, '_> {
         if self.file_has_parse_errors {
             return;
         }
+        // **A type member takes no modifier but `readonly`**
+        // (`grammarchecks.go:288`), tested in the `else` branch *before* the
+        // per-keyword switch — so it takes precedence over every `must precede`
+        // arm below it. §599.
+        let is_type_member = matches!(
+            self.nodes.kind(node),
+            SyntaxKind::PropertySignature | SyntaxKind::MethodSignature
+        );
         let mut seen: Vec<SyntaxKind> = Vec::new();
         for modifier in modifiers {
             let ModifierLike::Token(token) = modifier else { continue };
             let kind = token.kind;
+            if is_type_member
+                && kind != SyntaxKind::ReadonlyKeyword
+                && let Some(text) = modifier_keyword_text(kind)
+            {
+                self.report_modifier_error(
+                    token,
+                    &messages::_0_MODIFIER_CANNOT_APPEAR_ON_A_TYPE_MEMBER,
+                    &[text.to_string()],
+                );
+                return;
+            }
             // TS1028, the **first** arm of the same `if`/`else if` chain
             // (`grammarchecks.go:336`): `private public x` is *"Accessibility
             // modifier already seen"*, not *"'public' must precede
@@ -9730,8 +9754,6 @@ const LIB_FEATURE_NAMES: &[(&str, &str)] = &[
     ("WeakSet", "es2015"),
 ];
 
-/// The operators [`crate::nullable_operand`] checks, named here so the walk's
-/// guard and the rule agree.
 /// `scanner.TokenToString` for the modifiers a `.js` file may not carry. §569.
 fn js_only_modifier_text(kind: SyntaxKind) -> &'static str {
     match kind {
