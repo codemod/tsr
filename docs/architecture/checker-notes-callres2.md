@@ -1487,3 +1487,14 @@ on that row decides. Also noted for the next lane sync: this session's
 last full pair showed large import/privacy-family churn (R→G 86)
 from checker-1's in-flight work — their lane's window, not judged
 from mine.
+
+**§153v2 addendum — the guard trace ran**: §51.4's `chain_pair` passes
+453× on `Thing | undefined` (the exact failing shape) — the guards are
+NOT the loss; the composed `containment_narrowed` is dropped somewhere
+DOWNSTREAM (the discriminant/else tail after the `let t =
+containment_narrowed.unwrap_or(t)` rebind, or the row's condition is
+not the equality form at all). Next: map row 1107 to its SOURCE line
+(the .types neighborhood puts it at an `o?.foo === "abc"` block) and
+print the RETURN value at each exit of the BinaryExpression arm for
+that one shape. The window closes here; the trace's 453-pass fact is
+the next session's floor.
