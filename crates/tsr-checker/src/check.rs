@@ -370,6 +370,13 @@ impl Checker<'_, '_> {
                 self.check_annotated_initializer(node, ambient);
                 ambient
             }
+            // `checkVariableLikeDeclaration` runs for a binding element too,
+            // and TS2481 is one of its arms: `var { x } = …` declares `x` on
+            // the element. §718.
+            Node::BindingElement(_) => {
+                self.check_outer_scoped_variable(node);
+                ambient
+            }
             Node::VariableDeclaration(declaration) => {
                 self.check_using_is_initialized(node);
                 self.check_outer_scoped_variable(node);
@@ -6982,8 +6989,23 @@ impl Checker<'_, '_> {
         if self.file_has_parse_errors {
             return;
         }
-        let Some(Node::VariableDeclaration(declaration)) = self.node_map.get(node) else { return };
-        let Some(tsr_ast::BindingName::Identifier(name)) = declaration.name else { return };
+        // **A binding element declares a variable too.** `var { x } = …` puts
+        // an object pattern on the `VariableDeclaration` and declares `x` on
+        // the element inside it; upstream reaches both through
+        // `checkVariableLikeDeclaration`, which takes `node.Name()` for either.
+        // §718.
+        let name = match self.node_map.get(node) {
+            Some(Node::VariableDeclaration(declaration)) => declaration.name,
+            Some(Node::BindingElement(element)) => element.name,
+            _ => return,
+        };
+        let Some(tsr_ast::BindingName::Identifier(name)) = name else { return };
+        // **`c.error(node, …)` where upstream's `node` is the name.** For
+        // `var x` the declaration and its name start at the same column and the
+        // two readings are indistinguishable; `var { x: x = 0 }` separates
+        // them — the element starts at the *property* name and upstream reports
+        // at the bound one. §718.
+        let at = name.node_id.unwrap_or(node);
         let Some(symbol) = self.binder.symbol_of(node) else { return };
         let symbol = self.binder.merged_symbol(symbol);
         if !self
@@ -7059,7 +7081,7 @@ impl Checker<'_, '_> {
         }
         let text = self.binder.symbols().get(local).name.to_string();
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
-        let span = self.nodes.span(node);
+        let span = self.nodes.span(at);
         self.report(
             file,
             Diagnostic::with_args(

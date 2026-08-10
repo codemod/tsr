@@ -36890,3 +36890,96 @@ is a `CatchClause`, not a function — so upstream reports and this port's
 `Block` arm asks the wrong parent. **Named and priced at 4 lines**; it is the
 same shape again and the fix is one arm, but it is a fourth measurement and this
 build is already over bar.
+
+## §718 — §717's residue was misattributed, and the real one is a binding element
+
+### The correction
+
+§717 wrote that TS2481's four remaining lines were in
+`shadowedFunctionScopedVariablesByBlockScopedOnes`, nesting the collision inside
+a `catch` clause, and named the `Block` arm's parent test as the cause. **That
+case now matches its baseline exactly** — expected and actual are the same five
+lines — and the residue is a different fixture entirely:
+
+```ts
+if (true) {
+    let x;
+    if (true) {
+        var x = 0;                 // converts
+        var { x = 0 } = { x: 0 };  // TS2481, missing
+        var { x: x = 0 } = …;      // TS2481, missing
+        var { x } = …;             // TS2481, missing
+        var { x: x } = …;          // TS2481, missing
+    }
+}
+```
+
+> **Twice now — §682 and this — a residue has been attributed from the fixture
+> the build was looking at rather than from `diagmissing` after it.** §683 made
+> the rule for it and I broke the rule five builds later, in the same
+> paragraph that cited it. The cost is the same both times: a sentence in
+> `STATUS.md` sending the next reader to the wrong file. **The discipline is not
+> "probe before attributing" but "the post-build `diagmissing` names the
+> residue, and nothing else does."**
+
+### The build
+
+`check_outer_scoped_variable` requires `BindingName::Identifier` on a
+`VariableDeclaration`. Every missing line is a **binding element** — the
+declaration's name is an object pattern and `x` is declared by the element
+inside it. Upstream reaches both through `checkVariableLikeDeclaration`, which
+takes `node.Name()` for a `VariableDeclaration` *and* a `BindingElement`.
+
+Tenth in §701's family, and §708's kind: an enumeration smaller than upstream's.
+
+```
+bar:  +1 of 1 (shadowingViaLocalValueOrBindingElement),  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **`var { x } = …` with no shadowing `let` reports.** The symbol-flag and
+   `local != symbol` tests are unchanged and decide it.
+2. **A binding element in a `let` or `const` pattern reports.** The
+   `FUNCTION_SCOPED_VARIABLE` flag is what admits `var` only.
+3. **TS2451's row moves.**
+
+## §719 — §718 built: **+1 of 1**, TS2481 closed, and the column separated two readings
+
+```
+diagnostics             2,242 → 2,243   (bar was +1;  +1, 0 LOST)   40.87%
+extraonly               zero TS2481 and zero TS2451 lines
+TS2481 missing lines    4 → 0     — the row is closed
+```
+
+Two changes, and only the first was planned:
+
+**1. The binding-element arm.** Every missing line was `var { x } = …`, and the
+rule required a `VariableDeclaration` with an identifier name.
+
+**2. The error node.** With the arm in place the missing count went to zero and
+the case *still failed*, on two columns:
+
+```
+expected   (6,18)  (8,18)
+actual     (6,15)  (8,15)
+```
+
+`var { x: x = 0 }` — the element **starts** at the property name and upstream
+reports at the **bound** name. For `var x` the two are the same column and the
+readings are indistinguishable; `{ x: x }` is the only shape in the corpus that
+tells them apart, and it appears twice in one fixture.
+
+> §616, §640 and §660 each measured `+0` on a column alone. This is the first
+> time a column error was **hidden behind a missing line**: fixing the
+> enumeration exposed it, and the row read *0 missing* while the case still
+> failed. **`diagmissing` reaching zero is not the same as a row converting**,
+> and the two were only ever the same number by coincidence.
+
+### The correction §718 carries
+
+§717 attributed this residue to a `catch` clause in a different fixture. It was
+wrong, and it was written in the same paragraph that cited §683's rule against
+exactly that. **Twice this session** (§682, §717) — the discipline is not
+*probe before attributing* but **the post-build `diagmissing` names the residue,
+and nothing else does**.
