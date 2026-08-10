@@ -39652,3 +39652,79 @@ TS2564   9 wrong lines   the skip needs a type-flag distinction this port does n
 **Owner: the type side**, and the falsifier is cheap: when `ANY_OR_UNKNOWN` stops
 being carried by types upstream leaves distinct, restore §781's four-line hunk
 and measure. Recorded in full so it costs one paste.
+
+## §783 — TS1203 fires in declaration files, where upstream needs an ESNext format
+
+```ts
+// index.d.cts
+declare function foo(): void;
+export = foo;                    // no diagnostic upstream
+```
+
+`checkExportAssignment` (`checker.go:5671`):
+
+```go
+c.moduleKind >= ES2015 && c.moduleKind != Preserve && (
+    (ambient && impliedNodeFormat(file) == ESNext) ||
+    (!ambient && impliedNodeFormat(file) != CommonJS))
+```
+
+This port ports the first two conjuncts and neither arm of the third. **For an
+ambient file the format must be `ESNext`**, and a `.d.cts` is CommonJS by
+extension — so `export =` there is exactly what the file is for.
+
+This port has no `impliedNodeFormat`. The faithful narrowing is therefore
+**decline ambient files**: a strict subset of upstream, losing the
+ambient-and-ESNext case and removing four wrong lines. Silence where upstream
+sometimes speaks is the direction this port takes everywhere else, and the
+alternative — reporting on every ambient file — is the one measured wrong.
+
+> Fourth row from `extraonly`'s column, and the fourth distinct shape: §777 an
+> ordering, §779 a missing guard, §781 an unportable flag, §783 **a conjunct
+> never ported**. The column has produced a different kind of defect each time,
+> which is what a genuinely unmined instrument does.
+
+```
+bar:  +2,  0 LOST,  WRONG delta <= 0
+```
+
+### Falsifiers
+
+1. **A non-ambient `export =` under `--module es2015` stops reporting.** That is
+   the second arm and it must keep firing — every TS1203 the corpus expects is
+   there.
+2. **TS1231 / TS1063's rows move.** Neighbouring export-assignment codes.
+3. **A `.ts` file with `declare` statements is treated as ambient.** The test is
+   the *file*, not the statement — `declare function f()` inside a normal module
+   does not make the file ambient.
+
+## §784 — §783 built: **+2**, and the column has produced four shapes in four builds
+
+```
+diagnostics             2,293 → 2,295   (bar was +2;  +2, 0 LOST)   41.82%
+extraonly               TS1203 wrong lines 4 → 0;  total 92 → 86
+TS1203 missing lines    0     — the row is clean in both directions
+```
+
+All three falsifiers negative — every TS1203 the corpus expects is still there,
+so the second arm fires exactly as before and only the ambient case is now
+silent.
+
+### `extraonly`, four builds in
+
+```
+§777   TS2310 doubled TS2506            an ordering never ported        +6
+§779   the type cascade lacked a guard  its sibling had one             +1
+§781   a flag test that is not portable —3, reverted
+§783   a conjunct never ported          the ambient/format arm          +2
+```
+
+**Nine cases and thirty-two wrong lines removed from four builds**, against one
+refusal. Every one was invisible to `diagmissing`, because **a rule that says too
+much has nothing missing.**
+
+> The column is now 86 lines. It was 112 four builds ago and it was never read
+> as a list in the 308 builds before that. **This is the strongest single lesson
+> of the session and it is about instrumentation rather than about TypeScript**:
+> the harness had two outputs, one was a work list and the other was a gate, and
+> nothing but habit made them different.

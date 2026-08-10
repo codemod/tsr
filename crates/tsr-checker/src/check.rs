@@ -1300,8 +1300,15 @@ impl Checker<'_, '_> {
         // `package.json`, so `GetImpliedNodeFormatForEmit` answers the module
         // kind itself and upstream's parenthesis reduces to the comparison
         // below. §478.
+        // **The third conjunct.** Upstream (`checker.go:5671`) requires, for an
+        // **ambient** file, that the implied node format be `ESNext`; a
+        // `.d.cts` is CommonJS by extension and `export =` is what it is for.
+        // This port has no `impliedNodeFormat`, so an ambient file is declined
+        // outright — a strict subset of upstream, and silence rather than the
+        // four wrong lines `extraonly` was carrying. §783.
         if self.module_kind >= tsr_core::ModuleKind::ES2015
             && self.module_kind != tsr_core::ModuleKind::Preserve
+            && !self.file_is_ambient
             && let Some(file) = self.source_file_of_for_diagnostics(node)
         {
             let span = self.nodes.span(node);
