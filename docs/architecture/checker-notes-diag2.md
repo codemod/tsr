@@ -31834,3 +31834,82 @@ blocker; the type side is.
 **Owner: `isValidIndexKeyType` over a resolved type reference.** Named, not
 attempted, and now with the keyword half explicitly recorded as done so nobody
 re-derives it a third time.
+
+## §608 — TS2462: a rest element that is not last
+
+```ts
+var [...a, x] = [1, 2, 3];   // TS2462 — binding pattern
+[...a, x] = [1, 2, 3];       // TS2462 — assignment target
+```
+
+Two sites, one message, and **both are purely syntactic**:
+
+```go
+checkGrammarBindingElement (grammarchecks.go:1536)
+    if node.DotDotDotToken != nil && node != LastOrNil(parent.ElementList()) { … }
+checkArrayLiteralDestructuringAssignment (checker.go:12683)
+    if elementIndex < len(elements)-1 { … }
+```
+
+The second needs the array literal to be an **assignment target** — `[...a, x]`
+as a value is legal and common, so the guard is the whole risk. Upstream reaches
+it only from `checkDestructuringAssignment`; here the test is that the literal is
+the left of an `=`.
+
+> **One message, two sites, two subsystems** — `grammarchecks.go` for the
+> binding form and `checker.go` for the assignment form. §593's *"a message with
+> twenty emit sites is not one rule"* at its smallest: even two sites can sit in
+> different files with different reachability, and porting one leaves a row half
+> closed with nothing to say so. `diagcase` is what says so (§607), and this row
+> was checked with it first — **both lines absent, so both sites are needed**.
+
+```
+bar:  +1 of 1 (the single case, both lines),  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **`[...a]` reports.** A rest that *is* last is the normal form.
+2. **`f(...a, x)` reports.** A spread in a call argument list is legal and is not
+   a destructuring pattern.
+3. **`const v = [...a, x];` reports.** An array literal as a **value** — the
+   assignment-target guard's whole purpose.
+
+## §609 — §608 built: **+1**, bar met, TS2462 closed
+
+```
+diagnostics   2,156 → 2,157   (bar was +1;  +1, 0 LOST)   39.30%
+extraonly     zero TS2462 lines
+TS2462        2 missing lines → 0
+```
+
+All three falsifiers negative — `[...a]`, `f(...a, x)` and `const v = [...a, x]`
+are all silent, the last being the whole risk of the assignment-target form.
+
+### One message, two files
+
+```
+grammarchecks.go:1536   the binding pattern    var [...a, x] = …
+checker.go:12683        the assignment target  [...a, x] = …
+```
+
+**§607's instrument choice is what made this a one-build row.** `diagcase`
+showed *both* lines absent, so both sites were needed and the build was scoped to
+both from the start. Had it been scoped to the binding form alone — the one
+`grammarchecks.go` suggests, since that file was the session's current thread —
+the row would have half-closed and read as a +0 case with a mysterious residue,
+which is exactly what §606 walked into an hour earlier.
+
+### The grammar family after seven builds
+
+```
+TS1029  +4    TS1070  +4    TS1014  +3    TS1248  +2    TS2462  +1
+                                                        ──
+                                                        +14
+```
+
+**Five codes closed of the sixty-two with cases**, and TS2462 is the first whose
+two halves lived in different files — which is why §593's *"a message with
+twenty emit sites is not one rule"* now has a smaller and sharper companion:
+**even two sites can sit in different subsystems, and the message alone does not
+say so.**

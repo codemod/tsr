@@ -674,6 +674,9 @@ impl Checker<'_, '_> {
         if matches!(typed, Node::ImportTypeNode(_)) {
             self.check_import_type_argument(node);
         }
+        if matches!(typed, Node::BindingPattern(_) | Node::ArrayLiteralExpression(_)) {
+            self.check_rest_element_is_last(node, typed);
+        }
         if matches!(typed, Node::IndexSignatureDeclaration(_)) {
             self.check_index_signature_key_type(node);
         }
@@ -8563,6 +8566,82 @@ impl Checker<'_, '_> {
             file,
             Diagnostic::new(&messages::THE_OPERAND_OF_A_DELETE_OPERATOR_MUST_BE_OPTIONAL, span),
         );
+    }
+
+    /// TS2462 — `A rest element must be last in a destructuring pattern.`
+    ///
+    /// Two sites, one message: `checkGrammarBindingElement`
+    /// (`grammarchecks.go:1536`) for `var [...a, x]`, and
+    /// `checkArrayLiteralDestructuringAssignment` (`checker.go:12683`) for
+    /// `[...a, x] = …`. Both are syntactic.
+    ///
+    /// The assignment form needs the literal to be an **assignment target** —
+    /// `[...a, x]` as a value is legal — which upstream gets from its call site
+    /// and this reconstructs as *the left of an `=`*.
+    ///
+    /// `docs/architecture/checker-notes-diag2.md` §608.
+    fn check_rest_element_is_last(&mut self, node: NodeId, typed: Node<'_>) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let offenders: Vec<NodeId> = match typed {
+            Node::BindingPattern(pattern)
+                if self.nodes.kind(node) == SyntaxKind::ArrayBindingPattern =>
+            {
+                let last = pattern.elements.len().saturating_sub(1);
+                pattern
+                    .elements
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, binding)| {
+                        (binding.dot_dot_dot_token.is_some() && index != last)
+                            .then_some(binding.node_id)
+                            .flatten()
+                    })
+                    .collect()
+            }
+            Node::ArrayLiteralExpression(literal) => {
+                if !self.is_assignment_target_literal(node) {
+                    return;
+                }
+                let last = literal.elements.len().saturating_sub(1);
+                literal
+                    .elements
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, element)| match element {
+                        tsr_ast::Expression::SpreadElement(spread) if index != last => {
+                            spread.node_id
+                        }
+                        _ => None,
+                    })
+                    .collect()
+            }
+            _ => return,
+        };
+        for at in offenders {
+            let Some(file) = self.source_file_of_for_diagnostics(at) else { continue };
+            let span = self.error_span(at);
+            self.report(
+                file,
+                Diagnostic::new(
+                    &messages::A_REST_ELEMENT_MUST_BE_LAST_IN_A_DESTRUCTURING_PATTERN,
+                    span,
+                ),
+            );
+        }
+    }
+
+    /// Is this array literal the left-hand side of an assignment — a
+    /// destructuring target rather than a value? §608.
+    fn is_assignment_target_literal(&self, node: NodeId) -> bool {
+        let Some(parent) = self.nodes.parent(node) else { return false };
+        matches!(
+            self.node_map.get(parent),
+            Some(Node::BinaryExpression(binary))
+                if binary.operator_token.is_some_and(|t| t.kind == SyntaxKind::EqualsToken)
+                    && binary.left.and_then(|left| left.node_id()) == Some(node)
+        )
     }
 
     /// `IsInstantiatedModule` (`ast/utilities.go:2443`).
