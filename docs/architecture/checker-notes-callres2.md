@@ -1211,3 +1211,20 @@ thislessFunctionsNotContextSensitive1's 6. Falsifier: T-adopt prints
 where upstream grounds (family G→W beyond ~2:1 gross:price) refuses
 the state again and the window records the third refusal of this
 head.
+
+## §144 REFUSED at measured −16/+23-wrong — the head's third refusal, recorded as final for this road
+
+The third state (literal members adopt on materialized-ungrounded)
+measured: zero gains, 16 R→W in typeArgumentInferenceWithObjectLiteral,
+7 G→W in intraExpressionInferences. The adopt overrides answers the
+member-map/§75 roads were already getting right — in this port's
+economy the whole-literal error is doing MORE work than upstream's
+member-wise typing can replace piecemeal. Three refusals now stand on
+this one head (§142 −21, §143 0/+73, §144 −16/+23), each from a
+different direction (predicate+fill, seam condition, gate state).
+**The verdict, final for the piecemeal road**: badInference's head and
+the return-side rung require upstream's actual fixing-mapper pipeline
+(per-consumption fixing, InferenceInfo priorities, ordered member
+sites) built as ONE unit — the InferenceInfo step-2 window with all
+four pieces, not any subset. The three refusal ledgers are its
+requirements document.
