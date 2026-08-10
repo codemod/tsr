@@ -800,3 +800,16 @@ port doesn't consult (return-position inference / outer contexts — the
 returnMapper machinery, priced in the third spec). The refinement that
 buys these back: fix to `unknown` only when no return-position source
 exists for the parameter. That is the next rung, NOT built here.
+
+## §134 BAR (registered before code): the returnMapper guard on the fixing-fill
+
+The §133 price rows all sit at calls in CONTEXTUAL POSITION (annotated
+initializers — genericContextualTypes1's compose/pipe shapes) where
+upstream's inference has a return-position source (the returnMapper)
+and therefore does NOT fix to unknown. The guard: the fixing-fill
+fires only when `get_contextual_type(call)` is None. Prediction:
+genericContextualTypes1 (5 W) and typeArgumentInferenceWithConstraints
+(6 G) recover; someGenerics6-class statement calls keep the §133 wins;
+promiseChaining uncertain (chained member calls). Falsifier: any
+substantial giveback of the +127 means statement-position was not the
+discriminator.
