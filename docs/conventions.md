@@ -3373,3 +3373,19 @@ it (the worktree then judges an EMPTY corpus — TOTAL 0 — which reads as a
 clean zero); and an rtk-piped empty result is indistinguishable from
 no-output success. Check `ls <link>/testdata` before trusting any
 worktree measurement.
+
+## The transcription law (2026-08-10, both checker lanes)
+
+In ported-semantics function families — narrowing workers, inference
+resolution, coercion ladders — **every transcription has landed and
+every induced build has lost.** Two days' evidence, both lanes:
+transcribed: §159/§161 (checker-2: +205 combined), §147/§150
+(checker-1: +371 combined); induced: §153 (1:15), §157 (4:14), §162
+(59:41), checker-1's two fixing-mapper probes (+4/9, −41). The rule:
+**when porting a semantic function upstream implements in one place,
+read and transcribe its full text FIRST — including the legs that look
+skippable — and refuse partial inductions of it outright.** Decidable-
+domain SLICES of a transcription are fine (§159's Kleene fallthrough);
+reordered or re-derived LOGIC is not. A refusal of an induced build
+records the upstream lines the rebuild must transcribe; that bound is
+the refusal's product.
