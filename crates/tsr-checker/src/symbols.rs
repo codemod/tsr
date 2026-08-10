@@ -1247,12 +1247,37 @@ impl<'a> Checker<'a, '_> {
             return None;
         }
         // `reportNonExportedMember` (`checker.go:14908`) splits again on
-        // whether the module file declares the name **locally**: TS2459
-        // (`exported as`), TS2460 (`not exported`) and the `export =` variant
-        // all live behind that test. Declined, conditions evaluated.
+        // whether the module file declares the name **locally**, into three
+        // outcomes of which one is built. §679.
         if let Some(source_file) = value_declaration
-            && self.binder.locals(source_file).is_some_and(|locals| locals.get(text).is_some())
+            && let Some(local) =
+                self.binder.locals(source_file).and_then(|locals| locals.get(text).copied())
         {
+            // `export =` is its own pair of outcomes upstream — TS2305 or
+            // `reportInvalidImportEqualsExportMember` — chosen by
+            // `getSymbolIfSameReference`. Declined whole rather than guessed.
+            if entry.exports.contains_key("export=") {
+                return None;
+            }
+            // `findInMap(exports, sameReference(localSymbol))`: when an export
+            // *is* this local under another name, upstream says TS2460
+            // `…but it is exported as '{2}'`. That name is the second
+            // argument this port would have to invent, so the branch stays a
+            // decline; identity of the merged symbol is what upstream's
+            // `getSymbolIfSameReference` reduces to for the local case.
+            let merged = self.binder.merged_symbol(local);
+            if entry.exports.values().any(|&exported| self.binder.merged_symbol(exported) == merged)
+            {
+                return None;
+            }
+            self.report(
+                file,
+                Diagnostic::with_args(
+                    &messages::MODULE_0_DECLARES_1_LOCALLY_BUT_IT_IS_NOT_EXPORTED,
+                    span,
+                    [module_name, text.to_string()],
+                ),
+            );
             return None;
         }
         self.report(

@@ -34953,3 +34953,102 @@ The build's first attempt added a second `Node::ModuleDeclaration` arm and the
 compiler deleted it (§140). Third occurrence: **a dispatch match this large has
 an arm for nearly everything, so "add an arm" is almost always "find the arm."**
 That is now the standing expectation rather than a recurring surprise.
+
+## §679 — TS2459: the module declares it locally and does not export it
+
+```ts
+// a.ts
+declare function bar(): any;
+export { foo };
+// b.ts
+import { bar } from "./a";   // TS2459
+```
+
+`reportNonExportedMember` (`checker.go:14908`). §185's port stopped at exactly
+this line, with the conditions already evaluated and a comment saying so:
+
+```rust
+// `reportNonExportedMember` … splits again on whether the module file declares
+// the name **locally**: TS2459 (`exported as`), TS2460 (`not exported`) and the
+// `export =` variant all live behind that test. Declined, conditions evaluated.
+if let Some(source_file) = value_declaration
+    && self.binder.locals(source_file).is_some_and(|locals| locals.get(text).is_some())
+{ return None; }
+```
+
+**A decline with its conditions already computed is the cheapest row on the
+board**, and this is the second such this session (§163's cascade was the first,
+though that one turned out to be blocked one layer down — §676). The split has
+three outcomes and only one is being taken:
+
+```
+exports has `export =`        → TS2305 or reportInvalidImportEqualsExportMember   — declined
+an export aliases the local   → TS2460 `…but it is exported as '{2}'`             — declined
+otherwise                     → TS2459 `…but it is not exported`                  — BUILT
+```
+
+The two declines stay declines: the first needs `getSymbolIfSameReference`
+against the `export=` symbol, and the second needs it against every export.
+Approximating either would put a **wrong code at a right position**, which §185's
+own falsifier caught once already on this rule.
+
+Upstream also attaches related-info spans (`_0_is_declared_here`), which the
+oracle does not compare — the suite is a multiset of `(file, line, column,
+code)`. Not built, and it costs nothing.
+
+```
+bar:  +3 of 3 (importNonExportedMember1, 2, 3),  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **TS2305's row moves.** The names that reach this point without a local
+   declaration must keep getting TS2305; only the local-declaring branch changes.
+2. **A module with `export = X` reports TS2459.** That is the first declined
+   outcome and it must stay silent.
+3. **A correctly re-exported name reports.** `export { foo }` with `import
+   { foo }` never reaches `reportNonExportedMember` at all.
+
+## §680 — §679 built: **+3 of 3**, row closed. Third this cycle.
+
+```
+diagnostics             2,207 → 2,210   (bar was +3;  +3, 0 LOST)   40.27%
+extraonly               zero TS2459 and zero TS2305 lines
+TS2459 missing lines    3 → 0     — the row is closed
+```
+
+All three falsifiers negative; TS2305's row did not move, which was the one that
+could have gone wrong, since the branch taken sits directly in its path.
+
+### Three rows closed in three builds, from the same place
+
+```
+§673 TS2384   an arm the existing rule's *refusal* had excluded
+§677 TS2664   two conditions already in the tree
+§679 TS2459   a decline whose conditions were already computed
+```
+
+**None of the three needed new machinery.** Each was a rule that had been read,
+understood, and stopped short of — with the stopping point written down. That is
+what made them cheap: §678 called this the ≤3-case band, but the sharper
+statement is that **this session's own comments are the board**, and they were
+written by builds that were measuring something else at the time.
+
+> Nine cases in three builds, all from notes left by earlier builds in this same
+> session. The ledger's value is not the refusals it records but the *conditions*
+> it records alongside them — a refusal that says "declined, conditions
+> evaluated" is a row costed to zero for whoever comes next, and three of them
+> came due at once.
+
+### What is still declined here, and why it stays
+
+```
+export = X aliasing the local     TS2305 or reportInvalidImportEqualsExportMember
+an export aliasing the local      TS2460 `…but it is exported as '{2}'`
+```
+
+Both need `getSymbolIfSameReference`, and the second needs the exported name as
+a message argument. Approximating either is a **wrong code at a right
+position** — the failure §185's falsifier caught on this very rule. The related-
+info spans upstream attaches are not built either, and cost nothing: the oracle
+compares `(file, line, column, code)`.
