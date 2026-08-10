@@ -6187,3 +6187,14 @@ established — which also DISSOLVES §142's fn-expr poison
 (this.n.length flows to established-any instead of erring the
 literal): the §142 park's re-measure with the poison gone is the
 next window's one-command check.
+
+**§142 probe 6 — the §124.1 hypothesis was WRONG for looseThis:**
+the full-arm re-measure post-§124.1 shows the 17 R→G byte-identical
+(the .length-gate dissolution helped elsewhere but not here). The
+literal's error has a deeper source; probe 7 must instrument
+check_object_literal's per-property computation directly (which
+property's type errors, and through which road) on the looseThis
+filter with the arm live. The methods-only half remains
+landable-shaped (+38/15, zero regressions) whenever a ~5:1 path
+appears; the ladder stands at six probes with each hypothesis
+measured and the wrong ones marked.
