@@ -42081,3 +42081,76 @@ which is the check that matters, because the resolver serves that suite too.
 The rest of `useResult` — type parameters, `infer T` in conditional types,
 `useOuterVariableScopeInParameter` — remains unported and is named here as the
 neighbour, not the same job.
+
+## §840 — TS2708: the rung is built, the **position** is declined
+
+`importDeclWithClassModifiers` wants three TS2708 lines:
+
+```ts
+namespace x { interface c { } }
+export public import a = x.c;   // TS2708 on `x`, TS2694 on `c`, TS1044 on `public`
+```
+
+`bd tsr-8esz` filed this under half (1), the alias-meaning gap. That is not what
+blocks it. **The rung exists** — `report_meaning_mismatch_in_value_position`
+already ports `checkAndReportErrorForUsingNamespaceAsTypeOrValue`'s value branch,
+`CANNOT_USE_NAMESPACE_0_AS_A_VALUE` and the `export =` exemption included (§688).
+
+A probe at the value path's entry says why it never fires:
+
+```
+PROBE 2708 value-entry x  is_value_reference=false
+```
+
+`is_value_reference` does not admit the leftmost identifier of an
+`ImportEqualsDeclaration`'s entity name. That is a **position** question, and
+§164 measured what widening this predicate costs: admitting heritage-clause names
+produced **232 of 238 wrong lines**, which is why the value ladder now returns
+early for heritage clauses at all.
+
+> The issue said *"alias meaning"*, the code says *"reference position"*, and one
+> probe cost less than the first paragraph of re-reading the resolver. **A filed
+> blocker is a hypothesis with a date on it** — this one was written before §688
+> built the rung, and it was stale rather than wrong.
+
+`bd tsr-8esz` is amended: TS2708's blocker is `is_value_reference` at the
+import-equals entity name, not the alias-meaning gap. Whether that position can
+be admitted without repeating §164's 232 lines is a **measurement**, and it is
+the next attempt's first move rather than this one's guess.
+
+## §841 — §840's measurement, made: **−7 cases**, and §164 repeats exactly
+
+Admitting the leftmost identifier of an `import a = x.c` entity name to
+`is_value_reference`:
+
+```
+diagnostics     2,328 → 2,321   (−7 cases)
+extraonly       75 → 85         (+10 wrong lines)
+```
+
+**Reverted whole.** §164's precedent did not merely rhyme, it repeated: widening
+this predicate to reach one right answer produced ten wrong ones, in the same
+ratio and for the same reason.
+
+The mechanism is visible in the file. `is_value_reference` already has a
+`QualifiedName` arm (`check.rs:4901`), and its comment is the refusal, written
+long before this attempt:
+
+> *"`typeof A.B` resolves `A` as a value and `B` as its member, so only the
+> leftmost identifier of the chain is a reference — **and only when the chain's
+> root is a type query**. A qualified name under a plain `TypeReferenceNode` is a
+> *namespace* miss, which upstream reports as TS2503 at the same position; firing
+> there would be a wrong code, which is what this allow-list exists to prevent."*
+
+> **`is_value_reference` is an allow-list, and an allow-list is a decision about
+> every position at once.** Each of this session's three attempts to widen it
+> (§164, §169, this) has been paid for in wrong lines at *other* positions, and
+> the arm that pays is never the arm being added. That is the property that makes
+> it worth measuring rather than reasoning about, and worth reverting whole
+> rather than narrowing.
+
+**Refused: TS2708, 1 case, 3 lines, −7 cases and +10 wrong lines measured.** The
+row needs upstream's actual meaning ladder at the entity-name resolution site —
+`resolveEntityName` with its own meaning per chain position — not a wider
+allow-list. That is a different build with a different owner, and `bd tsr-8esz`
+now carries the number.
