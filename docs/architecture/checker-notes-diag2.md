@@ -39573,3 +39573,82 @@ Both are one rule missing something its sibling has, and both were invisible fro
 either rule alone. **`extraonly` finds them because a wrong line is the only
 symptom either produces** — a missing guard adds output, and output is exactly
 what the other column cannot see.
+
+## §781 — TS2564: upstream's guard is on the type's **flags**, not on identity
+
+```ts
+export interface A<T> { new (dbSet: DbSet<T>): T; }
+export class DbSet<T> {
+    _entityType: A;      // TS2314 — and *not* TS2564
+}
+```
+
+`checker.go:4946`:
+
+```go
+if !(t.flags&TypeFlagsAnyOrUnknown != 0 || c.containsUndefinedType(t)) {
+```
+
+A property whose type is `any` or `unknown` is skipped, and **`errorType`
+carries `TypeFlagsAny`** (§43), so a property whose annotation failed to resolve
+is skipped by that same disjunct. `A` used without its type argument is an error
+type, and upstream says nothing about its initialiser.
+
+This port tests **identity** — `declared == self.intrinsics.any || declared ==
+self.intrinsics.unknown` — plus `is_error` narrowed to computed names by §324.
+An error type is neither intrinsic, so it falls through.
+
+> §324 narrowed the `is_error` decline because that predicate conflates *the
+> type did not resolve* with *the name did not*, and the second is not a reason
+> to skip. **The narrowing was right and the replacement was the wrong shape**:
+> upstream never asks `is_error` at all, it asks for a flag that `errorType`
+> happens to carry. Testing the flag keeps §324's distinction — an unresolved
+> *name* still reports — and recovers the case §324 gave up.
+
+Nine wrong TS2564 lines, from `extraonly`'s column.
+
+```
+bar:  +2,  0 LOST,  WRONG delta <= 0
+```
+
+### Falsifiers
+
+1. **§324's case reports again.** `public cars: Car[]` with `Car` an unresolved
+   import-equals must keep reporting — its *type* resolves to an array.
+2. **A plain `x: number` stops reporting.** `number` is neither `any` nor
+   `unknown` and must be unaffected.
+3. **TS2314's row moves.** It is the code these cases actually want.
+
+## §782 — §781 measured: **−3 with all nine wrong lines gone**, reverted
+
+```
+diagnostics             2,293 → 2,290   (bar was +2;  −3)
+extraonly               TS2564 wrong lines 9 → 0
+```
+
+The flag test is upstream's, it removes every wrong line, and it costs three
+cases. **`ANY_OR_UNKNOWN` is carried by more types in this port than in
+upstream**, so `t.flags & AnyOrUnknown` skips properties upstream reports on.
+
+> **Third time this session that a faithful flag test measured worse than the
+> identity test it replaced.** §578 transcribed `!isErrorType(f) && IsTypeAny(f)`
+> and got five wrong lines because `errorType` carries `TypeFlagsAny` here;
+> §671 transcribed a text predicate whose input differs; this transcribes a flag
+> predicate whose *flag set* differs. **The pattern is one thing: upstream's
+> flags are a property of upstream's type construction, and this port builds
+> types differently enough that a flag test is not portable even when the line
+> around it is.**
+
+§324's narrowing stands, and stands for a better-understood reason: it is not
+that `is_error` is the wrong predicate but that **no predicate available here
+partitions the cases the way `TypeFlagsAnyOrUnknown` partitions upstream's.**
+
+### Refused, with the number
+
+```
+TS2564   9 wrong lines   the skip needs a type-flag distinction this port does not carry
+```
+
+**Owner: the type side**, and the falsifier is cheap: when `ANY_OR_UNKNOWN` stops
+being carried by types upstream leaves distinct, restore §781's four-line hunk
+and measure. Recorded in full so it costs one paste.

@@ -1307,6 +1307,18 @@ its whole deliverable and accept that it converts nothing until finished.
 
 ## 5. Refused, with the number that refused it
 
+### New, this session, TS2564's error-type skip — refused by −3
+
+- **`t.flags & AnyOrUnknown` is upstream's test and is not portable.** It removes
+  all nine of TS2564's wrong lines and costs three cases, because
+  `ANY_OR_UNKNOWN` is carried by more types in this port than in upstream's.
+  **Third time this session a faithful flag test measured worse than the identity
+  test it replaced** (§578, §671, §781) — upstream's flags are a property of
+  upstream's type construction. §324's narrowing stands, for a better-understood
+  reason: no predicate available here partitions the cases the way that flag
+  partitions upstream's. **Owner: the type side**; the four-line hunk is recorded
+  at §782 so the retry costs one paste. §781–§782
+
 ### New, this session, TS2661 — refused by +0, and the blocker is the resolver
 
 - **The specifier is its own answer, and it is a *separate symbol*.** Inside
@@ -2844,6 +2856,7 @@ holds only the numbers.
 | 2026-08-10 | HEAD | 41.65% | 2,286 | **TS1361 closed as far as this workstream reaches — and the answer was in a rustdoc three functions up** | §775's discriminating print, run: the chain stops at `ImportClause verdict=None next=false` — ***`resolve_alias` cannot follow a default import to an `export =` module***. `import types from './b'` with `export = types` is `esModuleInterop`'s **synthetic default**, and `import_clause_default_target` ports only the plain half; the synthetic-default and `module.exports` arms are ***already recorded as unported*** in `checker-notes-modobj.md` §10.11 and in `resolve_alias`'s own rustdoc. ***Five probes across §765–§776 and the answer is an arm this port already knew it had not built.*** §769 said a probe settles the layer it prints; ***this row ends at a layer documented before any of the probes ran***, and the reading that would have saved them is of this file, three functions up. Four of five cases, seven of nine lines. §776 |
 | 2026-08-10 | HEAD | **41.76%** | **2,292** | **+6, the session's largest — and it came from the column that was never mined** | **TS2310** doubled TS2506 on a class cycle: `resolveBaseTypesOfClass` checks the **cycle first** and reaches the recursive-base check only after it returns, and §563 ported the second without the first. ***Invisible until §745 built the first*** — the case failed for a missing TS2506 either way and the extra TS2310 hid behind it. **Twenty wrong lines removed, six cases gained.** ***First row this session taken from `extraonly` rather than `diagmissing`***: three hundred and eight builds, `extraonly` read after every one of them, and ***always to answer the same question — did this build add wrong lines*** — never once sorted by code and read as a work list, though a wrong line blocks a case exactly as a missing one does. ***A measurement used only to answer one question stops being evidence about anything else.*** 92 lines remain in that column, now written down. §777–§778 |
 | 2026-08-10 | HEAD | **41.78%** | **2,293** | **+1 — the second row from `extraonly`, and the same asymmetry** | **TS2304** in a type position inside a `.js` file: `type a = b` is **TS8008** and upstream stops there, because the annotation is a construct the file may not contain and nothing inside it is resolved. ***The value-position rule has carried a JavaScript decline since it was written; the type-position one never got one.*** Two of six wrong lines went and four did not — their cases hold other faults, so ***the column is a work list, not a promise***: twenty lines bought six cases at §777, two bought one here. Second asymmetry from that column in two builds (§777 was TS2310 lacking TS2506's ordering): ***both are one rule missing something its sibling has, and both are invisible from either rule alone*** — `extraonly` finds them because ***a missing guard adds output, and output is what the other column cannot see***. §779–§780 |
+| 2026-08-10 | HEAD | 41.78% | 2,293 | **−3 with all nine wrong lines gone — a faithful flag test that is not portable** | **TS2564**. `checker.go:4946` skips a property whose type flags carry `AnyOrUnknown`, and ***`errorType` carries `TypeFlagsAny`***, so upstream's one test also skips an unresolved annotation. This port compares against the two **intrinsics** and lets an error type through — nine wrong lines. Transcribing the flag test removes all nine ***and costs three cases***: `ANY_OR_UNKNOWN` is carried by more types here than upstream. ***Third time this session a faithful flag test measured worse than the identity test it replaced*** (§578's `IsTypeAny`, §671's text predicate, this) — ***upstream's flags are a property of upstream's type construction, and this port builds types differently enough that a flag test is not portable even when the line around it is***. §781–§782 |
 
 ## 8. Updating this file
 
