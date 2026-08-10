@@ -129,7 +129,7 @@ impl Checker<'_, '_> {
     /// `getTypeFacts(t, TypeFactsIsUndefinedOrNull)` reduced to the two bits
     /// the reporter branches on — union-aware, since that is the whole of what
     /// "may be" means here.
-    fn nullish_facts(&self, ty: TypeId) -> (bool, bool) {
+    pub(crate) fn nullish_facts(&self, ty: TypeId) -> (bool, bool) {
         let of = |checker: &Self, id: TypeId| {
             let flags = checker.type_of(id).flags;
             (flags.contains(TypeFlags::NULL), flags.contains(TypeFlags::UNDEFINED))

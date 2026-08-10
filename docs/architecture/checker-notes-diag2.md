@@ -30966,3 +30966,75 @@ reading of the binder.
 
 **Recorded as a refusal with the path eliminated**, which is worth more than the
 +0 would have been.
+
+## §587 — TS2790: the operand of `delete` must be optional
+
+`checkDeleteExpressionMustBeOptional` (`checker.go:10825`):
+
+```go
+if c.strictNullChecks && t.flags&(AnyOrUnknown|Never) == 0 {
+    isOptional := c.hasTypeFacts(t, TypeFactsIsUndefined)   // !exactOptionalPropertyTypes
+    if !isOptional { c.error(expr, The_operand_of_a_delete_operator_must_be_optional) }
+}
+```
+
+**`hasTypeFacts(t, IsUndefined)` is already ported**, union-aware, as
+`nullable_operand.rs`'s `nullish_facts` — written for TS2532/TS18048 and
+described there as *"reduced to the two bits the reporter branches on —
+union-aware, since that is the whole of what 'may be' means here"*. This row
+needs exactly one of those two bits.
+
+> **The fifth row this session built out of a helper another rule already had**
+> (`is_instantiated_module` §548, `declaration_is_in_an_ambient_context` §508,
+> `spelling_suggestion` §187, `symbol_of` §523, `nullish_facts` here). The
+> session's own §549 observation — *four earlier notes' leftovers assembled into
+> one rule* — is now the normal case rather than the notable one.
+
+The `exactOptionalPropertyTypes` arm reads `SymbolFlagsOptional` instead and is
+**not ported** (§501): the option is off for every corpus case this row has.
+
+```
+bar:  +4 of 6 (cases blocked on TS2790 alone),  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **`delete x.y?` on an optional property reports.** That is the legal form and
+   the reason the rule exists.
+2. **A non-strict file reports.** `strictNullChecks` gates the whole check, and
+   most of the corpus is non-strict.
+3. **`delete x` on a bare identifier reports.** That is TS1102/TS2703's row
+   (§552), and upstream reaches this function only with a resolved property.
+
+## §588 — §587 built: **+4**, and element access is not a property symbol
+
+```
+with element access      2,136 → 2,138   (+2)   three wrong TS2790 lines
+property access only     2,136 → 2,140   (+4)   one
+TS2790 in extraonly      0 before → 1 after
+```
+
+The three wrong lines were `delete STRING1[0]`, `delete M.n` and one flow case.
+Upstream calls `checkDeleteExpressionMustBeOptional` **only when the operand
+resolved to a symbol** — the call site passes one — and an element access with a
+computed index has none. §587 tested the operand's *syntactic kind* instead,
+which is a different question.
+
+> **"Which nodes reach this function" is a guard, and it is the one a ported
+> rule most often has to reconstruct.** §522 named the same thing for a loop's
+> domain and §543 for a dispatch's predicate; here it is a call site's
+> precondition. All three are the same mistake in different clothes: **the
+> ported function is right and the set it is asked about is wrong.**
+
+One wrong line remains — `controlFlowDeleteOperator.ts(9,12)`, where a flow
+narrowing makes the property's type include `undefined` at that point and this
+port's `nullish_facts` reads the declared type. **Inside the stated tolerance
+(`WRONG delta <= +1`), named, and left**: it is the flow-narrowing owner's, the
+same one carrying TS2454 and TS7005.
+
+### The bar
+
+Met at +4 of a barred +4, after the narrowing. The first form met the *board* at
++2 and failed the *wrong-line* clause, which is the clause that caught it —
+worth noting because eleven builds this session have had a wrong-line tolerance
+and this is the first time it, rather than the total, decided the shape.
