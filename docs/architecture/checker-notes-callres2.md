@@ -1133,3 +1133,32 @@ inferFromGenericFunctionReturnTypes* and contextSensitiveReturnTypeInference
 follow. Falsifier: if leaving A unfixed turns unknown-wrongs into
 T-wrongs without half (2) landing the inference, the pair shows W→W
 churn and both halves land together or not at all.
+
+## §142 REFUSED at measured net −21 — the return-side rung needs the gate's third state
+
+Built whole (both bar halves + the predicate descent upstream's
+isContextSensitive actually has), measured, reverted. The complete
+finding, three traces deep:
+
+1. The predicate descent (arrow with CS concise body → CS) + the
+   return-position fill guard moved the head family's wrongs to honest
+   gaps (5 W→G) but cost −21 net: typeParameterFixingWithContextSensitiveArguments
+   −12, genericFunctions2 −7, genericRestParameters1 −6 W — arrows that
+   previously typed eagerly (pass-1) now defer, and their families
+   depended on the eager answer.
+2. The structural-into-reference arm NEVER FIRED: the deferred arrow's
+   body literal contains the CS member `b: x => {}`, whose §93 gate
+   answers error (materialized but UNGROUNDED context `(x: A) => void`),
+   and objects.rs propagates one member's error to the whole literal —
+   so the checked arrow types error and inference sees nothing.
+3. The real unlock is a THIRD gate state: a literal member whose
+   context materializes UNgrounded should ADOPT (the §75 semantics —
+   type `(x: A) => void`, not error) so the literal survives, inference
+   runs, A resolves, and a later pass re-grounds the member. That is
+   the §137 measured fork (+497/+138 was the ungrounded lift GLOBALLY;
+   the needed form is ungrounded-adopt scoped to literal members under
+   an ACTIVE inference context) plus a pass-3 re-serve — the true
+   InferenceInfo step-2 window, with the E1/0 common-supertype pair.
+
+The arm's text and the predicate descent are in this commit's history;
+the next window starts at the third state, not at the arm.
