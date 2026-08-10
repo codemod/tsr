@@ -1697,3 +1697,16 @@ result prints through the named-constituent guard) — honest gaps,
 named. The interface-constructor road stands transcribed WHOLE:
 refused induced (59:41), rebuilt verbatim (+44/5, zero R→W), extended
 verbatim (+19/8, zero R→W) — the law's cleanest complete arc.
+
+## §163 LANDED: isTypeDerivedFrom's structural arms (+17, zero regressions)
+
+relater.go:4964-4975 transcribed into is_derived_from_decidable,
+Kleene-lifted: source union → EVERY (decidable-false on any false);
+target union → SOME; source intersection → SOME; the
+instantiable-constraint arm declines. +17 in
+typeGuardsWithInstanceOfByConstructorSignature. The 8 R→G from §162.1
+re-framed per checker-1's read: a COUPLED SEAM — member reads through
+worker-minted narrowed types decline where the wide receiver answered;
+banked with the three-act arc's fixtures as the repro set, to be
+re-read when either lane touches the receiver road. The transcription
+ledger: five verbatim landings, +349 combined, zero R→W across all.

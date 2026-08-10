@@ -865,6 +865,48 @@ impl Checker<'_, '_> {
         ) {
             return Some(false);
         }
+        // SS163 (isTypeDerivedFrom's structural arms, relater.go:4964-4975,
+        // transcribed): source union -> EVERY; target union -> SOME; source
+        // intersection -> SOME - each Kleene-lifted (decidable-true /
+        // decidable-false / else None). The instantiable-constraint arm
+        // declines.
+        if let TypeData::Union { types, .. } = &self.store.get(t).data {
+            let constituents = types.clone();
+            let mut all_true = true;
+            for constituent in constituents {
+                match self.is_derived_from_decidable(constituent, candidate) {
+                    Some(true) => {}
+                    Some(false) => return Some(false),
+                    None => return None,
+                }
+                let _ = &mut all_true;
+            }
+            return Some(true);
+        }
+        if let TypeData::Union { types, .. } = &self.store.get(candidate).data {
+            let constituents = types.clone();
+            let mut any_none = false;
+            for constituent in constituents {
+                match self.is_derived_from_decidable(t, constituent) {
+                    Some(true) => return Some(true),
+                    Some(false) => {}
+                    None => any_none = true,
+                }
+            }
+            return if any_none { None } else { Some(false) };
+        }
+        if let TypeData::Intersection { types, .. } = &self.store.get(t).data {
+            let constituents = types.clone();
+            let mut any_none = false;
+            for constituent in constituents {
+                match self.is_derived_from_decidable(constituent, candidate) {
+                    Some(true) => return Some(true),
+                    Some(false) => {}
+                    None => any_none = true,
+                }
+            }
+            return if any_none { None } else { Some(false) };
+        }
         let owner_of = |checker: &Self, id: TypeId| -> Option<SymbolId> {
             match checker.store.get(id).data {
                 TypeData::Named { members: Some(owner), .. } => Some(owner),
