@@ -43119,3 +43119,45 @@ unsplit view advertised. **That is the honest size of "a second rule spoke", and
 it is worth knowing before another build is spent on the other 882** — which are
 not `diagdup`'s to fix at all, but the missing side's, already ranked by
 `diagmissing` and owned where §862 and `bd tsr-gjze` put them.
+
+## §864 — TS2451 beside TS2300: both selectors are faithful, so it is the table
+
+`diagdup`'s largest **DUPLICATE** class after TS1005's parser rows. The fixture
+is unambiguous about what upstream wants:
+
+```ts
+function f0() { let x1; var x1; function x1() { } }   // TS2300 ×3   (stripped 6,7,8)
+function f1() { let x;  { var x; } }                  // TS2451 ×2   (stripped 12,14)
+```
+
+**Same scope → `Duplicate identifier`. Nested block → `Cannot redeclare
+block-scoped variable`.**
+
+Both of this port's selectors were checked against upstream and both are
+faithful:
+
+```
+merge_conflicts.rs:107   the checker's three-way switch — `reportMergeSymbolError`
+                         (`checker.go:14203`), both sides tested, matches
+binder.rs:3883           the binder's — `symbol.Flags&BlockScopedVariable`
+                         (`binder.go:214`), the EXISTING symbol only, matches
+```
+
+Read literally, the binder's arm says `let x1; var x1;` must be TS2451: `let x1`
+is declared first, so the symbol in the table carries `BlockScopedVariable` when
+`var x1` arrives. **The corpus says TS2300.** So upstream's two declarations are
+*not* meeting in that table at that moment — the difference is in **which symbol
+table each declaration lands in and in what order**, not in the message choice
+either selector makes.
+
+> Two faithful ports of two message selectors, and the wrong message anyway.
+> **When every rule on the path is verified against upstream and the answer is
+> still wrong, the disagreement has moved to the data the rules run on** — and
+> that is a much better-specified handoff than the row's own wording. §862
+> reached the same shape from the other side, where a *faithful* gate could not
+> fire because a type was missing.
+
+**Not built here.** The next attempt starts at `declare_into_with_excludes` and
+asks *which table* `let x1` and `var x1` are declared into in a function body,
+against upstream's `bindBlockScopedDeclaration` — with the two fixture shapes
+above as its oracle, which is the part this section supplies.
