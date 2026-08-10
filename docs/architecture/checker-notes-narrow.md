@@ -6584,3 +6584,29 @@ CONTAINS_INVALID_ESCAPE added to the scanner's TokenFlags subset
 with the bits-parity assertion. The `\8`/`\9` and template-raw
 no-report semantics mean STRING literals always cook (report=true)
 while TAGGED templates keep raw — both roads measured.
+
+## §148 — a JS var with neither annotation nor initializer reads error, not any [claimed: checker-1]
+
+**A WRONG-side class with a single dominant case:** 344 lines want
+`error` where we answer `any` (324 in
+`parsingDeepParenthensizedExpression`, an allowJs asm.js monster;
+9 `spellingUncheckedJS`; singles across the JS-file family). The
+generated tsgo baseline — the oracle, ADR-0006 — prints `error`
+for a JS-FILE variable declared with neither annotation nor
+initializer (`var r, i, a, …` then `T : error` at every use,
+propagating through arithmetic: `T + 28 : error`), where our
+`get_widened_type_for_variable_like_declaration` answers the
+TS-rule implicit any (`checker.go:18264`, `symbols.rs` §19-era
+arm). Upstream's JS road types such vars by assignment analysis
+and lands errorType where that machinery finds nothing. Gate:
+`in_js_file(declaration)` && VariableDeclaration && no annotation
+&& no initializer → `intrinsics.error`. TS files keep implicit
+any (a huge RIGHT population — the gate must not touch them).
+**Bar: net ≥250 at ≥5:1.** Falsifiers: (a) the suite may count
+got==want=="error" as GAP rather than RIGHT — if so the class
+converts to gap-not-wrong (still a wrong-side win at half value;
+re-price); (b) error-operand propagation through binary arithmetic
+must already answer error or the uses convert to a DIFFERENT
+wrong; (c) JS vars later ASSIGNED (`M = 0` beside them measures
+`number`) must not take the arm — the gate is declaration-shaped,
+assignment-typing is separate machinery we lack, watch the pair.
