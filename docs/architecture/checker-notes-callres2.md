@@ -1110,3 +1110,26 @@ load-bearing far beyond the census family: generatedContextualTyping
 ladder's name; thislessFunctionsNotContextSensitive1 6). The census
 under-attributed because the same raw read served every
 reference-typed literal context, not just the harvest's.
+
+## §142 BAR (registered before code): return-position fixing + structural-into-reference inference
+
+badInferenceLowerPriorityThanGoodInference's head:
+`canYouInferThis<A>(fn: () => Foo<A>)` with a CS arrow. Two missing
+halves, both named by one trace of the fixture:
+
+1. **The fixing rule's true scope**: upstream fixes a type parameter
+   when a served context's PARAMETER positions consume it; a parameter
+   mentioned only in RETURN position of the deferred argument's type
+   (`() => Foo<A>`) stays unfixed — our unknown-fill fires there and
+   commits A := unknown before the arrow's return can speak.
+2. **Structural inference into references**: the checked arrow's
+   return `{ a: {BLAH:number}, b: ... }` must infer against `Foo<A>`
+   member-wise — target reference's members instantiated through the
+   reference (§141's `instantiate_for_reference`), matched by name
+   against the source's properties.
+
+Prediction: the family's 4 W + 4 G move; kin in
+inferFromGenericFunctionReturnTypes* and contextSensitiveReturnTypeInference
+follow. Falsifier: if leaving A unfixed turns unknown-wrongs into
+T-wrongs without half (2) landing the inference, the pair shows W→W
+churn and both halves land together or not at all.
