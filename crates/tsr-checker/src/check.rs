@@ -52,6 +52,24 @@ use tsr_diagnostics::{Diagnostic, messages};
 
 use crate::checker::Checker;
 
+/// The written name of a class member, for the kinds an `abstract` member can
+/// take. Wider than [`class_member_shape`], which omits methods because its own
+/// caller asks a property-versus-accessor question. §761.
+fn member_name_text(member: &tsr_ast::ClassElement<'_>) -> Option<String> {
+    let name = match member {
+        tsr_ast::ClassElement::PropertyDeclaration(p) => p.name,
+        tsr_ast::ClassElement::MethodDeclaration(m) => m.name,
+        tsr_ast::ClassElement::GetAccessorDeclaration(a) => a.name,
+        tsr_ast::ClassElement::SetAccessorDeclaration(a) => a.name,
+        _ => return None,
+    };
+    match name {
+        tsr_ast::PropertyName::Identifier(identifier) => Some(identifier.text.to_string()),
+        tsr_ast::PropertyName::StringLiteral(literal) => Some(literal.text.to_string()),
+        _ => None,
+    }
+}
+
 /// What the caller knows about a file that the tree does not say.
 ///
 /// Both fields stand in for facts upstream's parser records and this port's does
@@ -591,6 +609,7 @@ impl Checker<'_, '_> {
             Node::ClassDeclaration(_) => {
                 self.check_type_parameter_lists_identical(node);
                 self.check_base_chain_is_acyclic(node);
+                self.check_abstract_members_implemented(node);
             }
             Node::FunctionDeclaration(n) => self.check_illegal_decorator(n.modifiers),
             Node::InterfaceDeclaration(n) => {
@@ -10868,6 +10887,69 @@ impl Checker<'_, '_> {
         }
         parts.reverse();
         Some(parts.join("."))
+    }
+
+    /// TS2515 — `Non-abstract class '{0}' does not implement inherited abstract
+    /// member '{1}' from class '{2}'.`
+    ///
+    /// `checkKindsOfPropertyMemberOverrides`'s `notImplementedInfo` pass
+    /// (`checker.go:4664`): the abstract members of every base, minus what the
+    /// derived class provides, reported at the derived class's **name**.
+    ///
+    /// **Only the single-member form is built** — upstream has four by count and
+    /// the plural ones join a list of names this port would have to spell the
+    /// same way. §679 declined TS2460 on the same ground. §761.
+    fn check_abstract_members_implemented(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let Some(Node::ClassDeclaration(class)) = self.node_map.get(node) else { return };
+        if has_modifier(class.modifiers, SyntaxKind::AbstractKeyword) {
+            return;
+        }
+        let Some(name) = class.name.and_then(|name| name.node_id) else { return };
+        // **A local enumeration, not `class_member_shape`.** That helper omits
+        // methods on purpose — it serves TS2610's property-versus-accessor
+        // question — and widening it would move a measured rule to serve this
+        // one. §686's lesson, applied before the measurement. §761.
+        let mut provided: Vec<String> = class.members.iter().filter_map(member_name_text).collect();
+        let mut missing: Vec<(String, String)> = Vec::new();
+        let mut at = self.base_class_declaration_of(node);
+        for _ in 0..MAX_ALIAS_HOPS {
+            let Some(base) = at else { break };
+            let Some(Node::ClassDeclaration(base_class)) = self.node_map.get(base) else { break };
+            let base_name = base_class.name.map_or_else(String::new, |it| it.text.to_string());
+            for member in base_class.members {
+                let Some(member_name) = member_name_text(member) else { continue };
+                let is_abstract = member
+                    .node_id()
+                    .and_then(|id| self.node_map.get(id))
+                    .and_then(modifiers_of)
+                    .is_some_and(|m| {
+                        tsr_ast::has_syntactic_modifier(m, SyntaxKind::AbstractKeyword)
+                    });
+                if is_abstract && !provided.contains(&member_name) {
+                    missing.push((member_name.clone(), base_name.clone()));
+                }
+                provided.push(member_name);
+            }
+            at = self.base_class_declaration_of(base);
+        }
+        if missing.len() != 1 {
+            return;
+        }
+        let (member_name, base_name) = missing.remove(0);
+        let Some(file) = self.source_file_of_for_diagnostics(name) else { return };
+        let span = self.nodes.span(name);
+        let derived = self.identifier_text(name).unwrap_or_default().to_string();
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::NON_ABSTRACT_CLASS_0_DOES_NOT_IMPLEMENT_INHERITED_ABSTRACT_MEMBER_1_FROM_CLASS_2,
+                span,
+                [derived, member_name, base_name],
+            ),
+        );
     }
 
     /// A `declare` modifier on the declaration itself.

@@ -38752,3 +38752,45 @@ forms in the same fixtures, where the operand's nullability comes from an index
 signature or a property type rather than from a `null`/`undefined` literal.
 Those need the type, and this build's arm reaches them — **it is the facts that
 are missing, not the position.** Named; the type side owns it.
+
+## §761 — TS2515 rebuilt: **+5**, row closed, and §737's probe answered it in one run
+
+```
+diagnostics             2,273 → 2,278   (+5, 0 LOST)   41.51%
+extraonly               zero TS2515, TS2610 and TS2611 lines
+TS2515 missing lines    10 → 0     — the row is closed
+```
+
+§737 refused this row at **+2 with 4 wrong lines** and named the next
+measurement in one line: *"print `class.members.len()` at the top of the rule."*
+It printed:
+
+```
+PROBE own n=1 provided=["foo"]     class A
+PROBE own n=0 provided=[]          class C   — implements nothing, correctly reports
+PROBE own n=1 provided=["bar"]     class E   — implements it, correctly silent
+```
+
+**The enumeration was right this time**, and §737's four wrong lines came from
+the version whose `member_name_text` never ran. The rebuild is the same design
+§736 wrote — the local member enumeration, the bounded base walk, the
+single-member form only — and it closed the row.
+
+> §737 recorded three things and all three paid: the local enumeration was the
+> right call (§686's lesson applied before the measurement), the next probe was
+> named exactly, and *"probes are edits"* explained why the first attempt's probe
+> never ran. **A refusal that names its next measurement is worth more than a
+> build that succeeds without one** — this row took two cycles and the second was
+> one probe and one paste.
+
+### What the row needed in the end
+
+```
+a local member enumeration          methods included, unlike class_member_shape
+the bounded base walk               §745's, shared with three other rules
+the single-member message only      the plural forms need a joined list
+```
+
+Nothing new. **Every piece existed and one of them had to be written locally
+rather than shared** — which is the whole of §686 restated as construction
+rather than as a refusal.
