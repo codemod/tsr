@@ -209,3 +209,27 @@ moves intraExpressionInferences or typeArgumentInferenceWithObjectLiteral
 in EITHER direction is out of scope and reverts. Builder must read
 `inference.rs` whole plus checker-notes-callres2.md SS133-SS144
 before writing the first line.
+
+
+### Phase 1 slice 1 — MEASURED +4/9 AND REVERTED (2026-08-10, checker-1)
+
+The minimal lattice (priority on InferenceInfo, displacement in
+add_candidate, NakedTypeVariable tagged in the union arm's
+constituent recursion, ReturnType on the return seed) built clean
+and measured NET NEGATIVE: +4 G→R (unionTypeInference 2,
+recursiveTypeReferences1 2) against 9 G→W (unionTypeInference 6,
+nestedTypeVariableInfersLiteral 3) — the zero-regression bar
+fires. The mechanism: displacement without `inferToMultipleTypes`'
+FULL structure (`inference.go:700+` — the matched-count strike,
+the single-naked-variable condition, the source-constituent
+distribution) resolves previously-gapping disagreements to the
+WRONG survivor. The port's existing strike rule (the assignability
+early-out) and the naive lattice compose incorrectly — the same
+interlock lesson as §142/§143/§144 one level down. AMENDMENT to
+the phase plan: Phase 1's true unit is lattice + inferToMultipleTypes
+TOGETHER (transcribe :700-800 before rebuilding); the slice's code
+shape (the two-fn split, the merge-site threading, the const
+names) was correct plumbing and is preserved in the scratchpad
+(phase1s1.py) for the rebuild. The four-refusal table gains a
+fifth row, and the thesis sharpens: not even the LATTICE lands
+alone.
