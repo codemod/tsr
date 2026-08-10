@@ -29201,3 +29201,106 @@ is one of them. Built checker-side because the suite compares
 line**, which retires the question of whether the binder's placement mattered
 for *this* code. The other three families in that note (`with` in strict mode,
 `eval`/`arguments`, octal literals) remain unported and unpriced.
+
+## §552 — the binder's diagnostics, priced: one row left, and §156 already proved its guard
+
+§550 named three unported binder families. Enumerating what `binder.go` emits at
+all — twenty-two distinct messages — and pricing every strict-mode code in the
+corpus:
+
+```
+TS1100 TS1101 TS1210 TS1213 TS1214 TS1215 TS1250 TS1251 TS1252 TS2410    all 0 missing
+TS1212   2 lines,  2 cases blocked alone
+TS1102   6 lines,  4 cases blocked alone     ← this build
+```
+
+**The family §550 called unported is almost entirely at zero**, because
+`strict_mode.rs` ported the eval/arguments sites at §156 and the rest never had
+cases. The note in `tsr-binder` is accurate about *that crate* and misleading as
+a statement about the port — the checks live in the checker.
+
+### §156 already did this build's hardest part
+
+The obvious guard for `'delete' cannot be called on an identifier in strict
+mode` is *"is this strict mode"*, and §156 established it does not exist:
+
+> `binder.Binder` (`binder.go:83-113`) has **no `inStrictMode` field**, and
+> every one of the seven call sites is dispatched unconditionally from `bind`.
+> `parserStrictMode3-negative.ts` is the single line `eval = 1;` with no
+> prologue and its baseline records TS1100 all the same.
+
+`checkStrictModeDeleteExpression` (`binder.go:1402`) is dispatched from the same
+`switch` at `binder.go:632`. So the rule is exactly:
+
+```go
+if expr.Expression.Kind == ast.KindIdentifier {
+    b.errorOnNode(expr.Expression, …)
+}
+```
+
+> **The most valuable thing a note can contain is the guard that isn't there.**
+> §156 spent a build discovering that a strict-mode gate does not exist and
+> wrote it down with its falsifier; this build reads that sentence and ships in
+> one measurement. Two earlier notes (§105, §137) had priced the same row
+> *wrong* by reasoning about the Rust side, and the correction is what made both
+> §156 and this build possible.
+
+### The bar
+
+```
+bar:  +4 of 4  — from `cases blocked on TS1102 alone`, §551's column
+      0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **`delete a.b` reports.** Only a bare identifier operand does.
+2. **TS2703's row moves.** `check_reference_expression` already handles
+   `DeleteExpression` for a different code at the same position; upstream emits
+   both from different components and this port must not double-count either.
+
+## §553 — §552 built: **+4**, bar met exactly on the right column
+
+```
+diagnostics   2,087 → 2,091   (bar was +4;  +4, 0 LOST)   38.10%
+extraonly     54 → 54         TS2703 unmoved at 0 blocked alone
+```
+
+First bar this session set from `cases blocked on X alone` **because §551 said
+to**, and it landed exactly. That is the column's whole claim: it predicts the
+board's movement, where `cases` predicts the row's closure.
+
+### The binder families, closed as a group
+
+```
+§550   TS1344   6 lines → 0        +3 cases
+§552   TS1102   6 lines → 0        +4 cases
+       TS1212   2 lines            2 cases, not built — a reserved word in strict
+                                   mode, which needs the reserved-word table
+       everything else in binder.go   0 missing
+```
+
+**Twenty-two distinct messages enumerated, two rows built, one left, the rest at
+zero.** The vein §550 opened is now priced end to end, and the answer is that
+`tsr-binder`'s "none of that is ported" note was describing a crate rather than
+a capability — §156 had already moved the eval/arguments family into the checker
+and the rest never had corpus cases.
+
+> **A subsystem's own note about what it does not do is not a statement about
+> what the port does not do.** Reading it as one is how a family of twenty-two
+> messages looked like open work and turned out to be two rows. The cost of
+> finding out was a single `grep` of `binder.go` plus one `diagmissing` per
+> code; the cost of *not* finding out would have been reading it as a large
+> owner in every future scan.
+
+### What §156 was worth
+
+This build shipped in one measurement because §156 had already established the
+guard that isn't there — no `inStrictMode` field, seven unconditional call
+sites, with `parserStrictMode3-negative.ts` as the falsifier. **Two earlier
+notes had priced the same family wrong** by reasoning about the Rust side (§105,
+§137), and §156's correction is what both §550 and §552 read.
+
+That is the clearest instance this session of a note paying for itself: one
+sentence about an absent guard, written in 2026-08, turned two later rows into
+one-measurement builds.

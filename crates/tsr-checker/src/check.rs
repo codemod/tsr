@@ -604,6 +604,9 @@ impl Checker<'_, '_> {
         self.check_jsx_intrinsic_element(node, typed);
         self.check_jsx_factory_in_scope(typed);
         self.check_strict_mode_eval_or_arguments_sites(node, typed, ambient);
+        if matches!(typed, Node::DeleteExpression(_)) {
+            self.check_strict_mode_delete_expression(node);
+        }
         self.check_contextual_identifier(node, ambient);
         self.check_type_parameter_list(type_parameters_of(typed));
         if self.nodes.kind(node) == SyntaxKind::SwitchStatement {

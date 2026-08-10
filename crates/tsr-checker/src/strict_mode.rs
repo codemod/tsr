@@ -127,6 +127,33 @@ impl Checker<'_, '_> {
     /// `contextNode` is the node the *message* is chosen from and `name` is the
     /// node the diagnostic is placed on — upstream passes two arguments for
     /// exactly that reason, and they differ at every call site.
+    /// TS1102 — `'delete' cannot be called on an identifier in strict mode.`
+    ///
+    /// `checkStrictModeDeleteExpression` (`binder.go:1402`), dispatched from
+    /// the same unconditional `switch` at `binder.go:632` as the eval/arguments
+    /// sites above — so **it has no strict-mode gate either**, for the reason
+    /// this module's header establishes and `parserStrictMode3-negative.ts`
+    /// demonstrates.
+    ///
+    /// `docs/architecture/checker-notes-diag2.md` §552.
+    pub(crate) fn check_strict_mode_delete_expression(&mut self, node: NodeId) {
+        let Some(Node::DeleteExpression(delete)) = self.node_map.get(node) else { return };
+        let Some(operand) = delete.expression.and_then(|e| e.node_id()) else { return };
+        if self.nodes.kind(operand) != SyntaxKind::Identifier {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(operand) else { return };
+        // `errorOnNode` — the operand's own span, as the sites above.
+        let span = self.nodes.span(operand);
+        self.report(
+            file,
+            Diagnostic::new(
+                &messages::DELETE_CANNOT_BE_CALLED_ON_AN_IDENTIFIER_IN_STRICT_MODE,
+                span,
+            ),
+        );
+    }
+
     fn check_strict_mode_eval_or_arguments(&mut self, context: NodeId, name: NodeId) {
         // `isEvalOrArgumentsIdentifier` (`binder.go:1440`): an `Identifier`
         // whose text is one of the two. A binding *pattern*, a string literal
