@@ -3125,14 +3125,28 @@ impl Checker<'_, '_> {
                     let Some(target) = typeof_expr.expression.and_then(|e| e.node_id()) else {
                         return t;
                     };
-                    if !self.is_matching_reference(state, target) {
-                        return t;
-                    }
                     let negated = matches!(
                         operator.kind,
                         SyntaxKind::ExclamationEqualsToken
                             | SyntaxKind::ExclamationEqualsEqualsToken
                     );
+                    if !self.is_matching_reference(state, target) {
+                        // SS152: the CHAIN half of narrowTypeByTypeof — when
+                        // the typeof target reads the reference through a
+                        // `?.` chain and the branch implies the chain result
+                        // is NOT undefined, the base strips undefined/null
+                        // (`typeof o?.foo !== "undefined"` narrows `o`).
+                        let effective = assume_true != negated;
+                        let result_not_undefined = (effective && literal != "undefined")
+                            || (!effective && literal == "undefined");
+                        if self.strict_null_checks
+                            && result_not_undefined
+                            && self.optional_chain_contains_reference(state, target)
+                        {
+                            return self.get_type_with_facts(t, TypeFacts::NE_UNDEFINED_OR_NULL);
+                        }
+                        return t;
+                    }
                     return self.narrow_type_by_typeof_literal(t, literal, assume_true != negated);
                 }
                 // §50: a condition on a SIBLING element of the pseudo-

@@ -1445,3 +1445,14 @@ spells a `?.` chain strips nullable from the true branch — the chain
 result's undefined is the CHAIN's, not the member's
 (`optionalChainContainsReference` after the comparable filter,
 flow.go:585-600 region). Family 88→82 W.
+
+## §152 LANDED: the typeof chain half (+18, zero regressions)
+
+`narrowTypeByTypeof`'s optional-chain arm (`bd tsr-q9g`'s named gap,
+now closed for the base-strip half): when the typeof target reads the
+reference through `?.` and the branch implies the chain result is NOT
+undefined ((effective ∧ literal≠"undefined") ∨ (¬effective ∧
+literal="undefined")), the base strips undefined/null. +13 family,
++4 typePredicatesOptionalChaining2, +1 narrowingTypeofDiscriminant.
+Family 82→69 W. The flow arc's continuous run (§149a→§152): +120,
+zero regressions.
