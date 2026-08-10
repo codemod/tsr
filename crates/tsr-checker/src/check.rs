@@ -193,6 +193,22 @@ impl Checker<'_, '_> {
                 ambient
             }
             Node::ImportEqualsDeclaration(declaration) => {
+                // **`import a = b.c` carries TS2694 too**, under a wider
+                // meaning: an alias may name a value, where a type reference may
+                // not. §559.
+                if let Some(tsr_ast::ModuleReference::QualifiedName(name)) =
+                    declaration.module_reference
+                    && let Some(name) = name.node_id
+                {
+                    self.check_qualified_type_name_at(
+                        name,
+                        true,
+                        SymbolFlags::VALUE
+                            | SymbolFlags::TYPE
+                            | SymbolFlags::NAMESPACE
+                            | SymbolFlags::ALIAS,
+                    );
+                }
                 // Only the `require("x")` spelling names a module; `import a = b.c`
                 // is an entity-name alias and resolves through the scope.
                 if let Some(tsr_ast::ModuleReference::ExternalModuleReference(reference)) =
@@ -7188,7 +7204,11 @@ impl Checker<'_, '_> {
         if reference.type_name.and_then(|name| name.node_id()) != Some(node) {
             return;
         }
-        self.check_qualified_type_name_at(node, true);
+        self.check_qualified_type_name_at(
+            node,
+            true,
+            SymbolFlags::TYPE | SymbolFlags::NAMESPACE | SymbolFlags::ALIAS,
+        );
     }
 
     /// The rule proper, reachable from the entry above **and from itself**.
@@ -7197,7 +7217,15 @@ impl Checker<'_, '_> {
     /// Class1)` and upstream reports on `inner` — the inner qualified name,
     /// whose parent is the outer one and which the entry guard therefore never
     /// admits. §529.
-    fn check_qualified_type_name_at(&mut self, node: NodeId, outermost: bool) {
+    /// `meaning` is the caller's — upstream's `resolveEntityName` parameter.
+    /// A type reference asks for `TYPE | NAMESPACE | ALIAS`; an import-equals
+    /// alias may also name a **value**. §559.
+    pub(crate) fn check_qualified_type_name_at(
+        &mut self,
+        node: NodeId,
+        outermost: bool,
+        meaning: SymbolFlags,
+    ) {
         let Some(Node::QualifiedName(qualified)) = self.node_map.get(node) else { return };
         let Some(left) = qualified.left.and_then(|left| left.node_id()) else { return };
         let Some(right) = qualified.right.and_then(|right| right.node_id) else { return };
@@ -7210,10 +7238,15 @@ impl Checker<'_, '_> {
             // The innermost failure first (§529), then this level: `A.B` may
             // resolve cleanly with `C` missing, which is `resolveEntityName`
             // over a qualified left. §556.
-            self.check_qualified_type_name_at(left, false);
+            self.check_qualified_type_name_at(left, false, meaning);
             let Some(namespace) = self.resolve_entity_name_to_namespace(left) else { return };
             let Some(member) = self.identifier_text(right).map(str::to_string) else { return };
-            if self.binder.symbols().get(namespace).exports.is_empty() {
+            // §186's decline, narrowed: a `ModuleDeclaration` with a body is
+            // one the binder walked, so an empty table means *nothing was
+            // exported*. §558.
+            if self.binder.symbols().get(namespace).exports.is_empty()
+                && !self.namespace_body_was_bound(namespace)
+            {
                 return;
             }
             if self.binder.symbols().get(namespace).exports.contains_key(member.as_str()) {
@@ -7293,15 +7326,13 @@ impl Checker<'_, '_> {
         if self.binder.symbols().get(namespace).exports.is_empty() {
             return;
         }
-        let found = self.binder.symbols().get(namespace).exports.get(member.as_str()).is_some_and(
-            |&symbol| {
-                self.binder
-                    .symbols()
-                    .get(symbol)
-                    .flags
-                    .intersects(SymbolFlags::TYPE | SymbolFlags::NAMESPACE | SymbolFlags::ALIAS)
-            },
-        );
+        let found = self
+            .binder
+            .symbols()
+            .get(namespace)
+            .exports
+            .get(member.as_str())
+            .is_some_and(|&symbol| self.binder.symbols().get(symbol).flags.intersects(meaning));
         // **`canSuggestTypeof` (`checker.go:15869`), tested before the namespace
         // branch.** A *fundule* — `function B` merged with `namespace B` — is
         // "found" by the test above because it carries `NAMESPACE`, and upstream
@@ -7324,7 +7355,12 @@ impl Checker<'_, '_> {
             // error node is the entire type reference and its message prints
             // `A.B`; asked of an inner segment it reported TS2749 at three
             // positions upstream leaves alone — §529's falsifier 2, fired.
+            // **And this arm is type-position-only too.** An import-equals
+            // alias may legitimately name a value, so `canSuggestTypeof` — the
+            // *"did you mean `typeof`"* suggestion — is wrong there. Same
+            // meaning, one arm over. §559.
             if outermost
+                && !meaning.intersects(SymbolFlags::VALUE)
                 && value_only
                 && !in_type_query
                 && let Some(file) = self.source_file_of_for_diagnostics(node)
@@ -7941,6 +7977,18 @@ impl Checker<'_, '_> {
             }
             _ => None,
         }
+    }
+
+    /// Did the binder walk a body for this namespace symbol? The test that lets
+    /// §186's empty-exports decline distinguish *nothing was exported* from
+    /// *nothing was recorded*. §558.
+    fn namespace_body_was_bound(&self, symbol: tsr_binder::SymbolId) -> bool {
+        self.binder.symbols().get(symbol).declarations.iter().any(|&declaration| {
+            matches!(
+                self.node_map.get(declaration),
+                Some(Node::ModuleDeclaration(module)) if module.body.is_some()
+            )
+        })
     }
 
     /// `IsInstantiatedModule` (`ast/utilities.go:2443`).

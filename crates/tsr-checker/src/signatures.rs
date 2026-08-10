@@ -1649,16 +1649,13 @@ impl<'a> Checker<'a, '_> {
     /// argument, an annotated declaration, an object-literal property, a
     /// `return` expression, an `as`) can supply a contextual type, and this
     /// refuses to guess which.
-
+    ///
     /// Iteration 4 arm (b)'s test: the node (through parens) is a call
     /// argument whose callee resolves to exactly one GENERIC signature with
     /// a real parameter at this position — the shape arm (a) serves.
     pub(crate) fn single_generic_argument_context(&mut self, node: NodeId) -> bool {
         let mut position = node;
-        let mut parent = match self.nodes.parent(position) {
-            Some(p) => p,
-            None => return false,
-        };
+        let Some(mut parent) = self.nodes.parent(position) else { return false };
         while let Some(Node::ParenthesizedExpression(paren)) = self.node_map.get(parent) {
             if paren.expression.and_then(|e| e.node_id()) != Some(position) {
                 return false;
@@ -2407,6 +2404,9 @@ impl<'a> Checker<'a, '_> {
     /// and gapped otherwise. Contextual typing itself is the next item here; it
     /// needs function **type nodes**, which `getTypeFromTypeNode` does not yet
     /// have.
+    // The arms below each carry their own reasoning and clippy's minimisation
+    // would collapse them into one negated disjunction, losing it. §559.
+    #[allow(clippy::nonminimal_bool)]
     pub(crate) fn get_type_of_function_expression(&mut self, node: NodeId) -> TypeId {
         let error = self.intrinsics.error;
         let Some(parts) = self.signature_parts_of(node) else { return error };

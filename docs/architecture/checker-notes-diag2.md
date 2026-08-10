@@ -29651,3 +29651,117 @@ one of them measured. **Not attempted further** — the meaning parameter is a
 signature change through `resolve_entity_name_to_namespace` and its callers, and
 it should be built with the empty-table narrowing in the same commit, with the
 bar set on the pair.
+
+## §559 — the meaning is one line, and a positive control found it
+
+§557 named *"resolveEntityName's meaning parameter"* and §558 added the
+empty-table narrowing. A positive control at the rule's entry located the
+meaning exactly:
+
+```
+P/enter node=NodeId(13) leftkind=Identifier
+P/enter node=NodeId(18) leftkind=Identifier
+```
+
+`import x = m.m` is **two deep**, so it never reaches §556's recursion at all —
+it takes §187's original path, whose membership test is:
+
+```rust
+exports.get(member).is_some_and(|s| s.flags.intersects(TYPE | NAMESPACE | ALIAS))
+```
+
+**That flag set *is* the meaning**, hardcoded to the type one. `namespace m {
+export var m = ''; }` exports `m` as a **VALUE**, so a type reference `var x:
+m.m` is correctly an error and `import x = m.m` is correctly not — and the rule
+gave both the same answer.
+
+> **A positive control does not just prove the probe ran; it tells you which
+> code path ran.** §547 introduced the control to distinguish *reached* from
+> *not reached*; here it distinguished *reached by the new branch* from
+> *reached by the old one*, which no amount of reading would have settled —
+> §556, §557 and §558 all assumed the recursion was involved and it never was.
+
+Three notes reasoned about the wrong branch because the fixture *looks* deep:
+`c.a.b.ma` is four segments, `m.m` is two, and the eight wrong lines were all
+from the two-segment ones.
+
+### The pair, now precise
+
+```
+1  the membership test takes the caller's meaning   TYPE|NAMESPACE|ALIAS for a type
+                                                    reference, + VALUE for import-equals
+2  §186's empty-table decline narrowed              measured at +3 lines (§558)
+```
+
+### The bar
+
+```
+bar:  +4 of 8,  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **`var x: m.m` stops reporting.** The type meaning must be unchanged; only
+   the import-equals caller widens it.
+2. **`importAndVariableDeclarationConflict3` reports TS2694.** It is the
+   measured wrong line and its baseline carries TS2300 only.
+3. **§530's two-deep row regresses.** Same entry, same path, different caller.
+
+## §560 — §559 built: **+5**, and the meaning was *two* lines, not one
+
+```
+diagnostics   2,091 → 2,096   (bar was +4;  +5, 0 LOST)   38.19%
+extraonly     54 → 54         all three falsifiers negative
+TS2694        9 missing lines → 4;  8 cases blocked alone → 3
+```
+
+The build landed in three measured steps, each one narrowing the previous:
+
+```
+entry alone                          −4    extras 54 → 62,  all TS2694
++ meaning on the membership test     −1    extras 54 → 62,  all TS2749   ← the tell
++ meaning on `canSuggestTypeof`      +5    extras 54 → 54
+```
+
+> **The extras did not shrink, they *moved*.** §558 said *compare the extras,
+> not the totals*, and that reading is what made step two legible: the count was
+> identical, the **codes** were not. A wrong-line count that holds steady while
+> its composition changes is a fixed bug and a new one, not a null result — and
+> the totals said null both times.
+
+Both arms are type-position-only and both were written when the only caller was
+a type reference:
+
+```
+the membership test   exports.get(m).flags.intersects(TYPE|NAMESPACE|ALIAS)
+canSuggestTypeof      "did you mean `typeof m.m`" — nonsense for an alias
+```
+
+An import-equals may legitimately name a **value**, so both needed the caller's
+meaning. Upstream carries it as `resolveEntityName`'s parameter; here it is one
+argument threaded through the rule.
+
+### What the sequence cost and why it was worth it
+
+Four notes and five measurements for +5, on a row three earlier notes had each
+diagnosed differently:
+
+```
+§530   named the arm, did not build it                  correct
+§556   built the recursion                              +0 — the fixtures are two deep
+§557   named the meaning parameter                      correct, and unlocatable from reading
+§558   narrowed §186's empty-table decline              +3 lines, necessary, invisible alone
+§559   found the meaning with a POSITIVE CONTROL        two arms, one line each
+```
+
+**§547's positive control is what ended it.** Three notes assumed the recursion
+was involved because the fixture `c.a.b.ma` is four segments deep; the eight
+wrong lines all came from `m.m`, two segments, on the *old* path. One `eprintln`
+at the entry printed `leftkind=Identifier` and the assumption died.
+
+### Left open
+
+Four lines, three cases. `importAnImport`'s `c.a.b.ma` still needs §558's
+empty-table narrowing to fire, which is in this build and did not convert it —
+so a third condition remains, and it is **not** named here because nothing has
+measured it.
