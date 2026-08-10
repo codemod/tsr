@@ -43404,3 +43404,55 @@ honest ordering for a next session:
    converts a case and no other owner is involved.
 3. Everything else waits on the relation, and 839 cases is 15% of the corpus
    sitting behind one workstream's work.
+
+## §871 — §870's item 2, corrected and worked
+
+### The correction first
+
+§870 called `diagdup`'s DUPLICATE column *"the only pool where a removal converts
+a case"*. That is **wrong**, and the first sample said so: `diagdup` ranges over
+every judged case, not only those whose sole defect is an extra, so most of its
+rows sit in cases that need missing lines as well.
+
+The convertible pool is the **intersection with `extraonly`**:
+
+```
+extraonly cases          53
+diagdup DUPLICATE cases  36
+both                      8   <- a removal alone converts these
+```
+
+Eight cases, not sixty-two lines. **A number I stated one build ago from the
+shape of a list rather than from an intersection**, which is §848's error
+repeated — and the intersection is one `comm` (under `LC_ALL=C`, §851).
+
+### The build
+
+```ts
+class C { export [x: string]: string; }
+```
+
+```
+expected   TS1071   'export' modifier cannot appear on an index signature
+actual     TS1071
+           TS1031   'export' modifier cannot appear on class elements of this kind
+```
+
+Upstream tests the index signature **before** the per-keyword switch that carries
+the class-elements arm (`grammarchecks.go:291` against `:300`) and returns. This
+port has the index arm in a **separate function**, `check_index_signature_modifiers`,
+outside `check_modifier_order`'s chain — so both fire.
+
+**Third time this session** a rule ported outside that chain kept reporting after
+the chain had spoken (§857's TS1042 on a constructor, §858's note, this).
+`check_modifier_order` now defers on an `IndexSignature`, which is upstream's
+order expressed where this port can express it.
+
+```
+bar:  +1 (parserIndexMemberDeclaration9),  0 LOST via `diagpass`,  extraonly 81 -> 80
+```
+
+### Falsifiers
+
+1. **TS1031's row loses a case.** The deferral is scoped to index signatures.
+2. **TS1071 stops firing.** It is the arm being deferred *to*.

@@ -6324,8 +6324,16 @@ impl Checker<'_, '_> {
             // `X_0_modifier_cannot_appear_on_class_elements_of_this_kind` —
             // `export` on any class element, `declare` on any that is not a
             // property declaration.
-            if ((kind == SyntaxKind::ExportKeyword && parent_is_class_like)
-                || (kind == SyntaxKind::DeclareKeyword && parent_is_class_like && !is_property))
+            // **An index signature is TS1071's**, and upstream tests it
+            // (`grammarchecks.go:291`) *before* the per-keyword switch this arm
+            // belongs to, then returns. This port has that test in a separate
+            // function — `check_index_signature_modifiers` — outside this
+            // chain, so without the deferral both fire. Third rule this session
+            // ported outside the chain that kept speaking after it (§857, §858).
+            // §871.
+            if self.nodes.kind(node) != SyntaxKind::IndexSignature
+                && ((kind == SyntaxKind::ExportKeyword && parent_is_class_like)
+                    || (kind == SyntaxKind::DeclareKeyword && parent_is_class_like && !is_property))
                 && let Some(text) = text
             {
                 self.report_modifier_error(
