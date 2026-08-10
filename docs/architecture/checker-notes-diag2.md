@@ -29765,3 +29765,97 @@ Four lines, three cases. `importAnImport`'s `c.a.b.ma` still needs §558's
 empty-table narrowing to fire, which is in this build and did not convert it —
 so a third condition remains, and it is **not** named here because nothing has
 measured it.
+
+## §561 — §558's narrowing, applied to the path it was not applied to
+
+§560 left *"a third condition, not named because nothing has measured it"*. A
+probe answered it, after first correcting a false premise: **`importAnImport`
+had already converted**, so the case §558–§560 kept reasoning about was no
+longer in the residue at all.
+
+> **Check the residue before probing it.** Three probes in this thread ran
+> against a fixture that had stopped failing two builds earlier. `diagmissing`
+> costs one command and the list is the whole point of the instrument.
+
+The four remaining lines are elsewhere, and three of them are one shape:
+
+```ts
+namespace N { function S() {} }      // S is NOT exported
+var foge: N.S;                       // TS2694
+```
+
+That is a **two-deep type reference**, which takes §187's original path — and
+§558's narrowing of §186's empty-exports decline was applied only to §556's
+deep branch:
+
+```rust
+// the deep branch, §558
+if exports.is_empty() && !self.namespace_body_was_bound(namespace) { return; }
+// the two-deep branch, §186, untouched
+if exports.is_empty() { return; }
+```
+
+**The same guard, two copies, one narrowed.** §518 wrote the rule from the other
+direction — *a function's guards are a sequence, and porting them out of order
+is only safe if you re-establish the order each time* — and this is its
+corollary: **a guard duplicated across two paths must be narrowed on both, and
+nothing makes the second copy visible when you edit the first.** §543 said the
+same of a predicate written twice; this is a *decline* written twice.
+
+### The bar
+
+```
+bar:  +3 of 3 (cases blocked on TS2694 alone),  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **`extraonly` grows.** §186's decline exists because an unfilled table cannot
+   be told from an empty one; the body test is the whole of the distinction and
+   it is now load-bearing on the corpus's main path rather than a side one.
+2. **§530's and §559's rows regress.** Same rule, same entry, both directions.
+
+## §562 — §561 built: **+2**, and TS2694 falls from nine missing lines to **one**
+
+```
+diagnostics   2,096 → 2,098   (bar was +3;  +2, 0 LOST)   38.23%
+extraonly     54 → 54         both falsifiers negative
+TS2694        4 missing lines → 1;  3 cases blocked alone → 1
+```
+
+The bar missed by one because `moduleNewExportBug` needs something else; the row
+is one line from closed and that line is `aliasBug.ts(16,15)`.
+
+### The row, end to end
+
+```
+§529/§530   the recursion, and `outermost` on canSuggestTypeof      +4
+§559/§560   the caller's MEANING, on two arms                       +5
+§561/§562   §186's decline narrowed on the second path              +2
+                                                                   ───
+            9 missing lines → 1, 8 cases blocked alone → 1          +11
+```
+
+Four sittings, eleven cases, and **not one of them was the rule's logic**. Every
+change was to something the rule was handed: which node it starts from, which
+meaning it resolves under, which decline it inherits.
+
+> **A rule that reports the wrong thing is rare; a rule asked the wrong question
+> is the normal case.** Across this row the checker's own predicate —
+> *is this member in that namespace's exports* — was correct at every step and
+> answered four different questions depending on the entry, the meaning, and the
+> guard it was behind.
+
+### The duplicated decline
+
+§558 narrowed §186's empty-exports guard on the branch it wrote and left the
+original untouched, and neither §559's nor §560's measurement could see it,
+because the two paths serve different syntax. The corollary, now with a number:
+
+> **A guard duplicated across two paths must be narrowed on both, and nothing
+> makes the second copy visible when you edit the first.** §543 said this of a
+> *predicate* written twice and measured +4 for it; §561 says it of a *decline*
+> written twice and measured +2. Two instances, two shapes, same cause.
+
+`aliasBug` is left, named and unmeasured — one line, one case, and no hypothesis
+offered.

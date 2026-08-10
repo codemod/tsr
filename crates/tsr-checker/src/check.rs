@@ -7323,7 +7323,14 @@ impl Checker<'_, '_> {
         // whether a member is missing — the answer would be "all of them".
         // **An empty table can be declined; a partial one cannot** (§186), and
         // that limit is unchanged by resolving the alias.
-        if self.binder.symbols().get(namespace).exports.is_empty() {
+        // §186's decline, narrowed as §558 narrowed it on the deep branch: a
+        // `ModuleDeclaration` with a body is one the binder walked, so an empty
+        // table means *nothing was exported* rather than *nothing was
+        // recorded*. `namespace N { function S() {} }` exports nothing, which
+        // is exactly why `var foge: N.S` is an error. §561.
+        if self.binder.symbols().get(namespace).exports.is_empty()
+            && !self.namespace_body_was_bound(namespace)
+        {
             return;
         }
         let found = self
