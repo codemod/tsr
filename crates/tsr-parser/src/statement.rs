@@ -600,6 +600,10 @@ impl<'a> Parser<'a> {
     fn parse_for_statement(&mut self) -> Statement<'a> {
         let start = self.pos();
         self.next_token();
+        // Keep the `await`'s **own** span. It was allocated at `Span::at(start)`
+        // — the `for`'s position — which made every diagnostic reported on the
+        // modifier land on the `for` instead, four columns early (§830).
+        let await_span = self.token.span;
         let is_await = self.eat(SyntaxKind::AwaitKeyword);
         self.expect(SyntaxKind::OpenParenToken);
 
@@ -624,7 +628,7 @@ impl<'a> Parser<'a> {
             let body = self.parse_statement_or_missing();
             let kind = if is_of { SyntaxKind::ForOfStatement } else { SyntaxKind::ForInStatement };
             let await_token = if is_await {
-                Some(self.alloc_token(SyntaxKind::AwaitKeyword, tsr_core::Span::at(start)))
+                Some(self.alloc_token(SyntaxKind::AwaitKeyword, await_span))
             } else {
                 None
             };

@@ -41650,3 +41650,92 @@ precisely because ADR-0016 keeps the file name away from the parser.
 work-list (§772 was the first), and both closed answers are negatives. A negative
 sweep is worth its cost exactly once — recorded here so the next session does not
 pay it again.
+
+## §830 — TS1103: `for await` outside an async function, and §829 paying out
+
+```ts
+function normalFunc(p: Promise<number>) {
+  for await (const _ of []);   // TS1103, on the `await`
+}
+```
+
+Seven lines, one case, and the whole guard turns on a flag §829 had just
+finished proving absent:
+
+```go
+if forInOrOfStatement.Kind == KindForOfStatement && forInOrOfStatement.AwaitModifier != nil {
+    if forInOrOfStatement.Flags&ast.NodeFlagsAwaitContext == 0 {
+```
+
+`NodeFlagsAwaitContext` is set by upstream's parser inside async bodies, so
+`== 0` reads *"not in an async context"*. **This port never sets it, so the test
+is vacuously true** — which is the dangerous direction: ported literally, every
+`for await` would report, including the legitimate ones.
+
+> §827 hit the same flag family in the direction that made a branch **dead**;
+> this one is the direction that would have made a branch **universal**. A
+> never-set flag is not uniformly safe or unsafe — **it fails whichever way its
+> polarity points**, and only §829's inventory makes that predictable rather than
+> discovered by measurement.
+
+The stand-in is the one upstream's parser is recording anyway: the containing
+function carries no `async` modifier. `containing_function`
+(`expressions.rs:1802`) already walks to it, including the `Constructor` that
+upstream's related-info arm treats specially.
+
+Top-level `for await` is a **different message** (TS1431/TS1432, on module kind
+and target) and is not built here; a `for await` with no containing function is
+therefore skipped rather than reported.
+
+```
+bar:  +1 of 1 (awaitInNonAsyncFunction, 7 lines),  0 LOST,  WRONG delta <= 0
+```
+
+### Falsifiers
+
+1. **`async function f() { for await (…) }` reports.** The containing function is
+   async — this is the vacuous-flag trap and the reason the stand-in exists.
+2. **A top-level `for await` reports TS1103.** That is TS1431/TS1432's arm.
+3. **A plain `for (… of …)` reports.** No await modifier.
+
+## §831 — §830 built: **+1 of 1**, seven lines, and the column came from `tsr-parser`
+
+```
+diagnostics             2,321 → 2,322   (bar was +1;  +1, 0 LOST)   42.31%
+extraonly               zero TS1103
+TS1103 missing lines    7 → 0     — the row is closed
+parser_typescript       100%   printer_round_trip  100%   (both re-measured)
+```
+
+The rule landed all seven lines first time and **all seven were four columns
+early** — `(4,3)` against an expected `(4,7)`. Not the rule: the parser.
+
+```rust
+// statement.rs, before
+Some(self.alloc_token(SyntaxKind::AwaitKeyword, tsr_core::Span::at(start)))
+```
+
+`start` is the `for`'s position, so the `await` token carried a **zero-width span
+at the wrong token**. Every consumer to date only asked `await_modifier.is_some()`
+— the printer, the binder, two checker rules — so nothing ever read the span and
+nothing ever noticed.
+
+> **A field nobody reads is not a ported field.** This one type-checked, printed
+> correctly, round-tripped at 100%, and was wrong. The first consumer to ask it a
+> question got a wrong answer, and the only reason the answer was *visibly* wrong
+> is that this suite compares columns.
+
+The fix is two lines in `tsr-parser` — take `self.token.span` before eating the
+keyword, which is the idiom every other token in that file already uses. Both
+parser suites were re-measured and stayed at 100%.
+
+### The flag inventory paid twice in three sections
+
+```
+§827   AMBIENT         never set  →  branch DEAD        a rule silently did nothing
+§830   AWAIT_CONTEXT   never set  →  branch UNIVERSAL   a rule would have fired everywhere
+```
+
+Same defect, opposite polarity, opposite symptom. §829's inventory is what makes
+that a *prediction* instead of a measurement — and this build used it as one,
+writing the stand-in before the first run rather than after a regression.

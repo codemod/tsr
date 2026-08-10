@@ -832,6 +832,7 @@ impl Checker<'_, '_> {
         }
         if matches!(typed, Node::ForInOrOfStatement(_)) {
             self.check_for_in_or_of_declarations(node);
+            self.check_for_await_context(node);
         }
         if matches!(typed, Node::ImportTypeNode(_)) {
             self.check_import_type_argument(node);
@@ -5781,6 +5782,68 @@ impl Checker<'_, '_> {
                 span,
             ),
         );
+    }
+
+    /// TS1103 — `'for await' loops are only allowed within async functions and
+    /// at the top levels of modules.`
+    ///
+    /// `checkGrammarForInOrForOfStatement` (`grammarchecks.go:1205`) gates on
+    /// `Flags&NodeFlagsAwaitContext == 0`. That flag is set by upstream's parser
+    /// inside async bodies and **this port never sets it** (§829's inventory),
+    /// so the test is vacuously true and a literal port would report every
+    /// `for await`. The stand-in is what the flag records: the containing
+    /// function carries no `async` modifier.
+    ///
+    /// Top-level `for await` is a different message (TS1431/TS1432, on module
+    /// kind and target) and is not built here, so a `for await` with no
+    /// containing function is skipped.
+    ///
+    /// `docs/architecture/checker-notes-diag2.md` §830.
+    fn check_for_await_context(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        if self.nodes.kind(node) != SyntaxKind::ForOfStatement {
+            return;
+        }
+        let Some(Node::ForInOrOfStatement(statement)) = self.node_map.get(node) else { return };
+        let Some(modifier) = statement.await_modifier else { return };
+        let Some(at) = modifier.node_id else { return };
+        let Some(function) = self.containing_function_for_await(node) else { return };
+        if self.has_async_modifier(function) {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
+        let span = self.nodes.span(at);
+        self.report(
+            file,
+            Diagnostic::new(
+                &messages::FOR_AWAIT_LOOPS_ARE_ONLY_ALLOWED_WITHIN_ASYNC_FUNCTIONS_AND_AT_THE_TOP_LEVELS_OF_MODULES,
+                span,
+            ),
+        );
+    }
+
+    /// `GetContainingFunction` for §830, including the `Constructor` that
+    /// upstream's related-info arm treats specially.
+    fn containing_function_for_await(&self, node: NodeId) -> Option<NodeId> {
+        let mut current = self.nodes.parent(node);
+        while let Some(id) = current {
+            if matches!(
+                self.nodes.kind(id),
+                SyntaxKind::FunctionDeclaration
+                    | SyntaxKind::FunctionExpression
+                    | SyntaxKind::ArrowFunction
+                    | SyntaxKind::MethodDeclaration
+                    | SyntaxKind::GetAccessor
+                    | SyntaxKind::SetAccessor
+                    | SyntaxKind::Constructor
+            ) {
+                return Some(id);
+            }
+            current = self.nodes.parent(id);
+        }
+        None
     }
 
     fn check_modifier_order(&mut self, node: NodeId, modifiers: &[ModifierLike<'_>]) {
