@@ -374,15 +374,22 @@ impl<'a> Parser<'a> {
             if self.at(SyntaxKind::AsteriskToken) { Some(self.take_token()) } else { None };
         // `yield` may stand alone. Besides the usual statement enders, a closing
         // delimiter ends it too: `{ [yield]: 1 }` and `f(yield)` are both legal.
-        let has_operand = !self.can_parse_semicolon()
-            && !self.token.has_preceding_line_break()
-            && !matches!(
-                self.token.kind,
-                SyntaxKind::CloseBracketToken
-                    | SyntaxKind::CloseParenToken
-                    | SyntaxKind::CommaToken
-                    | SyntaxKind::ColonToken
-            );
+        // **`yield` may stand alone; `yield*` may not.** Once upstream takes the
+        // asterisk it calls `parseAssignmentExpression` unconditionally, and
+        // that call is what reports `Expression expected` for `yield*` with
+        // nothing after it. The test below is right for the bare form and was
+        // applied to both because they share a function.
+        // `docs/architecture/checker-notes-diag2.md` §572.
+        let has_operand = asterisk.is_some()
+            || (!self.can_parse_semicolon()
+                && !self.token.has_preceding_line_break()
+                && !matches!(
+                    self.token.kind,
+                    SyntaxKind::CloseBracketToken
+                        | SyntaxKind::CloseParenToken
+                        | SyntaxKind::CommaToken
+                        | SyntaxKind::ColonToken
+                ));
         let expression = if has_operand { Some(self.parse_assignment_expression()) } else { None };
         let node = self.finish_node(
             YieldExpression::new(asterisk, expression),

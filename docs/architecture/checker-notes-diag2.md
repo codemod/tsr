@@ -30295,3 +30295,95 @@ The residue for the next session is not in this family: it is
 `Signature_declarations_can_only_be_used_in_TypeScript_files` (TS8017) and
 `Parameter_modifiers…`, both at **zero corpus cases**, built neither here nor
 before, and correctly ignored.
+
+## §572 — TS1109: `yield*` requires an operand, and our parser makes it optional
+
+Parser diagnostics **are** wired into the suite (`diagnostics_suite.rs:189`
+takes `parsed.diagnostics()`), so TS1109's twelve blocked cases are lines this
+parser does not produce rather than lines nobody collects. Two of them are:
+
+```ts
+function* foo() {
+  yield*
+}                    // TS1109 at the `}` — Expression expected
+```
+
+`parse_yield_expression` (`expression.rs:370`) computes `has_operand` from the
+following token and applies it **whether or not an asterisk was consumed**.
+Upstream does not:
+
+```go
+if !p.hasPrecedingLineBreak() && (p.token == KindAsteriskToken || p.isStartOfExpression()) {
+    asterisk := p.parseOptionalToken(KindAsteriskToken)
+    expr := p.parseAssignmentExpression()          // unconditional
+```
+
+Once `*` is taken, upstream *always* parses an assignment expression, and it is
+`parseAssignmentExpression` that reports `Expression expected` when the token
+cannot start one. **`yield` may stand alone; `yield*` may not** — the grammar
+requires an `AssignmentExpression` after the asterisk.
+
+> **An optional that upstream makes conditional on a *different* thing is not
+> an optional.** The existing comment is correct about `yield` and was applied
+> to `yield*` because both live in one function — the same one-function,
+> two-grammars shape §518 found in `checkGrammarVariableDeclaration` and §543 in
+> the assignment dispatch.
+
+### The bar
+
+```
+bar:  +2 of 12 (the two yield cases),  0 LOST,  WRONG delta <= +1
+      and parser_typescript / printer_round_trip / binder_symbols stay at 100%
+```
+
+Two, not twelve: the other ten TS1109 cases are elsewhere in the parser and
+nothing here has looked at them.
+
+### Falsifiers
+
+1. **`parser_typescript` or `printer_round_trip` move.** This changes the tree a
+   `yield*` produces; both rails read every file and are at 100%.
+2. **A legal `yield* x` changes.** The operand was already parsed for those; only
+   the no-operand case is new.
+3. **`extraonly` grows with TS1109.** A parser error is emitted once per
+   position and cascades in recovered files.
+
+## §573 — §572 built: **+2**, bar met, and the first parser change of the session that emitted a diagnostic
+
+```
+diagnostics          2,123 → 2,125   (bar was +2;  +2, 0 LOST)   38.72%
+parser_typescript    100%   ·  printer_round_trip  100%  ·  binder_symbols  100%
+extraonly            zero TS1109 lines
+TS1109               14 missing lines → 12;  12 cases blocked alone → 10
+```
+
+All three falsifiers negative, including the one that mattered: the change alters
+the tree a `yield*` produces and **both rails that read every file are
+unmoved**.
+
+### What this opens
+
+Parser diagnostics were already wired — `diagnostics_suite.rs:189` collects
+`parsed.diagnostics()` and `:199` adds the binder's. That is worth stating
+plainly because two earlier notes reasoned as though they were not:
+
+> **§550 built a binder check in the checker and §569 built a parser check in
+> the checker, both arguing the producer does not matter to the oracle. Both were
+> right about the oracle and wrong about the plumbing** — the plumbing was
+> already there. The argument stands (it is why those builds are *allowed* to
+> live in the checker) but the premise that they *had* to was never checked.
+
+§571 then found the limit from the other side: a parser check ported into the
+checker inherits the checker's tree, and `x ? y => ({y}) : z` produced a wrong
+TS8010 because this parser applies TypeScript grammar to `.js` files. **That
+wrong line is a candidate for deletion by moving the check where upstream has
+it**, which is now known to be possible.
+
+Recorded as a **finding, not a plan**: nothing has measured what moving §569's
+walk into `tsr-parser` would cost or gain, and `tsr-parser` is shared with the
+other workstream.
+
+### The residue
+
+Ten TS1109 cases remain, none of them yield-shaped, and none looked at. The row
+is a parser row and it is the largest one this session has found on that side.
