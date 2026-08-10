@@ -3222,11 +3222,59 @@ impl Checker<'_, '_> {
                         if !has_construct {
                             return t;
                         }
-                        let Some(prototype) = self.get_property_of_type(callee_type, "prototype")
-                        else {
-                            return t;
+                        let prototype_instance = self
+                            .get_property_of_type(callee_type, "prototype")
+                            .map(|p| self.get_type_of_symbol(p))
+                            .filter(|&i| i != self.intrinsics.error && i != self.intrinsics.any);
+                        let instance = match prototype_instance {
+                            Some(instance) => instance,
+                            None => {
+                                // getInstanceType's second leg
+                                // (flow.go:971-975): the UNION over construct
+                                // signatures of the ERASED return (type
+                                // parameters instantiated to any). The
+                                // emptyObject third leg declines.
+                                let Some(candidates) = self.signature_candidates_of_named_type(
+                                    callee_type,
+                                    crate::signatures::SignatureKind::Construct,
+                                ) else {
+                                    return t;
+                                };
+                                let mut returns = Vec::with_capacity(candidates.len());
+                                for candidate in &candidates {
+                                    if candidate.type_parameters.is_empty() {
+                                        returns.push(candidate.r#type);
+                                        continue;
+                                    }
+                                    let Some(parameters) = self.type_parameter_types(candidate)
+                                    else {
+                                        return t;
+                                    };
+                                    let names: Vec<&str> = candidate
+                                        .type_parameters
+                                        .iter()
+                                        .map(|p| p.name.as_str())
+                                        .collect();
+                                    let any = self.intrinsics.any;
+                                    let map: Vec<(TypeId, TypeId)> =
+                                        parameters.iter().map(|&t| (t, any)).collect();
+                                    let erased = self.instantiate_type(
+                                        candidate.r#type,
+                                        &map,
+                                        &parameters,
+                                        &names,
+                                    );
+                                    if erased == self.intrinsics.error {
+                                        return t;
+                                    }
+                                    returns.push(erased);
+                                }
+                                if returns.is_empty() {
+                                    return t;
+                                }
+                                self.get_union_type(&returns)
+                            }
                         };
-                        let instance = self.get_type_of_symbol(prototype);
                         if instance == self.intrinsics.error || instance == self.intrinsics.any {
                             return t;
                         }

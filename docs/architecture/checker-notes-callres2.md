@@ -1685,3 +1685,15 @@ worker with reference-target derivation. Where §162-induced churned
 byConstructorSignature 6, narrowException 4) + 13 G→R vs 4 G→W +
 1 R→G. The conventions entry's evidence table gains its sharpest row:
 one leg, two builds, 23-vs-0.
+
+## §162.1 LANDED: getInstanceType's erased-return leg (+19 W→R / 8 R→G, no R→W)
+
+The transcription completes: prototype-property first, else the UNION
+over construct signatures of the ERASED return (type parameters → any,
+flow.go:971-975), emptyObject declining honestly. +19 in
+typeGuardsWithInstanceOfByConstructorSignature; the 8 R→G are the
+named-union print question (the erased union feeds the worker whose
+result prints through the named-constituent guard) — honest gaps,
+named. The interface-constructor road stands transcribed WHOLE:
+refused induced (59:41), rebuilt verbatim (+44/5, zero R→W), extended
+verbatim (+19/8, zero R→W) — the law's cleanest complete arc.
