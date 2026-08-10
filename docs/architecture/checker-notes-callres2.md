@@ -1162,3 +1162,16 @@ finding, three traces deep:
 
 The arm's text and the predicate descent are in this commit's history;
 the next window starts at the third state, not at the arm.
+
+## §143 BAR (registered before code): the seam's narrow flip
+
+The joint head (checker-1's naming): `check_object_literal` propagates
+one member's error to the whole literal (objects.rs:522), which is what
+kept §142's structural-into-reference arm dormant. The narrow flip: an
+erroring member is SKIPPED (not propagated) only while a call-inference
+memo is ACTIVE (`!call_inference_signatures.is_empty()`) — the literal
+survives for inference, its non-erroring members contribute candidates,
+and the literal's own print stays honest-wrong at worst. Prediction:
+badInference's result rows and kin move; the literal print rows do not
+regress beyond G→W noise. Falsifier: broad G→W outside inference
+contexts means the detector leaks.
