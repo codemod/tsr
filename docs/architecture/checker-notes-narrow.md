@@ -6487,3 +6487,35 @@ and sail through the ENUM exclusion, measured clean). **The
 namespace/class/enum leaf residue is REFUSED at the naming wall**
 — it joins §138/§136's per-site catalogue: the spelling depends on
 the REFERENCING site's import topology, not the symbol.
+
+## §146 — per-member ESTABLISHED-error tolerance in check_object_literal [claimed: checker-1]
+
+**The two-lane joint head, my half.** `objects.rs`'s whole-literal
+rule (one member's `error` gaps the literal) is correct for PORT
+gaps — a partial object type is a wrong answer that looks right —
+but too strong for members whose error is UPSTREAM'S OWN:
+`{ a: 1, b: zzz }` with `zzz` unresolved prints
+`{ a: number; b: any; }` in upstream's .types (TS2304's errorType
+prints `any`, ADR-0038's boundary). The §121/§123/§130/§144
+established-error arms already flow through as `any`; what still
+gaps the literal is the member whose `check_expression` answers
+`error` where upstream would TOO. Establishment predicate, first
+slice: the initializer is a bare IDENTIFIER whose
+`resolve_name(VALUE)` finds nothing — the TS2304 form, the §144
+argument at expression level (resolve_name walks the full scope
+chain including libs; a name findable nowhere is upstream's error,
+not the port's unmerged-globals gap — §144 measured this
+establishment clean at the NAMESPACE meaning without a single-file
+gate). Such a member prints `any` and the literal PROCEEDS; every
+other error member keeps the whole-literal gap. Corpus ceiling:
+1,031 gapped lines want `{...}`-texts containing `any` (4,761
+want object texts at all). This also unblocks checker-2's pass-3
+re-serve on literal arguments (their ADOPT half). **Bar: ≥40 G→R
+at ≥5:1.** Falsifiers: (a) upstream reports TS2304 but the
+IDENTIFIER is typed by contextual/flow machinery we lack — watch
+for wrong non-any member texts adjacent; (b) multi-unit cases
+where the name IS declared in another unit and our resolver misses
+it for a port reason — if the pair shows this class, gate on
+single-unit or on lib-presence; (c) the nullable-member and
+method-signature gaps are NOT admitted — only the established
+TS2304 member.
