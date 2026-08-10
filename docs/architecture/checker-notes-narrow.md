@@ -5698,3 +5698,19 @@ other lane's arc). The W→R half (124!) was the buried treasure:
 wrong union spellings across typeArgumentInference/
 genericCallWithGenericSignatureArguments corrected by the same
 admission.
+
+## §134 — getWidenedLiteralType's union arm [claimed: checker-1]
+
+**§133's residue, one missing arm.** `getWidenedLiteralType`
+(checker.go:25487) maps a UNION over itself
+(`TypeFlagsUnion → mapType(getWidenedLiteralType)`); this port's
+copy returns a union unchanged (unions are never `fresh`), so
+`var r = c ? 1 : t` declares `1 | T` where upstream declares
+`number | T` (subtypesOfTypeParameterWithConstraints2's 6 G→W,
+priced at §133). The arm: `TypeData::Union` maps constituents
+through the same function and rebuilds with `get_union_type`.
+
+**Bar.** ≥10 G→R at ≥5:1. Falsifier: origin/written-order unions
+whose SPELLING the rebuild loses (§77-family) — if the rebuild
+drops a written order that widening should keep, the arm needs the
+§53 origin carriage before it lands.
