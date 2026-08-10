@@ -1052,3 +1052,16 @@ history for the build that eventually pays for the this-type
 subsystem. checker-1's flag was correct in every particular — the
 drop IS at contextual signature application; it is the this-TYPE
 model underneath that is missing, not the carry.
+
+## §140 BAR (registered before code): harvest at argument order
+
+The E1-vs-E2 family (typeArgumentInferenceWithObjectLiteral rows
+101–105) is an ORDER bug, not a priority bug: upstream infers a
+literal's non-CS members at the literal's ARGUMENT POSITION, so
+`f1({ w, r: () => E1.X }, E2.X)` collects [E1, E2] and the memo serves
+E1; our harvest ran after the whole pass-1 loop, so E2 landed first
+and the memo served E2. Fix: the member harvest moves into the
+phase-split loop at the deferred literal's index. Prediction: the 5
+wrong rows convert; v3's own line stays a gap (the call errors
+upstream, T resolved E1 — the decline still answers error). Risk:
+none structural — the same candidates in the upstream order.
