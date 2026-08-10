@@ -839,3 +839,30 @@ typeArgumentInferenceWithConstraints (6 gaps) remain — the former's
 chained member calls and the latter's constraint-source shapes are
 priced to the full returnMapper machinery (the third spec), not this
 guard.
+
+## §135 BAR (registered before code): intra-expression inference sites, slice 1
+
+Anchor: `inferFromIntraExpressionSites` (`inference.go:1285-1315`) — when
+context-sensitive functions are ELEMENTS OF A LITERAL rather than
+discrete arguments, upstream performs the member-level inferences early
+so later members' contexts commit. Head fixture:
+`callIt({ produce: () => 0, consume: n => n.toFixed() })` — T infers
+`number` from `produce` (zero params, NOT context-sensitive) before
+`consume` checks.
+
+Slice 1: (1) `is_context_sensitive_argument` extends to object literals
+whose property-assignment values are context-sensitive functions (and
+array literals with context-sensitive elements) so the literal DEFERS;
+(2) the deferred branch harvests pass-1 candidates from the literal's
+non-context-sensitive property values against the parameter's
+corresponding property types (`get_property_of_type` + `infer_from_types`)
+BEFORE the serve map builds. Not in slice 1: method-declaration members,
+context-sensitive members' return-side sites (`_a => 0`), tuple/array
+element harvest if tuple property access is not cheap.
+
+Prediction: 25–60 of intraExpressionInferences' 93 wrong lines move
+(the callIt/MyInterface shapes); zero contact with checker-1's
+expressions.rs lane. Falsifier: if the harvest's uncontexted member
+pre-check freezes later contextual answers through node_types (the
+summit's cache pattern), the family will show it immediately and the
+harvest moves behind the literal's own check instead.
