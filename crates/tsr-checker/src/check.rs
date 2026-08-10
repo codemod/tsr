@@ -6490,6 +6490,50 @@ impl Checker<'_, '_> {
                 if matches!(property.name, tsr_ast::PropertyName::Identifier(it) if it.text == name))
         })
     }
+    /// The kind a base class or any of its own bases declares `name` as.
+    ///
+    /// `getPropertiesOfType(baseType)` includes inherited members; this walks
+    /// the `extends` chain to the same effect, bounded because the corpus
+    /// contains cyclic heritage. §708.
+    fn base_member_kind(&mut self, base: NodeId, name: &str) -> Option<MemberKind> {
+        let mut at = Some(base);
+        for _ in 0..MAX_ALIAS_HOPS {
+            let current = at?;
+            let Some(Node::ClassDeclaration(class)) = self.node_map.get(current) else {
+                return None;
+            };
+            if let Some((_, kind, _)) = class
+                .members
+                .iter()
+                .filter_map(|member| class_member_shape(*member))
+                .find(|(seen, _, _)| *seen == name)
+            {
+                return Some(kind);
+            }
+            let next = class
+                .heritage_clauses
+                .iter()
+                .find(|clause| clause.token.kind == SyntaxKind::ExtendsKeyword)
+                .and_then(|clause| clause.types.first())
+                .and_then(|base| base.expression)
+                .and_then(|expression| expression.node_id())
+                .and_then(|id| {
+                    let text = self.identifier_text(id).map(str::to_string)?;
+                    self.binder.resolve_name(
+                        self.nodes,
+                        self.node_map,
+                        id,
+                        &text,
+                        SymbolFlags::CLASS,
+                    )
+                })
+                .and_then(|symbol| {
+                    self.binder.symbols().get(self.binder.merged_symbol(symbol)).value_declaration
+                });
+            at = next;
+        }
+        None
+    }
 
     /// TS2610 / TS2611 — a member overridden as the *other* kind.
     ///
@@ -6521,25 +6565,46 @@ impl Checker<'_, '_> {
         };
         let symbol = self.binder.merged_symbol(symbol);
         let Some(declaration) = self.binder.symbols().get(symbol).value_declaration else { return };
-        let Some(Node::ClassDeclaration(base_class)) = self.node_map.get(declaration) else {
+        if !matches!(self.node_map.get(declaration), Some(Node::ClassDeclaration(_))) {
             return;
-        };
+        }
         let _ = node;
         // **A `get`/`set` pair is one symbol upstream and two declarations
         // here.** `accessorsOverrideProperty` wants one TS2611 per name and
         // this reported one per accessor — six wrong lines, every one the
         // second half of a pair. §310.
         let mut reported: Vec<&str> = Vec::new();
+        // **A parameter property is a member.** `constructor(public p: string)`
+        // declares `p` on the class, and it is not in `members` — it is a
+        // parameter of a constructor that is. §708.
+        let mut shapes: Vec<(&str, MemberKind, NodeId)> =
+            members.iter().filter_map(|member| class_member_shape(*member)).collect();
         for member in members {
-            let Some((derived_name, derived_kind, derived_at)) = class_member_shape(*member) else {
+            let tsr_ast::ClassElement::ConstructorDeclaration(constructor) = *member else {
                 continue;
             };
-            let Some((_, base_kind, _)) = base_class
-                .members
-                .iter()
-                .filter_map(|it| class_member_shape(*it))
-                .find(|(seen, _, _)| *seen == derived_name)
-            else {
+            for parameter in constructor.parameters {
+                let modifiers = parameter.modifiers;
+                let is_parameter_property =
+                    tsr_ast::has_syntactic_modifier(modifiers, SyntaxKind::PublicKeyword)
+                        || tsr_ast::has_syntactic_modifier(modifiers, SyntaxKind::PrivateKeyword)
+                        || tsr_ast::has_syntactic_modifier(modifiers, SyntaxKind::ProtectedKeyword)
+                        || tsr_ast::has_syntactic_modifier(modifiers, SyntaxKind::ReadonlyKeyword);
+                if !is_parameter_property {
+                    continue;
+                }
+                let Some(tsr_ast::BindingName::Identifier(name)) = parameter.name else { continue };
+                let Some(at) = name.node_id else { continue };
+                shapes.push((name.text, MemberKind::Property, at));
+            }
+        }
+        for (derived_name, derived_kind, derived_at) in shapes {
+            // `getPropertiesOfType(baseType)` includes **inherited** members,
+            // so the base chain is walked rather than the immediate base
+            // alone: `class C extends B extends A` finds `A`'s accessor with
+            // `B` empty. Bounded, because the corpus contains cyclic
+            // heritage. §708.
+            let Some(base_kind) = self.base_member_kind(declaration, derived_name) else {
                 continue;
             };
             let message = match (base_kind, derived_kind) {

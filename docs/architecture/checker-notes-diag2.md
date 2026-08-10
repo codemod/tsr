@@ -36436,3 +36436,86 @@ against a fixture where the names agreed.
 > not a test suite for the port, it is a **list of the distinctions upstream
 > makes**, and a rule that has never seen a distinction cannot be written to
 > respect it.
+
+## §708 — TS2610: the base member set is one class deep, and the derived one has no parameters
+
+```ts
+class A { get p() { return 'oh no' } }
+class B extends A { constructor(public p: string) { super() } }   // TS2610
+
+class A2 { get x() { return 2 } }
+class B2 extends A2 {}
+class C2 extends B2 { x = 1; }                                    // TS2610
+```
+
+§309's rule resolves the immediate base class and compares `base_class.members`
+against the derived class's `members`. Upstream reaches the pair through
+`getPropertiesOfType(baseType)` (`checker.go:4626`), and the two fixtures are
+each a way that set is larger than one class's member list:
+
+- **A parameter property is a member.** `constructor(public p: string)` declares
+  `p` on the class, and `members` does not contain it — it is a parameter of a
+  constructor that *is* in `members`.
+- **The base chain is a chain.** `C2 extends B2 extends A2` finds `x` on `A2`,
+  and `B2.members` is empty.
+
+Both are enumeration, not judgement: the kind comparison and the message
+selection below are untouched, and §310's one-report-per-name dedup still holds.
+
+> §707 said the corpus is a list of the distinctions upstream makes. **These two
+> are not distinctions upstream makes — they are places where this port's member
+> list is simply smaller than upstream's type.** That is a different failure and
+> it has a different tell: the rule is right about every pair it *sees*.
+
+```
+bar:  +2 of 2 (propertyOverridesAccessors5, propertyOverridesAccessors6),
+      0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **TS2611's row moves wrongly.** The reverse pairing shares this loop, and a
+   wider base set feeds it too — which is correct, but it must not double-report.
+2. **A private parameter property reports.** `constructor(private p: string)`
+   still declares a member and the kind comparison is unchanged; if the base has
+   an accessor named `p`, upstream reports.
+3. **A cycle in the base chain hangs.** `class A extends B`, `class B extends A`
+   is in the corpus; the walk needs a bound.
+
+## §709 — §708 built: **+3 on a bar of +2**, row closed
+
+```
+diagnostics             2,232 → 2,235   (bar was +2;  +3, 0 LOST)   40.73%
+extraonly               zero TS2610 and zero TS2611 lines
+TS2610 missing lines    2 → 0     — the row is closed
+```
+
+All three falsifiers negative, including the cyclic-heritage one — the walk is
+bounded at the same hop count §692's alias chain uses, and the corpus's mutually
+extending classes neither hang nor report.
+
+The third case is TS2611's, which shares the loop: widening the base set fed the
+reverse pairing too, and it converted a case nobody priced. **Third time this
+session** (§687, §701, this) that a bar priced from blocked-alone under-counted
+because a widened enumeration also served a neighbouring code.
+
+### Two kinds of gap, and this build is the second
+
+```
+§695 §698 §700 §702 §704 §706   a rule that judges a case wrongly
+§708                            a rule that never sees the case
+```
+
+§707 framed the first six as *distinctions upstream makes that the port had no
+fixture for*. This one is not that: the kind comparison and the message
+selection were **right about every pair they saw**, and the pairs were missing
+because `members` is a syntactic list and `getPropertiesOfType` is a computed
+set. A parameter property is declared inside a constructor; an inherited member
+is declared in another class entirely.
+
+> **The tell is different and worth naming.** A rule that judges wrongly has a
+> wrong line somewhere in the corpus. A rule that never sees the case has only
+> missing lines, and looks — from `extraonly`, from the test suite, from
+> reading — exactly like a rule that is correct and simply not reached. Six
+> builds found the first kind by printing what the rule decided on; this one
+> needed printing **what it was iterating**.
