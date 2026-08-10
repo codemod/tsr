@@ -826,7 +826,45 @@ impl<'a> Checker<'a, '_> {
         };
         let specifier = import.module_specifier?.node_id()?;
         let module = self.resolve_external_module_name(declaration, specifier)?;
-        let &default = self.binder.symbols().get(module).exports.get("default")?;
+        let default = self.binder.symbols().get(module).exports.get("default").copied();
+        let Some(default) = default else {
+            // §132: no explicit `default` but an `export =` — the SYNTHETIC
+            // default. `canHaveSyntheticDefault`'s declaration-file arm
+            // grants it regardless of the interop options, and
+            // `getTargetOfModuleDefault` then resolves the module symbol
+            // through the assignment (es6ExportEqualsInterop's x-family
+            // wants: `x2 : { a: number; b: number; }`). A module without
+            // `export =` keeps the miss.
+            let resolved = self.resolve_external_module_symbol(module);
+            if resolved == module || !self.can_have_synthetic_default(module) {
+                return None;
+            }
+            // AMBIENT modules only (`declare module "x"`): a real-file
+            // module gaining a default alias flips the printer's chosen
+            // spelling for every qualified reference through the other
+            // aliases (importEquals1's 6 G→W — `types.A` became
+            // `import("./a").A`); an ambient module's naming road is stable.
+            let ambient =
+                self.binder.symbols().get(module).declarations.iter().any(|&declaration| {
+                    self.nodes.kind(declaration) == SyntaxKind::ModuleDeclaration
+                });
+            if !ambient {
+                return None;
+            }
+            let target = self.resolve_alias(resolved)?;
+            // ONLY variable targets: their type prints STRUCTURALLY
+            // (`{ a: number; b: number; }`). A namespace/class/function
+            // target prints `typeof <name>`, and adding a SECOND alias to
+            // the same target broke the one-alias rename (`typeof z4` →
+            // `typeof Foo`, 10 R→W on this pair) — the tsr-4jk constraint,
+            // fired again; those stay gaps until per-site naming exists.
+            let flags = self.binder.symbols().get(target).flags;
+            if flags.intersects(SymbolFlags::NAMESPACE | SymbolFlags::CLASS | SymbolFlags::FUNCTION)
+            {
+                return None;
+            }
+            return Some(target);
+        };
         let default = self.binder.merged_symbol(default);
         if self.binder.symbols().get(default).flags.intersects(SymbolFlags::ALIAS) {
             return self.resolve_alias(default);

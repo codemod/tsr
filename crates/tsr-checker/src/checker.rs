@@ -320,6 +320,10 @@ pub struct Checker<'a, 'n> {
     /// `getEmitModuleKind` — `options.module`, or ES2015 for an ES2015-or-later
     /// target and `CommonJS` otherwise. §478.
     pub(crate) module_kind: tsr_core::ModuleKind,
+    /// `getAllowSyntheticDefaultImports` (§132): the explicit option, else
+    /// `esModuleInterop`, else `module == System`. Consulted by the §131/§132
+    /// deliberate-error arms only; a `true` keeps those gaps honest.
+    pub(crate) allow_synthetic_defaults: bool,
     /// `compilerOptions.noUncheckedSideEffectImports`, read through upstream's
     /// `IsTrueOrUnknown` (`checker.go:5321`) — so the default here is `true`,
     /// matching an *unset* option rather than a `false` one.
@@ -738,6 +742,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             strict_null_checks: true,
             no_implicit_this: false,
             module_kind: tsr_core::ModuleKind::None,
+            allow_synthetic_defaults: false,
             no_unchecked_side_effect_imports: true,
             no_unchecked_indexed_access: false,
             use_unknown_in_catch_variables: false,
@@ -847,6 +852,17 @@ impl<'a, 'n> Checker<'a, 'n> {
             }
         } else {
             options.module
+        };
+        // `getAllowSyntheticDefaultImports`: explicit wins; else
+        // `esModuleInterop` (explicit only — its own Node16+ default is the
+        // §131 Node16/NodeNext exclusion's business); else `module == System`.
+        self.allow_synthetic_defaults = match options.allow_synthetic_default_imports {
+            tsr_core::Tristate::True => true,
+            tsr_core::Tristate::False => false,
+            tsr_core::Tristate::Unknown => {
+                options.es_module_interop.is_true()
+                    || options.module == tsr_core::ModuleKind::System
+            }
         };
         self.strict_property_initialization =
             options.strict_option_value(options.strict_property_initialization);

@@ -5624,3 +5624,32 @@ aliases + non-namespace y-family + their reads in this case, plus
 siblings). Falsifier: interop-configured corpora
 (esModuleInteropDefaultImports) entering through a mis-derived
 options predicate — the §131 falsifier, second firing chance.
+
+**§132 MEASURED AND LANDED at iteration 5 — +5 G→R / ZERO adverse
+(ambient-module var-target synthetic defaults), after FIVE pairs
+mapped the seam:**
+  1. Both arms as barred: +16/52+10 INVERTED — upstream RESOLVES
+     default imports of `export =` declaration files regardless of
+     the interop options (the §131-era option reading was wrong for
+     decl files), wants `{ a: number; b: number; }` not any.
+  2. Defaults resolve through the export= target: +68/52+10 — the
+     WINS confirmed the road, and the tsr-4jk NAMING TRAP fired its
+     freshest price: a SECOND alias to one namespace breaks the
+     one-alias rename (`typeof z4` → `typeof Foo`, 10 R→W).
+  3. Var-targets only (structural prints, no rename exposure):
+     +26/38 — the namespace-import any-arm was WRONG per flavor:
+     tsgo resolves `import * as y9 from "class"` (`typeof y9`
+     wants); the TS2497 assumption does not describe these
+     baselines. THE FLAVOR MAP IS CORRECTED: only interface-target
+     ES imports want any here.
+  4. Namespace arm removed whole: +16/6 — real-file modules gaining
+     a default alias flip the printer's spelling for OTHER aliases'
+     qualified references (importEquals1, `types.A` →
+     `import("./a").A`).
+  5. Ambient modules only: +5/0.
+The residue is all one owner: PER-SITE NAMING (the §20.1/§41/tsr-4jk
+constraint), now carrying es6ExportEqualsInterop's remaining ~100
+lines beside temporal's 400 and import-spelling's 128. Three heads
+became four; the subsystem's price rises with each window that
+touches its boundary. DO NOT extend this arm past ambient+var
+without the naming study.
