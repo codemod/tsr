@@ -3976,6 +3976,13 @@ impl Checker<'_, '_> {
         if self.in_duplicate_heritage_clause(node) {
             return;
         }
+        // **And the extra *types* in an `extends` clause.** A class extends
+        // one class, so `typeNodes[1]` and beyond are what the parser kept in
+        // order to have a position for TS1174 (`grammarchecks.go:911`) — the
+        // same status §833 gave a second clause, one level down. §874.
+        if self.is_extra_type_in_a_class_extends_clause(node) {
+            return;
+        }
         // `!ast.NodeIsMissing(node)` (`checker.go:13894`) — upstream does not
         // resolve, and therefore never reports, an identifier the parser
         // synthesised while recovering. `NodeIsMissing` is `pos == end`, and a
@@ -4494,6 +4501,13 @@ impl Checker<'_, '_> {
         // The test is per token kind: `extends A implements B` is two legal
         // clauses. §792.
         if self.in_duplicate_heritage_clause(node) {
+            return;
+        }
+        // **And the extra *types* in an `extends` clause.** A class extends
+        // one class, so `typeNodes[1]` and beyond are what the parser kept in
+        // order to have a position for TS1174 (`grammarchecks.go:911`) — the
+        // same status §833 gave a second clause, one level down. §874.
+        if self.is_extra_type_in_a_class_extends_clause(node) {
             return;
         }
         // Upstream reads `NodeFlagsInWithStatement` in `resolveName`
@@ -11592,6 +11606,36 @@ impl Checker<'_, '_> {
 
     /// Is this node inside a heritage clause that is not the **first** of its
     /// token kind on its declaration? §792.
+    /// Is this name one of the **extra** types in a class's `extends` clause —
+    /// `B` in `class C extends A, B`? A class extends one class, so upstream
+    /// reports TS1174 on `typeNodes[1]` and resolves none of them beyond the
+    /// first; §833 gave a second *clause* the same status and this is the same
+    /// fact one level down. `implements` and an interface's `extends` both take
+    /// many types and every one is resolved. §874.
+    fn is_extra_type_in_a_class_extends_clause(&self, node: NodeId) -> bool {
+        let Some(with_arguments) = self.nodes.parent(node) else { return false };
+        if self.nodes.kind(with_arguments) != SyntaxKind::ExpressionWithTypeArguments {
+            return false;
+        }
+        let Some(clause) = self.nodes.parent(with_arguments) else { return false };
+        let Some(Node::HeritageClause(heritage)) = self.node_map.get(clause) else { return false };
+        if heritage.token.kind != SyntaxKind::ExtendsKeyword {
+            return false;
+        }
+        if self
+            .nodes
+            .parent(clause)
+            .is_none_or(|owner| self.nodes.kind(owner) == SyntaxKind::InterfaceDeclaration)
+        {
+            return false;
+        }
+        heritage
+            .types
+            .first()
+            .and_then(|first| first.node_id)
+            .is_some_and(|first| first != with_arguments)
+    }
+
     fn in_duplicate_heritage_clause(&self, node: NodeId) -> bool {
         let Some(clause) =
             self.nodes.ancestors(node).find(|&a| self.nodes.kind(a) == SyntaxKind::HeritageClause)

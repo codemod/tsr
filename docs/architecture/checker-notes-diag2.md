@@ -43534,3 +43534,84 @@ worked so far is the same one:
 
 `diagdup` is the instrument that sees it, and it took 873 sections to build
 because the shape only becomes visible once enough rules exist to collide.
+
+## §874 — §833's rule one level down: the extra types in an `extends` clause
+
+```ts
+class C extends A, B { }
+```
+
+```
+expected   TS2304 on A (col 17),  TS1174 on B (col 20)
+actual     TS2304 on A,  TS1174 on B,  and TS2304 on B
+```
+
+§833 taught `check_value_identifier` that a **duplicate heritage clause** is
+recovered syntax whose names upstream does not resolve. This is the same fact
+one level down: a single `extends` clause with two types.
+
+```go
+typeNodes := heritageClause.Types.Nodes
+if len(typeNodes) > 1 {
+    return c.grammarErrorOnFirstToken(typeNodes[1], diagnostics.Classes_can_only_extend_a_single_class)
+}
+```
+
+A class extends **one** class, so `typeNodes[1]` and beyond are what the parser
+kept in order to have a position to report at — the same status §833 gave the
+second clause. Upstream reports TS2304 on `A` and says nothing about `B`.
+
+> §833's note said *"a duplicate heritage clause is recovered syntax"* and the
+> predicate it wrote tests **clauses**. The fixture that needed the *types* test
+> was in the same `extraonly` column at the time and I did not look one line
+> further. **A predicate named after the thing it happened to be built for is
+> the hardest kind to reuse**, because the name answers the question "does this
+> apply here?" wrongly.
+
+```
+bar:  +1 (parserClassDeclaration6),  0 LOST via `diagpass`,  extraonly 79 -> 78
+```
+
+### Falsifiers
+
+1. **`class C implements A, B` loses a name.** `implements` takes many types and
+   every one is resolved.
+2. **`interface I extends A, B` loses a name.** An interface may extend several.
+3. **TS1174's row moves.** It is the arm this defers to.
+
+## §875 — §874 built: **+1/−0**, four of the eight
+
+```
+diagnostics   2,343 → 2,344   (bar was +1;  +1)   42.71%
+diagpass      LOST: (none)   GAINED: conformance/parserClassDeclaration6
+extraonly     79 → 78
+TS1174 / TS1175   still 0 blocked
+```
+
+Four of §871's eight convertible cases are done, and the tally by cause is now
+worth stating:
+
+```
+§857  TS1042 beside TS1089    a chain's `return`, lost when the arm moved out
+§871  TS1031 beside TS1071    the same, one function away
+§872  TS2465 beside TS2683    a container walk, flattened to an ancestor test
+§874  TS2304 beside TS1174    a predicate that tested clauses where upstream tests types
+```
+
+**Every one is a suppression, and none of them is a rule that was wrong about
+what it reports.** All four rules emit the right diagnostic in the right place
+for the right reason; what each lacked was the knowledge that *something else had
+already spoken*, which upstream encodes in control flow — a `return`, a loop's
+third argument, an index into a list.
+
+> That is a coherent statement about porting a compiler and it took four
+> independent builds to see: **the conditions are in the code, the exclusions are
+> in the shape of the code**, and a transliteration keeps the first and loses the
+> second. `docs/adr/0003` says this port is a rewrite rather than a
+> transliteration, which is precisely why the exclusions need finding one at a
+> time.
+
+The remaining four convertibles are `jsFileCompilationBindErrors`,
+`undefinedTypeAssignment4`, `validRegexp`, `parserErrorRecovery_ObjectLiteral4`
+and `parserObjectCreation2` — the last two carry a spurious **TS1005** from
+`tsr-parser`, and `validRegexp` is §254's recovery difference, already owned.
