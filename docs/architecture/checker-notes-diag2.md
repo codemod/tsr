@@ -36261,3 +36261,100 @@ correctly is invisible to every review that is not a measurement.
 > traversal limit, a struct field — and agree in how they were found. **When a
 > rule that exists declines, the cheapest next move in this port is not to reread
 > it but to print the thing it decided on.** Four for four.
+
+## §704 — TS6133: a private **static** member is reached by exactly one syntax
+
+```ts
+class Test2 { private static p1 = 0;  public static test() { Test2.p1; } }
+class Test3 { private static p1 = 0;  private static m1() {} }   // both TS6133
+```
+
+`check_unused_class_members` marks references in a **global set of names**
+(`referenced_member_names`), which its own rustdoc states plainly: *"Reference
+marking here is by name rather than by symbol."* That approximation is why
+`Test2.p1` marks `Test3.p1` used, and it costs this row four lines.
+
+Keying every member reference by symbol needs the receiver's *type*, which is
+what the approximation exists to avoid. **But a private `static` member is
+narrower than that**: it is not inherited, not visible through an instance, and
+not reachable through any expression whose type this port would have to compute.
+The only syntax that reaches one is
+
+```
+ClassName.member        inside or outside the class body
+this.member             inside one of the class's own static members
+```
+
+so for static members alone the receiver can be read off the syntax and the key
+becomes `Class.member` — no type, no symbol table, no change to the instance
+path.
+
+> This is not a fix for the approximation; it is a **carve-out where the
+> approximation is unnecessary**. The instance case still needs the receiver's
+> type and still marks by bare name, and saying so is the point: a global name
+> set is wrong in general and exactly right for the cases that cannot be
+> decided syntactically anyway.
+
+```
+bar:  +1 of 1 (unusedPrivateStaticMembers),  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **A used private static reports.** `Test1.m1()` and `Test2.p1` are the
+   fixture's own controls and both must stay silent.
+2. **`this.p1` inside a static method stops counting.** A static member's own
+   class reaches it through `this`, and dropping that is a wrong line, not a
+   miss.
+3. **TS6133's instance rows move.** The instance path is untouched; if anything
+   moves there the carve-out is not a carve-out.
+
+## §705 — §704 built: **+1 of 1**, and the carve-out needed two more clauses
+
+```
+diagnostics             2,230 → 2,231   (bar was +1;  +1, 0 LOST)   40.65%
+extraonly               zero TS6133, TS6138 and TS6192 lines
+TS6133 missing lines    7 → 3
+```
+
+`unusedPrivateStaticMembers` now matches its baseline exactly. All three
+falsifiers negative.
+
+### The first shape moved four lines and added two
+
+```
+-- actual, first attempt --
+  (16,20)  (17,20)  (25,20)  (31,20)  (38,20)
+-- expected --
+  (16,20)  (17,20)  (21,20)  (25,20)
+```
+
+Two wrong positions and one still missing, and the fixture is deliberately built
+to produce exactly those:
+
+```ts
+class Test4 {
+    private static m1(n: number): number { return … Test4.m1(n - 1) … }   // (21) self-recursive
+    private static m2(n: number): number { return … Test4["m2"](n - 1) … }
+}
+class Test5 { private static m1() {}  public static test() { Test5["m1"](); } }   // (38)
+```
+
+- **`Test5["m1"]()` reaches a static exactly as `Test5.m1()` does.** Keying only
+  property access dropped it, and the member became unreferenced.
+- **A self-reference is not a use.** `Test4.m1` inside `m1` marked itself, and
+  upstream leaves it unread — the same rule §329 already ported for *locals*,
+  needed again here because the qualified key is a second marking path.
+
+> **A carve-out inherits none of the exclusions its general path had.** The bare
+> name key already went through `is_write_only_access`; the self-reference rule
+> lived on the *local* path and had to be restated. Writing the narrow key was
+> one clause; making it agree with the rules already in force was two more, and
+> the fixture named all three before the build did.
+
+Note that `extraonly` reported **zero** wrong lines throughout — both wrong
+positions were inside a case that was failing anyway. **`extraonly` sees wrong
+lines only in otherwise-passing cases**, so a build that is wrong *and* short in
+the same case is invisible to it; `diagcase` is what showed them. That is a
+limit worth stating, since eleven builds this session have used `extraonly` as
+the wrong-line gate.

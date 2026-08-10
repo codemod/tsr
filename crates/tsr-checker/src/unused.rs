@@ -275,6 +275,45 @@ impl Checker<'_, '_> {
         if self.is_write_only_access(node) {
             return;
         }
+        // **A private `static` member is reached by exactly one syntax**, so
+        // its reference can be keyed by receiver without a type: `Class.member`
+        // or, inside the class's own static members, `this.member`. Recorded
+        // *alongside* the bare name, so the instance path is unchanged. §704.
+        let qualified = match self.node_map.get(node) {
+            Some(Node::PropertyAccessExpression(access)) => access
+                .name
+                .and_then(|n| n.node_id())
+                .and_then(|member| self.identifier_text_of(member).map(str::to_string))
+                .zip(access.expression.and_then(|e| e.node_id())),
+            // `Test5["m1"]()` reaches a static exactly as `Test5.m1()` does,
+            // and dropping it made two wrong lines the first time this was
+            // measured. §704.
+            Some(Node::ElementAccessExpression(access)) => access
+                .argument_expression
+                .and_then(|argument| argument.node_id())
+                .and_then(|argument| match self.node_map.get(argument) {
+                    Some(Node::StringLiteral(literal)) => Some(literal.text.to_string()),
+                    _ => None,
+                })
+                .zip(access.expression.and_then(|e| e.node_id())),
+            _ => None,
+        };
+        if let Some((member_text, receiver)) = qualified {
+            let receiver_text = match self.nodes.kind(receiver) {
+                SyntaxKind::ThisKeyword => Some("this".to_string()),
+                SyntaxKind::Identifier => self.identifier_text_of(receiver).map(str::to_string),
+                _ => None,
+            };
+            // **A self-reference is not a use**, the same rule
+            // [`Checker::reference_is_inside_own_declaration`] applies to
+            // locals: `private static m1(n) { … Test4.m1(n - 1) … }` leaves
+            // `m1` unread upstream. §704.
+            if let Some(receiver_text) = receiver_text
+                && !self.reference_is_inside_named_member(node, &member_text)
+            {
+                self.referenced_member_names.insert(format!("{receiver_text}.{member_text}"));
+            }
+        }
         let named = match self.node_map.get(node) {
             Some(Node::PropertyAccessExpression(access)) => access.name.and_then(|n| n.node_id()),
             Some(Node::QualifiedName(name)) => name.right.and_then(|n| n.node_id),
@@ -728,6 +767,25 @@ impl Checker<'_, '_> {
         }
     }
 
+    /// Is this node inside a class member whose own name is `text`? §704.
+    fn reference_is_inside_named_member(&self, node: NodeId, text: &str) -> bool {
+        self.nodes.ancestors(node).any(|ancestor| {
+            self.name_node_of(ancestor)
+                .and_then(|name| self.identifier_text_of(name))
+                .is_some_and(|owner| owner == text)
+        })
+    }
+
+    /// The written name of a class declaration or expression. §704.
+    fn class_name_text_of(&self, node: NodeId) -> Option<String> {
+        let name = match self.node_map.get(node)? {
+            Node::ClassDeclaration(class) => class.name?,
+            Node::ClassExpression(class) => class.name?,
+            _ => return None,
+        };
+        Some(name.text.to_string())
+    }
+
     /// `checkUnusedClassMembers` (`checker.go:7115`).
     ///
     /// Reference marking here is by *name* rather than by symbol — see
@@ -759,7 +817,24 @@ impl Checker<'_, '_> {
                         continue;
                     }
                     let Some(text) = self.identifier_text_of(name) else { continue };
-                    if self.referenced_member_names.contains(text) {
+                    // A private **static** member is not inherited, not visible
+                    // through an instance, and not reachable through any
+                    // expression whose type this port would have to compute —
+                    // so the bare-name key is unnecessarily coarse for it, and
+                    // `Test2.p1` was marking `Test3.p1` used. §704.
+                    let is_static = self
+                        .member_modifiers(id)
+                        .is_some_and(|m| has_keyword(m, SyntaxKind::StaticKeyword));
+                    let referenced = if is_static {
+                        let owner = self.class_name_text_of(node);
+                        self.referenced_member_names.contains(&format!("this.{text}"))
+                            || owner.is_some_and(|owner| {
+                                self.referenced_member_names.contains(&format!("{owner}.{text}"))
+                            })
+                    } else {
+                        self.referenced_member_names.contains(text)
+                    };
+                    if referenced {
                         continue;
                     }
                     let text = text.to_string();
