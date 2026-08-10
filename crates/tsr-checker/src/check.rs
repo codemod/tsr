@@ -4531,8 +4531,12 @@ impl Checker<'_, '_> {
         // annotation is a construct the file may not contain, so nothing inside
         // it is resolved. The value-position rule has carried this decline
         // since it was written; this one never got it. §779.
-        if self.file_has_parse_errors || is_specially_diagnosed_name(text) || self.in_js_file(node)
-        {
+        // **No `file_has_parse_errors` here.** §254's −14 measurement was made
+        // on `check_value_identifier`, which has never carried the gate; this
+        // path always has and nobody had measured it. `interface I { a: Foo; b }`
+        // is TS2304 **and** TS1005 upstream, and this port emitted only the
+        // parse error. §898.
+        if is_specially_diagnosed_name(text) || self.in_js_file(node) {
             return;
         }
         // **A duplicate heritage clause is recovered syntax.** `class C

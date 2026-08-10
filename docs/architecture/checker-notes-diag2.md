@@ -44555,3 +44555,65 @@ has two of them.
 Seven of the eleven remain, each its own measurement. The instruction §895 left —
 *per rule, with the wrong-line cost checked each time* — is now a method with a
 result behind it rather than a counsel of despair.
+
+## §898 — the type path's parse-error gate
+
+Three of §894's remaining seven want **TS2304 in a type position**:
+
+```ts
+// parserObjectType5
+interface I { a: Foo; b }     // TS2304 on Foo at (2,7), TS1005 at (3,7)
+```
+
+This port emits the TS1005 and declines the TS2304 — `check_type_reference_name`
+opens with `file_has_parse_errors || …`.
+
+**§254's −14 measurement does not cover this.** It was made on
+`check_value_identifier`, and its note is explicit: *"Adding a blanket `if
+self.file_has_parse_errors { return }` **here** was measured at −14 cases."* The
+value path has never carried the gate; the type path always has, and nobody has
+measured it.
+
+> §896 was the same shape one section ago — a gate the class measurement had
+> declared unprofitable, profitable when measured alone. §895's rule is holding:
+> **the class number is a prior, not a verdict.**
+
+```
+bar:  >= +1,  0 LOST via `diagpass`,  extraonly delta <= +2
+```
+
+### Falsifiers
+
+1. **`extraonly` rises above +2.** §164 measured this path's *positions* at 232
+   wrong lines once already, and a recovered tree invents type names.
+2. **Any of §894's eight losses appears.**
+
+## §899 — §898 built: **+1/−0**, at the bar's limit
+
+```
+diagnostics   2,354 → 2,355   (bar was >= +1;  +1)   42.91%
+diagpass      LOST: (none)   GAINED: conformance/parserObjectType5
+extraonly     77 → 79   (bar allowed <= +2)
+```
+
+The two new `extraonly` rows are not regressions in the usual sense:
+`parserErrorRecovery_ObjectLiteral5` and its neighbours now carry **every**
+expected line and are blocked by an extra alone. They moved *toward* passing and
+into the column that lists one-removal conversions.
+
+```
+§894   all 127 gates          +11 / −8    extraonly +27    reverted
+§895   the 21 semantic ones    −1         extraonly +13    reverted
+§896   `check_operator_operands`   +4 / 0     +0          kept
+§898   `check_type_reference_name` +1 / 0     +2          kept
+```
+
+**Five of §894's eleven, from two lines**, and the two class-wide experiments
+that preceded them remain the reason both were findable. Six remain.
+
+> The `extraonly` cost is the interesting part of this one. §894's wholesale
+> removal bought its eleven cases with **twenty-seven** wrong lines; the same
+> eleven, taken two rules at a time, have cost **two** so far — and both of those
+> landed in cases that are now one removal from passing. **A class measurement
+> averages a cost that is not distributed evenly**, and the average was three
+> times the worst rule and thirteen times the best.
