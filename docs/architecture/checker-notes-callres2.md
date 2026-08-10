@@ -1260,3 +1260,16 @@ the standard re-accept cycle after multi-lane pulls, caught by the
 custody stash-check before any misattribution. Residue: 76 W in the
 head family (multi-member literals / non-predicate hasInstance
 shapes), priced to the next census.
+
+## §145.1 — the hasInstance residue is the RELATER boundary, verbatim
+
+The 76 remaining W: `narrow_by_predicate_type`'s ladder is upstream's
+exactly, and every rung answers Undecidable between object types
+(`Line` vs `Point`, `Point3D` structurally-subtype-of `Point` with no
+heritage). The needed capability is structural subtype/assignability
+between interface types — the relater expansion, its own lane-scale
+build. Decidable slice if someone wants it cheap: same-TypeId
+member-set inclusion (candidate's every property present identical in
+the constituent → Subtype; a missing required property with no index
+signature → NotRelated) — covers Point/Point3D/Line whole. Not built
+here; the window records the boundary and moves on.
