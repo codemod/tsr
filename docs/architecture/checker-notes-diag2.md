@@ -29958,3 +29958,99 @@ and the remaining large rows genuinely are the relation's.
 **Left**: one line, `circularConstraintYieldsAppropriateError` — a *constraint*
 cycle rather than a base-type one, which is `getConstraintOfTypeParameter`'s
 graph and not this one. Named, not attempted.
+
+## §565 — TS2305: §186's decline, a third copy — and a string-literal export name
+
+```ts
+import {
+  "missing" as x,      // TS2305 — arbitraryModuleNamespaceIdentifiers_importEmpty
+} from "./empty";
+```
+
+`report_missing_module_export` carries **two** declines that this fixture trips,
+and §558's rule says to build them together:
+
+```rust
+if entry.exports.is_empty() { return None; }                    // §186, third copy
+let ModuleExportName::Identifier(name) = name else { return None };  // string names
+```
+
+The fixture is named `importEmpty` and imports from a module with no exports, so
+the first decline suppresses exactly the case it was written to be careful
+about; and its specifiers are **string literals**, which ES2022 made legal
+export names and which the rule drops on the floor.
+
+> **§186's decline is now known to exist in three places** — the namespace path
+> (§186), the deep entity-name path (§558), and the module path (here). §561
+> found the second and third-party copy by measurement; this one was found by
+> *reading the rule §143 said to read first*, which is the cheaper of the two
+> routes and the one that was available every time.
+
+The narrowing differs from §558's because the subject differs: a **module**
+symbol whose declaration is a `SourceFile` had its exports computed by the
+binder, so an empty table means *this module exports nothing*.
+
+### The bar
+
+```
+bar:  +5 of 5 (cases blocked on TS2305 alone),  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **`extraonly` grows on unresolved imports.** The decline exists because an
+   unfilled table answers "no member" for every import in a file; the
+   `SourceFile`-declaration test is the whole of the distinction.
+2. **TS2724's row moves.** The near-miss suggestion is tried first and a
+   widened reach hands it more candidates.
+3. **A string-literal name reports with the quotes in the message.** Upstream
+   prints the name's *text*, not its source form.
+
+## §566 — §565 built: **+2** of a bar of +5, and the residue is one six-line case
+
+```
+diagnostics   2,102 → 2,104   (bar was +5;  +2, 0 LOST)   38.34%
+extraonly     54 → 54         all three falsifiers negative
+TS2305        13 missing lines → 9;  5 cases blocked alone → 3
+```
+
+Two of the five converted and the biggest single item left is
+`namedImportNonExistentName`, **six lines in one case** — which is why the bar
+missed: `cases blocked alone` counts cases, and one of them is worth six lines
+of work rather than one.
+
+> **`cases blocked alone` predicts the board and says nothing about the work.**
+> §551 established it as the right column for a *bar*; §566 adds the other half:
+> a five-case row whose lines cluster six-to-one is five bar-points and two
+> different builds. The line count and the case count answer different
+> questions and this row needed both read together.
+
+### The two declines, measured together
+
+§558's rule — *a row that needs two changes reads as two failed builds* —
+applied, and neither half was measured alone this time. The pair converted +2
+with `extraonly` unmoved, so nothing here argues about which half did the work,
+and that is a deliberate cost: **the bundle was chosen because §558 showed the
+split is unreadable when both halves gate the same cases**, and the price is not
+knowing the split when it works.
+
+That trade is worth writing down as a rule rather than a one-off:
+
+```
+halves gate DIFFERENT cases   →  split, and read each (§496, §557)
+halves gate the SAME cases    →  bundle, and accept not knowing (§558, §565)
+```
+
+### §186's decline, all three copies now narrowed
+
+```
+§186   the namespace path        narrowed at §561
+§558   the deep entity-name path narrowed at §558
+§565   the module path           narrowed here
+```
+
+Each narrowing is the same idea with a different witness that the table was
+computed: a `ModuleDeclaration` with a body, and a `SourceFile` declaration.
+**Three copies, found three different ways** — by measurement (§561), by writing
+the second one (§558), and by §143's *read the existing rule first* (§565) —
+and the third route was available on all three occasions.

@@ -1060,8 +1060,12 @@ impl<'a> Checker<'a, '_> {
             Node::ExportSpecifier(node) => node.property_name.or(node.name),
             _ => return None,
         }?;
-        let tsr_ast::ModuleExportName::Identifier(name) = name else { return None };
-        let text = name.text;
+        // **A string literal is a legal export name since ES2022**, and
+        // `{ "missing" as x }` is exactly the shape this rule is for. §565.
+        let (text, name_id) = match name {
+            tsr_ast::ModuleExportName::Identifier(name) => (name.text, name.node_id?),
+            tsr_ast::ModuleExportName::StringLiteral(name) => (name.text, name.node_id?),
+        };
         if self.get_export_of_module(module_symbol, text).is_some() {
             return None;
         }
@@ -1069,9 +1073,18 @@ impl<'a> Checker<'a, '_> {
         // §186 — an empty table cannot be asked which member is missing. A
         // module this port never filled would answer "no member" for every
         // import in the file.
-        if entry.exports.is_empty() {
+        // §186's decline, narrowed as §558 and §561 narrowed its other two
+        // copies: a module symbol declared by a `SourceFile` had its exports
+        // computed by the binder, so an empty table means *this module exports
+        // nothing* rather than *this port recorded nothing*. §565.
+        if entry.exports.is_empty()
+            && !entry.declarations.iter().any(|&declaration| {
+                matches!(self.node_map.get(declaration), Some(Node::SourceFile(_)))
+            })
+        {
             return None;
         }
+        let entry = self.binder.symbols().get(module_symbol);
         // `moduleSymbol.Exports[InternalSymbolNameDefault] != nil` — upstream's
         // TS2613, `Did you mean to use 'import x from …' instead?`. Declined.
         let has_default = entry.exports.contains_key("default");
@@ -1081,7 +1094,7 @@ impl<'a> Checker<'a, '_> {
         // near miss makes TS2305 a wrong code at a right position — the failure
         // §185's falsifier caught for TS2694 on four of seven wrong lines.
         let suggestion = spelling_suggestion(text, &candidates).map(str::to_string);
-        let span = self.nodes.span(name.node_id?);
+        let span = self.nodes.span(name_id);
         let file = self.source_file_of_for_diagnostics(specifier)?;
         let module_name = self.quoted_module_name(module_specifier);
         if let Some(suggestion) = suggestion {
