@@ -1318,3 +1318,18 @@ Point` survives). The rung's inclusion arm now discriminates by
 `heritage_chain_contains` (transitive `base_symbols_of`; unfollowable
 → drop, the oracle's answer for every non-declared relation in this
 domain). Family 60→54 W; full pair +6/0.
+
+## §147 — the exhaustiveSwitch flag, traced
+
+checker-1's 2 R→W (rows 345/347, `stats : number` → our `any`): the
+shape is `while (true) { const stats = foo; ... }` where `foo` is a
+SELF-SHADOWING `const foo: number | undefined = 0` inside `function
+foo()`. The narrowing that should strip `undefined` (initializer +
+loop context) answers `any` — a flow-lane shape (loop fixpoint over a
+shadowed const) with no contact with §145/§146's roads (the predicate
+ladder never runs here; the member rung requires Named×Named). Both
+my landings' isolated pairs showed zero regressions, so the vintage
+question resolves as PRE-EXISTING, surfaced by cross-vintage baseline
+comparison. Filed as a flow-lane row; rows 378-381 in the same file
+(`any`/`never` vs literal unions) are switch-exhaustiveness narrowing,
+also flow-lane.
