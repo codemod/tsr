@@ -6683,3 +6683,24 @@ through to decimal, pinned in the unit test. Hits
 octalLiteralAndEscapeSequence 5, parseBigInt 2,
 templateLiteralEscapeSequence 2 (its last 2 wrongs; the case is
 now fully green), +1 elsewhere.
+
+## §151 — the wrong/gap board's big-rock census: four walls hold the mass [checker-1]
+
+Post-§150 sweep of the top board items, each probed or classified
+in one read, NONE barred: (a) `inferTypePredicates` 98 W —
+predicate INFERENCE from function bodies (upstream synthesizes
+`x is T` from return-expression flow), a flow subsystem; (b)
+`dependentDestructuredVariables` 93 W — basic destructuring is
+HEALTHY (probed: object, const-tuple, parameter patterns all
+type), the wrongs are the TS4.6 dependent-narrowing feature +
+union-signature contextual parameters; (c) `strictBindCallApply1`
+185 G — CallableFunction's `[...A, ...B]` overloads, the variadic-
+tuple subsystem (same wall as variadicTuples1 243 G, the board's
+head); (d) temporal/promisePermutations families — conditional-
+type instantiation + generic inference (§149's pricing). With
+§146's fixing-mapper ledger these four walls now hold essentially
+all remaining thousand-line masses: **variadic tuples, inference
+pipeline (fixing-mapper), conditional instantiation, flow/
+predicate synthesis**. The gate-sized middle is thin; next
+sessions should either open a wall as a phased arc or sweep the
+long tail of sub-20-line cases.
