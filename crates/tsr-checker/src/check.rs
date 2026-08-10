@@ -4546,15 +4546,24 @@ impl Checker<'_, '_> {
         if self.file_has_parse_errors {
             return;
         }
-        let Some(symbol) =
+        let Some(symbol) = self
             // `getResolvedSymbol`'s meaning, per §251 — `EXPORT_VALUE` included.
-            self.binder.resolve_name(
+            .binder
+            .resolve_name(
                 self.nodes,
                 self.node_map,
                 node,
                 text,
                 SymbolFlags::VALUE | SymbolFlags::EXPORT_VALUE,
             )
+            // **`a.C` is not a name in scope.** Upstream reaches this use
+            // through `resolveEntityName`, which resolves the receiver and
+            // takes the member from its exports; this rule is dispatched per
+            // identifier and so must do the same for the right-hand side of a
+            // property access. Everything below — the `extends` bound, the
+            // same-file test, the ambient test, the `Pos()` comparison — is
+            // unchanged. §698.
+            .or_else(|| self.qualified_member_of_namespace(node, text))
         else {
             return;
         };
@@ -4631,6 +4640,49 @@ impl Checker<'_, '_> {
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
         let span = self.error_span(node);
         self.report(file, Diagnostic::with_args(message, span, [text.to_string()]));
+    }
+
+    /// The member a property access names, when its receiver resolves to a
+    /// namespace — `resolveEntityName`'s second half, for a rule dispatched one
+    /// identifier at a time.
+    ///
+    /// The receiver may be an alias (`export import a = A`), so the chain is
+    /// followed with the same hops [`Checker::alias_chain_carries`] walks: a
+    /// declined **qualified** module reference goes through
+    /// [`Checker::qualified_alias_target`] (§686), and an unresolvable one
+    /// answers `None`. §698.
+    fn qualified_member_of_namespace(
+        &mut self,
+        node: NodeId,
+        text: &str,
+    ) -> Option<tsr_binder::SymbolId> {
+        let parent = self.nodes.parent(node)?;
+        let Some(Node::PropertyAccessExpression(access)) = self.node_map.get(parent) else {
+            return None;
+        };
+        if access.name.and_then(|name| name.node_id()) != Some(node) {
+            return None;
+        }
+        let receiver = access.expression.and_then(|expression| expression.node_id())?;
+        let receiver_text = self.identifier_text(receiver).map(str::to_string)?;
+        let mut at = self.binder.resolve_name(
+            self.nodes,
+            self.node_map,
+            receiver,
+            &receiver_text,
+            SymbolFlags::NAMESPACE | SymbolFlags::ALIAS,
+        );
+        for _ in 0..MAX_ALIAS_HOPS {
+            let current = at?;
+            let current = self.binder.merged_symbol(current);
+            if !self.binder.symbols().get(current).flags.intersects(SymbolFlags::ALIAS) {
+                at = Some(current);
+                break;
+            }
+            at = self.resolve_alias(current).or_else(|| self.qualified_alias_target(current));
+        }
+        let namespace = self.binder.merged_symbol(at?);
+        self.binder.symbols().get(namespace).exports.get(text).copied()
     }
 
     /// `isBlockScopedNameDeclaredBeforeUse`'s deferral arms (`checker.go:1922`),
@@ -4768,6 +4820,22 @@ impl Checker<'_, '_> {
     /// [`Checker::is_value_reference`] draws, and for the same reason: only
     /// `extends` resolves its name as a *value*.
     fn is_in_extends_clause(&self, node: NodeId) -> bool {
+        // **`class D extends a.C` puts the identifier under a property
+        // access.** The heritage expression is the whole `a.C`, so the
+        // qualified form is climbed to it before the clause is asked — the
+        // position argument in §83's rustdoc (*"`extends` evaluates its
+        // operand at class-definition time, immediately"*) is about the clause
+        // and holds however the operand is spelled. §698.
+        let mut node = node;
+        while let Some(parent) = self.nodes.parent(node) {
+            let Some(Node::PropertyAccessExpression(access)) = self.node_map.get(parent) else {
+                break;
+            };
+            if access.name.and_then(|name| name.node_id()) != Some(node) {
+                break;
+            }
+            node = parent;
+        }
         let Some(parent) = self.nodes.parent(node) else { return false };
         let Some(Node::ExpressionWithTypeArguments(with_arguments)) = self.node_map.get(parent)
         else {

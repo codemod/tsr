@@ -35993,3 +35993,101 @@ namespace A { export class C { } }
 entity-name resolution the port already has, and the position comparison is
 unchanged. **Named and priced, not built** — this cycle's deliverable is the
 sweep and its correction.
+
+## §698 — TS2449: the class arm resolves a name, not a qualified name
+
+```ts
+namespace B {
+    export import a = A;
+    export class D extends a.C { }   // TS2449 on `C`
+}
+namespace A { export class C { } }
+```
+
+§83's rule is dispatched for every `Identifier` and resolves it **by name in
+scope**. `C` here is the right-hand side of a property access, so
+`resolve_name(node, "C", VALUE)` looks for a `C` in the enclosing scopes, finds
+none, and returns — silently and correctly, since there is nothing else it could
+answer.
+
+Upstream reaches the same use through `resolveEntityName`, which resolves `a` to
+its target namespace and takes `C` from that namespace's exports. Everything
+after the lookup — the `extends` bound, the same-file test, the ambient test,
+the `Pos()` comparison — is **unchanged**, so the addition is one resolution and
+no new policy.
+
+The alias hop is the one this session already built twice: `a` is
+`export import a = A`, an `ALIAS`, and §693's `alias_chain_carries` walk exists
+because that shape kept defeating meaning tests. Here the walk is wanted for its
+*target*, so the chain is followed directly.
+
+```
+bar:  +1 of 6 (circularImportAlias),  0 LOST,  WRONG delta <= +2
+```
+
+The other five cases are decorators, computed property names and base-type
+resolution — §96's deferral arms, not this shape — so one is what this build
+claims.
+
+### Falsifiers
+
+1. **A forward reference through a namespace that is *not* an error reports.**
+   `namespace A { export class C {} } namespace B { class D extends A.C {} }`
+   with `A` above is the ordinary case and must stay silent — the `Pos()`
+   comparison decides it, and it is the same comparison as before.
+2. **§96's 176 wrong lines return.** The deferral predicate is untouched; only
+   the lookup widens.
+3. **TS2448 or TS2450 moves.** Those arms require exactly one declaration and a
+   different kind; a namespace member reached through an alias is neither.
+
+## §699 — §698 built: **+3 on a bar of +1**, and the lookup was only half of it
+
+```
+diagnostics             2,222 → 2,225   (bar was +1;  +3, 0 LOST)   40.54%
+extraonly               zero TS2449, TS2448 and TS2450 lines
+TS2449 missing lines    59 → 32;  6 cases blocked alone → 3
+```
+
+All three falsifiers negative.
+
+### Two gates, and the probe found the second
+
+Widening the lookup measured **+0**. The helper resolved `C` correctly —
+
+```
+PROBE qmn C: ns_flags=VALUE_MODULE member=true
+```
+
+— and the rule still declined. The second probe printed every gate at once:
+
+```
+PROBE gates extends=false deferred_ok=false same_file=true ambient=false
+            decl_pos=141 use_pos=90
+```
+
+`is_in_extends_clause` requires the identifier to **be** the heritage
+expression, and in `class D extends a.C` it is the *name* of a property access
+one level down. The positions were already right — `141 > 90` — and the report
+was two `false`s away from firing.
+
+> **A rule reached through a new path needs every gate on that path re-read, not
+> just the one that blocked it.** The lookup was the obvious half and it was
+> genuinely necessary; the clause test was invisible until measured, and it is
+> the half that carried the row. Printing all six gates in one line cost the
+> same as printing one and answered the question outright — **when a rule
+> declines and the reason is not certain, print the whole conjunction.**
+
+§83's rustdoc justified the `extends` bound by *position*: the operand is
+evaluated at class-definition time, immediately, with no function between use
+and declaration. **That argument is about the clause and holds however the
+operand is spelled** — which is why widening the test to climb a property access
+is the same bound and not a weaker one.
+
+### The residue
+
+Three cases, 32 lines: `classDeclarationShouldBeOutOfScopeInComputedNames`,
+`computedPropertyNamesWithStaticProperty` and
+`useBeforeDeclaration_classDecorators.1`. All three are §96's **deferral** arms —
+a computed property name and a decorator — which is a different predicate from
+this one and the reason §83 bounded itself to `extends` in the first place.
+Named, priced at 32 lines, not built.
