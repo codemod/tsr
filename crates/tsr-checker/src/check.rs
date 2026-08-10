@@ -252,6 +252,9 @@ impl Checker<'_, '_> {
             Node::ModuleDeclaration(declaration) => {
                 self.check_global_augmentation_position(node);
                 self.check_namespace_merge_position(node, ambient);
+                if let Some(name) = declaration.name.and_then(|n| n.node_id()) {
+                    self.check_module_augmentation_name(node, name);
+                }
                 ambient
                     || has_modifier(declaration.modifiers, SyntaxKind::DeclareKeyword)
                     || self.is_ambient_module_node(node)
@@ -10100,6 +10103,48 @@ impl Checker<'_, '_> {
             }
             _ => false,
         }
+    }
+
+    /// `mergeModuleAugmentation` (`checker.go:1397`) — TS2664 `Invalid module
+    /// name in augmentation, module '{0}' cannot be found.`
+    ///
+    /// A `declare module "x"` in a file that is itself a module is an
+    /// **augmentation**, and upstream passes a not-found message to the
+    /// resolution only when the declaration is not in an ambient context: *"do
+    /// not validate names of augmentations that are defined in ambient
+    /// context."* The same declaration in a `.d.ts` is a module declaration and
+    /// gets no error.
+    ///
+    /// `docs/architecture/checker-notes-diag2.md` §677.
+    fn check_module_augmentation_name(&mut self, node: NodeId, name: NodeId) {
+        let Some(Node::StringLiteral(literal)) = self.node_map.get(name) else { return };
+        if self.file_is_ambient {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        // The augmentation test: the *containing file* must be a module. A
+        // `declare module "x"` in a plain script is an ambient external module
+        // declaration and declares the module rather than augmenting one.
+        let is_augmentation = matches!(
+            self.node_map.get(file),
+            Some(Node::SourceFile(source)) if tsr_binder::is_external_module(source)
+        );
+        if !is_augmentation {
+            return;
+        }
+        let text = literal.text.to_string();
+        if self.resolve_external_module_name(name, name).is_some() {
+            return;
+        }
+        let span = self.error_span(name);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::INVALID_MODULE_NAME_IN_AUGMENTATION_MODULE_0_CANNOT_BE_FOUND,
+                span,
+                [text],
+            ),
+        );
     }
 
     /// A `declare` modifier on the declaration itself.

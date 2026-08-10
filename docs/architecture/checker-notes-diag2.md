@@ -34872,3 +34872,84 @@ TS2749   unknown   same call site, same early return
 `bd tsr-8esz` filed for the binder side; the checker hunk is recorded here in full
 rather than left in the tree, because a rule that costs seven cases must not sit
 behind a feature flag nobody will find.
+
+## §677 — TS2664: an augmentation whose module cannot be found
+
+```ts
+// a .ts file that is itself a module
+import b = require("externalModule");
+declare module "m1" { … }        // TS2664 on "m1"
+```
+
+`mergeModuleAugmentation` (`checker.go:1397`). The whole rule is the choice of
+error message two lines before the resolution:
+
+```go
+var moduleNotFoundError *diagnostics.Message
+if moduleName.Parent.Parent.Flags&ast.NodeFlagsAmbient == 0 {
+    moduleNotFoundError = diagnostics.Invalid_module_name_in_augmentation_module_0_cannot_be_found
+}
+mainModule := c.resolveExternalModuleNameWorker(moduleName, moduleName, moduleNotFoundError, …)
+```
+
+**A `declare module "x"` in a non-ambient file is an augmentation, and an
+augmentation of a module that does not exist is an error; the same declaration
+in a `.d.ts` is a module *declaration* and is not.** The comment says it: *"do
+not validate names of augmentations that are defined in ambient context."*
+
+Both pieces this needs are already here — `resolve_external_module_name`
+(`symbols.rs:1598`, which consults ambient modules before the host, so a sibling
+`declare module "ext"` resolves) and `tsr_binder::is_external_module`.
+
+```
+bar:  +3 of 3 (ambientExternalModuleInAnotherExternalModule,
+      importDeclRefereingExternalModuleWithNoResolve, moduleAugmentationInDependency2)
+      0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **A `declare module "x"` in a `.d.ts` reports.** That is the ambient-context
+   exclusion, and `.d.ts` files declaring modules are everywhere in the corpus —
+   this is the falsifier that decides whether the rule is safe at all.
+2. **A global-scope augmentation (`declare global`) reports.** Upstream takes
+   the other branch entirely.
+3. **TS2307's row moves.** A specifier that fails to resolve in an *import* is
+   TS2307 and must stay that way; this is a different position.
+
+## §678 — §677 built: **+3 of 3**, row closed
+
+```
+diagnostics             2,204 → 2,207   (bar was +3;  +3, 0 LOST)   40.22%
+extraonly               zero TS2664 lines
+TS2664 missing lines    3 → 0     — the row is closed
+```
+
+All three falsifiers negative — and the first of them was the one that mattered:
+the corpus is full of `.d.ts` files declaring modules, and every one of them
+stayed silent, because `file_is_ambient` is exactly the flag upstream reads
+there.
+
+### The rule was two conditions and both were already in the tree
+
+```
+tsr_binder::is_external_module(source)      // the file is a module → this is an augmentation
+self.resolve_external_module_name(name, …)  // consults ambient modules before the host
+```
+
+**No new machinery, no new state, nothing derived.** The second in particular
+already had the ambient-module lookup ahead of the host (`symbols.rs:1598`),
+which is what keeps a sibling `declare module "ext"` from being reported as
+unfound — the exact failure this rule would otherwise produce across the corpus.
+
+> Two rows closed this cycle — §673's TS2384 and this — and neither needed
+> anything the port did not already have. **§670 said the ≥4-case band is empty
+> of syntactically-decidable rows; it did not say the ≤3 band is, and six cases
+> have come out of it in two builds.**
+
+### `unreachable pattern`, third time this session
+
+The build's first attempt added a second `Node::ModuleDeclaration` arm and the
+compiler deleted it (§140). Third occurrence: **a dispatch match this large has
+an arm for nearly everything, so "add an arm" is almost always "find the arm."**
+That is now the standing expectation rather than a recurring surprise.
