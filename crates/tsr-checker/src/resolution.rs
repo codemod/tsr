@@ -139,6 +139,12 @@ pub trait ModuleHost {
     ///
     /// Defaulted to `None`, which reports nothing — a host that is not a real
     /// program has no resolutions to describe. §357.
+    /// §143: the file path of a SourceFile node, for the relative-specifier
+    /// spelling. `None` (the default) declines the file half.
+    fn file_path(&self, _file: NodeId) -> Option<String> {
+        None
+    }
+
     fn resolved_module_path(&self, _importing_file: NodeId, _specifier: &str) -> Option<String> {
         None
     }

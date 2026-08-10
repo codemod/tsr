@@ -607,6 +607,11 @@ impl tsr_checker::resolution::ModuleHost for Program<'_> {
     fn module_resolution_found(&self, importing_file: NodeId, specifier: &str) -> bool {
         Program::module_resolution_found(self, importing_file, specifier)
     }
+    fn file_path(&self, file: NodeId) -> Option<String> {
+        let &index = self.files_by_source_file.get(&file)?;
+        Some(self.files[index].file_name().to_string())
+    }
+
     fn resolved_module_path(&self, importing_file: NodeId, specifier: &str) -> Option<String> {
         let &index = self.files_by_source_file.get(&importing_file)?;
         let resolutions = self.resolved_modules.get(self.files[index].path())?;

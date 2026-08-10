@@ -6364,3 +6364,17 @@ it grows), relative-name ambients 1. The thirty-sixth pin flipped
 (shorthand ambients spell their import form). The FILE-module
 relative-specifier half stays with the §143 bar for the next
 window.
+
+**§143 slice 2 (file half) MEASURED AND PARKED at +14/45 — four
+gates named for the rebuild:** (1) `.d.ts` targets need the double
+extension stripped (`remove_file_extension` leaves `.d` —
+declarationFileForHtml's 5); (2) allowImportingTsExtensions files
+KEEP the extension (allowsImportingTsExtension's 4 R→W —
+option-keyed spelling); (3) exportDefault/chained2/exportNamespace2
+(~11) want ALIAS names — the tri-state's Err(false) misreads
+positions where an alias DOES reach (the locals-walk collects
+non-reaching scopes' aliases for ambiguity but may miss reaching
+ones — re-probe); (4) assertionFunctionWildcardImport1's 8 (its
+want shape unread). The host `file_path` hook LANDS with slice 1's
+infrastructure (harmless, default-None). Reverted to the slice-1
+state; the four gates are each small.
