@@ -44228,3 +44228,51 @@ import's type answers a property this port has never marked readonly.
 side**, with `bd tsr-gjze`'s neighbours — the wanted change is
 `CheckFlagsReadonly` on the members of a module namespace object, at the point
 that type is built.
+
+
+## §890 — TS2531 on `extends null`: **+1/−0**, and `null` is an `Identifier`
+
+```ts
+class C1 extends null { static method() { super.oops; } }
+class C2 extends null {        method() { super.oops; } }
+```
+
+```
+diagnostics     2,349 → 2,350   (+1)   42.82%
+diagpass        LOST: (none)   GAINED: compiler/classExtendsNull3
+checker_types   unmoved by this build
+extraonly       77, unchanged
+diagemit        TS2531 leaves the SILENT list;  TS2864 and TS1253 remain
+```
+
+§852 proved the diagnostics half complete — the reporter is entered at the right
+node the right number of times, with `null=false undef=false`, because
+`check_expression(super)` answers no nullable type under a `null` heritage base.
+`bd tsr-gjze` files that as the type side's and it stays open.
+
+The fact this rule needs is **syntactic and exact**: one keyword in one clause,
+and nothing else in the language produces a `null` base. §830 used a syntactic
+stand-in for `NodeFlagsAwaitContext` and §867 for a widened `any`, both where the
+type answer was unavailable and the syntax was not.
+
+### The first attempt measured `+0`, and a probe said why in one run
+
+```
+PROBE-2531  super null=false extends_null=false
+PROBE-2531h token=ExtendsKeyword types=1 first_kind=Some(Identifier)
+```
+
+**`class C extends null` parses its base as an `Identifier` whose text is
+`null`**, not as the null-keyword node. Testing `kind == NullKeyword` — the
+obvious spelling, and the one every other `null` test in this file uses — is
+false for the only shape that matters.
+
+> Third parser-representation trap this session (§848's `BindingPattern::kind`
+> discriminator, §874's clause-versus-type, this), and the third settled by one
+> probe after reasoning had settled nothing. **The tree is not shaped the way the
+> language is written**, and every assumption about it is worth one `eprintln!`
+> before it is worth an argument.
+
+**Recorded as a stand-in, not a fix.** `super`'s type is still wrong and every
+other rule reading it still gets the wrong answer; `bd tsr-gjze` carries the
+number.

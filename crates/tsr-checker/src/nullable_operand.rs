@@ -82,12 +82,55 @@ impl Checker<'_, '_> {
     /// Extracted so the prefix arm and the binary arm share it — the
     /// spelling test that chooses TS18050 over TS18048 and the five
     /// entity-name branches are the same for both. §759.
+    /// Does the class enclosing this node have `extends null`? §890.
+    fn enclosing_class_extends_null(&self, node: NodeId) -> bool {
+        let Some(class) = self.nodes.ancestors(node).find(|&ancestor| {
+            matches!(
+                self.nodes.kind(ancestor),
+                SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
+            )
+        }) else {
+            return false;
+        };
+        let clauses = match self.node_map.get(class) {
+            Some(Node::ClassDeclaration(declaration)) => declaration.heritage_clauses,
+            Some(Node::ClassExpression(expression)) => expression.heritage_clauses,
+            _ => return false,
+        };
+        clauses.iter().any(|clause| {
+            clause.token.kind == SyntaxKind::ExtendsKeyword
+                && clause.types.iter().any(|base| {
+                    // **`extends null` parses its base as an `Identifier`
+                    // named `null`**, not as the null-keyword node — a probe
+                    // printed `first_kind=Some(Identifier)` and that is the
+                    // whole of why §890's first attempt measured `+0`. §891.
+                    base.expression.and_then(|e| e.node_id()).is_some_and(|id| {
+                        self.nodes.kind(id) == SyntaxKind::NullKeyword
+                            || self.identifier_text(id) == Some("null")
+                    })
+                })
+        })
+    }
+
     pub(crate) fn report_nullable_operand(&mut self, operand: tsr_ast::Expression<'_>) {
         let Some(id) = operand.node_id() else { return };
         let ty = self.check_expression(operand);
         // `getTypeFacts(t, IsUndefinedOrNull)` (`checker.go:7425`): the
         // type **may be** nullish, which for a union is any constituent.
-        let (maybe_null, maybe_undefined) = self.nullish_facts(ty);
+        let (mut maybe_null, maybe_undefined) = self.nullish_facts(ty);
+        // **`super` under a `null` heritage base.** §852 proved the diagnostics
+        // half complete — the reporter is entered at the right node the right
+        // number of times — and that `check_expression(super)` answers no
+        // nullable type here. That is the type side's (`bd tsr-gjze`, still
+        // open); the fact this rule needs is syntactic and exact, one keyword in
+        // one clause, and nothing else in the language produces a `null` base.
+        // A stand-in, as §830's and §867's were, not a fix. §890.
+        if !maybe_null
+            && self.nodes.kind(id) == SyntaxKind::SuperKeyword
+            && self.enclosing_class_extends_null(id)
+        {
+            maybe_null = true;
+        }
         if !maybe_null && !maybe_undefined {
             return;
         }
