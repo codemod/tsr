@@ -1710,3 +1710,14 @@ worker-minted narrowed types decline where the wide receiver answered;
 banked with the three-act arc's fixtures as the repro set, to be
 re-read when either lane touches the receiver road. The transcription
 ledger: five verbatim landings, +349 combined, zero R→W across all.
+
+## §164 — the global-target arms measured +0, reverted under the keep-bar
+
+The Object/Function target arms (relater.go:4983-4987) transcribed and
+wired measured zero: no corpus row reaches them through the current
+callers (which guard any-vs-global BEFORE the worker). Under the
+unexercised-branch rule (a +0 keep needs a demonstration independent
+of the board) they come out; the transcription text stays HERE, one
+paste away, for the first family that needs them. The lattice's built
+arms remain: identity, class chains, interface heritage, references,
+the three structural lifts, refutable-negative on walkable chains.
