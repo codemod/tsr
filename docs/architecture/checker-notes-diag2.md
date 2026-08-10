@@ -37842,3 +37842,94 @@ is nothing for it to read, and no entry added to any list will change that.
 
 Five cases remain, all behind that mechanism. **Owner: the alias resolver's
 export-star path.**
+
+## §740 — TS2357: `++` and `--` are `checkReferenceExpression`'s third caller
+
+```ts
+var x = 1;
+++(x + 1);        // TS2357
+(x + 1)--;        // TS2357
+```
+
+Upstream calls `checkReferenceExpression` from three places
+(`checker.go:10902`, `:10918`, and the assignment/`delete` sites this port
+already has), with the increment message and the optional-chain variant:
+
+```go
+c.checkReferenceExpression(expr.Operand,
+    The_operand_of_an_increment_or_decrement_operator_must_be_a_variable_or_a_property_access,
+    The_operand_of_an_increment_or_decrement_operator_may_not_be_an_optional_property_access)
+```
+
+§181/§542 built the helper and its two callers. The third is two arms: a
+`PrefixUnaryExpression` and a `PostfixUnaryExpression` whose operator is `++` or
+`--`. Everything below the match — the reference spine, the optional-chain
+decline, the identifier-or-access test — is unchanged, and `skip_assertions` is
+`true` here as it is for assignment, because upstream's TS2357 admits an
+identifier exactly as TS2364 does.
+
+> Fourteenth in §701's family, and the second (with §688) where the missing
+> piece is **a caller rather than an arm**. The helper was complete; two of its
+> three upstream call sites were wired. **A ported helper is only as reached as
+> its call sites, and the call sites are not in the helper's file.**
+
+```
+bar:  +1 of 4 (parserUnaryExpression7),  0 LOST,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **`x++` on a plain variable reports.** An identifier is acceptable — the
+   whole point of `skip_assertions` being `true`.
+2. **`a?.b++` reports TS2357.** Upstream's second message is TS2778 and this
+   port declines the optional-chain spine rather than guessing, as §181 set up.
+3. **TS2364 / TS2703 move.** Same helper, same spine.
+
+## §741 — §740 built: **+5**, TS2357 closed, and the missing piece was a *return value*
+
+```
+diagnostics             2,253 → 2,258   (bar was +1;  +5, 0 LOST)   41.14%
+extraonly               zero TS2357, TS2356, TS2364 and TS2703 lines
+TS2357 missing lines    38 → 0     — the row is closed
+```
+
+The first shape wired `checkReferenceExpression`'s third caller and measured
+**−2 with 42 wrong lines**. The fixture says why in two adjacent lines:
+
+```ts
+var ResultIsNumber3 = --1;              // TS2357
+var ResultIsNumber4 = --{ x: 1, y: 2};  // TS2356 — and *not* TS2357
+```
+
+Upstream (`checker.go:10899`):
+
+```go
+ok := c.checkArithmeticOperandType(...)
+if ok {
+    // run check only if former checks succeeded to avoid reporting cascading errors
+    c.checkReferenceExpression(...)
+}
+```
+
+**Neither operand is a reference, and only one gets TS2357.** The reference
+check is gated on the arithmetic check *passing*, and this port's
+`check_increment_operand_type` returned `()` — so the verdict upstream branches
+on did not exist to branch on.
+
+> Fifteenth in §701's family and a fourth kind. Not a missing list entry, not a
+> missing caller, not a misplaced boundary: **a ported function that computes the
+> right answer and throws it away.** The call site could not have been written
+> correctly against that signature, and no amount of reading either function
+> would show it — the fixture's two adjacent lines are what showed it, one
+> reporting and one not.
+
+Making the function return its `ok` was the whole build: every early return
+became `true`, the single report path became `false`, and the call site became
+upstream's `if`.
+
+### Two call sites, one shared helper, and no wrong lines
+
+`check_reference_expression` now has all three of upstream's callers, and
+TS2364 and TS2703 did not move. The helper was complete at §181 and has needed
+nothing since — **only its callers were ever missing**, which is what §740 said
+before the gate turned out to matter more.

@@ -539,7 +539,12 @@ impl Checker<'_, '_> {
                 ambient
             }
             Node::PrefixUnaryExpression(_) | Node::PostfixUnaryExpression(_) => {
-                self.check_increment_operand_type(node, ambient);
+                // `if ok { checkReferenceExpression(...) }` — upstream gates
+                // the reference check on the arithmetic one so a non-numeric
+                // operand reports TS2356 alone. §741.
+                if self.check_increment_operand_type(node, ambient) {
+                    self.check_reference_expression(node);
+                }
                 ambient
             }
             Node::Identifier(identifier) => {
@@ -7707,6 +7712,35 @@ impl Checker<'_, '_> {
                 (
                     left,
                     &messages::THE_LEFT_HAND_SIDE_OF_AN_ASSIGNMENT_EXPRESSION_MUST_BE_A_VARIABLE_OR_A_PROPERTY_ACCESS,
+                    true,
+                )
+            }
+            // `checkReferenceExpression`'s **third** upstream caller
+            // (`checker.go:10902`, `:10918`). The helper was complete and two
+            // of its three call sites were wired. §740.
+            Some(Node::PrefixUnaryExpression(unary))
+                if matches!(
+                    unary.operator.kind,
+                    SyntaxKind::PlusPlusToken | SyntaxKind::MinusMinusToken
+                ) =>
+            {
+                let Some(operand) = unary.operand.and_then(|e| e.node_id()) else { return };
+                (
+                    operand,
+                    &messages::THE_OPERAND_OF_AN_INCREMENT_OR_DECREMENT_OPERATOR_MUST_BE_A_VARIABLE_OR_A_PROPERTY_ACCESS,
+                    true,
+                )
+            }
+            Some(Node::PostfixUnaryExpression(unary))
+                if matches!(
+                    unary.operator.kind,
+                    SyntaxKind::PlusPlusToken | SyntaxKind::MinusMinusToken
+                ) =>
+            {
+                let Some(operand) = unary.operand.and_then(|e| e.node_id()) else { return };
+                (
+                    operand,
+                    &messages::THE_OPERAND_OF_AN_INCREMENT_OR_DECREMENT_OPERATOR_MUST_BE_A_VARIABLE_OR_A_PROPERTY_ACCESS,
                     true,
                 )
             }

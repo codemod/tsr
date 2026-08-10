@@ -355,9 +355,14 @@ impl Checker<'_, '_> {
     /// (`checker.go:10875`) which reports TS2469 for a `symbol` operand and
     /// nothing about numerics — `-"a"` is not this diagnostic.
     /// `docs/architecture/checker-notes-diag2.md` §66.
-    pub(crate) fn check_increment_operand_type(&mut self, node: NodeId, ambient: bool) {
+    /// Returns whether the arithmetic check **passed**, which is upstream's `ok`
+    /// (`checker.go:10899`): *"run check only if former checks succeeded to
+    /// avoid reporting cascading errors"*. `checkReferenceExpression` for
+    /// `++`/`--` is gated on it, so `--{ x: 1 }` is TS2356 alone and `--1` —
+    /// whose operand *is* numeric — reaches TS2357. §741.
+    pub(crate) fn check_increment_operand_type(&mut self, node: NodeId, ambient: bool) -> bool {
         if ambient || self.file_has_parse_errors || self.in_js_file(node) {
-            return;
+            return true;
         }
         let operand = match self.node_map.get(node) {
             Some(Node::PrefixUnaryExpression(unary))
@@ -369,10 +374,10 @@ impl Checker<'_, '_> {
                 unary.operand
             }
             Some(Node::PostfixUnaryExpression(unary)) => unary.operand,
-            _ => return,
+            _ => return true,
         };
-        let Some(operand) = operand else { return };
-        let Some(at) = operand.node_id() else { return };
+        let Some(operand) = operand else { return true };
+        let Some(at) = operand.node_id() else { return true };
         // An operand naming something that is **not a variable** is
         // `checkIdentifier`'s assignment-target arm (`checker.go:11080`),
         // which reports TS2628 for an enum, TS2629 for a class, TS2631 for a
@@ -398,7 +403,7 @@ impl Checker<'_, '_> {
                         .intersects(tsr_binder::SymbolFlags::VARIABLE)
                 })
         {
-            return;
+            return true;
         }
         let operand_type = self.check_expression(operand);
         // `checkNonNullType` wraps the argument (`checker.go:10899`) and
@@ -406,9 +411,9 @@ impl Checker<'_, '_> {
         if self.operand_is_nullish(operand_type)
             || !self.operand_is_definitely_not_numeric(operand_type)
         {
-            return;
+            return true;
         }
-        let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
+        let Some(file) = self.source_file_of_for_diagnostics(at) else { return true };
         let span = self.error_span(at);
         self.report(
             file,
@@ -417,6 +422,7 @@ impl Checker<'_, '_> {
                 span,
             ),
         );
+        false
     }
 }
 
