@@ -6228,3 +6228,20 @@ node tags on every eprintln (the two-literal interleave made probe
 7's uniq ambiguous — a probe lesson worth the ledger: tag the
 container, not just the member). The ladder: eight probes, the
 poison now cornered to one dispatch site.
+
+**§142 probe 9 + THE CONVERGENCE:** probe 9's method-arm eprintln
+printed NOTHING on the filter — o's property loop exits during
+iteration 2's post-arm path (after explicitThis prints non-error,
+before implicitThis's kind tag), through a road between the
+member-error check and the loop's next entry that eight probes
+have now bracketed to a handful of lines. AND the other lane's
+§142-callres2 refusal (b77f501d) independently names the same
+wall from the inference side: "objects.rs propagates one member's
+error to the whole literal" — their ungrounded-literal-member
+finding and this ladder's exit-point hunt are ONE SEAM. THE JOINT
+NEXT-WINDOW HEAD, both lanes agreed by their records: the literal
+error-propagation seam in check_object_literal — per-member error
+tolerance (upstream computes the other members and errors only the
+one), which unlocks their pass-3 re-serve AND this ladder's
+methods+fn-expr combined form at once. Probe 10 (first move):
+bracket the exit with three eprintlns on the post-arm path lines.
