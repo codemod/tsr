@@ -10581,7 +10581,7 @@ impl Checker<'_, '_> {
 
     /// `node.Flags & ast.NodeFlagsAmbient` for an overload declaration — the
     /// `declare` modifier *or* an enclosing ambient container. §673.
-    fn is_in_ambient_context_for_overloads(&self, node: NodeId) -> bool {
+    pub(crate) fn is_in_ambient_context_for_overloads(&self, node: NodeId) -> bool {
         if self.file_is_ambient {
             return true;
         }

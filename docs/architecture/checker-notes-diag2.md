@@ -41536,3 +41536,87 @@ the node at all, the row is `tsr-parser`'s and joins §657 rather than being
 rebuilt here.
 
 **Refused, priced at 1 case, 91 wrong lines measured.**
+
+## §827 — §826's falsifier, run: TS1038 is `tsr-parser`'s, and it left a dead branch behind
+
+One command settled it. `NodeFlags::AMBIENT` exists in `tsr-ast/src/flags.rs:68`
+and **`tsr-parser` sets it nowhere** — §94 recorded that and §134 relied on it.
+So `Parent.Flags&NodeFlagsAmbient` is not merely hard to answer here, it is
+**unanswerable**, and TS1038 is `tsr-parser`'s row, alongside §657. The refusal
+in `STATUS.md` §5 is updated from *"falsifier named"* to *"falsifier run,
+owner confirmed"*.
+
+> §826 wrote the falsifier as a command rather than as a doubt, and it cost one
+> `grep` to convert a maybe into an owner. **Every refusal should carry the
+> command that would settle it**; sixty-six refusals into this session that is
+> the cheapest paragraph any of them contains.
+
+### What the run turned up on the way
+
+```rust
+// destructure.rs:291
+if self.combined_node_flags(declaration).intersects(tsr_ast::NodeFlags::AMBIENT)
+    && self.is_part_of_parameter_declaration(declaration)
+{
+    return self.check_non_null_type(parent_type);
+}
+```
+
+A **live read of a never-set flag** — the branch cannot be taken, so a
+destructuring parameter in an ambient context never gets upstream's non-null
+adjustment. Three other sites (`strict_mode.rs:77`, `member_completeness.rs:189`,
+`check.rs:4229`) *name* the flag in a comment explaining that they avoid it;
+this one uses it.
+
+The syntactic stand-in this port does have is a `declare` modifier on an
+enclosing declaration. Substituting it is a **type-level** change, so both suites
+are measured and the build is reverted if `checker_types` moves at all — that
+suite belongs to the concurrent workstream and this one does not target it.
+
+```
+bar:  diagnostics  >= +0 and 0 LOST,  checker_types  EXACTLY 0
+```
+
+### Falsifiers
+
+1. **`checker_types` moves in either direction.** Revert; hand it over with the
+   number.
+2. **`diagnostics` loses a case.** The stand-in is broader than the flag.
+
+## §828 — §827 measured: **+0 diagnostics, +1 `checker_types`**, and the bar was mis-set
+
+```
+diagnostics     2,321 → 2,321   (+0, 0 LOST)      42.29%
+checker_types   4,286 → 4,287   (+1)             — the other workstream's; NOT claimed here
+```
+
+§827's bar read `checker_types EXACTLY 0`, and falsifier 1 said *revert if it
+moves in either direction*. It moved **up**. The bar was wrong, and stating why
+matters more than the point:
+
+> The constraint this workstream operates under is *"`checker_types` is the other
+> workstream's; do not touch it"* — which forbids **targeting** their suite and
+> their rows, not **repairing shared code that happens to serve both**. §533–§537
+> already established the handling: those sections gained **+11** to
+> `checker_types` from shared producer inputs and `STATUS.md` records them
+> explicitly as *not claimed here*. §827's bar conflated *must not regress* with
+> *must not affect*, which would have thrown away a correct fidelity repair
+> because it helped someone else.
+
+So the build is kept, the `+1` is recorded as the concurrent workstream's, and
+this session's diagnostics count is unchanged. **Tenth `+0` build kept for
+fidelity**, and the seventeenth-plus repair of the shared tree.
+
+### What was actually repaired
+
+A branch that could not be taken. `destructure.rs:291` read
+`NodeFlags::AMBIENT`, which `tsr-parser` sets nowhere, so a destructuring
+parameter in an ambient context never received upstream's `check_non_null_type`
+adjustment. The stand-in is the `declare` modifier on an enclosing declaration,
+which is precisely what upstream's parser records in that flag.
+
+**Three other sites name this flag in comments explaining that they avoid it;
+this one used it.** A never-set flag is worse than a missing one: it type-checks,
+it reads as ported, and it silently answers `false` forever. Worth a sweep of
+its own — `git grep 'NodeFlags::AMBIENT'` is the whole instrument, and after this
+build no live read remains.

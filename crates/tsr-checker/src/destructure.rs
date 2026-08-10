@@ -288,7 +288,12 @@ impl Checker<'_, '_> {
         holder: NodeId,
         parent_type: TypeId,
     ) -> TypeId {
-        if self.combined_node_flags(declaration).intersects(tsr_ast::NodeFlags::AMBIENT)
+        // Upstream tests `NodeFlagsAmbient`. This port's parser **sets that flag
+        // nowhere** (§94, confirmed by §827's grep), so the branch was dead and
+        // a destructuring parameter in an ambient context never got the
+        // non-null adjustment. The syntactic stand-in is a `declare` on an
+        // enclosing declaration, which is what the flag records upstream. §827.
+        if self.is_in_ambient_context_for_overloads(declaration)
             && self.is_part_of_parameter_declaration(declaration)
         {
             return self.check_non_null_type(parent_type);
