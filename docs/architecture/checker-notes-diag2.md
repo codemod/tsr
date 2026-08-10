@@ -42223,3 +42223,71 @@ and `useOuterVariableScopeInParameter`. Both are narrower than what has been
 built — one is a single node kind, the other a single target-version rule — and
 neither has a case in the missing column today, which is why they are named here
 and not attempted.
+
+## §844 — TS2661's primitive arm: the rule exists, and nothing reaches it
+
+```ts
+export { string };        // TS2661
+export type { number };   // TS2661 — the type-only spelling is not exempt
+```
+
+`checkAndReportErrorForExportingPrimitiveType` (`checker.go:1629`) is two
+conditions and this port has it, verbatim, as `report_exporting_primitive_type`
+— `is_primitive_type_name` and a parent of kind `ExportSpecifier`.
+
+It is a rung of the **unresolved-name ladder**, and the ladder is entered from
+`check_value_identifier`, which `is_value_reference` never admits an export
+specifier's name to. §841 measured what widening that allow-list costs (−7/+10)
+and the answer stands, so the position is reached from the other direction:
+`check_export_specifier_is_local` already sits on the specifier, already resolves
+the name, and already returns early when resolution fails. **That early return is
+exactly upstream's ladder entry condition** — a name that did not resolve — so
+the rung goes there.
+
+> Two rules, one position, and the difference between them is which walk arrives
+> first. §840 found the same shape one section ago and refused it because the
+> only route was through the allow-list. This one has a second route that was
+> already built, which is the whole reason it is a build and that one was a
+> refusal.
+
+```
+bar:  +1 of 1 (exportNonLocalDeclarations),  0 LOST,  WRONG delta <= 0
+```
+
+### Falsifiers
+
+1. **`const string = 1; export { string }` reports.** That name resolves, so the
+   early return is not taken.
+2. **`export { string } from "m"` reports.** The module-specifier arm returns
+   before this.
+3. **TS2304's or TS2552's rows move.** Neither owns this position.
+
+## §845 — §844 built: **+1 of 1**, and the second route paid
+
+```
+diagnostics             2,329 → 2,330   (bar was +1;  +1, 0 LOST)   42.46%
+extraonly               75, unchanged
+TS2661                  5 cases → 4,  22 lines → 20
+```
+
+One line of wiring. The rule was written, the predicate was written, the position
+was reachable — from a *different* walk than upstream's.
+
+> §840 and §844 are the same discovery one section apart: **a built rule that
+> nothing reaches.** The first was refused because its only route ran through
+> `is_value_reference`'s allow-list, which §841 then measured at −7/+10. The
+> second shipped because a second route already existed. The difference is not
+> the rule and not the diagnostic — **it is whether some walk in this port
+> already arrives at that node for another reason.**
+
+That is worth stating as a check, because it is cheap and this session has now
+answered it twice: before refusing a rule as unreachable, ask which *other* rules
+already visit the node. `check_export_specifier_is_local` visits every export
+specifier and had done since §375.
+
+### TS2661's remaining four
+
+All four are `reExportGlobalDeclaration1/2/3` and `exportSpecifier…`, 20 lines,
+and they share the shape §837 named: a global re-exported through a **chain**
+rather than a single specifier over a script declaration. Still not this build's,
+and now the only shape left in the row.

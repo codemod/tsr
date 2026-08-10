@@ -248,6 +248,15 @@ impl Checker<'_, '_> {
                 SymbolFlags::VALUE | SymbolFlags::TYPE | SymbolFlags::MODULE | SymbolFlags::ALIAS,
                 Some(node),
             ) else {
+                // **Upstream's ladder entry condition is a name that did not
+                // resolve**, and this early return is exactly that. The
+                // primitive-export rung lives in the ladder, which is entered
+                // from `check_value_identifier` — a path `is_value_reference`
+                // never admits an export specifier's name to, and §841 measured
+                // what widening that allow-list costs (−7 cases, +10 wrong
+                // lines). The position is reached from the specifier instead.
+                // §844.
+                self.report_exporting_primitive_type(named, text);
                 return;
             };
             let symbol = self.binder.merged_symbol(symbol);
@@ -293,7 +302,7 @@ impl Checker<'_, '_> {
     }
 
     /// `checkAndReportErrorForExportingPrimitiveType` (`checker.go:1629`).
-    fn report_exporting_primitive_type(&mut self, node: NodeId, text: &str) -> bool {
+    pub(crate) fn report_exporting_primitive_type(&mut self, node: NodeId, text: &str) -> bool {
         if !is_primitive_type_name(text) {
             return false;
         }
