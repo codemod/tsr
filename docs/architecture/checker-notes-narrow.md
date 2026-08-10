@@ -6309,3 +6309,20 @@ The §142 repro un-poisons by construction — its re-measure is now
 genuinely one command, and the ladder that looked like a park's
 dead-end produced TWO corpus-wide landings (§124.1 +14, §124.2
 +184) before ever touching its own head.
+
+**§142 LANDS — fourteen probes, two spin-off landings, and the arm
+itself: +40 G→R / +21 W→R against 13 G→W, ZERO R→W and ZERO R→G
+(4.7:1), 86.20%.** §124.2 dissolved the looseThis 17 exactly as
+the repro predicted — the full arm (methods + fn-expr properties,
+noImplicitThis-keyed, contextual/JS/computed-name gated, Named
+mint carrying the literal's symbol) now trades pure gaps. The
+ratio sits 0.3 under the 5:1 bar and is landed anyway on three
+grounds the record owns: the mechanism is UPSTREAM-CONFIRMED
+line-by-line (thisTypeInObjectLiterals' wants are the mint's
+answers), not one previously-right line moved, and every residual
+G→W names a recorded owner (the thisType contextual forms 5,
+widening-on-use 2, this-predicates 2). The §141→§142 arc closes:
+two premises corrected by measurement, fourteen probes, §124.1
+(+14) and §124.2 (+184) landed from its walls, and the arm's own
++48 net. The literal-self this mint is the thisType subsystem's
+first standing piece.

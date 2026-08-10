@@ -910,6 +910,29 @@ impl Checker<'_, '_> {
     /// level — is a gap: upstream answers `anyType` there through a signature's
     /// `this` parameter or a contextual type, and neither exists yet, so
     /// answering `any` would be a claim rather than a computation.
+    /// §142: whether an object literal declares any computed-name member.
+    fn literal_has_computed_member(&self, literal: NodeId) -> bool {
+        match self.node_map.get(literal) {
+            Some(tsr_ast::Node::ObjectLiteralExpression(node)) => {
+                node.properties.iter().any(|property| {
+                    let name = match property {
+                        tsr_ast::ObjectLiteralElementLike::PropertyAssignment(p) => Some(p.name),
+                        tsr_ast::ObjectLiteralElementLike::MethodDeclaration(m) => Some(m.name),
+                        tsr_ast::ObjectLiteralElementLike::GetAccessorDeclaration(a) => {
+                            Some(a.name)
+                        }
+                        tsr_ast::ObjectLiteralElementLike::SetAccessorDeclaration(a) => {
+                            Some(a.name)
+                        }
+                        _ => None,
+                    };
+                    matches!(name, Some(tsr_ast::PropertyName::ComputedPropertyName(_)))
+                })
+            }
+            _ => false,
+        }
+    }
+
     fn check_this_expression(&mut self, node: NodeId) -> TypeId {
         let mut current = self.nodes.parent(node);
         while let Some(id) = current {
@@ -940,7 +963,63 @@ impl Checker<'_, '_> {
                 // a diagnostic under `noImplicitThis`, not a type change) —
                 // `checker-notes-narrow.md` §39.
                 SyntaxKind::FunctionDeclaration | SyntaxKind::FunctionExpression => {
+                    // §142 iteration 5: a FUNCTION EXPRESSION that is a
+                    // property VALUE of an object literal takes the
+                    // literal-self mint too (`f: function() { return
+                    // this.d; }` — the head case's residual 7), same gates.
+                    if self.nodes.kind(id) == SyntaxKind::FunctionExpression
+                        && let Some(assignment) = self.nodes.parent(id)
+                        && self.nodes.kind(assignment) == SyntaxKind::PropertyAssignment
+                        && let Some(literal) = self.nodes.parent(assignment)
+                        && self.nodes.kind(literal) == SyntaxKind::ObjectLiteralExpression
+                        && self.no_implicit_this
+                        && self.has_no_contextual_type(literal)
+                        && !self.in_js_file(literal)
+                        && !self.literal_has_computed_member(literal)
+                    {
+                        if let Some(&cached) = self.literal_this_types.get(&literal) {
+                            return cached;
+                        }
+                        if let Some(symbol) = self.binder.symbol_of(literal) {
+                            let minted = self.store.new_named(
+                                crate::flags::TypeFlags::OBJECT,
+                                "this".to_string(),
+                                Some(symbol),
+                            );
+                            self.literal_this_types.insert(literal, minted);
+                            return minted;
+                        }
+                    }
                     return self.intrinsics.any;
+                }
+                // §142 (parked state rebuilt for the looseThis probe):
+                // literal-self this, methods only, all four gates.
+                SyntaxKind::MethodDeclaration
+                    if self.nodes.parent(id).is_some_and(|parent| {
+                        self.nodes.kind(parent) == SyntaxKind::ObjectLiteralExpression
+                            && self.no_implicit_this
+                            && self.no_implicit_this
+                            && self.has_no_contextual_type(parent)
+                            && !self.in_js_file(parent)
+                            && !self.literal_has_computed_member(parent)
+                    }) =>
+                {
+                    let Some(literal) = self.nodes.parent(id) else {
+                        return self.intrinsics.error;
+                    };
+                    if let Some(&cached) = self.literal_this_types.get(&literal) {
+                        return cached;
+                    }
+                    let Some(symbol) = self.binder.symbol_of(literal) else {
+                        return self.intrinsics.any;
+                    };
+                    let minted = self.store.new_named(
+                        crate::flags::TypeFlags::OBJECT,
+                        "this".to_string(),
+                        Some(symbol),
+                    );
+                    self.literal_this_types.insert(literal, minted);
+                    return minted;
                 }
                 SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression => {
                     let Some(symbol) = self.binder.symbol_of(id) else {

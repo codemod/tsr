@@ -209,6 +209,7 @@ pub struct Checker<'a, 'n> {
     /// short; `Generator<Y, any, any>` written full prints full). Absent for
     /// fully-written references. Propagated through instantiation rebuilds.
     pub(crate) reference_display_arity: FxHashMap<TypeId, usize>,
+    pub(crate) literal_this_types: FxHashMap<NodeId, TypeId>,
     /// Types minted for a type reference whose **name does not resolve**.
     ///
     /// Upstream mints one `errorType` per unresolved alias key, carrying an
@@ -745,6 +746,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             instantiations: FxHashMap::default(),
             type_reference_targets: FxHashMap::default(),
             reference_display_arity: FxHashMap::default(),
+            literal_this_types: FxHashMap::default(),
             unresolved_types: rustc_hash::FxHashSet::default(),
             resolutions: Resolutions::new(),
             flow_analysis_disabled: false,
