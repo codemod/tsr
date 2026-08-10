@@ -33976,3 +33976,48 @@ pool's measurement rather than to one of its members.
 
 Recorded so the next session starts from *1,241 cases behind existing rules*
 rather than from the row it happens to open.
+
+## §659 — correcting §658: TS2362's gap is the relation's confidence, not the rule's reach
+
+§658 called `exponentiationOperator…`'s 26 missing lines *"a within-rule gap, not
+a missing rule"*. Read one level further and it is neither: it is the
+**relation**.
+
+The discriminator is exactly which `!`-expression is emitted:
+
+```
+(!3)     ** 4   emitted     `!3` is the boolean LITERAL `false`
+(!temp)  ** 4   missing     `!temp` is plain `boolean`
+```
+
+and the rule's test is
+
+```rust
+/// `!isTypeAssignableTo(t, numberOrBigIntType)`, read as a **confident**
+/// negative (§52's direction): the rule reports because a relation failed,
+/// so `Unknown` is silence.
+fn operand_is_definitely_not_numeric(&mut self, operand: TypeId) -> bool {
+    …
+    if !self.pair_is_reportable(operand, self.intrinsics.number) { return false; }
+```
+
+**The relation is confident that `false` is not assignable to `number` and not
+confident about `boolean`.** `negated_truthiness_type` is correct — it returns
+`boolean` for an `any` operand and a boolean literal for a literal one, which is
+upstream's `Truthy|Falsy` — so nothing in this rule or its inputs is wrong.
+
+> **A "within-rule gap" and a relation gap look identical from `diagcase`.**
+> §658 had the right instrument and stopped one read short: the rule fires for
+> some operands and not others *because the relation answers `Unknown` for
+> some*, and every such row belongs to the pool §156 assigned to the other
+> workstream. **`diagreach`'s 1,241 are therefore not all deepenable by this
+> workstream**, and the tail is less ours than §658 implied.
+
+### What the correction is worth
+
+§658's headline stands — 1,241 cases sit behind rules that exist — but its
+*reading* of the tail does not. **The ten TS2362+TS2363 cases are relation-owned,
+and so, on this evidence, is any row whose rule already fires for the confident
+half of its inputs.** That is a test the next session can apply without a build:
+**if a rule emits for literals and not for their widened types, it is waiting on
+the relation.**
