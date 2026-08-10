@@ -1642,3 +1642,20 @@ plus the long tail. Three G→W priced (two WeakRef flavors, one
 overload pick). The chain that found it: lead (a) → §157 refusal →
 §159 worker → §160 filter exoneration → §160.1 input trace → this arm
 — five hops, each one measurement.
+
+## §162 REFUSED at 59:41-then-59:37 — the interface-constructor leg needs its own transcription
+
+Slice 2a (reference-target derivation + the constructor-interface
+instance leg at the Anonymous-gate else) measured +24 net right but
+with 33-then-29 adverse lines churning INSIDE
+typeGuardsWithInstanceOfByConstructorSignature and
+narrowFromAnyWithInstanceof — the any-declared and false-branch
+semantics of upstream's constructor road (getInstanceType via the
+PROTOTYPE property, the isTypeDerivedFrom-globalFunctionType gate, the
+empty-object guards, flow.go:833-843) do not reduce to
+worker(t, construct-return). The ungrounded-generic guard trimmed only
+4 of 23 R→W. Reverted whole per the ratio bar; the §148.3-addendum's
+three named pieces ARE this leg's spec, and the §153 lesson holds one
+more time: in this function family, every induced build has lost and
+every transcription has landed. Slice 2a rebuilds from flow.go:833
+verbatim or not at all.
