@@ -787,3 +787,16 @@ SUBSYSTEM builds: the fixing-mapper unit (requirements complete, both
 lanes), the asserts/effects-signature machinery, dependent
 destructuring, predicate inference. Board at phase close:
 right 414,106/478,954 = 86.47%.
+### Banked lead batch (2026-08-10, checker-1's narrowing-shaped sweep)
+
+For the next window, want-inside-got wrong pairs by family: (a)
+`T | undefined`-got ~113 lines (strictOptionalProperties1 12,
+controlFlowInstanceof 12+12, controlFlowOptionalChain 10,
+narrowCommaOperatorNestedWithinLHS 10, controlFlowDestructuring 8) —
+flow lane; (b) `[] ||| never[]` 39 (destructuring initializer prints —
+possibly the PRINT lane, check ownership first); (c) `E ||| E | never`
+16 (never-dropping at union joins); (d) `symbol ||| unique symbol` 31
+(uniqueness widening at mutable locations — declared side). The 48:0
+conversion of the first such lead (capturedLetConstInLoop → checker-2's
+§155) is the precedent: censuses here convert at ratio when the
+mechanism is one function away.
