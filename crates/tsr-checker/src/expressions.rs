@@ -1235,8 +1235,43 @@ impl Checker<'_, '_> {
             self.get_regular_type_of_literal_type(branches[1]),
         ];
         let any = self.intrinsics.any;
+        // §133: a TYPE PARAMETER is never subtype-collapsed into a sibling
+        // in these baselines — `T | null`, `number | T`, `T | RegExp`,
+        // `T | { foo: number; }` all keep both constituents, INCLUDING a
+        // constrained `T extends number` beside bare `number`
+        // (subtypesOfTypeParameterWithConstraints2's wants). A pair with
+        // exactly ONE parameter side is reduction-free whole; TWO parameters
+        // keep the fence (the constraint-related pair is undecided).
+        // Iteration 2's split (subtypesOfTypeParameterWithConstraints2's
+        // wants): a CONSTRAINED parameter collapses into an OBJECT-ish
+        // sibling its constraint chain relates to (`T extends U extends
+        // Date` beside `new Date()` wants `Date`) but NEVER into a
+        // primitive/literal sibling (`T extends Number` beside `1` wants
+        // `number | T`); an UNCONSTRAINED parameter never collapses at all
+        // (`T | RegExp`, `T | { foo: number; }`). So: admit when the
+        // sibling is primitive-safe, or the parameter is unconstrained;
+        // a constrained parameter beside an object sibling stays fenced.
+        let parameter_union_safe = {
+            let sides: Vec<bool> = branches
+                .iter()
+                .map(|&branch| self.store.get(branch).flags.contains(TypeFlags::TYPE_PARAMETER))
+                .collect();
+            match (sides[0], sides[1]) {
+                (true, true) | (false, false) => false,
+                (parameter_first, _) => {
+                    let (parameter, sibling) = if parameter_first {
+                        (branches[0], branches[1])
+                    } else {
+                        (branches[1], branches[0])
+                    };
+                    self.is_subtype_reduction_free(sibling)
+                        || self.type_parameter_constraint(parameter).is_none()
+                }
+            }
+        };
         if regular[0] == regular[1]
             || branches.contains(&any)
+            || parameter_union_safe
             || branches.iter().all(|&branch| self.is_subtype_reduction_free(branch))
         {
             return self.get_union_type(&branches);

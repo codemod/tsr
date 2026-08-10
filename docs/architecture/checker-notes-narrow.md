@@ -5676,3 +5676,25 @@ CONSTRAINT-RELATED parameters that upstream DOES collapse
 (subtypesOfTypeParameterWithConstraints's T-extends-U forms) — if
 its wants show single-parameter answers, the two-parameter pair
 needs a decline while the parameter-beside-nonparameter form lands.
+
+**§133 MEASURED AND LANDED at iteration 2 — +67 G→R / +124 W→R
+against 16 G→W / 10 R→W (7.3:1), right 410,832 → 411,007 = 85.81%
+on my tree (pre-merge with the other lane's callres2-§133/§134;
+per-file numbering confirmed, no collision).** Iteration 1
+(one-parameter-side admitted whole) measured 3.6:1 and the fixture
+itself supplied the split: a CONSTRAINED parameter collapses into
+an OBJECT-ish sibling its constraint chain relates to (`T extends
+U extends Date` beside `new Date()` wants `Date`) but NEVER into a
+primitive/literal sibling (`T extends Number` beside `1` wants
+`number | T` — the wrapper-interface constraint is not
+subtype-below the primitive); an UNCONSTRAINED parameter never
+collapses (`T | RegExp`, `T | { foo: number; }`). Two-parameter
+pairs stay fenced (T-extends-U wants the supertype — undecided
+here). Priced residue: the fresh-literal WIDENING class
+(`number | T` wanted at VAR declarations where the ternary answers
+`1 | T` — the §98-family declaration-widening road, 6 lines),
+genericContextualTypes1's 5 R→W (contextual interactions on the
+other lane's arc). The W→R half (124!) was the buried treasure:
+wrong union spellings across typeArgumentInference/
+genericCallWithGenericSignatureArguments corrected by the same
+admission.

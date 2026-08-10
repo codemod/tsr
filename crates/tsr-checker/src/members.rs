@@ -555,7 +555,7 @@ impl Checker<'_, '_> {
     /// alike — not a type parameter at all, an unconstrained one, and the
     /// `this` type, whose symbol is a **class** and whose constraint
     /// `checker-notes-apparent.md` measures as worth zero lines.
-    fn type_parameter_constraint(&mut self, id: TypeId) -> Option<TypeId> {
+    pub(crate) fn type_parameter_constraint(&mut self, id: TypeId) -> Option<TypeId> {
         if !self.store.get(id).flags.contains(TypeFlags::TYPE_PARAMETER) {
             return None;
         }
