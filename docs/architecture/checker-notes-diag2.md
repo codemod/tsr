@@ -30835,3 +30835,51 @@ Eleven of TS7006's fifteen. Every one is a contextual-typing shape
 `contextualOverloadListFromUnionWithPrimitiveNoImplicitAny`) — a parameter has
 no implicit `any` when a contextual type supplies one, and computing that is the
 same machinery the `.types` workstream owns. **Not this workstream's row.**
+
+## §584 — the walk-threaded `ambient`, priced at **−49**: §582 was one guard, not a class
+
+§583 named *"a guard broader than its own comment"* as the cheapest of three
+guard failures, and forty-eight rules take the walk-threaded `ambient`. Blanket
+probe — replace it with `self.file_is_ambient` at the top of the walk:
+
+```
+diagnostics   2,136 → 2,087   (−49)
+```
+
+**The flag is load-bearing.** Forty-nine cases depend on the walk widening
+`ambient` at `declare` boundaries the file flag cannot see, and §582's +4 came
+from one rule whose *comment* named an exception its code did not test — not
+from the flag being generally wrong.
+
+> **A defect found once in a shared parameter is not a defect in the
+> parameter.** §526 priced 111 `file_has_parse_errors` guards at a net +4 and
+> concluded the win must be taken per-rule; this prices 48 `ambient` guards at
+> −49 and concludes the same thing more sharply — here the blanket is not merely
+> a bad way to take the win, it is a large loss.
+
+The two sweeps together give the shape:
+
+```
+file_has_parse_errors   111 sites   blanket +4    per-rule +5 taken so far
+ambient                  48 sites   blanket −49   per-rule +4 taken so far
+```
+
+**Both classes are real and neither is a sweep.** The per-rule work is what
+pays, and the blanket probe's only job is to say whether the class is worth
+looking at rule by rule — which for `ambient` it now has, from the other
+direction: forty-nine cases say the flag is doing work, so a rule that skips on
+it is *usually* right, and §582's was the exception that its own comment
+flagged.
+
+### The procedure this leaves
+
+For a guard on a shared parameter, in order:
+
+```
+1  read the comment beside it            §582, free, found +4
+2  check for an upstream counterpart     §524/§541, one grep
+3  blanket-probe the parameter           §526/§584, one run, tells you if 1–2 are worth repeating
+```
+
+Step 3 last, not first — it is the most expensive and the least specific, and in
+both sweeps it changed no decision that steps 1 and 2 had not already made.
