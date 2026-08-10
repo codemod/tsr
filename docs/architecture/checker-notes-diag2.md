@@ -37076,3 +37076,52 @@ the `+2 / 1 wrong` shape kept — inside the bar as declared.
 would fix it is measured at −2. The next attempt should start by asking *what
 the walk actually passes through* in the two converting fixtures rather than by
 re-reading `resolveNameHelper`.
+
+## §722 — §721's wrong line, removed by asking a different question
+
+```
+diagnostics             2,245 → 2,246   (+1, 0 LOST)   40.93%
+extraonly               zero TS2301 lines  (was 1)
+```
+
+§721 recorded a wrong line and a repair that measured **−2** for it, and said the
+next attempt should ask *what the walk actually passes through* rather than
+re-read `resolveNameHelper`. The probe:
+
+```
+PROBE walk text=x kind=PropertyDeclaration   ← the converting fixture's first hop
+PROBE walk text=x kind=BinaryExpression … Block … Constructor … ClassDeclaration
+```
+
+The converting fixtures reach the property **immediately**; a function-like
+boundary cannot be what stopped them, so §721's −2 was not the boundary doing
+what its comment claimed. That killed the boundary hypothesis without another
+full measurement.
+
+The wrong line's fixture is a different shape entirely:
+
+```ts
+class Test {
+    constructor(private field: string) {}
+    messageHandler = () => {
+        var field = this.field;
+        console.log(field);      // names the LAMBDA's local, not the constructor's
+    };
+}
+```
+
+so the question is not *where is the reference* but **which declaration wins**.
+Upstream sets `propertyWithInvalidInitializer` only when the constructor's
+declaration is the one the resolver picked; here the lambda's own `var field` is
+closer. The port now asks exactly that: if the name resolves to a declaration
+**inside the property**, decline.
+
+> **The boundary and this test look like the same idea and are not.** A boundary
+> asks *how far up did we walk*; this asks *what did the name bind to*. §721
+> measured the first at −2 and this at +1 with the wrong line gone, and the
+> difference was one probe that cost a single run. **Two builds, one probe, and
+> the probe was cheaper than either build.**
+
+Three in a row now — §718, §720, §722 — where the *second* attempt at a row was
+right and the first was a plausible reading of upstream's prose. The prose is
+worth reading; it is not worth trusting over a measurement.

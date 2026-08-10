@@ -4345,6 +4345,29 @@ impl Checker<'_, '_> {
         if has_modifier(property.modifiers, SyntaxKind::StaticKeyword) {
             return None;
         }
+        // **A name declared inside the initializer is not the constructor's.**
+        // `messageHandler = () => { var field = this.field; console.log(field) }`
+        // names the lambda's own local, and upstream's resolver finds *that*
+        // before it ever reaches the constructor — `propertyWithInvalidInitializer`
+        // is set only when the winning declaration is the constructor's.
+        // `classMemberInitializerWithLamdaScoping`, §721's one wrong line. §722.
+        if self
+            .binder
+            .resolve_name(self.nodes, self.node_map, node, text, SymbolFlags::VALUE)
+            .and_then(|symbol| {
+                self.binder
+                    .symbols()
+                    .get(self.binder.merged_symbol(symbol))
+                    .declarations
+                    .first()
+                    .copied()
+            })
+            .is_some_and(|declaration| {
+                self.nodes.ancestors(declaration).any(|ancestor| ancestor == at)
+            })
+        {
+            return None;
+        }
         let name = property.name.node_id().and_then(|id| self.identifier_text(id))?.to_string();
         let class = self.nodes.parent(at)?;
         let members: &[ClassElement<'_>] = match self.node_map.get(class)? {
