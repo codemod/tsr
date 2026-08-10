@@ -734,3 +734,16 @@ mechanism chain that landed: the two-phase order, the memo with
 the constraint fallback, the reentrancy guard, the tsr-0hc
 type-first read, arms (a)+(b) with the materialization conjunct.
 Fifteen-plus rounds, three specs, two custody rules, one landing.
+
+**Post-landing round: the third rung's mechanism CONFIRMED by its
+family's shape (want `(n: unknown) => unknown`, got the adopted
+`(n: A) => A` — the final-instantiation re-check exactly as the
+ladder test documents), and the naive pass-2 skeleton measured
+ZERO** (unknown-filled memo2 + eviction + re-check — the arrows'
+answers survive another cache or the walker's own recording; the
+enumeration discipline from the freeze applies: TRACE the re-check
+with prints before wiring more). The skeleton's text is in this
+entry's history; the pipeline window opens here, with the landed
+summit beneath it and the ladder test's third flip as its win
+condition. This window's landed total stands: the summit at
++494/−193/−301 net, the day at +1.15 points across the lanes.
