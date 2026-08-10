@@ -729,3 +729,43 @@ narrowing: expressions involving `declare class RhsN { static
 class value type under a static COMPUTED well-known member, or the &&
 result road). One trace at the `x instanceof Rhs10 && x` shape decides.
 Board at window end: right 413,136/478,954 = 86.26%, all synced.
+
+### checker-1 window handoff (2026-08-10 late): §145–§158, and the board is wall-bounded
+
+**Board at handoff: right 414,058/478,954 = 86.46%** (from 84.63% at the
+two-day open), all suites that were 100% still 100%, tree clean, baseline
+accepted at HEAD.
+
+**Landed this window** (checker-notes-narrow.md + checker-notes-ctx.md):
+§145 nameless-leaf qualified ImportEquals (+71/6); §146 TS2304 member
+tolerance (+4/0, head refused to fixing-mapper with the SS146p1
+histogram); **§147 scanEscapeSequence cooking parity (+257/0 — octal
+cook-vs-raw by report mode, invalid \x/\u keep raw, tagged substitution
+templates never fold, §24's length-decline deleted)** + tagged-no-sub
+rider (+41/0); §150 evaluator bitwise/ToInt32 (+72/0) + legacy-octal
+normalise_number (+10/0); **§152–§155 the contextual dispatch arc
+(+300 net: assignment arm 13.9:1, PropertyDeclaration 58:1, assertion
+family +70/0, new-args +5 under-bar-stated)**; §157 ImportEquals-alias
+written-name references (+59/7).
+
+**Refused with mechanisms** (do not re-attempt without new evidence):
+§148 JS uninitialized-var error (needs assignment analysis: cycles→error,
+parameter-fed→any); §156+retry class-alias constructor mint (the blocker
+is the EXPRESSION-road short-name print — `x.c` sites want `typeof c`,
+best_name at expression positions); §158 ES-import alias references
+(minted texts TRAVEL across units through inferred types — the per-site
+re-render wall; no declaration-kind gate cuts it).
+
+**Cross-lane custody event**: 51d583a5 (diag lane, ".d.ts alias is a
+LOCAL") cost types −56 unmeasured; its CODE is reverted at ef0c2501 with
+records kept and TS1035 intact — the §807 residue carries the rebuild
+bar. Rule reaffirmed in STATUS: binder/loader changes measure
+checker_types before landing.
+
+**The five walls** (§151's census, both lanes' ledgers agree): variadic
+tuples; the fixing-mapper inference unit (requirements = §146-narrow +
+callres2's three closures); conditional-type instantiation; flow/
+predicate synthesis (checker-2's, incl. the 48-line never-want equality
+lead handed over); per-site re-rendering (§156/§158/printseam). The
+gate-sized middle is thin — a fresh window should OPEN A WALL, and the
+fixing-mapper unit is the ranked first per both lanes.
