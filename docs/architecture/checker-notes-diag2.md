@@ -33876,3 +33876,49 @@ TS18010's twelve lines are one .js fixture  measured
 **Owner: whatever silences that file**, which is one `diagcase` and one probe
 away and was not spent here — the row is one case and §654's floor says the note
 should not cost more than the case is worth.
+
+## §657 — §656's open question, answered in one read: the modifiers are JSDoc
+
+The fixture's own head:
+
+```ts
+// @allowJs: true
+// @checkJs: true
+// @filename: privateNamesIncompatibleModifiersJs.js
+
+class A {
+    /**
+     * @public
+     */
+    #a = 1;
+}
+```
+
+**There is no syntactic `public` anywhere in the file.** All twelve expected
+TS18010 lines come from **JSDoc** `@public`/`@private`/`@protected` tags, which
+this parser deliberately keeps out of the tree — `strict_mode.rs`'s header
+records that as *"a fifth declared-and-never-set flag … this parser keeps JSDoc
+out of the tree"*.
+
+> **§656 asked what silences the file and the answer was in its first six
+> lines.** The probe it deferred was unnecessary; reading the fixture was enough,
+> which is §131's rule (*read the fixture before the fourth hypothesis*) applied
+> one step earlier than usual — **before the first**.
+
+### The JSDoc owner, now with two rows
+
+```
+TS1016   a required parameter after an optional one   2 lines, both `.js` JSDoc
+TS18010  an accessibility modifier on a private name  12 lines, all `.js` JSDoc
+```
+
+Both were reached this session by building or nearly building a rule, and both
+turned out to need the same absent capability. **That is the owner's whole
+measured size in the rows examined so far**, and it is recorded here rather than
+guessed at — nothing has enumerated how much of the corpus is JSDoc-shaped, and
+§526's rule says not to estimate it.
+
+The capability itself is large: upstream reparses JSDoc into real modifier and
+type nodes (`NodeFlagsReparsed` marks them, and appears in a dozen guards this
+session has read past). **Owner: `tsr-parser`'s JSDoc reparse**, which no note
+had named as a diagnostics owner before this one.
