@@ -39205,3 +39205,35 @@ list whose whole job is to enumerate type-only spellings.
 > This list is six entries long and the two it was missing came from two
 > different fixtures a hundred builds apart. **The measurement is not a check on
 > the reading — it is the only thing that has ever completed one of these.**
+
+## §772 — the type-only list, swept: **complete**
+
+§771 argued that this list had only ever been completed by measurement, so it was
+measured.
+
+```
+AST nodes carrying a type-only flag                     5
+of those enumerated by `declaration_is_type_only`       5
+not enumerated                                          0
+additional kinds reached through an enclosing clause    2   NamespaceImport, NamespaceExport
+```
+
+```
+ExportDeclaration · ExportSpecifier · ImportClause · ImportEqualsDeclaration · ImportSpecifier
+```
+
+**§770 closed it.** The sweep confirms what the fixture implied and does so
+against the grammar rather than against memory — the sixth sweep of this session
+and **the first whose answer is "this list is finished"** rather than "no further
+gaps found here".
+
+> The distinction matters. §727, §733, §750 and §764 each ended with *nothing
+> more found*, which is evidence and not proof — a sweep can only see what its
+> query expresses. This one enumerates a **field**: every node the parser can
+> build either has `is_type_only` or does not, and all five that do are handled.
+> **That is a closed question, and it is the only one this session has closed.**
+
+TS1361's remaining eight lines across four cases are therefore not kind-list
+gaps. `exportDefault` and `filterNamespace_import` are the fixtures, and whatever
+they need, it is not another arm here — **named, and the next attempt should not
+start by re-reading this function.**
