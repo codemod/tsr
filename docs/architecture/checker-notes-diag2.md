@@ -40604,3 +40604,39 @@ excluding the binding element's own identifier — no symbol table, no
 0` for a body-less function.
 
 Thirty-two of thirty-four lines, five of six cases, **zero wrong**.
+
+## §806 — §805's practice applied to the whole band, in one pass
+
+§805 established that **the corpus names its own cases**. Applied to every
+remaining row of three to seven cases, reading only the fixture identifiers:
+
+```
+TS2320  IncompatibleProperties · InheritedSignature · InheritedPrivates   the relation
+TS2367  compareTypeParameterConstrainedToLiteral · intersectionNarrowing  the relation
+TS2354  ctsFileInEsnextHelpers · importHelpersES6 · tslibNotFound…        the emit-helper table
+TS7053  objectSpreadIndexSignature · narrowingMutualSubtypes              the type side
+TS2698  spreadNonObject1 · correctlyMarkAliasAsReferences…                the type side
+TS2556  iteratorSpreadInCall ×3                                           the type side
+TS2873  logicalNotOperator… · initializersWidened                         the type side
+TS2774  stringLiteralTypesAndParenthesizedExpressions · conditionalOperator… the type side
+TS18048 specialIntersectionsInMappedTypes · unionOfArraysFilterCall       the type side
+TS7027  reachabilityChecks8 · unreachableSwitchTypeof…                    flow
+TS2729  assignParameterPropertyToPropertyDeclaration… · redeclaredProperty flow / §751
+TS2341  …UsingClassPrivateStatics · privateStaticNotAccessibleInClodule2  static clodules
+```
+
+**Twelve rows, one pass, no builds.** Every one is owned outside this workstream,
+and the names say so without a fixture being opened: *Incompatible*, *Inherited*,
+*Narrowing*, *Spread*, *Mapped*, *Unreachable*, *Widened* are all the vocabulary
+of machinery this port has not built.
+
+> §663 priced the unbuilt-code band at ~50 codes by *counting*; this reads the
+> same band by *naming* and reaches the owners in one command. **The two agree,
+> and the second cost a single run.** Where §805's lesson was "check the
+> identifiers before writing falsifiers", this is the same lesson used for
+> selection rather than verification — **and it retired twelve candidate rows
+> without a build.**
+
+The small-row band is therefore **closed for this workstream**, which §670
+predicted for ≥4 cases and is now true down to three. What remains reachable
+here is the ≤2-case tail and whatever the other workstreams unblock.
