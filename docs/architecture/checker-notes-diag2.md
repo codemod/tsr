@@ -31913,3 +31913,38 @@ two halves lived in different files — which is why §593's *"a message with
 twenty emit sites is not one rule"* now has a smaller and sharper companion:
 **even two sites can sit in different subsystems, and the message alone does not
 say so.**
+
+## §610 — correcting §609: TS2462 did **not** go to zero
+
+§609 recorded *"TS2462 2 missing lines → 0"*. Measured immediately after the
+push:
+
+```
+total missing TS2462 lines: 4
+cases blocked on TS2462 alone: 1
+```
+
+The **case** `restElementMustBeLast` closed and the board's `+1` is right. The
+line claim is wrong: four lines remain, all in `objectRestPropertyMustBeLast`,
+and they are the **object** form:
+
+```ts
+var { ...a, x } = { x: 1, y: 2 };   // TS2462 on an object rest property
+```
+
+which is `checker.go:12621` — **a third site for the same message**, and one
+§608 did not look for because `diagcase` was run on the array fixture only.
+
+> **§608's own lesson, one step short.** It wrote *"even two sites can sit in
+> different subsystems, and the message alone does not say so"* and then counted
+> the sites from `grep` on the fixture it had. `grep` found three sites; the
+> note used two. **The third was on the screen at the time** —
+> `checker.go:12621` appears in §608's own quoted output.
+
+Corrected here rather than left, per `CLAUDE.md`. The object form is a real,
+syntactic, unbuilt arm: an `ObjectBindingPattern` element or an
+`ObjectLiteralExpression` spread that is not last, under the same
+assignment-target guard.
+
+**Not built in this note** — it gets its own build and its own bar, which is
+§594's rule and the reason §609's number was checked at all.
