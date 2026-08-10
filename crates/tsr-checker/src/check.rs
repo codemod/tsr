@@ -7207,7 +7207,30 @@ impl Checker<'_, '_> {
         // cleanly with `C` missing — needs `resolveEntityName` over a qualified
         // left and is **not built** (§501). §529.
         if self.nodes.kind(left) == SyntaxKind::QualifiedName {
+            // The innermost failure first (§529), then this level: `A.B` may
+            // resolve cleanly with `C` missing, which is `resolveEntityName`
+            // over a qualified left. §556.
             self.check_qualified_type_name_at(left, false);
+            let Some(namespace) = self.resolve_entity_name_to_namespace(left) else { return };
+            let Some(member) = self.identifier_text(right).map(str::to_string) else { return };
+            if self.binder.symbols().get(namespace).exports.is_empty() {
+                return;
+            }
+            if self.binder.symbols().get(namespace).exports.contains_key(member.as_str()) {
+                return;
+            }
+            let printed = self.printed_entity_name(left).unwrap_or_default();
+            if let Some(file) = self.source_file_of_for_diagnostics(right) {
+                let span = self.nodes.span(right);
+                self.report(
+                    file,
+                    Diagnostic::with_args(
+                        &messages::NAMESPACE_0_HAS_NO_EXPORTED_MEMBER_1,
+                        span,
+                        [printed, member],
+                    ),
+                );
+            }
             return;
         }
         if self.nodes.kind(left) != SyntaxKind::Identifier {
@@ -7857,6 +7880,67 @@ impl Checker<'_, '_> {
         let Some(file) = self.source_file_of_for_diagnostics(label) else { return };
         let span = self.nodes.span(label);
         self.report(file, Diagnostic::new(&messages::A_LABEL_IS_NOT_ALLOWED_HERE, span));
+    }
+
+    /// `resolveEntityName` restricted to the namespace meaning
+    /// (`checker.go:15782`), which is all this rule asks of it.
+    ///
+    /// An `Identifier` resolves by name; a `QualifiedName` resolves its left
+    /// and looks the right up in that symbol's **exports**. An alias is
+    /// resolved at every step, as upstream's `resolveAlias` call does. No
+    /// types are involved at any level. §556.
+    fn resolve_entity_name_to_namespace(&mut self, node: NodeId) -> Option<tsr_binder::SymbolId> {
+        match self.node_map.get(node)? {
+            Node::Identifier(_) => {
+                let text = self.identifier_text(node)?.to_string();
+                let symbol = self.binder.resolve_name(
+                    self.nodes,
+                    self.node_map,
+                    node,
+                    &text,
+                    SymbolFlags::MODULE | SymbolFlags::ALIAS,
+                )?;
+                self.resolved_namespace_symbol(symbol)
+            }
+            Node::QualifiedName(qualified) => {
+                let left = qualified.left.and_then(|left| left.node_id())?;
+                let right = qualified.right.and_then(|right| right.node_id)?;
+                let namespace = self.resolve_entity_name_to_namespace(left)?;
+                let text = self.identifier_text(right)?.to_string();
+                let member = *self.binder.symbols().get(namespace).exports.get(text.as_str())?;
+                self.resolved_namespace_symbol(member)
+            }
+            _ => None,
+        }
+    }
+
+    /// `merged_symbol` then `resolveAlias`, the pair every step of an entity
+    /// name needs.
+    fn resolved_namespace_symbol(
+        &mut self,
+        symbol: tsr_binder::SymbolId,
+    ) -> Option<tsr_binder::SymbolId> {
+        let symbol = self.binder.merged_symbol(symbol);
+        if self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::ALIAS) {
+            let target = self.resolve_alias(symbol)?;
+            return Some(self.binder.merged_symbol(target));
+        }
+        Some(symbol)
+    }
+
+    /// The printed form of an entity name — `A.B` for a qualified one. §556.
+    fn printed_entity_name(&self, node: NodeId) -> Option<String> {
+        match self.node_map.get(node)? {
+            Node::Identifier(_) => self.identifier_text(node).map(str::to_string),
+            Node::QualifiedName(qualified) => {
+                let left = qualified.left.and_then(|left| left.node_id())?;
+                let right = qualified.right.and_then(|right| right.node_id)?;
+                let left = self.printed_entity_name(left)?;
+                let right = self.identifier_text(right)?;
+                Some(format!("{left}.{right}"))
+            }
+            _ => None,
+        }
     }
 
     /// `IsInstantiatedModule` (`ast/utilities.go:2443`).

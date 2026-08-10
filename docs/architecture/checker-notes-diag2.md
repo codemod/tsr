@@ -29496,3 +29496,105 @@ The difference is in the third column and it was visible before the build:
 **§524's and §541's guards had no upstream counterpart and §554's is transcribed
 from `binder.go:1303`.** That distinction is the one to lead with next time a
 guard looks like it is blocking a row.
+
+## §556 — TS2694: `resolveEntityName` over a qualified left
+
+§530 named this arm and did not build it:
+
+> *"Not built (§501): the case where `A.B` resolves cleanly and `C` is the
+> missing member. That needs `resolveEntityName` over a **qualified** left —
+> resolving a symbol through a chain rather than a single `resolve_name`."*
+
+The row is **8 cases blocked alone**, and the fixtures show a second thing §530
+did not see:
+
+```ts
+namespace c.a.b { import ma = a; }
+namespace m0 { import m8 = c.a.b.ma; }   // TS2694 on `ma`, column 23
+```
+
+`import X = A.B.C` is an **`ImportEqualsDeclaration`**, and the rule's entry
+admits only a `TypeReferenceNode`'s `type_name`. So the row needs two things,
+and §496 says not to bundle them:
+
+```
+1  resolve a QUALIFIED left to a symbol      this build
+2  admit the import-equals entry             next, if 1 does not close it
+```
+
+### The resolver
+
+`resolveEntityName` recurses: an `Identifier` resolves by name, a `QualifiedName`
+resolves its left and then looks the right up in that symbol's **exports**,
+resolving an alias at each step. That is exactly what §187's rule does for one
+level, generalised — and it needs no types at all, which is why this arm is ours
+and not the relation's.
+
+> **The parts of a rule that need no type are the parts that stay ours.** Nine of
+> the eleven largest remaining rows are the structural relation's; this one looked
+> like theirs because it is about types syntactically, and is symbol-table work
+> throughout.
+
+### The bar
+
+```
+bar:  +4 of 8,  0 LOST,  WRONG delta <= +1
+```
+
+Four rather than eight because the import-equals entry is deliberately not in
+this build, and at least two fixtures need it.
+
+### Falsifiers
+
+1. **§530's row regresses.** The two-deep path must be unchanged; the recursion
+   only adds a level above it.
+2. **TS2749 or TS2713 lines appear.** §530's `outermost` gate keeps the
+   `canSuggestTypeof` arm on the whole name, and a deeper chain must not reopen
+   it — the same failure that cost §529 three wrong lines.
+3. **A namespace with an empty exports table reports.** §186's decline stands at
+   every level of the chain, not just the first.
+
+## §557 — §556's split measured separately: **+0** and **−4**, and the split is why that is readable
+
+```
+part 1   resolveEntityName over a qualified left   2,091 → 2,091   +0, extraonly 54 → 54
+part 2   the import-equals entry                   2,091 → 2,087   −4, extraonly 54 → 62
+```
+
+§556 wrote *"§496 says not to bundle them"* and set the bar at +4 of 8. Built
+together they would have measured **−4 with no way to tell which half was
+wrong** — the precise failure §496 recorded when two unrelated rules shipped as
+one and cost a full revert to separate.
+
+### Why part 2 over-fires
+
+`import a = b.c` is an entity name in a **value or namespace** position, and
+this rule was written for a *type* one. It resolves with
+`SymbolFlags::MODULE | ALIAS` and asks whether the right is in the left's
+exports — which is the right question for `var x: A.B` and the wrong one for an
+alias that may legitimately name a value, a type, or a namespace, in any
+combination.
+
+> **Two syntaxes that ask the same question of the same tree can still need
+> different answers, because the *meaning* they resolve under differs.**
+> Upstream's `resolveEntityName` takes a `meaning` parameter for exactly this;
+> §556's resolver hardcodes the namespace meaning, which is correct for the
+> caller it was written for and wrong for the one added after it.
+
+### Part 1 kept at +0
+
+Upstream's behaviour, no wrong lines, and §530's three falsifiers all negative:
+an `A.B.C` type reference whose `C` is missing now reports where it previously
+did not. **The corpus does not exercise it** — every TS2694 residue is
+import-equals-shaped — which is the same call §545 made for the shadowed
+assignment arm and §540 made for two harness directives.
+
+Fourth **+0 kept for fidelity** this session, against twenty-seven reverted for
+measuring negative.
+
+### The row's owner, sharpened
+
+TS2694's eight cases need `resolveEntityName`'s **meaning parameter** —
+`SymbolFlags::VALUE | TYPE | NAMESPACE` selected by the syntactic position — not
+a deeper resolver. That is a real port of a real signature and it is named here
+rather than attempted (§501).
