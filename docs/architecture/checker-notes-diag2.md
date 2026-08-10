@@ -43326,3 +43326,41 @@ wrongly used as *a type to compare*, here it is used as *the absence of a
 decidable answer* — `let l1;` gets TS2448 alone precisely because its type is
 `any`. **The same value is sound as evidence of ignorance and unsound as
 evidence of anything else**, which is now recorded on both sides.
+
+## §869 — TS2454's residue is flow's, and §42 already refused the shortcut
+
+41 cases remain on TS2454 alone after §867's dead-zone arm. They are one shape:
+
+```ts
+// moduleAugmentationDeclarationEmit1/2, moduleAugmentationExtend*, moduleResolutionWithSymlinks…
+let x: Observable<number>;
+let y = x.map(x => x + 1);     // TS2454 — `x` is never assigned
+```
+
+Not a temporal dead zone: the read is *after* the declaration. It is genuine
+definite-assignment analysis, and the cheap syntactic slice — *"no assignment to
+this symbol anywhere"* — is exactly what §42 measured and reverted:
+
+> *"The definite-assignment half is a **per-symbol** record written by
+> `mark_node_assignments`, not a scan for the name: a syntactic "no `x` is
+> written anywhere in this file" measured **4 lost cases** and was reverted."*
+
+The comment is sitting in the rule, three lines above the code I would have
+changed.
+
+> **The refusal I was about to re-derive was written into the function I was
+> reading.** §864 and §866 are the same story from two other directions — a note
+> that already answered the question, in the file, unread. That is three times in
+> six builds, and the common factor is that I go to the *fixture* first and to
+> the *rule* second. §143 says read the existing rule before assuming the missing
+> arm; **the corollary is to read it before assuming a missing shortcut, too.**
+
+The rule already computes the right things — the outer-variable test, the
+annotation read that avoids §76's printing road, the `any`/`unknown`/`void`/
+`undefined` exclusions, and `get_flow_type_of_reference_ex`. What it does not do
+is answer *undefined* for a variable the flow graph never reaches an assignment
+for, at a use in the **same** control-flow container.
+
+**Refused: TS2454's remaining 41 cases, 77 lines. Owner: flow**, alongside the
+narrowing rows §850 and §862 handed over. The dead-zone arm §867 built is
+independent of it and stays.
