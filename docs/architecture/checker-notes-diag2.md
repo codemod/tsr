@@ -33792,3 +33792,87 @@ named for the next reader rather than measured again.
 ```
 
 Twenty-one codes closed of the sixty-two with cases.
+
+## §655 — TS18010: an accessibility modifier on a private name
+
+```js
+class A { public #x = 1; }    // TS18010 — twelve such lines in one fixture
+```
+
+`checkGrammarModifiers`' accessibility case (`grammarchecks.go:355`), the arm
+immediately **after** the `abstract` pair and the `must precede` chain §593–§599
+built:
+
+```go
+} else if ast.IsPrivateIdentifierClassElementDeclaration(node) {
+    return c.grammarErrorOnNode(modifier, An_accessibility_modifier_cannot_be_used_with_a_private_identifier)
+}
+```
+
+so it goes after the `precede` table in this port's loop, which is where
+upstream has it — **the fifth insertion into `check_modifier_order`, and the
+first that needed no guard**, because everything above it already returns.
+
+> **A chain ported in five sittings has now had one insertion that cost
+> nothing.** §593 needed none, §595 needed `private`/`async`, §597 needed
+> `abstract`, §599 needed the type-member test above everything — and §655 needs
+> none again, because it is *last*. **The guards a ported arm needs are exactly
+> the arms above it that this port has already built**, which is a sharper form
+> of §595's rule and predicts the cost of the next insertion instead of
+> discovering it.
+
+Twelve lines in one case, all in a `.js` fixture — so §569's TS8009 walk is
+already reporting the *other* half of what that file expects.
+
+```
+bar:  +1 of 1,  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **`private x = 1` reports.** An ordinary name is the normal form.
+2. **`#x = 1` with no modifier reports.** The modifier is half the condition.
+3. **TS1029's or TS8009's rows move.** Both run in the same loop and the same
+   file.
+
+## §656 — §655 measured **+0**: the fixture emits nothing at all
+
+```
+diagnostics             2,188 → 2,188
+TS18010 missing lines   12 → 12
+extraonly               one TS1029 line, PRE-EXISTING (1 before, 1 after)
+```
+
+The rule was built at the position upstream has it, added no wrong lines, and
+converted nothing. `diagcase` says why:
+
+```
+-- expected --                                    -- actual --
+  privateNamesIncompatibleModifiersJs.js(3,8)       (nothing)
+  …twelve lines…
+```
+
+**This port emits nothing whatsoever for that file.** Not a wrong line, not a
+right one — so the block is above every rule in it, and no arm of
+`check_modifier_order` could have converted anything.
+
+> **A row whose only fixture emits zero lines is not a rule row.** §607
+> established `diagcase` as the instrument that separates *emitted wrongly* from
+> *not emitted*; this is its third answer — **nothing emitted at all**, which
+> neither `diagmissing` nor `extraonly` can show, because one counts absences
+> against the baseline and the other counts presences against it.
+
+Reverted under §568: correct, well-positioned, and unexercised.
+
+### What is established
+
+```
+the rule is at upstream's position          read, grammarchecks.go:355
+it adds no wrong lines                      measured, extras unchanged
+the fixture yields nothing from this port   MEASURED by diagcase
+TS18010's twelve lines are one .js fixture  measured
+```
+
+**Owner: whatever silences that file**, which is one `diagcase` and one probe
+away and was not spent here — the row is one case and §654's floor says the note
+should not cost more than the case is worth.
