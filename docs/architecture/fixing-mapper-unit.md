@@ -233,3 +233,47 @@ names) was correct plumbing and is preserved in the scratchpad
 (phase1s1.py) for the rebuild. The four-refusal table gains a
 fifth row, and the thesis sharpens: not even the LATTICE lands
 alone.
+
+
+### Phase 0 extension — `inferToMultipleTypes` transcribed (`inference.go:448-552`)
+
+The structure my slice-1 lacked, and WHY +4/9 happened:
+
+1. **Union target, per-source distribution** (`:453-457`): a union
+   SOURCE distributes into constituents; `matched[i]` tracks per
+   source constituent.
+2. **The matched test is INFERENCE-QUALITY, not assignability**
+   (`:469-478`): for each non-variable target constituent, infer
+   source[i] against it under `inferencePriority = MaxValue`; if the
+   walk's resulting `inferencePriority == n.priority` (candidates of
+   equal quality to a naked-variable inference were recorded),
+   `matched[i] = true`. Circularity (`-1`) is tracked. Our port's
+   assignability strike is an APPROXIMATION of this — right on
+   primitives, wrong exactly where slice 1 misfired.
+3. **The common case makes a PLAIN-priority inference and RETURNS**
+   (`:495-506`): exactly ONE naked variable + no circularity → the
+   UNION OF UNMATCHED sources infers to the variable via plain
+   `inferFromTypes` — NOT at NakedTypeVariable priority — and the
+   function returns. My slice tagged THIS road naked, which is the
+   +4/9's root: real candidates got demoted and displaced.
+4. **NakedTypeVariable priority marks only the FALLTHROUGH**
+   (`:519-529`): multiple naked variables, or single-variable-but-
+   everything-matched, or the intersection single-variable case
+   (`getSingleTypeVariableFromIntersectionTypes`, `:532` — every
+   target an intersection containing the SAME single variable →
+   infer whole source at naked priority). The doc comment's example:
+   `Promise<string>` to `T | Promise<T>` infers `string` for T, not
+   `Promise<string> | string`.
+5. Non-union multi-target (`:507-518`): non-variable targets first
+   (ordering as soft priority), then the fallthrough.
+
+**Phase 1 rebuild spec (amended):** port `inferToMultipleTypes`
+whole INTO the union arm — per-source matched tracking with the
+quality test (which needs the walk to REPORT the priority of what
+it recorded: thread an `inference_priority` out-param like
+upstream's `n.inferencePriority` min-tracking), the unmatched-union
+plain road, the naked fallthrough, and the intersection
+single-variable rule — WITH the slice-1 lattice plumbing
+(preserved in scratchpad phase1s1.py). The two land together or
+not at all; the existing assignability strike retires in the same
+commit.
