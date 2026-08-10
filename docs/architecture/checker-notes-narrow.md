@@ -6260,3 +6260,24 @@ COUNTERS — uniq collapses repeats, and two ambiguous probes
 (7 and 10) each cost a window. Probe 11: a per-invocation counter
 plus property index in every tag, one filtered run. The seam
 remains the two-lane joint head.
+
+**§142 probes 11–13 — THE LINE NAMED AND A STANDALONE REPRO WON:**
+probe 11's counters split the interleave (probe 7's "explicitThis
+non-error" was o2's — container tags alone were not enough); probe
+12 read the exit exactly: o's idx=1 member_type IS errorType, the
+`return error` at the member-error check. Probe 13 reduced it to
+NINE LINES that reproduce under the arm:
+
+    // @noImplicitThis: true
+    let o = { n: 101,
+      explicitThis: function (m: number) { return m + this.n.length; },
+      implicitThis(m: number): number { return m; } };
+
+with `length : error` — `.length` on the mint-served `n` (number)
+errors DESPITE §124.1 (whose gates this exact shape was believed to
+satisfy; `1 + any` composes fine separately). The hunt is now an
+ordinary single-fixture debug: probefile the repro, eprintln
+`miss_is_established`'s three gates on the `.length` miss, and the
+failing conjunct names itself. THE LADDER'S END STATE: thirteen
+probes, the fault reduced from "17 mystery regressions" to one
+establishment conjunct on one member read in nine lines.
