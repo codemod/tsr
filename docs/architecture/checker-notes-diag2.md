@@ -32250,3 +32250,38 @@ pool's size and composition, which nothing had until now.
 
 **53 of the 89 lines are TS1005 alone**, which makes that one code the only part
 of this pool worth attacking as a group.
+
+## §618 — the column pool has no common cause, checked rather than inferred
+
+§617 wrote *"they share a symptom, not a cause"* as an inference from six of
+seven being parser codes. Checked:
+
+```rust
+pub(crate) fn expect(&mut self, kind: SyntaxKind) -> bool {
+    if self.eat(kind) { return true; }
+    self.error_at_current_with(&messages::_0_EXPECTED, …);   // the CURRENT token's span
+}
+```
+
+which is exactly upstream's `parseExpected` → `parseErrorAtCurrentToken`. **The
+anchor mechanism is identical.** What differs is *which token is current* when
+the error fires, and that is how far each recovery path consumed:
+
+```ts
+export { x, from "./t1"      // upstream reports at `from` (13); this parser at `"./t1"` (18)
+```
+
+`from` is a legal specifier name — `export { x, from }` compiles — so this parser
+consumes it and errors at the string. Upstream stops at `from` because
+`parseNamedImportsOrExports` treats `from` followed by a string as the clause's
+end.
+
+> **A shared symptom with an identical mechanism is the strongest possible
+> evidence for "no common cause".** If the anchors had differed, one fix would
+> have moved 53 lines; they do not, so each of the seven is its own recovery
+> decision. §617 guessed this and §618 checked it, and the check cost one
+> `sed` — which is the difference between a note that can be relied on and one
+> that cannot.
+
+**The pool stays priced and unbuilt**, and the next session can skip the
+hypothesis that made it look like a group.
