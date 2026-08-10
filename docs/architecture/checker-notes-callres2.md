@@ -1002,3 +1002,23 @@ right 412,359/471,012. The family stands 508/125/122 — the remaining
 wrongs are E1-vs-E2 candidate-priority shapes and CS-member
 return-side sites under multi-parameter signatures, priced to the
 priority ladder (InferenceInfo step 2), not to this slice.
+
+## §139 BAR (registered before code): the contextual this-parameter carry
+
+checker-1's §139 flag, accepted into this lane. Anchor:
+`assignContextualParameterTypes`' this half — a contextually typed
+function with no written `this` takes the CONTEXT's this-parameter;
+upstream's node builder then prints it. Our `get_signature_from_declaration`
+builds `this_parameter` only from the written first-parameter and
+`@this` docs, so `{ init() {} }` under `IndexedWithThis` prints
+`init(): void` where upstream prints `init(this: IndexedWithThis): void`.
+
+The carry: after the written/doc roads, a still-None this_parameter on
+an ArrowFunction / FunctionExpression / object-literal MethodDeclaration
+copies `contextual_signature(declaration).this_parameter`. Prediction:
+thisTypeInFunctions2's 7 wrong + a slice of thisTypeInFunctions' 57
+(the ones whose miss is the this-slot, not this-BODY typing) convert;
+the `string ||| any` rows there need this-body narrowing (NOT this
+carry) and stay. Falsifier: recursion through contextual_signature on
+every signature build shows as a hang/measured-zero and the carry gates
+to literal-member positions only.
