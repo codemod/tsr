@@ -5431,3 +5431,32 @@ assertionTypePredicates1 +3. neverReturningFunctions1's
 `this.fail()` still declines — its resolution road
 (check_expression of a this-property callee) gaps before the
 signature; recorded, not chased.
+
+## §129 — the types harness parses its tsconfig units (the loader's second half) [claimed: checker-1]
+
+**Same shape as §118: the machinery exists, one road never hands it
+the input.** `trace_case::compilation` parses a case's
+`tsconfig.json` unit (`tsr_tsoptions::parse_config_file` against a
+full-unit VFS), removes it from the compilation, intersects the
+config's file list into roots, and layers directives over the
+config's options — upstream's `test_case_parser` tsconfig branch,
+proven by the module_resolution suite. `program_for_case`
+(types/diagnostics) ignores config units entirely: they compile as
+ORDINARY TS FILES (their JSON parses as garbage statements) and
+their `paths`/`baseUrl`/`moduleResolution` never reach the
+resolver. §119's residual adverse (pathMappingBasedModuleResolution6_node,
+nodeNextPackageSelfName*, ~26 lines) named this; the parked LOADER
+entry priced it.
+
+**The slice.** Config-BEARING cases only: parse the config unit,
+drop it from the file list, apply directives over its options,
+intersect roots exactly as `compilation` does. Cases with no config
+unit are byte-untouched (the trace suite's last-unit root heuristic
+is NOT imported — it belongs to that runner).
+
+**Bar.** ≥80 G→R at ≥5:1 on checker_types. Falsifiers: (a) a
+config's `files` list excluding units upstream still types —
+root-shrink losses concentrated in config-bearing cases; (b) the
+config unit itself vanishing from the corpus denominator — the
+TOTAL population shifts, and any change there must match upstream's
+own baseline line count for those cases, not merely improve.
