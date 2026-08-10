@@ -35815,3 +35815,113 @@ chased: the shape is `bd tsr-8esz`'s neighbour, not this rule's.
 The third is `importDeclWithClassModifiers`, whose three lines sit behind
 `export public import a = x.c` — modifiers that are themselves grammar errors,
 so the file's parse-error state gates the rule. Named, not built.
+
+## §695 — TS2749: a guard that reads "type position" but tests a bit the namespace meaning sets
+
+```ts
+namespace A {
+    export function B<T>(x: T) { return x; }
+    export namespace B { export var x = 1; }
+}
+var b: A.B;   // TS2749 — 'A.B' refers to a value, but is being used as a type
+```
+
+§426 built the `canSuggestTypeof` arm and §559 added a bound to it:
+
+```rust
+if outermost && !meaning.intersects(SymbolFlags::VALUE) && value_only && !in_type_query
+```
+
+The bound is right — an `import a = X` position resolves at
+`VALUE | TYPE | NAMESPACE | ALIAS` and may legitimately name a value, so the
+*"did you mean `typeof`"* suggestion is wrong there. The **test** is not. The
+probe prints the meaning a type reference arrives with:
+
+```
+meaning = ENUM_MEMBER | CLASS | INTERFACE | CONST_ENUM | REGULAR_ENUM
+        | VALUE_MODULE | NAMESPACE_MODULE | TYPE_LITERAL | TYPE_PARAMETER
+        | TYPE_ALIAS | ALIAS
+```
+
+`VALUE_MODULE` is there because `SymbolFlagsNamespace` is
+`ValueModule | NamespaceModule`, and `VALUE_MODULE` is a member of
+`SymbolFlags::VALUE`. **So `meaning.intersects(VALUE)` is true for every type
+position that admits a namespace — which is all of them — and the arm has been
+unreachable since §559 wrote it.**
+
+> This is §684's shape one more time and from the other side: there, a *branch*
+> was read for its condition rather than its purpose; here, a *guard* was written
+> for its purpose and given a condition that does not express it. **Both are
+> correct English attached to the wrong bit**, and neither shows up in a review of
+> the sentence — only in a probe of the value.
+
+The narrow fix: test the value meanings a **module cannot supply**.
+
+```rust
+!meaning.intersects(SymbolFlags::VALUE - SymbolFlags::MODULE)
+```
+
+```
+bar:  +2 of 2 (genericFunduleInModule, genericFunduleInModule2),
+      0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **§559's three wrong lines return** — the `import a = X` positions the bound
+   was added for. They resolve at a meaning that includes `FUNCTION` and
+   `VARIABLE`, which `VALUE - MODULE` still catches.
+2. **§529's falsifier 2 refires**: TS2749 at inner segments of a chain. The
+   `outermost` gate is untouched.
+3. **TS2694's row moves.** The arm returns either way; only which diagnostic it
+   emits changes.
+
+## §696 — §695 built: **+2 of 2**, row closed, and the first fix was also wrong
+
+```
+diagnostics             2,220 → 2,222   (bar was +2;  +2, 0 LOST)   40.49%
+extraonly               zero TS2749 and zero TS2694 lines
+TS2749 missing lines    2 → 0     — the row is closed
+```
+
+All three falsifiers negative.
+
+### Two wrong bits before the right one
+
+§695's first fix was `VALUE - MODULE`, on the reasoning that `VALUE_MODULE`
+leaked in through `SymbolFlagsNamespace`. It measured `+0`, and the probe said
+why in one line:
+
+```
+PROBE fundule outermost=true meaning_ok=false value_only=true in_type_query=false
+```
+
+`meaning_ok` was still false, because **`CLASS`, `ENUM` and `ENUM_MEMBER` are in
+`TYPE` and in `VALUE` outright** — a class is a value and a type, and no
+subtraction from `VALUE` can separate a type position from a value one. The
+overlap is not an accident of this port; it is what those meanings *are*.
+
+The bits that do separate them are the ones a type position never asks for:
+
+```rust
+!meaning.intersects(SymbolFlags::VARIABLE | SymbolFlags::FUNCTION)
+```
+
+A type meaning carries neither. The `import a = X` position §559 was bounding
+carries both, so its bound survives intact — falsifier 1 negative.
+
+> **A guard written as "not a value position" cannot be spelled with `VALUE`.**
+> Three of this session's builds have now failed on a flag test whose name reads
+> correctly and whose bits do not (§578's `IsTypeAny`, §683's arity kinds, this),
+> and in all three the probe cost one run and the re-reading cost none.
+> **A flag composite is a claim about a set, and the set is worth printing before
+> it is worth arguing with.**
+
+### The arm had never fired
+
+§559 added this bound and measured it against the three wrong lines it was for.
+It also made the arm unreachable, and that cost nothing visible at the time
+because TS2749's two cases were already missing. **A bound that silences the rule
+entirely looks exactly like a bound that works, when the row it guards is empty
+in both directions.** The only signal was the row staying at 2 across a hundred
+and thirty builds.

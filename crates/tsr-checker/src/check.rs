@@ -7752,8 +7752,16 @@ impl Checker<'_, '_> {
             // alias may legitimately name a value, so `canSuggestTypeof` — the
             // *"did you mean `typeof`"* suggestion — is wrong there. Same
             // meaning, one arm over. §559.
+            // **The value meanings a *type* position never asks for.**
+            // `meaning.intersects(VALUE)` was true for every type reference and
+            // made this arm unreachable from §559 until §695: `VALUE_MODULE`
+            // enters through `SymbolFlagsNamespace`, and `CLASS`, `ENUM` and
+            // `ENUM_MEMBER` are in both `TYPE` and `VALUE` outright — so no
+            // subtraction from `VALUE` separates the two positions. `VARIABLE`
+            // and `FUNCTION` do: a type meaning carries neither, and the
+            // `import a = X` position §559 was bounding carries both.
             if outermost
-                && !meaning.intersects(SymbolFlags::VALUE)
+                && !meaning.intersects(SymbolFlags::VARIABLE | SymbolFlags::FUNCTION)
                 && value_only
                 && !in_type_query
                 && let Some(file) = self.source_file_of_for_diagnostics(node)
