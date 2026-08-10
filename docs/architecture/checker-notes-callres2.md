@@ -1378,3 +1378,16 @@ PARAMETER domain participates). Anchor to read first next session:
 `narrowTypeByInstanceof`'s hasInstance half in flow.go — the boolean
 branch, not the predicate branch. The lookup road and the ladder are
 both exonerated; the arc's five landings stand.
+
+**§148.3 addendum — the anchor read (flow.go:810-843):** boolean-
+hasInstance falls PAST the predicate branch to the constructor road:
+`isTypeDerivedFrom(rightType, globalFunctionType)` gates, then
+`instanceType = mapType(rightType, getInstanceType)` and
+`getNarrowedType(t, instanceType, assumeTrue, checkDerived=TRUE)` —
+the DERIVED-check variant of the same worker the predicate branch
+uses with checkDerived=true as well. The port's §83/§126 structural
+road approximates this without the empty-class-instance and
+`checkDerived` semantics. The build is: (1) `getInstanceType` for
+class values, (2) the checkDerived variant of the ladder (declared
+derivation only — `isTypeDerivedFrom`), (3) the any/Object/Function
+guards verbatim. Bounded, fixture-verifiable, next window.
