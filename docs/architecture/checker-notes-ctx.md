@@ -1022,3 +1022,22 @@ consumer (object literals in arrays, the §56-family's walk) would
 route through symbols.rs's walk, not this dispatch — that walk
 already has its own array handling. DO NOT rebuild this arm without
 first naming a consumer that reaches it.
+
+## §152 — the assignment arm: `g = (a) => a` takes the left's type [claimed: checker-1]
+
+The probe that opened this (SS152 repro): variable-annotation
+arrows type their parameters; the SAME arrow under plain `=`
+declines — `get_contextual_type` has no BinaryExpression arm.
+Upstream: `getContextualTypeForBinaryOperand` (`checker.go:29809`)
+— the RIGHT operand of `=` answers the LEFT operand's TYPE. The
+§98 walk (symbols.rs) already built this road for object-literal
+members under assignment, with its reentrancy guard
+(narrow_value_stack on the holder) and the JS-file decline
+(module.exports carve unmodelled); this arm is the same rule at
+the contextual-dispatch site, serving arrows/function expressions.
+Boundary per checker-2's custody agreement: dispatch ARM only, no
+gate-condition changes. **Bar: ≥30 net at ≥5:1.** Falsifiers:
+(a) compound assignments (`&&=`, `||=`, `??=`) are NOT the plain
+arm and decline; (b) self-referential lefts (`f = () => f()`)
+must not cycle — the guard's job, watch for stack growth;
+(c) JS files decline whole (§98's carve).
