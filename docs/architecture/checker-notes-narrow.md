@@ -6198,3 +6198,19 @@ filter with the arm live. The methods-only half remains
 landable-shaped (+38/15, zero regressions) whenever a ~5:1 path
 appears; the ladder stands at six probes with each hypothesis
 measured and the wrong ones marked.
+
+**§142 probe 7 (member-level):** the fixture holds TWO explicitThis
+literals — the unannotated `o` (the arm's single admit) computes
+ALL members cleanly under the mint (`n` and `explicitThis` both
+non-error; the §124.1 fix DID land its half here), while the
+erring compute belongs to the CONTEXTUAL `o2: I = {…}` whose gap
+predates §142 entirely. The 17 R→G are therefore DOWNSTREAM
+re-spellings: `let i: I = o; let x = i.explicitThis; x(12)…` —
+o's type CHANGING shape (its explicitThis now `(m: number) => any`
+per upstream's own want) ripples through the i/x/y assignment
+chain and re-spells lines that were right under the old o. Probe 8
+(one command): dump the o-chain lines pre/post arm and diff the
+spellings — the ripple is either RIGHT-er (wants match the new
+shape → those 17 convert on their own) or names the final
+divergence. Six probes, two hypotheses killed, the mechanism
+intact.
