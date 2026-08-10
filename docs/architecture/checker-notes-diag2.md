@@ -42154,3 +42154,72 @@ row needs upstream's actual meaning ladder at the entity-name resolution site �
 `resolveEntityName` with its own meaning per chain position — not a wider
 allow-list. That is a different build with a different owner, and `bd tsr-8esz`
 now carries the number.
+
+## §842 — `useResult`'s type arm, measured
+
+§838 ported the parameter half of upstream's `useResult` block. The other half is
+the sentence above it in the same comment:
+
+> *"Type parameters of a function are in scope in the entire function
+> declaration, including the parameter list and return type. **However, local
+> types are only in scope in the function body.**"*
+
+```go
+if meaning&result.Flags&SymbolFlagsType != 0 && lastLocation.Kind != KindJSDoc {
+    useResult = result.Flags&SymbolFlagsTypeParameter != 0 && (…)
+}
+```
+
+So a **type** found in a function's `locals` while the walk arrives from
+anywhere other than the body is the answer *only if it is a type parameter*. A
+local `interface`, `type` alias or `enum` declared in the body is not visible in
+the signature, and referencing it there is a TS2304 this port currently answers
+with the local.
+
+The two arms are one `if`/`if` pair upstream and they were split here on purpose:
+§838's carried its own falsifiers and its own measurement, and this one has a
+**wider** blast radius — every type name in every signature in the corpus goes
+through it.
+
+```
+bar:  >= +0 and 0 LOST,  binder_symbols STAYS 100%,  WRONG delta <= 0
+```
+
+### Falsifiers
+
+1. **`function f<T>(a: T)` loses `T`.** A type parameter is exactly what the arm
+   admits.
+2. **`binder_symbols` moves.** The resolver serves it.
+3. **A signature referencing an outer type loses it.** The walk continues
+   outward; only the function's own `locals` are skipped.
+
+## §843 — §842 built: **+1**, and the wider arm cost nothing
+
+```
+diagnostics             2,328 → 2,329   (bar was >= +0;  +1, 0 LOST)   42.44%
+binder_symbols          100%            — falsifier 2 negative
+extraonly               75, unchanged   — falsifiers 1 and 3 negative
+```
+
+The arm every type name in every signature passes through, and it moved one case
+and broke nothing. That is the shape a faithful port of a well-specified rule
+takes when the specification is upstream's own comment.
+
+### Three resolver arms, three builds, one suite untouched
+
+```
+§837   resolve from the parent scope      export specifiers        +3
+§838   parameters are body-scoped         type parameter lists     +1
+§842   local types are body-scoped        signatures               +1
+```
+
+`binder_symbols` is 100% before and after all three. That is the check worth
+naming: **this port's resolver is shared, and a resolver change that moves
+`diagnostics` while moving `binder_symbols` would be a trade, not a gain.**
+Three for three, no trade.
+
+What remains of upstream's `useResult` block is `infer T` in conditional types
+and `useOuterVariableScopeInParameter`. Both are narrower than what has been
+built — one is a single node kind, the other a single target-version rule — and
+neither has a case in the missing column today, which is why they are named here
+and not attempted.

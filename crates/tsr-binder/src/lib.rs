@@ -428,6 +428,41 @@ impl<'a> BindResult<'a> {
         self.resolve_name_excluding(nodes, node_map, start, name, meaning, None)
     }
 
+    /// `useResult`'s type arm (`binder/nameresolver.go:61`): *"local types are
+    /// only in scope in the function body"*. A type found in a function's
+    /// `locals` while the walk arrives from anywhere but the body is the answer
+    /// **only if it is a type parameter**. §842.
+    fn local_type_hidden_outside_body(
+        &self,
+        symbol: SymbolId,
+        location: NodeId,
+        last: Option<NodeId>,
+        meaning: SymbolFlags,
+        nodes: &NodeTable,
+        node_map: &NodeMap<'a>,
+    ) -> bool {
+        let Some(last) = last else { return false };
+        if !crate::container::is_function_like_kind(nodes.kind(location)) {
+            return false;
+        }
+        let body = match node_map.get(location) {
+            Some(tsr_ast::Node::FunctionDeclaration(f)) => f.body.and_then(|b| b.node_id()),
+            Some(tsr_ast::Node::FunctionExpression(f)) => f.body.and_then(|b| b.node_id()),
+            Some(tsr_ast::Node::ArrowFunction(f)) => f.body.and_then(|b| b.node_id()),
+            Some(tsr_ast::Node::MethodDeclaration(m)) => m.body.and_then(|b| b.node_id()),
+            Some(tsr_ast::Node::ConstructorDeclaration(c)) => c.body.and_then(|b| b.node_id()),
+            Some(tsr_ast::Node::GetAccessorDeclaration(a)) => a.body.and_then(|b| b.node_id()),
+            Some(tsr_ast::Node::SetAccessorDeclaration(a)) => a.body.and_then(|b| b.node_id()),
+            _ => None,
+        };
+        if body == Some(last) {
+            return false;
+        }
+        let flags = self.symbols.get(self.merged_symbol(symbol)).flags;
+        meaning.intersects(flags & SymbolFlags::TYPE)
+            && !flags.contains(SymbolFlags::TYPE_PARAMETER)
+    }
+
     /// `useResult`'s parameter arm (`binder/nameresolver.go:72`): *"parameters
     /// are only in the scope of function body"*. When the walk arrives at a
     /// function-like node **from a type parameter**, a parameter symbol found
@@ -539,6 +574,7 @@ impl<'a> BindResult<'a> {
             if let Some(found) = self.lookup_scoped(self.locals.get(&node), name, meaning)
                 && !self.symbol_is_declared_within(found, exclude, nodes)
                 && !self.parameter_hidden_from_type_parameter_list(found, node, last, nodes)
+                && !self.local_type_hidden_outside_body(found, node, last, meaning, nodes, node_map)
             {
                 return Some(found);
             }
