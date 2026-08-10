@@ -1721,3 +1721,17 @@ of the board) they come out; the transcription text stays HERE, one
 paste away, for the first family that needs them. The lattice's built
 arms remain: identity, class chains, interface heritage, references,
 the three structural lifts, refutable-negative on walkable chains.
+
+## §165 LANDED: the hasOwnProperty narrowing arm, TRANSCRIBED (+10/2)
+
+flow.go:457-465, previously unported whole: a walked type CONTAINING
+the missing type, an access-expression reference, and a call
+`<same-receiver>.hasOwnProperty("<accessed-name>")` with one
+string-literal argument → NE_UNDEFINED / EQ_UNDEFINED by branch. The
+receiver match is symbol-or-text identity between the two receiver
+nodes (the state matcher keys on the walked reference itself, so the
+comparison is between the access's receiver and the call's).
+strictOptionalProperties1: +10 W→R, 2 R→W (rows where the ELSE branch
+wants the property absent from the union entirely — the
+exactOptionalPropertyTypes print question, named). Sixth consecutive
+verbatim transcription to land positive.

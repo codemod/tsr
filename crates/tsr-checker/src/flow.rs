@@ -3860,6 +3860,90 @@ impl Checker<'_, '_> {
         call: &tsr_ast::CallExpression<'_>,
         assume_true: bool,
     ) -> TypeId {
+        // SS165 (flow.go:457-465, TRANSCRIBED): the hasOwnProperty arm -
+        // when the walked type CONTAINS the missing type, the reference is
+        // an access expression, and the call is
+        // `<reference-receiver>.hasOwnProperty("<accessed-name>")` with
+        // exactly one string-literal argument naming the accessed property,
+        // the branch adjusts by NE_UNDEFINED / EQ_UNDEFINED.
+        'has_own: {
+            let contains_missing = match &self.store.get(t).data {
+                TypeData::Union { types, .. } => types.contains(&self.intrinsics.missing),
+                _ => t == self.intrinsics.missing,
+            };
+            if !contains_missing {
+                break 'has_own;
+            }
+            let reference = state.reference;
+            let Some(reference_receiver) = (match self.node_map.get(reference) {
+                Some(Node::PropertyAccessExpression(access)) => {
+                    access.expression.and_then(|e| e.node_id())
+                }
+                Some(Node::ElementAccessExpression(access)) => {
+                    access.expression.and_then(|e| e.node_id())
+                }
+                _ => None,
+            }) else {
+                break 'has_own;
+            };
+            let Some(Node::PropertyAccessExpression(call_access)) =
+                call.expression.and_then(|e| e.node_id()).and_then(|id| self.node_map.get(id))
+            else {
+                break 'has_own;
+            };
+            let Some(tsr_ast::MemberName::Identifier(method)) = call_access.name else {
+                break 'has_own;
+            };
+            if method.text != "hasOwnProperty" || call.arguments.len() != 1 {
+                break 'has_own;
+            }
+            let Some(call_receiver) = call_access.expression.and_then(|e| e.node_id()) else {
+                break 'has_own;
+            };
+            // The receivers must be the same reference; the state matcher
+            // keys on the WALKED reference, so compare the two receiver
+            // nodes through it by symbol identity where possible.
+            let receivers_match = reference_receiver == call_receiver
+                || self
+                    .binder
+                    .symbol_of(reference_receiver)
+                    .zip(self.binder.symbol_of(call_receiver))
+                    .is_some_and(|(a, b)| a == b)
+                || match (self.node_map.get(reference_receiver), self.node_map.get(call_receiver)) {
+                    (Some(Node::Identifier(a)), Some(Node::Identifier(b))) => a.text == b.text,
+                    _ => false,
+                };
+            if !receivers_match {
+                break 'has_own;
+            }
+            let Some(Node::StringLiteral(argument)) = tsr_ast::Node::from(call.arguments[0])
+                .node_id()
+                .and_then(|id| self.node_map.get(id))
+            else {
+                break 'has_own;
+            };
+            let accessed = match self.node_map.get(reference) {
+                Some(Node::PropertyAccessExpression(access)) => match access.name {
+                    Some(tsr_ast::MemberName::Identifier(name)) => Some(name.text.to_string()),
+                    _ => None,
+                },
+                Some(Node::ElementAccessExpression(access)) => {
+                    match access.argument_expression.and_then(|e| e.node_id()) {
+                        Some(id) => match self.node_map.get(id) {
+                            Some(Node::StringLiteral(literal)) => Some(literal.text.to_string()),
+                            _ => None,
+                        },
+                        None => None,
+                    }
+                }
+                _ => None,
+            };
+            if accessed.as_deref() != Some(argument.text) {
+                break 'has_own;
+            }
+            let facts = if assume_true { TypeFacts::NE_UNDEFINED } else { TypeFacts::EQ_UNDEFINED };
+            return self.get_type_with_facts(t, facts);
+        }
         // `hasMatchingArgument`: some argument is the reference.
         let matching_index = call.arguments.iter().position(|argument| {
             tsr_ast::Node::from(*argument)
