@@ -5533,3 +5533,25 @@ thirty-fourth pin flipped with its discriminating half preserved
 (any is not `typeof /m.ts`). Diagnostics 2,072 → 2,084 on the
 merged tree. es6ImportDefaultBindingFollowedWithNamedImport1 9,
 modulePreserve4 3, es6ImportNamedImportNoExportMember 2.
+
+## §131 — the missing default import under no-synthetic configs [claimed: checker-1]
+
+**§130's sibling, sized by mechanism sample.** `import d from "m"`
+where `m` carries no `default` export: with synthetic defaults OFF
+(no esModuleInterop / allowSyntheticDefaultImports, ES module
+kinds), upstream reports TS1192 and the alias reads
+errorType-printed-any. With synthetic defaults ON, upstream
+RESOLVES through interop machinery this port lacks — those stay
+gaps (the §130 first pair's allowSyntheticDefaultImports9 lesson,
+applied at the bar instead of after it). The arm: an ImportClause
+default alias whose module's absence-of-`default` is established
+(§130's gates verbatim: resolves, no `export =`, non-empty,
+star-free, identifier-keyed) AND whose options road answers
+no-synthetic answers `any`.
+
+**Bar.** ≥15 G→R at ≥5:1 (mechanism-sampled: the census's
+ImportClause 75 is mixed with interop-resolvable rows this arm must
+skip). Falsifier: the synthetic-default predicate mis-derived from
+options — upstream's `canHaveSyntheticDefault` consults module
+kind, file extension, and the resolution mode, and a too-coarse
+port of it fires the arm exactly where upstream resolves.
