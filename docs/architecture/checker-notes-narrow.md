@@ -6407,3 +6407,20 @@ checkMergedGlobalUMDSymbol). §143's FINAL STATE: slice 1 LANDED
 with complete pairs — the head's remaining value is small and
 priced. The infrastructure (file_path hook, option plumbing,
 directive parse) is landed for whoever returns.
+
+## §144 — unresolvable-root ImportEquals entities read any [claimed: checker-1]
+
+**The ALIAS census's largest surviving row (205 lines / 41
+near-miss), and it is want-ANY throughout** — upstream ERRORS these
+entities too (TS2503-family): `import a = A.B.c` whose ROOT name
+resolves to nothing reads the deliberate error-answer at every use.
+The §31/§119 boundary argument, entity flavor. Establishment: the
+entity's ROOT identifier fails `resolve_name` at NAMESPACE meaning
+— an unresolved root is upstream's own failure (no globals-merge
+question arises for a name NOTHING declares); a root that RESOLVES
+with a failing chain keeps the gap (that half is the port's
+qualified-walk, not upstream's error). **Bar: ≥60 G→R at ≥5:1.**
+Falsifier: cross-FILE roots our single-file resolve_name misses but
+upstream's merged globals find — want-REAL-type lines converting to
+confident any; the want-any census says this class is small, and
+the pair decides.
