@@ -345,6 +345,10 @@ pub struct Checker<'a, 'n> {
     /// `esModuleInterop`, else `module == System`. Consulted by the §131/§132
     /// deliberate-error arms only; a `true` keeps those gaps honest.
     pub(crate) allow_synthetic_defaults: bool,
+    /// §143 slice 2: `allowImportingTsExtensions` — extension-keeping
+    /// import-specifier spellings; the relative-spelling arm declines when
+    /// set.
+    pub(crate) allow_importing_ts_extensions: bool,
     /// `compilerOptions.noUncheckedSideEffectImports`, read through upstream's
     /// `IsTrueOrUnknown` (`checker.go:5321`) — so the default here is `true`,
     /// matching an *unset* option rather than a `false` one.
@@ -768,6 +772,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             module_kind: tsr_core::ModuleKind::None,
             legacy_decorators: false,
             allow_synthetic_defaults: false,
+            allow_importing_ts_extensions: false,
             no_unchecked_side_effect_imports: true,
             no_unchecked_indexed_access: false,
             use_unknown_in_catch_variables: false,
@@ -882,6 +887,7 @@ impl<'a, 'n> Checker<'a, 'n> {
         // `getAllowSyntheticDefaultImports`: explicit wins; else
         // `esModuleInterop` (explicit only — its own Node16+ default is the
         // §131 Node16/NodeNext exclusion's business); else `module == System`.
+        self.allow_importing_ts_extensions = options.allow_importing_ts_extensions.is_true();
         self.allow_synthetic_defaults = match options.allow_synthetic_default_imports {
             tsr_core::Tristate::True => true,
             tsr_core::Tristate::False => false,

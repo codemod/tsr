@@ -6378,3 +6378,18 @@ ones — re-probe); (4) assertionFunctionWildcardImport1's 8 (its
 want shape unread). The host `file_path` hook LANDS with slice 1's
 infrastructure (harmless, default-None). Reverted to the slice-1
 state; the four gates are each small.
+
+**§143 slice 2, second pair — THE UNIFIER FOUND:** gates 1+2
+(.d.ts strip, the allowImportingTsExtensions decline — the option
+plumbed and its directive now parsed) changed NOTHING byte-for-byte:
+the adverse classes aren't extension mechanics. The unifying rule
+all four gates point at: `getSpecifierForModuleSymbol` PREFERS AN
+EXISTING IMPORT SPECIFIER — when the referencing file already
+imports the module, upstream reuses THAT spelling (extension kept
+if written, alias-name if aliased — which also explains gate 3's
+"tri-state misread": those files import the module and upstream
+spells the written form, not a computed path). The rebuild: scan
+the referencing file's import declarations for one resolving to
+the module; reuse its specifier text; only compute a relative path
+when NO import exists. Slice-2 arm reverted; the option plumbing,
+directive parse, and file_path hook stay landed as infrastructure.

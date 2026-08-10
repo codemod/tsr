@@ -514,6 +514,10 @@ pub fn apply_test_directives(
             base.resolve_package_json_imports,
         ),
         preserve_symlinks: tristate("preservesymlinks", base.preserve_symlinks),
+        allow_importing_ts_extensions: tristate(
+            "allowimportingtsextensions",
+            base.allow_importing_ts_extensions,
+        ),
         out_dir: absolute("outdir", base.out_dir),
         declaration_dir: absolute("declarationdir", base.declaration_dir),
         jsx_import_source: get("jsximportsource").map_or(base.jsx_import_source, str::to_string),
