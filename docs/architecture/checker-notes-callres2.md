@@ -639,3 +639,23 @@ now measured. THE SUMMIT'S COMPLETE STATE: snapshots = the winning
 residue; the pipeline's spec = the four stages, read and cited;
 the next window builds THAT, lands the whole, and the twin sets
 close. Fourteen-plus rounds; nothing else remains unknown.
+
+**FINAL CUSTODY VERDICT — the snapshots are MIXED-GENERATION and
+UNRELIABLE; the +665 judgment's exact tree is partially lost.**
+Three reassemblies measured three different results (+665, the
+family-still-wrong dump, and seed+arm-c at net ~-100 vs the best),
+proving the snapshot files span different edit generations — my
+"custody corrected" note was itself wrong, the second custody error
+this arc caught in its own records. WHAT SURVIVES VERIFIED: every
+wire's TEXT in its round entry; TRACE3 = "foo" as the win
+condition; the +665/313 judgment as a REAL measurement of a
+reachable state. THE REBUILD PATH (the only safe one): patches
+126 → 119 → 122 in order, then the doc's wires (reentrancy guard,
+type-first read) as recorded, VERIFYING TRACE3 PRINTS "foo" before
+any pair — and snapshot the tree ONCE, immediately after the
+verified judgment, never again mid-edit. The summit's knowledge is
+intact in text; only the binary state needs one clean rebuild.
+Discipline note for conventions consideration: whole-file
+snapshots taken mid-investigation are a custody liability — a
+draft's canonical form is its ORDERED PATCH SERIES, which this
+study now carries complete.
