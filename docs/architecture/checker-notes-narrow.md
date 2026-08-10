@@ -5834,3 +5834,30 @@ The +208 waits there. DO NOT retry the fill without first unifying
 where reference texts are minted; the iterator-family annotation
 gaps (§135's residual and this section's motivation) are the same
 prisoner.
+
+## §137 — the fourth admission flag: written union order [claimed: checker-1]
+
+**§77.2's twice-refused head, re-entered through the door that was
+open all along.** Both refusals attacked the UNION MINT (origin
+machinery, annotation-mint order); the retry's autopsy said the
+order-wanting positions "never reach the union-NODE path". But
+§136's landing minted a NEW candidate class that DOES: LIB
+signature parameters written `Iterable<T> | ArrayLike<T>`
+(arrayFrom 22, the IteratorObject families ~27, mapGroupBy/
+objectGroupBy 14) — plain written UnionTypeNodes whose constituents
+only became resolvable with the default-fill. Their prints go
+through the §77 written_text PARAMETER CARRIAGE, whose union arm
+already renders written order — but the ADMISSION GATE declines
+them: written reuse fires only on a marker the fresh render cannot
+reproduce (quote §77, Array-head §77.1-era, void position §108.1),
+and a plain union carries none. The fourth flag: **the union's
+WRITTEN constituent order differs from the fresh render's sorted
+order.** Same principle, fourth confirmation attempt; the three
+prior flags each landed at zero adverse.
+
+**Bar.** ≥40 G→R at ≥5:1, measured AFTER the other lane's §137
+lands (their harvest also fattens union pools — census-after
+agreed). Falsifier: positions where upstream genuinely SORTS a
+written union (the §77.2-retry's const-context class) — if the
+flag admits those, the gate needs the annotation-position test
+before the flag.
