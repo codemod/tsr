@@ -4208,7 +4208,13 @@ impl Checker<'_, '_> {
     }
 
     fn check_type_reference_name(&mut self, node: NodeId, text: &str) {
-        if self.file_has_parse_errors || is_specially_diagnosed_name(text) {
+        // **A type position in JavaScript is already a different diagnostic.**
+        // `type a = b` in a `.js` file is TS8008 and upstream stops there — the
+        // annotation is a construct the file may not contain, so nothing inside
+        // it is resolved. The value-position rule has carried this decline
+        // since it was written; this one never got it. §779.
+        if self.file_has_parse_errors || is_specially_diagnosed_name(text) || self.in_js_file(node)
+        {
             return;
         }
         let Some(parent) = self.nodes.parent(node) else { return };

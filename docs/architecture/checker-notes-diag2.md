@@ -39500,3 +39500,76 @@ TS2683 4 · TS1203 4 · TS2376 3 · TS2339 2 · …            92 lines in total
 Each is a wrong line inside an **otherwise-passing** case, so each is worth a
 case if it can be removed. **That is the work list this session should have had
 from the beginning**, and it is written down now.
+
+## §779 — TS2304 in a type position inside a `.js` file
+
+```js
+// a.js
+type a = b;
+```
+```
+-- expected --          -- actual --
+  a.js(1,6) TS8008        a.js(1,6)  TS8008
+                          a.js(1,10) TS2304   ← wrong
+```
+
+A type alias in JavaScript is TS8008 — *"Type aliases can only be used in
+TypeScript files"* — and upstream stops there. The annotation is a parse-level
+construct the file is not allowed to contain, so nothing inside it is resolved.
+`check_type_reference_name` has no `in_js_file` guard and resolves `b` anyway.
+
+Six of TS2304's nineteen wrong lines are this shape, across `decoratorInJsFile`,
+`jsFileCompilationTypeAliasSyntax`,
+`jsFileCompilationHeritageClauseSyntaxOfClass`, `parserUnparsedTokenCrash1` and
+`parserArrowFunctionExpression8`. **The value-position rule already carries a
+JavaScript decline** (`check_value_identifier`'s `in_js_file(node) &&
+cannot_find_name_message(text).is_some()`); the type-position one never got one.
+
+> Second row from `extraonly`'s column, and the same shape as the first: **a
+> guard present on one of two sibling rules.** §777 was TS2310 missing TS2506's
+> ordering; this is the type cascade missing the value cascade's JS decline. The
+> column is turning out to be full of asymmetries between rules that were built
+> at different times.
+
+```
+bar:  +2,  0 LOST,  WRONG delta <= 0
+```
+
+### Falsifiers
+
+1. **A JSDoc type reference stops reporting.** `@type {Foo}` in JavaScript is a
+   legitimate type position and upstream does report an unresolvable name there —
+   if this silences those, the guard is too wide.
+2. **TS8008 / TS8010's rows move.** They are the codes that replace this one.
+3. **A `.ts` file loses a TS2304.** The guard is on the file, and every
+   TypeScript type reference must be unaffected.
+
+## §780 — §779 built: **+1**, and two of six wrong lines went
+
+```
+diagnostics             2,292 → 2,293   (bar was +2;  +1, 0 LOST)   41.78%
+extraonly               TS2304 wrong lines 19 → 17;  TS8008/TS8010 unchanged
+```
+
+All three falsifiers negative — no JSDoc type reference lost its diagnostic, the
+replacing codes did not move, and no `.ts` file changed.
+
+**Two of the six `.js` lines went and four did not.** The four are in cases that
+fail for other reasons as well, so removing the wrong line did not convert them —
+`extraonly` lists a wrong line *in an otherwise-passing case*, and "otherwise
+passing" is evaluated against the whole baseline, so a case can appear there and
+still hold other faults. **The column is a work list, not a promise**, and this
+is the first build to show the difference: twenty lines bought six cases at §777,
+two bought one here.
+
+### The asymmetry, twice
+
+```
+§777   TS2310 lacked TS2506's ordering        the class path deferred nowhere
+§779   the type cascade lacked the value cascade's JS decline
+```
+
+Both are one rule missing something its sibling has, and both were invisible from
+either rule alone. **`extraonly` finds them because a wrong line is the only
+symptom either produces** — a missing guard adds output, and output is exactly
+what the other column cannot see.
