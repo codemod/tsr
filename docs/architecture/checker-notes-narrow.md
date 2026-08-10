@@ -5902,3 +5902,17 @@ narrowingUnionWithBang's dump splits the §137 residue in two:
 Needs a store text mutator (texts are currently immutable
 post-mint — one setter, mint-module-private). NOT built this
 window; the §77.2 ledger gains its third distinct entry road.
+
+**§138 BAR (bar-before-code):** the mint-side same-set override —
+in the UnionTypeNode resolution arm, after the normal sorted build,
+a written constituent order differing at EQUAL SETS overrides the
+minted union's stored text with the written-order spelling
+(first-written-wins; unions intern by constituent set). One store
+mutator, mint-module-scoped. **≥30 G→R at ≥5:1.** Falsifiers:
+(a) const-context literal unions upstream genuinely sorts (the
+§77.2-retry's measured class) — if they fire, the override gates on
+non-const positions; (b) the §137 admission flag double-firing
+(annotation carriage AND mint override racing — the carriage runs
+first and returns, so the mint override must only cover positions
+the carriage never reaches; a double fire would show as zero-delta
+churn, not wrongs).
