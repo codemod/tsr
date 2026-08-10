@@ -401,6 +401,13 @@ impl Checker<'_, '_> {
                         continue;
                     };
                     let property_type = self.get_type_of_symbol(property_symbol);
+                    // SS141: a REFERENCE parameter's member carries the
+                    // target's own type parameters - instantiate through the
+                    // reference so inference sees the call's parameters.
+                    let property_type = {
+                        let image = self.instantiate_for_reference(parameter_type, property_type);
+                        if image == error { property_type } else { image }
+                    };
                     // SS137 (slice 2): members process IN ORDER, a
                     // context-sensitive value checking under the inferences
                     // accumulated so far (upstream's non-omitted pass with

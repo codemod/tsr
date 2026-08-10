@@ -1097,3 +1097,16 @@ answer. Prediction: the 6 rows convert plus kin in
 contextualTypingOfGenericFunctionTypedArguments-class files; falsifier:
 if reference members were already instantiated somewhere on the read
 path this measures zero and the census was mis-attributed.
+
+## §141 LANDED: reference-member instantiation (+112 right, zero R→ regressions)
+
+`instantiate_for_reference` applied at both member reads (the harvest's
+property type; the contextual element road's answer). The bar predicted
+6 rows; the pair delivered **+112** — the raw-member wall was
+load-bearing far beyond the census family: generatedContextualTyping
++65 (annotation-road reference contexts), intraExpressionInferences
++39, typeArgumentInferenceWithObjectLiteral +6. Prices: 17 G→W
+(badInferenceLowerPriorityThanGoodInference 5 — literally the priority
+ladder's name; thislessFunctionsNotContextSensitive1 6). The census
+under-attributed because the same raw read served every
+reference-typed literal context, not just the harvest's.

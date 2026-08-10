@@ -577,6 +577,13 @@ impl<'a> Checker<'a, '_> {
         // finds nothing and gaps — which is the 20 rows in the table above.
         let property = self.get_property_of_type(contextual, name)?;
         let property_type = self.get_type_of_symbol(property);
+        // SS141: a reference context's member instantiates through the
+        // reference (Computed<T>'s read serves () => T_call, not the
+        // target's own parameter).
+        let property_type = {
+            let image = self.instantiate_for_reference(contextual, property_type);
+            if image == self.intrinsics.error { property_type } else { image }
+        };
         // SS135: a member of a literal re-checking under a serve memo reads
         // its type through the pass-1 substitution - the object parameter
         // itself is symbol-backed (uninstantiable structurally), so the
