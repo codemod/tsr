@@ -769,3 +769,21 @@ predicate synthesis (checker-2's, incl. the 48-line never-want equality
 lead handed over); per-site re-rendering (§156/§158/printseam). The
 gate-sized middle is thin — a fresh window should OPEN A WALL, and the
 fixing-mapper unit is the ranked first per both lanes.
+
+### Phase verdict (2026-08-10, checker-2): the tail-sweep is exhausted
+
+The wrong-mass board above 80 lines is now ALL subsystem-scale:
+inferTypePredicates (98 — TS5.5 predicate INFERENCE from bodies),
+dependentDestructuredVariables (93 — TS4.6 dependent destructuring),
+restTuplesFromContextualTypes (90), recursiveTypeReferences1 (90),
+typeParameterConstModifiers (85 — behind §112's guarded prereqs),
+jsdocTemplateTag6 (82), temporal (261 — relater-heavy lib),
+parsingDeepParenthensizedExpression (330 — parser-lane print).
+Every sub-80 family my lane censused either closed (hasInstance
+439/2/0), shrank to a named subsystem block (optionalChain 67 → the
+asserts machinery), or converted whole (capturedLetConstInLoop 48:0
+on checker-1's lead). The next checker_types points come from
+SUBSYSTEM builds: the fixing-mapper unit (requirements complete, both
+lanes), the asserts/effects-signature machinery, dependent
+destructuring, predicate inference. Board at phase close:
+right 414,106/478,954 = 86.47%.
