@@ -5478,3 +5478,9 @@ anything further is priced against it. Two lanes converging on one
 seam within hours is the coordination protocol's first true
 collision; the section-number claim (bar to main first) is what
 kept it a no-op instead of a conflict.
+
+**§129 attribution CORRECTED (flagged by checker-2, same drill as
+ever):** the §533–§539 tsconfig block was the THIRD session's — the
+diagnostics-numbered lane — not checker-2's. The mooting story
+stands unchanged; the ledger now carries the true name. Corrected
+rather than edited silently.
