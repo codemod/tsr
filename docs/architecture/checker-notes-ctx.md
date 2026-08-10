@@ -1079,3 +1079,18 @@ sharpened). The 1 adverse (classPropertyErrorOnNameOnly): a
 property whose ANNOTATION errors now hands the error to its
 initializer's context where the gap previously hid it — the same
 file gained 2 W→R, net positive inside itself. Falsifiers unfired.
+
+## §154 — assertion-family contexts: `as T` and `satisfies T` [claimed: checker-1]
+
+Probed (SS154): an arrow or object literal under `x as T` /
+`<T>x` / `x satisfies T` gets NO context — all three decline into
+error/any while the annotation road types the same shapes.
+Upstream: `getContextualType`'s AssertionExpression arm answers
+the asserted TYPE (`checker.go` assertion arm; a CONST assertion
+answers nil — `as const` is not a type context), and
+SatisfiesExpression answers its type node the same way. Two
+dispatch arms, both `get_type_from_type_node`. **Bar: ≥25 net at
+≥5:1.** Falsifiers: (a) `as const` must keep §105's road
+untouched (it is isConstContext's business, not a contextual
+type); (b) assertion-to-any (`x as any`) must not manufacture
+member types the gap correctly withheld.
