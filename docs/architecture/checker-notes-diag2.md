@@ -43161,3 +43161,89 @@ either selector makes.
 asks *which table* `let x1` and `var x1` are declared into in a function body,
 against upstream's `bindBlockScopedDeclaration` — with the two fixture shapes
 above as its oracle, which is the part this section supplies.
+
+## §865 — TS2403's decidable set is four intrinsics and should be eleven
+
+32 cases blocked on TS2403 alone, and one of them is named
+`duplicateVariablesWithAny`.
+
+`checkVariableLikeDeclaration`'s secondary-declaration arm
+(`checker.go:5929`):
+
+```go
+if !c.isErrorType(t) && !c.isErrorType(declarationType) &&
+   !c.isTypeIdenticalTo(t, declarationType) && symbol.Flags&Assignment == 0 {
+    c.errorNextVariableOrPropertyDeclarationMustHaveSameType(…)
+}
+```
+
+There is **no exemption for `any`** — only for the *error* type, which is a
+different singleton. §257's decidable-primitive subset is the right shape for a
+port with no identity relation, and this port's list is
+
+```rust
+[self.intrinsics.string, self.intrinsics.number, self.intrinsics.bigint, self.intrinsics.boolean]
+```
+
+Every other intrinsic is a singleton too, and for singletons **inequality *is*
+non-identity** — which is the entire argument §257 made for the four already
+there. The missing ones are `any`, `unknown`, `void`, `undefined`, `null`,
+`never`, `es_symbol`.
+
+`error` stays out, and `missing` with it: `error` is upstream's explicit
+exemption, and `missing` is this port's internal marker for an absent
+annotation, which is not a type the user wrote.
+
+> **A subset chosen for a good reason is still a subset**, and this one has been
+> four items long since §257 while the argument for it covered eleven. Nothing
+> re-reads a decidable-set list after the build that introduced it — which is
+> why the row sat at 32 cases with a fixture named after the missing member.
+
+```
+bar:  >= +5 of 32,  0 LOST via `diagpass`,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **`var x: any; var x: any` reports.** Identity holds; `first == next` returns
+   first.
+2. **An unannotated `var x; var x: string` reports where upstream is silent.**
+   `convertAutoToAny` makes the first `any`, so upstream *does* report — but if
+   this port's widening answers `missing` rather than `any`, the pair is
+   excluded rather than compared.
+
+## §866 — §865 measured: **−33**, and `any` is not a type here
+
+```
+all eleven intrinsic singletons   2,340 → 2,307   (−33)
+`any` alone                       2,340 → 2,306   (−34)
+reverted; tree back at 2,340,  diagpass LOST/GAINED both empty
+```
+
+The argument was sound and the premise was wrong. *Inequality is non-identity for
+a singleton* is true of every intrinsic. What is not true is that this port only
+produces `any` **when the user wrote `any`**.
+
+§338 recorded the reason four hundred sections ago, for a different rule:
+
+> ***`any` is this port's "no better answer"*** — the value a widening returns
+> when it cannot compute one.
+
+So `var x: string; var x;` compares `string` against a **verdict**, not against a
+type, and reports a difference the user never wrote. Thirty-four cases of it.
+
+> **A decidable set is not a set of singletons; it is a set of values the port
+> only produces deliberately.** §257 chose four and did not say which property it
+> was choosing on, and eight hundred sections later the obvious generalisation
+> from the *stated* property cost 33 cases in one measurement. The note now says
+> which property, in the code, above the list.
+
+**Refused: TS2403's remaining 32 cases (75 lines), −33 measured.** The row needs a
+real identity relation, which is the structural relation's owner, or a widening
+that distinguishes *"the user wrote `any`"* from *"I could not tell"* — the same
+distinction `bd tsr-7xs` (*"split the 21,685 banked `any` lines into computed and
+defaulted"*) already exists to make.
+
+The `flow.rs` clippy repair from the same build is kept: a wildcard arm that
+matched one variant, in the concurrent workstream's §159 code, red on `-D
+warnings` and blocking `xtask measure` for everyone. **Twenty-second repair.**

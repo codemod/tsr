@@ -1612,7 +1612,7 @@ impl Checker<'_, '_> {
             match self.relate_ternary(sa, ta, crate::relater::Relation::Assignable) {
                 crate::relater::Ternary::Related => {}
                 crate::relater::Ternary::NotRelated => refuted = true,
-                _ => return None,
+                crate::relater::Ternary::Unknown => return None,
             }
         }
         Some(!refuted)

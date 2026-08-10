@@ -7097,6 +7097,14 @@ impl Checker<'_, '_> {
 
     /// An intrinsic primitive: a singleton id, so inequality *is* non-identity.
     fn is_decidable_primitive(&self, id: crate::types::TypeId) -> bool {
+        // **`any` may never join this list, and neither may the rest.** §865
+        // widened it to all eleven intrinsic singletons on the argument that
+        // §257 made for the four — inequality is non-identity for a singleton —
+        // and measured **−33 cases**; `any` alone measured **−34**. The reason
+        // is §338's: in this port `any` is *"no better answer"* as often as it
+        // is the type the user wrote, so comparing it for identity compares a
+        // verdict with a type. The four below are the ones this port only ever
+        // produces deliberately.
         [
             self.intrinsics.string,
             self.intrinsics.number,
