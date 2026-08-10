@@ -138,15 +138,26 @@ impl Checker<'_, '_> {
         // arguments are needed here anyway. A spread has no single position to
         // land on, so it is a gap — but only after the arguments are checked,
         // so the gap does not swallow their own lines.
-        let mut argument_types = Vec::with_capacity(arguments.len());
+        let mut argument_types: Vec<TypeId> = Vec::with_capacity(arguments.len());
         let mut spread = false;
         for &argument in arguments {
             if matches!(argument, Expression::SpreadElement(_)) {
                 spread = true;
             }
-            argument_types.push(self.check_expression(argument));
+            // Context-sensitive arguments type in phase 2 (ORDER, not
+            // exclusion); the placeholder is error and phase 2 overwrites.
+            if is_context_sensitive_argument(&argument) {
+                argument_types.push(self.intrinsics.error);
+            } else {
+                argument_types.push(self.check_expression(argument));
+            }
         }
         if spread {
+            for &argument in arguments {
+                if is_context_sensitive_argument(&argument) {
+                    let _ = self.check_expression(argument);
+                }
+            }
             return error;
         }
 
@@ -253,10 +264,97 @@ impl Checker<'_, '_> {
         // against its parameter's type, accumulating `(type parameter,
         // candidate)` pairs. See [`Checker::infer_from_types`] for which of
         // upstream's arms are ported and why the rest cannot be.
+        // The summit unit (checker-notes-callres2.md): two-phase argument
+        // ORDER — non-context-sensitive arguments infer first, then the
+        // context-sensitive ones check (their contexts served instantiated
+        // through the consumption rule below) and infer; the resolver then
+        // answers per parameter over the collector.
         let mut infos: Vec<InferenceInfo> = Vec::new();
+        // Stage 1, third spec (the read's literal text): the return seed
+        // builds a SEPARATE returnMapper consulted ONLY when instantiating
+        // contextual types (the memo below); it never enters the inference
+        // set and never the final map.
+        let mut return_mapper: Vec<InferenceInfo> = Vec::new();
+        if let Some(call_id) = call
+            && let Some(outer) = self.get_contextual_type_of_call(call_id)
+        {
+            self.infer_from_types(outer, returned, &parameters, &mut return_mapper, 0);
+        }
+        let mut deferred: Vec<usize> = Vec::new();
         for (index, parameter) in signature.parameters.iter().enumerate() {
+            let Some(&argument_expression) = arguments.get(index) else { continue };
+            if is_context_sensitive_argument(&argument_expression) {
+                deferred.push(index);
+                continue;
+            }
             let Some(&argument) = argument_types.get(index) else { continue };
             self.infer_from_types(argument, parameter.r#type, &parameters, &mut infos, 0);
+        }
+        if !deferred.is_empty()
+            && let Some(call_id) = call
+        {
+            // The consumption rule: serve the pass-1 inferences as the
+            // instantiated contexts for the deferred arguments, marking the
+            // consumed parameters fixed. Parameters whose types still
+            // mention unmapped type parameters serve UNINSTANTIATED (the
+            // SS75 semantics) rather than half-instantiated (the first
+            // reunion's measured 363-G-to-W cause).
+            let mut partial: Vec<(TypeId, TypeId)> = flatten_infos(&infos);
+            // argument-partial OVER returnMapper: mapper entries fill only
+            // parameters the arguments left empty.
+            for entry in flatten_infos(&return_mapper) {
+                if !partial.iter().any(|&(tp, _)| tp == entry.0) {
+                    partial.push(entry);
+                }
+            }
+            for (position, &type_parameter) in parameters.iter().enumerate() {
+                if !partial.iter().any(|&(tp, _)| tp == type_parameter)
+                    && let Some(constraint) =
+                        signature.type_parameters.get(position).and_then(|tp| tp.constraint)
+                {
+                    partial.push((type_parameter, constraint));
+                }
+            }
+            let mut memo = signature.clone();
+            for parameter in &mut memo.parameters {
+                let image = self.instantiate_type(parameter.r#type, &partial, &parameters, &names);
+                if image != error && !self.mentions_type_parameter(image, &parameters, &names) {
+                    parameter.r#type = image;
+                    for &(consumed, _) in &partial {
+                        if let Some(info) = infos.iter_mut().find(|i| i.type_parameter == consumed)
+                        {
+                            info.is_fixed = true;
+                        }
+                    }
+                }
+            }
+            let owns_memo = !self.call_inference_signatures.contains_key(&call_id);
+            if owns_memo {
+                self.call_inference_signatures.insert(call_id, memo);
+            }
+            for &index in &deferred {
+                let checked = self.check_expression(arguments[index]);
+                if std::env::var("TSR_TRACE").is_ok() {
+                    let t = self.type_to_string(checked);
+                    eprintln!("TRACE3-ARROW-CHECKED: {t}");
+                }
+                if let Some(slot) = argument_types.get_mut(index) {
+                    *slot = checked;
+                }
+                if let Some(parameter) = signature.parameters.get(index) {
+                    self.infer_from_types(checked, parameter.r#type, &parameters, &mut infos, 0);
+                }
+            }
+            if owns_memo {
+                self.call_inference_signatures.remove(&call_id);
+            }
+        } else {
+            for &index in &deferred {
+                let checked = self.check_expression(arguments[index]);
+                if let Some(slot) = argument_types.get_mut(index) {
+                    *slot = checked;
+                }
+            }
         }
         let candidates: Vec<(TypeId, TypeId)> = flatten_infos(&infos);
         let mut map = Vec::with_capacity(parameters.len());
@@ -1628,6 +1726,10 @@ mod tests {
 pub(crate) struct InferenceInfo {
     pub(crate) type_parameter: TypeId,
     pub(crate) candidates: Vec<TypeId>,
+    /// Upstream InferenceInfo.isFixed: set by the consumption rule when an
+    /// inferred type is served for contextual instantiation; read by the
+    /// widening decision.
+    pub(crate) is_fixed: bool,
 }
 
 pub(crate) fn add_candidate(
@@ -1638,7 +1740,7 @@ pub(crate) fn add_candidate(
     if let Some(info) = infos.iter_mut().find(|i| i.type_parameter == type_parameter) {
         info.candidates.push(candidate);
     } else {
-        infos.push(InferenceInfo { type_parameter, candidates: vec![candidate] });
+        infos.push(InferenceInfo { type_parameter, candidates: vec![candidate], is_fixed: false });
     }
 }
 
@@ -1727,4 +1829,15 @@ impl Checker<'_, '_> {
             None
         }
     }
+}
+
+/// A function-like argument with any unannotated parameter (upstream's
+/// isContextSensitive slice relevant to call inference).
+fn is_context_sensitive_argument(argument: &Expression<'_>) -> bool {
+    let parameters = match argument {
+        Expression::ArrowFunction(node) => node.parameters,
+        Expression::FunctionExpression(node) => node.parameters,
+        _ => return false,
+    };
+    parameters.iter().any(|p| p.r#type.is_none())
 }

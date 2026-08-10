@@ -305,8 +305,20 @@ impl<'a> Checker<'a, '_> {
     /// `compareSignaturesIdentical` loop) is not ported: a union-typed context
     /// answers `None`, because picking one member's signature is a guess and
     /// building the combined one needs `createUnionSignature`.
-    fn contextual_signature(&mut self, function: NodeId) -> Option<Signature> {
+    pub(crate) fn get_contextual_type_of_call(&mut self, call: NodeId) -> Option<TypeId> {
+        self.get_contextual_type(call)
+    }
+
+    pub(crate) fn contextual_signature(&mut self, function: NodeId) -> Option<Signature> {
         let contextual = self.get_contextual_type(function)?;
+        // The tsr-0hc type-first read (the freeze-breaking wire).
+        if self.is_instantiated_signature_type(contextual) {
+            let signatures = self.signature_types.get(&contextual).cloned().unwrap_or_default();
+            if let [signature] = signatures.as_slice() {
+                return Some(signature.clone());
+            }
+            return None;
+        }
         if let Some(signature) = self.single_call_signature(contextual) {
             return Some(signature);
         }
@@ -589,12 +601,44 @@ impl<'a> Checker<'a, '_> {
         // upstream handles at `checker.go:29463` from the argument expressions.
         let index = call.arguments.iter().position(|a| a.node_id() == Some(argument))?;
 
+        // Reunion memo consult (checker-notes-callres2.md): a pass-1
+        // instantiated candidate for THIS call outranks every stateless
+        // road - it is what upstream's resolved-signature threading gives
+        // the second pass.
+        if let Some(call_id) = call.node_id
+            && let Some(memo) = self.call_inference_signatures.get(&call_id)
+        {
+            let parameter = memo.parameters.get(index)?;
+            if parameter.rest || parameter.optional {
+                return None;
+            }
+            return Some(parameter.r#type);
+        }
         let callee = call.expression?;
         let callee_type = self.check_expression(callee);
         if let Some(parameter) = self
             .single_call_signature(callee_type)
             .and_then(|s| s.parameters.into_iter().nth(index))
         {
+            return Some(parameter.r#type);
+        }
+        // Iteration 4 arm (a) (checker-notes-callres2.md, the priority
+        // read): a SINGLE GENERIC candidate's parameter type flows AS-IS -
+        // upstream checks every argument with its parameter type as
+        // context, generic or not (checkExpressionWithContextualType,
+        // checker.go:9485), and the arrow ADOPTS the type parameters (the
+        // SS75 semantics, extended from the annotation road to here). The
+        // SS70 mention guard stays on the multi-candidate agreement path
+        // below, where position-stability is a real question.
+        if let TypeData::Anonymous { symbol, .. } = self.store.get(callee_type).data
+            && let Some(signatures) = self.get_signatures_of_symbol(symbol)
+            && let [single] = signatures.as_slice()
+            && !single.type_parameters.is_empty()
+        {
+            let parameter = single.parameters.get(index)?;
+            if parameter.rest || parameter.optional {
+                return None;
+            }
             return Some(parameter.r#type);
         }
         // §70 (`checker-notes-narrow.md`): OVERLOADED/GENERIC callees whose

@@ -259,6 +259,14 @@ pub struct Checker<'a, 'n> {
     /// same reference's flow walk through the operand's own narrowing and
     /// loop; a node already on this stack answers `t` unchanged instead.
     pub(crate) narrow_value_stack: std::collections::HashSet<tsr_ast::NodeId>,
+    /// callres2 reunion: the pass-1 partially-instantiated candidate, keyed
+    /// by the CALL node — upstream's `getResolvedSignature` cache reduced to
+    /// the inference window (`checker-notes-callres2.md`, the reunion
+    /// design). `contextual_type_for_argument` consults it FIRST, which is
+    /// what lets a context-sensitive callback see instantiated parameter
+    /// types instead of erroring on the circularity.
+    pub(crate) call_inference_signatures:
+        rustc_hash::FxHashMap<tsr_ast::NodeId, crate::signatures::Signature>,
     /// §52's operand memo — upstream's `getTypeOfExpression` is CACHED, and
     /// without the cache every equality re-types its operand, each typing
     /// re-entering other references' walks: exponential on condition
@@ -718,6 +726,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             flow_disabled_containers: rustc_hash::FxHashSet::default(),
             shared_flows: Vec::new(),
             narrow_value_stack: std::collections::HashSet::new(),
+            call_inference_signatures: rustc_hash::FxHashMap::default(),
             narrow_value_types: rustc_hash::FxHashMap::default(),
             union_origin: rustc_hash::FxHashMap::default(),
             enum_value_types: rustc_hash::FxHashMap::default(),

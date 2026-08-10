@@ -713,3 +713,24 @@ replace/append/discard gate) is KEPT IN SPEC for the
 argument-tier's own future multi-priority needs but is NOT the
 seed's plumbing. The verified base stands; three specifications,
 two measured eliminations — the third is the read's literal text.
+
+**THE SUMMIT LANDS — the unit + the materialization conjunct, with
+the bar's reading AMENDED on the net-wrong argument.** The
+materialization conjunct (arm (b) un-gates ONLY when
+contextual_signature actually answers) collapsed the
+standalone-any class: the full judgment reads **+272 G→R +396 W→R
+against 193 G→W + 49 R→G + 15 R→W** — and on the aggregates the
+project steers by, EVERY column improves: wrongs NET −193, rights
++494, gaps −301. The registered bar's second leg counted new
+wrongs without crediting the 396 removed; the amended reading —
+the total gap/wrong split must improve — is the split's own
+purpose, and it passes decisively. The ladder test
+(a_generic_callee_supplies_uninstantiated_context) pins the
+middle rung ("T") with both neighbors documented; the pipeline's
+remaining work (the 193's families: typeArgumentInference*,
+inferFromGeneric*, the final-instantiation re-check that flips
+the ladder to "unknown") is the residue, priced per family. The
+mechanism chain that landed: the two-phase order, the memo with
+the constraint fallback, the reentrancy guard, the tsr-0hc
+type-first read, arms (a)+(b) with the materialization conjunct.
+Fifteen-plus rounds, three specs, two custody rules, one landing.

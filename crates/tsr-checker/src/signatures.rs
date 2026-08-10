@@ -1649,6 +1649,49 @@ impl<'a> Checker<'a, '_> {
     /// argument, an annotated declaration, an object-literal property, a
     /// `return` expression, an `as`) can supply a contextual type, and this
     /// refuses to guess which.
+
+    /// Iteration 4 arm (b)'s test: the node (through parens) is a call
+    /// argument whose callee resolves to exactly one GENERIC signature with
+    /// a real parameter at this position — the shape arm (a) serves.
+    pub(crate) fn single_generic_argument_context(&mut self, node: NodeId) -> bool {
+        let mut position = node;
+        let mut parent = match self.nodes.parent(position) {
+            Some(p) => p,
+            None => return false,
+        };
+        while let Some(Node::ParenthesizedExpression(paren)) = self.node_map.get(parent) {
+            if paren.expression.and_then(|e| e.node_id()) != Some(position) {
+                return false;
+            }
+            position = parent;
+            parent = match self.nodes.parent(parent) {
+                Some(p) => p,
+                None => return false,
+            };
+        }
+        let Some(Node::CallExpression(call)) = self.node_map.get(parent) else {
+            return false;
+        };
+        let Some(index) = call.arguments.iter().position(|a| a.node_id() == Some(position)) else {
+            return false;
+        };
+        let Some(callee) = call.expression else { return false };
+        let Some(call_id) = call.node_id else { return false };
+        if !self.narrow_value_stack.insert(call_id) {
+            return false;
+        }
+        let callee_type = self.check_expression(callee);
+        self.narrow_value_stack.remove(&call_id);
+        let crate::types::TypeData::Anonymous { symbol, .. } = self.store.get(callee_type).data
+        else {
+            return false;
+        };
+        let Some(signatures) = self.get_signatures_of_symbol(symbol) else { return false };
+        let [single] = signatures.as_slice() else { return false };
+        !single.type_parameters.is_empty()
+            && single.parameters.get(index).is_some_and(|p| !p.rest && !p.optional)
+    }
+
     pub(crate) fn has_no_contextual_type(&self, declaration: NodeId) -> bool {
         // §94 (`checker-notes-narrow.md`): a walk over the nil-answering arms
         // of upstream's `getContextualType` dispatch (`checker.go:29343`).
@@ -2368,7 +2411,20 @@ impl<'a> Checker<'a, '_> {
         let error = self.intrinsics.error;
         let Some(parts) = self.signature_parts_of(node) else { return error };
         let unannotated = parts.parameters.iter().any(|parameter| parameter.r#type.is_none());
-        if unannotated && !self.has_no_contextual_type(node) && !self.argument_context_is_any(node)
+        if unannotated
+            && !self.has_no_contextual_type(node)
+            && !self.argument_context_is_any(node)
+            // Iteration 4 arm (b): an argument position under a SINGLE
+            // GENERIC callee has a real context (the uninstantiated
+            // parameter type, arm (a)) - the arrow adopts its type
+            // parameters exactly as the SS75 annotation road's arrows do,
+            // so the gate lifts for precisely this shape.
+            && !(self.single_generic_argument_context(node)
+                // The 37-G->W fix: un-gate ONLY when the context actually
+                // MATERIALIZES - an un-gated arrow whose contextual
+                // signature answers None types standalone-any, a confident
+                // wrong where the gap was honest.
+                && self.contextual_signature(node).is_some())
         {
             return error;
         }
