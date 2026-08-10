@@ -6154,3 +6154,22 @@ the literal's property computation on the same filter. The park's
 map: methods-only is landable-shaped at 2.5:1 zero-regression; the
 fn-expr arm is one poison-trace from flipping ~24 more lines and
 the combined ~5:1.
+
+## §124.1 — the Function-family gate keyed on signatures [claimed: checker-1]
+
+**§142's probe 5 named a §124 defect with reach beyond §142**: the
+established-miss gate blocks any name the Function/CallableFunction/
+NewableFunction interfaces declare (`length`, `name`, `arguments`)
+on EVERY receiver — but the §117 fallback only consults those
+interfaces for SIGNATURE-BEARING receivers. A `.length` miss on a
+NUMBER receiver is fully established (Number's walk completes,
+Function is never consulted) yet the gate blocked it — which is the
+exact poison that erred looseThis's fn-expr bodies under the §142
+mint (`this.n.length` → gap → return inference → literal error).
+The refinement: Object's names always gate (its fallback is
+unconditional for OBJECT-flagged receivers); the Function family's
+names gate ONLY when the receiver carries call/construct
+signatures. **Bar: ≥10 G→R at ≥5:1** (the .length/.name misses on
+non-callable receivers across the corpus), zero R→W tolerated —
+this narrows a conservative gate, so the only possible adverse is
+a receiver whose signatures this port under-records.
