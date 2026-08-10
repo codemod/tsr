@@ -1175,3 +1175,18 @@ and the literal's own print stays honest-wrong at worst. Prediction:
 badInference's result rows and kin move; the literal print rows do not
 regress beyond G→W noise. Falsifier: broad G→W outside inference
 contexts means the detector leaks.
+
+## §143 REFUSED at measured 0/+73-wrong — the memo-active detector leaks
+
+The narrow flip (skip erroring members while any call-inference memo is
+live) gained NOTHING and turned 73 honest gaps wrong: memos are active
+across every literal checked during a deferred pass, so the detector is
+effectively "always, inside generic calls" — precisely the population
+whose whole-literal error was doing honest work
+(contextualTypeFunctionObjectPropertyIntersection 16,
+reverseMapped* 21, intraExpressionInferences itself 15). The seam
+cannot be opened by CONDITION; it can only be opened by giving the
+erroring member a real type — which is the gate's third state
+(§142's finding, unchanged): ungrounded-adopt for the member itself,
+so there is no error to propagate. The seam and the third state are
+ONE build, not two.
