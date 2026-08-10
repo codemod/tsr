@@ -5934,3 +5934,16 @@ carriage behind a same-set admission flag. The residue
 narrowing-rebuild spellings) belongs to per-site rendering — the
 printseam study's arm 3+, where the site is known. DO NOT attempt
 a fourth type-level road; the pair triple confirms the shape.
+
+**Window-close board reading (86.09%):** the remaining checker-1
+rows are subsystem-anchored — ThisKeyword 511 gap lines +
+thisTypeInFunctions' 301 non-right (the `this` typing/narrowing
+subsystem, which also gates §127's asserts-this residue),
+typeGuardsWithInstanceOfBySymbolHasInstance's partial-narrow wrongs
+(`A | C1` where the predicate should remove A — the §111 hasInstance
+family's next trace), the symbol-has-type differs-row (570 lines,
+332 cases, median 2 — long-tail spelling diffusion), and the
+per-site rendering arms. Each has its opener recorded; none is a
+single-tick slice. The next window opens on the `this` subsystem
+trace or printseam arm 2's modulespecifiers — both multi-hour,
+both specified.
