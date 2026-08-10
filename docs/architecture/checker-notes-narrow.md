@@ -5947,3 +5947,20 @@ per-site rendering arms. Each has its opener recorded; none is a
 single-tick slice. The next window opens on the `this` subsystem
 trace or printseam arm 2's modulespecifiers — both multi-hour,
 both specified.
+
+## §139 — OPENER (probed): contextual methods drop their this-parameter print
+
+thisTypeInFunctions2's wrongs (`init(): void` where the want is
+`init(this: IndexedWithThis): void`) are NOT a signature-print
+defect: probefile shows a written `init(this: I): void {}` object
+member printing its this-parameter correctly through the fresh
+road. The dropping shape is a method WITHOUT a written `this`,
+CONTEXTUALLY typed from a target whose declaration carries one —
+upstream's contextual signature hands the method its this-parameter
+(`getThisTypeOfDeclaration` through the contextual road) and the
+node builder prints it; this port's contextually-typed member
+signature loses the slot. Owner: the contextual-signature
+application (the other lane's files) or the §135-family member
+map's signature construction — FLAGGED to checker-2 rather than
+edited across the lane line. ~40+ lines in thisTypeInFunctions2
+alone; the ThisKeyword row's 511 partially hangs here.
