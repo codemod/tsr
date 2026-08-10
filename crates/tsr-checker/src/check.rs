@@ -460,14 +460,21 @@ impl Checker<'_, '_> {
             {
                 self.check_nullable_operand(node, ambient);
                 self.check_operator_operands(node, ambient);
-                self.check_arithmetic_operand_types(node, ambient);
+                let operands_ok = self.check_arithmetic_operand_types(node, ambient);
                 // **A `match` is exclusive and this arm comes first.**
                 // `is_numeric_binary_operator` includes the compound arithmetic
                 // assignments (`-=`, `*=`, `/=`, `%=`, …), so those never reach
                 // the assignment arm below and never saw
                 // `check_reference_expression` — §528's ordering defect, in the
                 // dispatch rather than in a rule. §545.
-                if binary.operator_token.is_some_and(|t| t.kind.is_assignment_operator()) {
+                // **`if leftOk && rightOk`** (`checker.go:12400`): a failed
+                // arithmetic-operand check suppresses `checkAssignmentOperator`,
+                // which is TS2364's site. `this *= value` is upstream's TS2362
+                // alone and was TS2362 **and** TS2364 here. §741 wired the same
+                // shape for the prefix increment; this is the binary arm. §861.
+                if operands_ok
+                    && binary.operator_token.is_some_and(|t| t.kind.is_assignment_operator())
+                {
                     self.check_reference_expression(node);
                 }
                 ambient

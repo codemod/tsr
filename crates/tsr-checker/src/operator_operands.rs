@@ -251,15 +251,23 @@ impl Checker<'_, '_> {
     ///
     /// Error node the **operand**. `docs/architecture/checker-notes-diag2.md`
     /// §65.
-    pub(crate) fn check_arithmetic_operand_types(&mut self, node: NodeId, ambient: bool) {
+    /// Returns `leftOk && rightOk` (`checker.go:12380`) — whether the caller
+    /// may go on to `checkAssignmentOperator`, which is TS2364's site. §861.
+    /// `!isTypeAssignableTo(t, numberOrBigIntType)` as its whole predicate.
+    ///
+    /// Error node the **operand**. `docs/architecture/checker-notes-diag2.md`
+    /// §65.
+    /// Returns `leftOk && rightOk` (`checker.go:12380`) — whether the caller
+    /// may go on to `checkAssignmentOperator`, which is TS2364's site. §861.
+    pub(crate) fn check_arithmetic_operand_types(&mut self, node: NodeId, ambient: bool) -> bool {
         if ambient || self.file_has_parse_errors || self.in_js_file(node) {
-            return;
+            return true;
         }
-        let Some(Node::BinaryExpression(binary)) = self.node_map.get(node) else { return };
+        let Some(Node::BinaryExpression(binary)) = self.node_map.get(node) else { return true };
         if !binary.operator_token.is_some_and(|token| is_arithmetic_operator(token.kind)) {
-            return;
+            return true;
         }
-        let (Some(left), Some(right)) = (binary.left, binary.right) else { return };
+        let (Some(left), Some(right)) = (binary.left, binary.right) else { return true };
         // `checkIdentifier`'s assignment arm ends `return c.errorType`
         // (`checker.go:11093`), and that return is what stops this check: an
         // operand of the error type is never asked whether it is arithmetic.
@@ -275,22 +283,31 @@ impl Checker<'_, '_> {
                 !flags.intersects(SymbolFlags::VARIABLE) || self.is_readonly_symbol(symbol)
             })
         {
-            return;
+            // `checkIdentifier`'s assignment arms answer `errorType`, which is
+            // `Any`, so upstream's `checkArithmeticOperandType` passes and
+            // `checkAssignmentOperator` still runs. §861.
+            return true;
         }
         let left_type = self.check_expression(left);
         let right_type = self.check_expression(right);
         // `checkNonNullType` runs first at this site and reports TS18050 /
         // TS18048 in place of these (§50.3).
         if self.operand_is_nullish(left_type) || self.operand_is_nullish(right_type) {
-            return;
+            // `checkNonNullType` answers `errorType`, so both operands pass
+            // and the assignment check still runs. §861.
+            return true;
         }
         // Two boolean operands are **TS2447** on the operator token, reported
         // before the operand check and returning (`checker.go:12372`).
         if self.type_of(left_type).flags.intersects(TypeFlags::BOOLEAN_LIKE)
             && self.type_of(right_type).flags.intersects(TypeFlags::BOOLEAN_LIKE)
         {
-            return;
+            // Upstream `return c.numberType` **before** `leftOk`
+            // (`checker.go:12372`), so `checkAssignmentOperator` is not
+            // reached. §861.
+            return false;
         }
+        let mut ok = true;
         for (operand, operand_type, message) in [
             (
                 left,
@@ -310,7 +327,9 @@ impl Checker<'_, '_> {
             let Some(file) = self.source_file_of_for_diagnostics(at) else { continue };
             let span = self.error_span(at);
             self.report(file, Diagnostic::new(message, span));
+            ok = false;
         }
+        ok
     }
 
     /// `!isTypeAssignableTo(t, numberOrBigIntType)`, read as a **confident**

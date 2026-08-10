@@ -42976,3 +42976,100 @@ duplicate was never on any list. Its head is now
 and each row names **both** codes, which is the first question such a row raises
 — *which of the two is upstream's*, and therefore which rule is speaking out of
 turn.
+
+## §861 — TS2364 beside TS2362: `if leftOk && rightOk` again
+
+`diagdup`'s third class, 36 lines:
+
+```ts
+class C { constructor() { this *= value; } }
+```
+
+```
+expected   TS2362   the left-hand side of an arithmetic operation must be …
+actual     TS2362
+           TS2364   the left-hand side of an assignment expression must be …
+```
+
+`checkBinaryLikeExpression` (`checker.go:12380`):
+
+```go
+leftOk  := c.checkArithmeticOperandType(left,  leftType,  The_left_hand_side_of_an_arithmetic_operation…)
+rightOk := c.checkArithmeticOperandType(right, rightType, The_right_hand_side_of_an_arithmetic_operation…)
+…
+if leftOk && rightOk {
+    c.checkAssignmentOperator(left, operator, right, leftType, resultType)
+}
+```
+
+**A failed operand check suppresses the assignment-operator check**, and
+`checkAssignmentOperator` is where TS2364 comes from. This is §741's shape
+exactly — *"`ok := …; if ok { checkReferenceExpression(…) }`"* — one arm of the
+same family, and §545 already moved the compound assignments into this dispatch
+arm for a related ordering defect.
+
+### What each early exit must answer
+
+The gate is only sound if the paths that return early return the value upstream
+would have computed:
+
+```
+the error-typed-operand guard   upstream's checkIdentifier answers errorType, which is
+                                Any, so checkArithmeticOperandType passes    -> true
+the nullish guard (§50.3)       checkNonNullType answers errorType, same     -> true
+two boolean operands            upstream `return c.numberType` BEFORE leftOk  -> false
+an operand reported             that is leftOk/rightOk false                  -> false
+```
+
+Getting these backwards suppresses TS2364 where upstream emits it, which is a
+loss rather than a wrong line — so they are worked out from upstream's control
+flow rather than from the guard's local intent.
+
+```
+bar:  >= +1,  0 LOST via `diagpass`,  diagdup TS2364 -> TS2362 lines DOWN from 36
+```
+
+### Falsifiers
+
+1. **TS2364's missing row grows.** The gate is suppressing where upstream
+   reports.
+2. **`diagpass` shows any LOST.**
+
+## §862 — §861 built: **+0**, the gate is faithful and the class is not its fault
+
+```
+diagnostics   2,340 → 2,340   (+0)   42.64%
+diagpass      LOST: (none)   GAINED: (none)
+diagdup       TS2364 -> TS2362:  36, unchanged
+```
+
+The gate is built and correct — `if leftOk && rightOk` now guards
+`check_reference_expression`, with each early exit returning what upstream's
+control flow would have computed. It changes nothing, and reading the case says
+why:
+
+```
+expected   compoundAssignmentLHSIsValue.ts(7,9) TS2362
+actual     compoundAssignmentLHSIsValue.ts(7,9) TS2364
+```
+
+**This port does not emit TS2362 there at all.** `leftOk` is therefore *true*,
+the gate opens, and TS2364 is reported exactly as the code says it should be.
+The duplicate is not a suppression failure; it is a **missing** diagnostic
+wearing an extra one's clothes.
+
+The root: `this` in a constructor does not type as something non-numeric here —
+which is **§852's root**, ten sections ago, for TS2531 on `super` under a `null`
+heritage base. Two `diagdup` classes and one silent row, all three waiting on the
+same type-side gap.
+
+> `diagdup` names both codes per row precisely so this question can be asked, and
+> the answer here inverts the row's appearance: *"TS2364 extra beside TS2362
+> wanted"* reads as *report one fewer*, and the fix is *report one more*. **A
+> duplicate at a right position is ambiguous between two rules by construction,
+> and the instrument can only narrow it to the pair — reading which of the two
+> this port actually emits is the step that cannot be automated away.**
+
+**Kept at `+0`** on §835's rule: upstream has the gate, this port now has it, and
+when the type side supplies `this`'s type the 36 lines resolve without touching
+this rule again. Fourteenth `+0` kept for fidelity.
