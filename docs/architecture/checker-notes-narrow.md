@@ -6789,3 +6789,16 @@ parked; this slice proves the instance half stands alone when the
 POPULATION is gated, which revises §156's joint-landing theory:
 the coupling ran through the UNGATED downstream leak, not the
 halves themselves.
+
+## §156 retry — the constructor mint over §157's landed instance half [claimed: checker-1]
+
+The §156 refusal's own mechanism note predicts this: the 34
+adverse were instance sites leaking TARGET-named texts, and §157
+now spells ImportEquals-alias instance references correctly. The
+identical constructor mint re-measures over the new base. **Bar:
+the ORIGINAL ≥40 at ≥5:1, on the joint state.** Falsifier: the
+collision* adversarial case (aliases named exports/require, 12 of
+the old 34) is upstream's collision-renaming, expected to persist
+— it prices the pair, and if it alone breaks the ratio the gate
+question is whether its lines are separable by mechanism, not by
+case name.
