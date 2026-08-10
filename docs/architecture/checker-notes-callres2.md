@@ -1083,3 +1083,17 @@ branches). Execution order stays exactly §135's. The §137 so_far reads
 the ordered merge. Full pair: only the family moved — 15 W→R against
 5 R→W (the rows whose want IS the later argument's candidate — the
 priority ladder's genuine residue, priced to InferenceInfo step 2).
+
+## §141 BAR (registered before code): reference-member instantiation at both member reads
+
+The `string ||| T` rows (typeArgumentInferenceWithObjectLiteral 14–26):
+a `Computed<T>` parameter's members read RAW — `read: () => T_computed`
+where `T_computed` is the target's own parameter, invisible to the
+call's inference — so the harvest collects nothing and the contextual
+member serves the foreign T. `instantiate_for_reference`
+(members.rs:879) is the existing machinery; §141 applies it to the
+harvest's property type and to `contextual_type_for_object_literal_element`'s
+answer. Prediction: the 6 rows convert plus kin in
+contextualTypingOfGenericFunctionTypedArguments-class files; falsifier:
+if reference members were already instantiated somewhere on the read
+path this measures zero and the census was mis-attributed.
