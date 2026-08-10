@@ -39140,3 +39140,68 @@ layer down.**
 measured and the fourth named**: print `declaration_container_is_a_script`'s
 verdict and its walk for `a.d.ts`'s `declare class X`. Recorded on
 `bd tsr-8esz` with the other two rows that end at this resolver.
+
+## §770 — TS1361: `import type X = require(...)` is type-only too
+
+```ts
+import type A = require('./a');
+A.prototype;                      // TS1361
+```
+
+`declaration_is_type_only`'s kind list — the one §738 added `NamespaceExport` to —
+still has no `ImportEqualsDeclaration`, and that node carries `is_type_only`
+directly on itself. One arm, and the flag is a field rather than a walk to an
+enclosing clause.
+
+```
+ImportSpecifier · NamespaceImport · ImportClause · ExportSpecifier · NamespaceExport
+```
+
+> Third addition to one list this session (§702's `ImportSpecifier` property
+> name, §738's `NamespaceExport`, this). **The list is not converging by being
+> read; it converges by being measured** — each entry arrived from a fixture and
+> none from an inspection of the grammar, including this one, which is the
+> simplest possible member and was missed by two prior passes over the same
+> function.
+
+```
+bar:  +1 of 5 (importEqualsDeclaration),  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **A plain `import A = require('./a')` reports.** Only `is_type_only` counts.
+2. **`const a: A = …` reports.** A type position is a valid use of a type-only
+   alias — `is_valid_type_only_alias_use_site` decides it and is unchanged.
+3. **TS1362's row moves.** Same function, the export half.
+
+## §771 — §770 built: **+1 of 1**, bar met
+
+```
+diagnostics             2,282 → 2,283   (bar was +1;  +1, 0 LOST)   41.60%
+extraonly               zero TS1361 and zero TS1362 lines
+TS1361 missing lines    9 → 8;  5 cases blocked alone → 4
+```
+
+All three falsifiers negative. **One arm, one case, and the simplest member of a
+list that two prior passes over the same function had not added.**
+
+### The list, and how it actually grew
+
+```
+§121   ImportSpecifier · NamespaceImport · ImportClause · ExportSpecifier
+§738   + NamespaceExport               from `exportNamespace10`
+§770   + ImportEqualsDeclaration       from `importEqualsDeclaration`
+```
+
+Six kinds carry a type-only flag and this port found four by reading, two by
+measuring — and the two found by measuring are not obscure. `import type A =
+require(...)` is a spelling any TypeScript user knows, and it was absent from a
+list whose whole job is to enumerate type-only spellings.
+
+> **A list assembled by reading converges on what its author remembered to
+> look for.** §764's sweep found one dispatch mismatch in ninety-one rules and
+> §725's found one gate arm in sixty-one node kinds; both were worth a script.
+> This list is six entries long and the two it was missing came from two
+> different fixtures a hundred builds apart. **The measurement is not a check on
+> the reading — it is the only thing that has ever completed one of these.**

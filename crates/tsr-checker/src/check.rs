@@ -4180,6 +4180,9 @@ impl Checker<'_, '_> {
                     _ => None,
                 }
             }
+            // `import type A = require('./a')` carries the flag on the
+            // declaration itself rather than on an enclosing clause. §770.
+            Node::ImportEqualsDeclaration(n) if n.is_type_only => Some(false),
             Node::ExportSpecifier(n) if n.is_type_only => Some(true),
             // `export type * as ns from './a'` binds a `NamespaceExport`, and
             // it reaches its `type` the same way an `ExportSpecifier` does —
