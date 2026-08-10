@@ -1521,26 +1521,51 @@ impl Checker<'_, '_> {
                 SymbolFlags::VALUE,
             ),
             // `Debug.assert(x)`: an identifier base resolved by name, the
-            // member read from its exports — syntactic, no receiver typing.
+            // member read from its exports; `this.fail()`: the enclosing
+            // class's members table — both syntactic, no receiver typing.
             Some(Node::PropertyAccessExpression(access)) => {
-                let base = match access.expression {
-                    Some(tsr_ast::Expression::Identifier(base)) => self.binder.resolve_name(
-                        self.nodes,
-                        self.node_map,
-                        callee_id,
-                        base.text,
-                        SymbolFlags::VALUE,
-                    ),
-                    _ => None,
-                };
-                base.zip(match access.name {
+                let member = match access.name {
                     Some(tsr_ast::MemberName::Identifier(name)) => Some(name.text),
                     _ => None,
-                })
-                .and_then(|(base, member)| {
-                    let merged = self.binder.merged_symbol(base);
-                    self.binder.symbols().get(merged).exports.get(member).copied()
-                })
+                };
+                match access.expression {
+                    Some(tsr_ast::Expression::Identifier(base)) => self
+                        .binder
+                        .resolve_name(
+                            self.nodes,
+                            self.node_map,
+                            callee_id,
+                            base.text,
+                            SymbolFlags::VALUE,
+                        )
+                        .zip(member)
+                        .and_then(|(base, member)| {
+                            let merged = self.binder.merged_symbol(base);
+                            self.binder.symbols().get(merged).exports.get(member).copied()
+                        }),
+                    Some(tsr_ast::Expression::KeywordExpression(keyword))
+                        if keyword.kind == SyntaxKind::ThisKeyword =>
+                    {
+                        let mut current = callee_id;
+                        let class = loop {
+                            let Some(parent) = self.nodes.parent(current) else { break None };
+                            if matches!(
+                                self.nodes.kind(parent),
+                                SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
+                            ) {
+                                break Some(parent);
+                            }
+                            current = parent;
+                        };
+                        class.and_then(|class| self.binder.symbol_of(class)).zip(member).and_then(
+                            |(class, member)| {
+                                let merged = self.binder.merged_symbol(class);
+                                self.binder.symbols().get(merged).members.get(member).copied()
+                            },
+                        )
+                    }
+                    _ => None,
+                }
             }
             _ => None,
         };
@@ -1563,6 +1588,7 @@ impl Checker<'_, '_> {
             };
             match self.node_map.get(declaration) {
                 Some(Node::FunctionDeclaration(function)) => asserts_return(function.r#type),
+                Some(Node::MethodDeclaration(method)) => asserts_return(method.r#type),
                 Some(Node::VariableDeclaration(variable)) => match variable.r#type {
                     Some(tsr_ast::TypeNode::FunctionTypeNode(function)) => {
                         asserts_return(function.r#type)

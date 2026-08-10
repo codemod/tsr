@@ -5421,3 +5421,13 @@ risk today. Diagnostics moved +5 (2,067 → 2,072: unreachable-read
 diagnostics compose). A refusal reversed by reading ONE more
 function is the cheapest un-refusal on record; §125's re-open note
 said "citing this pair" and this is what the pair bought.
+
+**§128.1 — this-based and method-declared assertion callees (+3/0).**
+The pre-gate's two extensions: a `this.member()` callee resolves
+through the ENCLOSING CLASS's members table (parent walk to the
+ClassDeclaration, `binder.symbol_of`, members read — syntactic, no
+this-typing), and MethodDeclaration joins the declaration shapes.
+assertionTypePredicates1 +3. neverReturningFunctions1's
+`this.fail()` still declines — its resolution road
+(check_expression of a this-property callee) gaps before the
+signature; recorded, not chased.
