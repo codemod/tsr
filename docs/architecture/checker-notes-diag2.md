@@ -41364,3 +41364,79 @@ Three sections, three enum rows, one predicate:
 The remaining const-enum siblings, TS2477 and TS2478 (*non-finite* and *NaN*),
 are already at zero missing — they need the evaluator to **succeed** and produce
 an out-of-range number, which it does.
+
+## §823 — TS1089/TS1092/TS1093: everything a constructor may not have
+
+```ts
+class C { static constructor() { } }   // TS1089, on the `static`
+class C { constructor<T>() { } }       // TS1092, on the `T`
+class C { constructor(): number { } }  // TS1093, on the `number`
+```
+
+Three one-case rows, three upstream sites, and all three are pure syntax on a
+node this port already dispatches:
+
+```go
+grammarchecks.go:547   node.Kind == KindConstructor && flags&Static|Override|Async
+grammarchecks.go:1868  node.TypeParameters != nil    → span the list's contents
+grammarchecks.go:1874  node.Type != nil              → on the annotation
+```
+
+The first belongs in `check_modifier_order`, whose `flags` loop it follows
+upstream — a **fifth** arm placed into that already-ported chain (§103, §183,
+§599, §817). The other two are guards on `ConstructorDeclaration`'s own fields.
+
+TS1092's span is upstream's only subtlety: `pos` is `SkipTrivia(range.Pos())`
+and the end is `range.End()`, so the span covers the type parameters
+**themselves** and not the surrounding `<>` — column 15 for `constructor<T>`,
+which is the `T`. This port's `&[&TypeParameterDeclaration]` gives first and last
+directly, so the span is exact without arithmetic (contrast §811's binding
+element, where the same kind of computation needed a trivia-inclusive `Pos()`
+this port does not have — the difference is that here upstream *skips* trivia
+and there it *relies* on it).
+
+```
+bar:  +3 of 3 (parserConstructorDeclaration2, 9, 10),  0 LOST,  WRONG delta <= 0
+```
+
+### Falsifiers
+
+1. **A plain `constructor() {}` reports any of the three.** Every class in the
+   corpus.
+2. **A `static` method reports TS1089.** The arm is keyed on `Constructor`.
+3. **TS1029/TS1030's rows move.** TS1089's arm sits in their chain.
+
+## §824 — §823 built: **+3 of 3**, three rows closed in one build
+
+```
+diagnostics             2,317 → 2,320   (bar was +3;  +3, 0 LOST)   42.27%
+extraonly               zero TS1089/TS1092/TS1093;  TS1029's one line predates
+missing lines           TS1089 1→0,  TS1092 1→0,  TS1093 1→0     — all three closed
+```
+
+The best build of the tail so far, and the reason is that **the three rows were
+found together**. §815's list showed `parserConstructorDeclaration2`, `9` and
+`10` adjacent in the one-case rows; reading all three fixtures at once cost one
+command and showed they share a node, not a rule.
+
+> §808's filter finds rows by name. The refinement here is that **a numbered
+> fixture family is a work-list**: `parserConstructorDeclaration2/9/10` are three
+> facts about one node kind, and one build amortises the walk, the dispatch arm,
+> the falsifiers and the measurement across all three. Six of this session's
+> builds have been one row each; this one was three rows for the same overhead.
+
+TS1092's span was the only place upstream's arithmetic mattered, and it went the
+opposite way to §811's: upstream **skips** trivia forward from `range.Pos()`,
+where §811's binding element **relies** on `Pos()` being trivia-inclusive to step
+back onto the `=`. A port whose spans start at the token can do the first exactly
+and cannot do the second at all. **Same `Pos()`, opposite direction, opposite
+outcome** — which is the sharpest statement yet of what §641 actually costs.
+
+### §808's filter, eight rows for eight
+
+```
+§807 +2   §809 +2   §813 +2   §815 +1   §817 +1   §819 +1   §821 +1   §823 +3
+```
+
+**Thirteen cases, eight rows, eight builds, zero wrong lines, one refusal
+priced.**

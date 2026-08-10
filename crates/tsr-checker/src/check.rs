@@ -726,7 +726,11 @@ impl Checker<'_, '_> {
             Node::MethodDeclaration(n) => self.check_modifier_order(node, n.modifiers),
             Node::GetAccessorDeclaration(n) => self.check_modifier_order(node, n.modifiers),
             Node::SetAccessorDeclaration(n) => self.check_modifier_order(node, n.modifiers),
-            Node::ConstructorDeclaration(n) => self.check_modifier_order(node, n.modifiers),
+            Node::ConstructorDeclaration(n) => {
+                self.check_modifier_order(node, n.modifiers);
+                self.check_constructor_type_parameters(n);
+                self.check_constructor_type_annotation(n);
+            }
             Node::ParameterDeclaration(n) => self.check_modifier_order(node, n.modifiers),
             Node::IndexSignatureDeclaration(n) => {
                 self.check_index_signature_modifiers(node, n.modifiers);
@@ -5702,6 +5706,47 @@ impl Checker<'_, '_> {
     /// The `else if` **order is the specification**: `static public async`
     /// reports *"public must precede static"* because `static` is tested before
     /// `async`. It is ported in upstream's order for that reason.
+    /// TS1092 — `Type parameters cannot appear on a constructor declaration.`
+    ///
+    /// `checkGrammarConstructorTypeParameters` (`grammarchecks.go:1860`). The
+    /// span is `SkipTrivia(range.Pos())` to `range.End()`, so it covers the
+    /// type parameters **themselves** and not the surrounding `<>`; this port's
+    /// slice gives first and last directly. §823.
+    fn check_constructor_type_parameters(&mut self, node: &tsr_ast::ConstructorDeclaration<'_>) {
+        let (Some(first), Some(last)) = (node.type_parameters.first(), node.type_parameters.last())
+        else {
+            return;
+        };
+        let (Some(start), Some(end)) = (first.node_id, last.node_id) else { return };
+        let Some(file) = self.source_file_of_for_diagnostics(start) else { return };
+        let span =
+            tsr_core::Span { start: self.nodes.span(start).start, end: self.nodes.span(end).end };
+        self.report(
+            file,
+            Diagnostic::new(
+                &messages::TYPE_PARAMETERS_CANNOT_APPEAR_ON_A_CONSTRUCTOR_DECLARATION,
+                span,
+            ),
+        );
+    }
+
+    /// TS1093 — `Type annotation cannot appear on a constructor declaration.`
+    ///
+    /// `checkGrammarConstructorTypeAnnotation` (`grammarchecks.go:1874`),
+    /// reported on the annotation. §823.
+    fn check_constructor_type_annotation(&mut self, node: &tsr_ast::ConstructorDeclaration<'_>) {
+        let Some(at) = node.r#type.and_then(|t| t.node_id()) else { return };
+        let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
+        let span = self.error_span(at);
+        self.report(
+            file,
+            Diagnostic::new(
+                &messages::TYPE_ANNOTATION_CANNOT_APPEAR_ON_A_CONSTRUCTOR_DECLARATION,
+                span,
+            ),
+        );
+    }
+
     fn check_modifier_order(&mut self, node: NodeId, modifiers: &[ModifierLike<'_>]) {
         if self.file_has_parse_errors {
             return;
@@ -5917,6 +5962,26 @@ impl Checker<'_, '_> {
                 self.report_modifier_error(
                     token,
                     &messages::_0_MODIFIER_ALREADY_SEEN,
+                    &[text.to_string()],
+                );
+                return;
+            }
+            // **A constructor takes none of `static`, `override` or `async`**
+            // (`grammarchecks.go:547`), tested after the `flags` loop upstream
+            // and therefore after every arm that could claim the same modifier.
+            // Fifth arm placed into this chain (§103, §183, §599, §817). §823.
+            if self.nodes.kind(node) == SyntaxKind::Constructor
+                && matches!(
+                    kind,
+                    SyntaxKind::StaticKeyword
+                        | SyntaxKind::OverrideKeyword
+                        | SyntaxKind::AsyncKeyword
+                )
+                && let Some(text) = modifier_keyword_text(kind)
+            {
+                self.report_modifier_error(
+                    token,
+                    &messages::_0_MODIFIER_CANNOT_APPEAR_ON_A_CONSTRUCTOR_DECLARATION,
                     &[text.to_string()],
                 );
                 return;
