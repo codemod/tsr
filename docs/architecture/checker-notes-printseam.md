@@ -113,3 +113,28 @@ asserts-this), resolver parity (ImportEquals entity forms 205,
 tsr-9or.1), generator residuals (§135's contextual next-types).
 The print seam is the largest SINGLE owner in checker-1's lane, not
 the only work.
+
+## 5. Step-1 scoping addendum (first read, same day)
+
+`instantiate_signature_type` (inference.rs:889) is ALREADY
+structural — it holds `Signature` structs with TypeId parameters and
+re-renders text via `signature_to_string` at mint time; the §90.1
+print-rename and §89 keep-text machinery hang off it. So the study's
+family-3 description ("string substitution") is PARTLY WRONG as
+written: the signature REBUILD is structural; the string carriage is
+confined to the §77-family written-reuse seams (`written_text`,
+`written_return`) and the §10.13 baked outer texts.
+
+CONSEQUENCE for §136's mystery: the `Iterable<number, any, any>`
+texts should therefore have passed through `type_reference_text`
+(where iteration 4's trim sat) — and measured byte-identical anyway.
+Either the trim's default-resolution comparison failed silently
+(the lib default resolving to a DIFFERENT `any`-flagged TypeId than
+the argument — intrinsic identity vs a substituted clone), or the
+texts are born in a written-reuse substitution after all. **The next
+window's FIRST probe: re-apply §136's fill from its recorded map,
+and put an env-gated eprintln at every point that constructs a
+string containing `", any, any>"** — one filtered typedArrays run
+names the birth site in minutes, and THAT site is where step 2's
+renderer work begins. Do not start step 1's byte-identical refactor
+before this probe; the refactor's shape depends on its answer.
