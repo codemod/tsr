@@ -409,6 +409,28 @@ impl<'a> Checker<'a, '_> {
                 let annotation = declaration.r#type?;
                 Some(self.get_type_from_type_node(annotation))
             }
+            // §154 (`checker-notes-ctx.md`): the assertion family — `x as T`
+            // and `<T>x` answer the asserted type as context, EXCEPT `as
+            // const` (isConstContext's business, not a contextual type);
+            // `x satisfies T` answers its type node the same way.
+            Node::AsExpression(assertion) => {
+                let annotation = assertion.r#type?;
+                if crate::assertions::is_const_type_reference(annotation) {
+                    return None;
+                }
+                Some(self.get_type_from_type_node(annotation))
+            }
+            Node::TypeAssertion(assertion) => {
+                let annotation = assertion.r#type?;
+                if crate::assertions::is_const_type_reference(annotation) {
+                    return None;
+                }
+                Some(self.get_type_from_type_node(annotation))
+            }
+            Node::SatisfiesExpression(node) => {
+                let annotation = node.r#type?;
+                Some(self.get_type_from_type_node(annotation))
+            }
             // §153 (`checker-notes-ctx.md`): a CLASS property's annotation is
             // the same `getContextualTypeForVariableLikeDeclaration` road —
             // the gap the arm above's comment recorded. Initializer position

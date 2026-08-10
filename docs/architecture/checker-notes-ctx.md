@@ -1094,3 +1094,13 @@ dispatch arms, both `get_type_from_type_node`. **Bar: ≥25 net at
 untouched (it is isConstContext's business, not a contextual
 type); (b) assertion-to-any (`x as any`) must not manufacture
 member types the gap correctly withheld.
+
+**Score: +70 / 0 adverse — LANDED.** 37 G→R + 33 W→R:
+contextualTyping 35, castTest 12, typeSatisfaction 5,
+objectLitGetterSetter 4, the tail spread. `is_const_type_reference`
+went pub(crate) to share the §105 detector rather than duplicate
+it. Falsifiers unfired — `as const` declines through the shared
+detector, and no assertion-to-any manufacture appeared in the
+pair. The arc's running total (§152+§153+§154): +295 net across
+three dispatch arms, each a one-read landing — the §116 lesson's
+complement: arms with NAMED consumer populations land at ratio.

@@ -212,7 +212,7 @@ impl Checker<'_, '_> {
 /// decoration — `const<T>` is a reference to a type *named* `const`, which is a
 /// legal if perverse declaration, and treating it as a const assertion would
 /// silently answer the operand's type.
-fn is_const_type_reference(node: TypeNode<'_>) -> bool {
+pub(crate) fn is_const_type_reference(node: TypeNode<'_>) -> bool {
     let TypeNode::TypeReferenceNode(reference) = node else { return false };
     if !reference.type_arguments.is_empty() {
         return false;
