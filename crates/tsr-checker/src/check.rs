@@ -2559,6 +2559,32 @@ impl Checker<'_, '_> {
         let Some(Node::VariableDeclaration(declaration)) = self.node_map.get(node) else { return };
         let Some(list) = self.nodes.parent(node) else { return };
         let Some(statement) = self.nodes.parent(list) else { return };
+        // **Guard four** (`grammarchecks.go:1573`), which sits between §517's
+        // and §509's and is not `using`-specific — so it has to be tested
+        // before the `USING` gate below. §518's rule, applied on the third
+        // insertion into this one function. §632.
+        let for_in_or_of = matches!(
+            self.nodes.kind(statement),
+            SyntaxKind::ForInStatement | SyntaxKind::ForOfStatement
+        );
+        if !self.nodes.flags(list).contains(tsr_ast::NodeFlags::USING)
+            && !for_in_or_of
+            && declaration.initializer.is_none()
+            && matches!(declaration.name, Some(tsr_ast::BindingName::BindingPattern(_)))
+            && !self.declaration_is_in_an_ambient_context(node)
+        {
+            if let Some(file) = self.source_file_of_for_diagnostics(node) {
+                let span = self.error_span(node);
+                self.report(
+                    file,
+                    Diagnostic::new(
+                        &messages::A_DESTRUCTURING_DECLARATION_MUST_HAVE_AN_INITIALIZER,
+                        span,
+                    ),
+                );
+            }
+            return;
+        }
         if !self.nodes.flags(list).contains(tsr_ast::NodeFlags::USING) {
             return;
         }

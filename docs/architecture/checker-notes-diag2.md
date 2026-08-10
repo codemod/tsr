@@ -32826,3 +32826,93 @@ symbol lookup, and the corpus cannot tell the difference.
 
 Also the **fourteenth repair** of the shared tree: an undocumented
 `check_call_expression` arriving red through the rebase.
+
+## §632 — TS1182: `checkGrammarVariableDeclaration`'s fourth guard
+
+```ts
+var { x };      // TS1182 — A destructuring declaration must have an initializer
+var [ y ];      // TS1182
+```
+
+The **fourth** guard of the function §517 and §509 already ported two of
+(`grammarchecks.go:1573`), and it sits *between* them in upstream's order:
+
+```
+1  a binding-pattern name under `using`      TS1492   §517
+2  the `const` arm                           TS1155   §497, declined at −5
+3  ── not for-in/of, not ambient, no initializer ──
+4    a binding pattern whose parent is not one   TS1182   §632
+5    `using` / `await using`                     TS1155   §509
+```
+
+§518 wrote *"a function's guards are a sequence, and porting them out of order
+is only safe if you re-establish the order each time"* after §517 inserted one
+**above** §509's. This inserts one **between** them, and the ordering constraint
+is real in both directions: TS1492 claims a binding pattern under `using` before
+TS1182 sees it, and TS1182 claims one without an initializer before TS1155 does.
+
+> **Three guards of one function, ported in three separate sittings, in the
+> order 3, 1, 4.** The sequence held each time only because §518's rule was
+> applied on each insertion. **A port that adds guards in discovery order needs
+> the position re-derived every time; a port that transcribes the function once
+> does not.** That is the cost of row-driven porting, and it is visible here as
+> three re-derivations of one `if`/`else if` chain.
+
+`!IsBindingPattern(node.Parent)` is vacuous for a `VariableDeclaration`, whose
+parent is always a `VariableDeclarationList`; it excludes a nested
+`BindingElement`, which this rule does not reach.
+
+```
+bar:  +2 of 2,  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **`var { x } = o;` reports.** An initialiser is the legal form.
+2. **`for (const { x } of xs)` reports.** The for-in/of exclusion is guard 3.
+3. **`declare var { x };` reports.** Ambient takes `checkAmbientInitializer`.
+4. **TS1492's or TS1155's row moves.** Both are arms of the same chain.
+
+## §633 — §632 built: **+2**, bar met, TS1182 at zero
+
+```
+diagnostics             2,175 → 2,177   (bar was +2;  +2, 0 LOST)   39.67%
+extraonly               zero TS1182, TS1492 and TS1155 lines
+TS1182 missing lines    2 → 0            — checked after the build (§629)
+```
+
+All four falsifiers negative, including the two that matter: TS1492's and
+TS1155's rows are unmoved, so the three arms of one chain stay exclusive after a
+third insertion.
+
+### One function, three sittings, order 3 → 1 → 4
+
+```
+§509   guard 5   `using` without an initialiser        +3
+§517   guard 1   a binding pattern under `using`       +2
+§632   guard 4   a destructuring declaration           +2
+                                                       ──
+                                                       +7
+```
+
+> **Three re-derivations of one `if`/`else if` chain, and the sequence held only
+> because §518's rule was applied at each insertion.** Row-driven porting pays
+> in small measured increments and charges for it in re-reading: a port that
+> transcribed `checkGrammarVariableDeclaration` once would have paid the reading
+> cost once and had all five arms.
+
+That is the clearest statement this session has of what row-driven porting
+actually costs, and it is not an argument against it — **§497's declined `const`
+arm measured −5**, so transcribing all five would have shipped a known
+regression. **The increments are what made the decline visible.**
+
+### The grammar family after fourteen builds
+
+```
+TS1029 +4  TS1070 +4  TS1014 +3  TS1248 +2  TS2462 +2  TS1308 +1
+TS1805x +3  TS1194 +4  TS1359 +2  TS1184 +2  TS1182 +2
+                                                        ──
+                                                        +29
+```
+
+Thirteen codes closed of the sixty-two with cases.
