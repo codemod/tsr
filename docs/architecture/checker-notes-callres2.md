@@ -1671,3 +1671,17 @@ feeding the IsEmptyAnonymousObjectType guard at flow.go:840. The
 §162 rebuild = these three verbatim + the derivation gates already
 transcribed in §148.3 — every piece now on paper; nothing induced
 remains in the spec.
+
+## §162v2 LANDED: the interface-constructor road, TRANSCRIBED (+44/5 at 8.8:1, ZERO R→W)
+
+The law's first application, same leg, same hour: has-construct gate
+(a callee with construct signatures is Function-derived by
+construction), instance = the PROTOTYPE property's non-any type
+(getInstanceType's first leg; the erased-return and emptyObject legs
+decline in this slice), the any-vs-global-Object/Function guard and
+the false-branch object-flag guard verbatim, then the checkDerived
+worker with reference-target derivation. Where §162-induced churned
+23 R→W, the transcription churns NONE: +31 W→R (narrowFromAny 9,
+byConstructorSignature 6, narrowException 4) + 13 G→R vs 4 G→W +
+1 R→G. The conventions entry's evidence table gains its sharpest row:
+one leg, two builds, 23-vs-0.

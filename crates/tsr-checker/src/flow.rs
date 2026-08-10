@@ -868,7 +868,12 @@ impl Checker<'_, '_> {
         let owner_of = |checker: &Self, id: TypeId| -> Option<SymbolId> {
             match checker.store.get(id).data {
                 TypeData::Named { members: Some(owner), .. } => Some(owner),
-                _ => None,
+                // SS162v2: a REFERENCE derives through its target symbol
+                // (isTypeDerivedFrom over the target's declared base chain).
+                _ => checker
+                    .type_reference_targets
+                    .get(&id)
+                    .map(|(target, _)| checker.binder.merged_symbol(*target)),
             }
         };
         let (Some(t_owner), Some(c_owner)) = (owner_of(self, t), owner_of(self, candidate)) else {
@@ -3200,6 +3205,53 @@ impl Checker<'_, '_> {
                     let TypeData::Anonymous { symbol: class_symbol, .. } =
                         self.store.get(callee_type).data
                     else {
+                        // SS162v2, TRANSCRIBED (flow.go:833-843 + 966-980):
+                        // a callee with construct signatures is
+                        // Function-derived by construction; its instance is
+                        // the PROTOTYPE property's type (non-any) - the
+                        // erased-construct-return and emptyObject legs
+                        // decline in this slice. The any-vs-global guard and
+                        // the false-branch nonempty-object guard verbatim;
+                        // then the checkDerived worker.
+                        let has_construct = self
+                            .signature_candidates_of_named_type(
+                                callee_type,
+                                crate::signatures::SignatureKind::Construct,
+                            )
+                            .is_some_and(|candidates| !candidates.is_empty());
+                        if !has_construct {
+                            return t;
+                        }
+                        let Some(prototype) = self.get_property_of_type(callee_type, "prototype")
+                        else {
+                            return t;
+                        };
+                        let instance = self.get_type_of_symbol(prototype);
+                        if instance == self.intrinsics.error || instance == self.intrinsics.any {
+                            return t;
+                        }
+                        let instance_is_global = ["Object", "Function"].iter().any(|name| {
+                            self.global_type_symbol_with_arity(name, 0).is_some_and(|symbol| {
+                                matches!(
+                                    self.store.get(instance).data,
+                                    TypeData::Named { members: Some(owner), .. }
+                                        if owner == symbol
+                                )
+                            })
+                        });
+                        if t == self.intrinsics.any && instance_is_global {
+                            return t;
+                        }
+                        if !assume_true
+                            && !self.store.get(instance).flags.intersects(TypeFlags::OBJECT)
+                        {
+                            return t;
+                        }
+                        if let Some(narrowed) =
+                            self.narrowed_type_worker_derived(t, instance, assume_true)
+                        {
+                            return narrowed;
+                        }
                         return t;
                     };
                     if !self.binder.symbols().get(class_symbol).flags.intersects(SymbolFlags::CLASS)
