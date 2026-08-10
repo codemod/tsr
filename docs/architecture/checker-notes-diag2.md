@@ -41620,3 +41620,33 @@ this one used it.** A never-set flag is worse than a missing one: it type-checks
 it reads as ported, and it silently answers `false` forever. Worth a sweep of
 its own — `git grep 'NodeFlags::AMBIENT'` is the whole instrument, and after this
 build no live read remains.
+
+## §829 — the never-set-flag sweep, run to exhaustion and **closed**
+
+§828 proposed `git grep 'NodeFlags::AMBIENT'` as an instrument. Generalised over
+all nineteen `NodeFlags` — *"which flags does the checker read that nothing
+sets?"* — it terminates, and the answer is **one**, already repaired.
+
+```
+YIELD_CONTEXT     read 1   comment only, explaining that §-earlier avoided it
+AWAIT_CONTEXT     read 1   comment only, same
+JAVASCRIPT_FILE   read 2   STAMPED — `tsr-compiler/src/lib.rs:282`,
+                           `loader.rs:639`, `dts_emit_suite.rs:327`
+AMBIENT           read 8   the one genuine dead read, repaired at §827
+```
+
+The first pass of this sweep scoped the *setter* grep to `tsr-parser` alone and
+flagged `JAVASCRIPT_FILE` — which `in_js_file` reads and **forty-odd rules
+depend on**. It is stamped by the compiler and the loader, not the parser,
+precisely because ADR-0016 keeps the file name away from the parser.
+
+> **A "nothing sets this" claim is only as wide as the grep that made it.** The
+> near-miss here would have been expensive in the other direction: a false
+> positive on `JAVASCRIPT_FILE` invites "repairing" a mechanism that works, and
+> forty consumers would have absorbed the damage silently. The instrument needs
+> the whole workspace, not the crate the flag conceptually belongs to.
+
+**Closed.** Second sweep this session to end in a complete answer rather than a
+work-list (§772 was the first), and both closed answers are negatives. A negative
+sweep is worth its cost exactly once — recorded here so the next session does not
+pay it again.
