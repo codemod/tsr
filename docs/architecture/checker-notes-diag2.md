@@ -41739,3 +41739,95 @@ parser suites were re-measured and stayed at 100%.
 Same defect, opposite polarity, opposite symptom. §829's inventory is what makes
 that a *prediction* instead of a measurement — and this build used it as one,
 writing the stand-in before the first run rather than after a regression.
+
+## §832 — the synthesised-span sweep, closed; and the `extraonly` column reopened
+
+§831's defect — a real token allocated at another token's position — has the same
+one-command instrument §829 had:
+
+```
+grep -rn "alloc_token(.*Span::at(" crates/tsr-parser/src/     3 sites
+  expression.rs:292   ColonToken, Span::at(self.pos())   a MISSING token in error recovery — correct
+  jsdoc.rs:498        kind,       Span::at(start)        a synthetic KIND discriminator — correct
+  statement.rs        kind,       Span::at(start)        the same discriminator — correct
+```
+
+`await_modifier` was the only **optional real token** in that list, which is why
+it was the only one wrong. **Closed** — third sweep this session to terminate in
+a complete answer.
+
+### The wrong-line column, re-read
+
+77 lines, and the head is no longer what §803 priced:
+
+```
+14  TS2304      9  TS1005     4  TS7006     2  TS7008
+10  TS2322      9  TS2564     4  TS2683     2  TS2339
+```
+
+Eleven of the fourteen TS2304 lines are in `parser*` recovery fixtures, and two
+of them are the same shape:
+
+```ts
+class C extends A extends B { }        // expected: TS2304 on A, TS1172 on the second `extends`
+interface I extends A extends B { }    // we also report TS2304 on B
+```
+
+Upstream resolves the **first** heritage clause of each token kind and leaves the
+rest as recovered syntax. §792 built exactly that predicate —
+`in_duplicate_heritage_clause` — and wired it into `check_type_identifier` only.
+An `extends` name on a **class** is a *value* reference (§334 drew that
+distinction deliberately), so it goes through `check_value_identifier`, where the
+guard was never added.
+
+> §792 wrote the predicate, §334 wrote down which path the name takes, and the
+> two facts sat one function apart for forty sections. **A guard is only as wide
+> as the paths it is called from**, and this workstream's own notes contained both
+> halves of that sentence.
+
+```
+bar:  >= +1 case,  0 LOST,  TS2304 wrong lines 14 -> <= 12
+```
+
+### Falsifiers
+
+1. **`class C extends A implements B` loses `B`.** Different token kinds, both
+   clauses legal.
+2. **TS1172/TS1175's rows move.** They report *on* the duplicate clause and must
+   still fire.
+
+## §833 — §832 built: **+2 cases** from a guard that already existed
+
+```
+diagnostics             2,322 → 2,324   (bar was >= +1;  +2, 0 LOST)   42.35%
+TS2304 wrong lines      14 → 12
+TS1172 / TS1175         still 0 blocked   — falsifier 2 negative
+```
+
+Six lines of code, none of them a predicate. `in_duplicate_heritage_clause` was
+written at §792, `is_value_reference` versus the type path was settled at §334,
+and the two notes sat one function apart for forty sections while
+`class C extends A extends B` kept reporting on `B`.
+
+> **The cheapest defect class in a large port is a correct guard on an incomplete
+> set of call sites**, and it is invisible to every instrument this workstream
+> has: the rule reads as ported, the predicate reads as ported, and only the
+> wrong-line column shows the gap. `extraonly` found it — the fourth time this
+> session that a wrong line, not a missing one, was the thing worth chasing
+> (§777, §782, §820, this).
+
+### What that says about the remaining 77
+
+The column's head is now:
+
+```
+12  TS2304      9  TS1005     4  TS7006     2  TS7008
+10  TS2322      9  TS2564     4  TS2683     2  TS2339
+```
+
+TS2564's nine belong to the type side (§782) and TS1005's nine to `tsr-parser`'s
+recovery. The remaining TS2304 lines are `parser*` fixtures of **different**
+shapes — `duplicatePackage_withErrors` is a module-resolution case,
+`validRegexp` is the recovery difference §254 already named — so the
+same-shape-cluster trick does not extend further here. **Each of the rest is its
+own row.**

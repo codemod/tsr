@@ -3898,6 +3898,15 @@ impl Checker<'_, '_> {
         if self.is_inside_with_statement(node) {
             return;
         }
+        // **A duplicate heritage clause is recovered syntax**, and upstream
+        // resolves only the first of each token kind. §792 built this predicate
+        // and wired it into `check_type_identifier`; an `extends` name on a
+        // *class* is a **value** reference (§334), so it arrives here instead
+        // and the guard was never added. `class C extends A extends B` reported
+        // on `B`, which upstream does not. §832.
+        if self.in_duplicate_heritage_clause(node) {
+            return;
+        }
         // `!ast.NodeIsMissing(node)` (`checker.go:13894`) — upstream does not
         // resolve, and therefore never reports, an identifier the parser
         // synthesised while recovering. `NodeIsMissing` is `pos == end`, and a
