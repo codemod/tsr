@@ -1912,7 +1912,11 @@ mod tests {
                 ("M".to_string(), "typeof M".to_string()), // the declaration
                 ("a".to_string(), "1".to_string()),
                 ("1".to_string(), "1".to_string()),
-                ("x".to_string(), "error".to_string()),
+                // §145 (`checker-notes-narrow.md`): a qualified ImportEquals
+                // whose leaf is a nameless-text VALUE (const, function,
+                // property) reads its target's type; this was "error" while
+                // the qualified arm was wholly gapped.
+                ("x".to_string(), "1".to_string()),
                 ("M".to_string(), "typeof M".to_string()), // the entity name
                 ("a".to_string(), "error".to_string()),
             ],
@@ -1932,7 +1936,11 @@ mod tests {
                 // records as `>A : E.A`. This read `error` until `getTypeOfSymbol`
                 // grew its `ENUM_MEMBER` arm; the pin was the gap, not the answer.
                 ("A".to_string(), "E.A".to_string()),
-                ("q".to_string(), "error".to_string()),
+                // §145 (`checker-notes-narrow.md`): the enum-MEMBER leaf is
+                // ENUM_MEMBER-flagged, not ENUM — it takes the nameless-leaf
+                // arm and reads its own member type, whose text spells the
+                // TARGET chain. "error" here was the gap, not the answer.
+                ("q".to_string(), "E.A".to_string()),
                 ("E".to_string(), "E".to_string()), // the entity name: DECLARED
                 // Still a gap, and a different question: `E.A` on the right of a
                 // qualified name, which no arm answers.

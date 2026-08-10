@@ -451,6 +451,36 @@ impl<'a> Checker<'a, '_> {
                 return any;
             }
         }
+        // §145 (`checker-notes-narrow.md`): a QUALIFIED ImportEquals whose
+        // chain RESOLVES answers the target under the ALIAS'S OWN NAME —
+        // `aliasBug.types` wants `typeof booz`, and the alias name is in
+        // hand here (the tsr-4jk constraint's key). A NAMESPACE-flagged leaf
+        // takes the typeof-mint (member reads flow through the target's
+        // exports); a VALUE leaf types through get_type_of_symbol as any
+        // resolved alias does.
+        if let Some(declaration) = self.declaration_of_alias_symbol(symbol)
+            && let Some(Node::ImportEqualsDeclaration(node)) = self.node_map.get(declaration)
+            && let Some(ModuleReference::QualifiedName(qualified)) = node.module_reference
+            && let Some(target) = self.resolve_qualified_entity(qualified)
+        {
+            // Iteration 2 measured the namespace typeof-mint 182-side
+            // adverse (per-site spellings: `aliasBug` wants the ALIAS name,
+            // `typeofInternalModules` the TARGET chain - the naming wall's
+            // seventh appearance) and iteration 3 the same wall for CLASS
+            // and ENUM leaves (their texts embed their own names). Only
+            // NAMELESS-text leaves - functions, variables, properties -
+            // answer here; the rest keep the gap.
+            let flags = self.binder.symbols().get(self.binder.merged_symbol(target)).flags;
+            if !flags.intersects(SymbolFlags::NAMESPACE | SymbolFlags::CLASS | SymbolFlags::ENUM)
+                && self.get_symbol_flags(target).intersects(SymbolFlags::VALUE)
+            {
+                let computed = self.get_type_of_symbol(target);
+                let computed =
+                    if self.resolutions.pop() { computed } else { self.intrinsics.error };
+                self.symbol_types.insert(symbol, computed);
+                return computed;
+            }
+        }
         let target = self.resolve_alias(symbol);
         // `checker.go:18612`, and the `SymbolFlags::VALUE` test is the
         // stack-overflow guard, not a nicety. It is taken over
@@ -822,6 +852,36 @@ impl<'a> Checker<'a, '_> {
             }
         }
         None
+    }
+
+    /// §145's entity walk: root at NAMESPACE meaning, each right segment
+    /// through merged exports. Any miss answers `None` — §144 owns the
+    /// unresolvable-root error-answer; a resolving walk hands the leaf back.
+    fn resolve_qualified_entity(
+        &mut self,
+        qualified: &tsr_ast::QualifiedName<'a>,
+    ) -> Option<SymbolId> {
+        let mut segments: Vec<&str> = Vec::new();
+        let mut current = qualified;
+        let root = loop {
+            segments.push(current.right?.text);
+            match current.left? {
+                tsr_ast::EntityName::Identifier(name) => break name,
+                tsr_ast::EntityName::QualifiedName(inner) => current = inner,
+            }
+        };
+        let mut symbol = self.binder.resolve_name(
+            self.nodes,
+            self.node_map,
+            root.node_id?,
+            root.text,
+            SymbolFlags::NAMESPACE,
+        )?;
+        for segment in segments.iter().rev() {
+            let merged = self.binder.merged_symbol(symbol);
+            symbol = *self.binder.symbols().get(merged).exports.get(*segment)?;
+        }
+        Some(symbol)
     }
 
     fn declaration_of_alias_symbol(&self, symbol: SymbolId) -> Option<NodeId> {

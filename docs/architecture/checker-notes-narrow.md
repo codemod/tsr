@@ -6459,3 +6459,31 @@ members) have their own print forms (enumAssignmentCompat's
 NAMESPACE-flagged leaf takes the typeof-mint; (b) multi-alias
 scopes where upstream picks another name — the §-family ambiguity
 lesson, watch the pair.
+
+**Score (three iterations): +71 G→R / 6 adverse (11.8:1) — LANDED
+as the NAMELESS-LEAF arm only.** The bar's mint half DIED on its
+own falsifier, spectacularly: iteration 1 (full design — namespace
+leaves mint `typeof <alias-name>`, VALUE leaves type through
+get_type_of_symbol) measured **159:182, net-adverse** — aliasBug
+wants the ALIAS name but typeofInternalModules wants the TARGET
+chain, constEnums 19, collision* 18, privacyLocal* 18: the naming
+wall's SEVENTH appearance, now confirmed for qualified-alias
+namespace leaves. Iteration 2 (VALUE leaves only, no mint): 89:90
+— still even, because CLASS and ENUM leaf types EMBED THEIR OWN
+NAMES (`typeof C`, `E`) and those spellings are per-site too
+(internalAliasClass* 12, collision* 18). Iteration 3 (exclude
+NAMESPACE|CLASS|ENUM — only nameless-text leaves: functions,
+variables, properties, enum MEMBERS, whose texts either carry no
+symbol name or spell the member's own target chain): **71:6**.
+The 6 residue (privacyLocalInternalReferenceImportWithExport):
+inferred RETURN types of functions constructing the aliased class
+print the instance through the alias name where upstream spells
+`m_private.c_private` — the wall grazing the arm's edge from
+downstream, priced and accepted per the §121 precedent. Two pin
+flips (thirty-ninth): the producer's `x`/`q` entity-leaf pins
+were the gap, not the answer — `import x = M.a` reads `1`,
+`import q = E.A` reads `E.A` (enum MEMBERS are ENUM_MEMBER-flagged
+and sail through the ENUM exclusion, measured clean). **The
+namespace/class/enum leaf residue is REFUSED at the naming wall**
+— it joins §138/§136's per-site catalogue: the spelling depends on
+the REFERENCING site's import topology, not the symbol.
