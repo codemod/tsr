@@ -29106,3 +29106,98 @@ domain not the guard — are what made this one cost a single measurement.
 without that test the rule reports on every `declare namespace` companion in the
 corpus — falsifiers 2 and 3, both negative because the guard was ported before
 the first measurement rather than after it.
+
+## §550 — TS1344: a label on a declaration, and a diagnostic the binder was never going to emit
+
+```ts
+NINE:
+var y = 12;      // TS1344 — A label is not allowed here.
+```
+
+`checkStrictModeLabeledStatement` (`binder.go:1433`):
+
+```go
+if ast.IsDeclarationStatement(data.Statement) || ast.IsVariableStatement(data.Statement) {
+    b.errorOnFirstToken(data.Label, diagnostics.A_label_is_not_allowed_here)
+}
+```
+
+**This is a binder diagnostic, and `tsr-binder`'s own module docs say it will not
+be emitting one**:
+
+> *"Strict-mode and contextual-identifier diagnostics. Upstream's binder reports
+> `with` in strict mode, `eval`/`arguments` misuse, and octal literals; none of
+> that is ported."*
+
+That note has been accurate and load-bearing since it was written, and it is
+also the reason this row sat at zero: **a code whose upstream producer is a
+subsystem this port declines is invisible to every scan that starts from the
+checker.** `diagslice` shows it as `0/6` beside every other unbuilt rule, with
+nothing to say that the owner is a different crate.
+
+### Built checker-side, deliberately
+
+The suite compares `(file, line, column, code)` and **not which component
+produced it**, so a binder grammar check ported into the checker's visitor is
+indistinguishable to the oracle. That is worth stating rather than assuming: it
+is the same argument ADR-0006 makes for asserting against generated Go rather
+than `ast.json`, applied to *who* emits rather than *what* is compared.
+
+The alternative — porting `checkStrictModeLabeledStatement` into `tsr-binder`
+and wiring `binder.diagnostics()` through to the suite — is the faithful
+placement and a much larger build: the binder collects diagnostics today and
+nothing consumes them. **Named and not taken** (§501); if the other two families
+in that note (`with`, `eval`/`arguments`, octal) turn out to carry cases, the
+wiring pays for itself and this rule should move.
+
+### The bar
+
+```
+bar:  +6 of 6,  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **A label on a loop or block reports.** That is the *legal* shape and the
+   overwhelming majority; only declarations and variable statements are errors.
+2. **The column is the statement's, not the label's.** `errorOnFirstToken(
+   data.Label)` puts it on the label — `NINE`, not `var`.
+
+## §551 — §550 built: TS1344 to **zero lines**, **+3 cases**, and the bar came off the wrong column
+
+```
+diagnostics                     2,084 → 2,087   (bar was +6;  +3, 0 LOST)   38.03%
+total missing TS1344 lines      6 → 0
+extraonly                       54 → 54
+```
+
+**Every TS1344 line converted and the row is closed**, yet the board moved 3.
+The bar said 6 because it was read from `diagslice`'s **`cases`** column — cases
+*containing* the code — and not from `diagmissing`'s **`cases blocked on X
+alone`**. Three of the six carry another missing code as well.
+
+> **`cases` and `cases blocked alone` are different questions and only one of
+> them is a bar.** The first says how much of the corpus a rule touches; the
+> second says what closing it is worth *today*. Building the whole row and
+> moving half of it is the correct outcome of using the first — the rule is
+> right, the row is at zero, and the remaining three cases now depend on
+> something else entirely.
+
+§549 hit the mirror image of this one build earlier: two codes' `blocked alone`
+counts **under**-count their shared cases, so that bar came in low. Together they
+fix the rule:
+
+```
+bar from `cases`                 over-counts by the cases with other blockers
+bar from one code's `alone`      correct for one code
+bar from two codes' `alone`      under-counts by their intersection
+```
+
+### The row's other half was never a rule
+
+`tsr-binder`'s docs say its strict-mode diagnostics are not ported, and TS1344
+is one of them. Built checker-side because the suite compares
+`(file, line, column, code)` and not the producer — **and it converted every
+line**, which retires the question of whether the binder's placement mattered
+for *this* code. The other three families in that note (`with` in strict mode,
+`eval`/`arguments`, octal literals) remain unported and unpriced.

@@ -635,6 +635,7 @@ impl Checker<'_, '_> {
         }
         if matches!(typed, Node::LabeledStatement(_)) {
             self.check_duplicate_label(node, ambient);
+            self.check_label_is_allowed(node);
         }
         if matches!(typed, Node::ForInOrOfStatement(_)) {
             self.check_for_in_or_of_declarations(node);
@@ -7794,6 +7795,50 @@ impl Checker<'_, '_> {
             return;
         };
         self.report(file, Diagnostic::new(message, span));
+    }
+
+    /// TS1344 — `A label is not allowed here.`
+    ///
+    /// `checkStrictModeLabeledStatement` (`binder.go:1433`). **Upstream emits
+    /// this from the binder**, and `tsr-binder`'s module docs record that its
+    /// strict-mode diagnostics are not ported; the suite compares
+    /// `(file, line, column, code)` and not which component produced a line, so
+    /// the check lives here instead. Moving it is the faithful placement and
+    /// needs `binder.diagnostics()` wired through to the suite, which nothing
+    /// consumes today.
+    ///
+    /// The error node is the **label**, not the statement
+    /// (`errorOnFirstToken(data.Label)`).
+    ///
+    /// `docs/architecture/checker-notes-diag2.md` §550.
+    fn check_label_is_allowed(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let Some(Node::LabeledStatement(labeled)) = self.node_map.get(node) else { return };
+        let Some(statement) = labeled.statement.and_then(|s| s.node_id()) else { return };
+        if !matches!(
+            self.nodes.kind(statement),
+            SyntaxKind::VariableStatement
+                | SyntaxKind::FunctionDeclaration
+                | SyntaxKind::MissingDeclaration
+                | SyntaxKind::ClassDeclaration
+                | SyntaxKind::InterfaceDeclaration
+                | SyntaxKind::TypeAliasDeclaration
+                | SyntaxKind::EnumDeclaration
+                | SyntaxKind::ModuleDeclaration
+                | SyntaxKind::ImportDeclaration
+                | SyntaxKind::ImportEqualsDeclaration
+                | SyntaxKind::ExportDeclaration
+                | SyntaxKind::ExportAssignment
+                | SyntaxKind::NamespaceExportDeclaration
+        ) {
+            return;
+        }
+        let Some(label) = labeled.label.and_then(|label| label.node_id) else { return };
+        let Some(file) = self.source_file_of_for_diagnostics(label) else { return };
+        let span = self.nodes.span(label);
+        self.report(file, Diagnostic::new(&messages::A_LABEL_IS_NOT_ALLOWED_HERE, span));
     }
 
     /// `IsInstantiatedModule` (`ast/utilities.go:2443`).
