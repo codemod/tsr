@@ -30151,3 +30151,97 @@ export = x;     declare let x: { a: string } | { b: number }  // members are a T
 the type side can enumerate a union's members — the owner already carrying
 TS2488/TS2713/TS2493. Recorded with the split counted, so the next session does
 not re-derive that four-of-six.
+
+## §569 — `checkJSSyntax`: TypeScript syntax in a `.js` file, twenty cases behind one walk
+
+Enumerating the parser's JS-grammar family and pricing every code
+(`parser.go:6711`–`6797`):
+
+```
+TS8002  `import =`                    1 case
+TS8004  type parameter declarations   3
+TS8006  interface/enum/module/type-only import & export   5
+TS8009  a TypeScript modifier, and `?`                    6
+TS8010  type annotations                                  5
+                                                         ──
+                                                         20 cases blocked alone
+TS8003 TS8005 TS8008 TS8013 TS8016 TS8017 TS8037 TS8038   all 0
+```
+
+**Twenty cases is the largest decidable block left on the board** and every one
+of them is a syntactic test on a node kind. No symbols, no types, no relation.
+
+### A third producer, same argument
+
+`checkJSSyntax` runs in the **parser**, and this port's parser does not emit it.
+§550 met the same shape with the binder's `checkStrictModeLabeledStatement` and
+built it checker-side, because the suite compares `(file, line, column, code)`
+and **not which component produced the line**. §552 then priced the binder's
+whole message list and found two rows in twenty-two.
+
+> **Three subsystems now, one rule**: the binder (§550), the parser (here), and
+> the loader (§531). *Where upstream emits a diagnostic is a fact about
+> upstream's architecture; where this port emits it is a choice, and the oracle
+> cannot tell.* The faithful placement is worth having when it is cheap and is
+> not worth blocking a row for.
+
+The `NodeFlagsReparsed` guards throughout are JSDoc-reparse machinery this port
+has no equivalent of — it keeps JSDoc out of the tree entirely — so they are
+omitted rather than approximated. That is the same call `strict_mode.rs` made
+for `NodeFlagsJSDoc` at §156.
+
+### The bar
+
+```
+bar:  +20 of 20,  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **A `.ts` file reports.** The entire walk is gated on the file being
+   JavaScript; a leak here is thousands of wrong lines, not a few.
+2. **`export`, `static`, `accessor`, `async`, `default` report as modifiers.**
+   `ModifierFlagsJavaScript` (`modifierflags.go:52`) is exactly those five, and
+   they are legal in JS.
+3. **A JSDoc type annotation reports.** This parser keeps JSDoc out of the tree,
+   which is why the `Reparsed` guards are omitted — if any JSDoc-derived node
+   does reach the walk, TS8010 floods.
+
+## §570 — §569 built: **+12** of a bar of +20; two codes closed, three partly
+
+```
+diagnostics   2,104 → 2,116   (bar was +20;  +12, 0 LOST)   38.56%
+extraonly     54 → 58 cases, and NOT ONE is a TS80xx line
+TS8002  1 → 0     TS8009  8 → 0
+TS8004  3 → 3     TS8006  5 → 2     TS8010  5 → 4
+```
+
+The four new extra-blocked cases carry no code this build emits: they are cases
+that were blocked by a missing line **and** a pre-existing extra, and are now
+blocked by the extra alone. §530 measured the same reclassification and it is
+worth naming, because `extraonly` rising is otherwise the falsifier that stops a
+build:
+
+> **`extraonly` counts cases blocked by an extra *alone*, so converting a
+> missing line can raise it without adding a wrong one.** The test is not
+> whether the number moved but whether any line carries a code the build emits.
+> Reading the count alone would have reverted a clean +12.
+
+### What the residue says
+
+TS8004 did not move at all — **it was never built**: the type-parameter arm of
+upstream's second `switch` was left out of §569, along with the type-only
+import/export arms of TS8006 and four of TS8010's annotation-bearing kinds
+(accessors, arrows, index signatures). That is a scoping omission rather than a
+defect, and it is the next build rather than a refusal.
+
+```
+built     interface · enum · type alias · module · import= · non-null ·
+          annotations on parameter/property/variable/function/method ·
+          `?` postfix · TypeScript-only modifiers
+not yet   type parameter lists · type arguments · `import type`/`export type` ·
+          annotations on accessors, arrows, index signatures ·
+          `implements` clauses · `as`/`satisfies` · parameter modifiers
+```
+
+Nine of the twenty cases are behind that second list.

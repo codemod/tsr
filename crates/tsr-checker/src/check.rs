@@ -655,6 +655,7 @@ impl Checker<'_, '_> {
         if matches!(typed, Node::InterfaceDeclaration(_) | Node::ClassDeclaration(_)) {
             self.check_recursive_base_type(node, typed);
         }
+        self.check_js_syntax(node, typed);
         if matches!(typed, Node::LabeledStatement(_)) {
             self.check_duplicate_label(node, ambient);
             self.check_label_is_allowed(node);
@@ -8103,6 +8104,171 @@ impl Checker<'_, '_> {
         out
     }
 
+    /// The `.js`-file grammar checks — TS8002, TS8004, TS8006, TS8009, TS8010
+    /// and their siblings.
+    ///
+    /// `checkJSSyntax` (`parser.go:6711`). Upstream runs this in the **parser**;
+    /// this port's parser does not emit diagnostics, and the suite compares
+    /// `(file, line, column, code)` rather than the producer — the same
+    /// placement argument §550 made for a binder check.
+    ///
+    /// The `NodeFlagsReparsed` guards are omitted: they are JSDoc-reparse
+    /// machinery and this parser keeps JSDoc out of the tree.
+    ///
+    /// `docs/architecture/checker-notes-diag2.md` §569.
+    fn check_js_syntax(&mut self, node: NodeId, typed: Node<'_>) {
+        if !self.in_js_file(node) {
+            return;
+        }
+        match typed {
+            Node::InterfaceDeclaration(n) => {
+                if let Some(name) = n.name.and_then(|name| name.node_id) {
+                    self.report_js_only(
+                        name,
+                        &messages::_0_DECLARATIONS_CAN_ONLY_BE_USED_IN_TYPESCRIPT_FILES,
+                        Some("interface"),
+                    );
+                }
+            }
+            Node::EnumDeclaration(n) => {
+                if let Some(name) = n.name.and_then(|name| name.node_id) {
+                    self.report_js_only(
+                        name,
+                        &messages::_0_DECLARATIONS_CAN_ONLY_BE_USED_IN_TYPESCRIPT_FILES,
+                        Some("enum"),
+                    );
+                }
+            }
+            Node::TypeAliasDeclaration(n) => {
+                if let Some(name) = n.name.and_then(|name| name.node_id) {
+                    self.report_js_only(
+                        name,
+                        &messages::TYPE_ALIASES_CAN_ONLY_BE_USED_IN_TYPESCRIPT_FILES,
+                        None,
+                    );
+                }
+            }
+            Node::ModuleDeclaration(n) => {
+                if let Some(name) = n.name.and_then(|name| name.node_id()) {
+                    // `scanner.TokenToString(node.Keyword)` — the declaration
+                    // carries the keyword it was written with.
+                    let keyword = if n.keyword.kind == SyntaxKind::NamespaceKeyword {
+                        "namespace"
+                    } else {
+                        "module"
+                    };
+                    self.report_js_only(
+                        name,
+                        &messages::_0_DECLARATIONS_CAN_ONLY_BE_USED_IN_TYPESCRIPT_FILES,
+                        Some(keyword),
+                    );
+                }
+            }
+            Node::ImportEqualsDeclaration(_) => {
+                self.report_js_only(
+                    node,
+                    &messages::IMPORT_CAN_ONLY_BE_USED_IN_TYPESCRIPT_FILES,
+                    None,
+                );
+            }
+            Node::NonNullExpression(_) => {
+                self.report_js_only(
+                    node,
+                    &messages::NON_NULL_ASSERTIONS_CAN_ONLY_BE_USED_IN_TYPESCRIPT_FILES,
+                    None,
+                );
+            }
+            _ => {}
+        }
+        // Type annotations and the `?` token, on the kinds that can carry them.
+        let annotation = match typed {
+            Node::ParameterDeclaration(n) => n.r#type.and_then(|t| t.node_id()),
+            Node::PropertyDeclaration(n) => n.r#type.and_then(|t| t.node_id()),
+            Node::VariableDeclaration(n) => n.r#type.and_then(|t| t.node_id()),
+            Node::FunctionDeclaration(n) => n.r#type.and_then(|t| t.node_id()),
+            Node::MethodDeclaration(n) => n.r#type.and_then(|t| t.node_id()),
+            _ => None,
+        };
+        if let Some(annotation) = annotation {
+            self.report_js_only(
+                annotation,
+                &messages::TYPE_ANNOTATIONS_CAN_ONLY_BE_USED_IN_TYPESCRIPT_FILES,
+                None,
+            );
+        }
+        let question = match typed {
+            Node::ParameterDeclaration(n) => n.question_token,
+            Node::PropertyDeclaration(n) => n.postfix_token,
+            Node::MethodDeclaration(n) => n.postfix_token,
+            _ => None,
+        };
+        if let Some(question) = question
+            .filter(|token| token.kind == SyntaxKind::QuestionToken)
+            .and_then(|token| token.node_id)
+        {
+            self.report_js_only(
+                question,
+                &messages::THE_0_MODIFIER_CAN_ONLY_BE_USED_IN_TYPESCRIPT_FILES,
+                Some("?"),
+            );
+        }
+        // A TypeScript-only modifier. `ModifierFlagsJavaScript`
+        // (`modifierflags.go:52`) is exactly `export`, `static`, `accessor`,
+        // `async` and `default`.
+        if matches!(
+            typed,
+            Node::ClassDeclaration(_)
+                | Node::ClassExpression(_)
+                | Node::MethodDeclaration(_)
+                | Node::ConstructorDeclaration(_)
+                | Node::GetAccessorDeclaration(_)
+                | Node::SetAccessorDeclaration(_)
+                | Node::FunctionExpression(_)
+                | Node::FunctionDeclaration(_)
+                | Node::ArrowFunction(_)
+                | Node::VariableStatement(_)
+                | Node::PropertyDeclaration(_)
+        ) && let Some(modifiers) = modifiers_of(typed)
+        {
+            for modifier in modifiers {
+                let tsr_ast::ModifierLike::Token(token) = modifier else { continue };
+                if matches!(
+                    token.kind,
+                    SyntaxKind::ExportKeyword
+                        | SyntaxKind::StaticKeyword
+                        | SyntaxKind::AccessorKeyword
+                        | SyntaxKind::AsyncKeyword
+                        | SyntaxKind::DefaultKeyword
+                ) {
+                    continue;
+                }
+                let Some(at) = token.node_id else { continue };
+                let text = js_only_modifier_text(token.kind).to_string();
+                self.report_js_only(
+                    at,
+                    &messages::THE_0_MODIFIER_CAN_ONLY_BE_USED_IN_TYPESCRIPT_FILES,
+                    Some(&text),
+                );
+            }
+        }
+    }
+
+    /// `jsErrorAtRange` — the node's own span, with an optional argument. §569.
+    fn report_js_only(
+        &mut self,
+        at: NodeId,
+        message: &'static tsr_diagnostics::Message,
+        argument: Option<&str>,
+    ) {
+        let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
+        let span = self.nodes.span(at);
+        let diagnostic = match argument {
+            Some(argument) => Diagnostic::with_args(message, span, [argument.to_string()]),
+            None => Diagnostic::new(message, span),
+        };
+        self.report(file, diagnostic);
+    }
+
     /// `IsInstantiatedModule` (`ast/utilities.go:2443`).
     fn is_instantiated_module(&self, node: NodeId) -> bool {
         let Some(typed) = self.node_map.get(node) else { return true };
@@ -9318,6 +9484,23 @@ const LIB_FEATURE_NAMES: &[(&str, &str)] = &[
 
 /// The operators [`crate::nullable_operand`] checks, named here so the walk's
 /// guard and the rule agree.
+/// `scanner.TokenToString` for the modifiers a `.js` file may not carry. §569.
+fn js_only_modifier_text(kind: SyntaxKind) -> &'static str {
+    match kind {
+        SyntaxKind::DeclareKeyword => "declare",
+        SyntaxKind::AbstractKeyword => "abstract",
+        SyntaxKind::PublicKeyword => "public",
+        SyntaxKind::PrivateKeyword => "private",
+        SyntaxKind::ProtectedKeyword => "protected",
+        SyntaxKind::ReadonlyKeyword => "readonly",
+        SyntaxKind::OverrideKeyword => "override",
+        SyntaxKind::ConstKeyword => "const",
+        SyntaxKind::InKeyword => "in",
+        SyntaxKind::OutKeyword => "out",
+        _ => "",
+    }
+}
+
 fn is_numeric_binary_operator(kind: SyntaxKind) -> bool {
     matches!(
         kind,
