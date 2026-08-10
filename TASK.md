@@ -652,3 +652,20 @@ no cheap head left — the port's remaining distance is subsystem
 builds, each with its document, each opened from its record and
 not from a label. The two-lane loop's continuing work: checker-1's
 census heads and the summit build in fresh windows.
+
+## checker-2 window close (2026-08-09, §133–§142)
+
+Landed: §133 fixing-fill (ladder complete, +111 net), §134 returnMapper
+guard (+10), §135 intra-expression slice 1 (+103, the benign-return
+unlock), §137 grounded gate (+490), §138 methods+tuples (+15), §140
+candidate-order buckets (+15, the execution-order law), §141
+reference-member instantiation (+112 from a 6-row bar). Refused with
+full records: §139 (thisType subsystem), §142 (the gate's third state
+— the next window's opening rung, complete spec in
+checker-notes-callres2.md). Board: right 412,603/478,954 = 86.15%
+at 962a5adb; day across both lanes 84.63% → 86.15%+.
+
+Next window opens on: the gate's THIRD STATE (ungrounded-adopt for
+literal members under an active inference context + pass-3 re-serve),
+then InferenceInfo step 2 (priority bits; E1/0 common-supertype pair
+— rows banked in §140/§141 records).
