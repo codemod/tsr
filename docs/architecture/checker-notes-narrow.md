@@ -6624,3 +6624,25 @@ implicit any — machinery this port lacks entirely
 The 344-line want-error class is priced at that subsystem, not at
 a declaration-shaped gate; falsifier (c) fired exactly as written.
 Reverted whole; the implicit-any arm stands.
+
+## §149 — the literal-retention-at-argument class: surveyed, walls named [checker-1]
+
+456 WRONG lines want a string literal where we print `string`
+(+83 numeric) — temporal's `smallestUnit: "minute"` family is the
+visible face. Probed BEFORE barring (probefile, three shapes):
+plain alias contextual (`type Unit = "a"|"b"`), generic-alias
+contextual (`Opts<T>` with `T | "auto"` member), and
+member-access method callee (`z.round({...})`) ALL retain
+correctly — §56.3's argument slice is healthier than the wrong
+count suggests. The failures are specific to REAL-lib callees:
+temporal's `round` parameter runs through lib.esnext.temporal's
+GENERIC CONDITIONAL aliases (`SmallestUnit<T>`-style), whose
+instantiation this port cannot expand — the contextual answer
+comes back as un-expandable text and `type_wants_literal`
+correctly declines (44 `no signature` + text-opaque answers in
+the CTX probe census). NO bar: the class prices at
+conditional-type instantiation (a subsystem), joining the
+fixing-mapper pipeline's requirements ledger (§146's close).
+The un-probed residue — non-temporal cases in the 456 — may hold
+smaller admissible slices; a future pass should census by case
+before re-pricing the whole class at the wall.
