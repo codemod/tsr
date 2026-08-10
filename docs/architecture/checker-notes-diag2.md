@@ -30883,3 +30883,86 @@ For a guard on a shared parameter, in order:
 
 Step 3 last, not first — it is the most expensive and the least specific, and in
 both sweeps it changed no decision that steps 1 and 2 had not already made.
+
+## §585 — TS2304: `declare global` is not a name
+
+```ts
+export {}
+declare global { const x: any }
+global.x                          // TS2304 — Cannot find name 'global'
+```
+
+`spellingSuggestionGlobal1` and `…4` are the pair, and the fixture's own comment
+says *"should not suggest `global` (GH#42209)"*.
+
+The value-site cascade returns early when the name resolves under **any** of
+TYPE, NAMESPACE or ALIAS. `global` resolves as a NAMESPACE here because this
+binder declares the augmentation's `ModuleDeclaration` under the text `global`.
+Upstream does not: a global-scope augmentation is bound as
+`InternalSymbolNameGlobal` — `__global` — so the *name* `global` resolves to
+nothing and TS2304 is reached.
+
+> **A symbol this port names and upstream does not is invisible to every rule
+> that asks "does this resolve?"** §522 found the mirror image — a declaration
+> upstream's loop never *reaches* — and this is the same class from the naming
+> side: the port's symbol table is a superset, and a superset silences
+> not-found rules exactly where the extra entries are.
+
+### The narrowing
+
+Exclude, from that early return, a symbol whose declarations are **all**
+global-scope augmentations — a `ModuleDeclaration` named `global` in an ambient
+context. Syntactic, and narrower than renaming the symbol in the binder, which
+would touch `binder_symbols` at 100%.
+
+```
+bar:  +2 of 15,  0 LOST,  WRONG delta <= +1,  binder_symbols stays at 100%
+```
+
+### Falsifiers
+
+1. **A legitimate `declare global` member stops resolving.** The augmentation's
+   *exports* are merged into globals (`binder.rs:664`) and must keep working;
+   only the container's own name is affected.
+2. **A namespace actually named `global` in a non-ambient file reports.** That
+   is a normal namespace and upstream binds it normally.
+
+## §586 — §585 measured **+0 with nothing moving**, and §568's rule applied to itself
+
+```
+diagnostics                   2,136 → 2,136
+TS2304 cases blocked alone    15 → 15
+binder_symbols                100%
+```
+
+The narrowing excluded a global-augmentation symbol from the value cascade's
+early return and **no line moved**, so the path is not demonstrably reached —
+`global.x`'s `global` may never arrive at that cascade at all, since it is a
+property-access receiver rather than a bare identifier reference.
+
+§568 set the rule and it applies here without amendment:
+
+> *"A `+0` is worth keeping when you can show the port now does what upstream
+> does; it is not worth keeping when all you can show is that nothing broke."*
+
+Reverted. **Second time this session that rule has retired a build of mine, and
+the first time it did so against a change I had argued was more faithful** —
+faithfulness has to be demonstrable, and "upstream binds this under a different
+internal name" is a claim about upstream, not evidence that this code path runs.
+
+### What is established
+
+```
+upstream binds `declare global` as `__global`     read, checker.go
+this binder declares it under the text `global`   read, binder.rs:1019
+the value cascade's early return is not where
+  `global.x` is decided                           MEASURED, +0
+```
+
+The third line is the new one and it is what the next attempt needs: the row is
+not in `check_identifier_is_resolvable`'s cascade, and finding where it *is*
+requires a positive control on a case that already converts (§547), not another
+reading of the binder.
+
+**Recorded as a refusal with the path eliminated**, which is worth more than the
++0 would have been.
