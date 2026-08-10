@@ -33157,3 +33157,94 @@ third time**, which is what a genuinely empty row should cost.
 ```
 
 Seventeen codes closed of the sixty-two with cases.
+
+## §640 — TS1186: a rest element with an initializer
+
+```ts
+var [...x = a] = a;   // TS1186 — reported on the `=`, column 11
+```
+
+`checkGrammarBindingElement`'s third report (`grammarchecks.go:1549`), and the
+only one of the three whose **position is computed rather than a node**:
+
+```go
+return c.grammarErrorAtPos(node, node.Initializer.Pos()-1, 1, …)
+```
+
+Upstream's `Pos()` includes leading trivia, so `Initializer.Pos()-1` lands on the
+`=`. **This port's spans exclude trivia**, so the same arithmetic lands on
+whatever character precedes the initializer's first token — a space in
+`[...x = a]`.
+
+> **§616's lesson, met before the build rather than after it.** That row emitted
+> a right line at a wrong column and cost a `+0` to discover; here the
+> divergence is visible in the two `Pos()` semantics and the build starts by
+> checking it. `diagcase` is the instrument either way, and the difference is
+> whether it runs first or second.
+
+The build reports at the initializer's start minus one and **verifies the column
+before claiming the row**, per §616 and §629.
+
+```
+bar:  +2 of 2,  0 LOST,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **`[x = a]` reports.** A non-rest element may have an initializer.
+2. **TS2462's row moves.** §608 owns the *not last* arm of the same function.
+3. **The column is not the `=`.** The whole point of the `Pos()-1` arithmetic.
+
+## §641 — TS1186 is unportable at its position, and the class it belongs to
+
+Built, measured, and **the line landed at column 12 where the baseline says 11**:
+
+```
+-- expected --                                -- actual --
+  restElementWithInitializer1.ts(2,11)          restElementWithInitializer1.ts(2,12)
+```
+
+Upstream reports it with **position arithmetic**, not a node:
+
+```go
+c.grammarErrorAtPos(node, node.Initializer.Pos()-1, 1, A_rest_element_cannot_have_an_initializer)
+```
+
+and `Pos()` in typescript-go is **trivia-inclusive** — for `a` in `= a`, it is the
+offset immediately after the `=`, so `Pos()-1` *is* the `=`. **This port's spans
+exclude trivia**, so the same arithmetic lands on the space.
+
+Nothing available reproduces it: `BindingElement` has `dot_dot_dot_token`,
+`property_name`, `name` and `initializer` and **no `=` token**, and the checker
+has no access to source text. Reverted rather than fitted — subtracting two, or
+anchoring on the name's end, would encode *"one space either side of the `="* and
+that is §594's fitting-the-measurement.
+
+> **A trivia-inclusive `Pos()` is a fact about upstream's AST that this port
+> chose not to carry, and it is load-bearing for every diagnostic positioned by
+> arithmetic rather than by node.** ADR-0003's tree-plus-side-tables design
+> stores a `Span` per node with no trivia; nothing in the notes recorded that
+> this makes a class of upstream positions unreachable, and it does.
+
+### The class, priced
+
+`grammarchecks.go` calls `grammarErrorAtPos` **eleven times**, carrying:
+
+```
+A_rest_element_cannot_have_an_initializer          TS1186   2 cases  ← this row
+Type_argument_list_cannot_be_empty                          0
+Type_parameter_list_cannot_be_empty                         0
+Type_parameters_cannot_appear_on_a_constructor_declaration  0
+Variable_declaration_list_cannot_be_empty                   0
+X_0_list_cannot_be_empty                                    0
+X_0_expected                                                see §617's TS1005 pool
+```
+
+**Two cases in the whole class**, so the missing capability costs almost
+nothing today — which is why it is recorded rather than built. The `_expected`
+sites are the same TS1005 pool §617 priced at 53 lines and §618 showed has no
+common cause; **this note supplies one for a subset of it**: any TS1005 emitted
+by `grammarErrorAtPos` rather than `parseExpected` is off by the leading trivia.
+
+**Owner: `tsr-ast`'s span model**, and the honest price is two cases plus an
+unknown share of §617's pool.
