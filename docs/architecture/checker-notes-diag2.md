@@ -49283,3 +49283,47 @@ not the name. One line, five wrong lines gone, two more cases.
 The row is now **12 right lines and no wrong ones**, with the remaining 22
 behind `getExportsOfModule` exactly as §1010 named. Three of the nine
 sole-obstacle cases converted; the rest are the named exports.
+
+## §1014 — `diagcolumn`'s seven, and the one defect behind five of them
+
+§1013 named the class — *right code, wrong position, which reads as a count
+error in every instrument that aggregates* — and `diagcolumn` has existed all
+along to see it. It was not run this session until now.
+
+```
+-- cases blocked by column ALONE --
+  compiler/incompleteDottedExpressionAtEOF     TS1003 17->18
+  compiler/privateNameJsx                      TS1003 27->22
+  compiler/unclosedExportClause01              TS1005 13->18, 10->15, 18->23
+  conformance/classAbstractManyKeywords        TS1005 1->9
+  conformance/commaOperatorWithoutOperand      TS2695 2->3
+  conformance/deleteOperatorInvalidOperations  TS1102 26->27, TS2703 26->27, …
+  conformance/parserKeywordsAsIdentifierName2  TS1010 12->10
+```
+
+Seven cases, and the two that looked most like this workstream's turned out to
+be one defect that is not:
+
+```
+var BOOLEAN1 = ANY delete ;      want 26, got 27
+                          ^ 26 is the space after `delete`; 27 is the `;`
+( , );                           want 2,  got 3
+  ^ 2 is the space after `(`;  3 is the `,`
+```
+
+**This port's parser places a missing node at the next real token; upstream
+places it at the point of omission.** Both diagnostics are reported on the
+*operand*, correctly, by rules that are not wrong — the operand simply starts a
+character too late.
+
+> The two cases read as five wrong lines and five missing lines across four
+> codes, in two of which (TS1102, TS2703) this workstream has no rule at all.
+> **A single character of parser recovery, aggregated, looks like four rules
+> mis-reporting.**
+
+Owner: `tsr-parser`, and it is deliberately **not attempted here**.
+`parser_typescript` is at **100%** and a missing-node position is exactly the
+kind of change that moves it; the diagnostics workstream should not spend
+another suite's number on two of its own cases. Filed with the number: **7 cases
+blocked by column alone, of which 5 are parser recovery and 2 (`TS1003` on JSX
+private names, `TS1010`) are separate**.
