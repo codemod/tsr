@@ -46950,3 +46950,49 @@ scoped to `Node::ExportAssignment`, which is the node upstream widens at.
 The one remaining line is `nonMergedOverloads`-adjacent and wants TS2528 at a
 position this port does not reach; it is not worth a second build and is
 recorded rather than opened.
+
+## §959 — `diagemit`'s ported-set is derived, and the sweep it enables is clean
+
+§958 found a rule that had been ported, commented at length and **never fired**.
+The reason it went unnoticed for so long is in `diagemit`'s own comment:
+
+> *"a code missing from it is labelled `unported` rather than `**SILENT**`, so
+> §846's silent-rule sweep could only ever see the rows someone had remembered
+> to add."*
+
+§878 regenerated the list by hand. It has lagged **four times since** — §954
+(2432, 2774), §956 (2303), §958 (2528) — and TS2528's row read `unported` while
+its rule sat in the binder. So the list is now **computed**: `messages.rs` gives
+`CONSTANT → code`, every `messages::CONSTANT` mentioned under `tsr-checker` or
+`tsr-binder` marks that code ported. Two passes of plain text, no build step,
+nothing to remember.
+
+### The derivation's first run was wrong, and said so
+
+```
+TS2774    65    4   61   unported      ← its rule shipped at §944
+TS2432     9    9    0   unported      ← its rule shipped at §953
+```
+
+`rustfmt` keeps a short constant on one line and wraps a long one, so the code
+is on the *declaration* line in one layout and the *next* line in the other.
+Reading only the next line dropped every single-line constant — **the
+instrument built to find rules that never fire, failing to see rules that do.**
+Handling both layouts: 187 ported rows → **230**.
+
+### The sweep
+
+```
+TS1253    1    0    1    **SILENT**
+```
+
+**One row, and it is worth nothing**: `diagmissing` puts its single line in
+`errorInUnnamedClassExpression`, a case blocked on other codes too — *0
+sole-obstacle cases*. It is not opened, and that is recorded here so it is not
+opened next session either.
+
+> The honest result of the sweep is **that there is no trove**. §957 was a
+> one-off the hand-kept list happened to hide, not the first of many. Worth
+> stating plainly: a detector that finds nothing is evidence, and the next
+> session should not spend a cycle re-running this one hoping for a different
+> answer.

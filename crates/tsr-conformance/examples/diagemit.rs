@@ -13,7 +13,7 @@
 //! `checkFunctionOrConstructorSymbol` on its first line and silenced four codes
 //! at once), and this is the instrument that would have found it in one run.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use tsr_conformance::{
@@ -51,11 +51,12 @@ fn main() {
     // needed the whole list to sweep for `**SILENT**` rows — codes this port
     // has ported and never emits — and `.take(60)` was hiding them, which is
     // §829's rule about the width of a grep applied to an instrument.
+    let rule_codes = rule_codes();
     let limit = std::env::args().nth(1).and_then(|arg| arg.parse::<usize>().ok()).unwrap_or(60);
     for (code, wanted) in ranked.iter().take(limit) {
         let emitted = have.get(code).copied().unwrap_or(0);
         let absent = gone.get(code).copied().unwrap_or(0);
-        let note = if !RULE_CODES.contains(code) {
+        let note = if !rule_codes.contains(code) {
             "unported"
         } else if emitted == 0 {
             "**SILENT**"
@@ -102,26 +103,75 @@ fn measure(case: &CaseEntry) -> Option<Tallies> {
 /// The codes this port's rules emit.
 ///
 /// **Derived, not hand-kept.** The hand-kept list had 67 entries and was wrong for
-/// codes this port emits hundreds of times — TS1005 (877), TS2300 (495), TS1109
-/// (334) — which mattered because a code missing from it is labelled `unported`
-/// rather than `**SILENT**`, so §846's silent-rule sweep could only ever see the
-/// rows someone had remembered to add. Regenerated at §878 from every
-/// `messages::CONSTANT` referenced in `tsr-checker` and `tsr-binder`, mapped to its
-/// code in `messages.rs`: 282 constants, 232 codes.
-const RULE_CODES: &[u32] = &[
-    1014, 1015, 1016, 1021, 1028, 1029, 1030, 1031, 1035, 1036, 1038, 1039, 1040, 1042, 1044, 1046,
-    1047, 1048, 1049, 1051, 1053, 1054, 1063, 1070, 1071, 1089, 1090, 1092, 1093, 1100, 1102, 1103,
-    1107, 1108, 1114, 1120, 1141, 1155, 1156, 1163, 1169, 1170, 1172, 1173, 1174, 1175, 1176, 1182,
-    1183, 1184, 1186, 1187, 1191, 1192, 1194, 1203, 1206, 1210, 1212, 1213, 1214, 1215, 1221, 1222,
-    1243, 1244, 1248, 1253, 1254, 1268, 1308, 1317, 1319, 1323, 1344, 1345, 1492, 2300, 2301, 2302,
-    2303, 2304, 2305, 2306, 2307, 2310, 2313, 2314, 2315, 2320, 2322, 2331, 2335, 2337, 2339, 2341,
-    2345, 2347, 2348, 2349, 2351, 2352, 2357, 2358, 2362, 2363, 2364, 2365, 2368, 2374, 2376, 2377,
-    2378, 2384, 2389, 2390, 2392, 2393, 2397, 2403, 2408, 2411, 2414, 2415, 2417, 2420, 2427, 2428,
-    2430, 2432, 2433, 2434, 2437, 2438, 2440, 2448, 2449, 2450, 2451, 2452, 2454, 2457, 2459, 2462,
-    2465, 2466, 2474, 2481, 2484, 2503, 2507, 2516, 2524, 2528, 2531, 2532, 2533, 2539, 2540, 2551,
-    2552, 2554, 2555, 2558, 2576, 2583, 2584, 2585, 2588, 2591, 2592, 2593, 2610, 2628, 2629, 2630,
-    2631, 2632, 2664, 2669, 2678, 2686, 2693, 2694, 2695, 2703, 2707, 2708, 2709, 2724, 2729, 2741,
-    2774, 2790, 2840, 2863, 2864, 2868, 2872, 2873, 2874, 6133, 6138, 6142, 6192, 6196, 6198, 6199,
-    6205, 7006, 7008, 7013, 7019, 7027, 7031, 7041, 8002, 8004, 8005, 8006, 8008, 8009, 8010, 8013,
-    8016, 18006, 18014, 18016, 18041, 18047, 18048, 18049, 18050, 18058, 18059,
-];
+/// The codes this port has a rule for, **derived from the source** rather than
+/// listed by hand.
+///
+/// A code missing from this set is labelled `unported` instead of `**SILENT**`,
+/// so a hand-kept list can only ever surface the silent rules someone
+/// remembered to add. §878 regenerated it once and it lagged four more times —
+/// §954 (2432, 2774), §956 (2303), §958 (2528) — and §958 is the reason this is
+/// now computed: TS2528's rule had been ported, commented at length and never
+/// fired, and the row read `unported` because nobody had added the number.
+///
+/// Two passes of plain text, no build step and nothing to remember:
+/// `messages.rs` gives `CONSTANT → code`, and every `messages::CONSTANT`
+/// mentioned under `tsr-checker` or `tsr-binder` marks that code as ported.
+/// `checker-notes-diag2.md` §959.
+fn rule_codes() -> BTreeSet<u32> {
+    let root = repo_root();
+    let source =
+        std::fs::read_to_string(root.join("crates/tsr-diagnostics/src/generated/messages.rs"))
+            .expect("messages.rs");
+    let mut code_of: HashMap<&str, u32> = HashMap::new();
+    for (index, line) in source.lines().enumerate() {
+        let Some(rest) = line.strip_prefix("pub static ") else { continue };
+        let Some(name) = rest.split(':').next() else { continue };
+        // **Two layouts, and only handling one of them was this instrument's
+        // own version of the bug it exists to find.** `rustfmt` keeps a short
+        // declaration on one line — `… = Message::new(2432, Category::Error, …)`
+        // — and wraps a long one so the code lands on the next. Reading only
+        // the next line silently dropped every single-line constant, which is
+        // why TS2432 and TS2774 read `unported` on this derivation's first run
+        // with their rules committed and firing. §959.
+        let after = rest.split("Message::new(").nth(1);
+        let code = after
+            .and_then(|tail| tail.split(',').next())
+            .and_then(|first| first.trim().parse::<u32>().ok())
+            .or_else(|| {
+                source
+                    .lines()
+                    .nth(index + 1)
+                    .and_then(|next| next.trim().trim_end_matches(',').parse::<u32>().ok())
+            });
+        let Some(code) = code else { continue };
+        code_of.insert(name, code);
+    }
+    let mut ported = BTreeSet::new();
+    for crate_name in ["tsr-checker", "tsr-binder"] {
+        let mut stack = vec![root.join("crates").join(crate_name).join("src")];
+        while let Some(directory) = stack.pop() {
+            let Ok(entries) = std::fs::read_dir(&directory) else { continue };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    stack.push(path);
+                    continue;
+                }
+                if path.extension().is_none_or(|extension| extension != "rs") {
+                    continue;
+                }
+                let Ok(text) = std::fs::read_to_string(&path) else { continue };
+                for reference in text.split("messages::").skip(1) {
+                    let name: String = reference
+                        .chars()
+                        .take_while(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || *c == '_')
+                        .collect();
+                    if let Some(&code) = code_of.get(name.as_str()) {
+                        ported.insert(code);
+                    }
+                }
+            }
+        }
+    }
+    ported
+}
