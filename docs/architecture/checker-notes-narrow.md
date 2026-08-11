@@ -7772,3 +7772,27 @@ entitled to act on**, and `NotRelated` turns out to be actionable
 for overload rejection but not for conditional branch selection.
 Widening this road therefore means widening the RELATER's positive
 domain, not swapping which predicate asks it.
+
+
+**Slice 3 measured +24 / 16 (1.5:1) and REVERTED — distribution is
+the missing rule.** Three cases that look decidable BY CONSTRUCTION
+— identity (`T extends T`), an `unknown`/`any` extends side, a
+`never` check side — each of which "cannot be wrong" as a bare
+assignability question. They ARE wrong, and the counterexample is
+DISTRIBUTIVE conditionals: a conditional over a naked type
+parameter distributes across its argument, and the empty
+distribution (`never`) answers **`never`**, not the true branch.
+unknownType2's 13 adverse are exactly that.
+
+So the by-construction shortcut is not a shortcut: it presumes the
+NON-distributive reading, and this port has no distribution at all.
+Slice 1's primitive-domain gate survives because its population
+happens not to include naked-parameter checks.
+
+**Third measured refusal on this road in one sitting** (slice 2's
+ternary swap +29/24, slice 3's by-construction cases +24/16, both
+against slice 1's landed +9/2), and together they bound the next
+build: conditional evaluation needs the DISTRIBUTION rule before it
+needs a wider decider. That ordering was not obvious from
+upstream's source — `getConditionalType` interleaves them — and it
+took three negatives to establish.
