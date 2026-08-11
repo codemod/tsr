@@ -1838,3 +1838,24 @@ ranking survives for the embedded-`this` 233 and the representation
 change (including the dual-mint defect); its BARE half was winnable
 today and is now won — by the lane that read the site list instead of
 trusting my summary.
+
+## §170 — the FOURTH missing dispatch arm found (ClassExpression), reverted at 190:322 with its second transcription named
+
+checker-1's dispatch-arm census (`verdictdump | awk '$2=="GAP"' | sort
+| uniq -c`) run on my side surfaced `typeof (Anonymous class)` at 79
+gapped lines, and `Expression::ClassExpression` had **no arm in the
+expression dispatch at all** — the window's fourth missing-arm find
+after §162 (ConstructorDeclaration in `signature_parts_of`), §166 (the
+two this-mint tables), and §167 (RegularExpressionLiteral).
+
+The arm transcribed (checkClassExpression, checker.go:10047-10052:
+`getTypeOfSymbol(getSymbolOfDeclaration(node))`) is CORRECT and
+measured **+190 G→R against 322 G→W** — reverted under the ratio bar,
+but the wrongs name the second transcription precisely: they all read
+`typeof __class` where the want is `typeof C`. **The binder names an
+anonymous class expression's symbol `__class`; upstream takes the NAME
+from the binding it is assigned to** (`const C = class {}` → `typeof
+C`). So this is §162's shape exactly — a missing arm exposing a second
+missing rule underneath — and the pair is: (1) this arm, (2) the class
+expression symbol's NAME resolution from its assignment context. Land
+them together or neither.
