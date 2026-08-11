@@ -1133,10 +1133,17 @@ impl Checker<'_, '_> {
             None if arity_matched => bump(&COUNTERS.no_assignable_candidate),
             None => bump(&COUNTERS.arity_no_match),
         }
-        if chosen.is_none() && arity_matched {
-            // Every arity-matching candidate was DECIDABLY rejected (an
-            // `Unknown` pair returned above), and upstream does not gap this
-            // call: `createUnionOfSignaturesForOverloadFailure`
+        if chosen.is_none() {
+            // Overload resolution FAILED, and upstream does not gap the call
+            // however it failed. §21 gated this on `arity_matched` and gave a
+            // reason about upstream that was wrong: `getCandidateForOverloadFailure`
+            // (`checker.go:9498`) never asks why `chooseOverload` failed. Its
+            // branch is on the CANDIDATE SET — single, or generic, or has a
+            // `candidatesOutArray` — and arity does not enter it. `foo()`
+            // against two one-parameter overloads is `string & number = never`
+            // in `compiler/functionOverloads29.types`. §199.
+            //
+            // `createUnionOfSignaturesForOverloadFailure`
             // (`checker.go:9581`) answers with a synthetic signature whose
             // return is the INTERSECTION of every candidate's return
             // (`checker.go:9620`) — `foo(x)` on a union no overload takes is

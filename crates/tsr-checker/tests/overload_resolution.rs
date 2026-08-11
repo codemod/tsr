@@ -164,3 +164,50 @@ const x = p(true);
 ";
     assert_eq!(type_of_last(source), "never");
 }
+
+/// §199. An overload failure answers the intersection of the returns whether it
+/// failed on ARITY or on assignability.
+///
+/// `chooseOverload` failing sends the call to `getCandidateForOverloadFailure`
+/// (`checker.go:9498`), which does not ask *why* it failed:
+/// `createUnionOfSignaturesForOverloadFailure` (`:9581`) builds a synthetic
+/// signature whose return is `getIntersectionType` over every candidate's
+/// return (`:9620`). §21 ported that arm but gated it on `arity_matched`, so
+/// `foo()` against `(bar: string): string` and `(bar: number): number` — where
+/// NO candidate takes zero arguments — stayed a gap where upstream records
+/// `>foo() : never` (`compiler/functionOverloads29.types`).
+#[test]
+fn an_overload_failure_on_arity_intersects_the_returns() {
+    assert_eq!(
+        type_of_last(
+            "function foo(bar: string): string;\nfunction foo(bar: number): number;\nfunction foo(bar: any): any { return bar }\nvar x = foo();"
+        ),
+        "never",
+        "string & number is never"
+    );
+}
+
+/// The control that keeps the intersection honest rather than a `never`
+/// shortcut: candidates whose returns INTERSECT to something inhabited answer
+/// that, not `never`.
+#[test]
+fn an_overload_failure_whose_returns_overlap_is_not_never() {
+    assert_eq!(
+        type_of_last(
+            "interface A { a: string }\ninterface B { b: string }\nfunction foo(bar: string): A & B;\nfunction foo(bar: number): A & B;\nfunction foo(bar: any): any { return bar }\nvar x = foo();"
+        ),
+        "A & B"
+    );
+}
+
+/// The over-fire control: a call that RESOLVES must still answer its own
+/// candidate's return, not an intersection over all of them.
+#[test]
+fn a_resolving_overloaded_call_is_unaffected() {
+    assert_eq!(
+        type_of_last(
+            "function foo(bar: string): string;\nfunction foo(bar: number): number;\nfunction foo(bar: any): any { return bar }\nvar x = foo(1);"
+        ),
+        "number"
+    );
+}

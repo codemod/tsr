@@ -1245,6 +1245,50 @@ such calls fall to the ambiguous exit and stay gaps): **+77 (76 GAP→RIGHT,
 **74.64%**, cases 3,064 → **3,069**. The twenty-second stand-in fixture came
 due (`overload_resolution.rs`: `p(true)` is `never`, not `error`).
 
+### §199 §21's arity exit was a scope that upstream does not have (+3 cases, 0 lost)
+
+§21 above gated the intersection arm on `None if arity_matched` and recorded
+the reason: *"The arity-mismatch exit (12 sites) stays a gap: upstream routes
+it through `pickLongestCandidateSignature`, a different mechanism, unsized."*
+
+**It does not.** `getCandidateForOverloadFailure` (`checker.go:9498`) is
+reached from `chooseOverload` failing, full stop — it never asks *why* it
+failed. Its own branch is on the **candidate set**, not on the failure mode:
+
+```go
+if hasCandidatesOutArray || len(candidates) == 1 || core.Some(candidates, hasTypeParameters) {
+    return c.pickLongestCandidateSignature(...)
+}
+return c.createUnionOfSignaturesForOverloadFailure(candidates)
+```
+
+So `pickLongestCandidateSignature` is what a *single* or *generic* candidate
+set gets under **either** failure mode, and the intersection is what a plural
+non-generic set gets under either. Arity does not enter it. `foo()` against
+`(bar: string): string` and `(bar: number): number` — where no candidate takes
+zero arguments — is `string & number = never` in
+`compiler/functionOverloads29.types`.
+
+Dropping the `&& arity_matched` is the whole change. This port already
+returns `None` before this point when any candidate is generic, so the
+`pickLongestCandidateSignature` half of upstream's branch stays unported and
+stays a gap, exactly as before; only the plural non-generic set is affected,
+which is the set §21 already served.
+
+**+3 cases** (`functionOverloads29/34/37`), **+9 lines, 0 lost**.
+
+This is the fifth instance this window of a *stated scope wider than the
+measurement behind it* — see `docs/conventions.md` corollary 8. The
+distinguishing mark here is that the restriction was written as a fact about
+upstream (*"upstream routes it through a different mechanism"*) rather than as
+a fact about the measurement, and it was the fact about upstream that was
+wrong.
+
+**Three tests**: the arity failure, a control that the intersection is a real
+intersection rather than a `never` shortcut (two candidates returning `A & B`
+answer `A & B`), and an over-fire control that a call which *resolves* still
+answers its own candidate's return.
+
 ### §22 Optional call chains — the callee strips, the result re-unions
 
 `check_call_expression` refused every `?.` call outright
