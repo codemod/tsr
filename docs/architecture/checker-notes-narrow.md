@@ -8200,3 +8200,35 @@ cause is the open question, and the next probe should instrument
 `lookup_scoped` itself on `A` — whether it is reached, what the
 marker's flags and link actually are — rather than reasoning
 further from the shape.
+
+
+**§188 — the measurement chain is COMPLETE, and it moves the defect
+out of the binder entirely.** Instrumented `lookup_scoped` on `A`
+in `export default class A {}`:
+
+    SS188 A: found flags=EXPORT_VALUE meaning=(all VALUE bits) link=Some(29731)
+    SS188 A: LINKED name="default" flags=CLASS
+
+Every link in the chain is INTACT:
+
+- the local marker `A` **is** in the scope table,
+- it carries `EXPORT_VALUE` only (as designed),
+- it **has** an `export_symbol` link,
+- the linked symbol is `default` and its flags are **CLASS**,
+- `CLASS` intersects the requested meaning, so a follow RESOLVES.
+
+And the follow, when added, still left `A : error` while moving 15
+other lines. Therefore **the failure is downstream of name
+resolution** — the checker obtains a usable symbol and something
+after that point loses it. Candidates, in the order a fresh window
+should test them: the caller's post-filter
+(`local_type_hidden_outside_body`), or the checker's typing of a
+symbol whose NAME is `default` while the reference wrote `A`
+(`get_declared_type_of_symbol` and the printing road behind it —
+note this is the NAMING family again, §145/§156/§158/§184's wall,
+which would make this the fifth appearance).
+
+**Status: binder cleared TWICE by measurement** (the local is
+declared; the link is intact and sufficient). No code changed;
+both instrumentations reverted. This entry is now a finished
+investigation with a named next test, not a lead.
