@@ -84,6 +84,15 @@ impl Checker<'_, '_> {
     /// class is not accessible, which is what distinguishes this from a
     /// members lookup.
     fn enclosing_class_declares_private(&self, node: tsr_ast::NodeId, name: &str) -> bool {
+        // SS190 (measured +0, reverted): the decorator exclusion —
+        // `getContainingClassExcludingClassDecorators`
+        // (utilities.go:994-1011) starts the walk ABOVE a class when the
+        // private name is written inside that class's own DECORATOR, so
+        // `@dec(this.#x) class C { #x }` must not resolve. Transcribed and
+        // measured: zero cases, no corpus fixture writes a private name in a
+        // decorator position. Reverted under the unexercised-branch rule;
+        // this is the one place SS186's walk is knowingly wrong, and it is
+        // recorded here rather than left implicit.
         let mut current = self.nodes.parent(node);
         while let Some(id) = current {
             let members = match self.node_map.get(id) {
