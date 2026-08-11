@@ -456,7 +456,52 @@ Two tests: the non-merge invariant, and the control that declarations which
 *legitimately* merge still share one symbol (`var x; var x;`, and an interface
 with a namespace) — without which "never merge anything" also passes.
 
-### Slice 4 and after — what the remaining shapes need, and the wall
+### Slice 4 — §197, argument lists, and where the wall actually stands (+2 cases)
+
+The narrowest slice of the four, and deliberately so.
+`isListElement(PCArgumentExpressions)` (`parser.go:882`) is
+`token == '...' || isStartOfExpression()`, but unlike variable declarations and
+heritage clauses, **this context's element test and terminator test do not
+line up**: the terminators are `)` and `;` (`:938`), while the tokens that fail
+the element test include many that are neither.
+
+So the guard fires only where the two-way break cannot disagree with upstream's
+three-way one — on `;` (upstream's own terminator), `}` and `]` (which
+certainly close an enclosing block, object, array or index, so
+`abortParsingListOrMoveToNextToken` breaks on them too). Every other
+non-argument token keeps this parser's existing behaviour rather than taking a
+recovery decision the port cannot yet make faithfully.
+
+**`checker_types` +2 cases** (`compiler/parse2` is `foo(` then `}`;
+`parserErrorRecovery_ArgumentList2` is `bar(;`), 0 lost — **and `diagnostics`
++10**, 2,445 → 2,455, which is five times the checker return and was not
+forecast. The invented argument came with an invented "Expression expected",
+and a false positive fails a `diagnostics` case outright; ten cases were
+blocked on nothing else. Worth carrying as a rule of thumb: **a parser slice
+that stops manufacturing a node should be scored on `diagnostics` too**, since
+the manufactured node almost always arrived with a manufactured error.
+
+**The two that did not convert are the wall, precisely located.**
+`parserErrorRecovery_ArgumentList6` is `Foo(,` and `ArgumentList7` is `Foo(a,,`.
+A `,` in argument position is not an element, not a terminator, and not
+obviously in an enclosing context — so upstream takes the **third** arm:
+report `Argument_expression_expected`, skip one token, **retry**. Both cases
+end with zero and one argument respectively *because of the retry*, not
+because of a break. Nothing short of `parseDelimitedList` with its
+`parsingContexts` bitmask gets those two, and guessing at the third arm is how
+a port starts emitting diagnostics upstream never emits.
+
+**A mutation that reddened nothing, and what it removed.** The first draft
+wrote the guard as the three closers `&& !self.is_start_of_expression()`,
+mirroring the upstream predicate. Deleting that clause reddened no test — a
+closer cannot begin an expression, so it could not change the answer. It was
+removed: a condition that cannot change the answer is not a guard, and leaving
+it in would have read as though the general predicate were in force where only
+three tokens are. The paired test was relabelled to say what it actually
+controls (the guard matching an *opening* brace by mistake, which would drop
+`foo({})`'s argument) rather than what it was first claimed to control.
+
+### Slice 5 and after — what the remaining shapes need, and the wall
 
 The other list contexts in the 27 need predicates this parser does not have.
 `PCArgumentExpressions` is `token == ... || isStartOfExpression()`

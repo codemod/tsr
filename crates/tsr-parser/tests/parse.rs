@@ -1609,3 +1609,49 @@ fn an_object_literal_can_still_be_a_base_expression() {
         );
     }
 }
+
+/// §197. An unterminated argument list stops at a closer instead of inventing
+/// an argument.
+///
+/// `isListElement(PCArgumentExpressions)` (`parser.go:882`) is
+/// `token == '...' || isStartOfExpression()`. On `foo(` followed by `}` or `;`
+/// upstream produces NO argument — the `;` by `isListTerminator` (`:938`), the
+/// `}` by `abortParsingListOrMoveToNextToken` finding it in an enclosing
+/// context. This parser called `parseArgumentExpression` regardless and
+/// manufactured an expression out of a missing identifier.
+#[test]
+fn an_unterminated_argument_list_invents_no_argument() {
+    let arena = Arena::new();
+    for source in ["function f() {\n foo(\n}", "function f() {\n   bar(;\n}"] {
+        let parsed = parse(&arena, source);
+        let calls: Vec<usize> = all_nodes(tsr_ast::Node::SourceFile(parsed.source_file))
+            .iter()
+            .filter_map(|node| match node {
+                tsr_ast::Node::CallExpression(call) => Some(call.arguments.len()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(calls, vec![0], "{source:?} has one call with no arguments");
+    }
+}
+
+/// The over-fire control. It does **not** discriminate the `is_start_of_expression`
+/// clause the first draft of §197 carried — the mutation run proved that clause
+/// dead, because a closer cannot begin an expression. What it does catch is the
+/// guard matching an OPENING brace or bracket by mistake, which would silently
+/// drop the argument of `foo({})`.
+#[test]
+fn an_opening_brace_or_bracket_is_still_an_argument() {
+    let arena = Arena::new();
+    for (source, expected) in [("foo({});", 1usize), ("foo(a, b);", 2), ("foo([1]);", 1)] {
+        let parsed = parse(&arena, source);
+        let calls: Vec<usize> = all_nodes(tsr_ast::Node::SourceFile(parsed.source_file))
+            .iter()
+            .filter_map(|node| match node {
+                tsr_ast::Node::CallExpression(call) => Some(call.arguments.len()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(calls, vec![expected], "{source:?}");
+    }
+}

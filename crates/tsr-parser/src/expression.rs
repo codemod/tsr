@@ -726,6 +726,42 @@ impl<'a> Parser<'a> {
         self.expect(SyntaxKind::OpenParenToken);
         let mut arguments = Vec::new();
         while !self.at(SyntaxKind::CloseParenToken) && !self.at(SyntaxKind::EndOfFile) {
+            // `isListElement(PCArgumentExpressions)` (`parser.go:882`), applied
+            // only where the two-way break cannot disagree with upstream's
+            // three-way one. §197.
+            //
+            // Upstream, on a token that is not an argument, first asks
+            // `isListTerminator` — `)` or `;` for this context (`:938`) — and
+            // then `abortParsingListOrMoveToNextToken` (`:698`), which breaks if
+            // the token belongs to an ENCLOSING list and otherwise reports
+            // `Argument_expression_expected`, skips one token and retries. That
+            // third arm needs the `parsingContexts` bitmask, which only exists
+            // if `parseDelimitedList` runs every list — see
+            // `docs/architecture/checker-notes-nearmiss.md` §191.
+            //
+            // So the guard is deliberately narrow: it fires only on the closers,
+            // where upstream breaks under *either* arm — `;` by the terminator
+            // test, `}` and `]` by the abort test, since both certainly close an
+            // enclosing block, object, array or index. Every other non-argument
+            // token keeps this parser's existing behaviour rather than taking a
+            // recovery decision this port cannot yet make faithfully.
+            //
+            // These three are `isStartOfExpression`'s answer already, and the
+            // first draft said so out loud with a `&& !self.is_start_of_expression()`
+            // beside them. **The mutation run reddened nothing when that clause
+            // was deleted** — a closer cannot begin an expression, so the test
+            // could not change the answer. A condition that cannot change the
+            // answer is not a guard, and keeping it would have read as though
+            // the general predicate were in force here when only three tokens
+            // are.
+            if matches!(
+                self.token.kind,
+                SyntaxKind::SemicolonToken
+                    | SyntaxKind::CloseBraceToken
+                    | SyntaxKind::CloseBracketToken
+            ) {
+                break;
+            }
             let before = self.pos();
             arguments.push(self.parse_argument());
             if !self.eat(SyntaxKind::CommaToken) {
