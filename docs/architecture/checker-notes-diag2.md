@@ -44725,3 +44725,41 @@ class's.
 >
 > §900's negative is what makes the method honest: three kept, two reverted, and
 > **no way to have predicted which without asking.**
+
+## §903 — the guard-count sweep, closed: the parse-error gate was the only outlier
+
+§894 found its class by counting: **136 uses here against upstream's 13**. That
+is a method, so it was run over every cross-cutting guard this port carries,
+reads only:
+
+```
+                          this port   upstream   ratio
+file_has_parse_errors        125         13      9.6×   <- §894-§902's class
+in_js_file                    46         51      0.9
+strict_null_checks            26         90      0.3
+no_implicit_any                8         49      0.2
+allow_unreachable_code         1          3      0.3
+```
+
+**One outlier, and it is the one already worked.** Everything else is
+proportionate or *under* — this port asks `strictNullChecks` and `noImplicitAny`
+in far fewer places than upstream does, which is a different kind of gap and
+belongs to whichever rows those flags gate.
+
+### The first count was wrong, and catching it is the point
+
+The first pass counted **mentions**, and `allow_unreachable_code` read as **10
+against upstream's 0** — an outlier bigger than the one already worked. Both
+numbers were artefacts: ours counted a field declaration, an initialiser and a
+setter; upstream's grep missed `c.compilerOptions.AllowUnreachableCode`, which is
+how the option is actually spelled there.
+
+Counting reads on both sides gives **1 against 3**, and this port's single read
+is `check_comma_left` — which is upstream's `checker.go:12534`, the same rule
+§901 had just edited.
+
+> §829 wrote *"a claim is only as wide as the grep that made it"* and §878 paid
+> for ignoring it. This time the check happened **before** the build rather than
+> after, and it cost one command. **The rule that keeps being relearned is not
+> "greps are unreliable" — it is that a count is a claim, and a claim gets a
+> falsifier like any other.**
