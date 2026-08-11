@@ -44825,3 +44825,61 @@ different sixth of the row.
 
 That is a defect in how refusals are written, not in §864: the entry now says
 which **shape** it refused.
+
+## §906 — the same duplicate, one node kind over
+
+```ts
+class C {
+    ["a"]: string;     // TS2300
+    ["a"]: string;     // TS2300
+}
+```
+
+§904 built the duplicate-member rule for **type literals** and property
+signatures. TS2300's residue holds the same fact in a **class**, with
+**computed** names whose expression is a string literal — which upstream's binder
+treats identically, because `GetTextOfPropertyName` folds a literal computed name
+to its text before `declareSymbol` sees it.
+
+The case also wants TS2564 twice, so this note was written expecting **no
+conversion** — the two TS2300 lines being worth having on §886's argument that a
+rule's line count moves where its case count cannot.
+
+```
+bar:  >= +0 cases and TS2300's emitted lines UP,  0 LOST via `diagpass`,
+      WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **A non-literal computed name reports.** `[x]: string` twice names no
+   particular property and upstream declines it.
+2. **An overload set reports.** Methods are excluded here as in §904.
+
+## §907 — §906 built: **+1/−0**, and the prediction inside the bar was wrong
+
+```
+diagnostics   2,365 → 2,366   (+1)   43.11%
+diagpass      LOST: (none)   GAINED: compiler/duplicateIdentifierComputedName
+extraonly     79, unchanged
+TS2300        495 → 509 emitted lines
+```
+
+§906 predicted the case would **not** convert, because it also wants TS2564
+twice. It converted: this port was already producing both TS2564 lines, and the
+two TS2300s were the whole of what was missing.
+
+> The prediction cost nothing and was wrong for a reason worth keeping: **I read
+> the *expected* column and inferred the *actual* one.** `diagcase` prints both
+> and I had it open. Fourteen sections after §884 corrected a work list built the
+> same way — from the shape of one column rather than the difference of two —
+> the same shortcut produced a wrong forecast inside a bar that was otherwise
+> right.
+>
+> A bar's job is to be checkable, and this one was: the falsifiers held, the
+> measurement stands, and only the aside was wrong. **Better to write the
+> prediction and be corrected than to leave the bar vague enough to be always
+> right.**
+
+TS2300 is now **15 cases**, down from 20 two builds ago, and its emitted lines
+have gone 495 → 509.

@@ -686,7 +686,8 @@ impl Checker<'_, '_> {
             }
             // `NodeCanBeDecorated` rejects every one of these outright.
             Node::EnumDeclaration(n) => self.check_illegal_decorator(n.modifiers),
-            Node::ClassDeclaration(_) => {
+            Node::ClassDeclaration(class_declaration) => {
+                self.check_duplicate_class_computed_members(class_declaration.members);
                 self.check_type_parameter_lists_identical(node);
                 self.check_base_chain_is_acyclic(node);
                 self.check_abstract_members_implemented(node);
@@ -6123,6 +6124,50 @@ impl Checker<'_, '_> {
     /// collide on.
     ///
     /// `docs/architecture/checker-notes-diag2.md` §904.
+    /// The class-member half of §904, for **literal computed names**:
+    /// `class C { ["a"]: string; ["a"]: string }`. Upstream's
+    /// `GetTextOfPropertyName` folds a literal computed name to its text before
+    /// `declareSymbol` sees it, so the binder collides them exactly as it does
+    /// two plain names. A **non-literal** computed name names no particular
+    /// property and is declined, the bound §52's rule already draws. §906.
+    fn check_duplicate_class_computed_members(&mut self, members: &[tsr_ast::ClassElement<'_>]) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let named: Vec<(NodeId, String)> = members
+            .iter()
+            .filter_map(|member| {
+                let tsr_ast::ClassElement::PropertyDeclaration(property) = member else {
+                    return None;
+                };
+                let tsr_ast::PropertyName::ComputedPropertyName(computed) = property.name else {
+                    return None;
+                };
+                let id = computed.node_id?;
+                match computed.expression? {
+                    tsr_ast::Expression::StringLiteral(literal) => {
+                        Some((id, literal.text.to_string()))
+                    }
+                    tsr_ast::Expression::NumericLiteral(literal) => {
+                        Some((id, literal.text.to_string()))
+                    }
+                    _ => None,
+                }
+            })
+            .collect();
+        for (index, (id, text)) in named.iter().enumerate() {
+            if !named.iter().enumerate().any(|(other, (_, name))| other != index && name == text) {
+                continue;
+            }
+            let Some(file) = self.source_file_of_for_diagnostics(*id) else { continue };
+            let span = self.error_span(*id);
+            self.report(
+                file,
+                Diagnostic::with_args(&messages::DUPLICATE_IDENTIFIER_0, span, [text.clone()]),
+            );
+        }
+    }
+
     fn check_duplicate_type_literal_members(&mut self, members: &[tsr_ast::TypeElement<'_>]) {
         if self.file_has_parse_errors {
             return;
