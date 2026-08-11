@@ -49614,3 +49614,76 @@ is called from **two** walk arms — the `FunctionDeclaration` arm and the
 new call in the first, where the kind filter rejects everything. `cargo` caught
 it as *field never read*, which is a better error than the silent `+0` §947 got
 from the same mistake shape.
+
+## §1023 — TS2512, and the third arm built *inside* the second
+
+§1022 predicted the shape of this build and priced its siblings; the prices are
+now measured:
+
+```
+TS2383  overload export agreement     0 sole-obstacle cases
+TS2384  overload ambient agreement    0
+TS2512  overload abstract agreement   1
+```
+
+Two of the four arms are worth nothing and one is worth a case. **The two worth
+nothing are the two this port already built** (§'s ambient/export function),
+which is worth saying plainly: the earlier port took the arms that measure zero
+today, and the later ones take the arms that pay.
+
+TS2512 goes **inside** §1021's function rather than beside it, because
+upstream's `switch` is *ordered* — accessibility is tested before abstract and
+only one case fires per overload:
+
+```go
+case deviation&(ModifierFlagsPrivate|ModifierFlagsProtected) != 0:  … TS2385
+case deviation&ModifierFlagsAbstract != 0:                          … TS2512
+```
+
+Two separate functions would report both on an overload that deviates in both,
+which under multiset comparison fails the case exactly as a wrong code does.
+§1022 said the cost of splitting a `switch` is paid at the third port; this is
+that payment, made by not splitting it again.
+
+```
+bar:  >= +1,  0 LOST via `diagpass`,  extraonly delta <= +1,
+      TS2385 unchanged
+```
+
+### Falsifiers
+
+1. **TS2385's count moves.** The ordering must leave the accessibility arm
+   exactly as §1021 measured it — 17 right lines, 0 wrong.
+2. **An overload deviating in both takes two diagnostics.** The `else` is the
+   whole reason this is one function.
+3. **An abstract implementation reports.** An abstract method has no body, so
+   the canonical for such a set is the first declaration, not an implementation.
+
+## §1024 — §1023 built: **+1/−0**, row complete, and the split not repeated
+
+```
+diagnostics   2,490 → 2,491   (+1)   45.39%
+diagpass      LOST: (none)   GAINED: conformance/classAbstractOverloads
+extraonly     75, unchanged
+TS2512        have 0 → 3,  want 3,  **missing 0**
+TS2385        17/3, unchanged — falsifier 1 negative
+```
+
+The row is finished and §1021's is untouched, which is the whole test of putting
+the third arm inside the second rather than beside it.
+
+> §1022 wrote that *a `switch` ported one case at a time becomes a set of
+> functions that cannot share their guards*, and predicted the cost would be
+> paid at the third port. It was — by **not** splitting again. Two functions
+> would have reported TS2385 **and** TS2512 on an overload deviating in both,
+> and under multiset comparison that fails a case exactly as a wrong code does.
+>
+> The prediction was cheap to make and cheap to act on, and the acting is what
+> made it worth writing. **A note that names the next build's shape is worth
+> more than one that names the last build's mistake.**
+
+The two arms this port built *first* — export and ambient agreement — measure
+**zero sole-obstacle cases** today, and the two built last are worth two between
+them. Not a criticism of the earlier work: it was built before `diagsole`
+existed, so there was no number to sort by. It is an argument for the
+instrument.

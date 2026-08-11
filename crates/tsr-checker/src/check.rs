@@ -11839,29 +11839,43 @@ impl Checker<'_, '_> {
             .find(|&d| self.declaration_has_body(d))
             .unwrap_or(declarations[0]);
         let canonical_flags = self.accessibility_of(canonical);
-        let mut reports = Vec::new();
+        let canonical_abstract = self.is_abstract_declaration(canonical);
+        // **Upstream's `switch` is ordered**: accessibility first, abstract
+        // second, and only one case fires per overload. Two functions would
+        // report both on an overload deviating in both, which under multiset
+        // comparison fails a case exactly as a wrong code does. §1023.
+        let mut reports: Vec<(NodeId, bool)> = Vec::new();
         for &declaration in &declarations {
             if declaration == canonical || self.declaration_has_body(declaration) {
                 continue;
             }
             if self.accessibility_of(declaration) != canonical_flags {
-                reports.push(declaration);
+                reports.push((declaration, false));
+            } else if self.is_abstract_declaration(declaration) != canonical_abstract {
+                reports.push((declaration, true));
             }
         }
-        for declaration in reports {
+        for (declaration, is_abstract_deviation) in reports {
             // **A constructor has no name**, so the error node is the
             // declaration — `OrElse(GetNameOfDeclaration(overload), overload)`.
             let at = self.declaration_name_of(declaration).unwrap_or(declaration);
             let Some(file) = self.source_file_of_for_diagnostics(at) else { continue };
             let span = self.nodes.span(at);
-            self.report(
-                file,
-                Diagnostic::new(
-                    &messages::OVERLOAD_SIGNATURES_MUST_ALL_BE_PUBLIC_PRIVATE_OR_PROTECTED,
-                    span,
-                ),
-            );
+            let message = if is_abstract_deviation {
+                &messages::OVERLOAD_SIGNATURES_MUST_ALL_BE_ABSTRACT_OR_NON_ABSTRACT
+            } else {
+                &messages::OVERLOAD_SIGNATURES_MUST_ALL_BE_PUBLIC_PRIVATE_OR_PROTECTED
+            };
+            self.report(file, Diagnostic::new(message, span));
         }
+    }
+
+    /// Does this declaration carry `abstract`? §1023.
+    fn is_abstract_declaration(&self, declaration: NodeId) -> bool {
+        self.node_map
+            .get(declaration)
+            .and_then(modifiers_of)
+            .is_some_and(|modifiers| has_modifier(modifiers, SyntaxKind::AbstractKeyword))
     }
 
     /// `(private, protected)` — absent accessibility is `public`. §1021.
