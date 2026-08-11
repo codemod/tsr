@@ -3725,6 +3725,17 @@ impl<'a, 'n> Binder<'a, 'n> {
         // (`binder.go:1182`, `:1200`) — see `declare_into_with_excludes`.
         let excludes = if self.is_part_of_parameter_declaration(node) {
             SymbolFlags::VALUE
+        } else if matches!(node, Node::ExportAssignment(_)) {
+            // **`SymbolFlagsAll`** — `bindExportAssignment` (`binder.go:864`).
+            // Not a shortcut upstream took but the specification: *"If there is
+            // an `export default x;` alias declaration, can't `export default`
+            // anything else."* Any existing symbol under that name collides,
+            // whatever it is, which is what TS2528 means. Deriving excludes
+            // from the flags gave `PROPERTY_EXCLUDES` or `ALIAS_EXCLUDES`,
+            // neither of which intersects the other, so a second `export
+            // default` merged silently and the ported TS2528 below never fired.
+            // §957.
+            SymbolFlags::all()
         } else {
             flags.excludes()
         };

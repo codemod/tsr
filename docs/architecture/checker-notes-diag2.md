@@ -46860,3 +46860,93 @@ neither was doubled), falsifier 3 vacuous: the arm it tests never fires.
 
 Remaining: 31 lines across the export-assignment and cross-file re-export
 shapes, both needing the module graph. Owner unchanged.
+
+## §957 — TS2528: the rule was built, the collision never happened
+
+§950's list: **5 sole-obstacle cases, 12 lines**. The message is
+`A_module_cannot_have_multiple_default_exports`, and grepping for it found it
+**already ported, in the binder, with a fifteen-line comment** explaining why
+`name == INTERNAL_DEFAULT` covers both of upstream's two branches and why the
+related-info chain is not ported (`bd tsr-y4u.23`).
+
+It has never fired. The block it lives in is gated on
+
+```rust
+if excludes.intersects(existing_flags) { … }
+```
+
+and `bindExportAssignment` (`binder.go:855`-`:866`) passes **`SymbolFlagsAll`**:
+
+```go
+flags := core.IfElse(ast.ExpressionIsAlias(…), ast.SymbolFlagsAlias, ast.SymbolFlagsProperty)
+symbol := b.declareSymbol(ast.GetExports(container.Symbol()), container.Symbol(),
+                          node, flags, ast.SymbolFlagsAll)
+```
+
+This port derives excludes from the flags — `PROPERTY_EXCLUDES` for
+`export default {…}`, `ALIAS_EXCLUDES` for `export default someAlias` — and
+neither intersects the other's flags, so a second `export default` merged
+silently and the ported rule sat one `if` away from the fixtures it was written
+for.
+
+**`SymbolFlagsAll` is not a shortcut upstream took; it is the specification.**
+The comment above it says so: *"If there is an `export default x;` alias
+declaration, can't `export default` anything else."* Any existing symbol under
+that name is a collision, whatever it is — which is exactly what "a module
+cannot have multiple default exports" means.
+
+```
+bar:  >= +3 of the 5,  0 LOST via `diagpass`,  extraonly delta <= +2
+```
+
+### Falsifiers
+
+1. **`export default function f() {}` beside `export default interface I {}`
+   reports.** Upstream's own parenthetical calls that legal — the excludes
+   widening must not reach declarations that merge.
+2. **A single default export reports.** `!declarations.is_empty()` is the
+   existing guard and it is being asked to carry more weight than before.
+3. **TS2300 appears where TS2528 should.** The message selection runs before
+   the default test; widening the gate lets *other* export-assignment
+   collisions through it too.
+
+## §958 — §957 built: **+5/−0**, one `if` from the fixtures it was written for
+
+```
+diagnostics     2,402 → 2,407   (+5)   43.86%
+binder_symbols  100%, unchanged
+diagpass        LOST: (none)
+                GAINED: exportDefaultAlias_excludesEverything,
+                        exportDefaultInterfaceClassAndFunctionOverloads,
+                        exportDefaultTypeAndClass,
+                        exportDefaultTypeAndFunctionOverloads, multipleExportDefault6
+extraonly       75, unchanged
+TS2528          have 0 → 34,  want 34,  missing 1
+TS2300          572/583, unchanged
+```
+
+Every sole-obstacle case, and **thirty-four lines from a one-line change** — the
+largest line yield per line of code this session. The rule was already written,
+already anchored, already commented at length; it was gated behind an `excludes`
+mask this port computed from the flags where upstream passes `SymbolFlagsAll`.
+
+All three falsifiers negative, and the first is the informative one:
+`exportDefaultInterfaceClassAndFunctionOverloads` **converted**, which is the
+`export default function` / `export default interface` merge upstream's
+parenthetical calls legal. Widening the mask did not break it because the
+declarations that legally merge are not *export assignments* — the widening is
+scoped to `Node::ExportAssignment`, which is the node upstream widens at.
+
+> **A ported rule that has never fired is not a ported rule**, and nothing in
+> the file said so: the comment describes upstream faithfully, cites the line
+> numbers, and explains a deliberate omission. What it could not say is that the
+> enclosing `if` was false for every fixture in the corpus.
+>
+> `diagemit` would have shown it — TS2528 read `have 0` against `want 34` — and
+> was not consulted, because the rule *looked* finished in the source. **Six
+> sections after §950 was built to stop rows being priced by reading, a row was
+> priced by reading.**
+
+The one remaining line is `nonMergedOverloads`-adjacent and wants TS2528 at a
+position this port does not reach; it is not worth a second build and is
+recorded rather than opened.
