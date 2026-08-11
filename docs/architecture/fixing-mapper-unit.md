@@ -329,3 +329,37 @@ related targets** (variance-based inference through base types /
 `getTypeReferenceIfMatched`). The first three are written and
 preserved in the scratchpad (fm1.py, fm2.py); the fourth is
 untranscribed and is the next window's opener.
+
+
+### CORRECTION to the entry above — the fourth piece is STRUCTURAL MEMBER inference, not reference matching
+
+The entry above named the fourth piece "reference matching across
+related targets (variance-based inference through base types /
+`getTypeReferenceIfMatched`)". **That was a guess and it is wrong.**
+Read at `inference.go:700-702` and `:232-234`: upstream's reference
+arm requires `source.Target() == target.Target()` (or both array
+types) exactly as this port's does — so `Promise<never>` against
+`PromiseLike<T>` does NOT match there either.
+
+Where upstream actually records it is the STRUCTURAL tail of
+`inferFromObjectTypes` (`inference.go:822-825`):
+`inferFromProperties`, then `inferFromSignatures` for call and
+construct, then `inferFromIndexTypes`. `inferFromProperties`
+(`:828-836`) walks the TARGET's properties, looks each up on the
+source, and infers member-type against member-type;
+`inferFromSignatures` (`:838+`) matches signatures bottom-up.
+`Promise<never>` and `PromiseLike<T>` both carry `then`, so the
+member walk reaches T through the signature and records T:=never —
+the source is MATCHED and drops out of the unmatched union.
+
+So the fourth piece is: **inference through object MEMBERS**, which
+this port has not built at all. That is a larger and better-defined
+piece than the entry above claimed, and it explains why all three
+attempts produced the identical promiseType signature — none of
+them could ever have matched those sources.
+
+Recorded as a correction rather than an edit per the project's
+non-negotiable: the wrong reading was published, and the reason it
+was wrong (a guess where a read was needed, inside a document whose
+whole point is that transcription beats induction) is worth more
+than the corrected fact.
