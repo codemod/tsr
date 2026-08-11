@@ -7590,3 +7590,39 @@ original, and each occurrence has been worth real lines. Worth a
 targeted sweep of the remaining `getApparentType` call sites in
 upstream against ours — that is a census with a known yield rather
 than a guess.
+
+
+## §178 — the apparent-type census misfired: −4,400 lines, and it was an INDUCTION [checker-1]
+
+§177's closing note proposed enumerating upstream's
+`getApparentType` call sites as "a census with a known yield". The
+first application of it cost **4,401 R→GAP plus 237 R→W** and was
+reverted immediately.
+
+**What went wrong is the session's own law, broken by me.** The
+census produced call-site NAMES — `getApparentType(leftType)`,
+`getApparentType(funcType)` — and I matched `leftType` to the
+binary-operator road and applied the apparent type to both operands
+of `check_arithmetic_operation`/`check_addition`. Reading the
+enclosing context afterwards (`checker.go:28456-28464`) shows those
+two sites are in a **property-access** road: they sit under
+`ast.IsPrivateIdentifier(right)` and `getAssignmentTargetKind`,
+and `leftType` there is an access RECEIVER, not an operand.
+Upstream's `checkBinaryLikeExpression` tests `TypeFlagsNumberLike`
+on the operand types themselves.
+
+So a grep for a function name is not a transcription. **The
+enclosing function decides, and the census output is a list of
+places to READ, not a list of places to CHANGE.** That is the same
+error as the `Box<1>` pins and the "fourth piece" guess, committed
+a third time, in the exact hour after writing that transcription
+beats induction.
+
+The genuine finding underneath survives and is NOT the same claim:
+probed, `f<T extends () => number>(g: T) { return g(); }` answers
+error (a call through a type-parameter callee) and
+`k<T extends number>(n: T) { return n + 1; }` answers error. Those
+are real gaps with real upstream rules; they need the enclosing
+functions read before anything is written, and the callee one is in
+`calls.rs`, which is checker-2's surface and needs a heads-up
+first.
