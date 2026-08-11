@@ -7393,3 +7393,53 @@ the first item this window that crosses OUT of the checker lane;
 it is filed here rather than acted on because the parser is not
 this session's surface, and because the checker half is already
 written and costs nothing to re-apply.
+
+
+## The NEAR-MISS census — the two metrics diverge, and the pool is a case-metric lever [checker-1]
+
+`checker_types` reports two numbers and they reward different work:
+the LINE gradient (415,435/478,954 = 86.74%) and the CASE pass rate
+(4,347/9,538 = 45.58%), where a case passes only if EVERY line in it
+is right.
+
+Censused the gap between them:
+
+- **1,656 cases are blocked by 2 or fewer non-right lines**; 851 by
+  exactly ONE line.
+- Converting the entire pool is worth **0.69% of the gradient** and
+  **+17.4 points of the case rate** (45.6% -> 62.9%).
+
+So the arms this window landed are near-optimal for the gradient and
+near-worst for the case rate: §167 moved the gradient 0.07% and
+converted 30 cases; one fix unblocking 40 near-miss cases would move
+the gradient 0.008% and convert 40. **Whoever sets the target must
+say which number it is** — the two answers point at different months
+of work.
+
+Composition of the 851 single-blocker cases by (want, got):
+`any`/`error` 168, `string`/`error` 22, `number`/`error` 20,
+`() => void`/`error` 15, `number`/`any` 13, `A`/`error` 13,
+`any`/`number` 12, `void`/`error` 10, `typeof React`/`error` 8.
+
+### The 168-case want-any/got-error family: probed, one routing question
+
+Sampled `ExportAssignment7`, whose single blocking line is `B` in
+`export = B` with no `B` in scope. The oracle records `>B : any` —
+upstream's TS2304 errorType printing as any, the §31/§119/§144
+family. A bare unresolved identifier ALREADY reads `any` in this
+port (`const a = zzz` gives `a : any`), and the RESOLVABLE
+export-assignment works (`class B {} export = B` gives `B : B`), so
+only the unresolved-in-this-position road answers error.
+
+Added the missing `get_type_of_alias` arm for ExportAssignment
+(every IMPORT form has one; this had none) and **it never fired** —
+same shape as §172: the node does not reach the road the arm sits
+on. Reverted rather than left dead.
+
+**The next step is one instrumented probe**, not a build: find which
+road types the right-hand identifier of an export assignment when it
+does not resolve. If it is shared by the other single-blocker
+families (`string`/`error`, `number`/`error` are likely the same
+"unresolved thing in a declaration-ish position" shape), one fix
+converts a large share of 851 cases — the highest case-metric
+leverage found anywhere this window.
