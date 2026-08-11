@@ -45829,3 +45829,50 @@ computed name.
 TS2362's remaining 94 lines head with
 `compoundExponentiationAssignmentLHSCannotBeAssigned` at 36 — a different shape,
 and the row is genuinely open rather than finished.
+
+## §933 — `diagemit` gains a **missing** column, and the board has a true ranking
+
+§927 found `diagmissing`'s label wrong, §928 added a corpus-wide count for one
+code at a time, and §930–§932 turned that number into **+6 cases and 209 lines**
+on a row §886 had called finished. The obvious completion: `diagemit` already
+walks every case, so it can carry the same count for **every** code in one run.
+
+```
+code           want     have  missing   rule
+TS2322         2888      539     2426   quiet
+TS2345          697       42      660   quiet
+TS2339          701      231      533
+TS2365          430      117      311
+TS2367          379      149      230   unported
+TS2769          217        0      217   unported
+TS1005          582      877      216   unported
+TS2741          258       55      210   quiet
+TS2411          233       40      194   quiet
+TS2304         2735     2885      186
+TS2430          198       20      184   quiet
+TS2454         4015     3881      147
+TS2353          161       18      146   unported
+TS2403          157       18      140   quiet
+TS1128          135        0      135   unported
+TS7006          385      284      114
+```
+
+**`want − have` and `missing` disagree everywhere**, and TS2304 shows why: it
+emits **150 more** lines than the corpus wants *and* is missing **186** — the
+same rule over-reporting in one place and silent in another. A totals difference
+of `+150` describes neither half.
+
+> This is the column the workstream has been missing since §156. Every ranked
+> list before it was either the sole-obstacle count (§927), a totals difference
+> (§884), or `cases blocked alone` — and the last of those, which is the one that
+> actually drove selection, is a *convertibility* measure rather than a *size*
+> one.
+>
+> **Both are needed and they answer different questions**: `cases blocked alone`
+> says what converts today, `missing` says how much of the code is unported. The
+> TS2362 chain is exactly what happens when only the first is visible — a row
+> reads `0` and is called finished with 303 lines outstanding.
+
+The gate earned itself again on this build: two clippy lints in the new column's
+own code, caught **before** the commit rather than after (§923's failure was the
+same lint class, found by a reader who had stopped reading).

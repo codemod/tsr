@@ -22,24 +22,29 @@ use tsr_conformance::{
     repo_root,
 };
 
+/// `(want, have, missing)` per code for one case. §933.
+type Tallies = (BTreeMap<u32, usize>, BTreeMap<u32, usize>, BTreeMap<u32, usize>);
+
 fn main() {
     let corpus = Corpus::from_repo_root(&repo_root());
     let cases = corpus.discover().expect("corpus");
-    let rows: Vec<(BTreeMap<u32, usize>, BTreeMap<u32, usize>)> =
-        cases.par_iter().filter_map(measure).collect();
+    let rows: Vec<Tallies> = cases.par_iter().filter_map(measure).collect();
 
-    let (mut want, mut have): (BTreeMap<u32, usize>, BTreeMap<u32, usize>) =
-        (BTreeMap::new(), BTreeMap::new());
-    for (expected, actual) in &rows {
+    let (mut want, mut have, mut gone): Tallies =
+        (BTreeMap::new(), BTreeMap::new(), BTreeMap::new());
+    for (expected, actual, absent) in &rows {
         for (code, count) in expected {
             *want.entry(*code).or_default() += count;
         }
         for (code, count) in actual {
             *have.entry(*code).or_default() += count;
         }
+        for (code, count) in absent {
+            *gone.entry(*code).or_default() += count;
+        }
     }
 
-    println!("{:<10} {:>8} {:>8}   rule", "code", "want", "have");
+    println!("{:<10} {:>8} {:>8} {:>8}   rule", "code", "want", "have", "missing");
     let mut ranked: Vec<(&u32, &usize)> = want.iter().collect();
     ranked.sort_by_key(|(_, count)| std::cmp::Reverse(**count));
     // The default keeps the historic view; a first argument widens it. §846
@@ -49,6 +54,7 @@ fn main() {
     let limit = std::env::args().nth(1).and_then(|arg| arg.parse::<usize>().ok()).unwrap_or(60);
     for (code, wanted) in ranked.iter().take(limit) {
         let emitted = have.get(code).copied().unwrap_or(0);
+        let absent = gone.get(code).copied().unwrap_or(0);
         let note = if !RULE_CODES.contains(code) {
             "unported"
         } else if emitted == 0 {
@@ -58,11 +64,11 @@ fn main() {
         } else {
             ""
         };
-        println!("TS{code:<8} {wanted:>8} {emitted:>8}   {note}");
+        println!("TS{code:<8} {wanted:>8} {emitted:>8} {absent:>8}   {note}");
     }
 }
 
-fn measure(case: &CaseEntry) -> Option<(BTreeMap<u32, usize>, BTreeMap<u32, usize>)> {
+fn measure(case: &CaseEntry) -> Option<Tallies> {
     if case.has_varied_errors() || case.has_known_divergence() || !case.has_any_baseline() {
         return None;
     }
@@ -76,13 +82,21 @@ fn measure(case: &CaseEntry) -> Option<(BTreeMap<u32, usize>, BTreeMap<u32, usiz
     let actual = tsr_conformance::diagnostics_suite::reported_for(&test);
     let mut want = BTreeMap::new();
     let mut have = BTreeMap::new();
+    let mut missing = BTreeMap::new();
     for diagnostic in &expected {
         *want.entry(diagnostic.code).or_default() += 1;
+        // **Position-aware.** `want − have` is a difference of totals and a line
+        // emitted at the wrong column counts in `have` (§884); this counts the
+        // wanted lines this port does not produce, which is the number
+        // `diagmissing`'s label promised and did not deliver (§927, §928).
+        if !actual.contains(diagnostic) {
+            *missing.entry(diagnostic.code).or_default() += 1;
+        }
     }
     for diagnostic in &actual {
         *have.entry(diagnostic.code).or_default() += 1;
     }
-    Some((want, have))
+    Some((want, have, missing))
 }
 
 /// The codes this port's rules emit.
