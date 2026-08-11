@@ -1877,3 +1877,28 @@ specific to class expressions — **one build could discharge all four**,
 which raises the pair's value well above its own 190 lines and should
 be reflected wherever it is ranked.
 
+
+## §171 — the widened-corollary-5 predicate census, run on my lane and BANKED (not built)
+
+checker-1's §169 widened the census target from dispatches to the
+predicates they consult. Run against flow.rs/calls.rs/signatures.rs,
+the kind-enumerating gates in my lane, with their asymmetries noted:
+
+- **flow.rs:783-790** (the flow-container ascent) enumerates
+  `FunctionExpression | ArrowFunction | MethodDeclaration | GetAccessor
+  | SetAccessor` — **no `FunctionDeclaration`**, while the enumeration
+  at flow.rs:691 for the same family DOES list it. One of the two is
+  wrong; upstream's equivalent walks `IsFunctionLike`
+  (ast/utilities.go:518), which includes declarations. **This is the
+  §169 shape exactly** — one spelling works, another does not, and the
+  difference is a list rather than a road.
+- Remaining alternations in flow.rs are operator-token sets
+  (`==`/`===`/`!=`/`!==`, `&&`/`||`), which are complete by inspection
+  against upstream's own switches.
+
+**Banked rather than built**: the flow-container candidate needs a pair
+(the fix plus whichever of the two lists is authoritative), and this
+window has no measurement budget left to price it honestly. It is the
+first item for the next window in my lane, ahead of the ranked rocks,
+because it costs one run to test and the corollary predicts these are
+where the cheap points are.
