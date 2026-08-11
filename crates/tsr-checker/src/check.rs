@@ -887,6 +887,7 @@ impl Checker<'_, '_> {
             self.check_label_is_allowed(node);
         }
         if matches!(typed, Node::ForInOrOfStatement(_)) {
+            self.check_for_in_variable_type(node);
             self.check_for_in_or_of_declarations(node);
             self.check_for_await_context(node);
         }
@@ -5250,6 +5251,68 @@ impl Checker<'_, '_> {
     /// The other positions are a second slice with that predicate as its
     /// subject — `checker-notes-diag2.md` §83. TS2448 (block-scoped variable)
     /// and TS2450 (enum) are its siblings and wait on the same thing.
+    /// TS2405 — `The left-hand side of a 'for...in' statement must be of type
+    /// 'string' or 'any'.`
+    ///
+    /// `checkForInStatement` (`checker.go:4010`) asks the relation; the written
+    /// annotation answers it for the corpus's shape. A keyword type that is
+    /// neither `string` nor `any` can never be a `for…in` variable. §1005.
+    fn check_for_in_variable_type(&mut self, node: NodeId) {
+        if self.file_has_parse_errors || self.in_js_file(node) {
+            return;
+        }
+        let Some(Node::ForInOrOfStatement(statement)) = self.node_map.get(node) else { return };
+        // **`ForInOrOfStatement::kind` is the node's own kind**, not the `in`
+        // or `of` keyword — the same shape as §973's `BindingPattern::kind`,
+        // and found the same way: the rule read `**SILENT**` on `diagemit` and one
+        // probe at the entry said `kind=ForInStatement`. §1006.
+        if statement.kind.kind != SyntaxKind::ForInStatement {
+            return;
+        }
+        let Some(initializer) = statement.initializer.and_then(|i| i.node_id()) else { return };
+        if self.nodes.kind(initializer) != SyntaxKind::Identifier {
+            return;
+        }
+        let Some(text) = self.identifier_text(initializer).map(str::to_string) else { return };
+        let Some(symbol) = self.binder.resolve_name(
+            self.nodes,
+            self.node_map,
+            initializer,
+            &text,
+            SymbolFlags::VALUE,
+        ) else {
+            return;
+        };
+        let declarations =
+            self.binder.symbols().get(self.binder.merged_symbol(symbol)).declarations.clone();
+        let [declaration] = declarations.as_slice() else { return };
+        let Some(Node::VariableDeclaration(variable)) = self.node_map.get(*declaration) else {
+            return;
+        };
+        let Some(annotation) = variable.r#type.and_then(|t| t.node_id()) else { return };
+        if !matches!(
+            self.nodes.kind(annotation),
+            SyntaxKind::NumberKeyword
+                | SyntaxKind::BooleanKeyword
+                | SyntaxKind::SymbolKeyword
+                | SyntaxKind::BigIntKeyword
+                | SyntaxKind::VoidKeyword
+                | SyntaxKind::NeverKeyword
+                | SyntaxKind::ObjectKeyword
+        ) {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(initializer) else { return };
+        let span = self.nodes.span(initializer);
+        self.report(
+            file,
+            Diagnostic::new(
+                &messages::THE_LEFT_HAND_SIDE_OF_A_FOR_IN_STATEMENT_MUST_BE_OF_TYPE_STRING_OR_ANY,
+                span,
+            ),
+        );
+    }
+
     /// TS1235 — `A namespace declaration is only allowed at the top level of a
     /// namespace or module.`
     ///

@@ -48895,3 +48895,86 @@ converts.
 
 Three lines remain, in a fixture whose union is behind a type alias — read
 syntactically, an alias declines, and it costs nothing else.
+
+## §1005 — TS2405: a `for…in` variable annotated as something other than `string`
+
+§950's list: **3 sole-obstacle cases, 3 lines**.
+
+```ts
+var a: number;
+var expr: any;
+for (a in expr) { }      // TS2405
+```
+
+`checkForInStatement` (`checker.go:4010`) asks whether the left-hand side's type
+is assignable to `string`. The **written annotation** answers it for the corpus's
+shape: a keyword type that is neither `string` nor `any` can never be a
+`for…in` variable.
+
+The survey that led here is worth recording, because the 3-case band is where
+this layer runs out:
+
+```
+TS8032   JSDoc `@param` nesting          — a subsystem, not a rule
+TS2413   index-signature assignability   — the relation
+TS2604   JSX construct signatures        — the type side
+TS2883   declaration emit                — `tsr-dts`
+TS6133   two subtle unused shapes        — `reference_is_inside_own_declaration`
+                                           already exists; these are others
+TS2503   three unrelated positions       — one line each, no shared mechanism
+```
+
+**Of the rows with three or more sole-obstacle cases, TS2405 is the last one
+this workstream can build syntactically.** That is the honest state of the tail
+and it is written down so the next session starts from it rather than
+rediscovering it row by row.
+
+```
+bar:  >= +1,  0 LOST via `diagpass`,  extraonly delta <= +1
+```
+
+### Falsifiers
+
+1. **`for (s in x)` with `s: string` reports.** The one annotation that is
+   always legal.
+2. **An unannotated variable reports.** Its type is inferred and this rule reads
+   only what is written.
+3. **`for (a = 1 in b)` reports here.** `parserForStatement4` wants TS2405 at an
+   *assignment* left-hand side, which is a different arm and is not built —
+   recorded so the row's remaining line is not mistaken for this one.
+
+## §1006 — §1005 built: **+1/−0**, and the `kind.kind` trap a second time
+
+```
+diagnostics   2,479 → 2,480   (+1)   45.19%
+diagpass      LOST: (none)   GAINED: compiler/forInStatement7
+extraonly     75, unchanged
+TS2405        have 0 → 3,  want 8,  missing 5,  **0 extra**
+```
+
+The first measurement was `+0` with `diagemit` reading `**SILENT**`, and one
+probe at the entry answered it:
+
+```
+PROBE2405 kind=ForInStatement init=Some(Identifier)
+```
+
+**`ForInOrOfStatement::kind` is the node's own kind, not the `in`/`of`
+keyword.** §973 hit the identical shape — `BindingPattern::kind` is the opening
+bracket, not `ArrayBindingPattern` — thirty sections ago, and the same
+misreading cost the same one measurement here.
+
+> Two instances is a pattern worth naming: **in this AST a field called `kind`
+> is a token, and which token it is varies by node.** `BindingPattern::kind` is
+> `[` or `{`; `ForInOrOfStatement::kind` is `ForInStatement` or
+> `ForOfStatement`; `HeritageClause::token` — a different name for the same idea
+> — is `extends` or `implements`. Reading any of them as "the `SyntaxKind` I am
+> thinking of" type-checks and is silently false.
+>
+> §973's rule held: **when a build measures exactly `+0`, probe before
+> re-reading.** Re-reading would have found nothing here either, because the
+> code says what I meant.
+
+`parserForStatement4`'s remaining line is recorded as *not* this arm:
+`for (a = 1 in b)` wants TS2405 at an **assignment** left-hand side, which
+upstream reaches by a different route.
