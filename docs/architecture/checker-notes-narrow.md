@@ -7562,3 +7562,31 @@ RegularExpressionLiteral +328, ClassExpression refused at the naming
 wall, §169's early-stopped gate list +39, and this pair +3), plus
 two that could not be reached (`new.target`, parser-side; the
 concise async body, unexercised).
+
+
+## §177 — element access reads the APPARENT type's index signatures (+130/2) [checker-1]
+
+The near-miss census's `want string / got error` family, sampled at
+`stringHasStringValuedNumericIndexer` (`var str: string = ""[0];`,
+oracle `>""[0] : string`). `getIndexedAccessType` reads index
+signatures off `getApparentType(objectType)`: a primitive carries
+none of its own, and `""[0]` is `string` through `String`'s
+`[index: number]: string`. This port's element-access road consulted
+only the OBJECT type — the named-property lookup beside it already
+goes through the members road, so this was its index-signature twin
+missing.
+
+**+40 G→R plus ~92 W→R against 2 adverse** (noUncheckedIndexedAccess
+2, where the apparent road skips the `| undefined` the direct road
+adds). jsxEmitWithAttributes 5, jsxFactoryAndReactNamespace 5,
+jsxFactoryIdentifier 5, long tail — the JSX families come along
+because their factory lookups are element accesses on string-ish
+receivers.
+
+**Third instance of the apparent/original distinction this window**
+(§165's this-argument, §175's accessor symbol, this): wherever
+upstream says `getApparentType`, this port has tended to read the
+original, and each occurrence has been worth real lines. Worth a
+targeted sweep of the remaining `getApparentType` call sites in
+upstream against ours — that is a census with a known yield rather
+than a guess.

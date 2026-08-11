@@ -635,7 +635,7 @@ impl Checker<'_, '_> {
         (constraint != self.intrinsics.error).then_some(constraint)
     }
 
-    fn apparent_type(&mut self, id: TypeId) -> TypeId {
+    pub(crate) fn apparent_type(&mut self, id: TypeId) -> TypeId {
         // Upstream's order, arm for arm (`checker.go:21745-21751`). `NUMBER_LIKE`
         // carrying `ENUM` is upstream's too, not a widening added here.
         //

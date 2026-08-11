@@ -201,6 +201,19 @@ impl Checker<'_, '_> {
         if let Some(info) = self.get_applicable_index_info(object_type, index_type) {
             return info.value;
         }
+        // §177 (`checker-notes-narrow.md`): the index signatures of the
+        // APPARENT type. `getIndexedAccessType` reads them off
+        // `getApparentType(objectType)` — a primitive carries none of its
+        // own, and `""[0]` is `string` through `String`'s
+        // `[index: number]: string` (`stringHasStringValuedNumericIndexer`).
+        // The named lookup above already goes through the members road; this
+        // is its index-signature twin.
+        let apparent = self.apparent_type(object_type);
+        if apparent != object_type
+            && let Some(info) = self.get_applicable_index_info(apparent, index_type)
+        {
+            return info.value;
+        }
         self.array_or_tuple_element_access(object_type, index_type).unwrap_or(error)
     }
 
