@@ -44099,8 +44099,9 @@ paid for the two that followed, and only the note says so.**
 
 ### The remaining shortfall is not this rule's
 
-`TS2362` reads 543/863 and `diagmissing` now reports **0 lines missing**. §884's
-correction explains the gap: `want − have` counts lines of a code, not unmatched
+`TS2362` reads 543/863 and `diagmissing` now reports **0 lines missing**.
+***§928 corrects this: that zero is the sole-obstacle count, and corpus-wide the
+row is missing 303 lines.*** §884's correction explains part of the gap: `want − have` counts lines of a code, not unmatched
 positions, and 320 of those wanted lines are in cases whose other diagnostics
 differ. **The row is finished as far as this workstream can finish it**, and the
 `diagemit` number will not reach `want` until those cases pass for other reasons.
@@ -45632,3 +45633,40 @@ is what drove every selection.
 TS1253's single wanted line is in a case with other defects, which is why
 `diagmissing` shows zero — the row is real, unreachable through that instrument,
 and stays on the SILENT list as the sweep's last entry.
+
+## §928 — the corpus-wide count, and the row §886 called finished has 303 lines
+
+§927 relabelled `diagmissing`'s restricted figure. This adds the number the old
+label promised — every missing line for a code over the **whole** judged
+population, not only cases the code alone blocks:
+
+```
+                sole-obstacle   blocked alone   CORPUS-WIDE
+TS2362                0              0              303
+TS2304               22             13              186
+TS2454               76             41              147
+TS7006               19             14              114
+TS2554               15             11              103
+TS2300               24              6               97
+TS2341               11              5               65
+TS2323               28              9               34
+```
+
+### §886 was wrong, and by 303 lines
+
+§886 closed the TS2362 family with *"`diagmissing 2362` now reports **0**… the
+row is finished as far as this workstream can finish it."* That zero was the
+**restricted** zero: no case is blocked on TS2362 alone. **Corpus-wide the row is
+missing 303 lines** — more than any other code this session has touched.
+
+> The claim was true as stated about the number it read and false about the row.
+> §884 corrected a work list built from `want − have`; §927 corrected the label
+> on this one; **§928 is the first time the corrected instrument has contradicted
+> a conclusion that was already recorded and believed.**
+>
+> Nothing was mis-*decided* — §886 stopped working TS2362 because its cases were
+> not convertible, which is still true. **But "finished" and "not convertible
+> today" are different claims, and the notes said the first.**
+
+`STATUS.md` §5's TS2362 entry is corrected in place. The 303 lines are real, they
+sit in cases with other defects, and the row is **open**.

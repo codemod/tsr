@@ -34,6 +34,11 @@ fn main() {
     let cases = corpus.discover().expect("corpus");
     let mut rows: Vec<(String, Vec<String>)> =
         cases.par_iter().filter_map(|case| measure(case, code)).collect();
+    // **The unrestricted count**, over every judged case rather than only the
+    // ones this code alone blocks. §927 found that the restricted figure had
+    // been printed as `total missing` for seven hundred sections; this is the
+    // number that label promised. §928.
+    let corpus_wide: usize = cases.par_iter().map(|case| count_all(case, code)).sum();
     // **Cheapest case first.** A partial fix converts a case only if it supplies
     // *every* line (§273), so the case worth opening is the one wanting fewest.
     // Printing alphabetically cost §339 a build: `diagslice` called TS2454
@@ -51,6 +56,24 @@ fn main() {
     }
     println!("missing TS{code} lines IN SOLE-OBSTACLE CASES: {total}");
     println!("cases blocked on TS{code} alone: {}", rows.len());
+    println!("missing TS{code} lines CORPUS-WIDE: {corpus_wide}");
+}
+
+/// Every missing line for this code, over the suite's whole judged population —
+/// the count `measure`'s sole-obstacle filter discards. §928.
+fn count_all(case: &CaseEntry, code: u32) -> usize {
+    if case.has_varied_errors() || case.has_known_divergence() || !case.has_any_baseline() {
+        return 0;
+    }
+    let Ok(baseline) = case.expected_errors() else { return 0 };
+    let expected: Vec<BaselineDiagnostic> =
+        baseline.as_deref().map(errors_baseline::parse).unwrap_or_default();
+    if expected.is_empty() {
+        return 0;
+    }
+    let Ok(test) = case.load() else { return 0 };
+    let actual = tsr_conformance::diagnostics_suite::reported_for(&test);
+    expected.iter().filter(|d| d.code == code && !actual.contains(d)).count()
 }
 
 fn measure(case: &CaseEntry, code: u32) -> Option<(String, Vec<String>)> {
