@@ -248,3 +248,39 @@ there: written with `string[]` to mirror the real repository, they answered
 unrelated to chains and both stayed green under the mutation that should have
 reddened them. Third occurrence this session of a green test that should have
 been red; the pattern is always a fixture that does not reach the rule.
+
+### Postscript — the chain-root skip was a shortcut, and it is now the mechanism
+
+The first build answered the chain root with an early `return` before any arm
+ran. That is outcome-equivalent for **every code this function emits today** —
+`getNonNullableType`'s answer carries no nullable facts, so no arm could fire —
+and the section above said so. Asked whether that was a fix or a suppression,
+the honest answer was *"a shortcut with one hole"*, and the hole is worth naming
+because it is invisible until someone else falls in it:
+
+**TS18046** (`_0_is_of_type_unknown`) exists in `tsr-diagnostics` and **nothing
+in the checker emits it**. It is the `unknown` arm of the same
+`checkNonNullType` (`checker.go:7409`), and `u?.x` with `u: unknown` *does*
+report upstream. A skip keyed on `?.` would have swallowed it silently on the
+day that arm was ported — the rule would have read "optional chains are exempt"
+when the truth is "a stripped receiver has no facts to report".
+
+So the skip is gone. The receiver's type now goes through
+`get_optional_expression_type` on **both** roads — chain root and inner link —
+and every arm reads its facts from that one type, which is the type
+`checkNonNullType` is handed. Measured against the same base: `diagnostics`
+2,396 → 2,396, **zero cases changed**, `checker_types` 415,703 → 415,703. A
+refactor that moves nothing is exactly what a behaviour-preserving one should
+measure.
+
+**One thing it did move, and the fix is instructive.** The first attempt tested
+the facts *before* the syntactic arms and lost `compiler/classExtendsNull3`.
+§910's `extends null` stand-in sets `maybe_null` **inside** the reporter — the
+fact is syntactic because `check_expression(super)` cannot supply it yet
+(`bd tsr-gjze`) — so an earlier gate is one its arm can never reach. The test
+now guards the two syntactic arms only; the type-based arms hand their type to
+the reporter and let it run its own test, after the stand-in has had its say.
+
+Generalised: **a shared reporter that enriches its own inputs cannot have its
+precondition hoisted into its callers.** Hoisting reads as deduplication and is
+a silent behaviour change.

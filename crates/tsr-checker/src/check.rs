@@ -3203,21 +3203,47 @@ impl Checker<'_, '_> {
             }
             _ => return,
         };
+        let receiver_expression = receiver;
+        let Some(receiver) = receiver.and_then(|e| e.node_id()) else { return };
         // **`a?.b` asks the question of a receiver that has already been
         // stripped.** `checkPropertyAccessExpression` (`checker.go:11249`)
         // routes a chain link through `checkPropertyAccessChain`, which hands
-        // `checkNonNullType` the result of `getOptionalExpressionType` — and at
-        // a chain **root** that is `getNonNullableType`, whose answer carries no
-        // nullable facts at all, so the reporter below can never fire. Skipping
-        // outright is therefore not a suppression: it is the branch upstream
-        // takes. §5 of `checker-notes-nnaccess.md`.
-        if is_chain_root {
-            return;
-        }
-        let receiver_expression = receiver;
-        let Some(receiver) = receiver.and_then(|e| e.node_id()) else { return };
+        // `checkNonNullType` the result of `getOptionalExpressionType`
+        // (`checker.go:29064`): `getNonNullableType` at a chain **root**, and
+        // `removeOptionalTypeMarker` at an inner link. Every arm below reads its
+        // facts from *that* type, which is the one `checkNonNullType` is given.
+        //
+        // **This replaced an early `return` at the chain root.** The return
+        // reached the same answers — a stripped receiver has no nullable facts,
+        // so no arm could fire — but it reached them by not asking, which made
+        // it a rule about `?.` rather than a rule about the type. The
+        // difference is not visible today and would be the moment TS18046
+        // (`checkNonNullType`'s `unknown` arm, `checker.go:7409`) is ported:
+        // `u?.x` with `u: unknown` *does* report upstream, and a skip keyed on
+        // `?.` would have silently swallowed it. §5 of
+        // `checker-notes-nnaccess.md`.
+        let receiver_type =
+            receiver_expression.map_or(self.intrinsics.error, |e| self.check_expression(e));
+        let non_optional =
+            self.get_optional_expression_type(receiver_type, Some(receiver), is_chain_root);
+        // `checkNonNullType` reaches `reportObjectPossiblyNullOrUndefinedError`
+        // only when the facts say nullish (`checker.go:7425`), which is why
+        // `null?.x` is silent while `null.x` is not — the chain root strips the
+        // `null` to `never` and there is nothing left to report on.
+        //
+        // **The test guards the two syntactic arms only.** The type-based arms
+        // below hand `non_optional` to the reporter, which runs this same test
+        // itself — and runs it *after* §910's `extends null` stand-in has had a
+        // chance to set the fact that `check_expression(super)` cannot yet
+        // supply. Testing here as well would be a second, earlier gate that
+        // §910's arm never gets past: it costs `compiler/classExtendsNull3`,
+        // measured, which is how this was found.
+        let syntactically_nullish = {
+            let (null, undefined) = self.nullish_facts(non_optional);
+            null || undefined
+        };
         let text = match self.nodes.kind(receiver) {
-            SyntaxKind::NullKeyword => "null",
+            SyntaxKind::NullKeyword if syntactically_nullish => "null",
             SyntaxKind::Identifier => {
                 let Some(name) = self.identifier_text(receiver) else { return };
                 // **An identifier that is not `undefined` still has a type**,
@@ -3228,7 +3254,7 @@ impl Checker<'_, '_> {
                 // than the facts being wrong. §850.
                 if name != "undefined" {
                     if let Some(expression) = receiver_expression {
-                        self.report_nullable_receiver(expression, receiver);
+                        self.report_nullable_operand_of_type(expression, non_optional);
                     }
                     return;
                 }
@@ -3253,6 +3279,12 @@ impl Checker<'_, '_> {
                 {
                     return;
                 }
+                // The global `undefined` as a chain root is stripped to
+                // `never` like the `null` keyword above, so the same test
+                // applies before this arm's TS18050.
+                if !syntactically_nullish {
+                    return;
+                }
                 "undefined"
             }
             // **Not a literal spelling — the type-based arms.** Upstream's
@@ -3265,7 +3297,7 @@ impl Checker<'_, '_> {
             // §849.
             _ => {
                 let Some(expression) = receiver_expression else { return };
-                self.report_nullable_receiver(expression, receiver);
+                self.report_nullable_operand_of_type(expression, non_optional);
                 return;
             }
         };
@@ -3279,21 +3311,6 @@ impl Checker<'_, '_> {
                 [text.to_string()],
             ),
         );
-    }
-
-    /// The facts of a **receiver**, read from the type `checkNonNullType` is
-    /// actually given.
-    ///
-    /// The chain-root case is gone before this is reached; what is left is the
-    /// *inner link* — the `.c` of `a?.b.c`, whose receiver type carries the
-    /// propagated optional marker. `getOptionalExpressionType`
-    /// (`checker.go:29064`) removes that marker and nothing else, so
-    /// `a?.b.c` with `b: X | null` still reports possibly-`null`, exactly as
-    /// upstream does. §5 of `checker-notes-nnaccess.md`.
-    fn report_nullable_receiver(&mut self, expression: tsr_ast::Expression<'_>, receiver: NodeId) {
-        let receiver_type = self.check_expression(expression);
-        let non_optional = self.get_optional_expression_type(receiver_type, Some(receiver), false);
-        self.report_nullable_operand_of_type(expression, non_optional);
     }
 
     /// TS2394 — `This overload signature is not compatible with its
