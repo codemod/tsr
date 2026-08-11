@@ -573,4 +573,63 @@ impl Checker<'_, '_> {
             _ => Vec::new(),
         }
     }
+
+    /// TS7005 — `Variable '{0}' implicitly has an '{1}' type.`
+    ///
+    /// The variable arm of `reportImplicitAny`. Restricted to declarations
+    /// where the **evolving any** cannot apply: a `const`, which can never be
+    /// assigned again, or an ambient declaration, which has no control flow to
+    /// evolve through. `let x;` in an ordinary file is silent upstream and the
+    /// flow analysis that decides so is not ported.
+    ///
+    /// `docs/architecture/checker-notes-diag2.md` §978.
+    pub(crate) fn check_implicit_any_variable(&mut self, node: NodeId, ambient: bool) {
+        if !self.no_implicit_any || self.file_has_parse_errors || self.in_js_file(node) {
+            return;
+        }
+        let Some(Node::VariableDeclaration(variable)) = self.node_map.get(node) else { return };
+        if variable.r#type.is_some() || variable.initializer.is_some() {
+            return;
+        }
+        // Falsifier 3: a binding pattern has its own reporter.
+        let Some(tsr_ast::BindingName::Identifier(name)) = variable.name else { return };
+        let Some(name_id) = name.node_id else { return };
+        // **A `catch (e)` binding is not an implicit-any site.** It is a
+        // `VariableDeclaration` with neither annotation nor initializer, and in
+        // a `.d.ts` it satisfied the ambient arm — `parserTryStatement1.d` was
+        // §978's one wrong line. §979.
+        if self
+            .nodes
+            .parent(node)
+            .is_some_and(|parent| self.nodes.kind(parent) == SyntaxKind::CatchClause)
+        {
+            return;
+        }
+        // Falsifier 2: `for (const x of …)` is bound by the iteration.
+        if self.nodes.parent(node).and_then(|list| self.nodes.parent(list)).is_some_and(|owner| {
+            matches!(
+                self.nodes.kind(owner),
+                SyntaxKind::ForInStatement | SyntaxKind::ForOfStatement
+            )
+        }) {
+            return;
+        }
+        let is_const = self
+            .nodes
+            .parent(node)
+            .is_some_and(|list| self.nodes.flags(list).contains(tsr_ast::NodeFlags::CONST));
+        if !is_const && !ambient && !self.file_is_ambient {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(name_id) else { return };
+        let span = self.nodes.span(name_id);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::VARIABLE_0_IMPLICITLY_HAS_AN_1_TYPE,
+                span,
+                [name.text.to_string(), "any".to_string()],
+            ),
+        );
+    }
 }

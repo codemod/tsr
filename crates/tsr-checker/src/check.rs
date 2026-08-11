@@ -420,6 +420,7 @@ impl Checker<'_, '_> {
                 ambient
             }
             Node::VariableDeclaration(declaration) => {
+                self.check_implicit_any_variable(node, ambient);
                 self.check_exports_on_merged_declarations(node);
                 self.check_implicit_any_binding_pattern(node);
                 self.check_using_is_initialized(node);

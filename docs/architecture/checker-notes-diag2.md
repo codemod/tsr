@@ -47786,3 +47786,79 @@ The row is now **16 missing lines and no extras** — `redeclaredProperty` and
 `initializerWithThisPropertyAccess` remain, both wanting a property inherited
 from a base class, which needs the base's member table rather than the class's
 own. Owner: the type side.
+
+## §978 — TS7005: a variable with neither annotation nor initializer
+
+§950's list: **8 sole-obstacle cases, 12 lines**. `implicit_any.rs` covers
+members, parameters, signature returns, returns and binding patterns — and has
+**no variable-declaration arm at all**.
+
+```ts
+const a                      downlevelLetConst2   TS7005 beside TS1155
+const v;                     for-of2              TS7005 beside TS1155
+var v;      // in a .d.ts    parserVariableStatement2.d
+declare var x;               implicitAnyAmbients
+```
+
+The shape is *not* "no annotation and no initializer" on its own. `let x;` in an
+ordinary file is an **evolving any** — control flow gives it a type at each use
+and upstream reports nothing — which is why the corpus's examples are all
+either `const`, where nothing can ever be assigned, or ambient, where there is
+no control flow to evolve through.
+
+So the arm is: no annotation, no initializer, and **`const` or ambient**. The
+evolving-any analysis is the flow's and is not attempted; restricting to the two
+shapes where it cannot apply is the same move §962 made with union operands —
+satisfy the guard by the restriction rather than by a test this port cannot
+perform.
+
+```
+bar:  >= +2,  0 LOST via `diagpass`,  extraonly delta <= +1
+```
+
+### Falsifiers
+
+1. **`let x;` or `var x;` in an ordinary file reports.** That is the evolving
+   any, and it is the majority of variable declarations in the corpus — this
+   falsifier is the reason the rule is narrow rather than general.
+2. **A `for (const x of …)` binding reports.** The initializer is the iteration,
+   not the declaration, and there is no annotation either.
+3. **A destructuring pattern reports here.** `check_implicit_any_binding_pattern`
+   already owns that shape and a second reporter would double the line.
+
+## §979 — §978 built: **+8/−0**, the session's largest, from an arm that was simply absent
+
+```
+diagnostics   2,425 → 2,433   (+8)   44.33%
+diagpass      LOST: (none)
+              GAINED: downlevelLetConst2, implicitAnyAmbients, for-of2,
+                      parserVariableDeclaration4.d, parserVariableStatement2.d,
+                      tsxExternalModuleEmit2, tsxReactEmit3, tsxReactEmit5
+extraonly     75, unchanged
+TS7005        have 0 → 21,  missing 33,  **0 extra**
+```
+
+**Eight cases — the largest single build of the session** — and `diagsole` had
+priced the row at eight. `tsxReactEmit3` was not in the census and converted
+anyway; sixth time this session a build paid in a case the bar had not named.
+
+`implicit_any.rs` covers members, parameters, signature returns, returns and
+binding patterns. The variable arm was **not narrow, not declined, not
+mis-anchored — it was absent**, and no instrument distinguishes an absent arm
+from a present one that never fires. `diagemit` read `TS7005 have 0` and
+labelled it `unported`, which was exactly right and says nothing about *why*.
+
+The one wrong line was `catch (e)` in a `.d.ts` — a `VariableDeclaration` with
+neither annotation nor initializer, which satisfies the ambient arm. Excluding
+catch clauses removed it and **cost nothing**, unlike §975's JSX exclusion which
+cost two right lines: not every narrowing is a trade.
+
+> The restriction that made this safe is the one worth keeping: `let x;` is an
+> **evolving any** and upstream is silent, so the rule fires only for `const`,
+> where nothing can be assigned again, and for ambient declarations, where there
+> is no control flow to evolve through. **The flow analysis is not
+> approximated — it is avoided by choosing the two shapes it cannot reach**,
+> which is §962's move and the third time this session that restricting the
+> input has substituted for a test this port cannot perform.
+
+33 lines remain, wanting the evolving-any analysis. Owner: flow.
