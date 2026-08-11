@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 4363/9538 (45.74%)
-Assertion lines: 415468/478954 (86.74%)  — a gradient, not a pass rate
-Failed         : 5175
+Passed         : 4388/9538 (46.01%)
+Assertion lines: 415650/478954 (86.78%)  — a gradient, not a pass rate
+Failed         : 5150
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 5175 failures:
+First 100 of 5150 failures:
 compiler/2dArrays
   2dArrays.ts: >allShipsSunk : error — expected >allShipsSunk : () => boolean
 compiler/ClassDeclaration26
@@ -33,10 +33,6 @@ compiler/accessorDeclarationEmitJs
   /a.js: >t1 : error — expected >t1 : { p: string; readonly getter: string; }
 compiler/accessorInferredReturnTypeErrorInReturnStatement
   accessorInferredReturnTypeErrorInReturnStatement.ts: >basePrototype : error — expected >basePrototype : { readonly primaryPath: any; }
-compiler/accessors_spec_section-4.5_error-cases
-  accessors_spec_section-4.5_error-cases.ts: >aStr : any — expected >aStr : string
-compiler/accessors_spec_section-4.5_inference
-  accessors_spec_section-4.5_inference.ts: >a : any — expected >a : B
 compiler/addMoreCallSignaturesToBaseSignature
   addMoreCallSignaturesToBaseSignature.ts: >kitty : error — expected >kitty : string
 compiler/addMoreCallSignaturesToBaseSignature2
@@ -213,3 +209,7 @@ compiler/arrayFakeFlatNoCrashInferenceDeclarations
   arrayFakeFlatNoCrashInferenceDeclarations.ts: >BadFlatArray : BadFlatArray<Arr, Depth> — expected >BadFlatArray : { done: Arr; recur: Arr extends ReadonlyArray<infer InnerArr> ? BadFlatArray<InnerArr, [-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20][Depth]> : Arr; }[Depth extends -1 ? "done" : "recur"]
 compiler/arrayFilter
   arrayFilter.ts: >foo : error — expected >foo : ({ name: string; } | { name: null; })[]
+compiler/arrayFind
+  arrayFind.ts: >arrayOfStringsNumbersAndBooleans.find(isNumber) : error — expected >arrayOfStringsNumbersAndBooleans.find(isNumber) : number | undefined
+compiler/arrayFlatMap
+  arrayFlatMap.ts: >array.flatMap((): ReadonlyArray<number> => []) : error — expected >array.flatMap((): ReadonlyArray<number> => []) : number[]
