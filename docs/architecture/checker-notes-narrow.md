@@ -8005,3 +8005,40 @@ interning and printing), and this window has already measured that
 partial builds of representation changes fail — nine of them across
 two subsystems. It needs a fresh window, and §137's flag is the
 proof the payoff is real.
+
+
+## §188 — `export default class A` does not bind its LOCAL name (case-directed) [checker-1]
+
+Target switched to the CASE metric. Took the family where one
+mechanism converts the most cases: 13 single-blocker cases whose
+one wrong line wants `A` and gets `error` — es6modulekind,
+es2015modulekind, esnextmodulekind and their \*WithES6Target /
+\*WithES2015Target twins (one fixture across module settings, so
+ONE mechanism), plus jsdocLinkTag1/3/9 and
+indexSignatureWithTrailingComma.
+
+**Probed to the root:**
+
+    class B {}                       //  B : B      (right)
+    export default class A {}        //  A : error
+    const a = new A();               //  a : any, A : any
+
+`A` resolves to NOTHING — not as a type (error) and not as a value
+(the unresolved-identifier road's `any`). Upstream binds a
+default-exported class under BOTH `default` (the export) and its
+own local name, which stays referenceable. This port appears to
+bind only the export.
+
+**Not fixed here, deliberately.** This is `crates/tsr-binder`, and
+the one unmeasured binder change this window cost checker_types
+**−56 lines** (51d583a5, reverted at ef0c2501) — the standing rule
+is that binder/loader changes measure checker_types before landing,
+and this window no longer has the budget to do that carefully.
+
+**Second instance of a 100%-suite blind spot**, after §172's
+`MetaProperty`: `binder_symbols` reads 8,444/8,444 = 100% while a
+default-exported class's local binding is missing. Neither gap is
+visible from any suite number; both took an arm that refused to
+fire. That pattern — *a 100% suite bounds what it MEASURES, not
+what exists* — now has two independent confirmations and belongs
+wherever the suites are described as done.
