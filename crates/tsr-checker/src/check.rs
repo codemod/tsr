@@ -149,6 +149,7 @@ impl Checker<'_, '_> {
         // *after* the file's own check, because it reads reference marks the
         // check produces. Here the marks come from the walk that just finished,
         // so the ordering constraint is the same one.
+        self.check_exported_redeclarations(file);
         self.check_unused_identifiers();
     }
 
@@ -5251,6 +5252,76 @@ impl Checker<'_, '_> {
     /// The other positions are a second slice with that predicate as its
     /// subject — `checker-notes-diag2.md` §83. TS2448 (block-scoped variable)
     /// and TS2450 (enum) are its siblings and wait on the same thing.
+    /// TS2323 — `Cannot redeclare exported variable '{0}'.`
+    ///
+    /// `checkExportsOnMergedDeclarations`'s exports loop (`checker.go:5716`),
+    /// **restricted to the `default` export**.
+    ///
+    /// §1010 built this over the whole export table and measured +4 with **2
+    /// lost** and 21 wrong lines: this port has the *declared* export table and
+    /// upstream's `getExportsOfModule` **resolves** — export stars, alias
+    /// targets, `export =` — so for a rule whose content is "count what is in
+    /// the table" the two cannot agree.
+    ///
+    /// `default` is the one name whose membership is not computed. It is
+    /// written, once per `export default`, and no star, alias or `export =` can
+    /// put a `default` into another module's table. §1011.
+    fn check_exported_redeclarations(&mut self, file: NodeId) {
+        if self.file_has_parse_errors || self.in_js_file(file) {
+            return;
+        }
+        let Some(module) = self.binder.symbol_of(file) else { return };
+        let exports = self.binder.symbols().get(self.binder.merged_symbol(module)).exports.clone();
+        let Some(&exported) = exports.get("default") else { return };
+        let symbol = self.binder.merged_symbol(exported);
+        let entry = self.binder.symbols().get(symbol);
+        let flags = entry.flags;
+        let declarations = entry.declarations.clone();
+        let counted: Vec<NodeId> = declarations
+            .iter()
+            .copied()
+            .filter(|&declaration| self.declaration_counts_for_redeclaration(declaration))
+            .collect();
+        // `SymbolFlagsNamespace | SymbolFlagsEnum` merge legally and are skipped
+        // before the count; a type alias merged with one value is legal, which
+        // upstream spells as `TypeAlias` with a count of `<= 2`.
+        if flags.intersects(SymbolFlags::NAMESPACE_MODULE | SymbolFlags::ENUM) {
+            return;
+        }
+        if flags.intersects(SymbolFlags::TYPE_ALIAS) && counted.len() <= 2 {
+            return;
+        }
+        if counted.len() <= 1 {
+            return;
+        }
+        for declaration in counted {
+            let Some(at) = self.source_file_of_for_diagnostics(declaration) else { continue };
+            let span = self.nodes.span(declaration);
+            self.report(
+                at,
+                Diagnostic::with_args(
+                    &messages::CANNOT_REDECLARE_EXPORTED_VARIABLE_0,
+                    span,
+                    ["default".to_string()],
+                ),
+            );
+        }
+    }
+
+    /// `isNotOverload(d) && !IsAccessor(d) && !IsInterfaceDeclaration(d)`. §1011.
+    fn declaration_counts_for_redeclaration(&self, declaration: NodeId) -> bool {
+        match self.node_map.get(declaration) {
+            Some(Node::FunctionDeclaration(n)) => n.body.is_some(),
+            Some(Node::MethodDeclaration(n)) => n.body.is_some(),
+            Some(
+                Node::GetAccessorDeclaration(_)
+                | Node::SetAccessorDeclaration(_)
+                | Node::InterfaceDeclaration(_),
+            ) => false,
+            _ => true,
+        }
+    }
+
     /// TS2405 — `The left-hand side of a 'for...in' statement must be of type
     /// 'string' or 'any'.`
     ///

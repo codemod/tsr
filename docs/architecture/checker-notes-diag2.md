@@ -49170,3 +49170,76 @@ And §1008's sweep still paid: five declines re-queried, four dead, one (TS2708)
 worth a single case, and this one worth nine *behind a named mechanism* rather
 than behind nothing. **A decline that names its blocker is worth re-querying;
 this one now does.**
+
+## §1011 — TS2323 again, restricted to `default`
+
+§1010 refused TS2323 on `getExportsOfModule` and named the mechanism. Before
+building a module graph for it, the cheaper question: **which names does the
+corpus actually ask about?**
+
+Six of the nine fixtures are `exportDefault…`, and the twenty-one wrong lines
+were on *other* names — `moduleKeywordDeprecated`'s namespaces,
+`es6ExportEqualsInterop`'s re-exports, the augmentation fixtures' merged
+members. Every one of those is a name whose membership in the export table this
+port computes differently from upstream.
+
+**`default` is the one name whose membership is not computed.** It is written,
+once per `export default`, by the binder that already handles it (§957), and no
+export star, alias target or `export =` can put a `default` in another module's
+table.
+
+So the rule is §1009's, keyed on the one name where the declared table and
+`getExportsOfModule` are guaranteed to agree. This is §962's move and §985's:
+**restrict the input until the mechanism you lack stops mattering**, and record
+what the restriction gives up.
+
+```
+bar:  >= +3,  **0 LOST** — the whole reason §1010 was reverted,
+      extraonly <= 75
+```
+
+### Falsifiers
+
+1. **A case §1010 lost comes back.** `es6ModuleInternalNamedImports2` and
+   `multipleExports` are the two, and neither is about `default`.
+2. **`extraonly` moves at all.** §1010's twenty-one wrong lines were all
+   non-`default`; if any survive, the restriction is not the boundary.
+3. **The type-alias exemption stops mattering.** `exportDefaultTypeClassAndValue`
+   is `type` + `class` + a value under one `default`, so the `<= 2` rule is
+   still load-bearing and cannot be dropped as "only for named exports".
+
+## §1012 — §1011 built: **+1/−0**, and the restriction held
+
+```
+diagnostics   2,481 → 2,482   (+1)   45.23%
+diagpass      LOST: (none)   GAINED: compiler/exportDefaultDuplicateCrash
+extraonly     75, unchanged
+TS2323        have 12,  want 34,  missing 27,  extra 5
+```
+
+Falsifiers 1 and 2 both negative, which is the whole point: §1010's two lost
+cases stayed passing and `extraonly` did not move. **Restricting to `default`
+removed sixteen of the twenty-one wrong lines and both losses**, and it did so
+for a stated reason rather than by trial — `default` is the one export name
+whose membership no star, alias or `export =` can affect, so it is the one name
+where this port's declared table and upstream's `getExportsOfModule` must agree.
+
+> §1010 named a mechanism and refused a row on it. §1011 asked a narrower
+> question — *which names does the corpus actually ask about?* — and the answer
+> made most of the mechanism unnecessary. **A refusal on a missing mechanism is
+> worth one more question: how much of the row needs it?**
+>
+> That is not an argument against §1010's revert. The unrestricted rule really
+> did lose two cases and really should not ship. It is an argument for asking
+> the narrowing question *in the same breath as* naming the blocker, which §1010
+> did not.
+
+Five wrong lines remain, in four cases, and they are **inside the target
+family**: `exportDefaultTypeClassAndValue` and `exportDefaultInterfaceClassAndValue`
+want fewer TS2323 than this emits, so the count is still slightly wrong for
+`type` + `class` + value merges. They cost no case — `extraonly` is unchanged —
+and the remaining 27 lines are the named exports §1010 refused.
+
+**Three rows still wait on the module graph** (§955, §1000, and TS2323's named
+half); this build removes one of the nine cases from that queue without
+building it.
