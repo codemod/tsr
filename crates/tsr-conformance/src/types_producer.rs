@@ -368,6 +368,18 @@ pub fn type_id_at_location<'a>(
         && let Some(Node::PropertyAccessExpression(access)) = map.get(parent)
     {
         let computed = checker.check_property_access_expression(access);
+        // SS183 (`!ast.IsPropertyAccessOrQualifiedName(node.Parent)`,
+        // type_symbol_baseline.go:383): a name whose parent IS a property
+        // access never takes the intrinsic fast path — it renders through
+        // the node builder, so an any-flagged answer prints `any`. The
+        // module comment above claimed this guard was "already covered by a
+        // rule reached along a different route"; it is not, for the case
+        // where the ACCESS ITSELF fails: `Obj.fn = function(){}` records
+        // `>Obj.fn : error` beside `>fn : any` — the same errorType, the
+        // whole access taking the fast path and its NAME not.
+        if computed == error || computed == checker.intrinsics().any {
+            return checker.intrinsics().any;
+        }
         return computed;
     }
 
