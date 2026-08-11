@@ -69,9 +69,27 @@ impl Checker<'_, '_> {
             let Some(expression) = span.expression else { return error };
             span_types.push(self.check_expression(expression));
         }
-        if span_types.contains(&error) {
-            return error;
-        }
+        // **A span this port could not type does not make the template a gap.**
+        // `checkTemplateExpression` (`checker.go:7976`) checks each span for
+        // one thing only — an ESSymbol-like type, which it *reports* on — and
+        // then returns `stringType` unless the node is in a const or
+        // template-literal context. The span types are not an input to the
+        // answer outside those contexts, so propagating a span's `error` here
+        // was the §192 mistake in a second place: a refusal justified by
+        // "the answer depends on something unknown" where upstream's answer
+        // depends on nothing of the kind. `circularBaseConstraint`,
+        // `constEnumErrors` and `destructuringParameterProperties4` all record
+        // `` `${x}` : string `` over a substitution upstream itself cannot
+        // resolve. §198.
+        //
+        // What the flag still suppresses is the **fold**. Folding to a string
+        // literal reads each span's literal value, and `evaluate_constant_expression`
+        // works off the SYNTAX, so an un-typed span could otherwise fold to a
+        // literal this port has no business asserting. Skipping the fold sends
+        // those to the context check and then to `string`, which is upstream's
+        // answer, and leaves §101/§147's fold semantics untouched for every
+        // template whose spans did type.
+        let untyped_span = span_types.contains(&error);
         // §147 (`checker-notes-narrow.md`) replaced §24's length-based escape
         // decline: part values are now cooked exactly as upstream cooks them
         // (octal chars when reported, raw text otherwise), so folding an
@@ -90,7 +108,8 @@ impl Checker<'_, '_> {
         if tagged {
             return self.intrinsics.string;
         }
-        let mut folded: Option<String> = node.head.map(|head| head.text.to_string());
+        let mut folded: Option<String> =
+            if untyped_span { None } else { node.head.map(|head| head.text.to_string()) };
         for (span, &span_type) in node.template_spans.iter().zip(&span_types) {
             let Some(previous) = folded else { break };
             let piece = match &self.store.get(span_type).data {

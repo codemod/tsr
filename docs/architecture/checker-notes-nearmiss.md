@@ -501,6 +501,49 @@ three tokens are. The paired test was relabelled to say what it actually
 controls (the guard matching an *opening* brace by mistake, which would drop
 `foo({})`'s argument) rather than what it was first claimed to control.
 
+---
+
+## §198 A template's span types are not an input to its answer (+1 case, +68 lines)
+
+The third instance this window of the §192 shape, and the smallest — recorded
+mostly because three instances is a pattern and the pattern now has a
+conventions entry.
+
+`check_template_expression` opened with
+
+```rust
+if span_types.contains(&error) {
+    return error;
+}
+```
+
+`checkTemplateExpression` (`checker.go:7976`) checks each span for **one** thing
+— an ESSymbol-like type, which it *reports* on — and then returns `stringType`
+unless the node is in a const or template-literal context. Outside those
+contexts the span types are not an input to the answer at all, so propagating a
+span's gap was again a refusal justified by *"the answer depends on something
+unknown"* where upstream's answer depends on nothing of the kind.
+
+**What the flag still suppresses is the fold.** Folding to a string literal
+reads each span's literal value, and `evaluate_constant_expression` works off
+the **syntax**, so an un-typed span could otherwise fold to a literal this port
+has no business asserting. Skipping the fold sends those to the existing
+context check and then to `string`, leaving §101/§147's fold semantics
+untouched for every template whose spans did type.
+
+**+1 case, +68 lines across 22 cases, 0 lost.** Small for the checker rate;
+recorded because `STATUS.md` §4.0 lists `TemplateExpression` at 1,890 gap lines
+as *refused*, and this says the refusal is narrower than the whole row.
+
+**The test needed an anti-vacuity guard and that is the transferable part.**
+This arm can only be exercised by a span that genuinely gaps, and any
+particular gap may close. The first draft used `unresolvedName` and
+`(x as any as Missing)` — both of which this port types *successfully*, so the
+mutation run reddened nothing and the fixture was vacuous. The shipped test
+asserts the span alone is `error` **before** asserting the template is
+`string`, so if `import.meta` ever types, that line fails loudly instead of the
+test quietly ceasing to reach the branch it exists for.
+
 ### Slice 5 and after — what the remaining shapes need, and the wall
 
 The other list contexts in the 27 need predicates this parser does not have.

@@ -118,3 +118,37 @@ fn a_tag_that_is_not_callable_is_a_gap() {
 // it mirrors `check_call_expression`'s shape and becomes live if the parser ever
 // produces the node, and because a guard that costs one `is_some()` is cheaper
 // than the wrong answer it would prevent.
+
+/// §198. A span this port could not type does not make the template a gap.
+///
+/// `checkTemplateExpression` (`checker.go:7976`) checks each span for one thing
+/// — an ESSymbol-like type, which it *reports* on — and then returns
+/// `stringType` unless the node is in a const or template-literal context. The
+/// span types are not an input to the answer outside those contexts, so
+/// propagating a span's `error` was a refusal justified by "the answer depends
+/// on something unknown" where upstream's answer depends on nothing of the
+/// kind. `conformance/destructuringParameterProperties4` and twenty-one other
+/// cases record `` `${x}` : string `` over substitutions this port cannot type.
+///
+/// **The first assertion is the anti-vacuity guard**, and it is the point of
+/// writing the test this way: the arm can only be exercised by a span that
+/// genuinely gaps, and any particular gap may close. If `import.meta` ever
+/// types, this line fails loudly instead of the test silently ceasing to reach
+/// the branch it exists for.
+#[test]
+fn a_template_over_an_untypeable_span_is_still_string() {
+    assert_eq!(
+        type_of_last("var a = import.meta;"),
+        "error",
+        "this fixture needs a span that GAPS; pick another construct"
+    );
+    assert_eq!(type_of_last("var s = `x${import.meta}y`;"), "string");
+}
+
+/// The control that keeps the fold alive: a template whose spans DO type still
+/// folds to a string literal, which is §101/§147's behaviour and must not have
+/// been traded away for the line above.
+#[test]
+fn a_template_over_literal_spans_still_folds() {
+    assert_eq!(type_of_last("const a = `x${1}y`;"), "\"x1y\"");
+}
