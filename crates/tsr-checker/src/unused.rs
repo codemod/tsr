@@ -1073,7 +1073,7 @@ impl Checker<'_, '_> {
     }
 
     /// The `name` of any declaration this module reports on.
-    fn name_node_of(&self, node: NodeId) -> Option<NodeId> {
+    pub(crate) fn name_node_of(&self, node: NodeId) -> Option<NodeId> {
         match self.node_map.get(node)? {
             Node::VariableDeclaration(n) => n.name.and_then(|n| n.node_id()),
             Node::ParameterDeclaration(n) => n.name.and_then(|n| n.node_id()),

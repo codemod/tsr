@@ -44883,3 +44883,72 @@ two TS2300s were the whole of what was missing.
 
 TS2300 is now **15 cases**, down from 20 two builds ago, and its emitted lines
 have gone 495 → 509.
+
+## §908 — TS2300 on a merged namespace's `prototype`
+
+```ts
+declare namespace m { var f; var prototype; }   // TS2300 on `prototype`
+declare class m { }
+```
+
+Upstream's comment at `binder/binder.go:958` is the specification:
+
+> *"we check for this here because this class may be merging into a module. The
+> module might have an exported variable called `prototype`. We can't allow that
+> as that would clash with the built-in `prototype` for the class."*
+
+`bindClassLikeDeclaration` mints a `prototype` symbol on every class and, **before
+installing it**, reports TS2300 on any export of that name already there. This
+port's binder merges class and namespace symbols but never mints `prototype`, so
+the collision has nothing to collide with.
+
+The question is exact and needs no type: **the class's merged symbol has an export
+named `prototype`, declared somewhere other than the class.**
+
+```
+bar:  +1 of 2 (augmentedClassWithPrototypePropertyOnModule,
+      mergedClassWithNamespacePrototype),  0 LOST via `diagpass`,  WRONG delta <= 0
+```
+
+### Falsifiers
+
+1. **A class with no merged namespace reports.** Its exports hold statics only,
+   and none of them is named `prototype` unless the user wrote one — which is
+   this diagnostic.
+2. **A namespace with no class reports.** There is no built-in `prototype` to
+   clash with.
+
+## §909 — §908 built: **+2 of 2**, and TS2300 is 20 → 13 in three builds
+
+```
+diagnostics   2,366 → 2,368   (bar was +1 of 2;  +2)   43.15%
+diagpass      LOST: (none)
+              GAINED: augmentedClassWithPrototypePropertyOnModule,
+                      mergedClassWithNamespacePrototype
+extraonly     79, unchanged
+TS2300        15 cases → 13,  59 lines → 55
+```
+
+Bar exceeded — both cases, not one.
+
+```
+§904   duplicate members of a type literal        +4    20 → 16 cases
+§906   duplicate literal computed names, class    +1    16 → 15
+§908   a merged namespace's `prototype`           +2    15 → 13
+                                                  ---
+                                                  +7    seven cases in three builds
+```
+
+**Every one of the three is a different shape of the same code**, and none of
+them needed a type, a relation or a flow answer — a members table, a name fold,
+and a symbol upstream mints that this port does not.
+
+> §905 wrote *"a row is not one question"* after finding one shape under a
+> refusal. Three builds later the row has yielded **three** distinct shapes and
+> is still not exhausted. **The unit of work in this corpus is a shape, and the
+> code is only where the shapes are filed** — which is why `diagmissing`'s
+> per-code list has been a starting point all session and never an answer.
+
+Thirteen cases remain on TS2300 alone; the next fixture in the list is
+`checkerInitializationCrash`, whose two lines are in a `node_modules` `.d.ts` —
+a different shape again.

@@ -688,6 +688,7 @@ impl Checker<'_, '_> {
             Node::EnumDeclaration(n) => self.check_illegal_decorator(n.modifiers),
             Node::ClassDeclaration(class_declaration) => {
                 self.check_duplicate_class_computed_members(class_declaration.members);
+                self.check_merged_namespace_prototype(node);
                 self.check_type_parameter_lists_identical(node);
                 self.check_base_chain_is_acyclic(node);
                 self.check_abstract_members_implemented(node);
@@ -6130,6 +6131,43 @@ impl Checker<'_, '_> {
     /// `declareSymbol` sees it, so the binder collides them exactly as it does
     /// two plain names. A **non-literal** computed name names no particular
     /// property and is declined, the bound §52's rule already draws. §906.
+    /// TS2300 — `Duplicate identifier 'prototype'`, for a namespace merged with
+    /// a class that exports a member of that name.
+    ///
+    /// `bindClassLikeDeclaration` (`binder/binder.go:962`) mints a `prototype`
+    /// symbol on every class and, **before installing it**, reports on any
+    /// export of that name already present. Upstream's comment is the
+    /// specification: *"this class may be merging into a module. The module
+    /// might have an exported variable called `prototype`. We can't allow that
+    /// as that would clash with the built-in `prototype` for the class."*
+    ///
+    /// This port's binder merges the two symbols but never mints `prototype`,
+    /// so the collision has nothing to collide with. The question is exact and
+    /// needs no type. §908.
+    fn check_merged_namespace_prototype(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let Some(symbol) = self.binder.symbol_of(node) else { return };
+        let symbol = self.binder.merged_symbol(symbol);
+        let Some(&exported) = self.binder.symbols().get(symbol).exports.get("prototype") else {
+            return;
+        };
+        let declarations = self.binder.symbols().get(exported).declarations.clone();
+        let Some(&declaration) = declarations.first() else { return };
+        let Some(name) = self.name_node_of(declaration) else { return };
+        let Some(file) = self.source_file_of_for_diagnostics(name) else { return };
+        let span = self.error_span(name);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::DUPLICATE_IDENTIFIER_0,
+                span,
+                ["prototype".to_string()],
+            ),
+        );
+    }
+
     fn check_duplicate_class_computed_members(&mut self, members: &[tsr_ast::ClassElement<'_>]) {
         if self.file_has_parse_errors {
             return;
