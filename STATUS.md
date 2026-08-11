@@ -1308,6 +1308,24 @@ its whole deliverable and accept that it converts nothing until finished.
 
 ## 5. Refused, with the number that refused it
 
+> **§5 IS DANGEROUS WHEN STALE.** Its whole purpose is "do not re-derive
+> these", so an entry that has since been OVERTURNED tells the next
+> session to skip work that is now landed — the failure mode this section
+> exists to prevent, inverted. Overturned entries are struck here with the
+> section that overturned them, never deleted.
+
+### OVERTURNED this window (2026-08-11) — do NOT read the struck entries as live
+
+| refusal | struck by | what was actually wrong with it |
+|---|---|---|
+| **§168** `checkClassExpression` — "prints `typeof __class`, the binder's synthetic name, where the baseline wants the variable's name" | **§207** (+17 cases) | The measurement was genuine and ranged **only over ANONYMOUS class expressions**; the refusal was written over the node kind. A named class expression carries the name the source wrote — `>class Foo {} : typeof Foo`. Separator is one word, `node.name.is_some()`. The anonymous half is still refused, still for §168's reason. |
+| **§21** — the overload-failure intersection restricted to the arity-matched exit, "because upstream routes the arity-mismatch exit through `pickLongestCandidateSignature`, a different mechanism" | **§199** (+3 cases) | A claim about **upstream's control flow** that was simply false: `getCandidateForOverloadFailure` never asks why `chooseOverload` failed; it branches on the candidate set, and arity never enters it. |
+| **array elision** — "omitted elements need the optional-element flags model, which arrives with tuples" | **§203** (+14 cases) | A **prerequisite-subsystem** claim. `checkExpressionWorker` answers `undefinedWideningType` for `KindOmittedExpression` unconditionally (checker.go:7815); those flags decide how a *tuple* prints, not what an array-literal element contributes. |
+| **§177**'s *explanation* — "`unknown extends unknown` DISTRIBUTES rather than tests" | **corrected 2026-08-11** (`061a31d1`) | The **measurement stands** (the widening cost 14 lines) — only the reason was false. Distribution needs `root.isDistributive` and a check type mapping to a union or never (checker.go:22496-22504); `unknown` is neither. A refusal is protected from re-derivation; **its stated reason is not.** |
+| **computed-name object members** — "these become index signatures rather than properties, and this port has no index signatures" | **§201/§206** + `364063a5` | Both halves false: `index_signatures.rs` is 339 lines, and upstream *drops* such a member rather than gapping the literal. Behaviour was already fixed; the stated reason would still have sent the next reader to build a subsystem that exists. |
+| **`new C<T>()`** — "needs `inferTypeArguments`, same mechanism as a generic call" | **`a9a33f97`** | Written type arguments need **substitution, not inference**, and both roads have had them since §161. Only the inference half (`new C(args)`, no written list) remains. |
+
+
 ### New, this session, TS7008's constructor inference — refused by −3
 
 - **A helper's safety is a property of the caller's polarity, not of the
