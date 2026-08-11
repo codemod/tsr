@@ -655,7 +655,7 @@ impl Checker<'_, '_> {
     /// reduced to the resolving path: the `JSX` namespace in scope at the
     /// element, its `Element` export, that symbol's declared type. Every
     /// missing hop is a gap — `errorType` — never a substitute.
-    fn check_jsx_element(&mut self, id: Option<tsr_ast::NodeId>) -> TypeId {
+    pub(crate) fn check_jsx_element(&mut self, id: Option<tsr_ast::NodeId>) -> TypeId {
         let Some(id) = id else { return self.intrinsics.error };
         let Some(jsx) = self.binder.resolve_name(
             self.nodes,

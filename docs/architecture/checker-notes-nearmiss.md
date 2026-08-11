@@ -308,6 +308,80 @@ Three tests, each red under a named mutation, the third being the control that
 an object literal really can be a base expression (without it, refusing every
 `{` passes).
 
+---
+
+## §195 The JSX attribute arm — a missing match arm worth 55 cases
+
+Not a parser slice. Found by the board's `--shapes` census rather than by the
+structural pool, and it is the largest single arm of the session.
+
+### The find
+
+`nearmiss --max 1 --shapes` after §180 put `want number, got any` at 42 cases
+and `want string, got any` at 29. Dumped with their expressions, **eight of
+the 42 were `x : number` in a `tsx` case**, which is a family and not a tail.
+`tsxElementResolution13` is the whole shape:
+
+```tsx
+declare namespace JSX { interface Element { } }
+interface Obj1 { new(n: string): any; }
+var obj1: Obj1;
+<obj1 x={10} />;
+```
+
+Upstream records `>x : number` for the attribute's **name**. This port recorded
+`any`.
+
+### The cause
+
+`getTypeOfVariableOrParameterOrPropertyWorker` (`checker.go:16578`) dispatches
+on the value declaration's kind, and the port's version listed its unported
+arms in a comment: *"methods, export assignments, binary/call assignment
+declarations, **JSX attributes** and enum members"*. `KindJsxAttribute` fell to
+`_ => errorType`.
+
+Upstream's arm is `checkJsxAttribute` (`jsx.go:871`) and it is **three lines**:
+`checkExpressionForMutableLocation` on the initialiser, or `trueType` when
+there is none, because `<Elem attr />` is sugar for `<Elem attr={true} />`.
+
+Two details carry the whole result:
+
+- The walk reaches it through the attribute's **name**, which is a declaration
+  name — not through an expression. A rule tested by calling
+  `check_expression` on the initialiser cannot see it, which is why the unit
+  tests are integration tests against `type_at_location`.
+- The widening is `checkExpressionForMutableLocation`'s, so `x` is `number`
+  while the `10` one line below stays `10`. The two lines are *supposed* to
+  differ; answering `check_expression` for both makes the attribute line wrong
+  in a way that looks right.
+
+### Measured
+
+**+55 whole cases, 0 lost**, across essentially the entire `tsx*` / `jsx*` /
+`checkJsxChildrenProperty*` corpus. Several cases converted outright from a
+long way back — `checkJsxChildrenProperty2` 74/89 → 89/89,
+`tsxAttributeResolution1` 39/50 → 50/50, `tsxLibraryManagedAttributes`
+152/264 → 204/264.
+
+**The three cases that lost lines, recorded rather than netted away.** None
+lost a case; all three were already failing:
+
+- `compiler/jsxElementType` 15/167 → 12/167. Not wrong types: the walk's
+  assertion **count** shifted, so everything from position 9 on is compared
+  against the wrong baseline row. This is the `--counts` class from §190.
+- `compiler/reactImportDropped` 14/23 → 13/23, same shape.
+- `compiler/parseUnaryExpressionNoTypeAssertionInJsx4` 9/10 → 8/10, and this
+  one is a real divergence worth naming: the case is parser-recovery and has an
+  attribute whose **name is missing**. Upstream's `getSymbolAtLocation` returns
+  nothing for a missing name, so it answers its error type — printed `any`
+  under §180 — where this port now answers `true` from the bare-attribute arm.
+  The bare-attribute arm is right; the missing-name case needs the symbol
+  lookup to fail first, which is a separate defect.
+
+Four tests, each red under a distinct named mutation: the arm removed
+(`if false`), the widening dropped (`check_expression` for
+`check_expression_for_mutable_location`), and the `trueType` arm dropped.
+
 ### Slice 4 and after — what the remaining shapes need, and the wall
 
 The other list contexts in the 27 need predicates this parser does not have.

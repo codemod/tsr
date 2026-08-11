@@ -2690,8 +2690,48 @@ impl<'a> Checker<'a, '_> {
             // `errorType` and must not take the widened path's None→`any`
             // mapping — an unported leg is a gap, not an implicit any.
             SyntaxKind::BindingElement => self.get_type_for_binding_element(declaration),
+            // `checkJsxAttribute` (`jsx.go:871`), which is three lines:
+            // `checkExpressionForMutableLocation` on the initialiser, or
+            // `trueType` when there is none — `<Elem attr />` is sugar for
+            // `<Elem attr={true} />`.
+            //
+            // The walker reaches this through the attribute's NAME, which is a
+            // declaration name, so `x` in `<obj1 x={10} />` prints `number`:
+            // the widening is `checkExpressionForMutableLocation`'s, exactly as
+            // it is for a property assignment above. §195.
+            SyntaxKind::JsxAttribute => {
+                let Some(Node::JsxAttribute(attribute)) = self.node_map.get(declaration) else {
+                    return self.intrinsics.error;
+                };
+                match attribute.initializer {
+                    Some(tsr_ast::JsxAttributeValue::StringLiteral(literal)) => self
+                        .check_expression_for_mutable_location(tsr_ast::Expression::StringLiteral(
+                            literal,
+                        )),
+                    // `checkJsxExpression` (`jsx.go:89`) is `errorType` for an
+                    // empty `{}` and the inner expression's type otherwise. The
+                    // spread check it also performs reports; it does not change
+                    // the answer.
+                    Some(tsr_ast::JsxAttributeValue::JsxExpression(expression)) => {
+                        match expression.expression {
+                            Some(inner) => self.check_expression_for_mutable_location(inner),
+                            None => self.intrinsics.error,
+                        }
+                    }
+                    Some(tsr_ast::JsxAttributeValue::JsxElement(element)) => {
+                        self.check_jsx_element(element.node_id)
+                    }
+                    Some(tsr_ast::JsxAttributeValue::JsxSelfClosingElement(element)) => {
+                        self.check_jsx_element(element.node_id)
+                    }
+                    Some(tsr_ast::JsxAttributeValue::JsxFragment(fragment)) => {
+                        self.check_jsx_element(fragment.node_id)
+                    }
+                    None => self.intrinsics.true_type,
+                }
+            }
             // Unported: methods, export assignments, binary/call assignment
-            // declarations, JSX attributes and enum members.
+            // declarations and enum members.
             _ => self.intrinsics.error,
         };
 
