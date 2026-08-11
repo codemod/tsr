@@ -50287,3 +50287,76 @@ numbers, exactly as §1010 declined TS2323's wide form.
 The expression-grammar arm ships anyway. It is correct, it costs nothing, and it
 is the half that will start paying the moment the namespace lookup does — which
 is now recorded as the actual blocker rather than the arm.
+
+## §1041 — TS1540: `module X {}` should be `namespace X {}`
+
+§950's 2-case band, 13 lines, and the rule is three lines of
+`checkModuleDeclaration` (`checker.go:5155`-`:5159`):
+
+```go
+if ast.IsIdentifier(node.Name()) {
+    checkCollisionsForDeclarationName(node, node.Name())
+    if node.AsModuleDeclaration().Keyword == ast.KindModuleKeyword { … }
+}
+```
+
+```ts
+module notok { }        // TS1540 — on the name
+module not.ok { }       // TS1540
+declare module bad { }  // TS1540
+declare module "fs" { } // silent — a string name is an ambient module
+```
+
+Two conjuncts, both fields already on the node: the name is an **identifier**
+(not a string literal), and `keyword` is `module` rather than `namespace`. This
+port's `ModuleDeclaration` carries `keyword` as a token, which §1006 established
+is the *token* and not a `SyntaxKind` alias — here they coincide, and the test is
+against `SyntaxKind::ModuleKeyword`.
+
+`moduleKeywordDeprecated` is the fixture §1009 met from the other side: its
+namespaces were the false positives that build's TS2323 loop reported on. **The
+same file, a build apart, once as a source of wrong lines and once as the thing
+to report.**
+
+```
+bar:  >= +1 of the 2,  0 LOST via `diagpass`,  extraonly delta <= +1
+```
+
+### Falsifiers
+
+1. **`namespace X {}` reports.** The keyword is the rule.
+2. **`declare module "fs" {}` reports.** A string name is an ambient module and
+   takes neither this nor §1017's relative-path error.
+3. **A nested `module A.B {}` reports twice.** The dotted form is nested module
+   declarations; upstream reports on each name it visits, so the count must
+   match rather than being suppressed once per statement.
+
+## §1042 — §1041 built: **+2/−0**, and the one extra was already explained
+
+```
+diagnostics   2,499 → 2,501   (+2)   45.57%
+diagpass      LOST: (none)
+              GAINED: escapedIdentifiers, moduleKeywordDeprecated
+extraonly     75, unchanged
+TS1540        have 0 → 14,  want 13,  **missing 0**,  1 extra
+```
+
+Both cases, every line the corpus wants, and one line it does not — in
+`asiPreventsParsingAsNamespace02`.
+
+> That fixture is the family §1032 attributed to the parser and §1034's
+> neighbour: **this port parses `namespace\nI\n{}` as a namespace declaration
+> where upstream's ASI makes three statements**. So the extra is not a defect in
+> this rule — the rule correctly reports `module`-keyword namespaces, and the
+> parser handed it a namespace that should not exist.
+>
+> **An extra line whose cause is already recorded elsewhere is not the same
+> finding twice.** §975 spent a build establishing that a moved count was not
+> this build's; here the attribution was free, because §1032 had written the
+> parser divergence down with the fixture family that shows it. That is what the
+> survey was for.
+
+`moduleKeywordDeprecated` is the file §1009 met from the other side: its
+namespaces were the false positives that build's TS2323 loop produced. **The
+same fixture, thirty sections apart — once a source of wrong lines, once the
+thing to report.**

@@ -281,6 +281,7 @@ impl Checker<'_, '_> {
             Node::ModuleDeclaration(declaration) => {
                 self.check_grammar_module_element_context(node);
                 self.check_ambient_module_relative_name(node);
+                self.check_module_keyword_deprecated(node);
                 // `!inAmbientContext && IsStringLiteral(node.Name())`
                 // (`checker.go:5151`), reported on the **name**. §807.
                 if !ambient
@@ -5263,6 +5264,36 @@ impl Checker<'_, '_> {
     /// The other positions are a second slice with that predicate as its
     /// subject — `checker-notes-diag2.md` §83. TS2448 (block-scoped variable)
     /// and TS2450 (enum) are its siblings and wait on the same thing.
+    /// TS1540 — `A 'namespace' declaration should not be declared using the
+    /// 'module' keyword. Please use the 'namespace' keyword instead.`
+    ///
+    /// `checkModuleDeclaration` (`checker.go:5155`). Two conjuncts, both fields
+    /// on the node: the name is an **identifier**, and `keyword` is `module`.
+    /// A string name is an ambient module and takes neither this nor §1017's
+    /// relative-path error. §1041.
+    fn check_module_keyword_deprecated(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let Some(Node::ModuleDeclaration(module)) = self.node_map.get(node) else { return };
+        if module.keyword.kind != SyntaxKind::ModuleKeyword {
+            return;
+        }
+        let Some(name) = module.name.and_then(|n| n.node_id()) else { return };
+        if self.nodes.kind(name) != SyntaxKind::Identifier {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(name) else { return };
+        let span = self.nodes.span(name);
+        self.report(
+            file,
+            Diagnostic::new(
+                &messages::A_NAMESPACE_DECLARATION_SHOULD_NOT_BE_DECLARED_USING_THE_MODULE_KEYWORD_PLEASE_USE_THE_NAMESPACE_KEYWORD_INSTEAD,
+                span,
+            ),
+        );
+    }
+
     /// TS1268 — `An index signature parameter type must be 'string', 'number',
     /// 'symbol', or a template literal type.`
     ///
