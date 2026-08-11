@@ -149,12 +149,21 @@ impl Checker<'_, '_> {
     /// union: every constituent; intersection: some constituent
     /// ```
     ///
-    /// `ObjectFlagsJSLiteral` is set on object-literal types created in a JS
-    /// file (the expando pattern), and **this port carries no such flag**, so
-    /// the arm cannot be written faithfully today. The build is three pieces:
-    /// mark the type at [`Checker::check_object_literal`] when
-    /// `in_js_file(node)`, carry it (a side table, per ADR-0003, rather than
-    /// widening `TypeData`), and consult it here under `!noImplicitAny`.
+    /// ~~`ObjectFlagsJSLiteral` … so the arm cannot be written faithfully
+    /// today. The build is three pieces …~~ **STALE — §185 BUILT IT** (same
+    /// session, three hours later). The three pieces are in the tree: the
+    /// `js_literal_types` side table on the checker (ADR-0003, not a
+    /// `TypeData` widening), the mark at [`Checker::check_object_literal`]
+    /// when `in_js_file`, and the consult below under `!no_implicit_any` —
+    /// upstream's own first line in `isJSLiteralType`.
+    ///
+    /// **Kept struck rather than deleted, because the staleness is the
+    /// lesson**: this said "cannot be written faithfully today" while the
+    /// build it described was three edits long, and the careful scoping is
+    /// what made it convincing. Same class as §194, where "I can't build
+    /// this safely" survived until the one-grep probe the refusal itself
+    /// named answered the whole question. **A refusal you wrote yourself is
+    /// not evidence.**
     ///
     /// Head case: `compiler/jsNegativeElementAccessNotBound`, a `.js` file
     /// with `var indexMap = {}; indexMap[-1] = 0;` — upstream records
