@@ -433,6 +433,11 @@ pub struct Checker<'a, 'n> {
     /// cached and what would have to land first.
     pub(crate) exhaustive_switches: rustc_hash::FxHashSet<NodeId>,
     pub(crate) no_implicit_any: bool,
+    /// Object-literal types created in a JS file — upstream's
+    /// `ObjectFlagsJSLiteral` (`utilities.go:1753`), carried in a side table
+    /// per ADR-0003 rather than widening `TypeData`. Read by the element
+    /// access lookup's failure path, which answers `any` for them.
+    pub(crate) js_literal_types: rustc_hash::FxHashSet<crate::types::TypeId>,
     /// The identifier the JSX namespace hangs off, `getJsxNamespace`'s
     /// `c._jsxNamespace` (`internal/checker/jsx.go:1372-1382`).
     ///
@@ -829,6 +834,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             preserve_const_enums: false,
             exhaustive_switches: rustc_hash::FxHashSet::default(),
             no_implicit_any: false,
+            js_literal_types: rustc_hash::FxHashSet::default(),
             jsx_namespace: "React".to_string(),
             jsx_emit: tsr_core::JsxEmit::None,
             exact_optional_property_types: false,

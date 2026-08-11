@@ -239,7 +239,19 @@ impl Checker<'_, '_> {
         {
             return info.value;
         }
-        self.array_or_tuple_element_access(object_type, index_type).unwrap_or(error)
+        if let Some(found) = self.array_or_tuple_element_access(object_type, index_type) {
+            return found;
+        }
+        // SS185: `isJSLiteralType` (`utilities.go:1753`) — the failure path
+        // of `getPropertyTypeForIndexType` answers `anyType` for an object
+        // literal minted in a JS FILE (`checker.go:27130`, `:27189`). The
+        // flag is meaningless under `noImplicitAny`, which is upstream's own
+        // first line. Head case: `var indexMap = {}; indexMap[-1] = 0` in a
+        // `.js` file records `>indexMap[-1] : any`.
+        if !self.no_implicit_any && self.js_literal_types.contains(&object_type) {
+            return self.intrinsics.any;
+        }
+        error
     }
 
     /// The `Array<T>`/tuple half of `getIndexedAccessType`'s numeric road

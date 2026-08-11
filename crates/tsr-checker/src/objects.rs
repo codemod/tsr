@@ -584,7 +584,16 @@ impl Checker<'_, '_> {
         // members table is where a property access on this type looks — the same
         // arrangement `get_type_from_type_literal` relies on for `__type`.
         let symbol = node.node_id.and_then(|id| self.binder.symbol_of(id));
-        self.store.new_named(TypeFlags::OBJECT, printed, symbol)
+        let minted = self.store.new_named(TypeFlags::OBJECT, printed, symbol);
+        // SS185: upstream's `ObjectFlagsJSLiteral` — an object literal
+        // created in a JS FILE is a "JS literal" type, which
+        // `getPropertyTypeForIndexType`'s failure path answers `any` for
+        // (`checker.go:27130` and `:27189` via `isJSLiteralType`,
+        // `utilities.go:1753`). Recorded in a side table per ADR-0003.
+        if node.node_id.is_some_and(|id| self.in_js_file(id)) {
+            self.js_literal_types.insert(minted);
+        }
+        minted
     }
 
     /// The members a `{ ...source }` contributes, or `None` when this port

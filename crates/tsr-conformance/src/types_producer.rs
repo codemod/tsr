@@ -808,7 +808,16 @@ pub fn type_id_at_location<'a>(
     // **Only this one guard is ported.** The other seven — `hadErrorBaseline`,
     // binding element, label name, global scope augmentation, meta property, and
     // the import/export statement names — move populations nobody has measured,
-    // and the property-access/qualified-name one is already covered above by a
+    // and the property-access/qualified-name one was CLAIMED here to be
+    // "already covered above by a rule reached along a different route" —
+    // **that claim was false and SS183 measured it so**: the neighbouring
+    // rule answers the access, and when the access ITSELF fails the name
+    // still needs this guard (`Obj.fn = function(){}` records `>Obj.fk :
+    // error` beside `>fn : any`). It is now ported at that site. The
+    // sentence is left standing, corrected, because an unfalsified
+    // redundancy claim is exactly the shape that hid it — checker-1's SS192
+    // found the same failure mode in `getUnaryResultType` the same hour.
+    // Original text: it is already covered above by a
     // rule reached along a different route. Porting them blind would present an
     // unmeasured net as a gain.
     //
