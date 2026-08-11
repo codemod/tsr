@@ -33,7 +33,7 @@ fn main() {
     let rows: Vec<(String, Vec<(u32, String)>)> =
         cases.par_iter().filter_map(|case| measure(case, only)).collect();
     let mut by_case: Vec<(usize, &String)> = rows.iter().map(|(n, e)| (e.len(), n)).collect();
-    by_case.sort_unstable_by(|a, b| b.0.cmp(&a.0));
+    by_case.sort_unstable_by_key(|&(count, _)| std::cmp::Reverse(count));
     for (count, name) in by_case.iter().take(20) {
         println!("{count:5}  {name}");
     }

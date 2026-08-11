@@ -45456,3 +45456,27 @@ not narrow. Every name in the list is a flow fixture.
 
 **Priced to flow, 158 lines, 14 cases**, with the concentration recorded so the
 next attempt starts at `controlFlowOptionalChain` and not at the rule.
+
+## §923 — §922 was pushed with clippy red
+
+`cargo clippy --workspace --all-targets -- -D warnings` printed **2** in the
+gate line of §922's commit and the commit went out anyway. The failure was in
+`diagextra.rs` itself — `sort_unstable_by` where `sort_unstable_by_key` is
+wanted — and it is fixed here.
+
+The gate output was on screen, in the same command as the commit, and the number
+was read as part of a block of four that had said `0` every time for four hundred
+builds.
+
+> **A gate you have never seen fail is a gate you have stopped reading.** Twenty
+> lines of this session's notes are about instruments that lie or claims that are
+> too wide; this is the plainer failure — an instrument that told the truth to
+> somebody who had stopped listening.
+>
+> The fix is not vigilance. `xtask measure` **refuses to run** on a red clippy,
+> which is why every measurement in this session is trustworthy; the four gates
+> after it only *print*. **The check that matters is the one that stops the
+> pipeline**, and three of the five here do not.
+
+`bd` gets the issue: make `anchors`, `issue-ids` and the clippy gate exit
+non-zero into the session's own workflow the way `measure` already does.
