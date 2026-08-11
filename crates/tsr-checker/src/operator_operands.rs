@@ -220,7 +220,18 @@ impl Checker<'_, '_> {
         }
         // Neither is numeric: `areTypesComparable`, for which this port
         // substitutes assignability behind §45's composite decline.
-        if self.either_is_composite(source, target) {
+        // **`boolean` is `true | false` and is not a composite for this
+        // test.** §884 established that §52's note — a union carries `UNION`
+        // and not its constituents' flags — is true of every union this port
+        // builds and false of the one the language builds for you, and §883
+        // removed the exclusion from `operand_is_definitely_not_numeric`. The
+        // same exclusion sat two hundred lines away in this arm: `boolean < void`
+        // was eight of §934's declining pairs and nothing connected the two
+        // predicates. §935.
+        if self.either_is_composite(source, target)
+            && !self.type_of(source).flags.intersects(TypeFlags::BOOLEAN)
+            && !self.type_of(target).flags.intersects(TypeFlags::BOOLEAN)
+        {
             return false;
         }
         self.relate_ternary(source, target, Relation::Assignable) == Ternary::NotRelated

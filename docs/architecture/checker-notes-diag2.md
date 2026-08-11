@@ -45919,3 +45919,74 @@ enum   `assignable_to_kind(e, NUMBER_LIKE, number)` decides whether a numeric
 its second producer and its actual operands are read. The next attempt starts by
 printing those two predicates' answers for `void >= number`, which is one probe
 and settles both.
+
+## §935 — §934's probe, run: `boolean` is a union, in the sibling predicate too
+
+Two probes, one run each, and the answer is not either suspect §934 named.
+
+```
+PROBE-2365  reportable=true  s_num=true  t_num=false  sf=NUMBER      tf=VOID
+PROBE-2365b reportable=false op=LessThanToken s=BOOLEAN|UNION t=VOID
+```
+
+`pair_is_reportable` is **true** for every `void` pair — it was not the gate —
+and the numeric tests answer correctly. The eight declining pairs are all
+
+```
+boolean  <  void        boolean carries BOOLEAN | UNION
+void     <  boolean
+```
+
+`relational_operands_are_incomparable` falls through to its comparability tail
+when neither side is numeric, and that tail declines on `either_is_composite`.
+**`boolean` is `true | false`.**
+
+This is §884's finding exactly — *"§52's note is true of every union this port
+builds and false of the one the language builds for you"* — in the **sibling**
+predicate. §883 removed the union exclusion from
+`operand_is_definitely_not_numeric`; the same exclusion sat two hundred lines
+away in the relational arm and nothing connected them.
+
+> §934 named two suspects from reading the code and both were wrong; the probe
+> named the third in two runs. **The suspects were plausible because they were
+> the *unusual* things in the fixture — `void` and an enum — and the cause was
+> the ordinary thing**, a `boolean` operand, which appears in every one of the
+> six fixtures and in half the corpus.
+
+```
+bar:  TS2365 corpus-wide DOWN,  0 LOST via `diagpass`,  extraonly delta <= +2
+```
+
+### Falsifiers
+
+1. **A real union reports.** `string | number < void` must still decline — its
+   flags are `UNION` alone and it is not `boolean`.
+2. **TS2469's row moves.** The symbol arm sits above this one.
+
+## §936 — §935 built: **+0 cases, +17 lines**, kept
+
+```
+diagnostics   2,384 → 2,384   (+0)   43.44%
+diagpass      LOST: (none)   GAINED: (none)
+extraonly     75, unchanged
+TS2365        have 117 → 134,  missing 311 → 295
+```
+
+Seventeen lines the corpus wants, no case converted — the six fixtures each want
+tens of lines and this supplies a handful of each. **Eighteenth `+0` kept for
+fidelity**, and the second this session that only `diagemit`'s columns can see
+the value of (§892 was the first, at `+33`).
+
+> The build is one clause and the reasoning was written at §883 and §884. What
+> made it findable was **two probes**, and what made the probes necessary was
+> §934 naming the wrong two suspects from a careful reading.
+>
+> §934's reading was not careless — `void` and a numeric enum *are* the unusual
+> types in that fixture, and both had documented gaps. **The cause was
+> `boolean`**, which is in every fixture on the board and had already been the
+> answer once, fifty sections earlier, in the predicate two hundred lines away.
+
+TS2365 is 295 lines and six fixtures wide. The next reading starts from
+`numberVsBigIntOperations` (48) rather than the comparison family, since the
+comparison family's remaining lines are the enum and type-parameter shapes §934
+listed and both are the relation's.
