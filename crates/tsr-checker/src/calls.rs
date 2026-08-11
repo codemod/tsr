@@ -320,9 +320,15 @@ pub mod counters {
         /// (`checker-notes-callres.md` §4 measures its callee as typed 66.2%
         /// of the time against a call's 21–29%) and it was the invisible half.
         new_expressions = "new expressions checked",
-        /// `new C<T>()` — needs `inferTypeArguments`, same mechanism as a
-        /// generic call.
-        new_type_arguments = "  explicit type arguments (unported)",
+        /// ~~`new C<T>()` — needs `inferTypeArguments`, same mechanism as a
+        /// generic call.~~ **Stale, corrected 2026-08-11.** WRITTEN type
+        /// arguments need substitution, not inference, and both roads have
+        /// them: the class path at `expressions.rs` (matching arity) and
+        /// §161's constructor-interface path. What remains unported is
+        /// INFERENCE for `new C(args)` with no written list, and the
+        /// short-list-with-defaults window (§191, measured −17 when the
+        /// gate was widened without `fillMissingTypeArguments`).
+        new_type_arguments = "  explicit type arguments (inference half unported)",
         /// The callee is not an anonymous object type: a lib constructor
         /// *interface* (`DateConstructor`, `MapConstructor`) — `bd tsr-4sa`.
         new_callee_not_anonymous = "  callee type is not an object type",

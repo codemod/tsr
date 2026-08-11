@@ -1863,6 +1863,16 @@ impl Checker<'_, '_> {
                 Some(Node::NewExpression(from_map)) => from_map.type_arguments,
                 _ => &[],
             };
+            // SS191 (measured -17, reverted): checker-1's SS202 lesson 2 says
+            // upstream's arity window is `[minTypeArgumentCount, len]`, so a
+            // SHORT written list is legal when the tail is defaulted, and
+            // `==` refuses those. Widening the gate ALONE cost 17 cases:
+            // admitting `C<A>` for `class C<A, B = X>` and then building a
+            // ONE-argument reference prints `C<A>` where upstream prints
+            // `C<A, X>`. The gate and the DEFAULT FILL are one change, not
+            // two — `fillMissingTypeArguments` must run here before the
+            // reference is created. Recorded so the next attempt starts with
+            // the fill.
             if written.len() == type_parameters.len() {
                 let mut arguments = Vec::with_capacity(written.len());
                 for argument in written {
