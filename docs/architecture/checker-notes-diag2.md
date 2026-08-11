@@ -50360,3 +50360,86 @@ Both cases, every line the corpus wants, and one line it does not — in
 namespaces were the false positives that build's TS2323 loop produced. **The
 same fixture, thirty sections apart — once a source of wrong lines, once the
 thing to report.**
+
+## §1043 — TS1262: `await` as a name at a module's top level
+
+§950's 2-case band, 6 lines.
+
+```ts
+// asyncawait.ts — an external module
+export function async<T>(...args: any[]): any { }
+export function await(...args: any[]): any { }   // TS1262 on `await`
+```
+
+`checkContextualIdentifier` (`binder.go:1301`) is a four-way branch on the
+identifier's keyword kind, and this port ported **one** of the four:
+
+```go
+if kind >= FirstFutureReservedWord && kind <= LastFutureReservedWord   → TS1212/1214/1215
+else if kind == AwaitKeyword {
+    if IsExternalModule(file) && IsInTopLevelContext(node)             → TS1262
+    else if node.Flags&AwaitContext != 0                               → TS1359
+} else if kind == YieldKeyword && node.Flags&YieldContext != 0         → TS1359
+```
+
+`check_contextual_identifier` returns as soon as the keyword falls outside the
+future-reserved range, and `await` does — it is `AwaitKeyword`, a keyword of its
+own. So the `else if` chain's second arm was unreachable rather than declined.
+
+**§1022's shape again**: a branch ported one case at a time, and the cost paid at
+the next port. Here it is cheaper — the arms are independent, so this one is an
+addition rather than a restructuring — and the difference is that upstream's
+`switch` in §1022 shared a `deviation` value while this chain shares only the
+identifier.
+
+Only the TS1262 arm is built. The two TS1359 arms need `AwaitContext` and
+`YieldContext` node flags this port's parser does not set — the same class as
+§952's `arguments` and §158's `InWithStatement`.
+
+```
+bar:  >= +1 of the 2,  0 LOST via `diagpass`,  extraonly delta <= +1
+```
+
+### Falsifiers
+
+1. **`await` inside a function in a module reports.** `IsInTopLevelContext` is
+   the guard, and `topLevelAwaitErrors.11` has both.
+2. **`await` in a script reports.** `IsExternalModule` is the other guard, and
+   most of the corpus is scripts.
+3. **TS1212's count moves.** The future-reserved arm must be untouched.
+
+## §1044 — §1043 built: **+1/−0**, and two container rules that look alike
+
+```
+diagnostics   2,501 → 2,502   (+1)   45.59%
+diagpass      LOST: (none)   GAINED: conformance/topLevelAwaitErrors.11
+extraonly     75, unchanged
+TS1262        have 0 → 6,  want 7,  missing 1,  **0 extra**
+TS1212        93/11, unchanged — falsifier 3 negative
+```
+
+The first version reported one line too many, and the fixture named it:
+
+```ts
+export default async(() => await(Promise.resolve(1)));
+                              ^ not top-level: it is inside an arrow
+```
+
+`IsInTopLevelContext` stops at **any** function-like, arrows included. §951's
+`reference_has_non_arrow_function_container` deliberately does not — it answers
+*"is there an `arguments` object here"*, and for that question an arrow is
+**transparent**, because an arrow closes over the enclosing function's.
+
+> Two helpers, both spelled "is there a function container above this node", and
+> **the right answer differs by which question is being asked.** §1030 said what
+> inherits is a property of the thing, not of the walk; this is the same lesson
+> for *containment* rather than inheritance, and it cost one measurement because
+> the helper's name describes its walk and not its question.
+>
+> The names would have said so: `reference_has_non_arrow_function_container` has
+> `non_arrow` in it. **A helper named after its exclusion is a helper whose
+> exclusion is load-bearing**, and reaching for it across rules is reaching past
+> a warning already written down.
+
+The remaining line is `await` used at top level in a *different* module of the
+same fixture, at a position this arm does not reach.

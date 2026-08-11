@@ -275,12 +275,45 @@ impl Checker<'_, '_> {
         // rather than re-listed so that a codegen change cannot silently
         // desynchronise the two.
         let Some(keyword) = tsr_scanner::keyword_kind(identifier.text) else { return };
-        if (keyword as u16) < (SyntaxKind::FIRST_FUTURE_RESERVED_WORD as u16)
-            || (keyword as u16) > (SyntaxKind::LAST_FUTURE_RESERVED_WORD as u16)
-        {
+        let future_reserved = (keyword as u16) >= (SyntaxKind::FIRST_FUTURE_RESERVED_WORD as u16)
+            && (keyword as u16) <= (SyntaxKind::LAST_FUTURE_RESERVED_WORD as u16);
+        if !future_reserved && keyword != SyntaxKind::AwaitKeyword {
             return;
         }
         if self.is_identifier_name(node) {
+            return;
+        }
+        // **`await` is its own keyword, outside the future-reserved range**, so
+        // the second arm of upstream's four-way branch (`binder.go:1311`) was
+        // unreachable here rather than declined: an `await` used as a name at
+        // the **top level of an external module** is TS1262. The two TS1359
+        // arms need `AwaitContext`/`YieldContext` flags this parser does not
+        // set. §1043.
+        if !future_reserved {
+            let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+            let external = matches!(
+                self.node_map.get(file),
+                Some(Node::SourceFile(source)) if tsr_binder::is_external_module(source)
+            );
+            // **`IsInTopLevelContext` stops at an arrow; §951's helper does
+            // not.** That helper answers *"is there an `arguments` object
+            // here"*, for which an arrow is transparent — and reusing it put a
+            // TS1262 on the `await` inside `async(() => await(…))`. Same
+            // question shape, different container rule; §1030's lesson. §1044.
+            if !external
+                || self.nodes.ancestors(node).any(|a| self.is_function_like_or_static_block(a))
+            {
+                return;
+            }
+            let span = self.nodes.span(node);
+            self.report(
+                file,
+                Diagnostic::with_args(
+                    &messages::IDENTIFIER_EXPECTED_0_IS_A_RESERVED_WORD_AT_THE_TOP_LEVEL_OF_A_MODULE,
+                    span,
+                    [identifier.text.to_string()],
+                ),
+            );
             return;
         }
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };

@@ -13691,7 +13691,7 @@ impl Checker<'_, '_> {
     /// Is this reference enclosed by a function-like that owns an `arguments`
     /// object? An **arrow function is not one** — it closes over the
     /// enclosing function's, and at top level there is none. §951.
-    fn reference_has_non_arrow_function_container(&self, node: NodeId) -> bool {
+    pub(crate) fn reference_has_non_arrow_function_container(&self, node: NodeId) -> bool {
         self.nodes.ancestors(node).any(|ancestor| {
             matches!(
                 self.nodes.kind(ancestor),
