@@ -846,7 +846,16 @@ fn the_arity_of_a_generic_reference_is_checked() {
         type_of_declaration("class C<T> {}\ndeclare const x: C<number, string>;", "x"),
         "error"
     );
-    assert_eq!(type_of_declaration("class C<T = string> {}\ndeclare const x: C;", "x"), "error");
+    // **This assertion was `"error"` and is corrected.** A bare reference whose
+    // every parameter is defaulted is *inside* upstream's window —
+    // `minTypeArgumentCount` is zero — so it fills and prints `C<string>`. The
+    // old expectation recorded this port's refusal, not upstream's rule; the
+    // arms above it are unchanged and are the actual arity check.
+    // `checker-notes-printseam.md` §9.
+    assert_eq!(
+        type_of_declaration("class C<T = string> {}\ndeclare const x: C;", "x"),
+        "C<string>"
+    );
 }
 
 #[test]
@@ -2241,4 +2250,118 @@ fn an_enum_member_whose_name_is_not_identifier_text_is_a_gap() {
     // where a missing one belongs.
     assert_eq!(type_of_enum_member(r#"enum E { "fo'o" }"#, "E", "fo'o"), "error");
     assert_eq!(type_of_enum_member(r#"enum E { "a-b" }"#, "E", "a-b"), "error");
+}
+
+// ---------------------------------------------------------------------------
+//
+// # A bare reference to an all-defaulted generic
+//
+// `getTypeFromClassOrInterfaceReference` accepts any written arity inside
+// `[minTypeArgumentCount, len(typeParameters)]` (`checker.go:23189`), and
+// `minTypeArgumentCount` is **zero** when every parameter has a default. So
+// `interface i00<T = number>` written bare is legal and instantiates from the
+// defaults — upstream prints it `i00<number>` (`genericDefaults.types:2538`).
+//
+// This port answered `errorType`, and the cost was **not** where you would look
+// for it. An `errorType` constituent poisons the union it sits in, so
+// `A | null | string` stopped narrowing: `if (!r) return; if (typeof r !==
+// "object") return; r.id` reported `'r' is possibly 'null'` because the
+// truthiness step answered `errorType` and the `typeof` step then minted
+// `object | null` from it. The symptom was a *narrowing* bug three subsystems
+// away from the cause; `const t: never = r` is what printed the trace.
+//
+// # Why the lib gate does not extend here
+//
+// §136 (`checker-notes-printseam.md` §7–§8) gates the *partial* fill to
+// lib-declared targets, because a partially-written list has to choose which
+// position the default fills and that choice shows up in print — the
+// user-file builder positions (`tsxLibraryManagedAttributes`, `genericDefaults`)
+// were its measured adverse. A **bare** list fills every position and makes no
+// choice, so there is nothing for the gate to protect. Measured: `genericDefaults`
+// — the case §136 named as the risk — **gains 10 lines**.
+//
+// # The mutations, measured
+//
+// | # | mutation | reddens |
+// |---|---|---|
+// | 1 | drop the bare arm from `fillable` | the two fill tests, and the corrected assertion in [`the_arity_of_a_generic_reference_is_checked`] |
+// | 2 | give the bare arm §136's `Some(written)` display | those, plus [`a_bare_reference_prints_every_filled_argument_not_an_empty_list`] |
+// | 3 | `any(default)` instead of `all(default)` in the predicate | **nothing** |
+// | 4 | let the fill loop substitute `any` for a missing default | **nothing** |
+// | 3+4 | both together | [`a_bare_reference_whose_defaults_only_partly_cover_is_still_a_gap`] |
+//
+// **Rows 3 and 4 are the honest result, not a gap in the tests.** The
+// partly-covered case is refused twice over — once by the predicate and once by
+// the fill loop's `else { return error }` — so neither guard alone is
+// observable. That is worth knowing before someone deletes the "redundant" one:
+// it is redundant only while the other stands, and row 3+4 is the proof that
+// the pair, not either member, is what holds the arity rule.
+//
+// `checker-notes-printseam.md` §9. Measured +87 assertion lines / −0 and +1
+// diagnostics case / −0, per-case, zero regressions.
+
+#[test]
+fn a_bare_reference_to_an_all_defaulted_generic_fills_from_its_defaults() {
+    assert_eq!(
+        type_of_declaration("interface I<T = number> { a: T }\ndeclare const x: I;", "x"),
+        "I<number>"
+    );
+    // Every parameter defaulted, more than one, and a later default that names
+    // an earlier parameter — `fillMissingTypeArguments` substitutes as it goes.
+    assert_eq!(
+        type_of_declaration(
+            "interface I<T = number, U = T> { a: T, b: U }\ndeclare const x: I;",
+            "x"
+        ),
+        "I<number, number>"
+    );
+}
+
+#[test]
+fn a_bare_reference_prints_every_filled_argument_not_an_empty_list() {
+    // The first build passed `Some(0)` as the display arity — §136's written-arity
+    // model — and printed `I<>`, which is a spelling no TypeScript emits. The
+    // display truncation belongs to the partially-written arm alone.
+    assert_ne!(
+        type_of_declaration("interface I<T = number> { a: T }\ndeclare const x: I;", "x"),
+        "I<>"
+    );
+}
+
+#[test]
+fn a_bare_reference_to_a_generic_without_defaults_is_still_an_arity_gap() {
+    // **True positive.** `minTypeArgumentCount` is 1 here, so zero arguments is
+    // outside upstream's window and the reference is an error — this is the arm
+    // that must NOT be widened, and a fill that ignored the defaults would
+    // answer `I<something>` instead.
+    assert_eq!(type_of_declaration("interface I<T> { a: T }\ndeclare const x: I;", "x"), "error");
+}
+
+#[test]
+fn a_bare_reference_whose_defaults_only_partly_cover_is_still_a_gap() {
+    // **True positive.** One defaulted parameter and one not: the minimum is 1,
+    // bare is still outside the window. A predicate written as "any parameter
+    // has a default" rather than "every parameter has a default" passes the test
+    // above and fails this one.
+    assert_eq!(
+        type_of_declaration("interface I<T, U = number> { a: T, b: U }\ndeclare const x: I;", "x"),
+        "error"
+    );
+}
+
+#[test]
+fn a_written_argument_list_still_has_to_match() {
+    // **True positive.** Nothing here loosens the ordinary arity rule: too many
+    // arguments is still an error, defaults or no defaults.
+    assert_eq!(
+        type_of_declaration(
+            "interface I<T = number> { a: T }\ndeclare const x: I<string, string>;",
+            "x"
+        ),
+        "error"
+    );
+    assert_eq!(
+        type_of_declaration("interface I<T = number> { a: T }\ndeclare const x: I<string>;", "x"),
+        "I<string>"
+    );
 }

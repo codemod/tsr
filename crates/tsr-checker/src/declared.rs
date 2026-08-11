@@ -1364,7 +1364,23 @@ impl<'a> Checker<'a, '_> {
         // DEFAULTS cover the tail — `fillMissingTypeArguments`
         // (checker.go:19458), the annotation half. Bare references keep
         // today's road (position-sensitive default choice).
-        let fillable = !node.type_arguments.is_empty()
+        // §890 (`checker-notes-nnaccess.md` §6): a **fully bare** reference to a
+        // generic whose every parameter has a default — `CompleteRuleConfig`,
+        // declared `<M extends TypesMap = TypesMap>` and written with no
+        // arguments. Upstream's arity window is
+        // `[minTypeArgumentCount, len(typeParameters)]` (`checker.go:23189`) and
+        // `minTypeArgumentCount` is **zero** when every parameter is defaulted,
+        // so zero written arguments is inside it. This port answered
+        // `errorType`, which poisoned the union it sat in and cost the
+        // *narrowing* of `A | null | string` — see the section for the trace.
+        let bare_and_fully_defaulted = node.type_arguments.is_empty()
+            && parameters > 0
+            && self.local_type_parameters_of(symbol).len() == parameters
+            && self
+                .local_type_parameters_of(symbol)
+                .iter()
+                .all(|declaration| declaration.default_type.is_some());
+        let partially_written = !node.type_arguments.is_empty()
             && node.type_arguments.len() < parameters
             // LIB-declared targets only (printseam §7's gate): every measured
             // win is lib-driven (typedArrays, complexRecursiveCollections,
@@ -1383,6 +1399,11 @@ impl<'a> Checker<'a, '_> {
             && self.local_type_parameters_of(symbol)[node.type_arguments.len()..]
                 .iter()
                 .all(|declaration| declaration.default_type.is_some());
+        // The bare arm carries **no lib gate**. §136's gate exists because a
+        // partially-written list has to choose which position the default fills
+        // and that choice is visible in print; a bare list fills every position
+        // and has no choice to get wrong.
+        let fillable = partially_written || bare_and_fully_defaulted;
         if node.type_arguments.len() != parameters && !fillable {
             return error;
         }
@@ -1471,10 +1492,16 @@ impl<'a> Checker<'a, '_> {
             self.type_reference_targets.insert(minted, (symbol, arguments));
             return minted;
         }
-        if fillable {
+        if partially_written {
             let written = node.type_arguments.len();
             return self.create_type_reference_with_display(symbol, arguments, Some(written));
         }
+        // The bare arm prints **every** argument, which is what upstream does:
+        // `interface i00<T = number>` referenced as `<i00>x` prints
+        // `i00<number>` (`genericDefaults.types:2538`). §136's display
+        // truncation belongs to the partially-written arm alone — it exists so
+        // a written `Map<string>` does not grow an argument nobody typed, a
+        // question a bare reference does not raise.
         self.create_type_reference(symbol, arguments)
     }
 

@@ -221,3 +221,99 @@ closes: five iterations refused, the probe, the written-arity
 model, the lib gate — the printseam study's step-3 FIRST ARM is
 landed, and the study's incremental path is now validated
 end-to-end. Diagnostics rode along +19 (2,123 → 2,142).
+
+## 9. §136's bare arm — the fill with no choice to make, +87/−0
+
+§8 closed the §136 arc with the lib gate and said the user-file families
+"stay gapped behind the lib gate, exactly as designed — their unlock remains
+per-site printing". **For the fully-bare subcase that is not true, and the
+measurement says so: `genericDefaults` — the case §8 named as the adverse —
+gains 10 lines.**
+
+### What was broken
+
+`interface CompleteRuleConfig<M extends TypesMap = TypesMap>` referenced with no
+type arguments at all. Upstream's window is
+`[minTypeArgumentCount, len(typeParameters)]` (`checker.go:23189`) and
+`minTypeArgumentCount` is **zero** when every parameter has a default, so a bare
+reference is inside it and fills from the defaults. This port required
+`!node.type_arguments.is_empty()` before it would fill, so a bare reference fell
+out of the window and answered `errorType`.
+
+### The cost was three subsystems away from the cause
+
+Found while chasing what looked like a narrowing bug on a real repository:
+
+```ts
+const rule = doc.toJSON() as CompleteRuleConfig | null | string;
+if (!rule || typeof rule !== "object") { continue; }
+rule.id = "x";   // TS18047: 'rule' is possibly 'null'
+```
+
+An `errorType` constituent poisons the union it sits in. The truthiness step
+answered `errorType` instead of `CompleteRuleConfig | string`, and the `typeof`
+step then minted `object | null` out of it — so `null` came *back*, in a program
+that had just tested for it.
+
+Nothing in the diagnostic, the narrowing, or the union code was wrong. The
+instrument that named it was `const t: never = rule;`, which prints the narrowed
+type in the error message: `object | null` after the second guard where a
+non-generic twin printed `P`. **When a narrowing result is wrong and the
+narrowing code is right, print the type — the input is what changed.**
+
+### Why the lib gate does not extend to this arm
+
+§7's gate exists because a **partially**-written list must choose which position
+its default fills, and that choice is visible in print — the builder-position
+adverse (`tsxLibraryManagedAttributes`, `genericDefaults`) was measured at ~87
+G→W under the written-arity model. A **bare** list fills every position and makes
+no choice. There is nothing for the gate to protect, which is why the case that
+priced the gate is now on the gaining side of it.
+
+The same reasoning fixes the print: the bare arm passes **no** display arity, so
+it renders every filled argument. Upstream prints `i00<number>` for a bare `i00`
+(`genericDefaults.types:2538`). The first build reused §136's `Some(written)`
+and printed `I<>` — an empty argument list, a spelling no TypeScript emits.
+
+### Measured
+
+Baseline is a `git worktree --detach` at HEAD, one corpus for both runs.
+
+| | before | after |
+|---|---:|---:|
+| `checker_types` lines | 415,435 | **415,522** (+87) |
+| `checker_types` per-case | — | **8 cases gain, 0 lose** |
+| `diagnostics` cases | 2,378 | **2,379** (+1, `compiler/customEventDetail`) |
+| `diagnostics` per-case | — | 1 gain, **0 lost** |
+
+Gains: `signatureCombiningRestParameters3` (16), `…4` (12),
+`reverseMappedTypeInferenceWidening1` (12), `customEventDetail` (11),
+`mergedInstantiationAssignment` (10), `genericDefaults` (10),
+`reverseMappedTypeInferenceSameSource1` (4), `awaitedTypeStrictNull` (2).
+
+### The real-repository case it was found on is **not** fixed
+
+Honest, because the temptation is to claim the origin story. `CompleteRuleConfig`
+defaults to `TypesMap = Record<string, NodeType>`, and `Record<K, V>` — a lib
+**mapped type** — still answers `errorType` here, so the default resolves to
+error and the fill returns error at the same place. The four TS18047 on
+`ast-grep-executor.ts` are unchanged, and their owner is the mapped-type
+subsystem.
+
+The second shape reported in the same session (`marketing-site.ts`, TS2322 on a
+cached `string | undefined`) has the identical structure: `env.MARKETING_BASE_URL`
+is `errorType` because the t3-env `createEnv` return type is unresolved, so the
+assignment cannot narrow. **Both user-visible "narrowing bugs" are unresolved
+types leaking into flow analysis.** That is a class, and it is worth naming: a
+gap in the type side does not stay on the type side — it surfaces as a wrong
+*diagnostic* somewhere else entirely, which is why they are so hard to attribute.
+
+### How you would know this was wrong
+
+Two arity true positives (`crates/tsr-checker/tests/types.rs`): a bare reference
+to a generic with **no** default, and one whose defaults only **partly** cover.
+Both must stay `error`. The mutation table there records something worth
+repeating: **neither guard is individually observable** — the predicate and the
+fill loop's `else { return error }` each refuse the partly-covered case, so only
+mutating *both* reddens the test. The pair holds the rule; either alone reads as
+dead code and is not.
