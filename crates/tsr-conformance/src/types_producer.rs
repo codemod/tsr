@@ -805,6 +805,28 @@ pub fn type_id_at_location<'a>(
     // {}` used as `<foo/>` — has a real type, never reaches the fast path at
     // all, and must keep printing it. The corpus discriminates this at 32 lines
     // printing `() => any` and 24 printing `typeof foo`.
+    // SS179 (measured, reverted): the BINDING ELEMENT, LABEL NAME and
+    // GLOBAL SCOPE AUGMENTATION guards were transcribed together and moved
+    // **zero cases** (4,398 both ways) while churning lines both
+    // directions. They are correct but case-inert in this corpus; the text
+    // is in this commit's history. The remaining unported guards are
+    // `hadErrorBaseline` and the meta-property one.
+    //
+    // **`hadErrorBaseline` is the largest guard left and it is REACHABLE.**
+    // It is a whole-FILE flag: when a case has an `.errors.txt` baseline,
+    // EVERY any-flagged type in it routes to the node builder and prints
+    // `any` instead of the intrinsic `error`. The corpus already answers the
+    // question — `CaseRef::has_varied_errors` / `expected_errors`
+    // (`corpus.rs:163-175`) — but `render_case` receives a `TestCase`, which
+    // carries only the case NAME and no link to the baselines directory, so
+    // the flag has to be threaded in from the caller that owns the corpus.
+    // That plumbing is the whole build; the guard itself is one condition.
+    // Sizing: 155 of the 1,628 one-blocker files want `any` and get `error`,
+    // and SS178's two guards took 6 of them.
+    //
+    // The meta-property guard is DEAD: the parser constructs no
+    // `MetaProperty` node at all (checker-1's probe), so `new.target` never
+    // reaches this walk as one.
     // SS178: two more of the seven, TRANSCRIBED verbatim
     // (`isImportStatementName`/`isExportStatementName`,
     // type_symbol_baseline.go:458-479): an identifier that IS the name of an
@@ -820,9 +842,7 @@ pub fn type_id_at_location<'a>(
                 specifier.name.and_then(|n| n.node_id) == Some(id)
                     || specifier.property_name.and_then(|n| n.node_id()) == Some(id)
             }
-            Some(Node::ImportClause(clause)) => {
-                clause.name.and_then(|n| n.node_id) == Some(id)
-            }
+            Some(Node::ImportClause(clause)) => clause.name.and_then(|n| n.node_id) == Some(id),
             Some(Node::ImportEqualsDeclaration(declaration)) => {
                 declaration.name.and_then(|n| n.node_id) == Some(id)
             }
