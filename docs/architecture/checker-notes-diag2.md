@@ -45020,3 +45020,81 @@ body in.
 Eleven cases remain; the head is now `checkerInitializationCrash`, whose two
 lines are in `node_modules` `.d.ts` files — a `declare global` re-export shape,
 different again.
+
+## §912 — class members: normalise the name, split the table
+
+```ts
+class C {
+    1: number;
+    1.0: number;      // TS2300 — `1` and `1.0` are one property
+    static 2: number;
+    static 2: number; // TS2300 — and statics are their own table
+}
+```
+
+§906's class helper looks only at **literal computed** names. TS2300's residue
+holds two fixtures — `numericNamedPropertyDuplicates`, `numericClassMembers1` —
+that need two things it does not do:
+
+```
+normalise the name    `1` and `1.0` are the same property. §671 established this
+                      for enum members: upstream compares `GetTextOfPropertyName`,
+                      which for a numeric literal is `ToString(value)`, and this
+                      port keeps the *written* spelling so the printer can
+                      reproduce it (`printer_round_trip` is 100%).
+split the table       a `static` member and an instance member of one name do not
+                      collide — upstream declares them into different tables.
+```
+
+Both are facts §671 and the binder already carry; the helper simply never asked.
+It is generalised here to every named property declaration — identifier, string
+literal, numeric literal, literal computed name — keyed by
+`(is_static, normalised text)`.
+
+**Accessors stay out.** A getter/setter pair of one name is legal, and a
+property-beside-accessor collision (`fieldAndGetterWithSameName`,
+`propertyAndAccessorWithSameName`, `autoAccessor11`) is a third question with its
+own three fixtures.
+
+```
+bar:  >= +2 (numericNamedPropertyDuplicates, numericClassMembers1),
+      0 LOST via `diagpass`,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **A static and an instance member of one name report.** Different tables.
+2. **A getter/setter pair reports.** Accessors are excluded.
+
+## §913 — §912 built: **+3/−0**, and one of the three was excluded on purpose
+
+```
+diagnostics   2,370 → 2,373   (bar was >= +2;  +3)   43.24%
+diagpass      LOST: (none)
+              GAINED: numericClassMembers1, duplicatePropertyNames, autoAccessor11
+extraonly     79, unchanged
+TS2300        11 cases → 8,  45 lines → 33
+```
+
+Two of the three were the bar's; the third was not.
+
+**`autoAccessor11` converted despite accessors being explicitly excluded.** §912
+kept them out because a getter/setter pair of one name is legal, and named
+`autoAccessor11` among the three fixtures it was *declining*. It passes anyway:
+its collision is between two `accessor` **property declarations**, which are
+`PropertyDeclaration` nodes with an `accessor` modifier — not accessors in the
+`GetAccessor`/`SetAccessor` sense the exclusion was about.
+
+> **Two things called "accessor" in one language and one of them is a property.**
+> The exclusion was right, its name for the thing was wrong, and the measurement
+> is what said so — §912's note listed a fixture as out of scope and the build
+> converted it in the same run.
+
+`numericNamedPropertyDuplicates` — the fixture that motivated the normalisation —
+did **not** convert. It wants more than TS2300.
+
+```
+§904  +4    §906  +1    §908  +2    §910  +2    §912  +3
+                                                 ---
+                                                 +12,  TS2300  20 → 8 cases
+```

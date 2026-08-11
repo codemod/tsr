@@ -6173,35 +6173,56 @@ impl Checker<'_, '_> {
         if self.file_has_parse_errors {
             return;
         }
-        let named: Vec<(NodeId, String)> = members
+        // **Normalise the name and split the table.** `1` and `1.0` are one
+        // property — upstream compares `GetTextOfPropertyName`, which for a
+        // numeric literal is `ToString(value)`, while this port keeps the
+        // written spelling so the printer can reproduce it (§671). And a
+        // `static` member does not collide with an instance member, because
+        // upstream declares them into different tables. §912.
+        let named: Vec<(NodeId, bool, String)> = members
             .iter()
             .filter_map(|member| {
                 let tsr_ast::ClassElement::PropertyDeclaration(property) = member else {
                     return None;
                 };
-                // **A string-literal member name is the same collision.**
-                // `class C { "a": string; "a": number }` folds to one name
-                // exactly as a literal computed name does. §910.
-                if let tsr_ast::PropertyName::StringLiteral(literal) = property.name {
-                    return Some((literal.node_id?, literal.text.to_string()));
-                }
-                let tsr_ast::PropertyName::ComputedPropertyName(computed) = property.name else {
-                    return None;
+                let is_static = has_modifier(property.modifiers, SyntaxKind::StaticKeyword);
+                let (id, text) = match property.name {
+                    tsr_ast::PropertyName::Identifier(name) => {
+                        (name.node_id?, name.text.to_string())
+                    }
+                    tsr_ast::PropertyName::StringLiteral(name) => {
+                        (name.node_id?, name.text.to_string())
+                    }
+                    tsr_ast::PropertyName::NumericLiteral(name) => (
+                        name.node_id?,
+                        tsr_core::jsnum::format_number(tsr_core::jsnum::numeric_value(name.text)),
+                    ),
+                    tsr_ast::PropertyName::ComputedPropertyName(computed) => {
+                        let id = computed.node_id?;
+                        match computed.expression? {
+                            tsr_ast::Expression::StringLiteral(literal) => {
+                                (id, literal.text.to_string())
+                            }
+                            tsr_ast::Expression::NumericLiteral(literal) => (
+                                id,
+                                tsr_core::jsnum::format_number(tsr_core::jsnum::numeric_value(
+                                    literal.text,
+                                )),
+                            ),
+                            _ => return None,
+                        }
+                    }
+                    tsr_ast::PropertyName::PrivateIdentifier(_)
+                    | tsr_ast::PropertyName::BigIntLiteral(_)
+                    | tsr_ast::PropertyName::NoSubstitutionTemplateLiteral(_) => return None,
                 };
-                let id = computed.node_id?;
-                match computed.expression? {
-                    tsr_ast::Expression::StringLiteral(literal) => {
-                        Some((id, literal.text.to_string()))
-                    }
-                    tsr_ast::Expression::NumericLiteral(literal) => {
-                        Some((id, literal.text.to_string()))
-                    }
-                    _ => None,
-                }
+                Some((id, is_static, text))
             })
             .collect();
-        for (index, (id, text)) in named.iter().enumerate() {
-            if !named.iter().enumerate().any(|(other, (_, name))| other != index && name == text) {
+        for (index, (id, is_static, text)) in named.iter().enumerate() {
+            if !named.iter().enumerate().any(|(other, (_, other_static, name))| {
+                other != index && other_static == is_static && name == text
+            }) {
                 continue;
             }
             let Some(file) = self.source_file_of_for_diagnostics(*id) else { continue };
