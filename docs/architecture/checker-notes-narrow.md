@@ -7371,3 +7371,25 @@ Reverted rather than left dead. The next window's step is one
 probe: dump the node kind the parser gives `new.target` and find
 which check road receives it — until that is known, the arm's
 correctness is untestable and its 163-line ceiling unpriced.
+
+
+**§172 ROOT FOUND, same session — it is a PARSER gap, not a checker
+one.** The routing probe the entry called for: `crates/tsr-parser`
+never constructs a `MetaProperty` node at all (no
+`MetaProperty::new` anywhere in the crate). `new.target` enters
+`parse_new_expression` at `expression.rs:503` because the token is
+`NewKeyword`, and whatever it yields is not the MetaProperty the
+checker's dispatch would receive. So the checker arm cannot fire
+however correct it is, and the 163-line ceiling sits behind a
+PARSER change — produce `MetaProperty` for `new.target` and
+`import.meta` — with the checker arm (banked above, transcribed
+from `checker.go:10768`) landing immediately after it.
+
+Two notes for whoever takes it. (1) `parser_typescript` is at
+100%, so that suite does not discriminate this node's kind —
+worth knowing that a 100% suite can coexist with a missing node
+kind, which is a limit of what those numbers certify. (2) This is
+the first item this window that crosses OUT of the checker lane;
+it is filed here rather than acted on because the parser is not
+this session's surface, and because the checker half is already
+written and costs nothing to re-apply.
