@@ -139,7 +139,11 @@ impl CaseEntry {
     pub fn load(&self) -> Result<TestCase> {
         let source = read_lossy(&self.path)
             .with_context(|| format!("reading case {}", self.path.display()))?;
-        Ok(TestCase::parse(&self.name, &self.default_unit_name(), &source))
+        let mut parsed = TestCase::parse(&self.name, &self.default_unit_name(), &source);
+        // Upstream's `hadErrorBaseline` — see `TestCase::had_error_baseline`.
+        parsed.had_error_baseline =
+            self.has_varied_errors() || self.baselines.has_exact(self.stem(), "errors.txt");
+        Ok(parsed)
     }
 
     /// The case's basename, which is how baselines are keyed.

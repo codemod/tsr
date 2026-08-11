@@ -43,6 +43,17 @@ pub struct TestCase {
     pub symlinks: BTreeMap<String, String>,
     /// `@currentDirectory`, when the case sets one.
     pub current_directory: Option<String>,
+    /// Whether the case has an `.errors.txt` baseline.
+    ///
+    /// Upstream's `hadErrorBaseline` (`type_symbol_baseline.go:270`), stamped
+    /// by the loader because only the corpus knows the baselines. It is the
+    /// first condition of `writeTypeOrSymbol`'s guard chain: in a case that
+    /// produced diagnostics, EVERY `any`-flagged type routes to the node
+    /// builder and prints `any` rather than the intrinsic `error`.
+    ///
+    /// `false` for a `TestCase::parse` built without a corpus, which is what
+    /// the unit tests use — those assert on shapes, not on this flag.
+    pub had_error_baseline: bool,
     /// A structural problem upstream would `panic` on.
     ///
     /// Upstream panics when non-comment content appears before the first
@@ -147,7 +158,15 @@ impl TestCase {
             content: current_content,
         });
 
-        Self { name: name.to_string(), files, options, symlinks, current_directory, error }
+        Self {
+            name: name.to_string(),
+            files,
+            options,
+            symlinks,
+            current_directory,
+            error,
+            had_error_baseline: false,
+        }
     }
 
     /// Total source bytes across all units.

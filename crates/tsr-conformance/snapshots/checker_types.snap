@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 4398/9538 (46.11%)
-Assertion lines: 415800/478954 (86.81%)  — a gradient, not a pass rate
-Failed         : 5140
+Passed         : 4697/9538 (49.25%)
+Assertion lines: 420818/478954 (87.86%)  — a gradient, not a pass rate
+Failed         : 4841
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -12,17 +12,17 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 5140 failures:
+First 100 of 4841 failures:
 compiler/2dArrays
   2dArrays.ts: >allShipsSunk : error — expected >allShipsSunk : () => boolean
 compiler/ClassDeclaration26
   ClassDeclaration26.ts: 5 assertion(s), expected 6
 compiler/abstractClassInLocalScopeIsAbstract
-  abstractClassInLocalScopeIsAbstract.ts: >(() => {    abstract class A {}    class B extends A {}    new A();    new B();})() : error — expected >(() => {    abstract class A {}    class B extends A {}    new A();    new B();})() : void
+  abstractClassInLocalScopeIsAbstract.ts: >(() => {    abstract class A {}    class B extends A {}    new A();    new B();})() : any — expected >(() => {    abstract class A {}    class B extends A {}    new A();    new B();})() : void
 compiler/abstractClassUnionInstantiation
-  abstractClassUnionInstantiation.ts: >ConcretesOrAbstracts : error — expected >ConcretesOrAbstracts : ConcretesOrAbstracts
+  abstractClassUnionInstantiation.ts: >ConcretesOrAbstracts : any — expected >ConcretesOrAbstracts : ConcretesOrAbstracts
 compiler/abstractPropertyInConstructor
-  abstractPropertyInConstructor.ts: >({ x, y: y1, "y": y1 } = this) : error — expected >({ x, y: y1, "y": y1 } = this) : this
+  abstractPropertyInConstructor.ts: >({ x, y: y1, "y": y1 } = this) : any — expected >({ x, y: y1, "y": y1 } = this) : this
 compiler/acceptSymbolAsWeakType
   acceptSymbolAsWeakType.ts: >ws : error — expected >ws : WeakSet<symbol>
 compiler/acceptableAlias1
@@ -32,17 +32,17 @@ compiler/accessorBodyInTypeContext
 compiler/accessorDeclarationEmitJs
   /a.js: >t1 : error — expected >t1 : { p: string; readonly getter: string; }
 compiler/accessorInferredReturnTypeErrorInReturnStatement
-  accessorInferredReturnTypeErrorInReturnStatement.ts: >basePrototype : error — expected >basePrototype : { readonly primaryPath: any; }
+  accessorInferredReturnTypeErrorInReturnStatement.ts: >basePrototype : any — expected >basePrototype : { readonly primaryPath: any; }
 compiler/addMoreCallSignaturesToBaseSignature
-  addMoreCallSignaturesToBaseSignature.ts: >kitty : error — expected >kitty : string
+  addMoreCallSignaturesToBaseSignature.ts: >kitty : any — expected >kitty : string
 compiler/addMoreCallSignaturesToBaseSignature2
-  addMoreCallSignaturesToBaseSignature2.ts: >kitty : error — expected >kitty : string
+  addMoreCallSignaturesToBaseSignature2.ts: >kitty : any — expected >kitty : string
 compiler/aliasBug
-  aliasBug.ts: >booz : error — expected >booz : typeof booz
+  aliasBug.ts: >booz : any — expected >booz : typeof booz
 compiler/aliasDoesNotDuplicateSignatures
   demo.d.ts: >alias : typeof demoNS — expected >alias : typeof alias
 compiler/aliasErrors
-  aliasErrors.ts: >booz : error — expected >booz : typeof booz
+  aliasErrors.ts: >booz : any — expected >booz : typeof booz
 compiler/aliasInaccessibleModule
   aliasInaccessibleModule.ts: >X : error — expected >X : any
 compiler/aliasInaccessibleModule2
@@ -54,35 +54,31 @@ compiler/aliasInstantiationExpressionGenericIntersectionNoCrash2
 compiler/aliasOfGenericFunctionWithRestBehavedSameAsUnaliased
   aliasOfGenericFunctionWithRestBehavedSameAsUnaliased.ts: >a : ExtendedMapper<any, any, [any]> — expected >a : a
 compiler/aliasOnMergedModuleInterface
-  aliasOnMergedModuleInterface_1.ts: >foo : error — expected >foo : any
+  aliasOnMergedModuleInterface_1.ts: >z.bar("hello") : any — expected >z.bar("hello") : foo.A
 compiler/aliasUsageInArray
-  aliasUsageInArray_main.ts: >Backbone.Model : error — expected >Backbone.Model : typeof Backbone.Model
+  aliasUsageInArray_main.ts: >Backbone.Model : any — expected >Backbone.Model : typeof Backbone.Model
 compiler/aliasUsageInFunctionExpression
-  aliasUsageInFunctionExpression_main.ts: >Backbone.Model : error — expected >Backbone.Model : typeof Backbone.Model
+  aliasUsageInFunctionExpression_main.ts: >Backbone.Model : any — expected >Backbone.Model : typeof Backbone.Model
 compiler/aliasUsageInGenericFunction
-  aliasUsageInGenericFunction_main.ts: >Backbone.Model : error — expected >Backbone.Model : typeof Backbone.Model
+  aliasUsageInGenericFunction_main.ts: >Backbone.Model : any — expected >Backbone.Model : typeof Backbone.Model
 compiler/aliasUsageInIndexerOfClass
-  aliasUsageInIndexerOfClass_main.ts: >Backbone.Model : error — expected >Backbone.Model : typeof Backbone.Model
+  aliasUsageInIndexerOfClass_main.ts: >Backbone.Model : any — expected >Backbone.Model : typeof Backbone.Model
 compiler/aliasUsageInObjectLiteral
-  aliasUsageInObjectLiteral_main.ts: >Backbone.Model : error — expected >Backbone.Model : typeof Backbone.Model
+  aliasUsageInObjectLiteral_main.ts: >Backbone.Model : any — expected >Backbone.Model : typeof Backbone.Model
 compiler/aliasUsageInOrExpression
-  aliasUsageInOrExpression_main.ts: >Backbone.Model : error — expected >Backbone.Model : typeof Backbone.Model
+  aliasUsageInOrExpression_main.ts: >Backbone.Model : any — expected >Backbone.Model : typeof Backbone.Model
 compiler/aliasUsageInTypeArgumentOfExtendsClause
-  aliasUsageInTypeArgumentOfExtendsClause_main.ts: >Backbone.Model : error — expected >Backbone.Model : typeof Backbone.Model
+  aliasUsageInTypeArgumentOfExtendsClause_main.ts: >Backbone.Model : any — expected >Backbone.Model : typeof Backbone.Model
 compiler/aliasUsageInVarAssignment
-  aliasUsageInVarAssignment_main.ts: >Backbone.Model : error — expected >Backbone.Model : typeof Backbone.Model
+  aliasUsageInVarAssignment_main.ts: >Backbone.Model : any — expected >Backbone.Model : typeof Backbone.Model
 compiler/aliasUsedAsNameValue
   aliasUsedAsNameValue_2.ts: >a : error — expected >a : () => void
-compiler/aliasWithInterfaceExportAssignmentUsedInVarInitializer
-  aliasWithInterfaceExportAssignmentUsedInVarInitializer_1.ts: >moduleA : error — expected >moduleA : any
 compiler/allowImportClausesToMergeWithTypes
-  a.ts: >x : error — expected >x : zzz
+  a.ts: >x : any — expected >x : zzz
 compiler/allowJscheckJsTypeParameterNoCrash
-  app.js: >this.data2 : error — expected >this.data2 : (val: any) => void
+  app.js: >this.data2 : any — expected >this.data2 : (val: any) => void
 compiler/allowSyntheticDefaultImports1
   a.ts: >Namespace : error — expected >Namespace : typeof Namespace
-compiler/allowSyntheticDefaultImports10
-  a.ts: >Foo.default.bar() : error — expected >Foo.default.bar() : any
 compiler/allowSyntheticDefaultImports4
   a.ts: >Foo : error — expected >Foo : typeof Foo
 compiler/allowSyntheticDefaultImports9
@@ -92,19 +88,19 @@ compiler/allowSyntheticDefaultImportsCanPaintCrossModuleDeclaration
 compiler/ambientClassDeclarationWithExtends
   ambientClassDeclarationExtends_singleFile.ts: >new D() : error — expected >new D() : D
 compiler/ambientExportDefaultErrors
-  foo.d.ts: >Foo : error — expected >Foo : typeof import("./foo")
+  foo.d.ts: >Foo : any — expected >Foo : typeof import("./foo")
 compiler/ambientExternalModuleReopen
   ambientExternalModuleReopen.ts: >"fs" : error — expected >"fs" : typeof import("fs")
 compiler/ambientExternalModuleWithRelativeExternalImportDeclaration
-  ambientExternalModuleWithRelativeExternalImportDeclaration.ts: >x : error — expected >x : m2.c
+  ambientExternalModuleWithRelativeExternalImportDeclaration.ts: >x : any — expected >x : m2.c
 compiler/ambientExternalModuleWithRelativeModuleName
   ambientExternalModuleWithRelativeModuleName.ts: >".\\relativeModule" : typeof import(".\relativeModule") — expected >".\\relativeModule" : typeof import(".\\relativeModule")
 compiler/ambientModuleWithTemplateLiterals
   ambientModuleWithTemplateLiterals.ts: >Foo.c : Bar.a — expected >Foo.c : Foo.Bar.a
 compiler/ambientPropertyDeclarationInJs
-  /test.js: >this.prop : error — expected >this.prop : string
+  /test.js: >this.prop : any — expected >this.prop : string
 compiler/ambiguousOverload
-  ambiguousOverload.ts: >foof("s", null) : error — expected >foof("s", null) : number
+  ambiguousOverload.ts: >foof("s", null) : any — expected >foof("s", null) : number
 compiler/ambiguousOverloadResolution
   ambiguousOverloadResolution.ts: >f(x, x) : error — expected >f(x, x) : number
 compiler/amdLikeInputDeclarationEmit
@@ -122,15 +118,13 @@ compiler/anyAndUnknownHaveFalsyComponents
 compiler/anyAsReturnTypeForNewOnCall
   anyAsReturnTypeForNewOnCall.ts: >o : error — expected >o : any
 compiler/anyDeclare
-  anyDeclare.ts: >myFn : error — expected >myFn : any
-compiler/anyIndexedAccessArrayNoException
-  anyIndexedAccessArrayNoException.ts: >x : error — expected >x : any
+  anyDeclare.ts: >myFn : any — expected >myFn : () => void
 compiler/anyInferenceAnonymousFunctions
-  anyInferenceAnonymousFunctions.ts: >paired.reduce(function (a1, a2) {    return a1.concat({});} , []) : error — expected >paired.reduce(function (a1, a2) {    return a1.concat({});} , []) : any
+  anyInferenceAnonymousFunctions.ts: >function (a1, a2) {    return a1.concat({});} : any — expected >function (a1, a2) {    return a1.concat({});} : (a1: any, a2: any) => any
 compiler/anyMappedTypesError
-  anyMappedTypesError.ts: >Foo : error — expected >Foo : Foo
+  anyMappedTypesError.ts: >Foo : any — expected >Foo : Foo
 compiler/arguments
-  arguments.ts: >(() => arguments)() : error — expected >(() => arguments)() : any
+  arguments.ts: >(() => arguments) : any — expected >(() => arguments) : () => any
 compiler/argumentsAsPropertyName
   argumentsAsPropertyName.ts: >function(j) { use(x); } : error — expected >function(j) { use(x); } : (j: number) => void
 compiler/argumentsAsPropertyName2
@@ -142,7 +136,7 @@ compiler/argumentsObjectIterator02_ES6
 compiler/argumentsObjectIterator03_ES6
   argumentsObjectIterator03_ES6.ts: >[z, y, x] : any[] — expected >[z, y, x] : [any, any, any]
 compiler/argumentsPropertyNameInJsMode1
-  a.js: >foo : error — expected >foo : { f1: (params: any) => void; }
+  a.js: >foo : any — expected >foo : { f1: (params: any) => void; }
 compiler/argumentsReferenceInConstructor1_Js
   /a.js: >foo : {} — expected >foo : object | undefined
 compiler/argumentsReferenceInConstructor2_Js
@@ -158,7 +152,7 @@ compiler/argumentsReferenceInConstructor6_Js
 compiler/argumentsReferenceInConstructor7_Js
   /a.js: >this.callee : error — expected >this.callee : Function
 compiler/argumentsReferenceInFunction1_Js
-  index.js: >debuglog : error — expected >debuglog : () => string
+  index.js: >debuglog : any — expected >debuglog : () => string
 compiler/argumentsReferenceInMethod1_Js
   /a.js: >foo : {} — expected >foo : object | undefined
 compiler/argumentsReferenceInMethod2_Js
@@ -174,29 +168,25 @@ compiler/argumentsReferenceInMethod6_Js
 compiler/argumentsReferenceInMethod7_Js
   /a.js: >this.callee : error — expected >this.callee : Function
 compiler/argumentsUsedInClassFieldInitializerOrStaticInitializationBlock
-  argumentsUsedInClassFieldInitializerOrStaticInitializationBlock.ts: >A : error — expected >A : () => typeof T
+  argumentsUsedInClassFieldInitializerOrStaticInitializationBlock.ts: >A : any — expected >A : () => typeof T
 compiler/arithAssignTyping
   arithAssignTyping.ts: >f : typeof f — expected >f : any
-compiler/arithmeticOnInvalidTypes
-  arithmeticOnInvalidTypes.ts: >z : error — expected >z : any
-compiler/arithmeticOnInvalidTypes2
-  arithmeticOnInvalidTypes2.ts: >z1 : error — expected >z1 : any
 compiler/arityErrorRelatedSpanBindingPattern
-  arityErrorRelatedSpanBindingPattern.ts: >foo : error — expected >foo : (a: any, b: any, { c }: { c: any; }) => void
+  arityErrorRelatedSpanBindingPattern.ts: >foo : any — expected >foo : (a: any, b: any, { c }: { c: any; }) => void
 compiler/arrayBestCommonTypes
-  arrayBestCommonTypes.ts: >[[3, 4], [null]][0][0] : error — expected >[[3, 4], [null]][0][0] : number | null
+  arrayBestCommonTypes.ts: >[[3, 4], [null]][0][0] : any — expected >[[3, 4], [null]][0][0] : number | null
 compiler/arrayBindingPatternOmittedExpressions
-  arrayBindingPatternOmittedExpressions.ts: >f : error — expected >f : ([, a, , b, , , , s, , ,]?: string[]) => void
+  arrayBindingPatternOmittedExpressions.ts: >f : any — expected >f : ([, a, , b, , , , s, , ,]?: string[]) => void
 compiler/arrayBufferIsViewNarrowsType
-  arrayBufferIsViewNarrowsType.ts: >ArrayBuffer.isView(obj) : error — expected >ArrayBuffer.isView(obj) : boolean
+  arrayBufferIsViewNarrowsType.ts: >ArrayBuffer.isView(obj) : any — expected >ArrayBuffer.isView(obj) : boolean
 compiler/arrayCast
-  arrayCast.ts: >[{ foo: "s" }, {}] : error — expected >[{ foo: "s" }, {}] : ({ foo: string; } | {})[]
+  arrayCast.ts: >[{ foo: "s" }, {}] : any — expected >[{ foo: "s" }, {}] : ({ foo: string; } | {})[]
 compiler/arrayConcat2
   arrayConcat2.ts: >a.concat("hello", 'world') : error — expected >a.concat("hello", 'world') : string[]
 compiler/arrayConcat3
   arrayConcat3.ts: >b.concat(a) : error — expected >b.concat(a) : Fn<T1>[]
 compiler/arrayConcatMap
-  arrayConcatMap.ts: >x : error — expected >x : any[]
+  arrayConcatMap.ts: >x : any — expected >x : any[]
 compiler/arrayConstructors1
   arrayConstructors1.ts: >x = new Array(1) : error — expected >x = new Array(1) : any[]
 compiler/arrayDestructuringInSwitch1
@@ -213,3 +203,13 @@ compiler/arrayFind
   arrayFind.ts: >arrayOfStringsNumbersAndBooleans.find(isNumber) : error — expected >arrayOfStringsNumbersAndBooleans.find(isNumber) : number | undefined
 compiler/arrayFlatMap
   arrayFlatMap.ts: >array.flatMap((): ReadonlyArray<number> => []) : error — expected >array.flatMap((): ReadonlyArray<number> => []) : number[]
+compiler/arrayFlatNoCrashInference
+  arrayFlatNoCrashInference.ts: >foo : <T>(arr: T[], depth: number) => FlatArray<unknown, number>[] — expected >foo : <T>(arr: T[], depth: number) => FlatArray<T, -1 | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20>[]
+compiler/arrayFlatNoCrashInferenceDeclarations
+  arrayFlatNoCrashInferenceDeclarations.ts: >foo : <T>(arr: T[], depth: number) => FlatArray<unknown, number>[] — expected >foo : <T>(arr: T[], depth: number) => FlatArray<T, -1 | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20>[]
+compiler/arrayFrom
+  arrayFrom.ts: >inputARand : any — expected >inputARand : ArrayLike<A> | Iterable<A>
+compiler/arrayLiteralAndArrayConstructorEquivalence1
+  arrayLiteralAndArrayConstructorEquivalence1.ts: >myCars : any — expected >myCars : any[]
+compiler/arrayLiteralComments
+  arrayLiteralComments.ts: >testArrayWithFunc : error — expected >testArrayWithFunc : (string | number | number[] | (() => void) | { a: number; })[]

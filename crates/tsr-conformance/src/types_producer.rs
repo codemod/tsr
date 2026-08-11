@@ -1119,7 +1119,18 @@ fn render_case(
             node_map,
             |id| {
                 visited.push(id);
-                let answer = type_at_location(&mut checker, bound, nodes, node_map, id);
+                let mut answer = type_at_location(&mut checker, bound, nodes, node_map, id);
+                // SS180 `hadErrorBaseline` (`type_symbol_baseline.go:379`,
+                // the FIRST condition of the guard chain): in a case that
+                // produced diagnostics, the intrinsic-name fast path is
+                // skipped entirely and every `any`-flagged type — the error
+                // type included — renders through the node builder, which
+                // prints `any`. Measured: 125 of the 152 files whose SINGLE
+                // remaining blocker is `want any, got error` have an
+                // `.errors.txt` baseline.
+                if case.had_error_baseline && answer == "error" {
+                    answer = "any".to_string();
+                }
                 if explain && answer == "error" {
                     gaps.push(id);
                 }

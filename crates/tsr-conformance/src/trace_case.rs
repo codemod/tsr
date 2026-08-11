@@ -630,6 +630,7 @@ mod tests {
             symlinks: BTreeMap::new(),
             current_directory: None,
             error: None,
+            had_error_baseline: false,
         }
     }
 
@@ -718,6 +719,7 @@ mod tests {
             symlinks: BTreeMap::new(),
             current_directory: None,
             error: None,
+            had_error_baseline: false,
         };
 
         let compilation = compilation(&case, SRC_FOLDER, true);
