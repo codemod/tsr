@@ -961,26 +961,34 @@ impl<'a> Parser<'a> {
         // `[key: string]: T` is an index signature; `[Symbol.iterator]()` is a
         // computed property name. Only the former has `identifier :` inside.
         if self.at(SyntaxKind::OpenBracketToken) && self.bracket_holds_index_signature() {
-            self.next_token();
-            let parameter_start = self.pos();
-            let name = self.parse_identifier();
-            let parameter_type = self.parse_type_annotation();
-            let parameter = self.finish_node(
-                ParameterDeclaration::new(
-                    &[],
-                    None,
-                    Some(BindingName::Identifier(name)),
-                    None,
-                    parameter_type,
-                    None,
-                ),
-                SyntaxKind::Parameter,
-                parameter_start,
-            );
+            // `parseIndexSignatureDeclaration` (`parser.go:3562`) is
+            // `parseBracketedList(PCParameters, parseParameter, [, ])` — a
+            // *list*, of zero or more parameters, each parsed by the ordinary
+            // parameter parser and so each able to carry modifiers.
+            //
+            // This port read exactly one bare `identifier: type`, which was
+            // consistent with the old one-shape lookahead and became wrong the
+            // moment §209 admitted upstream's eight recovery shapes: `[]` has
+            // no parameter to read and `[public x: string]` has a modifier
+            // before it. Both derailed the whole member — the first
+            // manufactured a missing identifier, the second parsed `public` as
+            // the parameter name and then failed to find `]`. §209.
+            self.expect(SyntaxKind::OpenBracketToken);
+            let mut parsed = Vec::new();
+            while !self.at(SyntaxKind::CloseBracketToken) && !self.at(SyntaxKind::EndOfFile) {
+                let before = self.pos();
+                parsed.push(self.parse_parameter());
+                if !self.eat(SyntaxKind::CommaToken) {
+                    break;
+                }
+                if self.pos() == before {
+                    break;
+                }
+            }
             self.expect(SyntaxKind::CloseBracketToken);
             let value_type = self.parse_type_annotation();
             let modifiers = self.arena.alloc_slice(&modifiers);
-            let parameters = self.arena.alloc_slice(&[parameter]);
+            let parameters = self.arena.alloc_slice(&parsed);
             return Some(TypeElement::IndexSignatureDeclaration(self.finish_node(
                 IndexSignatureDeclaration::new(modifiers, parameters, value_type, None, &[]),
                 SyntaxKind::IndexSignature,
@@ -1096,19 +1104,60 @@ impl<'a> Parser<'a> {
     ///
     /// `[k: string]: T` has `identifier :` inside; `[Symbol.iterator]()` does not.
     pub(crate) fn bracket_holds_index_signature(&mut self) -> bool {
-        let mut matched = false;
-        self.try_parse(|p| {
-            p.next_token();
-            if !p.at(SyntaxKind::Identifier)
-                && !crate::statement::is_contextual_keyword(p.token.kind)
-            {
-                return None::<()>;
+        self.look_ahead(Self::next_is_unambiguously_index_signature)
+    }
+
+    /// `nextIsUnambiguouslyIndexSignature` (`parser.go:3513`), transcribed
+    /// whole, comment list and all.
+    ///
+    /// The only *well-formed* sequence is `[id:`, and this port tested exactly
+    /// that. Upstream deliberately admits eight more for **error recovery**,
+    /// and its own comment lists them:
+    ///
+    /// ```text
+    ///   [...        [id,        [id?,       [id?:
+    ///   [id?]       [public id  [private id [protected id
+    ///   []
+    /// ```
+    ///
+    /// The last one is the whole of `compiler/indexWithoutParamType`:
+    /// `var y: { []; }` is an index signature with **no parameters** upstream,
+    /// so it is a type node and the `.types` walker never looks inside it —
+    /// one assertion, `>y : {}`. Read as a computed property name instead, the
+    /// `[]` becomes an *expression* and the walker emits two more lines. The
+    /// types were never wrong; the walk was. §209.
+    fn next_is_unambiguously_index_signature(&mut self) -> bool {
+        self.next_token();
+        if self.at(SyntaxKind::DotDotDotToken) || self.at(SyntaxKind::CloseBracketToken) {
+            return true;
+        }
+        if self.token.kind.is_modifier() {
+            self.next_token();
+            if self.is_binding_identifier() {
+                return true;
             }
-            p.next_token();
-            matched = p.at(SyntaxKind::ColonToken);
-            None
-        });
-        matched
+        } else if !self.is_binding_identifier() {
+            return false;
+        } else {
+            // Skip the identifier.
+            self.next_token();
+        }
+        // A colon signifies a well-formed indexer. A comma is a *badly* formed
+        // one, and is admitted precisely because a comma expression is illegal
+        // in a computed property name — so it cannot be the other reading.
+        if self.at(SyntaxKind::ColonToken) || self.at(SyntaxKind::CommaToken) {
+            return true;
+        }
+        // A question mark could be an optional-property indexer or the start of
+        // a conditional expression in a computed name; only what follows tells
+        // them apart.
+        if !self.at(SyntaxKind::QuestionToken) {
+            return false;
+        }
+        self.next_token();
+        self.at(SyntaxKind::ColonToken)
+            || self.at(SyntaxKind::CommaToken)
+            || self.at(SyntaxKind::CloseBracketToken)
     }
 
     /// A dotted name: `A`, `A.B`, `A.B.C`.

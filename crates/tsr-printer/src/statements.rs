@@ -765,17 +765,17 @@ impl Printer<'_> {
             // Ported from `Printer.emitIndexSignature` (`internal/printer/printer.go`).
             ClassElement::IndexSignatureDeclaration(node) => {
                 self.emit_modifier_list(node.modifiers);
-                self.write("[");
-                for parameter in node.parameters {
-                    if let Some(name) = &parameter.name {
-                        self.emit_binding_name(name);
-                    }
-                    if let Some(r#type) = &parameter.r#type {
-                        self.write(": ");
-                        self.emit_type_node(r#type);
-                    }
-                }
-                self.write("]");
+                // **`LFIndexSignatureParameters`, not a hand-rolled bracket.**
+                // Upstream's `emitIndexSignature` emits a parameter LIST, so it
+                // gets the comma delimiter and each parameter's own modifiers,
+                // `...` and `?` for free. The hand-rolled loop here emitted
+                // only a name and a type, which was survivable while the parser
+                // recognised exactly `[id: T]` and became ten
+                // `printer_round_trip` failures the moment §209 admitted
+                // upstream's other eight shapes: `[public x: string]` lost its
+                // modifier and `[x?]` lost its question mark, so the re-parse
+                // read a computed property name instead. §209.
+                self.emit_index_signature_parameters(node.parameters);
                 if let Some(r#type) = &node.r#type {
                     self.write(": ");
                     self.emit_type_node(r#type);

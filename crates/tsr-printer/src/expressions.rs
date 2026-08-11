@@ -201,13 +201,22 @@ impl Printer<'_> {
                 // optional and its absence is recorded, so it must not be invented.
                 // `new C` and `new C()` parse to the same tree — both carry an
                 // empty argument list — so always emitting `()` loses nothing.
-                let callee_already_carries_recovered_call = node.arguments.is_empty()
-                    && matches!(
-                        node.expression,
-                        Some(Expression::TypeAssertion(assertion))
-                            if matches!(assertion.expression, Some(Expression::CallExpression(_)))
-                    );
-                if !callee_already_carries_recovered_call {
+                // **An empty argument list must not be written when the callee
+                // is a TYPE ASSERTION**, whatever the assertion contains: a
+                // `()` appended after `new <T> X` binds to `X` *inside* the
+                // assertion, not to the `new`, so the re-parse reads
+                // `new (<T> X())` and the callee's identifier has silently
+                // become a call.
+                //
+                // The guard used to require the assertion to hold a call
+                // already, which fixed `new <any>Factory()` and left
+                // `new <i1> anyVar` — the same re-association with nothing
+                // there to disguise it. Found when §209 made
+                // `compiler/intTypeCheck` parse cleanly for the first time and
+                // the case reached `printer_round_trip` at last.
+                let callee_reassociates_parentheses = node.arguments.is_empty()
+                    && matches!(node.expression, Some(Expression::TypeAssertion(_)));
+                if !callee_reassociates_parentheses {
                     self.arguments(node.arguments);
                 }
             }

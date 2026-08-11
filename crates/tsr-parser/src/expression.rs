@@ -2298,7 +2298,7 @@ impl<'a> Parser<'a> {
         parameters
     }
 
-    fn parse_parameter(&mut self) -> &'a ParameterDeclaration<'a> {
+    pub(crate) fn parse_parameter(&mut self) -> &'a ParameterDeclaration<'a> {
         let docs = self.parse_leading_jsdoc();
         let parameter = self.parse_parameter_worker();
         self.attach_jsdoc(tsr_ast::Node::ParameterDeclaration(parameter), docs);

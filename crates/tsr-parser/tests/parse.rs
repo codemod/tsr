@@ -1695,3 +1695,57 @@ fn an_async_functions_span_covers_its_modifier() {
         assert_eq!(&source[span.start as usize..span.end as usize], expected, "{source:?}");
     }
 }
+
+/// §209. An index signature's bracket admits upstream's eight recovery shapes,
+/// and holds a parameter LIST.
+///
+/// `nextIsUnambiguouslyIndexSignature` (`parser.go:3513`) lists them in its own
+/// comment — `[...`, `[id,`, `[id?,`, `[id?:`, `[id?]`, `[public id`,
+/// `[private id`, `[protected id`, and `[]`. This port tested only the
+/// well-formed `[id:`, so every other shape parsed as a computed property
+/// NAME, which makes its contents expressions: `var y: { []; }` records one
+/// assertion upstream (`>y : {}`, the whole thing being a type node) and three
+/// here.
+///
+/// And `parseIndexSignatureDeclaration` (`:3562`) is a bracketed *list* of
+/// parameters, so `[]` has none and `[public x: string]` has one carrying a
+/// modifier. Reading exactly one bare `id: type` derailed both.
+#[test]
+fn an_index_signatures_bracket_takes_a_parameter_list() {
+    let arena = Arena::new();
+    for (source, expected) in [
+        ("type T = { [] };", 0usize),
+        ("type T = { [x: string]: number };", 1),
+        ("type T = { [public x: string]: number };", 1),
+        ("type T = { [x: string, y: number]: number };", 2),
+    ] {
+        let parsed = parse(&arena, source);
+        let signatures: Vec<usize> = all_nodes(tsr_ast::Node::SourceFile(parsed.source_file))
+            .iter()
+            .filter_map(|node| match node {
+                tsr_ast::Node::IndexSignatureDeclaration(signature) => {
+                    Some(signature.parameters.len())
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(signatures, vec![expected], "{source:?}");
+    }
+}
+
+/// The over-fire control: a genuine computed property NAME must still be one.
+/// `[Symbol.iterator]()` reaches `[`, then an identifier, then `.` — none of
+/// upstream's nine shapes — and admitting it would turn every well-known-symbol
+/// member into an index signature.
+#[test]
+fn a_computed_property_name_is_not_an_index_signature() {
+    let arena = Arena::new();
+    for source in ["type T = { [Symbol.iterator](): void };", "type T = { [K in string]: number };"]
+    {
+        let parsed = parse(&arena, source);
+        let found = all_nodes(tsr_ast::Node::SourceFile(parsed.source_file))
+            .iter()
+            .any(|node| matches!(node, tsr_ast::Node::IndexSignatureDeclaration(_)));
+        assert!(!found, "{source:?} must not parse as an index signature");
+    }
+}

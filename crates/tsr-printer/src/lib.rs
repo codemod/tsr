@@ -593,6 +593,21 @@ impl<'t> Printer<'t> {
         });
     }
 
+    /// Ported from `Printer.emitIndexSignature`'s parameter emission
+    /// (`internal/printer/printer.go`), which is `LFIndexSignatureParameters`.
+    ///
+    /// Square-bracketed rather than parenthesised, and — like
+    /// [`Self::emit_parameters`] — the brackets are written even when the list
+    /// is empty, which is what makes `{ []; }` round-trip.
+    pub(crate) fn emit_index_signature_parameters(
+        &mut self,
+        parameters: &[&tsr_ast::ParameterDeclaration<'_>],
+    ) {
+        self.emit_list(parameters, ListFormat::INDEX_SIGNATURE_PARAMETERS, |printer, parameter| {
+            printer.emit_parameter(parameter);
+        });
+    }
+
     /// Ported from `Printer.emitParameter` (`internal/printer/printer.go`).
     fn emit_parameter(&mut self, parameter: &tsr_ast::ParameterDeclaration<'_>) {
         self.emit_modifier_list(parameter.modifiers);
