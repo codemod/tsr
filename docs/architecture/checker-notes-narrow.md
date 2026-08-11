@@ -7291,3 +7291,26 @@ the same failure mode (an enumeration that stopped early) on a
 different surface. Worth widening the corollary's wording: census
 the dispatch AND the predicates it consults, because a gate that
 enumerates kinds is a dispatch wearing different clothes.
+
+
+## §170 — the concise async arrow body: correct, unexercised, reverted [checker-1]
+
+`getReturnTypeFromBody` tests `!ast.IsBlock(body)` and takes the
+expression's type directly (`checker.go:20135`); this port's async
+arm required `Body::Block` and declined every concise async arrow.
+Built the extension (a concise body is a single valued return by
+construction; the block road's reachability question does not
+arise because an expression body always returns) and it WORKS —
+probe: `const aa = async () => 1` went from `error` to
+`() => Promise<number>`, `async (x: number) => x` to
+`(x: number) => Promise<number>`.
+
+**Measured +0 / 1 on the corpus and reverted.** The 193 gap lines
+wanting `() => Promise<...>` are block-bodied or sit behind other
+declines; concise async arrows are essentially absent from
+asserted positions. Recorded per corollary 2 with its site named:
+NOT REACHABLE AT THIS SITE, which is not a claim about the async
+road — §169 had just widened the same gate's list and gained 39,
+so the road is live and this particular body shape is the part the
+corpus does not exercise. Text banked here; rebuild if a future
+fixture set carries concise async arrows.
