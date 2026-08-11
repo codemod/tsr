@@ -1778,3 +1778,27 @@ types carrying a `thisType`, reference types extended with a this
 ARGUMENT (checker.go:19573-19582), and apparent-type application at
 the access site. That subsystem is the third ranked rock behind the
 fixing-mapper unit and the asserts machinery.
+
+## §169 — the board's #1 wrong family DECODED: parsingDeepParenthensizedExpression is an ERROR-TYPE family, not a print family
+
+330 wrong lines (the largest single family on the board) resolve to one
+shape: **want `error`, got `any`** ×324. That want is legitimate —
+upstream's `type_symbol_baseline.go:378` prints the errorType's
+intrinsic name literally as `"error"` on a fast path (the same
+mechanism documented at types_producer.rs:770-790 for JSX tags). So
+upstream's checker produces the ERROR TYPE at 324 positions in this
+deeply-nested `.js` fixture and we produce `any`.
+
+Consequence for the board's ranking: this family is **not** a checker
+print item and not incrementally winnable by narrowing/inference work.
+It is one behavioural difference — upstream erroring where we succeed
+(or a JS-file inference road answering any) — repeated 324 times, and
+it belongs to whichever lane owns .js/JSDoc inference or parser depth
+limits. Whoever ranks the board next should read the 330 as ONE item
+of unknown size, not as the top target.
+
+The remaining board after this correction: temporal 261 (relater-heavy
+lib), inferTypePredicates 97, dependentDestructuredVariables 93,
+restTuplesFromContextualTypes 90, recursiveTypeReferences1 90,
+typeParameterConstModifiers 88, jsdocTemplateTag6 82 — all subsystem
+work, all already ranked in TASK.md.
