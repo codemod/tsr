@@ -2549,6 +2549,18 @@ impl<'a> Checker<'a, '_> {
                     let flags = checker.store.get(id).flags;
                     flags.intersects(crate::flags::TypeFlags::PRIMITIVE)
                 };
+                // SS177 (measured, reverted): widening the POSITIVE domain
+                // by provably-assignable cases — identity, and two
+                // references to one target with identical arguments — is
+                // ALSO unsafe here: +2/14 (unknownType2 13). `unknown
+                // extends unknown ? A : B` is not the true branch upstream,
+                // because a conditional whose check is `unknown` (or a
+                // naked parameter) DISTRIBUTES rather than tests. So the
+                // widening this gate needs is neither the ternary's
+                // negative side (checker-1: +29/24) nor bare positives —
+                // it is `isTypeRelatedTo`'s own domain plus the
+                // DISTRIBUTIVITY rule (checker.go's getConditionalType,
+                // the `checkType.flags&TypeFlagsInstantiable` head).
                 if extends != error
                     && !self.mentions_any_type_parameter(check, 2)
                     && primitive_domain(self, check)
