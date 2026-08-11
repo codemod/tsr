@@ -316,7 +316,14 @@ impl Checker<'_, '_> {
         // wrong quote is worse than the gap.
         let const_context = node.node_id.is_some_and(|id| self.is_const_context(id));
         let mut members = Vec::with_capacity(node.properties.len());
+        // §206: the index-signature half §201 left as a gap. A computed name
+        // whose type IS string-, number- or symbol-like contributes an INDEX
+        // SIGNATURE rather than a member (`checker.go:13195-13205`), whose
+        // value type is the union of the contributing members' types
+        // (`getObjectLiteralIndexInfo`, `:19721`).
+        let mut index_values: Vec<(&'static str, TypeId)> = Vec::new();
         for property in node.properties {
+            let mut pending_index_key: Option<&'static str> = None;
             // `checker.go:13223` dispatches over three member kinds. Only two are
             // reachable here: a method needs `checkObjectLiteralMethod` and a
             // signature member this port cannot print, and a spread or accessor
@@ -534,15 +541,46 @@ impl Checker<'_, '_> {
                     let Some(expression) = computed.expression else { return error };
                     let name_type = self.check_expression(expression);
                     let flags = self.type_of(name_type).flags;
+                    // **`StringOrNumberLiteralOrUnique` first** — upstream's
+                    // own guard (`checker.go:13317`), and the arm below is its
+                    // `else`. A name whose type is a string or number LITERAL,
+                    // or a unique symbol, is **late-bound**: it names a real
+                    // member and goes in `propertiesTable`, so `{ [1]: 1 }` is
+                    // `{ 1: number; }` and not an index signature. Printing
+                    // that name is unported, so it stays a gap.
+                    //
+                    // §206's first draft tested `NUMBER_LIKE`, which contains
+                    // `NUMBER_LITERAL`, and turned `{ [1]: 1 }` into
+                    // `{ [x: number]: number; }`. **§201's own control caught
+                    // it** — the fixture written one commit earlier to pin that
+                    // a computed member must not silently vanish also pinned
+                    // which of the two things it becomes.
                     if flags.intersects(
-                        TypeFlags::STRING_LIKE
-                            | TypeFlags::NUMBER_LIKE
-                            | TypeFlags::ES_SYMBOL_LIKE
-                            | TypeFlags::ANY,
+                        TypeFlags::STRING_LITERAL
+                            | TypeFlags::NUMBER_LITERAL
+                            | TypeFlags::UNIQUE_ES_SYMBOL,
                     ) {
                         return error;
                     }
-                    continue;
+                    // Upstream's order, and it is not the obvious one:
+                    // `isTypeAssignableTo(nameType, numberType)` is asked
+                    // FIRST, then `esSymbolType`, then string
+                    // (`checker.go:13319-13324`). So an `any` name yields a
+                    // **number** index — which is why
+                    // `{ [await]: foo }` with an un-typeable `await` records
+                    // `{ [x: number]: any; }` and not a string index.
+                    if flags.intersects(TypeFlags::NUMBER_LIKE | TypeFlags::ANY) {
+                        pending_index_key = Some("number");
+                    } else if flags.intersects(TypeFlags::ES_SYMBOL_LIKE) {
+                        pending_index_key = Some("symbol");
+                    } else if flags.intersects(TypeFlags::STRING_LIKE) {
+                        pending_index_key = Some("string");
+                    } else {
+                        // §201: a name that cannot key anything contributes
+                        // nothing at all — not a member and not a signature.
+                        continue;
+                    }
+                    String::new()
                 }
                 // A **private name** cannot be an object-literal member. The
                 // grammar refuses it, the parser has already reported, and the
@@ -639,10 +677,60 @@ impl Checker<'_, '_> {
                 }
                 _ => self.type_to_string(member_type),
             };
+            if let Some(key) = pending_index_key {
+                index_values.push((key, member_type));
+                continue;
+            }
             upsert_member(
                 &mut members,
                 Member::Property { name, optional: false, readonly: const_context, printed },
             );
+        }
+        if !index_values.is_empty() {
+            // **Slice 1: every member is a computed name of one key kind.**
+            // Upstream's `getObjectLiteralIndexInfo` (`checker.go:19721`)
+            // filters `propertiesArray` by whether each property's name suits
+            // the key — numeric-named for a number key, symbol-named for a
+            // symbol key, everything-but-symbol for a string key — and this
+            // port has no numeric-name predicate for a *written* name. With no
+            // named members present there is nothing to filter, so the union is
+            // simply every contributor's type and the two agree by
+            // construction. A literal mixing named and computed members keeps
+            // gapping, and so does one mixing key kinds: upstream emits one
+            // index info per kind, in string/number/symbol order, and getting
+            // that order wrong prints a plausible wrong line. §206.
+            if !members.is_empty() {
+                return error;
+            }
+            let key = index_values[0].0;
+            if index_values.iter().any(|(k, _)| *k != key) {
+                return error;
+            }
+            let mut distinct: Vec<TypeId> = Vec::new();
+            for (_, value) in &index_values {
+                if !distinct.contains(value) {
+                    distinct.push(*value);
+                }
+            }
+            let value = match distinct.as_slice() {
+                [single] => *single,
+                many => {
+                    let candidates = many.to_vec();
+                    let Some(reduced) = self.union_with_subtype_reduction(&candidates) else {
+                        return error;
+                    };
+                    reduced
+                }
+            };
+            // The parameter name is upstream's synthesized `x` — a real index
+            // signature prints the name its declaration wrote, but this one has
+            // no declaration (`newIndexInfo(..., declaration: nil, ...)`).
+            members.push(Member::Index {
+                readonly: const_context,
+                name: "x".to_string(),
+                key: key.to_string(),
+                value: self.type_to_string(value),
+            });
         }
         let printed = render_object_type(&members);
         // The binder gives an object literal its own `__object` symbol, whose

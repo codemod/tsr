@@ -3819,12 +3819,9 @@ impl Checker<'_, '_> {
             // abandon the narrowing for its siblings. The outer whole-decline
             // stays - that one is upstream's too, on
             // `getTypeOfPropertyOfType(nonNullType, ...)` at flow.go:736.
-            let member_type = match self.get_type_of_property_of_type(constituent, member) {
-                Some(found) => found,
-                None => {
-                    kept.push(constituent);
-                    continue;
-                }
+            let Some(member_type) = self.get_type_of_property_of_type(constituent, member) else {
+                kept.push(constituent);
+                continue;
             };
             let decidable = {
                 let flags = self.store.get(member_type).flags;

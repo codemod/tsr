@@ -236,13 +236,94 @@ fn a_member_that_cannot_name_a_property_leaves_the_literal_empty() {
     assert_eq!(type_of_first_initialiser_allowing_parse_errors("var o = { #foo() {} };"), "{}");
 }
 
-/// The control, and the reason the arm tests FLAGS rather than dropping every
-/// computed name: a name type that is string-, number- or symbol-like yields an
-/// INDEX SIGNATURE upstream, which is unported — so it must keep gapping rather
-/// than silently answering `{}`. Without this, "drop every computed member"
-/// also passes the test above and loses an index signature wherever one is due.
+/// The control that keeps §201 honest: a name type that CAN key a property must
+/// not vanish. Without it, "drop every computed member" also passes the test
+/// above.
+///
+/// It asserted `error` at §201, when the index signature was a named gap, and
+/// asserts the signature itself since §206 built it. The *purpose* is unchanged
+/// — the member must be represented somehow — which is why the fixture was
+/// re-pointed rather than deleted.
+///
+/// **This control did its job twice.** §206's first draft classified the key by
+/// `NUMBER_LIKE`, which contains `NUMBER_LITERAL`, and so turned the late-bound
+/// `{ [1]: 1 }` into `{ [x: number]: number; }`. The neighbouring fixture
+/// caught it: upstream tests `StringOrNumberLiteralOrUnique` **first**
+/// (`checker.go:13317`), and a literal-typed name is a real member, not a
+/// signature.
 #[test]
-fn a_string_like_computed_name_still_gaps_rather_than_vanishing() {
-    assert_eq!(type_of_initialiser_at("declare const k: string;\nvar v = { [k]: 1 };", 1), "error");
-    assert_eq!(type_of_initialiser_at("declare const n: number;\nvar v = { [n]: 1 };", 1), "error");
+fn a_string_like_computed_name_becomes_an_index_signature_rather_than_vanishing() {
+    assert_eq!(
+        type_of_initialiser_at("declare const k: string;\nvar v = { [k]: 1 };", 1),
+        "{ [x: string]: number; }"
+    );
+    assert_eq!(
+        type_of_initialiser_at("declare const n: number;\nvar v = { [n]: 1 };", 1),
+        "{ [x: number]: number; }"
+    );
+    // And a LITERAL-typed name is late-bound: a real member whose printing is
+    // unported, so it is still a gap and must not be swept into a signature.
+    assert_eq!(type_of_initialiser_at("var v = { [1]: 1 };", 0), "error");
+}
+
+/// §206. A computed name that CAN key a property contributes an index
+/// signature.
+///
+/// `checkObjectLiteral` (`checker.go:13195-13205`) appends one index info per
+/// key kind, whose value type is the union of the contributing members'
+/// (`getObjectLiteralIndexInfo`, `:19721`). §201 dropped these members and left
+/// the signature as a named gap; this is that gap.
+///
+/// **The key-kind order is upstream's and it is not the obvious one**:
+/// `isTypeAssignableTo(nameType, numberType)` is asked FIRST
+/// (`checker.go:13319`), so an `any`-typed name yields a **number** index. That
+/// is why `{ [await]: foo }` with an un-typeable `await` records
+/// `{ [x: number]: any; }` in `conformance/asyncFunctionDeclaration8_es6`.
+#[test]
+fn a_computed_name_that_can_key_a_property_makes_an_index_signature() {
+    assert_eq!(
+        type_of_initialiser_at("declare const k: number;\nvar v = { [k]: 1 };", 1),
+        "{ [x: number]: number; }"
+    );
+    assert_eq!(
+        type_of_initialiser_at("declare const k: string;\nvar v = { [k]: 1 };", 1),
+        "{ [x: string]: number; }"
+    );
+    // An `any` name takes the NUMBER arm, not the string one.
+    assert_eq!(
+        type_of_initialiser_at("declare const k: any;\nvar v = { [k]: 1 };", 1),
+        "{ [x: number]: number; }"
+    );
+}
+
+/// The value is the union of the contributors, not the first of them.
+#[test]
+fn the_index_value_unions_every_contributing_member() {
+    assert_eq!(
+        type_of_initialiser_at(
+            "declare const j: number;\ndeclare const k: number;\nvar v = { [j]: 1, [k]: \"s\" };",
+            2
+        ),
+        "{ [x: number]: string | number; }"
+    );
+}
+
+/// The two shapes slice 1 deliberately still gaps, and they are controls rather
+/// than decoration: a literal mixing NAMED and computed members needs
+/// `getObjectLiteralIndexInfo`'s name filter, and one mixing KEY KINDS needs
+/// upstream's string/number/symbol emission order. Guessing either prints a
+/// plausible wrong line.
+#[test]
+fn a_mixed_literal_still_gaps() {
+    assert_eq!(
+        type_of_initialiser_at("declare const k: number;\nvar v = { a: 1, [k]: 2 };", 1),
+        "error"
+    );
+    assert_eq!(
+        type_of_initialiser_at(
+            "declare const j: number;\ndeclare const k: string;\nvar v = { [j]: 1, [k]: 2 };",
+            2
+        ),
+        "error"
+    );
 }
