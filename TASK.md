@@ -879,3 +879,15 @@ corollary.
 build that lands carries lattice + structure + the priority-report
 out-param together, and §162 has now supplied one of its pieces
 (the widening predicate) as a proven landing.
+
+**Rock (3) rescoped after checker-1's §164 (+89/2 at 44:1, board
+415,016 = 86.65%)**: the thisType subsystem's BARE-`this` half is
+CLOSED (member read at access_member_lookup + the call return when the
+callee is a property access — the substitution's whole effect there is
+"answer the receiver"). Remaining scope, all three untouched by that
+slice: the EMBEDDED 233 (`() => this` inside a signature — needs
+signature re-rendering), the reference this-ARGUMENT representation
+(checker.go:19573-19582), and the DUAL-MINT unification (declared.rs
+mints per-INTERFACE; expressions.rs mints per-CLASS-symbol — unify
+before substituting or the road lands on one and not the other).
+
