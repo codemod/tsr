@@ -931,3 +931,13 @@ Corollary 2 paying three times consecutively is the strongest evidence
 either lane has produced that site enumeration, not invention, is where
 this port's remaining points live.
 
+**Rock (7), added 2026-08-10: contextual naming for synthetic symbols.**
+The naming wall's FOUR measured instances (checker-1's ledger): the
+namespace mint, the class-alias mint, ES-alias references, and now
+anonymous class expressions (`typeof __class` where upstream takes the
+name from the BINDING). One build could discharge all four, which is
+why it outranks its individual line counts. Its immediate dependent is
+the ClassExpression dispatch arm (checker-1's §168, e7b0ca4d): the arm
+is correct and measures +190/322 ALONE, and lands only paired with the
+naming rule.
+
