@@ -278,6 +278,7 @@ impl Checker<'_, '_> {
             // ambient contexts, and so is an *ambient* module's body whether or
             // not the keyword is repeated inside it.
             Node::ModuleDeclaration(declaration) => {
+                self.check_grammar_module_element_context(node);
                 // `!inAmbientContext && IsStringLiteral(node.Name())`
                 // (`checker.go:5151`), reported on the **name**. §807.
                 if !ambient
@@ -5239,6 +5240,53 @@ impl Checker<'_, '_> {
     /// The other positions are a second slice with that predicate as its
     /// subject — `checker-notes-diag2.md` §83. TS2448 (block-scoped variable)
     /// and TS2450 (enum) are its siblings and wait on the same thing.
+    /// TS1235 — `A namespace declaration is only allowed at the top level of a
+    /// namespace or module.`
+    ///
+    /// `checkGrammarModuleElementContext` (`checker.go:5146`). A module
+    /// declaration belongs to a source file or a module block; the **only**
+    /// other legal parent is another module declaration, which is how
+    /// `namespace A.B { }` is spelled. §990.
+    ///
+    /// The ambient-module variant of the message is chosen upstream when
+    /// `isAmbientModule(node)`; it is not built — `diagsole` prices it at zero
+    /// cases.
+    fn check_grammar_module_element_context(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let Some(parent) = self.nodes.parent(node) else { return };
+        if matches!(
+            self.nodes.kind(parent),
+            SyntaxKind::SourceFile | SyntaxKind::ModuleBlock | SyntaxKind::ModuleDeclaration
+        ) {
+            return;
+        }
+        // `declare module "x"` in an illegal context takes a different message,
+        // which is not ported.
+        if matches!(
+            self.node_map.get(node),
+            Some(Node::ModuleDeclaration(module))
+                if module.name.and_then(|n| n.node_id())
+                    .is_some_and(|id| self.nodes.kind(id) == SyntaxKind::StringLiteral)
+        ) {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        // **`grammarErrorOnNode(node, …)`, not the declaration's name.** Most
+        // rules in this file fold to the name (§11), and doing so here put every
+        // line ten columns right: `label: namespace M { }` wants column 8, the
+        // `namespace` keyword, not column 18. §991.
+        let span = self.nodes.span(node);
+        self.report(
+            file,
+            Diagnostic::new(
+                &messages::A_NAMESPACE_DECLARATION_IS_ONLY_ALLOWED_AT_THE_TOP_LEVEL_OF_A_NAMESPACE_OR_MODULE,
+                span,
+            ),
+        );
+    }
+
     /// TS2480 — `'let' is not allowed to be used as a name in 'let' or 'const'
     /// declarations.`
     ///

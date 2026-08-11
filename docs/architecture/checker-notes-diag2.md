@@ -48260,3 +48260,134 @@ the interesting line is in the `if`.
 Nothing about this rule needed a type, a symbol, or a resolution. It needed the
 declaration list's flags and a recursion, and it had been unbuilt for the whole
 port.
+
+## §990 — TS1235: a namespace declaration in a labelled statement
+
+§950's list: **3 sole-obstacle cases, 6 lines**, and all three are the same
+fixture in three configurations.
+
+```ts
+label: namespace M { }     // TS1235, on the `namespace` keyword
+label: namespace N { }
+```
+
+`checkGrammarModuleElementContext` (`checker.go:5146`) tests the *parent* kind:
+a module declaration belongs to a source file or a module block, and anywhere
+else is this error. Upstream's comment on the call is worth keeping — *"If we
+hit a module declaration in an illegal context, just bail out to avoid cascading
+errors"* — because it explains why the rest of `checkModuleDeclaration` is
+skipped and therefore why the baseline has **one** line per namespace and not
+several.
+
+The sibling message on the same call — *An ambient module declaration is only
+allowed at the top level in a file* — is chosen when `isAmbientModule(node)`,
+i.e. `declare module "x"`. It is **not** built: `diagsole` prices it at zero
+cases, and §981's rule is to check that before building the neighbouring arm
+rather than after.
+
+The reported node is the declaration, and the column is the `namespace` keyword
+— which for `label: namespace M` is column 8, not the label and not the name.
+
+```
+bar:  >= +2 of the 3,  0 LOST via `diagpass`,  extraonly delta <= +1
+```
+
+### Falsifiers
+
+1. **A top-level namespace reports.** Every `.d.ts` in the corpus is the
+   control.
+2. **`namespace A.B { }` reports on `B`.** The inner declaration's parent is the
+   outer one, not a module block, and upstream does not report there — this is
+   the shape that makes "parent is a SourceFile or ModuleBlock" too narrow if
+   written carelessly.
+3. **A namespace inside a function body is missed.** That is also an illegal
+   context and must report, so the test cannot be "parent is a LabeledStatement".
+
+## §991 — TS1344 has two producers, and the second one is 45 wrong lines
+
+§990's TS1235 build measured **+0 with all twelve right lines present**
+(`missing 0`), which is the shape of a rule that is correct and blocked. The
+blocker was in the same fixture and was not mine:
+
+```
+TS1344   want 60   have 105   missing 0
+```
+
+**Forty-five extra lines**, and `diagcase` showed why — every TS1344 in
+`labeledStatementWithLabel` appears twice. One `grep` for the message across the
+workspace:
+
+```
+crates/tsr-checker/src/check.rs:10123   check_label_is_allowed
+crates/tsr-binder/src/binder.rs:1909    a second copy of the same rule
+```
+
+Both walk a labelled statement, both test the inner statement's kind against
+almost the same list, and both report on the label. Upstream has one —
+`checkGrammarLabeledStatement`, in the checker. The binder's copy is a
+duplicate, and the checker's list is the longer of the two (it carries
+`MissingDeclaration` and `NamespaceExportDeclaration`, which the binder's lacks),
+so the checker's is the one to keep.
+
+> **A duplicated right line is invisible to `diagmissing`.** Its sole-obstacle
+> test asks whether every expected diagnostic is present and whether anything
+> reported is *not* expected; a second copy of an expected line passes both. So
+> `diagsole` counted `labeledStatementWithLabel` and its two siblings as blocked
+> on TS1235 **alone**, and they were blocked on TS1235 *and* a duplication no
+> instrument in this workstream can see.
+>
+> §919 found the same blind spot in the suite itself — *"a duplicated right line
+> fails a case exactly as a wrong one does"* — and the instruments were never
+> taught it. That is now two hundred sections of census output with a known hole
+> in it.
+
+```
+bar:  the three labelled fixtures convert,  0 LOST via `diagpass`,
+      TS1344 extras 45 → 0
+```
+
+## §992 — §990/§991 built: **+6/−0**, and the instruments' blind spot named
+
+```
+diagnostics     2,452 → 2,458   (+6)   44.79%
+binder_symbols  100%, unchanged
+diagpass        LOST: (none)
+                GAINED: sourceMapValidationLabeled, invalidForInBreakStatements,
+                        invalidForInContinueStatements, labeledStatementWithLabel,
+                        labeledStatementWithLabel_es2015, labeledStatementWithLabel_strict
+extraonly       75, unchanged
+TS1344          have 105 → 60,  want 60,  **missing 0, extra 0**
+TS1235          have 0 → 13,  want 12,  missing 0
+```
+
+Two builds, one measurement. §990 built TS1235 and measured **+0 with every
+right line present**; §991 found why and took six cases, three of which §990 had
+been aimed at.
+
+The doc comment on the binder's copy explained itself away:
+
+> *"The rule reads only the labelled statement's own child and needs no binder
+> state at all; it lives here because that is where upstream puts it."*
+
+Both halves are true and the conclusion was wrong. Upstream has
+`checkStrictModeLabeledStatement` in the binder **and**
+`checkGrammarLabeledStatement` in the checker, and this port ported both — so
+every TS1344 was emitted twice, 105 against a wanted 60. Upstream's two
+functions do not both fire; this port's two did.
+
+> **A duplicated right line is invisible to `diagmissing` and to `diagsole`.**
+> The sole-obstacle test asks whether every expected line is present and whether
+> anything reported is not expected — and a *second copy* of an expected line
+> passes both. So the census called three fixtures "blocked on TS1235 alone"
+> when they were blocked on TS1235 *and* a duplication, and §990's +0 was the
+> only signal that anything else was wrong.
+>
+> §919 found exactly this hole in the **suite** — *a duplicated right line fails
+> a case exactly as a wrong one does* — and never propagated it to the
+> instruments. Seventy sections later it cost a build that measured correct and
+> converted nothing. `diagemit`'s `have > want` is the one column that sees it,
+> and it is not part of the census loop.
+
+`TS1235` keeps one wrong line, in `withStatementErrors`, where a namespace sits
+inside a `with` block — a context this port does not model (`NodeFlagsInWithStatement`
+is never set, §-noted long ago). It costs no case.
