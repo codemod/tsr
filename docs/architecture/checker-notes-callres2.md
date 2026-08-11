@@ -1802,3 +1802,19 @@ lib), inferTypePredicates 97, dependentDestructuredVariables 93,
 restTuplesFromContextualTypes 90, recursiveTypeReferences1 90,
 typeParameterConstModifiers 88, jsdocTemplateTag6 82 — all subsystem
 work, all already ranked in TASK.md.
+
+**§169 CORRECTED and merged with checker-1's §148 (checker-notes-narrow.md).**
+My "unknown size, possibly a parser depth limit" reading was
+superseded the same hour by their MEASUREMENT of the same 324 lines:
+the blanket gate (a JS-file VariableDeclaration with neither
+annotation nor initializer answering `error`) measured 131 W→R against
+302 R→GAP, net −171 — and the split inside the single file named the
+mechanism: `y : any` where the assignment chain is parameter-fed,
+`T : error` where it is var-circular. **It is upstream's JS
+ASSIGNMENT-ANALYSIS road** (a var's type comes from its assignments;
+cycles land errorType, parameter-fed lands any, no assignments lands
+the implicit any) — a subsystem this port lacks entirely. Not the
+baseline writer, not a parser limit. Corrected size: ~344 lines
+corpus-wide, priced at a NAMED subsystem. My baseline-writer read
+still stands as the reason the want SPELLS `error`; their measurement
+is why. Both halves belong to the same item.
