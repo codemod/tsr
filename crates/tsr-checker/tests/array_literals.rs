@@ -188,13 +188,18 @@ fn an_element_this_port_cannot_type_makes_the_literal_a_gap() {
 }
 
 #[test]
-fn a_spread_or_an_omitted_element_makes_the_literal_a_gap() {
+fn a_spread_and_an_omitted_element_both_have_answers_now() {
     // The spread half came due (the twenty-sixth stand-in): the §6 arm
     // (`checker-notes-arrays.md`) spreads an `Array<T>` operand as `T`, so
-    // `[...[1]]` is `number[]` — upstream's own answer. An omission still
-    // needs the tuple element flags and stays a gap.
+    // `[...[1]]` is `number[]` — upstream's own answer.
     assert_eq!(type_of_initialiser("const a = [...[1]];"), "number[]");
-    assert_eq!(type_of_initialiser("const a = [1, , 2];"), "error");
+    // And the omission half came due at §203, under a reason that was simply
+    // untrue: "an omission still needs the tuple element flags". It needs
+    // nothing — `checkExpressionWorker` (`checker.go:7815`) answers
+    // `undefinedWideningType` for `KindOmittedExpression` in one unconditional
+    // line, and the tuple element flags decide how a TUPLE prints, not what an
+    // array-literal element contributes.
+    assert_eq!(type_of_initialiser("const a = [1, , 2];"), "(number | undefined)[]");
 }
 
 #[test]
@@ -214,4 +219,25 @@ fn two_object_typed_elements_are_a_gap_because_subtype_reduction_is_missing() {
     // Order predicted wrong, implementation right, again: `NUMBER` is `1 << 6`
     // and `OBJECT` is `1 << 20`, so the object type sorts *second*.
     assert_eq!(type_of_initialiser("const a = [{ a: 1 }, 1];"), "(number | { a: number; })[]");
+}
+
+/// §203. An elision is `undefined`, not a gap.
+///
+/// `checkExpressionWorker` (`checker.go:7815`) answers `undefinedWideningType`
+/// for `KindOmittedExpression` — one line, no condition — so `[1, 2, ,]` is
+/// `(number | undefined)[]` (`compiler/commentOnArrayElement3`). This port
+/// refused, which read as caution and was a refusal to transcribe a constant:
+/// fourteen whole cases, all but one of them `parserArrayLiteralExpression*`.
+#[test]
+fn an_elision_contributes_undefined_rather_than_gapping_the_array() {
+    assert_eq!(type_of_initialiser("const a = [1, 2, ,];"), "(number | undefined)[]");
+}
+
+/// The control: an elision is not a licence to DROP the element. An array of
+/// nothing but holes still has them in its element type, so "skip omitted
+/// elements" — the other one-line change that passes the test above — does not
+/// pass this one.
+#[test]
+fn an_array_of_only_elisions_is_still_an_array_of_undefined() {
+    assert_eq!(type_of_initialiser("const a = [, ,];"), "undefined[]");
 }

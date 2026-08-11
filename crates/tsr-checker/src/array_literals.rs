@@ -38,8 +38,13 @@
 //!   tuple of is a line this port answers as an array. `bd tsr-cqi`.
 //! - **Spread elements.** `[...xs]` needs `isArrayLikeType` and the iterated
 //!   type (`checker.go:8036`). A spread makes the whole literal a gap.
-//! - **Omitted elements.** `[1, , 2]` needs the optional-element flags model,
-//!   which arrives with tuples.
+//! - ~~**Omitted elements.** `[1, , 2]` needs the optional-element flags model,
+//!   which arrives with tuples.~~ **Wrong, and it cost fourteen cases (§203).**
+//!   It needs nothing: `checkExpressionWorker` (`checker.go:7815`) answers
+//!   `undefinedWideningType` for `KindOmittedExpression` in one unconditional
+//!   line, and the optional-element flags decide how a **tuple** prints, not
+//!   what an array-literal element contributes. `[1, 2, ,]` is
+//!   `(number | undefined)[]`.
 //! - **Two object-typed elements**, because upstream reduces the element union
 //!   with `UnionReductionSubtype` and this port has no assignability. See
 //!   [`Checker::check_array_literal`].
@@ -540,8 +545,20 @@ impl Checker<'_, '_> {
                 elements.push(element_type);
                 continue;
             }
+            // **An elision is `undefined`, not a gap.** `checkExpressionWorker`
+            // (`checker.go:7815`) answers `undefinedWideningType` for
+            // `KindOmittedExpression` — one line, no condition — so
+            // `[1, 2, ,]` is `(number | undefined)[]`
+            // (`compiler/commentOnArrayElement3`). This port refused, which
+            // read as caution and was a refusal to transcribe a constant. §203.
+            //
+            // The widening/non-widening distinction is the one this port does
+            // not carry (`undefinedWideningType` and `undefinedType` print the
+            // same string and differ only under `getWidenedType`), the same
+            // approximation the empty-array arm below already documents.
             if matches!(element, Expression::OmittedExpression(_)) {
-                return error;
+                elements.push(self.intrinsics.undefined);
+                continue;
             }
             let element_type = self.check_expression_for_mutable_location(*element);
             // A gap in an element is a gap in the array — the same call made for
