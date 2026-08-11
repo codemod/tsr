@@ -2652,6 +2652,18 @@ impl Checker<'_, '_> {
         let constituents_len = constituents.len();
         let mut kept = Vec::new();
         for constituent in constituents {
+            // SS189 CANDIDATE for checker-1's SS204 sub-shape (a reason that
+            // is TRUE but blunter than the fact it protects). This decline is
+            // per-constituent in POSITION but whole in EFFECT: one
+            // constituent lacking the member abandons the narrowing for all
+            // of them. Upstream's `narrowTypeByDiscriminant` asks
+            // `getTypeOfPropertyOfType` on the WHOLE type once, so its nil
+            // answers a different question. **Unjudged** — deciding whether
+            // our loop should DROP such a constituent instead needs one read
+            // of `narrowTypeByDiscriminant`/`filterType` and one
+            // measurement. Recorded rather than guessed: the induced version
+            // of exactly this reasoning is what SS153, SS157, SS162 and
+            // SS177 each cost.
             let Some(member_type) = self.get_type_of_property_of_type(constituent, member) else {
                 return t;
             };
