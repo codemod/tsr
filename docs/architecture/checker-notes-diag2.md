@@ -45591,3 +45591,44 @@ nothing surfaced it for forty-five sections because the case is not near passing
 `extraonly` lists only one-removal cases, and `diagdup` only collisions at a
 right position. **The instrument built two sections ago found the fixture the
 refusal said did not exist.**
+
+## §927 — `diagmissing`'s "total missing" was never the total
+
+TS1253 is the last row on §846's SILENT list: `diagemit` reads **want 1, have 0**,
+and `diagmissing 1253` reads **0 missing**. The same population filter, and a
+one-line disagreement.
+
+`diagmissing`'s `measure` drops the case entirely when it has any *other* missing
+line or any extra:
+
+```rust
+let other_missing = expected.iter().any(|d| d.code != code && !actual.contains(d));
+let extra = actual.iter().any(|d| !expected.contains(d));
+if other_missing || extra { return None; }
+```
+
+So both its numbers describe **only cases this code alone blocks**, and the line
+it printed as `total missing TS{code} lines` never was. Relabelled:
+
+```
+missing TS2300 lines IN SOLE-OBSTACLE CASES: 24
+cases blocked on TS2300 alone: 6
+```
+
+### What that means for this session's numbers
+
+Every *"N missing lines"* figure quoted in these notes is the sole-obstacle
+figure. **The rankings are unaffected** — the restriction is uniform, so the
+ordering it produced is the ordering it claimed — and no build was chosen on the
+line count alone; the `cases blocked alone` column, which was labelled correctly,
+is what drove every selection.
+
+> The line count still overstated nothing and understated a great deal: TS2300
+> read `71` when `diagemit` put the shortfall near `88`, and TS2454 read `77`
+> against `4,015 / 3,881`. **A number that is smaller than the truth is the safer
+> error and still an error**, and it went unnoticed for seven hundred sections
+> because it was never the number a decision turned on.
+
+TS1253's single wanted line is in a case with other defects, which is why
+`diagmissing` shows zero — the row is real, unreachable through that instrument,
+and stays on the SILENT list as the sweep's last entry.

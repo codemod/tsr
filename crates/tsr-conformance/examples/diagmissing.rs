@@ -1,3 +1,11 @@
+//! **The counts are restricted, and the restriction is the point.** `measure`
+//! drops any case that is *also* missing another code or reporting an extra, so
+//! both numbers below describe only cases this code alone blocks. The line count
+//! is therefore **not** the corpus-wide total for the code — `diagemit`'s
+//! `want − have` is nearer that, and §884 records what it is and is not.
+//! §927 relabelled the line: it read `total missing`, and every row priced from
+//! it this session was priced on the restricted figure.
+//!
 //! The **missing** half of one diagnostic code: the lines the baseline records
 //! and the port does not, restricted to the cases that code alone is blocking.
 //!
@@ -41,7 +49,7 @@ fn main() {
             total += 1;
         }
     }
-    println!("total missing TS{code} lines: {total}");
+    println!("missing TS{code} lines IN SOLE-OBSTACLE CASES: {total}");
     println!("cases blocked on TS{code} alone: {}", rows.len());
 }
 
