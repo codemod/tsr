@@ -143,6 +143,7 @@ pub mod printing;
 pub mod readonly_target;
 pub mod relater;
 pub mod resolution;
+mod rest_parameter_type;
 pub mod signatures;
 mod spread_overrides;
 pub mod strict_mode;

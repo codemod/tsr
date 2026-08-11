@@ -48022,3 +48022,96 @@ TS1009, the trailing-comma half of the same upstream function, remains at 7
 cases and is **still not built**: only two of those seven are heritage clauses,
 so building this half of `checkGrammarHeritageClause` would move no case that
 TS1097 has not already moved. Recorded with the number, per §954's precedent.
+
+## §984 — TS2370: a rest parameter must be of an array type
+
+§950's list: **4 sole-obstacle cases, 17 lines**, fourteen of them in one
+fixture whose header states the rule:
+
+```ts
+// Rest parameters must be an array type if they have a type annotation
+function foo(...x: string) { }
+var f2 = (...x: Date, ...y: boolean) => { }
+class C { foo(...x: C) { } }
+```
+
+Upstream asks the relation — `isTypeAssignableTo(getTypeOfSymbol(node.Symbol()),
+anyReadonlyArrayType)` (`checker.go:2696`) — and the relation is not this
+workstream's. The **written** annotation is, and every line in the corpus's
+fixtures is a written annotation of a kind that can never be array-like:
+
+```
+keyword types except `any`      string, number, boolean, symbol, object, void,
+                                never, unknown, bigint
+a reference to a class or       Date, C — resolved through the binder to a
+  interface declaration         ClassDeclaration or InterfaceDeclaration
+```
+
+**Everything else declines**, and the declines are what make this safe rather
+than the reports: an `ArrayType`, a `TupleType`, `readonly T[]`, `any`, a type
+**parameter**, a union, and — the one that matters — a **type alias**, because
+`type A = string[]` is a `TypeReference` that resolves to a
+`TypeAliasDeclaration` and is perfectly legal. Resolving the reference and
+looking at *what kind of declaration it is* is the whole of the difference
+between a sound syntactic slice and a rule that reports on aliases.
+
+`Array`, `ReadonlyArray`, `ArrayLike`, `Iterable`, `IterableIterator` and
+`ConcatArray` are excluded by name: they are interface declarations in `lib.d.ts`
+and would otherwise be caught by the second arm.
+
+```
+bar:  >= +1,  0 LOST via `diagpass`,  extraonly delta <= +1
+```
+
+### Falsifiers
+
+1. **`...x: string[]` or `...x: readonly T[]` reports.** The row's entire
+   premise, and the corpus is full of legal rest parameters.
+2. **`...x: A` where `type A = string[]` reports.** The alias is why the second
+   arm resolves rather than pattern-matching the name.
+3. **An unannotated rest reports.** `parserParameterList10`'s `...bar = 0` wants
+   TS2370 from an *inferred* type; that is upstream's relation call and is left
+   out with its two cases.
+
+## §985 — §984 built: **+1/−0**, and a fixture whose comment contradicts its baseline
+
+```
+diagnostics   2,443 → 2,444   (+1)   44.53%
+diagpass      LOST: (none)   GAINED: compiler/nonArrayRestArgs
+extraonly     75, unchanged (was 103 on the first version)
+TS2370        have 17,  want 19,  missing 5,  extra 3
+```
+
+The first version measured **+0 with `extraonly` at 103** — twenty-eight
+additional cases blocked by extras, all from one fixture, and that fixture's own
+header is why:
+
+```ts
+// restParametersOfNonArrayTypes2.ts
+// Rest parameters must be an array type if they have a type annotation,
+// user defined subtypes of array do not count, all of these are errors
+interface MyThing extends Array<any> { }
+function foo(...x: MyThing) { }
+```
+
+Its baseline wants **TS1014 and no TS2370 at all**. `MyThing` extends `Array`,
+so it *is* assignable to `readonly any[]` and upstream is silent — the comment
+describes an older rule, or an intention, and the recorded output is what
+actually happens.
+
+> **§131 says read the fixture before the fourth hypothesis. This is the
+> corollary: read the fixture, but the baseline is the oracle.** A comment in a
+> test file is the author's claim about the compiler; the `.errors.txt` beside
+> it is the compiler's claim about itself, and where they disagree the second
+> one is what the suite scores. Twenty-eight lines is what taking the comment at
+> its word cost, and one `diagcase` is what it took to find.
+
+Declining any declaration that lists a base type fixes it and costs nothing the
+corpus asks for: `Date` and a plain `class C` have no heritage clause and still
+report.
+
+**Three wrong lines remain** — `genericRestTypes` (2) and
+`topFunctionTypeNotCallable` (1) — where the annotation is a type *parameter*
+constrained to an array, which the syntactic slice cannot see. They cost no case
+(`extraonly` is unchanged at 75) and are recorded rather than chased: the
+constraint is the relation's.

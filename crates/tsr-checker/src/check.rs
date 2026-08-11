@@ -383,6 +383,7 @@ impl Checker<'_, '_> {
                 ambient
             }
             Node::ParameterDeclaration(parameter) => {
+                self.check_rest_parameter_type(node);
                 self.check_optional_parameter_initializer(node);
                 self.check_parameter_initializer_needs_body(node);
                 self.check_parameter_property_position(node, parameter.modifiers);
