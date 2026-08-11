@@ -643,6 +643,16 @@ impl Checker<'_, '_> {
     /// | `TypeFlagsIntersection` | `getApparentTypeOfIntersectionType` | `intersections.rs` |
     /// | `TypeFlagsNonPrimitive` / `Index` / `Unknown` | `emptyObjectType`, `stringNumberSymbolType` | `intrinsics.rs` |
     ///
+    /// **AUDITED and HOLDS** (2026-08-11, under checker-1's §203 heuristic —
+    /// a refusal naming a prerequisite subsystem is the cheapest kind to
+    /// check and the easiest to write carelessly). Four such claims were
+    /// checked across both lanes this session and four were FALSE; this one
+    /// is true: the port mints no `emptyObjectType` intrinsic at all
+    /// (`intrinsics.rs` has none, and `intersections.rs` only tracks an
+    /// `empty_object` INCLUDES bit while folding). The arm therefore needs
+    /// the intrinsic first, exactly as written. Recorded so the next audit
+    /// does not re-run this grep.
+    ///
     /// **This is why the slice is 1,165 lines and not 13,156.** The row
     /// `property access, the receiver has no such property` blocks 13,156 gap
     /// lines; measured by `examples/gaproot.rs`, 36.7% of them have an
