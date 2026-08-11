@@ -48978,3 +48978,95 @@ misreading cost the same one measurement here.
 `parserForStatement4`'s remaining line is recorded as *not* this arm:
 `for (a = 1 in b)` wants TS2405 at an **assignment** left-hand side, which
 upstream reaches by a different route.
+
+## §1007 — TS2373: §981's sibling, priced at zero and now worth two
+
+§981 declined TS2373 — *Parameter '{0}' cannot reference identifier '{1}'
+declared after it* — on the strength of `diagsole` pricing it at **zero
+sole-obstacle cases**, and recorded that as applying §969's lesson *before* the
+build rather than after.
+
+Twenty-six builds later the same query prices it at **two**. Nothing about
+TS2373 changed; the *cases* changed — fixtures that wanted TS2373 and something
+else now want only TS2373, because the something else got built.
+
+> **A row's price is a function of the board, not of the row.** Every decline
+> recorded with a number in these notes is a decline recorded at a moment, and
+> the ones worth re-querying are exactly those whose blockers this workstream
+> has since removed. §981's decline was correct when made and wrong to leave
+> standing.
+>
+> That is not an argument for re-querying everything each session — most
+> refusals are about a missing *mechanism* and those do not move. It is an
+> argument for re-querying the ones declined on **price**.
+
+The rule is the `else if` on the site §980 already ports:
+
+```ts
+function bar(x = y, y = 1) { }     // TS2373 on `y`
+```
+
+`checkParameterSelfReference` finds the enclosing parameter whose initializer
+contains the reference; this arm asks instead whether the *resolved* declaration
+is a **later parameter of the same list**. Both halves are ancestor queries,
+which is §981's observation reused.
+
+```
+bar:  >= +1 of the 2,  0 LOST via `diagpass`,  extraonly delta <= +1
+```
+
+### Falsifiers
+
+1. **An *earlier* parameter reports.** `function f(a, b = a)` is legal and is
+   the shape the rule is bounded by.
+2. **A reference to an outer-scope name reports.** Only parameters of the *same*
+   list count.
+3. **The self-reference case takes this message.** §980's arm must still fire
+   first; the two are upstream's `if` and `else if` and cannot both report.
+
+## §1008 — §1007 built: **+1/−0**, and a decline that expired
+
+```
+diagnostics   2,480 → 2,481   (+1)   45.21%
+diagpass      LOST: (none)   GAINED: compiler/optionalParamReferencingOtherParams3
+extraonly     75, unchanged
+TS2373        have 0 → 3,  want 6,  missing 3,  **0 extra**
+TS2372        16/14/2, unchanged — falsifier 3 negative
+```
+
+The first version reported two wrong lines and `capturedParametersInInitializers1`
+named both, in comments its author wrote for exactly this purpose:
+
+```ts
+// ok - usage is deferred
+function foo1(y = class { c = x }, x = 1) { }
+// ok - used in type
+function foo3(y = { x: <typeof z>a }, z = 1) { }
+// error - used before declaration, IIFEs are inlined
+function foo5(y = (() => z)(), z = 1) { }
+```
+
+§980's walk stops at a **function-like**, which is the deferral everyone thinks
+of. Two more defer and neither is one: a **class expression's member
+initializer**, and a **type query** — `typeof z` is a value reference
+syntactically and a type position semantically. Adding both removed the two
+wrong lines at no cost to the case.
+
+> The fixture's third comment is the one that makes this hard to guess:
+> **"IIFEs are inlined"**. An arrow defers; an arrow that is *called* does not.
+> This port gets `foo5` right by accident — the walk crosses the arrow and
+> declines, so it reports nothing there either — and that is recorded as a
+> **missing** line rather than a success, because the mechanism is absent.
+
+The row's price is the note. §981 declined TS2373 with `diagsole`'s number —
+**zero sole-obstacle cases** — and recorded that as applying §969's lesson
+before the build instead of after. Twenty-six builds later the same query said
+**two**.
+
+> **A row's price is a function of the board, not of the row.** Nothing about
+> TS2373 changed; the fixtures that wanted it *and something else* now want only
+> it, because the something else got built. Every decline recorded on **price**
+> in these notes has an expiry date, and the ones to re-query are exactly those
+> whose blockers this workstream has since removed. Declines recorded on a
+> missing **mechanism** — the relation, flow, the module graph — do not move and
+> should not be re-queried.
