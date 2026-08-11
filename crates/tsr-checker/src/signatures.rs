@@ -2555,6 +2555,18 @@ impl<'a> Checker<'a, '_> {
             // contextual signature answers None typing standalone-any;
             // materialization is the test, the position never was).
             && {
+                // SS192 MUTATION RESULT: the depth argument below is NOT
+                // load-bearing. Corollary 14 asked which sub-population the
+                // GROUNDED evidence ranged over (generatedContextualTyping's
+                // 48 of 138), so the depth bound was the obvious suspect for
+                // an over-broad guard. Narrowing it to 0 and widening it to 4
+                // BOTH measured +0 cases — the discrimination comes from
+                // whether a type parameter is mentioned at all, not from how
+                // deep. checker-1's SS197 shape: a clause whose mutation
+                // reddens nothing was describing a rule that is not the rule.
+                // Left at 2 (no reason to churn), recorded so the next audit
+                // does not re-run these two builds.
+                //
                 // The GROUNDED refinement (measured: ungated-materialization
                 // alone was +497 right but +138 wrong): the lift requires
                 // the materialized signature's parameter types to mention no
