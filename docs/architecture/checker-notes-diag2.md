@@ -49243,3 +49243,43 @@ and the remaining 27 lines are the named exports §1010 refused.
 **Three rows still wait on the module graph** (§955, §1000, and TS2323's named
 half); this build removes one of the nine cases from that queue without
 building it.
+
+## §1013 — §1012's five wrong lines were a **position**, not a count
+
+```
+diagnostics   2,482 → 2,484   (+2)   45.26%
+diagpass      LOST: (none)
+              GAINED: exportDefaultClassAndValue, exportDefaultTypeClassAndValue
+extraonly     75, unchanged
+TS2323        have 12,  want 34,  missing 22,  **extra 0**
+```
+
+§1012 shipped five wrong lines and described them as *"the count is still
+slightly wrong for `type` + `class` + value merges"*. It was not the count. It
+was the column:
+
+```
+expected   exportDefaultTypeClassAndValue.ts(3,22) TS2323
+actual     exportDefaultTypeClassAndValue.ts(3,1)  TS2323
+```
+
+Column 22 is `Foo` in `export default class Foo {}`. Upstream's
+`c.error(declaration, …)` **folds to the declaration's name** — §11's convention,
+the same one §982 had to go the *other* way on, where TS1097 wanted the node and
+not the name. One line, five wrong lines gone, two more cases.
+
+> **A wrong line at a right position and a right line at a wrong position are
+> the same measurement**, and the census cannot tell them apart: `diagemit`
+> counted five extras and twenty-seven missing, which reads as "the rule
+> over-reports and under-reports" when the truth is "the rule reports the right
+> things ten columns left". Only `diagcase` distinguishes them, and §1012
+> reasoned about the count without running it.
+>
+> §946 and §947 recorded the same trap from the reporting end — *right positions,
+> wrong code* was §961's signature for a rule running where another belongs.
+> This is its mirror: **right code, wrong position**, and it reads as a count
+> error in every instrument that aggregates.
+
+The row is now **12 right lines and no wrong ones**, with the remaining 22
+behind `getExportsOfModule` exactly as §1010 named. Three of the nine
+sole-obstacle cases converted; the rest are the named exports.

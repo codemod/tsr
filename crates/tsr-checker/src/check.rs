@@ -5296,7 +5296,11 @@ impl Checker<'_, '_> {
         }
         for declaration in counted {
             let Some(at) = self.source_file_of_for_diagnostics(declaration) else { continue };
-            let span = self.nodes.span(declaration);
+            // **`c.error(declaration, …)` folds to the declaration's name**
+            // (§11): `export default class Foo {}` reports at `Foo`, column 22,
+            // not at the `export`. An `export default expr` has no name and
+            // keeps the statement's span. §1013.
+            let span = self.error_span(declaration);
             self.report(
                 at,
                 Diagnostic::with_args(
