@@ -8135,3 +8135,38 @@ instrumentation was reverted. Next window reads
 `resolve_name`'s handling of `EXPORT_VALUE` markers, which is a
 single function, and the 13 single-blocker cases plus the binder's
 own 223-case warning are the prize.
+
+
+**§188 DIAGNOSIS COMPLETE — the mechanism, and the fix, both named.**
+
+Two further reads finish it:
+
+1. `SymbolFlags::EXPORT_VALUE` is **written once and read nowhere**
+   (`binder.rs:3659` is its only occurrence). So the local half of
+   an exported declaration carries a marker with NO `VALUE` or
+   `CLASS` bit — for default AND non-default alike.
+2. `export_symbol` — the link from marker to real symbol — is
+   followed in exactly one place, `initializer_symbol`
+   (`binder.rs:3449`), an expando-property road. **General name
+   resolution does not follow it.**
+
+Since both cases produce an identical local marker, the difference
+must lie elsewhere, and only one asymmetry exists: the EXPORT half
+is named `C` for `export class C {}` and `default` for
+`export default class A {}`. So resolution reaches the real symbol
+for the non-default case by finding the CONTAINER'S EXPORT under
+the same name — and for a default export there is no export named
+`A` to find.
+
+**The fix, stated precisely**: when name resolution lands on a local
+whose flags fail the requested meaning, follow its
+`export_symbol` link rather than depending on an
+identically-named entry in the exports table. That is what the link
+exists for, and `initializer_symbol` is already the proof it works.
+
+**Cost/benefit**: one edit in `resolve_name`, one `scorepair` to
+land it (the protocol the −56 incident established), against 13
+single-blocker cases plus whatever share of the binder's own
+recorded "223-case regression" this shape represents. **This is the
+single best-specified item left in this file** — component cleared,
+mechanism proven, fix named, measurement protocol known.
