@@ -47110,3 +47110,94 @@ its two lines split between `parserForInStatement4` and `parserForOfStatement20`
 But it was true by luck rather than by measurement, and the third layout was
 found the same way the first two were: by a row reading `unported` with its rule
 committed and firing.
+
+## §962 — TS2783: a spread always overwrites this property
+
+§950's list: **9 sole-obstacle cases, 27 lines**. `checkSpreadPropOverrides`
+(`checker.go:13371`) walks `getPropertiesOfType` on the spread operand's type
+and reports on every earlier property the spread will overwrite — but only for
+properties that are **not optional and not `CheckFlagsPartial`**.
+
+`spreadDuplicate` is the row's shape and it is a self-contained experiment:
+
+```ts
+declare let a: { a: string };              declare let b: { a?: string };
+declare let c: { a: string | undefined };  declare let d: { a?: string | undefined };
+
+let a1 = { a: 123, ...a };   // TS2783  — required
+let b1 = { a: 123, ...b };   // silent  — optional
+let c1 = { a: 123, ...c };   // TS2783  — required, `| undefined` is not optional
+let d1 = { a: 123, ...d };   // silent  — optional
+let a2 = { a: 123, ...(t ? a : {}) };   // silent — all four, a union operand
+```
+
+**Four of those eight lines are controls, in the same file as the two errors**,
+which is the ideal fixture: a rule that reports the right two and nothing else
+has been tested against optionality *and* against `| undefined` masquerading as
+it, in one measurement.
+
+The syntactic slice: the spread operand is an **identifier** whose declaration
+carries a **type literal** annotation, and its non-optional `PropertySignature`s
+are matched by name against the *earlier* property assignments of the same
+object literal. `CheckFlagsPartial` cannot arise on a written type literal, and
+a union operand is not an identifier, so both of upstream's other guards are
+satisfied by the restriction rather than by a test.
+
+Upstream reports on `left.ValueDeclaration` — the **property assignment**, not
+its name; column 12 of `let a1 = { a: 123, …` is the `a: 123`.
+
+```
+bar:  >= +2 (spreadDuplicate, spreadDuplicateExact),  0 LOST via `diagpass`,
+      extraonly delta <= +1
+```
+
+### Falsifiers
+
+1. **`b1` or `d1` reports.** Optionality is the rule's only exclusion and both
+   controls sit beside the errors.
+2. **`c1` stays silent.** `string | undefined` is *not* optional, and a rule
+   that treats them alike passes falsifier 1 while failing the row.
+3. **A union or parenthesised operand reports.** `a2`-`d2` are four more
+   controls in the same file, silent upstream for a reason this port cannot
+   compute — so the restriction to identifiers must decline them.
+
+## §963 — §962 built: **+2/−0**, and the fixture graded itself
+
+```
+diagnostics   2,410 → 2,412   (+2)   43.95%
+diagpass      LOST: (none)   GAINED: spreadDuplicate, spreadDuplicateExact
+extraonly     75, unchanged
+TS2783        have 0 → 6,  missing 25,  **0 extra**
+```
+
+Both cases, exactly the bar. Six right lines and no wrong ones, which for this
+row is a stronger statement than the count suggests: **each converted case
+contains four controls beside its two errors**, so the measurement that says
+`+2` also says optionality was read correctly, `| undefined` was *not* mistaken
+for optionality, and a union operand was declined.
+
+```ts
+let a1 = { a: 123, ...a };            // TS2783   required
+let b1 = { a: 123, ...b };            // silent   `a?: string`
+let c1 = { a: 123, ...c };            // TS2783   `string | undefined` — required
+let d1 = { a: 123, ...d };            // silent   `a?: string | undefined`
+let a2 = { a: 123, ...(t ? a : {}) }; // silent   × 4, union operand
+```
+
+> **A fixture with its controls in the same file is worth more than a fixture
+> with more errors in it.** Falsifiers 1, 2 and 3 were all answered by the one
+> `measure`, because failing any of them fails the case that proves the rule.
+> §950's list ranks by case count and cannot see this; it is worth reading the
+> fixture for it when two rows are otherwise tied.
+
+An arm collision was caught by `cargo` rather than by measurement: the walk
+already had a `Node::ObjectLiteralExpression` arm, and the new one — appended
+before the catch-all as five other rules were this session — was **unreachable**.
+`-D warnings` made that a build error instead of a silent zero, which is the
+same failure §947 spent two probe runs on when the collision was in a `match`
+whose arms both compiled.
+
+The remaining 25 lines need `getPropertiesOfType`: an accessor's type
+(`objectSpreadSetonlyAccessor`), a JSX attributes type
+(`tsxGenericAttributesType1`) and interface-declared operands. Owner: the type
+side.
