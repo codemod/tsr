@@ -276,8 +276,20 @@ impl Checker<'_, '_> {
     /// - **Spread properties.** Upstream folds them with `getSpreadType`
     ///   (`checker.go:13290`), which merges two symbol tables and has its own
     ///   rules for optionality and index signatures.
-    /// - **Computed names.** These become index signatures rather than
-    ///   properties, and this port has no index signatures.
+    /// - **Computed names.** ~~These become index signatures rather than
+    ///   properties, and this port has no index signatures.~~ **Both halves
+    ///   of that sentence are false** (checker-1's §203 heuristic: a refusal
+    ///   naming a prerequisite SUBSYSTEM is the easiest kind to write
+    ///   carelessly, because it sounds like architecture). This port has
+    ///   `index_signatures.rs`, 339 lines of it; and upstream does not turn
+    ///   a computed name into an index signature unconditionally —
+    ///   `checkObjectLiteral` (`checker.go:13317-13332`) puts the member in
+    ///   `propertiesTable` when its name type carries
+    ///   `StringOrNumberLiteralOrUnique`, sets an index-signature flag when
+    ///   it does not, and DROPS the member either way rather than gapping
+    ///   the literal. checker-1's §201 already corrected the behaviour; this
+    ///   corrects the stated reason, which would otherwise have sent the
+    ///   next reader to build a subsystem that exists.
     /// - **A member whose type is a gap**, on the rule already established for
     ///   the type-node path: a partial object type is a wrong answer that looks
     ///   like a right one.
