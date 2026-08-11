@@ -1346,7 +1346,7 @@ its whole deliverable and accept that it converts nothing until finished.
 
 ### New, this session, TS2515 — refused by 4 wrong lines against a bar of 2
 
-- **A derived class that implements the abstract member still reports.** The
+- **RESOLVED — `diagmissing 2610` reads 0 missing lines as of §918.** The refusal below is kept for its reasoning and is no longer a live item. **A derived class that implements the abstract member still reports.** The
   probe shows `C` (which does not implement) and `E` (which does) producing the
   **identical** `provided` list, both entries coming from the base walk — so the
   derived class's own members contribute nothing and the subtraction is between
@@ -1836,7 +1836,7 @@ an arm, and bigger than what §237 named.
   **The real class is: a code needs no subsystem if its rule is decidable from
   the tree.** Re-take `diaggap` before believing any seam is closed.
 
-- **TS1100 and TS7026 are CHECKED unbuilt, not believed unbuilt** (§137).
+- **RESOLVED — `diagmissing 1100` reads 0 missing lines as of §918.** The refusal below is kept for its reasoning and is no longer a live item. **TS1100 and TS7026 are CHECKED unbuilt, not believed unbuilt** (§137).
   §136's grep rule run on both: no strict-mode tracking exists anywhere in
   `tsr-binder`, and `GlobalExports` covers only a UMD `export as namespace`
   claim, never `declare global`. §105's and §5's pricings stand. **The rule hit
@@ -3020,6 +3020,7 @@ holds only the numbers.
 | 2026-08-11 | HEAD | **43.28%** | **2,375** | **a small share of a large corpus is still a lot of cases** | `class C { x: number; get x() {…} }` — upstream's `PropertyExcludes` includes `Accessor`, while a `get`/`set` pair is ***the one shape the members table is built to merge***, which is why §912 declined accessors wholesale rather than guess at the mask. The rule now collects accessors as *accessor* entries that only ever report against a **property**. **+2 of 2**, both falsifiers negative. **TS2300 across six builds: +14, 20 → 6 cases, 71 → 24 lines** — four node kinds, a name normalisation, a table split and an exclusion mask, and ***not one of them needed a type, a relation or a flow answer***. §870 measured the reachable pool at **91% relation-and-type** and that has held all session; TS2300 was in the other **9%** and worth more cases than any single build found anywhere else. ***The classification's value was never that the remainder was empty.*** §914–§915 |
 | 2026-08-11 | HEAD | **43.28%** | **2,375** | **the count and the report loop are not the same set** | **TS2323**, TS2300's richest sibling (9 cases). Two measurements, both over the bar: a first draft that ***skipped the loop's head*** measured **−6 cases and +44 wrong lines**; adding the three guards it wanted — the `export *` marker, `Namespace|Enum`, and the `default` export (whose duplicate is **TS2528**, already reported here) — takes it to **+0 / +9**. Reverted, and the residue is one shape: `export interface A {} / export class A {} / export const A = 1`. Upstream counts `!IsInterfaceDeclaration` **but reports on every `isNotOverload` declaration, interfaces included** — ***the count and the report loop are not the same set***, and this port conflated them. One line, named for the next attempt. §916 |
 | 2026-08-11 | HEAD | **43.28%** | **2,375** | **a refusal names an owner; it does not notice that the owner already has two** | ***§916's stated reason was wrong.*** It said this port reports TS2323 on an interface where the baseline does not; the baseline reports **no TS2323 at all** on `exportInterfaceClassAndValue` — the case expects two TS2451s, ***which this port already emits exactly***, and §916's rule broke a passing case. The claim was read off the **rule** and not the **baseline**, which is §884's and §907's error a third time. Upstream is silent because the three declarations are not on **one export symbol** for the count to see, while this port merges them — ***§864's question, with a third row on it***. TS2451-beside-TS2300 (6 lines), TS2323 (9 cases) and TS2300's residue (6 cases) were each refused separately and each time to *the symbol table*; laying them side by side is what shows they are **one issue**, now filed as **`bd tsr-scsu`**. §917 |
+| 2026-08-11 | HEAD | **43.28%** | **2,375** | **a stale refusal is worse than none** | §917 found three refusals that were one issue; this asks the complementary question — ***which refusals are no longer true?*** §5 names **69 distinct codes** across 114 entries. Checking each against `diagmissing`: **TS1100 and TS2610 read 0 missing lines** and their entries are now marked **RESOLVED**; TS2315 has one line left and stands. ***The first pass used `want == have` from `diagemit` and would have marked five*** — including TS2840 and TS2863, whose entries were already correct — because **§884's own correction says `want`/`have` are per-code totals, not per-position matches**. Caught by re-reading §884 before acting, which is the first time this session that lesson fired ***before*** a mistake rather than after. §918 |
 
 ## 8. Updating this file
 

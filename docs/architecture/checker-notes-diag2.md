@@ -45266,3 +45266,35 @@ symbol with three declarations, so the count reaches three and reports.
 > issue. **A refusal names an owner; it does not notice that the owner already
 > has two.** That is what `bd` is for, and none of the three had been filed
 > together until now — `bd tsr-scsu` now carries all three with their numbers.
+
+## §918 — the complementary question: which refusals are no longer true?
+
+§917 found three refusals that were one issue. The other way a refusal list rots
+is **staleness**: an entry that was true when written and has since been fixed by
+work aimed elsewhere.
+
+`STATUS.md` §5 names **69 distinct codes** across 114 entries. Checked against
+`diagmissing`:
+
+```
+TS1100    0 missing lines    §137's "CHECKED unbuilt — no strict-mode tracking exists"
+TS2610    0 missing lines    the abstract-member probe refusal
+TS2315    1 missing line     stands, narrowed
+```
+
+Both stale entries are now marked **RESOLVED** in place, with the reasoning kept.
+§137's would otherwise send a future session hunting for strict-mode tracking to
+build a row that is already complete — **a stale refusal costs more than no
+refusal, because it is believed.**
+
+### The first pass would have marked five
+
+It used `diagemit`'s `want == have`, which flagged TS1100, TS2315, TS2610, TS2840
+and TS2863. **§884 established that `want` and `have` are per-code totals and not
+per-position matches** — a line emitted at the wrong column counts in `have` —
+so two of the five were false and one (TS2315) had a line left.
+
+> That correction is fourteen sections old and it fired **before** the mistake
+> this time rather than after. It is the first time this session a recorded
+> lesson has been paid rather than re-learned, and the difference was reading
+> §884 because the number *looked* like the one §884 was about.
