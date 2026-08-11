@@ -49534,3 +49534,83 @@ not recognise is fine" declines instead of mis-reporting.
 Falsifiers 1 and 3 hold by construction — identifiers, property accesses and
 element accesses are simply not in the list. Falsifier 2 likewise: a declaration
 list is a different node kind and never matches.
+
+## §1021 — TS2385: overload signatures must agree on accessibility
+
+§950's 2-case band. `check_overload_ambient_agreement` already gathers an
+overload set and compares its declarations against a **canonical** one — the
+implementation, or the first if there is none — which is exactly the shape
+upstream's `deviation` needs:
+
+```go
+deviation := getEffectiveDeclarationFlags(overload, flagsToCheck) ^ canonicalFlags
+case deviation&(ModifierFlagsPrivate|ModifierFlagsProtected) != 0:
+    c.error(OrElse(GetNameOfDeclaration(overload), overload), …)
+```
+
+```ts
+class A {
+    public constructor(a: boolean)     // TS2385
+    protected constructor(a: number)   // TS2385
+    private constructor(a: string)     // agrees with the implementation
+    private constructor() { }
+}
+```
+
+The existing function **returns before reaching this** — it exits as soon as the
+ambient flags all agree, which they do here. So this is a sibling pass with its
+own once-per-symbol set rather than an arm inside it: upstream's four cases are
+a `switch` on one `deviation`, and this port has ported two of the four at
+different times, which is why they cannot share the early exits.
+
+`OrElse(GetNameOfDeclaration(overload), overload)` is load-bearing: a
+**constructor has no name**, so the error node is the declaration, and the
+fixture's expected column is the `public`/`protected` keyword.
+
+```
+bar:  >= +1 of the 2,  0 LOST via `diagpass`,  extraonly delta <= +1
+```
+
+### Falsifiers
+
+1. **An agreeing overload set reports.** `private` beside `private` is the third
+   signature in the same fixture.
+2. **A `public`-only set reports.** Absent accessibility *is* `public`, so a set
+   with no modifiers at all has zero deviation.
+3. **The implementation itself reports.** Upstream loops over the overloads and
+   compares each against the canonical; the canonical cannot deviate from
+   itself.
+
+## §1022 — §1021 built: **+1/−0**, and two ports of one `switch`
+
+```
+diagnostics   2,489 → 2,490   (+1)   45.37%
+diagpass      LOST: (none)   GAINED: compiler/functionOverloads5
+extraonly     75, unchanged
+TS2385        have 0 → 17,  want 20,  missing 3,  **0 extra**
+```
+
+Seventeen right lines, none wrong, one case. All three falsifiers hold by
+construction: the canonical cannot deviate from itself, absent accessibility is
+`public` on both sides of the comparison, and an agreeing set produces an empty
+report list.
+
+> Upstream's four checks — export, ambient, accessibility, abstract — are **one
+> `switch` on one `deviation` value**. This port has now ported two of them, at
+> different times, as two functions with two once-per-symbol sets and two sets
+> of early exits. The second could not be an arm inside the first because the
+> first *returns* as soon as the ambient flags agree, which they do in every
+> fixture the second is about.
+>
+> **A `switch` ported one case at a time becomes a set of functions that cannot
+> share their guards**, and the cost is paid at the third and fourth ports, not
+> the second. Recorded so whoever builds TS2394 (abstract) or the export arm
+> knows the shape they are joining rather than discovering the early-exit
+> collision from a `+0`.
+
+The first hook attempt also failed usefully: `check_overload_ambient_agreement`
+is called from **two** walk arms — the `FunctionDeclaration` arm and the
+`MethodDeclaration | ConstructorDeclaration` arm — and a `replace(…, 1)` put the
+new call in the first, where the kind filter rejects everything. `cargo` caught
+it as *field never read*, which is a better error than the silent `+0` §947 got
+from the same mistake shape.

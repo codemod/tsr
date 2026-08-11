@@ -515,6 +515,7 @@ impl Checker<'_, '_> {
             Node::MethodDeclaration(_) | Node::ConstructorDeclaration(_) => {
                 self.check_function_or_constructor_symbol(node, ambient);
                 self.check_overload_ambient_agreement(node);
+                self.check_overload_accessibility_agreement(node);
                 self.check_implicit_any_parameters(node, ambient);
                 self.check_implicit_any_return(node, ambient);
                 // **A member's own `declare` is an ambient context for its
@@ -11800,6 +11801,80 @@ impl Checker<'_, '_> {
     /// is precisely a different-container symbol.
     ///
     /// `docs/architecture/checker-notes-diag2.md` §673.
+    /// TS2385 — `Overload signatures must all be public, private or protected.`
+    ///
+    /// `checkFunctionOrConstructorSymbol` (`checker.go:3530`): each overload's
+    /// accessibility flags are compared against the **canonical** declaration's
+    /// — the implementation, or the first if there is none — and any deviation
+    /// in `private` or `protected` is the error.
+    ///
+    /// A sibling of [`Self::check_overload_ambient_agreement`] rather than an
+    /// arm inside it: that function exits as soon as the ambient flags agree,
+    /// which they do in every fixture this one is about. §1021.
+    fn check_overload_accessibility_agreement(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let Some(symbol) = self.binder.symbol_of(node) else { return };
+        let symbol = self.binder.merged_symbol(symbol);
+        if !self.overload_accessibility_checked.insert(symbol) {
+            return;
+        }
+        let declarations: Vec<NodeId> =
+            self.binder.symbols().get(symbol).declarations.iter().copied().collect();
+        if declarations.len() < 2 {
+            return;
+        }
+        if !declarations.iter().all(|&declaration| {
+            matches!(
+                self.nodes.kind(declaration),
+                SyntaxKind::MethodDeclaration | SyntaxKind::Constructor
+            )
+        }) {
+            return;
+        }
+        let canonical = declarations
+            .iter()
+            .copied()
+            .find(|&d| self.declaration_has_body(d))
+            .unwrap_or(declarations[0]);
+        let canonical_flags = self.accessibility_of(canonical);
+        let mut reports = Vec::new();
+        for &declaration in &declarations {
+            if declaration == canonical || self.declaration_has_body(declaration) {
+                continue;
+            }
+            if self.accessibility_of(declaration) != canonical_flags {
+                reports.push(declaration);
+            }
+        }
+        for declaration in reports {
+            // **A constructor has no name**, so the error node is the
+            // declaration — `OrElse(GetNameOfDeclaration(overload), overload)`.
+            let at = self.declaration_name_of(declaration).unwrap_or(declaration);
+            let Some(file) = self.source_file_of_for_diagnostics(at) else { continue };
+            let span = self.nodes.span(at);
+            self.report(
+                file,
+                Diagnostic::new(
+                    &messages::OVERLOAD_SIGNATURES_MUST_ALL_BE_PUBLIC_PRIVATE_OR_PROTECTED,
+                    span,
+                ),
+            );
+        }
+    }
+
+    /// `(private, protected)` — absent accessibility is `public`. §1021.
+    fn accessibility_of(&self, declaration: NodeId) -> (bool, bool) {
+        let Some(modifiers) = self.node_map.get(declaration).and_then(modifiers_of) else {
+            return (false, false);
+        };
+        (
+            has_modifier(modifiers, SyntaxKind::PrivateKeyword),
+            has_modifier(modifiers, SyntaxKind::ProtectedKeyword),
+        )
+    }
+
     fn check_overload_ambient_agreement(&mut self, node: NodeId) {
         let Some(symbol) = self.binder.symbol_of(node) else { return };
         let symbol = self.binder.merged_symbol(symbol);
