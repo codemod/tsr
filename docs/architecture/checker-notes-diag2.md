@@ -48754,3 +48754,72 @@ TS1009 is declined with its owner: seven cases, all needing
 `NodeList.HasTrailingComma`, which this AST does not record. There is no source
 text on the checker and no comma token in the tree, so the enabling change is in
 `tsr-parser` and is an **AST** change rather than a rule.
+
+## §1001 — TS2698: spreading a type variable constrained to a primitive
+
+§950's list: **6 sole-obstacle cases, 20 lines**. `spreadTypeVariable` carries
+three of the lines and, as with §962, its controls sit in the same file:
+
+```ts
+function f1<T extends number>(arg: T)          { return { ...arg }; }   // TS2698
+function f2<T extends string[]>(arg: T)        { return { ...arg }; }   // ok
+function f3<T extends number | string[]>(arg: T) { return { ...arg }; } // TS2698
+```
+
+**An array is an object and a primitive is not**, so `string[]` spreads legally
+and `number` does not; a union spreads legally only if *every* constituent does.
+`getSpreadType` (`checker.go:13304`) decides this on the constraint's type, and
+the written constraint answers the same question for the shapes the corpus has:
+a **keyword type** is never spreadable, an array or tuple or type literal always
+is, and anything else — a reference to a named type, a conditional, a mapped
+type — is declined.
+
+The remaining three cases are declined with them: `correctlyMarkAliasAsReferences1`
+and `3` spread a JSX attributes value and `spreadNonObject1` spreads a template
+literal type, both of which need the type. Owner: the type side.
+
+```
+bar:  >= +1,  0 LOST via `diagpass`,  extraonly delta <= +1
+```
+
+### Falsifiers
+
+1. **`T extends string[]` reports.** It is `f2`, in the same file as the two
+   that must, which is the ideal arrangement §963 named.
+2. **A union containing an object constituent reports.** `f3` is
+   `number | string[]` and *does* report, so the rule is "any constituent is a
+   primitive", not "all of them are" — getting this backwards passes falsifier 1
+   and fails the row.
+3. **A spread of a plain value reports.** The rule fires only for a type
+   parameter's written constraint.
+
+## §1002 — §1001 built: **+1/−0**, and a rule whose natural reading is backwards
+
+```
+diagnostics   2,474 → 2,475   (+1)   45.10%
+diagpass      LOST: (none)   GAINED: conformance/spreadTypeVariable
+extraonly     74, unchanged
+TS2698        have 0 → 3,  missing 31,  **0 extra**
+```
+
+Three lines, one case, no wrong lines — and the case is the one whose controls
+sit beside its errors, so the single `measure` answered all three falsifiers as
+§963's did.
+
+Falsifier 2 is the one worth having written down first:
+
+```ts
+function f2<T extends string[]>(arg: T)          { ok }
+function f3<T extends number | string[]>(arg: T) { TS2698 }
+```
+
+**`number | string[]` reports.** The natural reading of *"spread types may only
+be created from object types"* is that a union spreads when every constituent
+does; the rule is the opposite — **any** primitive constituent is enough,
+because the spread must be valid for *every* instantiation and `T = number` is
+one of them. Writing the falsifier before the code is what stopped that being a
+`.all()`, which would have passed falsifier 1 and failed the row.
+
+The remaining 31 lines are the type side's: a JSX attributes value
+(`correctlyMarkAliasAsReferences1`, `3`) and a template-literal type
+(`spreadNonObject1`), neither of which has a written constraint to read.

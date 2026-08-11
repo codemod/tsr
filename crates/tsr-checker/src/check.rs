@@ -580,6 +580,7 @@ impl Checker<'_, '_> {
             }
             Node::ObjectLiteralExpression(_) => {
                 self.check_spread_property_overrides(node);
+                self.check_spread_of_primitive_type_variable(node);
                 self.check_duplicate_object_literal_accessors(node);
                 self.check_duplicate_object_literal_names(node);
                 self.check_private_name_in_object_literal(node);
