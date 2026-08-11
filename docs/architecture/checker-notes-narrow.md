@@ -7647,3 +7647,42 @@ case upstream's rule actually covers and verified against the
 enclosing function, is worth two lines and no regressions. The
 correct version of a catastrophic change is usually much smaller
 than the catastrophic one.
+
+
+## §180 — the "cross-file binding" blocker I cited all window is PARTLY STALE [checker-1, correction]
+
+I priced §174's refusal, the ~150 single-blocker `want any/got
+error` cases, and several notes in this file on "cross-file binding
+is unported (`bd tsr-9or.1`)", taking the claim from
+`crates/tsr-compiler/src/lib.rs`'s module note. **Probed it at last,
+and the note is at least partly out of date.**
+
+The note says the port takes first-in-wins on same-named global
+symbols, so `interface Array<T>` (declared across 8 bundled lib
+files) "carries only the members of whichever file bound first —
+`T[]` therefore answers; `a.flat()` does not."
+
+Measured, that specific claim is false today: `[1,2].flat()`
+answers `FlatArray<unknown, 1>[]`, `[1,2].at(0)` answers
+`number | undefined`, `"x".padStart(2)` answers `string`,
+`[1,2].includes(1)` answers `boolean`, and `Object.entries`
+RESOLVES with its full overload set printed
+(`{ <T>(o: ArrayLike<T> | ...): [string, T][]; (o: {}): [string,
+any][]; }`). The later-lib members are present. Where those
+expressions still fail — `Object.entries({a:1})` answers error,
+`flat()`'s element type is `unknown` where upstream infers
+`number` — the cause is DOWNSTREAM: overload resolution and generic
+inference, i.e. the fixing-mapper unit, not symbol merging.
+
+**What this invalidates**: not §174's measurement (that pair stands
+at 41:60 whatever the cause), but its EXPLANATION. I attributed the
+adverse to "findable modules' names are missing too" on the
+strength of this note. The adverse is real; its mechanism is
+re-opened and needs its own probe.
+
+**The general fault**: I cited a documented blocker eight times
+today without once testing it, in a session whose entire method is
+that claims get measured. A stale doc is exactly as dangerous as an
+induction — more so, because it wears the authority of a decision
+record. Blockers should be re-probed when they are used to price a
+refusal, not just when they are written.
