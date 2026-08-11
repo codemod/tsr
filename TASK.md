@@ -999,3 +999,40 @@ building (three of my +0 arms would have been skipped); iterate with
 `scorepair` only and gate once before pushing; batch arms; and claim a
 census target before building it — a shared cheap census collides by
 construction, which cost this window one duplicated arm.
+
+### checker-1 addendum: the conditional wall, transcribed and ordered (2026-08-10)
+
+Nine measured partial attempts across two subsystems this window
+established that neither yields partial credit. Both now have their
+whole-function texts in `checker-notes-narrow.md`:
+
+- **§185 `getConditionalType`** (`checker.go:24300+`) — a LOOP over
+  nested false-position conditionals, tail-capped at 1000; per iteration
+  it instantiates both sides, applies the DEFERRAL test (`checkTuples`
+  makes `[X] extends [Y]` defer like `X extends Y`), handles `infer` via
+  an inference context, and only then resolves. Two rules that indict my
+  own partials: **an `any` check yields the UNION of both branches**, and
+  nothing resolves while the check type is deferred.
+- **§186 `getConditionalTypeInstantiation`** (`checker.go:22485`) —
+  where DISTRIBUTION actually lives (§183 claimed it was in the former;
+  it is not). Gated on `root.isDistributive`, a property of the
+  conditional's ROOT. `Never` shares the flag test with `Union`, so the
+  empty distribution falls out of `mapTypeWithAlias` — which is why the
+  special case I hand-wrote never fired.
+
+**Build order, which is the reverse of how I attacked it**: conditional
+ROOT (with `isDistributive`/`outerTypeParameters` — this port has no root
+concept at all, the structural prerequisite) → `getConditionalTypeInstantiation`
+→ `getConditionalType`'s loop and deferral test → the resolution rules.
+**§182's landed primitive-domain decider is the LAST step of the LAST
+item.** Everything above it is unbuilt; four measurements were spent
+widening the bottom of a stack whose top does not exist.
+
+**The same shape holds for the fixing-mapper** (four attempts, its
+pre-registered falsifier fired) — and §181 established that the promise
+families it kept failing on are blocked by THIS wall, not that one.
+
+Two decisions remain open for whoever picks this up: **which metric is
+the target** (cases and gradient reward different work; priced twice in
+this file), and **whether to commit a session to a multi-hour build**
+against these texts, which measures nothing until it lands.
