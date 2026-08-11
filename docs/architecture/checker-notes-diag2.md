@@ -49398,3 +49398,78 @@ TS1016 was the alternative from the same band and is declined with its owner:
 both cases are **JSDoc** — `checkJsdocOptionalParamOrder` and
 `jsdocParseBackquotedParamName` — a subsystem this port does not have. Recorded
 so the band's next reader does not re-census it.
+
+## §1017 — TS2436: an ambient module cannot name a relative path
+
+§950's 2-case band, and among the cleanest rules left.
+
+```ts
+declare module "./relativeModule" { }     // TS2436
+declare module ".\\relativeModule" { }    // TS2436 — backslash counts
+```
+
+`checkModuleDeclaration` (`checker.go:5202`-`:5207`): when the declaration's
+parent is a **global source file** — not a module, not another namespace — and
+its name is a string literal that `IsExternalModuleNameRelative`, the name is the
+error node.
+
+`IsExternalModuleNameRelative` is `./`, `../`, `.\` or `..\` — the fixture tests
+the backslash spellings deliberately, which is why the predicate is written out
+rather than approximated with a leading-dot test: `".dotfile"` is **not**
+relative.
+
+The sibling on the same `if` — *Augmentations for the global scope can only be
+directly nested…* — is not built; `diagsole` prices it at zero.
+
+```
+bar:  >= +1 of the 2,  0 LOST via `diagpass`,  extraonly delta <= +1
+```
+
+### Falsifiers
+
+1. **A non-relative ambient module reports.** `declare module "fs"` is most of
+   the corpus's `.d.ts` files.
+2. **A nested `declare module "./x"` reports.** Upstream's arm requires the
+   parent to be a source file; inside another module it is an augmentation and
+   takes a different message.
+3. **`declare module ".dot"` reports.** A leading dot is not a relative path,
+   and approximating the predicate would break it.
+
+## §1018 — §1017 built: **+1/−0**, and `IsGlobalSourceFile` is not "is a source file"
+
+```
+diagnostics   2,486 → 2,487   (+1)   45.32%
+diagpass      LOST: (none)   GAINED: ambientExternalModuleWithRelativeModuleName
+extraonly     75, unchanged
+TS2436        have 3,  want 4,  missing 1,  **0 extra**
+```
+
+Three measurements, and both corrections were the same misreading getting
+narrower:
+
+```
+parent is a SourceFile                       +0,  22 wrong lines,  extraonly 76
+… and the file is not an external module     +1,   3 wrong lines,  extraonly 75
+… counting `import x = require(…)` too       +1,   0 wrong lines,  extraonly 75
+```
+
+**`ast.IsGlobalSourceFile` means a *script*** — a source file with no imports and
+no exports. A `declare module "./x"` at the top of a *module* is an
+**augmentation**, and upstream sends it down a different arm entirely. Reading
+the predicate as "the parent is a SourceFile" reported on every augmentation in
+the corpus.
+
+The third measurement is the one worth keeping. `import x = require("…")` makes
+a file a module, and it is the only module-marking form that is neither an
+`ImportDeclaration` nor an `ExportDeclaration` nor an `ExportAssignment` —
+`conflictingDeclarationsImportFromNamespace1` opens with exactly that and then
+augments `"./index"`.
+
+> Two of this session's builds have now turned on a predicate whose name reads
+> like a type test and is not: `IsGlobalSourceFile` (a script, not a source
+> file) and §1006's `kind` fields (a token, not a `SyntaxKind`). **Upstream's
+> names are accurate about the *question* and silent about the *representation*,
+> and a port reads them as the representation.**
+
+One line remains, in `declarationEmitRelativeModuleError`, which wants TS2436 at
+a position this arm does not reach; it costs no case.

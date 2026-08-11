@@ -280,6 +280,7 @@ impl Checker<'_, '_> {
             // not the keyword is repeated inside it.
             Node::ModuleDeclaration(declaration) => {
                 self.check_grammar_module_element_context(node);
+                self.check_ambient_module_relative_name(node);
                 // `!inAmbientContext && IsStringLiteral(node.Name())`
                 // (`checker.go:5151`), reported on the **name**. §807.
                 if !ambient
@@ -5386,6 +5387,81 @@ impl Checker<'_, '_> {
                 span,
             ),
         );
+    }
+
+    /// TS2436 — `Ambient module declaration cannot specify relative module
+    /// name.`
+    ///
+    /// `checkModuleDeclaration` (`checker.go:5202`-`:5207`): the parent must be
+    /// a **global source file**, and the name a string literal that
+    /// `IsExternalModuleNameRelative` — `./`, `../` or their backslash spellings. A leading
+    /// dot alone is not relative, which is why the predicate is written out.
+    /// §1017.
+    fn check_ambient_module_relative_name(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        // **`IsGlobalSourceFile` is a *script*, not merely a source file.** A
+        // `declare module "./x"` at the top of an external module is an
+        // *augmentation* and takes a different arm; reading the predicate as
+        // "parent is a SourceFile" reported on all of them — 22 wrong lines and
+        // `extraonly` 75 → 76 at §1017's first measurement. §1018.
+        let Some(parent) = self.nodes.parent(node) else { return };
+        if self.nodes.kind(parent) != SyntaxKind::SourceFile
+            || self.source_file_is_an_external_module(parent)
+        {
+            return;
+        }
+        let Some(Node::ModuleDeclaration(module)) = self.node_map.get(node) else { return };
+        let Some(name) = module.name.and_then(|n| n.node_id()) else { return };
+        let Some(Node::StringLiteral(literal)) = self.node_map.get(name) else { return };
+        let text = literal.text;
+        let relative = ["./", "../", ".\\", "..\\"].iter().any(|prefix| text.starts_with(prefix));
+        if !relative {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(name) else { return };
+        let span = self.nodes.span(name);
+        self.report(
+            file,
+            Diagnostic::new(
+                &messages::AMBIENT_MODULE_DECLARATION_CANNOT_SPECIFY_RELATIVE_MODULE_NAME,
+                span,
+            ),
+        );
+    }
+
+    /// Does this source file have any import or export, making it a module
+    /// rather than a script? `IsGlobalSourceFile`'s negation. §1018.
+    fn source_file_is_an_external_module(&self, file: NodeId) -> bool {
+        let Some(Node::SourceFile(source)) = self.node_map.get(file) else { return false };
+        source.statements.iter().any(|statement| {
+            let Some(id) = statement.node_id() else { return false };
+            if matches!(
+                self.nodes.kind(id),
+                SyntaxKind::ImportDeclaration
+                    | SyntaxKind::ExportDeclaration
+                    | SyntaxKind::ExportAssignment
+            ) {
+                return true;
+            }
+            // **`import x = require("…")` makes a file a module too.**
+            // `conflictingDeclarationsImportFromNamespace1` opens with one and
+            // then augments `"./index"`; without this the augmentation reads as
+            // a top-level ambient declaration. §1018.
+            if let Some(Node::ImportEqualsDeclaration(declaration)) = self.node_map.get(id)
+                && matches!(
+                    declaration.module_reference,
+                    Some(tsr_ast::ModuleReference::ExternalModuleReference(_))
+                )
+            {
+                return true;
+            }
+            self.node_map
+                .get(id)
+                .and_then(modifiers_of)
+                .is_some_and(|modifiers| has_modifier(modifiers, SyntaxKind::ExportKeyword))
+        })
     }
 
     /// TS1235 — `A namespace declaration is only allowed at the top level of a
