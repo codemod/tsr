@@ -48115,3 +48115,84 @@ report.
 constrained to an array, which the syntactic slice cannot see. They cost no case
 (`extraonly` is unchanged at 75) and are recorded rather than chased: the
 constraint is the relation's.
+
+## §986 — TS2683: `this` in a namespace body is *also* an implicit any
+
+§950's list: **4 sole-obstacle cases, 5 lines**.
+
+```ts
+namespace foo { this.bar = 4; }        thisKeyword
+namespace myMod { var x; this.x = 5; } thisInModule
+```
+
+Both already get TS2331 — *'this' cannot be referenced in a module or namespace
+body* — from `check_this_in_module_body`, which reports and **returns**.
+Upstream does not return, and says so in a comment on the line:
+
+```go
+case ast.KindModuleDeclaration:
+    c.error(node, diagnostics.X_this_cannot_be_referenced_in_a_module_or_namespace_body)
+    // do not return here so in case if lexical this is captured …
+```
+
+and falls through to the `noImplicitThis` block, where `tryGetThisTypeAt`
+answers nothing and TS2683 is reported at the same position. **Two diagnostics,
+one node, and the port stopped after the first** — which under multiset
+comparison fails the case exactly as a wrong code would.
+
+The second report needs no type: in a namespace body there *is* no `this` to
+find, which is what the first diagnostic already established. The remaining
+condition is the flag.
+
+```
+bar:  >= +2,  0 LOST via `diagpass`,  extraonly delta <= +1
+```
+
+### Falsifiers
+
+1. **A `this` in a class method gains TS2683.** The rule must fire only where
+   TS2331 already does, not wherever `this` appears.
+2. **A file without `noImplicitThis` reports.** The flag is upstream's only
+   guard on this arm and most of the corpus runs without it.
+3. **TS2331 doubles.** The `return` is being removed; the first report must
+   still happen exactly once.
+
+## §987 — §986 built: **+4/−0**, and the extras were identical before and after
+
+```
+diagnostics   2,444 → 2,448   (+4)   44.61%
+diagpass      LOST: (none)
+              GAINED: thisAssignmentInNamespaceDeclaration1, thisInModule,
+                      thisKeyword, computedPropertyNames19_ES6
+extraonly     75, unchanged
+TS2683        have 62,  want 53,  missing 5   —  extras 8 cases / 14 lines,
+                                                  **identical before and after**
+```
+
+All four sole-obstacle cases. The row shows 14 extra lines and `diagextra 2683`
+reads **exactly the same 8 cases and 14 lines with the change stashed** — §975's
+comparison, run this time *before* forming any hypothesis about them rather than
+after being surprised by a number.
+
+> §975 learned that a count which moves is not a count this build moved. The
+> cheap version of that lesson is to **make the stashed comparison part of the
+> decomposition**, not a reaction to a surprise: it costs the same run either
+> way and removes the temptation to explain a standing defect as a new one.
+
+The build itself is three lines, and the whole of it is upstream's comment:
+
+```go
+c.error(node, X_this_cannot_be_referenced_in_a_module_or_namespace_body)
+// do not return here so in case if lexical this is captured …
+```
+
+`check_this_in_module_body` reported and returned. Upstream falls through to the
+`noImplicitThis` block and reports TS2683 at the same node, because in a
+namespace body there is no `this` to find — which is exactly what the first
+diagnostic established. **Two diagnostics, one node**, and under multiset
+comparison stopping after the first fails the case as surely as emitting the
+wrong code.
+
+Twenty-sixth repair of the shared tree: a `map(…).unwrap_or_else(panic!)` in the
+other workstream's `jsx_attribute_types.rs` was blocking `xtask measure` for
+both of us.

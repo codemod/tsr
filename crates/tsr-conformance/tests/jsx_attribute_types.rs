@@ -57,8 +57,7 @@ fn attribute_type(source: &str, name: &str) -> String {
     rendered
         .iter()
         .find(|(text, _)| text == name)
-        .map(|(_, ty)| ty.clone())
-        .unwrap_or_else(|| panic!("no assertion for {name:?} in {rendered:?}"))
+        .map_or_else(|| panic!("no assertion for {name:?} in {rendered:?}"), |(_, ty)| ty.clone())
 }
 
 #[test]

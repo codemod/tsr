@@ -3090,6 +3090,23 @@ impl Checker<'_, '_> {
                             span,
                         ),
                     );
+                    // **Upstream does not return here**, and its comment says
+                    // why: *"do not return here so in case if lexical this is
+                    // captured…"*. It falls through to the `noImplicitThis`
+                    // block, where `tryGetThisTypeAt` answers nothing — there is
+                    // no `this` in a namespace body, which is what the
+                    // diagnostic above already established — and TS2683 is
+                    // reported at the same position. Two diagnostics, one node.
+                    // §986.
+                    if self.no_implicit_this {
+                        self.report(
+                            file,
+                            Diagnostic::new(
+                                &messages::THIS_IMPLICITLY_HAS_TYPE_ANY_BECAUSE_IT_DOES_NOT_HAVE_A_TYPE_ANNOTATION,
+                                span,
+                            ),
+                        );
+                    }
                     return;
                 }
                 kind if self.is_function_like_or_static_block(ancestor)
