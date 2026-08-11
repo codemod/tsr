@@ -4222,6 +4222,15 @@ impl Checker<'_, '_> {
     /// `base_symbols_of`) contains `target`. An unfollowable link answers
     /// `false` — the caller then DROPS, which is the oracle's answer for
     /// every non-declared relation in this rung's domain.
+    /// SS188 (measured, +0): checker-1's SS202 lesson — "anywhere two callers
+    /// share a conservative helper, only one may need the conservatism" —
+    /// applied here and measured ZERO. These derivation walks inherit
+    /// `base_symbols_of`'s type-argument refusal, which belongs to the
+    /// INSTANCE road (a member table cannot be instantiated); derivation
+    /// only needs the base SYMBOL, so the refusal is unnecessary. Switching
+    /// them to `base_symbols_of_ex(_, false)` moved no case, so the arm
+    /// stays as it is — the audit was right in principle and unpaid in this
+    /// corpus. Recorded so it is not re-derived.
     fn heritage_chain_contains(
         &mut self,
         owner: tsr_binder::SymbolId,
