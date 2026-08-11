@@ -2331,6 +2331,30 @@ impl<'a> Checker<'a, '_> {
                 body: node.body.and_then(|body| body.node_id()).map(Body::Block),
                 may_return_never: false,
             }),
+            // §176 (`checker-notes-narrow.md`): the accessors, which
+            // `getSignatureFromDeclaration` treats as any other
+            // function-like (`checker.go:19836` switches on
+            // `declaration.Parameters()`). §175 found this arm missing and
+            // routed around it through the shared accessor symbol; the arm
+            // itself is still worth its own measurement.
+            Node::GetAccessorDeclaration(node) => Some(SignatureParts {
+                modifiers: node.modifiers,
+                asterisk: false,
+                type_parameters: Vec::new(),
+                parameters: node.parameters,
+                return_annotation: node.r#type,
+                body: node.body.and_then(|body| body.node_id()).map(Body::Block),
+                may_return_never: false,
+            }),
+            Node::SetAccessorDeclaration(node) => Some(SignatureParts {
+                modifiers: node.modifiers,
+                asterisk: false,
+                type_parameters: Vec::new(),
+                parameters: node.parameters,
+                return_annotation: None,
+                body: node.body.and_then(|body| body.node_id()).map(Body::Block),
+                may_return_never: false,
+            }),
             Node::MethodDeclaration(node) => Some(SignatureParts {
                 modifiers: node.modifiers,
                 asterisk: node.asterisk_token.is_some(),

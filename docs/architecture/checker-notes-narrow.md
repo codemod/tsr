@@ -7537,3 +7537,28 @@ accessors_spec_section-4.5_error-cases 4, long tail.
 standing and unmeasured** — this arm routed around it rather than
 fixing it, and whether it is worth its own slice is an open
 question, not a closed one.
+
+
+## §176 — the accessor arms in signature_parts_of (+3/0) [checker-1]
+
+§175 left this missing arm standing and unmeasured; measuring it is
+the honest close. `getSignatureFromDeclaration` treats accessors as
+any other function-like (`checker.go:19836` switches on
+`declaration.Parameters()`), and `signature_parts_of` had neither
+GetAccessor nor SetAccessor. Added both: **+3 / 0**
+(objectLiteralWithGetAccessorInsideFunction,
+superInObjectLiterals_ES6, generatorTypeCheck44).
+
+Kept under corollary 6 (transcribed, removes a divergence from
+upstream's own dispatch) and small enough that the honest note
+matters: **three lines, not a road.** §175's +92 came from routing
+AROUND this arm through the shared accessor symbol, which is
+upstream's own formulation for the accessor TYPE; this arm serves
+the other consumers of a signature and they are rare.
+
+Closes the expression/signature dispatch audit: five missing arms
+found (§162 ConstructorDeclaration +432, §167
+RegularExpressionLiteral +328, ClassExpression refused at the naming
+wall, §169's early-stopped gate list +39, and this pair +3), plus
+two that could not be reached (`new.target`, parser-side; the
+concise async body, unexercised).
