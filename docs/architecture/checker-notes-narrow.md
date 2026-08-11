@@ -7443,3 +7443,38 @@ families (`string`/`error`, `number`/`error` are likely the same
 "unresolved thing in a declaration-ish position" shape), one fix
 converts a large share of 851 cases — the highest case-metric
 leverage found anywhere this window.
+
+
+## §173 — an export assignment is not import machinery (+27/1) [checker-1]
+
+**The near-miss census's first conversion, and the routing question
+from the entry above answered.** The §31-family rule "an identifier
+that resolves NOWHERE reads upstream's TS2304 error-any" is gated on
+`file_has_import_machinery` — the port's honest guard against
+crediting itself for a name it simply failed to bind across files.
+That gate counted FOUR declaration kinds, two of which cannot
+introduce a name into scope at all.
+
+`export = B` with no `B` in scope therefore answered `error` while
+the identical expression in a non-module file answered `any`, and
+`ExportAssignment7`'s oracle records `>B : any`.
+
+**Two iterations, and the second is the measured one.** Dropping
+BOTH export forms measured +38/27 (1.4:1): an `export { x } from "m"`
+re-export DOES involve module bindings, so `ExportDeclaration`
+earns its place in the list (exportsAndImports3's 6+6 adverse said
+so). Dropping only `ExportAssignment` — the one form that references
+a purely local name — measured **+27 / 1 (27:1)**.
+
+Reach: parserUnparsedTokenCrash2 5, plainJSBinderErrors 3,
+defaultIsNotVisibleInLocalScope 2, and a long single-line tail,
+which is the shape the near-miss census predicted — these are
+CASE-converting lines, worth far more to the case rate than to the
+gradient.
+
+The remaining `want any / got error` single-blocker families are
+still gated by the two IMPORT forms, and narrowing THOSE needs the
+finer question the gate was built to dodge: not "does this file
+import anything" but "is THIS name plausibly one of the port's
+unbound imports". `§119`'s `module_specifier_unfindable` is the
+machinery for it, and that is the next slice.

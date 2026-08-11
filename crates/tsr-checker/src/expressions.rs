@@ -163,10 +163,16 @@ impl Checker<'_, '_> {
             while let Some(current) = stack.pop() {
                 if matches!(
                     current,
+                    // §173 (`checker-notes-narrow.md`): only declarations
+                    // that BRING A NAME INTO SCOPE can explain an
+                    // unresolved identifier as this port's own unported
+                    // binding. An `export =` or `export { }` introduces
+                    // nothing, so its presence cannot excuse the gap — the
+                    // name is upstream's TS2304 and reads `any`
+                    // (ExportAssignment7's oracle records `>B : any`).
                     Node::ImportDeclaration(_)
                         | Node::ImportEqualsDeclaration(_)
                         | Node::ExportDeclaration(_)
-                        | Node::ExportAssignment(_)
                 ) {
                     found = true;
                     break;
