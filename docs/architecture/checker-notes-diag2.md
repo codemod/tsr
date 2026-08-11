@@ -44617,3 +44617,44 @@ that preceded them remain the reason both were findable. Six remain.
 > landed in cases that are now one removal from passing. **A class measurement
 > averages a cost that is not distributed evenly**, and the average was three
 > times the worst rule and thirteen times the best.
+
+
+## §900 — the implicit-any parameter gate: **−1**, and the first per-rule refusal
+
+Sixth of §894's eleven:
+
+```ts
+// varArgWithNoParamName
+function f(...) { }     // TS7019 at (1,13), TS1003 at (1,16)
+```
+
+This port emits the TS1003 and declines the TS7019. Upstream's `checkParameter`
+road has no parse-error gate — a rest parameter with a missing name still holds a
+signature position and still infers `any[]`.
+
+Removing that one gate:
+
+```
+diagnostics   2,355 → 2,354   (−1)
+extraonly     79 → 84   (+5 wrong lines)
+```
+
+**Reverted.** Falsifier 1, exactly as written: a recovered parameter list invents
+parameters and this rule names every one of them.
+
+### The class's per-rule tally, now with a negative in it
+
+```
+§896   check_operator_operands      +4 /  0    extraonly  +0    kept
+§898   check_type_reference_name    +1 /  0    extraonly  +2    kept
+§900   check_implicit_any_parameters −1        extraonly  +5    reverted
+```
+
+> Three rules, three different answers, and **the only way to have known was to
+> ask each one**. §899 wrote that a class average hides an uneven distribution;
+> this is the other tail of the same distribution, and it is worth as much as the
+> `+4`: the class is not *"gates that should go"* with a few exceptions, it is a
+> **mixture**, and each member's sign is its own fact.
+
+Five of §894's eleven remain and one of them — `varArgWithNoParamName` — is now
+known to cost more than it pays. **Four candidates left, each one measurement.**
