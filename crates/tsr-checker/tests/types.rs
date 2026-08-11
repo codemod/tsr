@@ -1200,8 +1200,21 @@ fn this_inside_a_class_is_the_class_this_type() {
         ),
         "any"
     );
-    // Outside any class there is no container this port can answer for.
-    assert_eq!(type_of_nested_declaration("const x = this;", "x"), "error");
+    // §200: a stand-in come due. This asserted `error` on the stated ground
+    // that "outside any class there is no container this port can answer for",
+    // which was a fact about the port and not about upstream —
+    // `tryGetThisTypeAtEx`'s last arm (`checker.go:12175-12184`) answers
+    // `getTypeOfSymbol(globalThisSymbol)` at the top level of a SCRIPT.
+    assert_eq!(type_of_nested_declaration("const x = this;", "x"), "typeof globalThis");
+    // The other half of that arm, and the reason it is a pair: at the top level
+    // of an external MODULE, `this` is `undefined` — a module body's `this` is
+    // `undefined` at runtime, and upstream returns `undefinedType` before it
+    // ever reaches `globalThis`.
+    assert_eq!(type_of_nested_declaration("export {};\nconst x = this;", "x"), "undefined");
+    // And a `namespace` or `enum` body is its OWN `this` container
+    // (`getThisContainer`, `checker.go:12225`), so the walk must not reach
+    // through one to the file. Upstream reports there and types it `any`.
+    assert_eq!(type_of_nested_declaration("namespace N { const x = this; }", "x"), "any");
 }
 
 // ---------------------------------------------------------------------------

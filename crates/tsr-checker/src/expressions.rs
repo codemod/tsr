@@ -941,10 +941,16 @@ impl Checker<'_, '_> {
     ///
     /// Arrow functions are transparent to `this` and a plain `function` is not,
     /// which is the only part of upstream's container walk that changes an
-    /// answer here. Every other container — a plain function, a module, the top
-    /// level — is a gap: upstream answers `anyType` there through a signature's
-    /// `this` parameter or a contextual type, and neither exists yet, so
-    /// answering `any` would be a claim rather than a computation.
+    /// answer here.
+    ///
+    /// **The container list is upstream's and the walk stops where it stops.**
+    /// `getThisContainer` (`checker.go:12188`) names sixteen kinds; the three
+    /// that this walk answers for on their own account rather than by falling
+    /// through are the module/enum bodies (`any`), the file (`typeof globalThis`
+    /// in a script, `undefined` in a module — §200) and a plain function
+    /// (`any`). A container reached by falling *past* one of those would be the
+    /// wrong container, which is what §200's first measurement cost six cases
+    /// to learn.
     /// §142: whether an object literal declares any computed-name member.
     fn literal_has_computed_member(&self, literal: NodeId) -> bool {
         match self.node_map.get(literal) {
@@ -1115,6 +1121,60 @@ impl Checker<'_, '_> {
                     );
                     self.this_types.insert(symbol, this_type);
                     return this_type;
+                }
+                // **`getThisContainer` stops here, so the walk must too**
+                // (`checker.go:12225-12228`). A module or enum body is a
+                // `this` container in upstream's list, and
+                // `tryGetThisTypeAtEx` then finds it neither function-like nor
+                // class-parented nor a source file and answers `nil`, which
+                // `checkThisExpression` turns into `anyType` — beside a
+                // reported TS2331/TS2332.
+                //
+                // Without these two arms the SourceFile arm below reaches
+                // through a `namespace` or `enum` body and answers
+                // `typeof globalThis`. That is not hypothetical: it cost **six
+                // cases** on §200's first measurement (`thisInModule`,
+                // `this_inside-enum-should-not-be-allowed`, `topLevelLambda`
+                // and kin), which is how the omission was found.
+                SyntaxKind::ModuleDeclaration | SyntaxKind::EnumDeclaration => {
+                    return self.intrinsics.any;
+                }
+                // `tryGetThisTypeAtEx`'s last arm (`checker.go:12175-12184`):
+                // at the top level of a **script**, `this` is
+                // `getTypeOfSymbol(globalThisSymbol)`, printed
+                // `typeof globalThis`; at the top level of an external
+                // **module** it is `undefinedType`, because a module body's
+                // `this` is `undefined` at runtime.
+                //
+                // The walk used to fall off the end here and answer `error` —
+                // recorded at the site as "every other container is a gap:
+                // upstream answers `anyType` there through a signature's
+                // `this` parameter or a contextual type, and neither exists
+                // yet". True of a plain function; **false of the file**, where
+                // upstream reads a symbol this port already mints. §200.
+                //
+                // The mint is §33's, taken from the same memo so the two
+                // spellings cannot drift: `>this : typeof globalThis` and
+                // `>globalThis : typeof globalThis` are one type in upstream's
+                // baselines and must be one `TypeId` here.
+                SyntaxKind::SourceFile => {
+                    let is_module = self.node_map.get(id).is_some_and(|node| match node {
+                        Node::SourceFile(source) => tsr_binder::is_external_module(source),
+                        _ => false,
+                    });
+                    if is_module {
+                        return self.intrinsics.undefined;
+                    }
+                    if let Some(existing) = self.global_this_type {
+                        return existing;
+                    }
+                    let minted = self.store.new_named(
+                        TypeFlags::OBJECT,
+                        "typeof globalThis".to_string(),
+                        None,
+                    );
+                    self.global_this_type = Some(minted);
+                    return minted;
                 }
                 _ => {}
             }
