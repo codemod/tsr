@@ -45168,3 +45168,58 @@ the members table is built to merge, and the rule now collects accessors as
 > cases**, more than any single build this session found anywhere else. **A small
 > share of a large corpus is still a lot of cases**, and the classification's
 > value was never that the remainder was empty.
+
+
+## §916 — TS2323: refused at **+0 / +9 wrong lines**, and what the attempt established
+
+TS2300's richest sibling — 9 cases, 28 lines — and the rule is a count:
+
+```go
+for id, symbol := range c.getExportsOfModule(moduleSymbol) {
+    if id == ast.InternalSymbolNameExportStar { continue }
+    if symbol.Flags&(ast.SymbolFlagsNamespace|ast.SymbolFlagsEnum) != 0 { continue }
+    exportedDeclarationsCount := core.CountWhere(symbol.Declarations, func(d) bool {
+        return isNotOverload(d) && !ast.IsAccessor(d) && !ast.IsInterfaceDeclaration(d)
+    })
+    if symbol.Flags&TypeAlias != 0 && exportedDeclarationsCount <= 2 { continue }
+    if exportedDeclarationsCount > 1 && … { report on each non-overload }
+}
+```
+
+```
+first draft (count only)          −6 cases,  extraonly 79 → 123
+plus the three guards below       +0 cases,  extraonly 79 →  88
+```
+
+**Reverted.** Two measurements, both over the bar.
+
+### What the attempt established, and what it did not
+
+The first draft skipped the loop's **head** — §869's rule, unpaid again — and
+the three guards it wanted are now known:
+
+```
+id == InternalSymbolNameExportStar     the `export *` marker is not a name
+symbol.Flags & (Namespace | Enum)      both merge by design
+the `default` export                   a duplicate default is TS2528, which this
+                                       port already reports; 2 of the 44 wrong lines
+```
+
+They take the cost from 44 wrong lines to 9 and the gain from `−6` to `+0`. The
+residue is one shape:
+
+```ts
+// exportInterfaceClassAndValue — three wrong lines, and the pattern repeats
+export interface A { }
+export class A { }
+export const A = 1
+```
+
+An **interface** is excluded from the *count* and not from the *report* — upstream
+counts `!IsInterfaceDeclaration` but then reports on every `isNotOverload`
+declaration, interfaces included. This port reports on the interface too, and
+upstream's baseline does not. **That is the next attempt's whole question**, and
+it is one line: which declarations the report loop visits, as against which the
+count admits.
+
+**Refused, 9 cases, priced at +0 / +9.**
