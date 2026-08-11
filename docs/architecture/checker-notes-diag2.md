@@ -48475,3 +48475,106 @@ Five cases remain — TS2300 (4) and TS2540 (1) — and they are **not** the sam
 shape. `duplicateExportAssignments` wants one TS2300 at a position and gets two
 because two *different* rules both report a duplicate identifier there, which is
 a merge question rather than a dispatch one. Left with the number.
+
+## §995 — the harness deduplicates, and this port never did
+
+§993 left five over-counting cases and called the TS2300 group *"a merge
+question rather than a dispatch one"*. It is neither. It is upstream's harness:
+
+```go
+// internal/testutil/harnessutil/harnessutil.go:645
+preErrors = compiler.SortAndDeduplicateDiagnostics(preErrors)
+// :661
+postErrors = compiler.SortAndDeduplicateDiagnostics(postErrors)
+```
+
+**Every `.errors.txt` in the corpus is written from a deduplicated list**, and
+`compactAndMergeRelatedInfos` is what does it: consecutive diagnostics equal
+under `EqualDiagnosticsNoRelatedInfo` collapse to one, with their related
+information merged.
+
+So a rule that legitimately reports the same diagnostic twice — which
+`letAndVarRedeclaration` forces, since `let e0; var e0; function e0() {}` makes
+the binder report on *each* declaration once per collision it participates in —
+produces one line upstream and two here. **This port has been comparing an
+undeduplicated list against a deduplicated baseline for the whole workstream.**
+
+> §993 found the *symptom* and fixed two *causes*, and both fixes were right —
+> `check_modifier_order` really was dispatched twice and TS1221 really did have
+> two producers. But the remaining five were never going to yield to that
+> treatment, and the note called them a different shape without saying which.
+> **The shape is that upstream is allowed to report twice and the harness cleans
+> up after it.**
+>
+> This is the third time this session that the *harness* rather than the
+> compiler turned out to be the thing not ported — after the `.types` oracle
+> question and the varied-baseline exclusion. Worth stating: **the conformance
+> harness is part of the specification, and reading only `checker.go` cannot
+> find these.**
+
+Deduplication goes where upstream puts it — over the whole list the suite
+compares, not inside `report` — because a rule is *allowed* to report twice and
+only the comparison is deduplicated.
+
+```
+bar:  >= +4,  0 LOST via `diagpass`,  `diagcount` sole-cases → 0
+```
+
+### Falsifiers
+
+1. **A case wanting two identical lines breaks.** The baselines are
+   deduplicated, so no baseline can ask for two identical `(file, line, column,
+   code)` — if any case regresses, the dedupe key is wrong.
+2. **`extraonly` grows.** Removing lines can only remove extras; a rise means
+   the key merged two *different* diagnostics.
+
+## §996 — §995 built: **+2/−0**, and the coarse key that scored higher
+
+```
+diagnostics   2,467 → 2,469   (+2)   44.99%
+diagpass      LOST: (none)   GAINED: privateNameStaticAccessors
+extraonly     75 → 74
+diagcount     12 sole-cases → 4
+```
+
+Two versions were measured and **the one that scored higher is not the one
+shipped**:
+
+```
+                                          board    LOST    faithful?
+dedupe on (file, line, column, code)       2,471      2     no
+dedupe on (file, span, code, args)         2,469      0     yes
+```
+
+The coarse key is the *printed* form of a diagnostic, and the printed form drops
+the span's **length**. `commaOperator1`'s baseline records **three** TS2695 at
+`(1,11)`:
+
+```
+commaOperator1.ts(1,11) TS2695
+commaOperator1.ts(1,11) TS2695
+commaOperator1.ts(1,11) TS2695
+```
+
+They are three different diagnostics — `(a, b, c, d)` nests, so the comma
+operator's left side is unused at three different extents from the same start —
+and upstream keeps all three because `EqualDiagnosticsNoRelatedInfo` compares
+`loc`, which is position *and* length. Deduplicating on what the baseline prints
+merged them and cost two cases.
+
+> **A baseline is a projection of the diagnostic, not the diagnostic.** Four
+> fields survive the printing and three do not — length, message text and
+> related information — and any rule inferred from the printed form is a rule
+> about the projection. §985 said the baseline is the oracle for *what upstream
+> reports*; this is the other half: it is not the oracle for *what upstream
+> considers the same report*.
+>
+> The tempting move was available and measured: `+4` on the board with two cases
+> quietly lost, from a key that is wrong for a reason the corpus itself
+> demonstrates. Shipping `+2` instead is the same trade as §949 and §975, and
+> the third time this session the higher number was the wrong answer.
+
+Four TS2300 cases still over-count. With the faithful key they are **not** a
+dedupe question: their copies differ in span or arguments, so upstream would keep
+them too and the baseline wants fewer. That is a genuine over-report in the
+TS2300 family and is left with its number.

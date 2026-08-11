@@ -486,7 +486,29 @@ fn from_check_traversal(test: &crate::TestCase) -> Vec<BaselineDiagnostic> {
     }
 
     let mut out = Vec::new();
+    // `SortAndDeduplicateDiagnostics` (`compiler/program.go:1454`), which the
+    // **test harness** applies to both halves of every baseline it writes
+    // (`harnessutil.go:645` and `:661`). Every `.errors.txt` in the corpus is a
+    // deduplicated list, and this port compared an undeduplicated one against it
+    // for the whole workstream.
+    //
+    // **The key is upstream's `EqualDiagnosticsNoRelatedInfo`: file, the whole
+    // span, the code and the arguments.** Deduplicating on the *printed* form —
+    // file, line, column, code — is too coarse and cost two cases:
+    // `commaOperator1`'s baseline records three TS2695 at `(1,11)` which differ
+    // only in span **length**, a field the textual form drops. §995.
+    let mut seen: std::collections::HashSet<(tsr_ast::NodeId, u32, u32, u32, Vec<String>)> =
+        std::collections::HashSet::new();
     for (file, diagnostic) in checker.diagnostics() {
+        if !seen.insert((
+            *file,
+            diagnostic.span.start,
+            diagnostic.span.end,
+            diagnostic.message.code(),
+            diagnostic.args.clone(),
+        )) {
+            continue;
+        }
         let Some((_, unit_name, source)) = units.iter().find(|(id, _, _)| id == file) else {
             continue;
         };
