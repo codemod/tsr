@@ -1599,7 +1599,7 @@ impl<'a> Checker<'a, '_> {
     /// alternative — assuming a call completes — turns every `never`-returning
     /// helper into a wrong `void`, and a wrong answer here is worse than a gap
     /// because it is indistinguishable from a result in the histogram.
-    fn block_completes_normally(&self, block: NodeId, owner: NodeId) -> Option<bool> {
+    fn block_completes_normally(&mut self, block: NodeId, owner: NodeId) -> Option<bool> {
         let node = self.node_map.get(block)?;
         let mut children = Vec::new();
         tsr_ast::push_children(node, &mut children);
@@ -1616,7 +1616,7 @@ impl<'a> Checker<'a, '_> {
     }
 
     /// One statement's contribution to [`Checker::block_completes_normally`].
-    fn statement_completes_normally(&self, id: NodeId, owner: NodeId) -> Option<bool> {
+    fn statement_completes_normally(&mut self, id: NodeId, owner: NodeId) -> Option<bool> {
         match self.nodes.kind(id) {
             // A `return` ends the block as surely as a `throw`. The helper's
             // doc said it was only called for bodies with no `return`; §16's
@@ -1628,15 +1628,18 @@ impl<'a> Checker<'a, '_> {
             SyntaxKind::Block => self.block_completes_normally(id, owner),
             SyntaxKind::IfStatement => {
                 let Some(Node::IfStatement(node)) = self.node_map.get(id) else { return None };
-                let then = node
-                    .then_statement
-                    .and_then(|s| s.node_id())
-                    .map_or(Some(true), |s| self.statement_completes_normally(s, owner))?;
+                let then_id = node.then_statement.and_then(|s| s.node_id());
+                let else_id = node.else_statement.map(|s| s.node_id());
+                let then = match then_id {
+                    Some(s) => self.statement_completes_normally(s, owner)?,
+                    None => true,
+                };
                 // No `else` means the `if` can always be skipped.
-                let Some(otherwise) = node.else_statement else { return Some(true) };
-                let otherwise = otherwise
-                    .node_id()
-                    .map_or(Some(true), |s| self.statement_completes_normally(s, owner))?;
+                let Some(otherwise) = else_id else { return Some(true) };
+                let otherwise = match otherwise {
+                    Some(s) => self.statement_completes_normally(s, owner)?,
+                    None => true,
+                };
                 Some(then || otherwise)
             }
             SyntaxKind::VariableStatement
@@ -1652,42 +1655,43 @@ impl<'a> Checker<'a, '_> {
             | SyntaxKind::ImportEqualsDeclaration => Some(true),
             // `Some(true)` when nothing in it can fail to return; `None` when a
             // call is in the way, because a `never`-returning call ends the block.
-            SyntaxKind::ExpressionStatement => (!self.contains_a_call(id)).then_some(true),
+            // **A call only ends the block if it returns `never`, and that is
+            // decidable whenever the call is.** The old rule was
+            // `(!self.contains_a_call(id)).then_some(true)` — *any* call at all
+            // made the answer unknown, on the sound but blunt ground that a
+            // `never`-returning call ends the block. Upstream reads the flow
+            // graph, which is the same question with the answer supplied:
+            // `checkExpressionStatement`'s node is unreachable-after exactly
+            // when the expression's type is `never`.
+            //
+            // So type it. A `never` answer ends the block, a real type does
+            // not, and only a gap is still undecidable. `thisInLambda`'s
+            // `() => { myFn(...); }` is `() => void` under this and was
+            // `error` under the old rule — the call types fine and `void` is
+            // not `never`. §204.
+            //
+            // Residue, named: a never-returning call NESTED inside a
+            // non-never one (`f(g())` where `g(): never`) still reads as
+            // completing normally, because only the statement's own expression
+            // is typed. Upstream's flow graph sees the inner call. Not
+            // measured; the shape is rare enough that no corpus case in the
+            // near-miss pool carries it.
+            SyntaxKind::ExpressionStatement => {
+                let Some(Node::ExpressionStatement(node)) = self.node_map.get(id) else {
+                    return None;
+                };
+                let expression = node.expression?;
+                let checked = self.check_expression(expression);
+                if checked == self.intrinsics.error {
+                    return None;
+                }
+                Some(!self.store.get(checked).flags.contains(TypeFlags::NEVER))
+            }
             // Every remaining statement form — loops, `switch`, `try`, labels,
             // `with`, `for…of` — can be decided and needs the real analysis to be
             // decided correctly.
             _ => None,
         }
-    }
-
-    /// Whether a subtree contains a call or `new`, without entering a nested
-    /// function.
-    ///
-    /// The one thing standing between an expression statement and "this
-    /// completes": a call to a `never`-returning function ends the block.
-    fn contains_a_call(&self, root: NodeId) -> bool {
-        let Some(node) = self.node_map.get(root) else { return true };
-        let mut stack = vec![node];
-        let mut children = Vec::new();
-        while let Some(node) = stack.pop() {
-            if let Some(id) = node.node_id() {
-                if id != root && self.signature_parts_of(id).is_some() {
-                    continue;
-                }
-                if matches!(
-                    self.nodes.kind(id),
-                    SyntaxKind::CallExpression
-                        | SyntaxKind::NewExpression
-                        | SyntaxKind::TaggedTemplateExpression
-                ) {
-                    return true;
-                }
-            }
-            children.clear();
-            tsr_ast::push_children(node, &mut children);
-            stack.extend(children.iter().copied());
-        }
-        false
     }
 
     /// Whether this function-like node demonstrably has **no** contextual type.

@@ -798,11 +798,17 @@ impl Checker<'_, '_> {
     /// The arguments are not checked, which is sound here for the same reason it
     /// is sound for a call — a non-generic signature's return type does not
     /// depend on them. **The template is still checked**, so its own line is
-    /// populated; today that line is usually a gap, because
-    /// `TemplateExpression` is unported and correctly stays so
-    /// (`checker-notes-arrays.md` records why it is a workstream). A tag applied
-    /// to a template with no substitutions gets a real answer for the template,
-    /// since that is a `NoSubstitutionTemplateLiteral`.
+    /// populated.
+    ///
+    /// ~~today that line is usually a gap, because `TemplateExpression` is
+    /// unported and correctly stays so~~ — **stale, corrected §203's audit.**
+    /// `check_template_expression` has answered a tagged template `string`
+    /// since §147 (upstream never folds a tagged template's substitution form),
+    /// and since §198 an untyped substitution no longer gaps a template at all.
+    /// The sentence survived two changes to the thing it describes, which is
+    /// `docs/conventions.md` corollary 8's shape in a doc comment that gates
+    /// nothing — harmless to the compiler and misleading to the next reader,
+    /// who would have priced this form's residue against the wrong baseline.
     ///
     /// Not ported, each answering `errorType`: an optional chain (``tag?.`x` ``,
     /// **unobservable** — the grammar prohibits it and the parser rejects it, so

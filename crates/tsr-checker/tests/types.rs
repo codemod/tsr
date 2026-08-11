@@ -1716,9 +1716,28 @@ fn an_arrow_that_cannot_complete_is_never_and_one_that_can_is_void() {
         type_of_declaration("const f = (b: boolean) => { if (b) { throw 1; } };", "f"),
         "(b: boolean) => void"
     );
-    // A call in the body could be `never`-returning, and this port cannot yet
-    // tell. It refuses rather than assuming the block completes.
-    assert_eq!(type_of_declaration("const f = () => { g(); };", "f"), "error");
+    // §204: a stand-in come due, and the reason was the whole of it — "a call
+    // in the body could be `never`-returning, and this port cannot yet tell".
+    // It can: the question is whether the call's TYPE is `never`, and typing
+    // the call answers it. A call that types to anything else does not end the
+    // block.
+    assert_eq!(type_of_declaration("const f = () => { g(); };", "f"), "() => void");
+    // The other side of the same coin, and the assertion that makes §204 a
+    // rule rather than a relaxation: a call that really is `never`-returning
+    // still ends the block.
+    assert_eq!(
+        type_of_declaration("declare function fail(): never;\nconst f = () => { fail(); };", "f"),
+        "() => never"
+    );
+    // And a call this port cannot type at all is still undecidable, so the
+    // refusal survives where it was actually earned.
+    assert_eq!(
+        type_of_declaration(
+            "declare const o: { [k: string]: string };\nconst f = () => { o[Symbol.iterator](); };",
+            "f"
+        ),
+        "error"
+    );
     // A loop is decidable and needs the real analysis to be decided correctly.
     assert_eq!(type_of_declaration("const f = () => { while (true) {} };", "f"), "error");
 }
