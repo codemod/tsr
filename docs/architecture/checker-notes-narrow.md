@@ -7686,3 +7686,43 @@ that claims get measured. A stale doc is exactly as dangerous as an
 induction — more so, because it wears the authority of a decision
 record. Blockers should be re-probed when they are used to price a
 refusal, not just when they are written.
+
+
+## §182 — conditional types: even the SIMPLEST form is unevaluated, and that is the new top rock [checker-1]
+
+Followed §181's re-attribution one hop. Probed:
+
+    type Simple<T> = T extends string ? number : boolean;
+    type A = Simple<string>;   //  A  answers ERROR
+    type Aw = Awaited<number>; //  Aw answers ERROR
+
+**A conditional type with a fully CONCRETE check type does not
+evaluate.** `Simple<string>` is decidable by inspection — `string`
+is assignable to `string`, so the answer is `number` — and this
+port answers error. Whatever the §91 `alias_evaluation_bindings`
+machinery covers, it is not this.
+
+**Why this is now the top rock rather than a subsystem to fear.**
+The non-deferred case is upstream's own fast path:
+`getConditionalType` evaluates immediately when the check type is
+not generic, choosing a branch by assignability. This port HAS the
+decider — `is_type_assignable_to`, calibrated over primitives,
+literals and unions of them (`crate::relater`) — and it answers
+`false` between two object types rather than guessing, which is a
+decline in the SAFE direction here: an undecidable check keeps the
+existing gap.
+
+**Slice 1**: a `ConditionalTypeNode` whose check type mentions no
+type parameter after instantiation evaluates to its true or false
+branch by `is_type_assignable_to`; anything else keeps the gap. No
+`infer`, no distribution over unions, no recursion — all three
+declined explicitly, which excludes `Awaited` itself (it uses
+`infer` and recursion) but NOT the large population of ordinary
+concrete conditionals.
+
+**Bar and falsifiers must be written before any code.** Predicted
+reach is unmeasured — that is the honest state, and the first step
+is a census of gap lines whose want is a conditional's branch, not
+a build. The four attempts at the fixing-mapper are a standing
+warning about building a subsystem piece before knowing which
+population it serves.
