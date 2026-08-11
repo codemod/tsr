@@ -7850,3 +7850,62 @@ at the site they are written.** The near-miss census finds them
 cheaply; it cannot tell in advance which will survive contact with
 their consumers. That asymmetry — cheap to find, expensive to
 validate — is the real shape of what is left here.
+
+
+## §185 — `getConditionalType` transcribed (Phase 0, no code) [checker-1]
+
+Four measured refusals (§182 slices 2-4, §183) established that this
+subsystem has no partial credit. This is the whole-function read
+they license, so the next window opens on a text rather than on
+another partial.
+
+### Shape (`checker.go:24300-24420+`)
+
+A **LOOP**, not a function body: it iterates for immediately-nested
+conditionals in the FALSE position, treating
+`A extends B ? X : C extends D ? Y : ...` as ONE construct, and
+also loops when resolving a conditional ends in another. Tail
+counter caps at **1000**, then reports
+`Type_instantiation_is_excessively_deep` and answers errorType.
+
+### Per iteration, in order
+
+1. `checkType = instantiateType(getActualTypeVariable(root.checkType), mapper)`;
+   `extendsType = instantiateType(root.extendsType, mapper)`.
+   Either being errorType → errorType; either being wildcardType →
+   wildcardType.
+2. **The deferral test**, which is the piece all four of my
+   partials lacked: `checkTuples` is true when check and extends
+   NODES are simple tuples of equal arity (so
+   `[X] extends [Y] ? ...` defers like `X extends Y`), and
+   `checkTypeDeferred = isDeferredType(checkType, checkTuples)`.
+   **Nothing resolves while the check type is deferred.**
+3. `infer` handling (`root.inferTypeParameters` non-empty) builds an
+   inference context, combines `nonFixingMapper` with `mapper`, and
+   — only when NOT deferred — runs `inferTypes` at
+   `NoConstraints|AlwaysStrict`. This is why `Awaited` needs the
+   INFERENCE unit as well as this one.
+4. **Resolution**, only when neither check nor inferred-extends is
+   deferred:
+   - FALSE branch when the extends check is *definitely false* —
+     tested on PERMISSIVE instantiations of both sides, with
+     `any`/`unknown` extends excluded from the test.
+   - `any` check yields the UNION of both branches, not one.
+   - `forConstraint` adds the true branch when some permissive
+     constituent is assignable back.
+   - Nested-false-conditional tail recursion re-enters the loop
+     rather than recursing.
+   - TRUE branch symmetrically for a definitely-true check.
+
+### What this says about the port
+
+- The primitive-domain gate §182 landed is the resolution step's
+  decider ONLY; steps 2 and 3 sit above it and this port has
+  neither.
+- `any` as a check yields BOTH branches unioned — my slice-3/4
+  `by_construction` rule answered one branch and was wrong for
+  exactly this reason.
+- Distribution is NOT in this function: it is
+  `getConditionalTypeInstantiation` (`:22485`) plus the
+  distributive-root machinery, a SECOND transcription the next
+  window needs beside this one.
