@@ -45298,3 +45298,49 @@ so two of the five were false and one (TS2315) had a line left.
 > this time rather than after. It is the first time this session a recorded
 > lesson has been paid rather than re-learned, and the difference was reading
 > §884 because the number *looked* like the one §884 was about.
+
+
+## §919 — a method beside a property: **already built, twice over**
+
+```ts
+class C { x: number;  x() { return 1; } }   // TS2300 on both
+```
+
+§914 taught the class-member rule that a property collides with an **accessor**
+because `PropertyExcludes` includes `Accessor`. It includes `Method` too, so the
+same extension looked obvious.
+
+```
+diagnostics   2,375 → 2,374   (−1)
+diagpass      LOST: functionWithSameNameAsField, propertyAndFunctionWithSameName
+              GAINED: parseRegularExpressionMixedWithComments
+extraonly     79, unchanged
+```
+
+**Both losses were passing cases.** `propertyAndFunctionWithSameName` expects
+four TS2300 lines and had all four before this build — from
+`merge_conflicts.rs`'s binder-merge path, which already reports a
+method-beside-property collision. Adding the same collision here emitted each
+line **twice**, and the suite compares sorted **multisets**: a duplicated right
+line fails a case exactly as a wrong one does.
+
+> §914's accessor extension paid `+2` and this one costs `−1`, and the difference
+> is invisible from the rule: **`PropertyExcludes` names both `Accessor` and
+> `Method`, and this port already implements one of the two somewhere else.**
+> The check that would have caught it is one `diagcase` on a fixture the rule was
+> *not* aimed at — the passing ones — and no bar in this session has ever asked
+> for that.
+>
+> `extraonly` cannot see it either: a doubled line is not an *extra* code, so the
+> case leaves the one-removal column entirely.
+
+**Reverted.** TS2717's `classWithDuplicateIdentifier` wants something else again,
+and the method-beside-property shape is done.
+
+### The bar this session has been missing
+
+Every bar here names falsifiers about *new* wrong lines. None has named the
+**duplicate-of-a-right-line** failure, which is what a second producer causes and
+which `extraonly`, `diagdup` and `diagemit` are all blind to — `diagemit` would
+show `have` **rising past** `want`, and that is the signal worth adding to the
+next bar of this shape.
