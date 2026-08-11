@@ -46063,3 +46063,80 @@ the shared tree**, and fixed here.
 > remembering is required.
 
 `docs/conventions.md` gains the invocation, not just the tool.
+
+## §939 — the arithmetic arm's own TS2365: a mixed bigint pair
+
+§937 named the build and this is it, narrowed to what upstream actually does.
+
+`checkBinaryLikeExpression`'s arithmetic arm (`checker.go:12385`) chooses a
+result type in three branches:
+
+```go
+if isTypeAssignableToKind(leftType, AnyOrUnknown) && … || !maybeTypeOfKind(leftType, BigIntLike) && !maybeTypeOfKind(rightType, BigIntLike) {
+    resultType = c.numberType                       // no bigint anywhere — ordinary
+} else if c.bothAreBigIntLike(leftType, rightType) {
+    resultType = c.bigintType                       // both bigint — ordinary
+} else {
+    c.reportOperatorError(leftType, operator, rightType, errorNode, c.bothAreBigIntLike)
+    resultType = c.errorType                        // ONE of them is bigint — TS2365
+}
+```
+
+So `bigInt += 2` and `num *= 1n` are **TS2365 from the arithmetic arm**, not from
+the addition or relational arms `check_operator_operands` implements. This port
+has no third branch at all: `check_arithmetic_operand_types` reports TS2362/TS2363
+per operand and stops.
+
+**That is why §937's decline looked like an operator problem.** The compound
+assignments are declined in `check_operator_operands`, and the diagnostic they
+want does not come from there.
+
+The mixed test is exact and needs no relation: **one side bigint-like and the
+other not**, both already computed by the arithmetic rule.
+
+```
+bar:  TS2365 missing DOWN from 295,  0 LOST via `diagpass`,  extraonly delta <= +2
+```
+
+### Falsifiers
+
+1. **Two bigints report.** `bothAreBigIntLike` is the exemption.
+2. **Two numbers report.** Neither is bigint-like and the first branch takes it.
+3. **TS2362/TS2363's rows move.** They are the per-operand codes and this is the
+   pair's.
+
+## §940 — §939 built: **+0 cases, +31 lines**, and §937 was reading the wrong rule
+
+```
+diagnostics   2,384 → 2,384   (+0)   43.44%
+diagpass      LOST: (none)   GAINED: (none)
+extraonly     75, unchanged
+TS2365        have 134 → 165,  missing 295 → 265
+```
+
+All three falsifiers negative. **Nineteenth `+0` kept for fidelity.**
+
+§937 read `numberVsBigIntOperations`'s 48 lines as blocked by
+`check_operator_operands`' operator set — *"a decline scoped to an operator when
+its reason is scoped to an operand"* — and proposed widening that set behind a
+target gate. **The diagnostic does not come from that rule at all.** It comes
+from the arithmetic arm's third branch, which this port did not have:
+
+```
+no bigint anywhere   →  number
+both bigint          →  bigint
+exactly one bigint   →  reportOperatorError  ← TS2365, and the branch that was missing
+```
+
+> §937 was careful, cited §49's measurement, and named what had changed since —
+> and it was reading the wrong rule. **The tell was available: the fixture's
+> diagnostic is TS2365 and `check_operator_operands` is not the only thing that
+> emits it** — §921's producer census had listed the code's emitters twenty
+> sections earlier, and neither §937 nor §934 consulted it.
+>
+> §920's corollary is *census the dispatch before investigating logic*. The
+> instrument for that census exists here (§921) and has now gone unused twice
+> in the same row.
+
+TS2365 is 265 lines. The comparison family's remainder is the enum and
+type-parameter shapes §934 listed, both the relation's.

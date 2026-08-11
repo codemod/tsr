@@ -342,6 +342,38 @@ impl Checker<'_, '_> {
             // reached. §861.
             return false;
         }
+        // **One side bigint-like and the other not is TS2365 on the pair**, from
+        // the arithmetic arm's third branch (`checker.go:12396`): the first two
+        // branches answer `number` when no operand is bigint and `bigint` when
+        // both are, and the `else` calls `reportOperatorError`. This port had no
+        // third branch, and §937 read the resulting gap as an operator-set
+        // problem in `check_operator_operands` — where the diagnostic does not
+        // come from. `numberVsBigIntOperations` is 48 lines of it. §939.
+        let left_big = self.type_of(left_type).flags.intersects(TypeFlags::BIG_INT_LIKE);
+        let right_big = self.type_of(right_type).flags.intersects(TypeFlags::BIG_INT_LIKE);
+        if left_big != right_big
+            && let Some(file) = self.source_file_of_for_diagnostics(node)
+        {
+            let span = self.error_span(node);
+            let source_text = self.type_to_string(left_type);
+            let target_text = self.type_to_string(right_type);
+            self.report(
+                file,
+                Diagnostic::with_args(
+                    &messages::OPERATOR_0_CANNOT_BE_APPLIED_TO_TYPES_1_AND_2,
+                    span,
+                    [
+                        binary
+                            .operator_token
+                            .map(|token| operator_text(token.kind).to_string())
+                            .unwrap_or_default(),
+                        source_text,
+                        target_text,
+                    ],
+                ),
+            );
+            return false;
+        }
         let mut ok = true;
         for (operand, operand_type, message) in [
             (
