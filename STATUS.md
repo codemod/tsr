@@ -59,6 +59,15 @@ fixes ride into the checker rows.
 | **`checker_types`** (lines only, §202) | *cases not re-taken* | — | **gradient 406,209/478,954 = 84.81%**, measured at the ambient-module-quoting landing against `357df05` (406,188) in a worktree at the base commit. **+21 lines, 0 cases.** The corpus barely moves because it holds no ambient-module/global name collision; the change is scored on a real repository instead, where it is worth 110 diagnostics |
 | **`diagnostics`** (superseding the row above, §5 of `checker-notes-nnaccess.md`) | **2,360/5,488** | **43.00%** | measured before-and-after on one checkout (a `git worktree --detach` at HEAD) at the optional-chain-receiver landing: **2,359 → 2,360** (and 2,349 → 2,350 on the pre-rebase base — same eight cases both times). **Per-case: 8 cases improved, 1 to PASS, 0 lost** — `controlFlowOptionalChain` alone shed 108 of its 117 unexpected TS18048. `checker_types` per-case **identical**; every other suite identical. The real instrument was `~/dev/codemod/app/apps/nextjs`: **276 errors → 66**. `docs/architecture/checker-notes-nnaccess.md` §5 |
 
+| **`checker_types`** (CURRENT — supersedes every row above) | **4,979/9,538** | **52.20%** | measured at **`a4874675`** by `cargo run -p tsr-conformance --bin coverage`, one release run on the merged tree, 2026-08-11. Gradient **88.20%**. **The rows above are kept for their attributions and are NO LONGER the totals.** This window: 3,955 → 4,979, **+1,024 cases**, two lanes composing without a single collision. The `.types` lane's arms are §178–§192 (the baseline-writer guard chain, private-name lexical scope, nullable widening, the JS-literal element access); the parser/binder/scanner lane's are §190–§208. **The largest single arm was §180 (+299)** — `hadErrorBaseline`, the first condition of `writeTypeOrSymbol`'s guard chain, which revealed that the `want any, got error` cluster was a PRINTING split and not checker gaps at all |
+| **`diagnostics`** (CURRENT) | **2,519/5,488** | **45.90%** | same run, same commit `a4874675`. Includes §208's +17, which is the evidence that its ten newly-reported parse errors are upstream's and not invented |
+
+> **A denominator that shrinks is not free.** §208 moved ten files into
+> "reports a parse error" (upstream does too), so `binder_symbols`
+> reclassified ten skips and **`printer_round_trip`'s denominator fell
+> 11,776 → 11,759**. Both still read 100%, and that is only honest with
+> the number beside it.
+
 ### `checker_types`, the number the project is steered by
 
 ```
