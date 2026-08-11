@@ -8077,3 +8077,34 @@ near-miss census alone shows. **The measurement protocol is one
 `scorepair` run before landing**, which is what the −56 incident
 (51d583a5) established and is affordable; my earlier note declined
 this on "budget" and that reasoning was wrong.
+
+
+**§188 localized to the line, and my own hypothesis ruled out.**
+Read `binder.rs:3655-3690`. The local half IS declared for a named
+default export, under the WRITTEN name, with an `EXPORT_VALUE`
+marker and the `local.ExportSymbol` link to the export half:
+
+    Some(self.declare_into(
+        Destination::Locals, local_owner, self.owner,
+        name,            // <- the written name, not "default"
+        export_value,    // <- EXPORT_VALUE marker, not CLASS/FUNCTION
+        id,
+    ))
+
+I expected the marker's flags to fail `resolve_name`'s meaning
+filter — **that hypothesis is wrong**: a NON-default
+`export class C {}` takes the identical path with the identical
+marker and resolves fine (`C : C`). `locals_owner` is also correct
+(a class/function goes to `self.block`, the source file at top
+level).
+
+So the difference between the working and failing cases is ONLY
+that the export half is named `default` while the local is named
+`A`, where the non-default case names both `C`. Something
+downstream of that asymmetry — the ExportSymbol link's consumers,
+or a later merge keyed on matching names — loses the local.
+
+**That is the next window's first read**: instrument
+`resolve_name` on `A` in `export default class A {}` and find
+whether the locals table holds it. Everything above is verified;
+the remaining step is one instrumented run, not a search.
