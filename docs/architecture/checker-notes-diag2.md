@@ -46547,3 +46547,59 @@ Falsifier 2 negative — `classExtendingPrimitive2` did not move; the four extra
 names (`void`, `object`, `symbol`, `bigint`) are untouched and still decline.
 Falsifier 3 negative — the heritage arm now `return`s before the fallthrough, so
 nothing reaches both.
+
+## §950 — `diagsole`: the ranking §941 should have been
+
+§948 was picked from §941's list — codes ranked by **corpus-wide missing
+lines** — and paid +4. §946 was picked the same way and its sixty lines turned
+out to be fifty-four in one hopeless fixture and four in the parser's layer:
+**six reachable**. The row that paid did so because `diagmissing` was run
+*afterwards* and reported *four cases blocked on TS2693 alone*.
+
+**Line counts do not rank rules. Sole-obstacle case counts do.** `diagsole`
+computes that number for every code in **one** corpus pass rather than 232, and
+its total is the honest ceiling on single-code work:
+
+```
+1,713 cases are blocked on exactly one code, across 336 codes
+```
+
+Of 3,097 failing cases, **1,713 would convert if one rule were finished** and
+1,384 need two or more. The head:
+
+```
+  TS2322    492   1514      assignability. the relation.
+  TS2345    111    212      argument assignability. the relation.
+  TS2339    105    241      property lookup on a type.
+  TS2741     48     93      missing property. the relation.
+  TS2454     40     74      definite assignment. flow. named refusal.
+  TS2353     32     59      object literal excess property.
+  TS2403     32     88      redeclaration types. refused at −33, §…
+  TS2430     25    153      interface extension conflict.
+  TS2411     24    109      index signature conformance.
+  TS2769     24     82      overload resolution.
+```
+
+> **The top four rows are 756 of the 1,713, and every one of them is the
+> relation.** §870 said "91% of what is reachable belongs to the relation and
+> the type machinery" from a different measurement; this is the same statement
+> with case counts attached and it is not this workstream's to take.
+
+What *is* here begins around row twenty and is small by construction:
+
+```
+  TS2304     13     22   |  TS2394     11     12   |  TS2488     13     17
+  TS2493     10     26   |  TS2303      9     32   |  TS2320      6      7
+  TS2354      7     10   |  TS2507      5      6   |  TS1109      5      5
+  TS1118      4      4   |  TS2432      5      8   |  TS2556      5      6
+```
+
+**Sixty-odd cases across a dozen grammar-and-binder rows**, none worth more than
+thirteen. That is the shape of the remaining tail for this layer, and it is
+worth stating plainly rather than rediscovering it one row at a time: the
+per-build yield from here is **one to four cases**, and §949's +4 was the top of
+that range, not the middle.
+
+`diagsole` also changes what a refusal costs. TS2403 is refused at −33 and shows
+**32 sole-obstacle cases** — the largest refused row on the board, and the first
+time that price has been legible next to the refusal.
