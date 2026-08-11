@@ -47944,3 +47944,81 @@ negative and two of them were checked by the fixtures themselves —
 TS2373, the `else if` on the same site — *cannot reference identifier declared
 after it* — is **not** built: `diagsole` prices it at zero cases. §969's lesson
 applied before spending a build on it rather than after.
+
+## §982 — TS1097: an empty heritage list
+
+§950's list: **4 sole-obstacle cases, 4 lines**, all one fixture family.
+
+```ts
+class C extends {
+}
+```
+
+`checkGrammarHeritageClause` (`grammarchecks.go:866`) is unbuilt, and it carries
+two diagnostics:
+
+```go
+if c.checkGrammarForDisallowedTrailingComma(types, Trailing_comma_not_allowed) { return true }
+if types != nil && len(types.Nodes) == 0 {
+    return c.grammarErrorAtPos(node.AsNode(), types.Pos(), 0, X_0_list_cannot_be_empty, listType)
+}
+```
+
+The second is built here. The first — TS1009 — is **half of another row**:
+`diagsole` prices TS1009 at 7 cases, of which only two are heritage clauses; the
+rest are a `dynamic import` and a variable list, each its own site. Building the
+heritage half alone would move no case that TS1097 does not already move, so it
+is deliberately left with the number that left it.
+
+Two details:
+
+- **The position is the list's, not the token's** — upstream's own comment says
+  *"TODO(danielr): why not error on the token?"*, and the baseline agrees with
+  the code rather than the comment: `class C extends {` wants column 16, the
+  space immediately after `extends`. This port has no `NodeList` with a `Pos()`,
+  so the position is the clause's start plus the keyword's length, which is the
+  same offset by construction.
+- **The argument is the keyword**, `extends` or `implements`, from
+  `TokenToString(node.Token)`.
+
+```
+bar:  >= +3 of the 4,  0 LOST via `diagpass`,  extraonly delta <= +1
+```
+
+### Falsifiers
+
+1. **A non-empty clause reports.** Every class in the corpus with a base type is
+   the control.
+2. **The column is off by one.** Four fixtures at three different columns
+   (`extends` at 16 and 20, `implements` at 29) check the arithmetic rather than
+   a single hard-coded offset.
+
+## §983 — §982 built: **+4/−0**, row complete
+
+```
+diagnostics   2,439 → 2,443   (+4)   44.52%
+diagpass      LOST: (none)
+              GAINED: parserErrorRecovery_ExtendsOrImplementsClause1, 3, 4, 6
+extraonly     75, unchanged
+TS1097        have 0 → 4,  want 4,  **missing 0**
+```
+
+All four cases; the row is finished. Third complete row in this stretch (§954,
+§967, §969, §983 — fourth counting TS1117).
+
+Falsifier 2 was the one worth designing for: the four fixtures put the empty
+list at **three different columns** — `extends` at 16 and 20, `implements` at 29
+— so an off-by-one in `clause.start + keyword.len()` fails three of the four
+rather than passing by luck on a single offset. **A rule whose only content is
+an arithmetic offset needs fixtures at more than one offset**, and this row
+supplied them without being asked.
+
+The `usize`-to-`u32` cast was caught by the gate, not by review — `keyword.len()`
+is at most eleven and the truncation is unreachable, which is precisely the kind
+of cast that gets written without thinking and lints without argument. Fourth
+time this session the gate stopped something before the commit rather than after.
+
+TS1009, the trailing-comma half of the same upstream function, remains at 7
+cases and is **still not built**: only two of those seven are heritage clauses,
+so building this half of `checkGrammarHeritageClause` would move no case that
+TS1097 has not already moved. Recorded with the number, per §954's precedent.

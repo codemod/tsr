@@ -679,6 +679,11 @@ impl Checker<'_, '_> {
                 self.mark_identifier_reference(node, identifier.text);
                 ambient
             }
+            // §982.
+            Node::HeritageClause(clause) => {
+                self.check_grammar_heritage_clause(node, clause);
+                ambient
+            }
             // §960: a type alias is the other half of `export type A = {}` /
             // `type A = {}`, and had no arm in this match at all.
             Node::TypeAliasDeclaration(_) => {
@@ -5225,6 +5230,38 @@ impl Checker<'_, '_> {
                 && (self.nodes.flags(ancestor).contains(tsr_ast::NodeFlags::CONST)
                     || self.nodes.flags(ancestor).contains(tsr_ast::NodeFlags::LET))
         })
+    }
+
+    /// TS1097 — `'{0}' list cannot be empty.`
+    ///
+    /// `checkGrammarHeritageClause` (`grammarchecks.go:866`). The position is
+    /// the **types list's**, not the keyword's — upstream's own comment asks
+    /// *"why not error on the token?"* and the baselines agree with the code
+    /// rather than the comment. With no `NodeList` here, the list begins where
+    /// the keyword ends. §982.
+    fn check_grammar_heritage_clause(
+        &mut self,
+        node: NodeId,
+        clause: &tsr_ast::HeritageClause<'_>,
+    ) {
+        if self.file_has_parse_errors || !clause.types.is_empty() {
+            return;
+        }
+        let keyword = match clause.token.kind {
+            SyntaxKind::ExtendsKeyword => "extends",
+            SyntaxKind::ImplementsKeyword => "implements",
+            _ => return,
+        };
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let start = self.nodes.span(node).start + u32::try_from(keyword.len()).unwrap_or(0);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::_0_LIST_CANNOT_BE_EMPTY,
+                tsr_core::Span::new(start, start),
+                [keyword.to_string()],
+            ),
+        );
     }
 
     /// Does this class member carry `static`? §974.
