@@ -1045,17 +1045,17 @@ impl Checker<'_, '_> {
             match self.relate_ternary(candidate, t, Relation::Subtype) {
                 Ternary::Related => return Some(candidate),
                 Ternary::NotRelated => {}
-                _ => return None,
+                Ternary::Unknown => return None,
             }
             match self.relate_ternary(t, candidate, Relation::Assignable) {
                 Ternary::Related => return Some(t),
                 Ternary::NotRelated => {}
-                _ => return None,
+                Ternary::Unknown => return None,
             }
             match self.relate_ternary(candidate, t, Relation::Assignable) {
                 Ternary::Related => return Some(candidate),
                 Ternary::NotRelated => {}
-                _ => return None,
+                Ternary::Unknown => return None,
             }
             return Some(self.get_intersection_type(&[t, candidate], None));
         }

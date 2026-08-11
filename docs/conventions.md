@@ -3532,6 +3532,17 @@ until §924, and a commit went out with clippy red because a number that had rea
 
 **The check that matters is the one that stops the pipeline.**
 
+Chain it with `&&`, never `;`:
+
+```sh
+cargo run -q -p xtask -- gate && git commit …
+```
+
+§937's commit shipped with the gate red because the line read `gate; git commit`.
+The gate exited non-zero and nothing was listening
+(`docs/architecture/checker-notes-diag2.md` §938). **An exit code only matters to
+a command that is chained to it.**
+
 ### Corollary 6 (2026-08-10): the provenance tiebreak for a +0
 
 The unexercised-branch rule ("a +0 keep needs a demonstration

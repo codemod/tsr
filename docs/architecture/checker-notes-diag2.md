@@ -46035,3 +46035,31 @@ which is the machinery §49 said was absent.
 fourth build in a row where reading beat guessing; the next attempt should widen
 the operator set **and** gate on the target, then measure — not one without the
 other.
+
+## §938 — the gate fired, and the command ran anyway
+
+§937's commit went out with the gate red. The gate **worked** — it printed
+`Error: gate 'clippy' failed` and exited non-zero — and the shell line was
+
+```sh
+cargo run -q -p xtask -- gate 2>&1|tail -1;  git add -A && git commit …
+```
+
+`;` and not `&&`. **The mechanism §924 built to stop the pipeline was invoked in
+a way that could not stop it.**
+
+The redness itself was three wildcard arms in `flow.rs`, the concurrent
+workstream's, arrived on the rebase during the push — **twenty-fourth repair of
+the shared tree**, and fixed here.
+
+> §923 was *"a gate you have never seen fail is a gate you have stopped
+> reading"*, and §924 answered it with a gate that exits non-zero. Fifteen
+> sections later the same commit sequence shipped red, because **an exit code
+> only matters to a command that is chained to it.**
+>
+> Two failures, one root: the check was never *in* the path the work takes. The
+> fix is the same both times and this is the version that holds — the gate and
+> the commit must be **one command**, `&&`, so that neither reading nor
+> remembering is required.
+
+`docs/conventions.md` gains the invocation, not just the tool.
