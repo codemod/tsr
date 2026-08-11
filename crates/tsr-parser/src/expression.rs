@@ -861,10 +861,12 @@ impl<'a> Parser<'a> {
                     self.parse_type_assertion()
                 }
             }
-            SyntaxKind::FunctionKeyword => self.parse_function_expression(None),
+            SyntaxKind::FunctionKeyword => self.parse_function_expression(None, None),
             SyntaxKind::AsyncKeyword if self.next_is_function_keyword() => {
+                // §205: the span starts at the `async`, not at `function`.
+                let modifier_start = self.pos();
                 let modifier = self.take_token();
-                self.parse_function_expression(Some(modifier))
+                self.parse_function_expression(Some(modifier), Some(modifier_start))
             }
             SyntaxKind::ClassKeyword => self.parse_class_expression(),
             // `(@dec class C {})` — a decorated class expression.
@@ -1205,6 +1207,15 @@ impl<'a> Parser<'a> {
     /// every parameter-list shape, this speculatively parses a parameter list and
     /// rewinds if no arrow follows.
     fn try_parse_arrow_function(&mut self) -> Option<Expression<'a>> {
+        // **Before the `async`.** Upstream takes `pos := p.nodePos()` at the top
+        // of `parseParenthesizedArrowFunctionExpression` and
+        // `parseSimpleArrowFunctionExpression` (`parser.go:4541`), so the node's
+        // span COVERS its modifier. This port took it after `take_token()`, and
+        // the `.types` walker prints a node's source text from its span — so
+        // `async (): Promise<void> => {}` rendered as
+        // `(): Promise<void> => {}`: the right type under the wrong
+        // expression, which fails the line exactly as a wrong type does. §205.
+        let modifier_start = self.pos();
         // `async` prefixes an arrow but is also an ordinary identifier, so it is
         // only consumed once the arrow is confirmed.
         let async_modifier = if self.at(SyntaxKind::AsyncKeyword) && self.async_starts_arrow() {
@@ -1218,7 +1229,7 @@ impl<'a> Parser<'a> {
         if self.at(SyntaxKind::Identifier)
             || crate::statement::is_contextual_keyword(self.token.kind)
         {
-            let saved_start = self.pos();
+            let saved_start = modifier_start;
             let parsed = self.try_parse(|p| {
                 let parameter_start = p.pos();
                 let name = p.parse_identifier();
@@ -1273,7 +1284,7 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        let start = self.pos();
+        let start = modifier_start;
         let is_async = async_modifier.is_some();
         let type_parameters = self.parse_type_parameters();
         // Parameters take the signature's await context (`parser.go:3299`), the
@@ -1754,8 +1765,12 @@ impl<'a> Parser<'a> {
     fn parse_function_expression(
         &mut self,
         async_modifier: Option<&'a Token<'a>>,
+        modifier_start: Option<u32>,
     ) -> Expression<'a> {
-        let start = self.pos();
+        // §205: `modifier_start` is the position of the `async` the caller
+        // already consumed. Without it the node's span begins at `function`
+        // and the `.types` walker prints the expression without its modifier.
+        let start = modifier_start.unwrap_or_else(|| self.pos());
         self.expect(SyntaxKind::FunctionKeyword);
         let asterisk =
             if self.at(SyntaxKind::AsteriskToken) { Some(self.take_token()) } else { None };

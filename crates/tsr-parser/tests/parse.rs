@@ -1655,3 +1655,43 @@ fn an_opening_brace_or_bracket_is_still_an_argument() {
         assert_eq!(calls, vec![expected], "{source:?}");
     }
 }
+
+/// §205. An `async` function or arrow's span COVERS its modifier.
+///
+/// Upstream takes `pos := p.nodePos()` at the top of
+/// `parseParenthesizedArrowFunctionExpression` and
+/// `parseSimpleArrowFunctionExpression` (`parser.go:4541`) — before any
+/// modifier is consumed. This parser took it afterwards, so the node began at
+/// `(` or at `function`.
+///
+/// Nothing about the TYPE was wrong. The `.types` walker prints a node's source
+/// text from its span, so `async (): Promise<void> => {}` rendered as
+/// `(): Promise<void> => {}` — the right type under the wrong expression, which
+/// fails a baseline line exactly as a wrong type does. Fifteen cases.
+#[test]
+fn an_async_functions_span_covers_its_modifier() {
+    let arena = Arena::new();
+    for (source, expected) in [
+        ("var f = async (): Promise<void> => {};", "async (): Promise<void> => {}"),
+        ("var f = async () => {};", "async () => {}"),
+        ("var f = async x => x;", "async x => x"),
+        ("var f = async function () {};", "async function () {}"),
+        // The controls: without a modifier the span is unchanged.
+        ("var f = (): void => {};", "(): void => {}"),
+        ("var f = function () {};", "function () {}"),
+    ] {
+        let parsed = parse(&arena, source);
+        let Some(Statement::VariableStatement(statement)) = parsed.source_file.statements.first()
+        else {
+            panic!("expected a variable statement in {source:?}");
+        };
+        let initialiser = statement
+            .declaration_list
+            .and_then(|list| list.declarations.first().copied())
+            .and_then(|declaration| declaration.initializer)
+            .expect("an initialiser");
+        let id = initialiser.node_id().expect("registered");
+        let span = parsed.nodes.span(id);
+        assert_eq!(&source[span.start as usize..span.end as usize], expected, "{source:?}");
+    }
+}
