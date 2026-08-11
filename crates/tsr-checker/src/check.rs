@@ -386,6 +386,7 @@ impl Checker<'_, '_> {
             }
             Node::ParameterDeclaration(parameter) => {
                 self.check_rest_parameter_type(node);
+                self.check_optional_binding_pattern_parameter(node);
                 self.check_optional_parameter_initializer(node);
                 self.check_parameter_initializer_needs_body(node);
                 self.check_parameter_property_position(node, parameter.modifiers);
@@ -5255,6 +5256,38 @@ impl Checker<'_, '_> {
     /// The other positions are a second slice with that predicate as its
     /// subject — `checker-notes-diag2.md` §83. TS2448 (block-scoped variable)
     /// and TS2450 (enum) are its siblings and wait on the same thing.
+    /// TS2463 — `A binding pattern parameter cannot be optional in an
+    /// implementation signature.`
+    ///
+    /// `checkParameter` (`checker.go:2677`). Four conjuncts, all syntactic: no
+    /// initializer, a `?`, a **binding pattern** name, and an owner **with a
+    /// body** — §1015's question asked the other way round. §1025.
+    fn check_optional_binding_pattern_parameter(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let Some(Node::ParameterDeclaration(parameter)) = self.node_map.get(node) else { return };
+        if parameter.initializer.is_some() || parameter.question_token.is_none() {
+            return;
+        }
+        if !matches!(parameter.name, Some(tsr_ast::BindingName::BindingPattern(_))) {
+            return;
+        }
+        let Some(owner) = self.nodes.parent(node) else { return };
+        if !self.declaration_has_body(owner) {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let span = self.nodes.span(node);
+        self.report(
+            file,
+            Diagnostic::new(
+                &messages::A_BINDING_PATTERN_PARAMETER_CANNOT_BE_OPTIONAL_IN_AN_IMPLEMENTATION_SIGNATURE,
+                span,
+            ),
+        );
+    }
+
     /// TS2406 — `The left-hand side of a 'for...in' statement must be a
     /// variable or a property access.`
     ///

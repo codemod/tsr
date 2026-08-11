@@ -49687,3 +49687,68 @@ The two arms this port built *first* — export and ambient agreement — measur
 them. Not a criticism of the earlier work: it was built before `diagsole`
 existed, so there was no number to sort by. It is an argument for the
 instrument.
+
+## §1025 — TS2463: a binding-pattern parameter cannot be optional in an implementation
+
+§950's 2-case band, and the rule is one `if` in `checkParameter`
+(`checker.go:2677`):
+
+```go
+if node.Initializer() == nil && isOptionalDeclaration(node) &&
+   ast.IsBindingPattern(node.Name()) && fn.Body() != nil {
+```
+
+```ts
+function foo([x, y, z]?: [string, number, boolean]) { }        // TS2463
+function foo1({ x, y, z }?: { x: string; … }) { }              // TS2463
+```
+
+Four conjuncts, all syntactic: **no initializer**, a `?`, a **binding pattern**
+name, and an owner **with a body**. The last is §1015's question asked the other
+way round — that rule fires when the owner has *no* body, this one when it has
+one — and both read the same field.
+
+`isOptionalDeclaration` for a parameter is the `?` token; a parameter with an
+initializer is optional too, which is why the first conjunct excludes it rather
+than being redundant with the second.
+
+```
+bar:  >= +1 of the 2,  0 LOST via `diagpass`,  extraonly delta <= +1
+```
+
+### Falsifiers
+
+1. **`function f([a]?: T);` — an overload — reports.** No body, no error; the
+   `fn.Body() != nil` conjunct is the difference.
+2. **`function f([a] = [1]) {}` reports.** An initializer makes it optional
+   *and* legal.
+3. **`function f(a?: T) {}` reports.** A plain identifier is not a binding
+   pattern.
+
+## §1026 — §1025 built: **+1/−0**, and the same field read twice
+
+```
+diagnostics   2,491 → 2,492   (+1)   45.41%
+diagpass      LOST: (none)
+              GAINED: declarationEmitDestructuringWithOptionalBindingParameters
+extraonly     75, unchanged
+TS2463        have 0 → 4,  want 8,  missing 4,  **0 extra**
+```
+
+Four right lines, none wrong, one case. The remaining four are in
+`optionalBindingParameters3`, a `.js` file — JSDoc-typed, and the `?` comes from
+a tag rather than a token.
+
+> This rule and §1015's TS2371 are the **same field read for opposite answers**:
+> TS2371 fires when the parameter's owner has *no* body, TS2463 when it has one.
+> They were built eleven sections apart from two different bands of the same
+> list, and neither reading is more natural than the other — which is the point
+> of `declaration_has_body` being a helper rather than an inline `body.is_some()`
+> in each.
+>
+> §989 said *the second use is where a helper earns its name*. This is the
+> **third**, and the first where the two uses want opposite truths.
+
+Falsifier 1 is the one the corpus checks for free: the same file declares
+overload signatures with optional binding patterns and no body, and they stay
+silent because the `fn.Body() != nil` conjunct is ported rather than assumed.
