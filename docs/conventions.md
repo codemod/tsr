@@ -3468,3 +3468,27 @@ pull — verify the commit is in your log before saying it.** This is the
 same slip that produced the earlier stale-baseline misattribution, and
 it is cheaper to announce late than to unwind an attribution.
 
+### Corollary 5 (2026-08-10): census the DISPATCH before investigating logic
+
+Four of this window's largest finds were **absent match arms**, not
+wrong logic: `signature_parts_of` had no `ConstructorDeclaration` arm
+(§162, +432/55), the this-substitution consulted one of two mint tables
+(§166, +26), the expression dispatch had no `RegularExpressionLiteral`
+arm (§167, +328/3 at 109:1) and no `ClassExpression` arm (§170,
++190/322 — reverted, see below).
+
+**The census costs one run**:
+`verdictdump | awk '$2=="GAP" {print $3}' | sort | uniq -c | sort -rn`
+— a large count on a SIMPLE want-shape (a plain named type, no
+generics, no context) is a dispatch-arm candidate. Check whether the
+match has an arm for that node kind *before* investigating anything
+downstream of it.
+
+**And expect the arm to expose a second rule.** §162's arm forced
+`getCovariantInference`'s widening; §170's arm answers `typeof
+__class` where the want is `typeof C`, because the binder names an
+anonymous class symbol `__class` while upstream takes the name from the
+binding it is assigned to. A missing arm has been hiding whatever sits
+under it for as long as it has been missing, so price the PAIR — and
+land them together or neither.
+
