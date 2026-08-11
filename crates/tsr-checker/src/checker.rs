@@ -1345,7 +1345,8 @@ impl<'a, 'n> Checker<'a, 'n> {
                     self.node_map.get(*declaration)
                 && let Some(tsr_ast::ModuleName::StringLiteral(literal)) = node.name
             {
-                return Some(format!("typeof import(\"{}\")", literal.text));
+                // SS196: escaped, via the shared `quote` — see calls.rs.
+                return Some(format!("typeof import({})", crate::printing::quote(literal.text)));
             }
         }
         None

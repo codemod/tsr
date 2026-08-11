@@ -403,7 +403,13 @@ impl Checker<'_, '_> {
         let module = self.resolve_external_module_name(specifier_id, specifier_id)?;
         // Interned per (module, written spelling): duplicate mints would
         // churn prints (the bar's falsifier c).
-        let text = format!("typeof import(\"{}\")", literal.text);
+        // SS196: the specifier is a STRING and prints escaped —
+        // `printing::quote` already implements `escapedCharsMap`
+        // (`printer/utilities.go:41`) and was simply not used here, so a
+        // Windows-style relative specifier printed one backslash where the
+        // baseline records two
+        // (`ambientExternalModuleWithRelativeModuleName`).
+        let text = format!("typeof import({})", crate::printing::quote(literal.text));
         let key = (text.clone(), module);
         let namespace = if let Some(&existing) = self.qualified_reference_types.get(&key) {
             existing
