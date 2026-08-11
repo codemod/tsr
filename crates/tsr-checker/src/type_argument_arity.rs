@@ -215,17 +215,22 @@ impl Checker<'_, '_> {
     /// first one carrying a default: a parameter with a default may be omitted,
     /// and so may every parameter after it.
     fn declared_type_parameter_arity(&mut self, name: NodeId) -> Option<(usize, usize)> {
-        // Only a simple name is asked. A qualified `N.C` needs the namespace
-        // resolved first, which is `resolve_entity_name`'s job and a different
-        // failure surface.
-        let Some(Node::Identifier(identifier)) = self.node_map.get(name) else { return None };
-        let symbol = self.binder.resolve_name(
-            self.nodes,
-            self.node_map,
-            name,
-            identifier.text,
-            SymbolFlags::TYPE,
-        )?;
+        // **`M.E` is a `QualifiedName`, not an `Identifier`.** §942 built this
+        // file for call-site arity and every fixture it had used a bare name,
+        // so a namespace-qualified generic type declined here — the comment
+        // that stood in this place called it *"a different failure surface"*
+        // and it is two `resolve_name` calls. §1037.
+        let symbol = match self.node_map.get(name)? {
+            Node::Identifier(identifier) => self.binder.resolve_name(
+                self.nodes,
+                self.node_map,
+                name,
+                identifier.text,
+                SymbolFlags::TYPE,
+            )?,
+            Node::QualifiedName(_) => self.qualified_type_name_symbol(name)?,
+            _ => return None,
+        };
         let mut symbol = self.binder.merged_symbol(symbol);
         // **An alias carries none of the countable kinds.** `import a =
         // require('./m')` where the module is `export = C<T>` answers `None`
@@ -311,5 +316,29 @@ impl Checker<'_, '_> {
             Some(Node::Identifier(identifier)) => identifier.text.to_string(),
             _ => String::new(),
         }
+    }
+
+    /// `M.E` in a type position: resolve the left as a namespace, take the
+    /// right from its exports.
+    ///
+    /// Deliberately not `qualified_member_of_namespace`, which walks **property
+    /// access expressions** — a different node with different fields. §1030's
+    /// lesson: the walk is not the thing. §1037.
+    fn qualified_type_name_symbol(&mut self, name: NodeId) -> Option<tsr_binder::SymbolId> {
+        let Node::QualifiedName(qualified) = self.node_map.get(name)? else { return None };
+        let left = qualified.left?.node_id()?;
+        let right = qualified.right?.node_id?;
+        let left_text = self.identifier_text(left)?.to_string();
+        let member = self.identifier_text(right)?.to_string();
+        let namespace = self.binder.resolve_name(
+            self.nodes,
+            self.node_map,
+            left,
+            &left_text,
+            SymbolFlags::NAMESPACE_MODULE | SymbolFlags::TYPE,
+        )?;
+        let namespace = self.binder.merged_symbol(namespace);
+        let exported = *self.binder.symbols().get(namespace).exports.get(member.as_str())?;
+        Some(self.binder.merged_symbol(exported))
     }
 }

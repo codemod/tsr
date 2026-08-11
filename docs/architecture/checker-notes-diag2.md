@@ -50144,3 +50144,83 @@ reports on a positive and the other on a negative.
 
 Three lines remain, all in `declarationEmitIndexTypeNotFound`'s sibling
 positions, and they are the union and template-literal spellings of a valid key.
+
+## §1037 — TS2314: a namespace-qualified generic type
+
+§950's 2-case band. `genericTypeReferenceWithoutTypeArgument` already reports
+most of its TS2314 lines and misses exactly three:
+
+```ts
+namespace M { export class E<T> { } }
+class D2 extends M.E { }          // TS2314 — missing
+class D3<T extends M.E> { }       // TS2314 — missing
+interface I2 extends M.E { }      // TS2314 — missing
+```
+
+`declared_type_parameter_arity` opens with
+
+```rust
+let Some(Node::Identifier(identifier)) = self.node_map.get(name) else { return None };
+```
+
+so a **`QualifiedName`** — which is what `M.E` is in a type position — returns
+`None` and the rule declines. §942 built this file for call-site arity and every
+fixture it had used a bare name.
+
+The resolution is two steps and needs no type: resolve the left as a namespace,
+then take the right from its `exports`. That is the same walk
+`qualified_member_of_namespace` does for **property access expressions**, and it
+is deliberately not reused — a `QualifiedName` is a different node with
+different fields, and §1030's lesson applies: **the walk is not the thing.**
+
+```
+bar:  >= +1,  0 LOST via `diagpass`,  extraonly delta <= +1
+```
+
+### Falsifiers
+
+1. **A bare generic name stops reporting.** The row's other five lines are all
+   simple identifiers and must not move.
+2. **`M.E<string>` reports.** Supplying the argument is the point; the arity
+   comparison must still run on the qualified path.
+3. **A qualified name whose left is not a namespace reports.** `a.b` where `a`
+   is a variable is not a type reference this rule can price.
+
+## §1038 — §1037 built: **+0**, three right lines, and the wrong node kind
+
+```
+diagnostics   2,499 → 2,499   (+0)   45.54%
+diagpass      LOST: (none)   GAINED: (none)
+extraonly     75, unchanged
+TS2314        have 163 → 166,  want 174,  missing 16 → 13,  **0 extra**
+```
+
+**Twenty-second `+0` kept for fidelity**, and the interesting part is that it
+converted nothing *in the fixture it was aimed at*.
+
+The bar named three lines in `genericTypeReferenceWithoutTypeArgument`:
+
+```ts
+class D2 extends M.E { }          // still missing
+class D3<T extends M.E> { }       // still missing
+interface I2 extends M.E { }      // still missing
+```
+
+`M.E` in a **heritage clause** is an `ExpressionWithTypeArguments` whose
+expression is a **`PropertyAccessExpression`** — the *expression* grammar. `M.E`
+is a `QualifiedName` only in a **type annotation**, the *type* grammar. This
+build added the type-grammar path, which fired three times elsewhere in the
+corpus and not once in the fixture that motivated it.
+
+> **The same source text is two different node kinds depending on the grammar it
+> sits in**, and reading `M.E` off a page does not say which. §1030 said the
+> walk is not the thing; this is narrower and sharper: *the spelling is not the
+> node.*
+>
+> The bar was written from the fixture's text and should have been written from
+> its tree. One `diagcase` after the build gave the answer, and the same command
+> before it would have priced the build at zero for this fixture — which is
+> exactly what a bar is for.
+
+Three right lines and no wrong ones is worth keeping; the heritage-clause path
+is a second, separate build and is left with its number: **3 lines, 1 case**.
