@@ -913,3 +913,21 @@ before substituting or the road lands on one and not the other).
    reference this-ARGUMENT extension) plus the dual-mint unification.
    Nobody should read "embedded half done".
 
+**Rock (3) rescoped again after checker-1's §166 (+26/0)**: the dual
+mint is NOT a prerequisite for READING through a this-type — consulting
+both tables at the substitution site (`this_types` per class symbol,
+`this_type_nodes` per interface declaration) without unifying them
+works, and paid 26 lines (valueOfTypedArray's lib-interface
+`valueOf(): this`, controlFlowInstanceof, tail). The unification stays a
+prerequisite for the REPRESENTATION work (the reference this-ARGUMENT
+extension) and nothing else. Rock #3's remaining scope is now: the
+embedded lines NOT reachable at member reads (through declaration lines
+and `get_type_of_symbol`), the representation change, and the
+unification that gates it.
+
+**Pattern across §164/§165/§166** — three arms, ONE transcription, three
+different SITES, **+141/2 combined**, zero new machinery in any of them.
+Corollary 2 paying three times consecutively is the strongest evidence
+either lane has produced that site enumeration, not invention, is where
+this port's remaining points live.
+
