@@ -891,3 +891,25 @@ signature re-rendering), the reference this-ARGUMENT representation
 mints per-INTERFACE; expressions.rs mints per-CLASS-symbol — unify
 before substituting or the road lands on one and not the other).
 
+**Rock (3) requirements, amended after checker-1's §165 (+26/0; board
+86.66%)**:
+
+1. **The this-argument is the ORIGINAL receiver, never the apparent
+   one.** Upstream reads members from the APPARENT type but passes the
+   receiver itself as the this-argument
+   (`getTypeWithThisArgument(apparentType, receiver)`). `members.rs:416`
+   overwrote `receiver_type` with its apparent form, so both §164's and
+   §165's substitutions were answering the CONSTRAINT: `x: T` with
+   `T extends A` calling `x.self(): this` gave `A` where `T` is wanted.
+   Capturing the pre-apparent receiver fixed four real wrongs and gained
+   them back. **Anything in rock #3 that substitutes a this-argument
+   must take the original receiver.**
+2. **No new rendering machinery is needed at the member-read site** — a
+   this-type is TYPE_PARAMETER-flagged, so `instantiate_type`'s arm 1
+   already substitutes it and rebuilds the signature text.
+3. **Scope kept honest**: only 26 of the embedded 233 are reachable at
+   the member-read site. The rest arrive through DECLARATION lines and
+   `get_type_of_symbol`, and still need the representation piece (the
+   reference this-ARGUMENT extension) plus the dual-mint unification.
+   Nobody should read "embedded half done".
+
