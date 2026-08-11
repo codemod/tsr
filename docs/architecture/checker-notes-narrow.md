@@ -7314,3 +7314,35 @@ road — §169 had just widened the same gate's list and gained 39,
 so the road is live and this particular body shape is the part the
 corpus does not exercise. Text banked here; rebuild if a future
 fixture set carries concise async arrows.
+
+
+## §171 - the widened census on my own lane: a second early-stopped enumeration [checker-1]
+
+checker-2's widened corollary ("census the dispatch AND every
+predicate it consults") run against my own files found the same
+shape §169 had: `contextual.rs`'s return-statement ascent
+enumerated FunctionDeclaration | FunctionExpression | ArrowFunction
+| MethodDeclaration, while `expressions.rs`'s
+`control_flow_container` - the port's OTHER enumeration of the same
+concept - lists all seven kinds, and upstream ascends through
+`IsFunctionLike`, which includes accessors and the constructor. A
+`return` inside a get accessor therefore walked PAST the accessor
+and took an outer function's contextual return type.
+
+**Measured +0 / 0 and KEPT, deliberately, against the
+unexercised-branch rule.** The rule exists to stop SPECULATIVE
+code being kept on hope; this is the opposite case - a transcription
+that brings a divergent enumeration into agreement with upstream's
+own predicate AND with the port's other spelling of the same list.
+The divergence IS the defect, exercised or not: it is precisely the
+"collapsed distinction is a latent bug" convention, one level up
+(two enumerations of one concept that disagree will fire the day a
+fixture has a `return` in an accessor). **No gradient is
+attributable to this change** - recorded here so nobody credits it
+with lines later, which is the honest cost of keeping it.
+
+The general point for the ledger: the unexercised-branch rule and
+the latent-bug convention can point opposite ways, and the
+tiebreak is provenance - unexercised code that was DERIVED gets
+reverted, unexercised code that was TRANSCRIBED from upstream and
+removes a self-inconsistency gets kept.

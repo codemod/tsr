@@ -545,10 +545,22 @@ impl<'a> Checker<'a, '_> {
                 let mut function = self.nodes.parent(parent)?;
                 loop {
                     match self.nodes.kind(function) {
+                        // §171 (`checker-notes-narrow.md`): the widened
+                        // census applied to this lane — upstream ascends to
+                        // the containing function through `IsFunctionLike`,
+                        // which includes ACCESSORS and the CONSTRUCTOR, and
+                        // `expressions.rs`'s control_flow_container lists
+                        // all seven kinds while this enumeration stopped at
+                        // four. A `return` inside a get accessor walked PAST
+                        // it to an outer function and took that function's
+                        // contextual return type.
                         tsr_ast::SyntaxKind::FunctionDeclaration
                         | tsr_ast::SyntaxKind::FunctionExpression
                         | tsr_ast::SyntaxKind::ArrowFunction
-                        | tsr_ast::SyntaxKind::MethodDeclaration => break,
+                        | tsr_ast::SyntaxKind::MethodDeclaration
+                        | tsr_ast::SyntaxKind::GetAccessor
+                        | tsr_ast::SyntaxKind::SetAccessor
+                        | tsr_ast::SyntaxKind::Constructor => break,
                         tsr_ast::SyntaxKind::SourceFile => return None,
                         _ => function = self.nodes.parent(function)?,
                     }
