@@ -49819,3 +49819,78 @@ resolution, and the doc comment says so:
 > one is safe because the corpus has no shadowing case, which is a fact about
 > the corpus and not about the rule — so it is written where the next person to
 > widen the rule will read it.
+
+## §1029 — TS2511: `new` on an abstract class
+
+§950's 2-case band, and the fixture carries its own control:
+
+```ts
+(() => {
+    abstract class A {}
+    class B extends A {}
+    new A();            // TS2511
+    new B();            // legal — B is concrete
+})()
+```
+
+Upstream reaches this through the constructed type's `ObjectFlagsClass` and its
+declaration's `abstract` modifier (`checker.go:8615`). When the `new` target is
+an **identifier**, the declaration is reachable without a type: resolve, take
+the class declaration, read the modifier.
+
+The row's other case — `abstractClassUnionInstantiation` — is a `new` on a
+**union** of class types and needs each constituent's declaration; it is
+declined, and it is the reason this rule keys on an identifier rather than on
+"the callee's type".
+
+Note that `B extends A` is **not** abstract: abstractness does not inherit, and
+the fixture puts both on adjacent lines precisely to catch a rule that walks the
+heritage chain looking for one. §999 *did* walk that chain for a different rule,
+which is exactly why this one must not.
+
+```
+bar:  >= +1 of the 2,  0 LOST via `diagpass`,  extraonly delta <= +1
+```
+
+### Falsifiers
+
+1. **`new B()` reports.** Line 4 of the same fixture, and the trap §999's chain
+   walk would fall into.
+2. **`new f()` where `f` is a function reports.** Only a class declaration with
+   the modifier counts.
+3. **A shadowed name reports.** The receiver is resolved, not spelled.
+
+## §1030 — §1029 built: **+1/−0**, and a chain deliberately not walked
+
+```
+diagnostics   2,494 → 2,495   (+1)   45.46%
+diagpass      LOST: (none)   GAINED: compiler/abstractClassInLocalScopeIsAbstract
+extraonly     75, unchanged
+TS2511        have 0 → 1,  want 8,  missing 7,  **0 extra**
+```
+
+One line, one case, none wrong.
+
+> The fixture is four lines and two of them are the rule:
+>
+> ```ts
+> abstract class A {}
+> class B extends A {}
+> new A();    // TS2511
+> new B();    // legal
+> ```
+>
+> **Abstractness does not inherit**, and §999 — twenty-nine sections ago — built
+> a rule for TS2341 that *does* walk the `extends` chain, because a private
+> static *is* inherited. Two adjacent rules, two opposite answers to "does this
+> property of a class reach its subclasses", and the fixture author put the
+> counter-example on the next line.
+>
+> **A helper that walks a heritage chain is not reusable across rules; what
+> inherits is a property of the thing, not of the walk.** `base_class_declaration`
+> exists from §999 and was deliberately not called here.
+
+The remaining seven lines are `abstractClassUnionInstantiation` — a `new` on a
+**union** of class types, which needs each constituent's declaration. That is why
+this rule keys on an identifier rather than on the callee's type, and it is the
+type side's.

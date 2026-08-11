@@ -922,6 +922,9 @@ impl Checker<'_, '_> {
         if self.nodes.kind(node) == SyntaxKind::PropertyAccessExpression {
             self.check_private_static_access(node);
         }
+        if self.nodes.kind(node) == SyntaxKind::NewExpression {
+            self.check_new_on_abstract_class(node);
+        }
         if self.nodes.kind(node) == SyntaxKind::SuperKeyword {
             self.check_super_in_computed_name(node);
             self.check_super_call_outside_constructor(node);
@@ -5256,6 +5259,54 @@ impl Checker<'_, '_> {
     /// The other positions are a second slice with that predicate as its
     /// subject — `checker-notes-diag2.md` §83. TS2448 (block-scoped variable)
     /// and TS2450 (enum) are its siblings and wait on the same thing.
+    /// TS2511 — `Cannot create an instance of an abstract class.`
+    ///
+    /// `checkNewExpression` (`checker.go:8615`) reads the constructed type's
+    /// class declaration. When the target is an **identifier** the declaration
+    /// is reachable without a type.
+    ///
+    /// **Abstractness does not inherit**: `class B extends A {}` with `A`
+    /// abstract is concrete, and the fixture puts `new A()` and `new B()` on
+    /// adjacent lines to catch a rule that walks the heritage chain. §999 walks
+    /// that chain for a different rule, which is why this one must not. §1029.
+    fn check_new_on_abstract_class(&mut self, node: NodeId) {
+        if self.file_has_parse_errors || self.in_js_file(node) {
+            return;
+        }
+        let Some(Node::NewExpression(expression)) = self.node_map.get(node) else { return };
+        let Some(callee) = expression.expression.and_then(|e| e.node_id()) else { return };
+        if self.nodes.kind(callee) != SyntaxKind::Identifier {
+            return;
+        }
+        let Some(text) = self.identifier_text(callee).map(str::to_string) else { return };
+        let Some(symbol) =
+            self.binder.resolve_name(self.nodes, self.node_map, callee, &text, SymbolFlags::VALUE)
+        else {
+            return;
+        };
+        let declarations =
+            self.binder.symbols().get(self.binder.merged_symbol(symbol)).declarations.clone();
+        let abstract_class = declarations.iter().any(|&declaration| {
+            matches!(
+                self.nodes.kind(declaration),
+                SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
+            ) && self
+                .node_map
+                .get(declaration)
+                .and_then(modifiers_of)
+                .is_some_and(|m| has_modifier(m, SyntaxKind::AbstractKeyword))
+        });
+        if !abstract_class {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let span = self.nodes.span(node);
+        self.report(
+            file,
+            Diagnostic::new(&messages::CANNOT_CREATE_AN_INSTANCE_OF_AN_ABSTRACT_CLASS, span),
+        );
+    }
+
     /// TS2463 — `A binding pattern parameter cannot be optional in an
     /// implementation signature.`
     ///
