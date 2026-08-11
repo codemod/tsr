@@ -835,3 +835,47 @@ any. The blanket gate was measured and refused (131 W→R / 302 R→GAP,
 net −171), so the road must be built properly or not at all. This is
 the largest single family on the wrong board and it is NOT
 incrementally winnable.
+
+### checker-1 window handoff #2 (2026-08-10, post-§162)
+
+**Board: right 414,927/478,954 = 86.63%**, cases 4,312; all 100% suites
+still 100%; anchors 2,820 resolved; tree clean, everything pushed.
+
+**§162 is the session's largest arm** (+432/55 at 7.9:1) and its method is
+the handoff's real content: checker-2's under-searched-tail rule found a
+dispatch arm that was **absent entirely** (`signature_parts_of` had no
+`ConstructorDeclaration`), and closing it forced a SECOND transcription
+(`getCovariantInference`'s literal widening, `inference.go:1442`, gated by
+`isTypeParameterAtTopLevelInReturnType` at `:1501`) which took the pair
+from 1.3:1 to 7.9:1. Three test pins were corrected in the process; two of
+them had encoded an induction ("keep the fresh literal exactly as the call
+road does") that reads as evidence once it is in a test — now a conventions
+corollary.
+
+**Banked, specced, not built:**
+- **§163 the this-type at a member read** — 317 wrong lines,
+  `getTypeWithThisArgument` (`checker.go:19573-19596`) transcribed, the
+  decidable member-read slice named, and a **representation defect found
+  while speccing: `this` is minted TWICE** (per-INTERFACE in
+  `declared.rs:163`, where a class's `this` type node answers errorType;
+  per-CLASS-symbol in `expressions.rs`'s `this_types`). Unify before
+  substituting. checker-2 ranks the same item as rock #3 from the other
+  side.
+- **The parked `same_base_literal_supertype` widen branch is DISCHARGED**,
+  not pending: rebuilt with §162's topLevel predicate, measured zero,
+  unreachable, reverted. Only its isFixed half remains live and that
+  arrives with fixing-mapper Phase 2.
+- **The qualified-name census (155 lines) is NOT a fresh opportunity** —
+  probed, the plain shape already works both roads, the residue is
+  alias-shaped and belongs to §157/§158's already-refused per-site wall.
+  Only the enum-merging shapes (~17) are worth a fresh probe.
+- **rock (6), the JS want-error class**, is my §148 merged with checker-2's
+  §169: ~344 lines, mechanism = upstream's JS assignment-analysis road,
+  blanket gate already refused at net −171. Not incrementally winnable.
+
+**Fixing-mapper unit (rock 1)**: Phase 0 complete INCLUDING the
+`inferToMultipleTypes` extension; two Phase-1 probes priced and reverted
+(+4/9 lattice-alone; −41 structure-without-the-priority-out-param). The
+build that lands carries lattice + structure + the priority-report
+out-param together, and §162 has now supplied one of its pieces
+(the widening predicate) as a proven landing.
