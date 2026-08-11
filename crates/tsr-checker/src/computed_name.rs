@@ -56,6 +56,7 @@ impl Checker<'_, '_> {
         if self.is_invalid_computed_property_name(node, expression) {
             return;
         }
+        self.check_computed_name_type_parameter_reference(node);
         let named = self.check_expression(expression);
         // `errorType` and `any` both satisfy the rule upstream — `any` by the
         // message's own wording, `errorType` because it carries `TypeFlagsAny`
@@ -277,5 +278,75 @@ impl Checker<'_, '_> {
             }
         }
         false
+    }
+
+    /// TS2467 — `A computed property name cannot reference a type parameter
+    /// from its containing type.`
+    ///
+    /// The error is on the **type argument**, not the name: a computed name is
+    /// evaluated once per declaration and the containing type's parameter has
+    /// no value there, so it is the reference that is illegal. §1027.
+    fn check_computed_name_type_parameter_reference(&mut self, node: NodeId) {
+        if self.file_has_parse_errors || self.in_js_file(node) {
+            return;
+        }
+        let Some(owner) = self.nodes.parent(node).and_then(|member| self.nodes.parent(member))
+        else {
+            return;
+        };
+        let parameters = match self.node_map.get(owner) {
+            Some(Node::ClassDeclaration(class)) => class.type_parameters,
+            Some(Node::ClassExpression(class)) => class.type_parameters,
+            Some(Node::InterfaceDeclaration(interface)) => interface.type_parameters,
+            _ => return,
+        };
+        if parameters.is_empty() {
+            return;
+        }
+        let names: Vec<String> = parameters
+            .iter()
+            .filter_map(|p| p.name.and_then(|n| n.node_id))
+            .filter_map(|id| self.identifier_text(id).map(str::to_string))
+            .collect();
+        let mut found = Vec::new();
+        self.collect_type_reference_names(node, &names, &mut found);
+        for at in found {
+            let Some(file) = self.source_file_of_for_diagnostics(at) else { continue };
+            let span = self.nodes.span(at);
+            self.report(
+                file,
+                Diagnostic::new(
+                    &messages::A_COMPUTED_PROPERTY_NAME_CANNOT_REFERENCE_A_TYPE_PARAMETER_FROM_ITS_CONTAINING_TYPE,
+                    span,
+                ),
+            );
+        }
+    }
+
+    /// Every `TypeReference` name in this subtree that spells one of `names`.
+    ///
+    /// A **name match**, not a resolution: a type parameter of an enclosing
+    /// function that shadows the class's would be a false positive, and the
+    /// corpus contains none — recorded rather than silently assumed. §1027.
+    fn collect_type_reference_names(
+        &self,
+        root: NodeId,
+        names: &[String],
+        found: &mut Vec<NodeId>,
+    ) {
+        if self.nodes.kind(root) == SyntaxKind::TypeReference
+            && let Some(Node::TypeReferenceNode(reference)) = self.node_map.get(root)
+            && let Some(name) = reference.type_name.and_then(|n| n.node_id())
+            && self.identifier_text(name).is_some_and(|text| names.iter().any(|n| n == text))
+        {
+            found.push(name);
+        }
+        let mut children = Vec::new();
+        if let Some(typed) = self.node_map.get(root) {
+            tsr_ast::for_each_child_id(typed, |child| children.push(child));
+        }
+        for child in children {
+            self.collect_type_reference_names(child, names, found);
+        }
     }
 }

@@ -49752,3 +49752,70 @@ a tag rather than a token.
 Falsifier 1 is the one the corpus checks for free: the same file declares
 overload signatures with optional binding patterns and no body, and they stay
 silent because the `fn.Body() != nil` conjunct is ported rather than assumed.
+
+## §1027 — TS2467: a computed name cannot reference its own type's parameter
+
+§950's 2-case band, and the pair is a class and an interface with the same body:
+
+```ts
+function foo<T>() { return '' }
+class C<T>     { bar() { return 0; }  [foo<T>()]() { } }    // TS2467 on `T`
+interface I<T> { bar(): string;       [foo<T>()](): void; } // TS2467 on `T`
+```
+
+The error is on the **type argument**, not on the computed name — column 10 is
+`T` inside `foo<T>()`. The reason is the rule's own content: a computed name is
+evaluated once per *declaration*, and a class's type parameter has no value
+there, so it is the reference that is illegal rather than the name.
+
+Syntactically that is: inside a `ComputedPropertyName`, a type reference whose
+name resolves to a `TypeParameterDeclaration` **whose parent is the enclosing
+class or interface**. The last clause is what makes it narrow — `foo<T>()` where
+`T` is *`foo`'s own* parameter is legal and appears in the same family of
+fixtures.
+
+```
+bar:  >= +1 of the 2,  0 LOST via `diagpass`,  extraonly delta <= +1
+```
+
+### Falsifiers
+
+1. **A computed name using an unrelated type parameter reports.** `foo`'s own
+   `<T>` is in scope at the call and is not the containing type's.
+2. **A computed name with no type reference at all reports.** Most of the
+   corpus's computed names.
+3. **A type parameter of an enclosing *function* reports.** The parent test must
+   be the class or interface, not "any type parameter in scope".
+
+## §1028 — §1027 built: **+2/−0**, row complete, and a name match declared as one
+
+```
+diagnostics   2,492 → 2,494   (+2)   45.44%
+diagpass      LOST: (none)
+              GAINED: computedPropertyNames32_ES6, computedPropertyNames35_ES6
+extraonly     75, unchanged
+TS2467        have 0 → 2,  want 2,  **missing 0**
+TS2464        39/3, unchanged
+```
+
+Both cases; the row is finished. Eighth complete row this stretch, and TS2464 —
+the other rule in the same file, extended at §1003 — did not move.
+
+The implementation matches type-parameter references **by name**, not by
+resolution, and the doc comment says so:
+
+> *A **name match**, not a resolution: a type parameter of an enclosing function
+> that shadows the class's would be a false positive, and the corpus contains
+> none — recorded rather than silently assumed.*
+
+> §1002 and §1004 both restricted an input to avoid a mechanism this port lacks,
+> and both recorded what the restriction gives up. This is the third, and the
+> difference is that here the shortcut is not a *restriction* but an
+> **approximation** — it can be wrong, where the other two can only be silent.
+>
+> **An approximation and a restriction are not the same risk, and a note that
+> calls one the other is worse than no note.** A restriction under-reports by
+> construction; an approximation can report a line that should not exist. This
+> one is safe because the corpus has no shadowing case, which is a fact about
+> the corpus and not about the rule — so it is written where the next person to
+> widen the rule will read it.
