@@ -3400,3 +3400,14 @@ code AND the pins. **A pin is only evidence if it was read off the
 oracle.** When a transcription contradicts a pin, check the baseline
 before believing the pin; a pin written from the port's own behaviour
 is an induction wearing a test's clothes.
+
+### Corollary 2 (2026-08-10): a +0 measured at one SITE is not a verdict about a road
+
+checker-2's §168 probed the this-substitution at one call site, measured
++0, and recorded "the residue is the subsystem" — a domain-wide claim.
+checker-1's §164 ran the same transcription at the site that actually
+reads members and measured +89/2. **A refusal record must name the site
+it measured, and any claim that a ROAD is unreachable must enumerate the
+sites it tried.** The unexercised-branch rule still stands for the code
+(revert the +0), but the VERDICT it licenses is "not reachable here",
+never "not reachable".
