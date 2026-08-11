@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 4952/9538 (51.92%)
-Assertion lines: 422285/478954 (88.17%)  — a gradient, not a pass rate
-Failed         : 4586
+Passed         : 4979/9538 (52.20%)
+Assertion lines: 422446/478954 (88.20%)  — a gradient, not a pass rate
+Failed         : 4559
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 4586 failures:
+First 100 of 4559 failures:
 compiler/2dArrays
   2dArrays.ts: >allShipsSunk : error — expected >allShipsSunk : () => boolean
 compiler/ClassDeclaration26
@@ -104,7 +104,7 @@ compiler/ambiguousOverloadResolution
 compiler/amdLikeInputDeclarationEmit
   ExtendedClass.js: >(BaseClass) => {            const ExtendedClass = BaseClass.extends({        f: function() {            return "something";        }    });    // Exports the module in a way tsc recognize class export     const module = {};    module.exports = ExtendedClass    return module.exports;} : error — expected >(BaseClass) => {            const ExtendedClass = BaseClass.extends({        f: function() {            return "something";        }    });    // Exports the module in a way tsc recognize class export     const module = {};    module.exports = ExtendedClass    return module.exports;} : (BaseClass: typeof import("deps/BaseClass")) => any
 compiler/anonClassDeclarationEmitIsAnon
-  wrapClass.ts: >wrapClass : error — expected >wrapClass : (param: any) => typeof Wrapped
+  wrapClass.ts: >Timestamped : error — expected >Timestamped : <TBase extends Constructor>(Base: TBase) => { new (...args: any[]): (Anonymous class); prototype: Timestamped.(Anonymous class); } & TBase
 compiler/anonterface
   anonterface.ts: >fn(n2) : error — expected >fn(n2) : string
 compiler/anonymousClassDeclarationDoesntPrintWithReadonly
@@ -164,7 +164,7 @@ compiler/argumentsReferenceInMethod6_Js
 compiler/argumentsReferenceInMethod7_Js
   /a.js: >this.callee : error — expected >this.callee : Function
 compiler/argumentsUsedInClassFieldInitializerOrStaticInitializationBlock
-  argumentsUsedInClassFieldInitializerOrStaticInitializationBlock.ts: >A : any — expected >A : () => typeof T
+  argumentsUsedInClassFieldInitializerOrStaticInitializationBlock.ts: >a : any — expected >a : () => any
 compiler/arithAssignTyping
   arithAssignTyping.ts: >f : typeof f — expected >f : any
 compiler/arityErrorRelatedSpanBindingPattern
