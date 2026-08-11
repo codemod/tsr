@@ -472,3 +472,44 @@ two-line instrumented probe of the matched-test on
 print `matched[]` and compare against what upstream must compute
 for the baseline to read `Promise<number>`. Everything needed is
 written and preserved (scratchpad `fm1.py`, `fm2.py`, `fm3.py`).
+
+
+---
+
+## The probe ran — and the promise family is NOT the inference unit at all (2026-08-10, checker-1)
+
+The two-line instrumented probe the entry above called for, run on
+`res<T>(value: T | PromiseLike<T>)` given `Promise.resolve(1)`:
+
+    SS181 src=error tgt=PromiseLike<T> recorded=2048 priority=0 matched=false
+
+**`src=error`.** The ARGUMENT does not type, so inference never had
+anything to work with and the matched-test was never the question.
+
+Traced one hop further:
+
+- `Promise.resolve` RESOLVES, printing its full overload set:
+  `{ (): Promise<void>; <T>(value: T): Promise<Awaited<T>>;
+  <T>(value: T | PromiseLike<T>): Promise<Awaited<T>>; }`
+- `Promise.resolve()` — the NON-generic first overload — answers
+  `Promise<void>` correctly.
+- `Promise.resolve(1)` — either GENERIC overload — answers
+  **error**, because both return `Promise<Awaited<T>>` and
+  `Awaited<T>` is a CONDITIONAL type this port does not evaluate.
+
+**Re-attribution, and it re-ranks the board.** The
+promiseType / promiseTypeStrictNull / promisePermutations families
+(~480 gap lines between them, which this file has repeatedly
+attributed to the fixing-mapper unit) are blocked on
+**conditional-type evaluation**, not on inference. Every attempt at
+the inference unit measured its adverse in exactly those families —
+which now reads as those families being unable to improve for a
+reason none of the four pieces addresses.
+
+**Consequence for the ranked rocks**: conditional-type
+instantiation moves UP; the fixing-mapper unit keeps its other
+predicted reach (contextual generic/overload populations,
+typeArgumentInference*, badInference) but loses the promise
+families from its ledger, and its four attempts should be re-read
+with that subtracted — their adverse was largely a family they
+could never have fixed.
