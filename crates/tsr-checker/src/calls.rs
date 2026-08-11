@@ -867,6 +867,20 @@ impl Checker<'_, '_> {
         // passes no argument list, and folding its callees into the same buckets
         // would leave the funnel's denominator counting two different questions.
         let counted = arguments.is_some();
+        // SS176 (`resolveCallExpression`, checker.go:8515, transcribed):
+        // the callee is read through its APPARENT type, so a call whose
+        // callee is a TYPE PARAMETER resolves against its constraint's
+        // signatures - `f<T extends () => number>(g: T) { return g() }`.
+        // The apparent type of everything else is itself, so this is a
+        // no-op elsewhere by construction.
+        let callee = if self.store.get(callee).flags.contains(TypeFlags::TYPE_PARAMETER) {
+            match self.type_parameter_constraint(callee) {
+                Some(constraint) => constraint,
+                None => callee,
+            }
+        } else {
+            callee
+        };
         let TypeData::Anonymous { symbol, .. } = self.store.get(callee).data else {
             // A callee that prints as a **name** — an interface with a call
             // signature member, which is where every lib constructor lives.
