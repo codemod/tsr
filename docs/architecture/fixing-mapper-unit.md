@@ -363,3 +363,71 @@ non-negotiable: the wrong reading was published, and the reason it
 was wrong (a guess where a read was needed, inside a document whose
 whole point is that transcription beats induction) is worth more
 than the corrected fact.
+
+
+---
+
+## Phase 0 for the FOURTH piece — structural member inference (2026-08-10, checker-1)
+
+Read at the pinned submodule, enclosing context included this time.
+
+### Where it sits
+
+`inferFromObjectTypes` (`inference.go:699-825`) is a cascade of
+early returns — same-target references, generic mapped types, tuple
+shapes, array targets — and its TAIL, reached when none of those
+matched, is four calls (`:822-825`):
+
+    c.inferFromProperties(n, source, target)
+    c.inferFromSignatures(n, source, target, SignatureKindCall)
+    c.inferFromSignatures(n, source, target, SignatureKindConstruct)
+    c.inferFromIndexTypes(n, source, target)
+
+This port has NONE of the four. That tail is what records T:=never
+for `Promise<never>` against `PromiseLike<T>` — through `then`'s
+signature — and it is why all three earlier attempts at this unit
+produced the identical promiseType failure.
+
+### `inferFromProperties` (`:828-836`)
+
+Walk the TARGET's properties (`getPropertiesOfObjectType`); for each,
+look the name up on the SOURCE (`getPropertyOfType`); when found and
+not skip-direct-inference, infer source-member-type against
+target-member-type, each passed through `removeMissingType` keyed on
+the symbol's OPTIONAL flag. Note the direction: TARGET drives, source
+is looked up — a source property with no target counterpart
+contributes nothing.
+
+### `inferFromSignatures` (`:838-851`) and `inferFromSignature` (`:853-866`)
+
+Signatures match BOTTOM-UP: with `sourceLen` and `targetLen`,
+target index `i` pairs with source index
+`max(sourceLen-targetLen+i, 0)` — so when the source has fewer, its
+FIRST signature serves the excess targets. Each pair goes through
+`getBaseSignature(source)` and `getErasedSignature(target)`.
+`inferFromSignature` then: parameters CONTRAVARIANTLY (under
+`inferFromContravariantTypesIfStrictFunctionTypes`), with a
+`bivariant` flag that latches once a method/constructor declaration
+is descended into; returns COVARIANTLY. A non-inferrable source
+signature skips the parameter half but still does returns.
+
+### Port notes before anyone writes code
+
+- The port has no contravariant candidate bucket at all
+  (`inference.rs`'s module doc says so), so the parameter half of
+  `inferFromSignature` has nowhere to record. **The return half is
+  the reachable slice** and is what the promiseType family needs.
+- `getBaseSignature`/`getErasedSignature` are not ported; the
+  existing engine already refuses signatures carrying their own type
+  parameters, which is the same restriction by a cruder route.
+- `inferFromIndexTypes` is a fourth sub-piece and is NOT required
+  for the promise family; leave it out of slice 1 and measure
+  without it.
+
+**Suggested slice 1**: `inferFromProperties` + the RETURN half of
+`inferFromSignatures(Call)`, landed together with the three pieces
+already written (scratchpad `fm1.py`/`fm2.py`). Acceptance: the
+promiseType/promiseTypeStrictNull split stops appearing in the pair.
+Falsifier: if the adverse persists unchanged, the matched-test is
+still wrong and the recorded-priority channel is the suspect, not
+this piece.
