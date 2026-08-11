@@ -45513,3 +45513,81 @@ said `0` four hundred times.
 > for a twenty-line file that removes a whole class of error**, and the class had
 > already occurred once. The cost of building it was less than the cost of
 > writing the issue describing it.
+
+## §925 — TS2864: the primitive routing went into one of two paths
+
+```ts
+class C  implements number  { }
+class C2 implements string  { }
+```
+
+```
+expected   TS2864 ×9    A class cannot implement a primitive type like 'number'
+actual     TS2552 ×9    Cannot find name 'number'. Did you mean …?
+```
+
+Nine lines, at exactly the right positions, under the wrong code — and TS2864 is
+the last row on `diagemit`'s SILENT list, which §881 left there on the reasoning
+that *"no `class C implements string` [is] in the corpus"*. **`classImplementsPrimitive`
+is nine of them**, and `diagextra` is what surfaced it: the case is not near
+passing, so `extraonly` never listed it.
+
+§880 routed the six primitive spellings into `report_primitive_type_as_value`,
+which already chooses TS2863 / TS2864 / TS2840 by clause and owner. It routed
+them from **`check_value_identifier`** — and §334 recorded, four hundred sections
+earlier, that *"an `implements` name is a type reference in a different node
+kind; an `extends` name is a value reference"*.
+
+So `extends string` reaches the routing and `implements string` reaches
+`check_type_reference_name`'s spelling-suggestion rung instead.
+
+> §881's refusal was *"the corpus has no such fixture"* and the corpus had nine
+> lines of one. **The claim was about the corpus and the evidence was about the
+> value path**, which is the only path §880 had looked at — and §334's note
+> naming the split was already in the file both builds were editing.
+
+```
+bar:  +1 (classImplementsPrimitive),  0 LOST via `diagpass`,  WRONG delta <= 0,
+      TS2864 leaves the SILENT list
+```
+
+### Falsifiers
+
+1. **`class C implements I` loses its TS2304.** The routing is keyed on the six
+   spellings.
+2. **TS2863's row moves.** It is the `extends` half and goes through the other
+   path.
+
+## §926 — §925 built: **+1/−0**, after a first draft that broke §890's case
+
+```
+diagnostics   2,377 → 2,378   (+1)   43.33%
+diagpass      LOST: (none)   GAINED: compiler/classImplementsPrimitive
+extraonly     75
+diagemit      TS2864  0 → 9 of 9  — off the SILENT list; only TS1253 remains
+```
+
+### The first draft double-reported
+
+Routing the six primitive spellings from `check_type_reference_name` for **any**
+heritage clause made `interface x extends string` emit TS2840 **twice** — §880
+already routes the `extends` half from `check_value_identifier`, and an
+interface's `extends` name reaches *both* paths. It cost §890's case.
+
+That is §919's failure exactly, and §920's rule — *census the dispatch before
+adding a rule; expect a second rule underneath* — **written six sections ago,
+from this same workstream, and not applied.**
+
+> §920 called the failure symmetric and said the check costs one command. It
+> does. **A lesson written down is not a lesson applied**, and the gap between
+> the two was six sections and one lost case here. The fix is one clause: the
+> type path routes only `implements`, because `extends` is the value path's.
+
+### What `diagextra` was worth
+
+§881 left TS2864 on the SILENT list saying *"no `class C implements string` in
+the corpus"*. `classImplementsPrimitive` is **nine lines of exactly that**, and
+nothing surfaced it for forty-five sections because the case is not near passing:
+`extraonly` lists only one-removal cases, and `diagdup` only collisions at a
+right position. **The instrument built two sections ago found the fixture the
+refusal said did not exist.**

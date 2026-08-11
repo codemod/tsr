@@ -4570,6 +4570,27 @@ impl Checker<'_, '_> {
         // path always has and nobody had measured it. `interface I { a: Foo; b }`
         // is TS2304 **and** TS1005 upstream, and this port emitted only the
         // parse error. §898.
+        // **The primitive spellings in a heritage clause are TS2863/2864/2840**,
+        // and §880 routed them from the *value* path only. §334 recorded the
+        // split four hundred sections earlier: an `implements` name is a **type**
+        // reference and an `extends` name is a value one, so `implements string`
+        // never reached the routing and took the spelling-suggestion rung
+        // instead — nine lines of `classImplementsPrimitive` under TS2552. §925.
+        // **`implements` only.** §880 already routes the `extends` half from
+        // `check_value_identifier`, and an interface's `extends` name reaches
+        // BOTH paths — the first draft of this doubled TS2840 on
+        // `errorLocationForInterfaceExtension` and lost a case §890 had won.
+        // That is §919's failure and §920's rule — *census the dispatch, expect
+        // a second rule underneath* — six sections old and unapplied. §925.
+        if matches!(text, "any" | "string" | "number" | "boolean" | "never" | "unknown")
+            && self.nodes.ancestors(node).any(|ancestor| {
+                matches!(self.node_map.get(ancestor), Some(Node::HeritageClause(clause))
+                    if clause.token.kind == SyntaxKind::ImplementsKeyword)
+            })
+        {
+            self.report_primitive_type_as_value_at(node, text);
+            return;
+        }
         if is_specially_diagnosed_name(text) || self.in_js_file(node) {
             return;
         }
