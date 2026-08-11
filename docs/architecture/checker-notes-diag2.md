@@ -45876,3 +45876,46 @@ of `+150` describes neither half.
 The gate earned itself again on this build: two clippy lints in the new column's
 own code, caught **before** the commit rather than after (§923's failure was the
 same lint class, found by a reader who had stopped reading).
+
+## §934 — TS2365's 311 lines: not the rule, and not one shape
+
+§933's new column puts TS2365 at **311 missing lines**, fourth on the board and
+the largest that is not the relation's. Its distribution:
+
+```
+48  numberVsBigIntOperations
+40  comparisonOperatorWithNoRelationshipObjectsOnCallSignature
+40  …OnConstructorSignature
+40  comparisonOperatorWithNoRelationshipPrimitiveType
+36  …TypeParameter
+24  …OnIndexSignature
+```
+
+Reading the fourth, which is the plainest: **the rule fires**. `a < b` with
+`a: number, b: boolean` reports TS2365 at exactly the wanted position, and so
+does every line of the `<` section. The missing ones are elsewhere in the same
+file:
+
+```ts
+var r4c1 = c >= d;    // string >= void      missing
+var r4d1 = d >= a;    // void   >= number    missing
+var r4e1 = e >= b;    // enum   >= boolean   missing
+```
+
+**Two operand kinds, not one operator.** `void` and a numeric `enum` are what the
+missing lines have in common, and both have named suspects already in the file:
+
+```
+void   `pair_is_reportable` refuses anything carrying `UNDECIDABLE_HERE`; whether
+       `void` is in that set decides this, and §-earlier chose the set for the
+       assignability reporter rather than for this rule
+enum   `assignable_to_kind(e, NUMBER_LIKE, number)` decides whether a numeric
+       enum reads as numeric — §52's note says an enum answers `Unknown` to the
+       relation and is assignable upstream, which is the same gap one rule over
+```
+
+**Not built here.** The row is four fixtures wide and the two suspects are one
+`grep` apart, but §919 and §926 are what happens when a rule is changed before
+its second producer and its actual operands are read. The next attempt starts by
+printing those two predicates' answers for `void >= number`, which is one probe
+and settles both.
