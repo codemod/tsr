@@ -7825,3 +7825,28 @@ attempts in one sitting (slice 2 ternary +29/24, slice 3
 construction +24/16, slice 4 distribution-empty + construction
 +23/15, all against slice 1's landed +9/2) is enough evidence that
 this subsystem behaves like the fixing-mapper: no partial credit.
+
+
+## §184 — the namespace-import mint: refused at net −85 [checker-1]
+
+`import * as React from "react"` wants `typeof React` and answers
+error; 8 single-blocker cases sit on it. Minted `typeof <local
+name>` carrying the module symbol, the §140/§143 pattern, on the
+argument that a namespace import's local name is not a per-site
+preference the way §145's namespace targets were.
+
+**Measured 2 W→R against 69 G→W, 15 R→W and 3 R→GAP — reverted.**
+The mint's TEXT is right; what breaks is everything downstream —
+es6ExportEqualsInterop 20 leads, and the alias-marking families
+(correctlyMarkAliasAsReferences1/2/3) and interop helpers follow.
+A module object minted as an Anonymous carrying the module symbol
+does not behave like the one those roads expect, which is the same
+seam §143 hit and parked.
+
+Fifth measured refusal of the sitting, and the pattern across them
+is worth stating for the next window: **every remaining arm I can
+reach in this lane is a MINT, and mints fail downstream rather than
+at the site they are written.** The near-miss census finds them
+cheaply; it cannot tell in advance which will survive contact with
+their consumers. That asymmetry — cheap to find, expensive to
+validate — is the real shape of what is left here.
