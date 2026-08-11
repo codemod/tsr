@@ -45344,3 +45344,33 @@ Every bar here names falsifiers about *new* wrong lines. None has named the
 which `extraonly`, `diagdup` and `diagemit` are all blind to — `diagemit` would
 show `have` **rising past** `want`, and that is the signal worth adding to the
 next bar of this shape.
+
+## §920 — the other workstream reached the same conclusion, from the opposite failure
+
+The rebase after §919 brought `ecf664b1`:
+
+> **`conventions: corollary 5 — census the dispatch before investigating logic;
+> expect a second rule underneath`**
+
+written from four of their window's largest finds being **absent match arms**
+rather than wrong logic — a missing `ConstructorDeclaration` arm, a missing
+`RegularExpressionLiteral` arm, a this-substitution consulting one of two tables.
+
+§919 measured **−1** for the mirror image on the same day: a rule added where a
+**second producer already existed**, so every right line was emitted twice.
+
+```
+theirs   an arm that was MISSING      logic looked wrong, the dispatch was short
+mine     an arm that was REDUNDANT    logic looked right, the dispatch was long
+```
+
+> **Two workstreams, one codebase, one day, and the same conclusion from opposite
+> failures.** Neither of us was censusing the dispatch before touching a rule, and
+> both of us paid for it in the same window. Their corollary is the general
+> statement and it is already in `docs/conventions.md`; this section is the
+> second data point and the one that shows the failure is **symmetric** — a
+> dispatch can be wrong by omission or by duplication, and only one of those is
+> visible from reading the rule you are about to change.
+
+The check is the same in both directions and costs one command: **before adding a
+rule, ask who else already reports its code.**
