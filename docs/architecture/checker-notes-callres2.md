@@ -1818,3 +1818,23 @@ baseline writer, not a parser limit. Corrected size: ~344 lines
 corpus-wide, priced at a NAMED subsystem. My baseline-writer read
 still stands as the reason the want SPELLS `error`; their measurement
 is why. Both halves belong to the same item.
+
+**§168 CORRECTED by checker-1's §164.** My conclusion — "the this-read
+substitution measures +0, the residue IS the subsystem" — was wrong,
+and wrong in an instructive way: I probed ONE site
+(`check_property_access_expression`'s wrapper, after the worker, beside
+the enum-spelling hook) and generalised a +0 there into a verdict about
+the whole domain. checker-1 ran the same transcription
+(`getTypeWithThisArgument`, checker.go:19573) at the site that
+actually reads members — `access_member_lookup` — for **+30/0 alone**,
+and with the call-return half (`c.fn()` is `C`, not `this`) **+89/2 at
+44:1**, closing instancePropertyInClassType (the residue §162 exposed)
+among others.
+
+**The lesson, for the ledger**: a +0 measured at one site does not
+license a verdict about a road. The record must name the SITE it
+measured, and a domain-wide claim needs the sites enumerated. Rock #3's
+ranking survives for the embedded-`this` 233 and the representation
+change (including the dual-mint defect); its BARE half was winnable
+today and is now won — by the lane that read the site list instead of
+trusting my summary.
