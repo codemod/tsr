@@ -3411,3 +3411,14 @@ it measured, and any claim that a ROAD is unreachable must enumerate the
 sites it tried.** The unexercised-branch rule still stands for the code
 (revert the +0), but the VERDICT it licenses is "not reachable here",
 never "not reachable".
+
+**It cuts both ways** (checker-1, same arm): §164's bar predicted ≥50
+and its FIRST site measured +30 — under bar. Reverting there would have
+reproduced §168's error from the opposite direction; what saved it was
+asking *which other site runs this same rule* before judging, and the
+answer (+59 more, at the call return, in a different file) completed the
+arm at 44:1. **An arm that underperforms its bar at one site is not
+finished being measured either.** Both failure modes — a premature
+"unreachable" and a premature "under bar" — are the same mistake:
+treating a site's number as a road's number. Enumerate the sites, then
+judge.
