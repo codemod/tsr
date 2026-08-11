@@ -7230,3 +7230,33 @@ large simple class (here `RegExp` at 215 wanted lines), check
 whether the DISPATCH has an arm for the node kind before
 investigating anything downstream — three of this window's four
 largest arms were absent match arms, not wrong logic.
+
+
+## §168 — the class-expression arm: REFUSED at 190:322, and it is the naming wall [checker-1]
+
+The §167 audit's second find: `checkClassExpression`
+(`checker.go:10047-10052`) ends *return
+c.getTypeOfSymbol(c.getSymbolOfDeclaration(node))* and this
+port's dispatch had no arm, so `const V = class {}` answered
+error. The arm is one line and it measured **+190 G→R / 322
+G→W** — net negative, reverted.
+
+**The mechanism is named, not mysterious**: the binder gives a
+class expression the synthetic name `__class`, and the type
+prints as `typeof __class` where the baseline wants `typeof V` —
+the VARIABLE's name (classExpressionNames 20,
+privateNameMethodClassExpression 19, staticIndexSignature6 17,
+staticFieldWithInterfaceContext 23). Upstream resolves an
+anonymous class expression's printed name from its declaration
+context, which is the same per-site naming road that refused
+§145's namespace mint, §156's class-alias mint and §158's
+ES-alias references. **Fourth measured instance of that wall**,
+and the first where the arm itself is otherwise correct and
+complete — the type is right, only its NAME is unspelled.
+
+Rebuild condition: the contextual-naming road (a symbol's printed
+name taken from its declaration's binding when the symbol's own
+name is synthetic). With it, this arm is a one-line landing worth
+~190 G→R plus whatever the 322 convert to; without it, the arm
+cannot land at any gate, because the wrong name is in EVERY line
+it produces rather than in a separable subset.
