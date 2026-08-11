@@ -7971,6 +7971,8 @@ impl Checker<'_, '_> {
         // symbol.
         let mut using_at = None;
         let mut target_at = None;
+        // **A parameter property is not decided by position.** §976.
+        let mut from_parameter_property = false;
         for (index, element) in members.iter().enumerate() {
             let Some(id) = element.node_id() else { continue };
             if id == member {
@@ -8007,6 +8009,7 @@ impl Checker<'_, '_> {
                 });
                 if declares && target_at.is_none() {
                     target_at = Some(index);
+                    from_parameter_property = true;
                 }
                 continue;
             }
@@ -8027,7 +8030,18 @@ impl Checker<'_, '_> {
             target_at = Some(index);
         }
         let (Some(using_at), Some(target_at)) = (using_at, target_at) else { return };
-        if target_at < using_at {
+        // **For a parameter property the flag decides, not the order.** With
+        // `useDefineForClassFields` every field initializer runs before the
+        // constructor body assigns any parameter property, so *every* use in an
+        // initializer is early whatever the source order; without it the
+        // parameter is assigned first and none of them are. Comparing indices
+        // answered both halves wrongly, in opposite directions — §975's standing
+        // defect and this row's remaining cases are the same mechanism. §976.
+        if from_parameter_property {
+            if !self.standard_class_fields {
+                return;
+            }
+        } else if target_at < using_at {
             return;
         }
         // `!c.isPropertyDeclaredInAncestorClass(prop)` — the sixth conjunct,

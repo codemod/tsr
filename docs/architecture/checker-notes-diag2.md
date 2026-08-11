@@ -47709,3 +47709,80 @@ The standing defect is recorded rather than fixed: `class E { a = this.x;
 constructor(public x) {} }` is legal upstream and this port reports TS2729 on
 it. **Two lines, pre-existing, and not this build's** — but now written down
 with the fixture that shows it.
+
+## §976 — TS2729 and parameter properties: the order is not the question
+
+§975 recorded a standing defect and the row's remaining cases; they are the same
+mechanism seen from opposite sides.
+
+```ts
+// initializerReferencingConstructorParameters — no useDefineForClassFields
+class E { a = this.x; constructor(public x) {} }     // legal; this port reported
+
+// assignParameterPropertyToPropertyDeclarationES2022 — useDefineForClassFields: true
+class C {
+    bar = this.foo   // should error   — before the constructor
+    baz = this.foo;  // should error   — AFTER the constructor
+    constructor(public foo: string) {}
+}
+```
+
+The rule treats a parameter property as a member at the constructor's index and
+compares positions, so it reports the *earlier* use and not the later one. **Both
+answers are wrong, and in opposite directions**, because position is not what
+decides this.
+
+`useDefineForClassFields` is. With define semantics every field initializer runs
+**before** the constructor body assigns any parameter property, so *every*
+`this.foo` in an initializer is a use-before-initialization whatever the source
+order; without it, the parameter is assigned first and none of them are.
+
+So for a parameter-property target the test is the flag, not the index — and
+this port already has the flag as `standard_class_fields`, used four lines below
+for a different conjunct of the same upstream condition.
+
+```
+bar:  >= +1,  0 LOST via `diagpass`,  extraonly <= 75 (two wrong lines should go)
+```
+
+### Falsifiers
+
+1. **An ordinary property target stops respecting order.** `_b = this._a; _a = 3`
+   is the row's other half and is decided by position, not by the flag.
+2. **`initializerReferencingConstructorParameters` keeps its two extras.** That
+   fixture has no `useDefineForClassFields` and is the negative side of the flag.
+3. **A use inside a method reports.** `m1() { this.foo }` is "ok" in the same
+   fixture and is excluded by the enclosing-member test, not by anything here.
+
+## §977 — §976 built: **+2/−0**, and TS2729 now has no wrong lines at all
+
+```
+diagnostics   2,423 → 2,425   (+2)   44.19%
+diagpass      LOST: (none)
+              GAINED: assignParameterPropertyToPropertyDeclarationES2022,
+                      assignParameterPropertyToPropertyDeclarationESNext
+extraonly     75, unchanged
+TS2729        have 29,  missing 18 → 16,  **extra lines 3 → 0**
+```
+
+`have` did not move and the row still gained: **two wrong lines left and two
+right ones arrived**, which is exactly what a rule answering the wrong question
+looks like when it is given the right one. All three falsifiers negative, and
+falsifier 2 — `initializerReferencingConstructorParameters` keeping its extras —
+is now confirmed by `diagextra 2729` reading **0 cases, 0 lines**.
+
+> §975 recorded the standing defect as *"not this build's"* and left it. One
+> build later it turned out to be **the same mechanism as the row's remaining
+> cases, seen from the other side**: comparing positions answered the
+> no-`useDefineForClassFields` half by reporting what is legal, and the
+> define-on half by staying silent on what is not.
+>
+> **Recording a defect you decline to fix is what makes it findable when the
+> next build walks into it from the opposite direction.** Had §975 not written
+> the fixture down with the two lines, §976 would have been a build about
+> missing cases only, and the two wrong lines would still be there.
+
+The row is now **16 missing lines and no extras** — `redeclaredProperty` and
+`initializerWithThisPropertyAccess` remain, both wanting a property inherited
+from a base class, which needs the base's member table rather than the class's
+own. Owner: the type side.
