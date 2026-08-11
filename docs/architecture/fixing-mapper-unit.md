@@ -431,3 +431,44 @@ promiseType/promiseTypeStrictNull split stops appearing in the pair.
 Falsifier: if the adverse persists unchanged, the matched-test is
 still wrong and the recorded-priority channel is the suspect, not
 this piece.
+
+
+---
+
+## Slice 1 BUILT and MEASURED — the pre-registered falsifier FIRED (2026-08-10, checker-1)
+
+Built all four pieces together: the priority lattice, the whole
+`inferToMultipleTypes`, the recorded-priority channel, and
+`inferFromProperties` (target-driven member walk through the
+existing `get_type_of_property_of_type` seam, so instantiation is
+handled). Measured **+70 G→R against 84 G→W and 11 R→GAP** —
+reverted.
+
+**The falsifier this document registered before the build**: *"if
+the adverse persists unchanged, the matched-test is still wrong and
+the recorded-priority channel is the suspect, not this piece."*
+
+It persists EXACTLY unchanged: promiseTypeStrictNull **26**,
+promiseType **18** — the identical counts the attempt WITHOUT the
+structural piece produced. Adding `inferFromProperties` moved that
+family not at all.
+
+**What this eliminates, which is the point of a pre-registered
+test**: structural member inference is NOT what the promise family
+needs, and the fourth piece as identified is not the blocker. The
+suspect is now the RECORDED-PRIORITY CHANNEL — specifically the
+matched-test in `inferToMultipleTypes`
+(`inference.go:469-478`), whose port approximates upstream's
+`n.inferencePriority == n.priority` comparison. Upstream sets
+`inferencePriority = MaxValue` before EACH sub-walk and mins it
+DOWN as candidates are recorded; a port that mins it down but never
+distinguishes "recorded at equal priority" from "recorded at all"
+marks sources matched that upstream leaves unmatched, and the
+unmatched-union then differs.
+
+**Next window's opener is therefore NOT more pieces**: it is a
+two-line instrumented probe of the matched-test on
+`resolve(value: T | PromiseLike<T>)` given `Promise<never>` —
+print `matched[]` and compare against what upstream must compute
+for the baseline to read `Promise<number>`. Everything needed is
+written and preserved (scratchpad `fm1.py`, `fm2.py`, `fm3.py`).
