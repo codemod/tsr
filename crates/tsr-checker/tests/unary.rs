@@ -165,7 +165,7 @@ fn a_negated_bigint_literal_is_a_negative_bigint_literal() {
 }
 
 #[test]
-fn an_operand_this_port_cannot_type_makes_the_result_a_gap() {
+fn an_operand_this_port_cannot_type_is_still_number() {
     // The twenty-first stand-in fixture to come due, and this one flipped
     // TWICE: it used `new C()` until `new` was ported, then asserted `error`
     // on the grounds that a gap operand makes bigint-likeness unknown — an
@@ -177,4 +177,31 @@ fn an_operand_this_port_cannot_type_makes_the_result_a_gap() {
     // its written name (`tsr-eep`) and negates to `number` exactly as
     // upstream's errorType operand does.
     assert_eq!(type_of_last("var u: Unresolved;\nconst x = -u;"), "number");
+}
+
+/// §192. `getUnaryResultType` cannot return an error type.
+///
+/// `maybeTypeOfKind` (`checker.go:10924`) is a flag test, and upstream's
+/// `errorType` is `TypeFlagsAny`-carrying, so it does not answer yes for
+/// `BigIntLike` and the function falls straight to `numberType`. This port used
+/// to propagate its `error` marker through instead, on the reasoning that an
+/// operand it could not type is exactly the case where bigint-ness is unknown —
+/// true, and irrelevant, because upstream is not consulting anything it does not
+/// also have.
+///
+/// The corpus line this is taken from is `x[x++]++ : number` in
+/// `compiler/decrementAndIncrementOperators`, over an operand upstream itself
+/// renders `any`.
+#[test]
+fn incrementing_an_operand_we_could_not_type_is_still_number() {
+    // `x` is a number, so `x[x++]` is an element access upstream reports on and
+    // types as its error type. The increment of that is still `number`.
+    assert_eq!(type_of_initialiser_at("var x: number = 0;\nvar y = x[x++]++;", 1), "number");
+}
+
+/// The control: the bigint arm is a real gap and must stay one, or the test
+/// above passes for a checker that answers `number` unconditionally.
+#[test]
+fn incrementing_a_bigint_is_still_a_gap() {
+    assert_eq!(type_of_initialiser_at("var b: bigint = 1n;\nvar y = b++;", 1), "error");
 }

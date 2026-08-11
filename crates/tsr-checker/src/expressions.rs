@@ -817,22 +817,33 @@ impl Checker<'_, '_> {
 
     /// Ported from `Checker.getUnaryResultType` (`checker.go:10923`).
     ///
-    /// # The bigint arm is a gap, and the operand's type is why this can fail
+    /// # The bigint arm is a gap; an un-typed operand is NOT
     ///
     /// Upstream answers `number` for everything that is not bigint-like, and
     /// `bigint` or `number | bigint` when it is. The bigint arm needs
     /// `numberOrBigIntType` and `isTypeAssignableToKind` — an assignability
     /// question this port cannot ask — so a bigint-like operand is a gap.
     ///
-    /// That is also why an operand this port could not type is a gap rather than
-    /// `number`: the *only* thing the answer depends on is whether the operand is
-    /// bigint-like, and an `errorType` operand is precisely the case where that
-    /// is unknown. Answering `number` there would be right for most of the corpus
-    /// and wrong for every bigint, which is the guess this discipline exists to
-    /// prevent.
+    /// **An `error` operand used to be a gap too, and that was wrong (§192).**
+    /// The reasoning recorded here was that the answer depends only on whether
+    /// the operand is bigint-like, and an operand this port could not type is
+    /// precisely the case where that is unknown — so answering `number` would
+    /// be a guess. But upstream is not guessing either: `maybeTypeOfKind` is a
+    /// **flag test**, upstream's `errorType` is `TypeFlagsAny`-carrying, and an
+    /// `Any` type does not carry the bigint bit. `getUnaryResultType` therefore
+    /// falls straight to `numberType` for it, and **cannot return an error type
+    /// at all** — `x[x++]++` in `compiler/decrementAndIncrementOperators` is
+    /// `number` in upstream's baseline over an operand upstream itself renders
+    /// as `any`.
+    ///
+    /// The paragraph below already said exactly this for `any` and `unknown`.
+    /// The `error` arm contradicted its own neighbour for two sessions.
+    /// Removing it: **+78 lines, 0 lost, +2 whole cases** across seventeen
+    /// cases, seven of them the `incrementOperatorWith*` / `decrementOperator*`
+    /// families whose whole subject this is.
     fn unary_result_type(&mut self, operand: TypeId) -> TypeId {
         let flags = self.store.get(operand).flags;
-        if operand == self.intrinsics.error || flags.intersects(TypeFlags::BIG_INT_LIKE) {
+        if flags.intersects(TypeFlags::BIG_INT_LIKE) {
             return self.intrinsics.error;
         }
         // `any`/`unknown` answer `number`: `maybeTypeOfKind` is a FLAG test
