@@ -1508,6 +1508,18 @@ impl<'a> Checker<'a, '_> {
         match self.nodes.kind(declaration) {
             SyntaxKind::FunctionDeclaration => true,
             SyntaxKind::MethodDeclaration => !may_return_never,
+            // §169 (`checker-notes-narrow.md`): a function EXPRESSION or
+            // ARROW takes no contextual return exactly when §94's predicate
+            // can SHOW there is no contextual type at its position — the
+            // question this gate asks, answered by the machinery already
+            // built for it. `const b = function*() { yield 1; }` inferred
+            // `error` while the identical DECLARATION inferred
+            // `Generator<number, void, unknown>`, and an ANNOTATED
+            // expression already worked: the asymmetry was this list, not
+            // the generator road.
+            SyntaxKind::FunctionExpression | SyntaxKind::ArrowFunction => {
+                self.has_no_contextual_type(declaration)
+            }
             _ => false,
         }
     }

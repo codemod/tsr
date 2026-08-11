@@ -7260,3 +7260,34 @@ name is synthetic). With it, this arm is a one-line landing worth
 ~190 G→R plus whatever the 322 convert to; without it, the arm
 cannot land at any gate, because the wrong name is in EVERY line
 it produces rather than in a separable subset.
+
+
+## §169 - a function EXPRESSION takes no contextual return when §94 can show it [checker-1]
+
+**Score: +39 / 3 (13:1) - LANDED.** The claimed expression-dispatch
+audit's first real find, and it was NOT a missing arm:
+`declaration_takes_no_contextual_return` - the gate the
+generator/async body-inference road consults - listed
+`FunctionDeclaration` and `MethodDeclaration` and answered `false`
+for everything else. So `function* gd() { yield 1; }` inferred
+`() => Generator<number, void, unknown>` while the IDENTICAL
+expression `const ge = function*() { yield 1; }` answered error,
+and an ANNOTATED expression already worked - the asymmetry was the
+list, not the generator road.
+
+The gate's own question - does this declaration take no contextual
+return - is exactly what §94's `has_no_contextual_type` was built
+to answer for expressions, so the extension reuses a proven
+predicate rather than inventing a test: a FunctionExpression or
+ArrowFunction is admitted precisely where the absence of a
+contextual type can be SHOWN. dynamicImportEvaluateSpecifier 5,
+generatorAssignability 4, FunctionDeclaration12_es6 3, tail spread.
+Three adverse (asyncArrowFunction_allowJs 2, a JS-file shape;
+circularInferredTypeOfVariable 1).
+
+**Corollary 5's second half, confirmed from the other direction**:
+the audit predicted a missing ARM and found a missing LIST ENTRY -
+the same failure mode (an enumeration that stopped early) on a
+different surface. Worth widening the corollary's wording: census
+the dispatch AND the predicates it consults, because a gate that
+enumerates kinds is a dispatch wearing different clothes.
