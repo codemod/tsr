@@ -50,9 +50,13 @@ impl<'a> Checker<'a, '_> {
         // A written type-argument list makes the call a *generic* one, and
         // `f < A, B > 7` parses as a call here and as a comparison chain
         // upstream (`grammarAmbiguities1`). Both are declined.
-        if !call.type_arguments.is_empty() {
-            return;
-        }
+        //
+        // **The decline is about the parse, not about resolution.** A call
+        // written with type arguments can only match a *generic* signature, so
+        // the overload path stays open with its candidates filtered to the
+        // generic ones; only the sole-signature path — where the ambiguity
+        // actually bites — is still declined. §970.
+        let explicit_type_arguments = !call.type_arguments.is_empty();
         let arguments = call.arguments.len();
         // The argument *types* are checked at the same gate as the count,
         // because both need the same thing: exactly one signature, known from
@@ -60,9 +64,11 @@ impl<'a> Checker<'a, '_> {
         // arity and only for a candidate that survived it, so the ordering here
         // is upstream's too.
         self.check_argument_types(call, callee);
-        let Some((minimum, maximum)) =
+        let Some((minimum, maximum)) = (if explicit_type_arguments {
+            self.overload_set_arity_filtered(callee, true)
+        } else {
             self.sole_signature_arity(callee).or_else(|| self.overload_set_arity(callee))
-        else {
+        }) else {
             return;
         };
         let unbounded = maximum.is_none();
@@ -568,6 +574,17 @@ impl<'a> Checker<'a, '_> {
     /// with the same shape — the argument-TYPE half is not attempted at all,
     /// because there is no single parameter list to attempt it against.
     fn overload_set_arity(&mut self, callee: NodeId) -> Option<(usize, Option<usize>)> {
+        self.overload_set_arity_filtered(callee, false)
+    }
+
+    /// The overload set's arity range, optionally restricted to the **generic**
+    /// overloads — the candidates a call with explicit type arguments can
+    /// select. §970.
+    fn overload_set_arity_filtered(
+        &mut self,
+        callee: NodeId,
+        generic_only: bool,
+    ) -> Option<(usize, Option<usize>)> {
         let symbol = self.callee_symbol(callee)?;
         let entry = self.binder.symbols().get(symbol);
         if !entry.flags.intersects(SymbolFlags::FUNCTION | SymbolFlags::METHOD)
@@ -578,6 +595,16 @@ impl<'a> Checker<'a, '_> {
         let declarations = entry.declarations.clone();
         let mut ranges = Vec::new();
         for declaration in declarations {
+            if generic_only {
+                let generic = match self.node_map.get(declaration)? {
+                    Node::FunctionDeclaration(node) => !node.type_parameters.is_empty(),
+                    Node::MethodDeclaration(node) => !node.type_parameters.is_empty(),
+                    _ => false,
+                };
+                if !generic {
+                    continue;
+                }
+            }
             let parameters = match self.node_map.get(declaration)? {
                 Node::FunctionDeclaration(node) if node.body.is_none() => node.parameters,
                 Node::MethodDeclaration(node) if node.body.is_none() => node.parameters,
@@ -596,7 +623,12 @@ impl<'a> Checker<'a, '_> {
             }
             ranges.push((Self::minimum_argument_count(&parameters), parameters.len()));
         }
-        if ranges.len() < 2 {
+        // **Two ranges are required only when every overload is a candidate.**
+        // Filtering to the generic ones routinely leaves exactly one, and
+        // rejecting that was §970's first measurement: +0, because
+        // `functionCall18` has precisely one generic overload and the whole
+        // point of the filter is that it is the only candidate. §971.
+        if ranges.len() < if generic_only { 1 } else { 2 } {
             return None;
         }
         let minimum = ranges.iter().map(|(minimum, _)| *minimum).min()?;

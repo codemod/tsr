@@ -47465,3 +47465,87 @@ sixty sections later.**
 
 Falsifier 1 is preserved by construction: a non-literal computed name returns
 `None` and falls back to the `[]` namespace, which is §52's bound.
+
+## §970 — TS2554: explicit type arguments select the generic overload
+
+§950's list, TS2554: **11 sole-obstacle cases, 15 lines**, seven of them
+single-line. `functionCall18` is the cleanest:
+
+```ts
+declare function foo<T>(a: T, b: T);
+declare function foo(a: {});
+foo<string>("hello");        // TS2554 — Expected 2 arguments, but got 1
+```
+
+`check_call_arity` already reads overload sets, unions their arity ranges and
+declines when any range covers the argument count — so `(1,1)` from the second
+overload swallows this call. Upstream does not consider that overload at all: a
+call written with type arguments can only match a **generic** signature.
+
+The rule also declines *every* call carrying type arguments, on a stated reason:
+
+```rust
+// `f < A, B > 7` parses as a call here and as a comparison chain upstream
+// (`grammarAmbiguities1`). Both are declined.
+if !call.type_arguments.is_empty() { return; }
+```
+
+That decline is about a **parse** ambiguity and it is being asked to cover a
+*resolution* question as well. §952's sentence applies again — *a refusal
+written about a mechanism silently covers every position* — and the narrowing is
+the same shape: keep the decline for the sole-signature path, and let the
+**overload** path through with the candidate list filtered to declarations that
+have type parameters.
+
+```
+bar:  >= +1,  0 LOST via `diagpass`,  extraonly delta <= +1
+```
+
+### Falsifiers
+
+1. **`grammarAmbiguities1` moves.** It is the fixture the blanket decline was
+   written for and it must stay exactly as it is.
+2. **A call with type arguments to a non-generic overload set reports.** With no
+   generic candidate there is nothing to select and the rule must fall silent
+   rather than pick the first.
+3. **`extraonly` moves.** Restricting a candidate list can only make the
+   accepted range *narrower*, so any new extra line is a candidate wrongly
+   excluded.
+
+## §971 — §970 built: **+1/−0**, and a guard that was right for the unfiltered set
+
+```
+diagnostics   2,419 → 2,420   (+1)   44.10%
+diagpass      LOST: (none)   GAINED: compiler/functionCall18
+extraonly     75, unchanged
+TS2554        have 100 → 101,  missing 102
+```
+
+The first measurement was **+0**, and the cause was one line inside the function
+being reused:
+
+```rust
+if ranges.len() < 2 { return None; }
+```
+
+That guard is correct for the unfiltered set — fewer than two ranges means the
+symbol is not an overload set and the sole-signature path owns it. Under the
+generic filter it is **exactly backwards**: `functionCall18` has one generic
+overload and one non-generic, so filtering leaves a single range, and the whole
+point of the filter is that this range is the only candidate.
+
+> **A guard written for a function's only caller becomes an assumption when a
+> second caller arrives.** `ranges.len() < 2` encoded "is this an overload set"
+> in a place that now also answers "which overloads survive selection", and
+> those are different questions that happened to share an expression.
+>
+> Cheap to find — one measurement — and worth recording because the shape
+> recurs: §957's `excludes` mask, §966's bail-out and this are all a condition
+> that was right where it was written and wrong once the code around it grew a
+> second meaning.
+
+Falsifier 1 negative: `grammarAmbiguities1` did not move, because the
+sole-signature path is still declined for calls carrying type arguments and only
+the overload path was opened. Falsifiers 2 and 3 negative — `extraonly`
+unchanged at 75, and a filtered candidate list can only narrow the accepted
+range.
