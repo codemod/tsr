@@ -48621,3 +48621,54 @@ harness collapses them to the one its baseline records.
 `diagcount` now reads zero on every count, corpus-wide. **The multiset blind
 spot §992 named is closed**: no case in the corpus fails because a right line is
 emitted too many times, and the instrument that proves it runs in one command.
+
+## §998 — `diagtext`: auditing the number itself
+
+Every percentage this workstream has reported rests on comparing
+`(file, line, column, code)`. The baselines carry more:
+
+```
+commaOperator1.ts(1,11): error TS2695: Left side of comma operator is unused …
+```
+
+`errors_baseline::parse` reads the position and the code and **drops the
+message**, so a diagnostic with a right code at a right position and a *wrong
+argument* — `Cannot find name 'foo'` where upstream says `'bar'` — scores as a
+pass. In four hundred and fifty builds nobody measured what that hides, and the
+question is not academic: it is whether **2,473** is the number or an upper
+bound on it.
+
+`diagtext` renders every reported diagnostic through `Message::format` and
+compares it against the text on the baseline's own line, **for the passing cases
+only**.
+
+```
+6 PASSING cases carry at least one wrong message
+
+    code   lines
+  TS1005       8
+```
+
+**Six of 2,473 — 0.24% — and all eight lines are one divergence**: TS1005 is
+*`'{0}' expected`*, and this port supplies a different expected token than
+upstream in a handful of recovery positions.
+
+```
+conformance/parserErrorRecovery_ArgumentList4   want: ',' expected.   got: ')' expected.
+conformance/octalIntegerLiteralError            want: ',' expected.   got: ';' expected.
+```
+
+> **The number is sound.** That is worth measuring rather than assuming, and
+> worth recording as a measurement rather than a reassurance: 0.24% of the board
+> is credited on a message this port gets wrong, the whole of it is one code, and
+> the owner is the **parser**'s recovery — not the checker, and not something
+> this workstream can or should fix.
+>
+> It also bounds a class of future doubt. Every rule shipped this session took
+> an argument from somewhere — `symbolToString`, a name's text, a keyword — and
+> any of them could have been wrong without the suite noticing. Now the answer
+> is a command instead of an argument.
+
+Filed as `bd` follow-up rather than fixed here: the eight lines are in
+`tsr-parser`'s error recovery and cost **zero** cases, since all six of these
+cases already pass.

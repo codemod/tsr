@@ -232,6 +232,46 @@ pub fn reported_for(test: &crate::TestCase) -> Vec<BaselineDiagnostic> {
     apply_comment_directives(test, actual)
 }
 
+/// Every diagnostic this port reports, as `((file, line, column, code), rendered
+/// message)`.
+///
+/// [`reported_for`] drops the message because the suite compares only the four
+/// printed fields; the baselines carry the text as well, and auditing it is what
+/// `diagtext` does. Built by rendering each message template against its
+/// arguments — `Message::format`, the same substitution upstream prints.
+///
+/// `docs/architecture/checker-notes-diag2.md` §998.
+#[must_use]
+pub fn rendered_for(test: &crate::TestCase) -> Vec<((String, u32, u32, u32), String)> {
+    let mut out = Vec::new();
+    for unit in &test.files {
+        let kind = tsr_parser::ScriptKind::from_file_name(&unit.name);
+        if kind == tsr_parser::ScriptKind::Json {
+            continue;
+        }
+        let parsed = ParsedFile::parse_with_script_kind(unit.content.clone(), kind);
+        let mut reported = parsed.diagnostics().to_vec();
+        parsed.with_ast_and_arena(|file, arena| {
+            let bound = tsr_binder::bind(
+                arena,
+                file,
+                parsed.nodes(),
+                tsr_binder::FileInfo { name: &unit.name, text: parsed.source() },
+            );
+            reported.extend(bound.diagnostics().iter().cloned());
+        });
+        for diagnostic in reported {
+            let (line, character) = line_and_character(&unit.content, diagnostic.span.start);
+            let args: Vec<&str> = diagnostic.args.iter().map(String::as_str).collect();
+            out.push((
+                (unit.name.clone(), line + 1, character + 1, diagnostic.message.code()),
+                diagnostic.message.format(&args),
+            ));
+        }
+    }
+    out
+}
+
 /// `@ts-ignore` / `@ts-expect-error`, applied per file over the whole set.
 ///
 /// See [`crate::comment_directives`] for the rule. The split by unit is not an
