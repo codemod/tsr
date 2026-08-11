@@ -99,5 +99,14 @@ fn an_absent_private_name_is_a_gap() {
     #a: number = 1;
     m() { return this.#missing; }
 }";
-    assert_eq!(type_of_private_access(absent), "any");
+    // SS186 corrected this pin, which CONTRADICTED ITS OWN NAME: the test
+    // is called "is a gap" — errorType, in this project's vocabulary — and
+    // asserted `"any"`, which was the old lookup's behaviour rather than a
+    // reading off the oracle. Upstream refuses to resolve a private name the
+    // enclosing class does not declare (`lookupSymbolForPrivateIdentifier
+    // Declaration`) and its type IS the error type; the `.types` baselines
+    // spell that `any` only in files that have an errors baseline, which is
+    // the SS180 printing guard and not the type. The conformance board is
+    // the evidence: the lexical rule measured +10 whole cases, 0 lost.
+    assert_eq!(type_of_private_access(absent), "error");
 }

@@ -78,6 +78,40 @@ impl Checker<'_, '_> {
         computed
     }
 
+    /// SS186: does the class body lexically containing `node` declare the
+    /// private name `name`? Upstream's `lookupSymbolForPrivateIdentifier
+    /// Declaration` walks containing classes; a name found on an ANCESTOR
+    /// class is not accessible, which is what distinguishes this from a
+    /// members lookup.
+    fn enclosing_class_declares_private(&self, node: tsr_ast::NodeId, name: &str) -> bool {
+        let mut current = self.nodes.parent(node);
+        while let Some(id) = current {
+            let members = match self.node_map.get(id) {
+                Some(Node::ClassDeclaration(class)) => Some(class.members),
+                Some(Node::ClassExpression(class)) => Some(class.members),
+                _ => None,
+            };
+            if let Some(members) = members {
+                let declares = members.iter().any(|member| {
+                    let member_name = match member {
+                        tsr_ast::ClassElement::PropertyDeclaration(p) => Some(p.name),
+                        tsr_ast::ClassElement::MethodDeclaration(m) => Some(m.name),
+                        tsr_ast::ClassElement::GetAccessorDeclaration(a) => Some(a.name),
+                        tsr_ast::ClassElement::SetAccessorDeclaration(a) => Some(a.name),
+                        _ => None,
+                    };
+                    matches!(member_name, Some(tsr_ast::PropertyName::PrivateIdentifier(p))
+                        if p.text == name)
+                });
+                if declares {
+                    return true;
+                }
+            }
+            current = self.nodes.parent(id);
+        }
+        false
+    }
+
     fn check_property_access_expression_worker(
         &mut self,
         node: &tsr_ast::PropertyAccessExpression<'_>,
@@ -90,6 +124,22 @@ impl Checker<'_, '_> {
             tsr_ast::MemberName::Identifier(name) => name.text,
             tsr_ast::MemberName::PrivateIdentifier(name) => name.text,
         };
+        // SS186: a PRIVATE name is lexically scoped to the class body that
+        // DECLARES it (`lookupSymbolForPrivateIdentifierDeclaration`,
+        // checker.go:11475). The doc comment above claimed the lookup
+        // "misses anyway" what that rule would reject — the FOURTH
+        // unfalsified redundancy claim this session, and false here: in
+        // `class Derived extends Base`, `#prop` IS a member of `Derived`'s
+        // type by inheritance, so the lookup succeeds where upstream
+        // rejects. The oracle records the same `x.#prop` as `number` inside
+        // `Base` and `any` (its errorType) inside `Derived`
+        // (`privateNameFieldDerivedClasses`).
+        if let tsr_ast::MemberName::PrivateIdentifier(_) = member
+            && let Some(access_id) = node.node_id
+            && !self.enclosing_class_declares_private(access_id, name)
+        {
+            return error;
+        }
         let receiver_type = self.check_expression(receiver);
         if receiver_type == error {
             return error;
