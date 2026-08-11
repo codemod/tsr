@@ -46263,3 +46263,93 @@ new C().f<string>(1);        // needs the property access's signature
 > whichever case happens to be one line short**, which is the third time this
 > session (§884, §913, this) that the gain landed somewhere the bar had not
 > looked.
+
+## §944 — TS2774: an uncalled function in a condition, entirely unbuilt
+
+§941's tail, second draw. **TS2774 has no producer at all** — the message
+constant appears nowhere in `tsr-checker` — and the row is 65 lines in four
+fixtures.
+
+```ts
+function f(required: () => boolean, optional?: () => boolean) {
+    if (required) { }      // TS2774 — always defined; did you mean to call it?
+    if (optional) { }      // ok — optional
+    if (!!required) { }    // ok — the condition is the `!!`
+    if (required()) { }    // ok — a call
+}
+```
+
+`checkTestingKnownTruthyType` (`checker.go:3830`) is a large rule: it walks
+`||`/`??` chains, asks `getSignaturesOfType`, checks `hasTypeFacts(Truthy)`, and
+**de-scopes to functions unreferenced in the block** as an explicit heuristic
+against false positives.
+
+The four fixtures are all its narrowest shape, and every part of that shape is
+syntactic and already available here:
+
+```
+the condition is an identifier          `check_truthiness_sites` already has the tested node
+its declaration is function-typed       a `FunctionType` annotation on a parameter or variable
+it is not optional                      no `?` token
+the body does not mention it            `subtree_mentions_identifier`, §804
+strictNullChecks                        upstream's own precondition, first line of the rule
+```
+
+**Only the narrow shape is built.** The `||`/`??` walk, the enum-literal arm and
+the signature-list path are upstream's and are not attempted — they are the
+row's remaining lines and the type side's.
+
+```
+bar:  >= +1 (truthinessCallExpressionCoercion),  0 LOST via `diagpass`,
+      extraonly delta <= +2
+```
+
+### Falsifiers
+
+1. **`if (optional)` reports.** The `?` is the whole difference in the fixture's
+   first two lines.
+2. **`if (required())` reports.** A call expression is not an identifier.
+3. **A body that calls `required()` reports.** That is upstream's heuristic and
+   the reason the rule is narrow at all.
+
+## §945 — §944 built: **+0 cases, +4 lines**, and the honest ratio
+
+```
+diagnostics   2,385 → 2,385   (+0)   43.46%
+diagpass      LOST: (none)   GAINED: (none)
+extraonly     75, unchanged
+TS2774        have 0 → 4,  missing 65 → 61
+```
+
+Seventy lines of rule for four lines of output. **Twentieth `+0` kept for
+fidelity**, and the thinnest ratio of any build this session.
+
+It is kept because the row had **no producer at all** and now has upstream's
+narrowest arm, correctly bounded: a non-optional function-typed identifier or a
+function declaration, in an `if` whose body does not mention it. All three
+falsifiers negative — `if (optional)`, `if (required())` and a body that calls
+the function are each silent, and those three lines are 3 of the 4 in the
+fixture's first function.
+
+### What the remaining 61 need, and why the bar was right to stop
+
+```
+the `||` / `??` walk          upstream re-tests each left operand
+the enum-literal arm          a different message, TS2801
+`getSignaturesOfType`         a value whose *type* has call signatures, not whose
+                              annotation is written as one
+reference-not-name in body    `if (test) { [() => null].forEach(test => …) }` shadows
+                              the name; upstream's check is on the resolved symbol and
+                              this port's is on the text, so it declines
+```
+
+The last is the interesting one: **this port's body test is a name scan and
+upstream's is a reference check.** A shadowed parameter of the same name makes
+the two disagree, and the disagreement costs a line rather than adding a wrong
+one — which is why the narrow form is safe to ship and the wide one is not.
+
+> **A build worth +4 lines is still worth making when the alternative is a code
+> with no producer**, but the ratio belongs in the note. §941 said the tail pays
+> in small increments; this is the small end of that, and the next row should be
+> chosen knowing that TS2774's shape was *four fixtures deep* rather than four
+> lines wide.

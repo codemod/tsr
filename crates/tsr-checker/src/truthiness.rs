@@ -79,7 +79,103 @@ impl Checker<'_, '_> {
             _ => return,
         };
         let Some(tested) = tested else { return };
+        if let Some(Node::IfStatement(statement)) = self.node_map.get(node) {
+            self.check_uncalled_function_in_condition(tested, statement.then_statement);
+        }
         self.check_truthiness_of(tested);
+    }
+
+    /// TS2774 — `This condition will always return true since this function is
+    /// always defined. Did you mean to call it instead?`
+    ///
+    /// `checkTestingKnownTruthyType` (`checker.go:3830`). Only the narrowest
+    /// shape is ported: an **identifier** condition whose declaration carries a
+    /// **function type** and no `?`, in an `if` whose body does not mention it.
+    /// Upstream's `||`/`??` walk, its enum-literal arm and its signature-list
+    /// path are not attempted.
+    ///
+    /// The body test is upstream's own heuristic, and its comment is the
+    /// justification: *"we de-scope to functions and Promises unreferenced in
+    /// the block … there are too many false positives otherwise."*
+    ///
+    /// `docs/architecture/checker-notes-diag2.md` §944.
+    fn check_uncalled_function_in_condition(
+        &mut self,
+        tested: Expression<'_>,
+        body: Option<tsr_ast::Statement<'_>>,
+    ) {
+        if !self.strict_null_checks {
+            return;
+        }
+        let Some(at) = tested.node_id() else { return };
+        if self.nodes.kind(at) != SyntaxKind::Identifier {
+            return;
+        }
+        let Some(text) = self.identifier_text(at).map(str::to_string) else { return };
+        let Some(symbol) = self.binder.resolve_name(
+            self.nodes,
+            self.node_map,
+            at,
+            &text,
+            tsr_binder::SymbolFlags::VALUE,
+        ) else {
+            return;
+        };
+        let declarations =
+            self.binder.symbols().get(self.binder.merged_symbol(symbol)).declarations.clone();
+        let [declaration] = declarations.as_slice() else { return };
+        // **A function declaration is always defined**, which is the rule's
+        // whole premise and needs no annotation — `function test() {}` then
+        // `if (test)` is the shape of three of the four fixtures. §944.
+        let annotated = match self.node_map.get(*declaration) {
+            Some(Node::FunctionDeclaration(_)) => true,
+            Some(Node::ParameterDeclaration(parameter)) => {
+                if parameter.question_token.is_some() {
+                    return;
+                }
+                parameter
+                    .r#type
+                    .and_then(|t| t.node_id())
+                    .is_some_and(|id| self.nodes.kind(id) == SyntaxKind::FunctionType)
+            }
+            Some(Node::VariableDeclaration(variable)) => variable
+                .r#type
+                .and_then(|t| t.node_id())
+                .is_some_and(|id| self.nodes.kind(id) == SyntaxKind::FunctionType),
+            _ => return,
+        };
+        if !annotated {
+            return;
+        }
+        // Upstream's heuristic: a body that mentions the name is left alone.
+        if let Some(body) = body.and_then(|statement| statement.node_id())
+            && self.subtree_mentions_identifier_for_truthiness(body, &text)
+        {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
+        let span = self.error_span(at);
+        self.report(
+            file,
+            Diagnostic::new(
+                &messages::THIS_CONDITION_WILL_ALWAYS_RETURN_TRUE_SINCE_THIS_FUNCTION_IS_ALWAYS_DEFINED_DID_YOU_MEAN_TO_CALL_IT_INSTEAD,
+                span,
+            ),
+        );
+    }
+
+    /// Does this subtree mention the name? §944's half of §804's walk.
+    fn subtree_mentions_identifier_for_truthiness(&self, root: NodeId, text: &str) -> bool {
+        if matches!(self.node_map.get(root), Some(Node::Identifier(name)) if name.text == text) {
+            return true;
+        }
+        let mut children = Vec::new();
+        if let Some(typed) = self.node_map.get(root) {
+            tsr_ast::for_each_child_id(typed, |child| children.push(child));
+        }
+        children
+            .into_iter()
+            .any(|child| self.subtree_mentions_identifier_for_truthiness(child, text))
     }
 
     /// `checkTruthinessOfType` (`checker.go:12865`), against the expression's
