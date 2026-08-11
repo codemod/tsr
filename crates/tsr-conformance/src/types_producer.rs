@@ -433,8 +433,20 @@ pub fn type_id_at_location<'a>(
             Some(SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression)
         )
         && let Some(symbol_and_text) = (match map.get(id) {
+            // SS194: the heritage expression is an ORDINARY EXPRESSION, so
+            // the name resolves in VALUE meaning and an inner value binding
+            // SHADOWS an outer class — `class A {}` beside
+            // `namespace Foo { var A = 1; class B extends A {} }` records
+            // `>A : number` (the fixture is literally named
+            // `classExtendsClauseClassNotReferringConstructor`). Resolving
+            // with TYPE meaning skipped the shadowing binding and found the
+            // outer class. VALUE first, TYPE as the fallback so every
+            // previously-answered heritage name keeps its answer.
             Some(Node::Identifier(name)) if nodes.kind(id) == SyntaxKind::Identifier => binder
-                .resolve_name(nodes, map, id, name.text, tsr_binder::SymbolFlags::TYPE)
+                .resolve_name(nodes, map, id, name.text, tsr_binder::SymbolFlags::VALUE)
+                .or_else(|| {
+                    binder.resolve_name(nodes, map, id, name.text, tsr_binder::SymbolFlags::TYPE)
+                })
                 .map(|s| (s, None)),
             // §60: a QUALIFIED base (`extends N.C<...>`) resolves through
             // the namespace and prints the qualified spelling — the newly
