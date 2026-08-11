@@ -8170,3 +8170,33 @@ single-blocker cases plus whatever share of the binder's own
 recorded "223-case regression" this shape represents. **This is the
 single best-specified item left in this file** — component cleared,
 mechanism proven, fix named, measurement protocol known.
+
+
+**§188 FIX ATTEMPTED — necessary but NOT sufficient, reverted.**
+Made the edit the diagnosis named: `lookup_scoped`
+(`tsr-binder/src/lib.rs:340`) follows `export_symbol` when the
+local marker's own flags miss the requested meaning, beside the
+existing ALIAS override.
+
+Measured: **+15 right, −30 wrong, against 3 R→GAP and 1 R→W**
+(exportDefaultInterface 2, exportDefaultInterfaceAndValue 1,
+defaultDeclarationEmitDefaultImport 1). It fires — exportDefaultAbstractClass
++5 — but **the case it was built for still fails**:
+`export default class A {}` still answers `A : error`.
+
+So the export_symbol follow is a real missing link and NOT the
+whole cause. A second mechanism keeps `A` unresolvable, and the
+diagnosis above is therefore incomplete where it said "the fix,
+stated precisely". Reverted rather than landed: a change that
+misses its own target while carrying four regressions would also
+muddy the next window's reading of this file.
+
+**What is now known for certain** (all measured, none inferred):
+the local IS declared under the written name; `EXPORT_VALUE` is
+written and never read; `export_symbol` is followed only in
+`initializer_symbol`; adding the follow to `lookup_scoped` moves
+15 lines and does not fix the default-export case. The second
+cause is the open question, and the next probe should instrument
+`lookup_scoped` itself on `A` — whether it is reached, what the
+marker's flags and link actually are — rather than reasoning
+further from the shape.
