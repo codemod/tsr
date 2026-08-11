@@ -209,14 +209,84 @@ Two tests, the first a true positive confirmed red under the mutation
 followed by a real binding must still continue the list — without it, deleting
 the loop body passes).
 
-### Slice 2 and after — what the remaining shapes need, and the wall
+### Slice 2 — §193, the await context (+4 cases, 0 lost)
+
+Landed, and it is the *opposite* of a list-termination fix: the four cases here
+needed this port to stop manufacturing a node in one place and **keep**
+manufacturing it in the neighbouring one.
+
+`await` is contextual. Upstream commits to an await expression only when
+`isAwaitExpression` (`parser.go:5115`) says so — inside an await context
+always, outside one only when the next token is an identifier, keyword or
+literal on the same line (`nextTokenIsIdentifierOrKeywordOrLiteralOnSameLine`,
+`:4011`). This port had **neither** test and always built an
+`AwaitExpression`, over a manufactured missing operand when nothing followed.
+
+The corpus proves each half in a neighbouring pair, and this is the whole
+design argument:
+
+| case | source | upstream's assertions |
+|---|---|---:|
+| `asyncFunctionDeclaration3_es6` | `function f(await = await) {}` | **3** — the initialiser is an identifier |
+| `asyncFunctionDeclaration6_es6` | `async function foo(a = await) {}` | **4** — the initialiser IS an await expression, and the fourth line is its missing operand, rendered `> : any` |
+
+So a port with only the lookahead half gets the first right and the second
+wrong; a port with neither gets the first wrong and the second right. **This
+was measured, not reasoned about**: the lookahead-only version was built first
+and came in at **+4 / −4, net zero**, with the four losses precisely
+`asyncFunctionDeclaration6/7` and friends plus the `importCallExpression*`
+family (`await import(...)`, killed by the same version's `import` deviation).
+Net zero is what sent the work to the context flag instead of shipping.
+
+`Parser::in_await_context` is a **bool with save-and-restore**, not a counter
+like `no_in`, because the context is *set to a value* at each boundary: a
+non-async function nested inside an async one turns it back **off**, which a
+counter cannot express. `with_await_context` is upstream's
+`saveContextFlags` / `setContextFlags` / restore triple.
+
+Wired at seven boundaries, each anchored at its site: function declarations and
+expressions (`parser.go:2506`), class and object-literal methods, arrow
+parameters and bodies (`:3299`, `:4484`), class static blocks — which turn it
+**on** unconditionally (`:2539`) — and constructors and accessors, which turn
+it **off** unconditionally because neither can be `async`.
+
+**Not wired, and named so the gap is visible rather than assumed absent:**
+
+- The **top level of an external module** (`parser.go:554`). Upstream turns the
+  context on for a file it has decided is a module, which is what makes
+  top-level `await` legal there; this port does not make that decision in the
+  parser, so a top-level `await` still goes through the lookahead half.
+- **`export =` and `export …`** (`:5117`-adjacent), which upstream parses in an
+  await context.
+- A **parameter's decorators**, which upstream parses in the *outer* context
+  while the rest of the parameter takes the function's (`:3322`).
+- The **yield** context, which shares upstream's word. It has no reader here:
+  `is_binding_identifier` is upstream's own context-free test, and
+  `isYieldExpression`'s context half is unported.
+
+Three tests, all confirmed red under named mutations — one killing the context
+half (`if false && self.in_await_context`), one killing the guard entirely
+(`if true || self.is_await_expression()`), which is what separates the two
+directions the pair above describes.
+
+### Slice 3 and after — what the remaining shapes need, and the wall
 
 The other list contexts in the 27 need predicates this parser does not have.
 `PCArgumentExpressions` is `token == ... || isStartOfExpression()`
 (`parser.go:882`), and `isStartOfExpression` (`:6144`) rests on
 `isStartOfLeftHandSideExpression`, `isBinaryOperator` and an `isIdentifier`
-that consults the yield and await contexts — **none of which this port tracks**
-(`grep -rn 'yield_context' crates/tsr-parser/src` is empty).
+that consults the yield and await contexts.
+
+> `isStartOfExpression` **was** transcribed during slice 2 and then deleted
+> unused, because the await work took a different road. Its three deviations,
+> should it be needed again, all narrowing: no `isBinaryOperator` (only the
+> genuinely binary operators are missed — `+`, `-`, `~`, `!`, `<` all start
+> unary expressions on their own account); `import` refused outright rather
+> than asking `isNextTokenOpenParenOrLessThanOrDot`, **which is the deviation
+> that cost the lookahead-only await version four `importCallExpression*`
+> cases**; and `is_binding_identifier` in place of `isIdentifier`. The middle
+> one is the lesson: a narrowing deviation is safe only where the predicate is
+> used to *decline*, and `await import(x)` is exactly where it was not.
 
 More importantly, upstream's loop is a *three-way* decision, not a two-way one.
 When the token is neither a list element nor a terminator,

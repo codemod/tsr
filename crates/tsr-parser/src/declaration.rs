@@ -245,7 +245,9 @@ impl<'a> Parser<'a> {
         // anything else is a modifier.
         if self.at(SyntaxKind::StaticKeyword) && self.next_is_open_brace() {
             self.next_token();
-            let body = self.parse_block();
+            // `parseClassStaticBlockBody` (`parser.go:2539`) turns the await
+            // context ON unconditionally: `static { await x }` is legal.
+            let body = self.with_await_context(true, Self::parse_block);
             return Some(ClassElement::ClassStaticBlockDeclaration(self.finish_node(
                 ClassStaticBlockDeclaration::new(&[], Some(body)),
                 SyntaxKind::ClassStaticBlockDeclaration,
@@ -299,9 +301,13 @@ impl<'a> Parser<'a> {
         {
             self.next_token();
             let type_parameters = self.parse_type_parameters();
-            let parameters = self.parse_parameter_list();
-            let return_type = self.parse_return_type_annotation();
-            let body = self.parse_method_body();
+            // A constructor cannot be `async`, so its signature flags carry no
+            // `ParseFlagsAwait` and its context is OFF however it is nested.
+            let (parameters, return_type, body) = self.with_await_context(false, |parser| {
+                let parameters = parser.parse_parameter_list();
+                let return_type = parser.parse_return_type_annotation();
+                (parameters, return_type, parser.parse_method_body())
+            });
             let modifiers = self.arena.alloc_slice(&modifiers);
             let type_parameters = self.arena.alloc_slice(&type_parameters);
             let parameters = self.arena.alloc_slice(&parameters);
@@ -329,9 +335,13 @@ impl<'a> Parser<'a> {
             let is_getter = self.at(SyntaxKind::GetKeyword);
             self.next_token();
             let name = self.parse_property_name();
-            let parameters = self.parse_parameter_list();
-            let return_type = self.parse_return_type_annotation();
-            let body = self.parse_method_body();
+            // An accessor cannot be `async` either — same reasoning as the
+            // constructor above.
+            let (parameters, return_type, body) = self.with_await_context(false, |parser| {
+                let parameters = parser.parse_parameter_list();
+                let return_type = parser.parse_return_type_annotation();
+                (parameters, return_type, parser.parse_method_body())
+            });
             let modifiers = self.arena.alloc_slice(&modifiers);
             let parameters = self.arena.alloc_slice(&parameters);
             return Some(if is_getter {
@@ -396,9 +406,13 @@ impl<'a> Parser<'a> {
             || self.at(SyntaxKind::LessThanToken)
         {
             let type_parameters = self.parse_type_parameters();
-            let parameters = self.parse_parameter_list();
-            let return_type = self.parse_return_type_annotation();
-            let body = self.parse_method_body();
+            // A method's own await context, from its own `async` — §193.
+            let is_async = Self::is_async(&modifiers);
+            let (parameters, return_type, body) = self.with_await_context(is_async, |parser| {
+                let parameters = parser.parse_parameter_list();
+                let return_type = parser.parse_return_type_annotation();
+                (parameters, return_type, parser.parse_method_body())
+            });
             let type_parameters = self.arena.alloc_slice(&type_parameters);
             let parameters = self.arena.alloc_slice(&parameters);
             let node = self.finish_node(

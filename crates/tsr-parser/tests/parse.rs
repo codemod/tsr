@@ -1494,3 +1494,57 @@ fn a_comma_followed_by_a_binding_continues_the_variable_list() {
     let list = node.declaration_list.expect("a declaration list");
     assert_eq!(list.declarations.len(), 3);
 }
+
+/// §193. `await` is contextual, and BOTH halves of upstream's test are needed.
+///
+/// `isAwaitExpression` (`parser.go:5115`) is an await context OR — outside one —
+/// a lookahead for an identifier, keyword or literal on the same line. The
+/// corpus proves each half in a neighbouring pair of cases: upstream records
+/// three assertions for `function f(await = await) {}` and **four** for
+/// `async function foo(a = await) {}`, the fourth being the await expression's
+/// missing operand. A port with only the lookahead half gets the first right
+/// and the second wrong; a port with neither, as this one had, gets the first
+/// wrong and the second right.
+#[test]
+fn await_outside_an_await_context_is_an_identifier() {
+    let arena = Arena::new();
+    let parsed = parse(&arena, "function f(await = await) {}");
+    let found = all_nodes(tsr_ast::Node::SourceFile(parsed.source_file)).iter().any(|node| {
+        node.node_id().is_some_and(|id| parsed.nodes.kind(id) == SyntaxKind::AwaitExpression)
+    });
+    assert!(!found, "a non-async function's parameter initialiser `await` is an identifier");
+}
+
+/// The control, and the case that refuted the lookahead-only version of this
+/// fix: inside an async signature the very same text IS an await expression,
+/// missing operand and all.
+#[test]
+fn await_inside_an_await_context_is_an_expression_even_with_no_operand() {
+    let arena = Arena::new();
+    for source in [
+        "async function foo(a = await) {}",
+        "async function foo() { await }",
+        "class C { static { await } }",
+        "var f = async () => { await };",
+        "var o = { async m() { await } };",
+    ] {
+        let parsed = parse(&arena, source);
+        let found = all_nodes(tsr_ast::Node::SourceFile(parsed.source_file)).iter().any(|node| {
+            node.node_id().is_some_and(|id| parsed.nodes.kind(id) == SyntaxKind::AwaitExpression)
+        });
+        assert!(found, "{source:?} must parse an AwaitExpression");
+    }
+}
+
+/// The other direction of the same context: a non-async function nested inside
+/// an async one turns the context back OFF, which is why it is set to a value
+/// rather than pushed like `no_in`.
+#[test]
+fn a_nested_non_async_function_leaves_the_await_context() {
+    let arena = Arena::new();
+    let parsed = parse(&arena, "async function bar() { function foo(a = await) {} }");
+    let found = all_nodes(tsr_ast::Node::SourceFile(parsed.source_file)).iter().any(|node| {
+        node.node_id().is_some_and(|id| parsed.nodes.kind(id) == SyntaxKind::AwaitExpression)
+    });
+    assert!(!found, "the inner function is not async, so its `await` is an identifier");
+}

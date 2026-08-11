@@ -933,15 +933,24 @@ impl<'a> Parser<'a> {
             Some(self.parse_identifier())
         };
         let type_parameters = self.parse_type_parameters();
-        let parameters = self.parse_parameter_list();
-        let return_type = self.parse_return_type_annotation();
-        // An overload signature has no body, just a semicolon.
-        let body = if self.at(SyntaxKind::OpenBraceToken) {
-            Some(FunctionBody::Block(self.parse_block()))
-        } else {
-            self.parse_semicolon();
-            None
-        };
+        // Parameters and body are inside this function's own await context, not
+        // the enclosing one — `parseParameters(signatureFlags)` /
+        // `parseFunctionBlockOrSemicolon(signatureFlags)` at `parser.go:2506`.
+        // A non-async function nested in an async one turns the context OFF,
+        // which is why this is set to a value rather than pushed. §193.
+        let is_async = Self::is_async(modifiers);
+        let (parameters, return_type, body) = self.with_await_context(is_async, |parser| {
+            let parameters = parser.parse_parameter_list();
+            let return_type = parser.parse_return_type_annotation();
+            // An overload signature has no body, just a semicolon.
+            let body = if parser.at(SyntaxKind::OpenBraceToken) {
+                Some(FunctionBody::Block(parser.parse_block()))
+            } else {
+                parser.parse_semicolon();
+                None
+            };
+            (parameters, return_type, body)
+        });
 
         let modifiers = self.arena.alloc_slice(modifiers);
         let type_parameters = self.arena.alloc_slice(&type_parameters);

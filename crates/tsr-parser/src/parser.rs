@@ -171,6 +171,21 @@ pub struct Parser<'a> {
     /// the loop header malformed. A counter rather than a bool because the
     /// restriction nests: `for ((a in b);;)` re-enables it inside the parens.
     pub(crate) no_in: u32,
+    /// Whether `await` is a keyword here rather than an identifier.
+    ///
+    /// Upstream's `NodeFlagsAwaitContext` bit of `Parser.contextFlags`
+    /// (`parser.go:6380`). A bool with save-and-restore rather than a counter,
+    /// because the context is *set to a value* at each boundary and not merely
+    /// pushed: a non-async function nested inside an async one turns it back
+    /// **off**, which a counter cannot express. Use
+    /// [`Parser::with_await_context`].
+    ///
+    /// Only `await` is tracked. Upstream carries `YieldContext` and
+    /// `DisallowInContext` in the same word; `no_in` below is this port's
+    /// counter for the third, and the yield context has no reader here yet —
+    /// `is_binding_identifier` is upstream's own context-free test, and
+    /// `isYieldExpression`'s context half is unported. §193.
+    pub(crate) in_await_context: bool,
     /// Non-zero while a nested type may not consume a conditional `extends`.
     ///
     /// The extends-side of a conditional type uses this to resolve
@@ -283,6 +298,12 @@ impl<'a> Parser<'a> {
             nodes,
             node_map,
             no_in: 0,
+            // False at the top level. Upstream turns it on for a file it has
+            // decided is an external module (`parser.go:554`), which is what
+            // makes top-level `await` legal there; this port does not make that
+            // decision in the parser, so a top-level `await` outside a function
+            // still goes through `isAwaitExpression`'s lookahead half. §193.
+            in_await_context: false,
             disallow_conditional_types: 0,
             jsdoc: Vec::new(),
             parse_jsdoc: options.jsdoc,
@@ -449,6 +470,35 @@ impl<'a> Parser<'a> {
         let saved = self.save_state();
         let result = f(self);
         self.restore_state(saved);
+        result
+    }
+
+    /// Whether an `async` modifier is among these.
+    ///
+    /// The `ParseFlagsAwait` half of upstream's `signatureFlags`
+    /// (`parser.go:2500`), which every signature computes from its own
+    /// modifiers before parsing its parameters and body.
+    pub(crate) fn is_async(modifiers: &[tsr_ast::ModifierLike<'_>]) -> bool {
+        modifiers.iter().any(|modifier| {
+            matches!(modifier, tsr_ast::ModifierLike::Token(token) if token.kind == tsr_ast::SyntaxKind::AsyncKeyword)
+        })
+    }
+
+    /// Run `f` with [`Self::in_await_context`] set to `value`, restoring it after.
+    ///
+    /// Upstream's `saveContextFlags := p.contextFlags` /
+    /// `p.setContextFlags(ast.NodeFlagsAwaitContext, …)` /
+    /// `p.contextFlags = saveContextFlags` triple, which appears at every
+    /// signature, function body, arrow body, class static block and enum body
+    /// in `parser.go`.
+    pub(crate) fn with_await_context<T>(
+        &mut self,
+        value: bool,
+        f: impl FnOnce(&mut Self) -> T,
+    ) -> T {
+        let saved = std::mem::replace(&mut self.in_await_context, value);
+        let result = f(self);
+        self.in_await_context = saved;
         result
     }
 

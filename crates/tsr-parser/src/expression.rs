@@ -402,7 +402,10 @@ impl<'a> Parser<'a> {
     /// Parse prefix operators and `await`, then a postfix expression.
     pub(crate) fn parse_unary_expression(&mut self) -> Expression<'a> {
         let start = self.pos();
-        match self.token.kind {
+        // Bound before matching: the `await` arm's guard needs `&mut self` for
+        // lookahead, which a match on `self.token.kind` directly would forbid.
+        let kind = self.token.kind;
+        match kind {
             // **`++` and `--` take a *left-hand-side* expression**, not a unary
             // one: `UpdateExpression : ++ LeftHandSideExpression`. Upstream
             // routes them through `parseUpdateExpression`, so `++ delete x`
@@ -463,7 +466,8 @@ impl<'a> Parser<'a> {
                 );
                 Expression::DeleteExpression(node)
             }
-            SyntaxKind::AwaitKeyword => {
+            // `await` is CONTEXTUAL — see [`Self::is_await_expression`].
+            SyntaxKind::AwaitKeyword if self.is_await_expression() => {
                 self.next_token();
                 let operand = self.parse_unary_expression();
                 let node = self.finish_node(
@@ -1074,9 +1078,14 @@ impl<'a> Parser<'a> {
         // `{ m() {} }` and `{ m<T>() {} }` are methods.
         if self.at(SyntaxKind::OpenParenToken) || self.at(SyntaxKind::LessThanToken) {
             let type_parameters = self.parse_type_parameters();
-            let parameters = self.parse_parameter_list();
-            let return_type = self.parse_return_type_annotation();
-            let body = FunctionBody::Block(self.parse_block());
+            // `{ async m() { await x } }` — an object-literal method's await
+            // context is its own, exactly as a class method's is. §193.
+            let is_async = Self::is_async(&modifiers);
+            let (parameters, return_type, body) = self.with_await_context(is_async, |parser| {
+                let parameters = parser.parse_parameter_list();
+                let return_type = parser.parse_return_type_annotation();
+                (parameters, return_type, FunctionBody::Block(parser.parse_block()))
+            });
             let modifiers = self.arena.alloc_slice(&modifiers);
             let type_parameters = self.arena.alloc_slice(&type_parameters);
             let parameters = self.arena.alloc_slice(&parameters);
@@ -1195,7 +1204,11 @@ impl<'a> Parser<'a> {
                 Some(parameter)
             })?;
             let arrow = self.take_token();
-            let body = self.parse_arrow_body();
+            // `parseArrowFunctionExpressionBody` sets the await context from
+            // `isAsync` (`parser.go:4484`) — the *body*'s context, which is why
+            // it is entered after the `=>` rather than around the parameter.
+            let body =
+                self.with_await_context(async_modifier.is_some(), Self::parse_arrow_body_inner);
             let parameters = self.arena.alloc_slice(&[parsed]);
             let modifiers = modifier_slice(self.arena, async_modifier);
             let node = self.finish_node(
@@ -1225,12 +1238,17 @@ impl<'a> Parser<'a> {
         }
 
         let start = self.pos();
+        let is_async = async_modifier.is_some();
         let type_parameters = self.parse_type_parameters();
-        let parameters = self.parse_parameter_list();
-        // A return type may intervene: `(a): number => a`.
-        let return_type = self.parse_return_type_annotation();
+        // Parameters take the signature's await context (`parser.go:3299`), the
+        // body the same one (`:4484`); the `=>` between them is neither's.
+        let (parameters, return_type) = self.with_await_context(is_async, |parser| {
+            let parameters = parser.parse_parameter_list();
+            // A return type may intervene: `(a): number => a`.
+            (parameters, parser.parse_return_type_annotation())
+        });
         let arrow = self.take_token();
-        let body = self.parse_arrow_body();
+        let body = self.with_await_context(is_async, Self::parse_arrow_body_inner);
         let parameters = self.arena.alloc_slice(&parameters);
         let type_parameters = self.arena.alloc_slice(&type_parameters);
         let modifiers = modifier_slice(self.arena, async_modifier);
@@ -1430,6 +1448,12 @@ impl<'a> Parser<'a> {
             }
             self.next_token();
         }
+    }
+
+    /// [`Self::parse_arrow_body`]'s body, taken as a function pointer so the
+    /// two call sites can hand it to [`Parser::with_await_context`].
+    fn parse_arrow_body_inner(&mut self) -> ConciseBody<'a> {
+        self.parse_arrow_body()
     }
 
     fn parse_arrow_body(&mut self) -> ConciseBody<'a> {
@@ -1706,9 +1730,13 @@ impl<'a> Parser<'a> {
             Some(self.parse_identifier())
         };
         let type_parameters = self.parse_type_parameters();
-        let parameters = self.parse_parameter_list();
-        let return_type = self.parse_return_type_annotation();
-        let body = FunctionBody::Block(self.parse_block());
+        // The signature's own await context — see `parse_function_declaration`.
+        let is_async = async_modifier.is_some();
+        let (parameters, return_type, body) = self.with_await_context(is_async, |parser| {
+            let parameters = parser.parse_parameter_list();
+            let return_type = parser.parse_return_type_annotation();
+            (parameters, return_type, FunctionBody::Block(parser.parse_block()))
+        });
 
         let type_parameters = self.arena.alloc_slice(&type_parameters);
         let parameters = self.arena.alloc_slice(&parameters);
@@ -1775,6 +1803,43 @@ impl<'a> Parser<'a> {
         self.at(SyntaxKind::Identifier)
             || (self.token.kind.is_keyword()
                 && (self.token.kind as u16) > (SyntaxKind::LAST_RESERVED_WORD as u16))
+    }
+
+    /// Whether the `await` under the cursor opens an await *expression* rather
+    /// than naming an identifier.
+    ///
+    /// Upstream's `isAwaitExpression` (`parser.go:5115`), transcribed: inside an
+    /// await context it always does; outside one, only when the next token is
+    /// an identifier, keyword or literal on the same line.
+    ///
+    /// Both halves are load-bearing and the corpus proves it in one pair of
+    /// neighbouring cases. `asyncFunctionDeclaration3_es6` is
+    /// `function f(await = await) {}` — **not** async, so the initialiser is a
+    /// plain identifier and upstream records three assertions.
+    /// `asyncFunctionDeclaration6_es6` is
+    /// `async function foo(a = await) {}` — async, so the initialiser IS an
+    /// await expression, over a missing operand, and upstream records **four**,
+    /// the fourth with empty source text. A port with only the lookahead half
+    /// gets the first right and the second wrong; a port with neither, as this
+    /// one had, gets the first wrong and the second right. §193.
+    fn is_await_expression(&mut self) -> bool {
+        if self.in_await_context {
+            return true;
+        }
+        self.look_ahead(|parser| {
+            parser.next_token();
+            // `nextTokenIsIdentifierOrKeywordOrLiteralOnSameLine`
+            // (`parser.go:4011`).
+            !parser.token.has_preceding_line_break()
+                && (parser.token.kind == SyntaxKind::Identifier
+                    || parser.token.kind.is_keyword()
+                    || matches!(
+                        parser.token.kind,
+                        SyntaxKind::NumericLiteral
+                            | SyntaxKind::BigIntLiteral
+                            | SyntaxKind::StringLiteral
+                    ))
+        })
     }
 
     /// Whether a *binding* can start here: a pattern, a private name, or a
