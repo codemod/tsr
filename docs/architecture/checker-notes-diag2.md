@@ -44763,3 +44763,65 @@ is `check_comma_left` — which is upstream's `checker.go:12534`, the same rule
 > after, and it cost one command. **The rule that keeps being relearned is not
 > "greps are unreliable" — it is that a count is a claim, and a claim gets a
 > falsifier like any other.**
+
+## §904 — TS2300 on a duplicate member of a type literal
+
+```ts
+function addProp2(x: any): x is { a: string; a: string; } { return true; }
+//                                ^ TS2300      ^ TS2300
+```
+
+TS2300 is the largest **non-relation** row left — 20 cases blocked on it alone,
+71 lines — and this shape is the head of it. It is entirely syntactic: two
+property signatures of one name in one type literal.
+
+Upstream gets there through the binder: each member is `declareSymbol`'d into the
+literal's own members table, and the second collides
+(`binder.go:217`, the same arm §864 reads for `let`/`var`). This port's binder
+does not give a type literal a members table of its own, and no checker rule asks
+the question — `check.rs:5915`'s duplicate rule is for **parameters**.
+
+**Overloads are the reason this must be restricted to properties.** Two
+`MethodSignature`s of one name are a legal overload set; two `PropertySignature`s
+are not. Call, construct and index signatures have no name to collide on.
+
+```
+bar:  >= +1,  0 LOST via `diagpass`,  WRONG delta <= +2
+```
+
+### Falsifiers
+
+1. **An overload set reports.** `{ f(): void; f(x: number): void }` is legal.
+2. **An interface merging across declarations reports.** Two `interface I`
+   bodies each declaring `a` is TS2717's question, not this one.
+
+## §905 — §904 built: **+4/−0**, and the largest non-relation row moves
+
+```
+diagnostics   2,361 → 2,365   (bar was >= +1;  +4)   43.09%
+diagpass      LOST: (none)
+              GAINED: checkTypePredicateForRedundantProperties, propertySignatures,
+                      duplicatePropertiesInTypeAssertions01, 02
+extraonly     79, unchanged
+TS2300        20 cases → 16,  71 lines → 59
+```
+
+Forty lines of rule, four cases, no wrong lines — and both falsifiers negative,
+which is what the properties-only restriction was for.
+
+**TS2300 was the largest non-relation row on the board** and it is now 16 cases.
+That it was reachable at all is worth stating: §864 looked at TS2300 six weeks of
+sections ago through `diagdup`, found the **displacement** shape
+(TS2451-beside-TS2300, 6 lines), proved both message selectors faithful and
+refused it to the symbol table. That refusal was correct and it was about a
+different sixth of the row.
+
+> **A row is not one question.** §864 answered *"why is the wrong code chosen
+> here"* and filed it accurately; §904 asked *"which of these lines does no rule
+> produce at all"* and found forty lines of missing rule underneath. The refusal
+> did not block the build — but the row *read* as refused for forty sections,
+> and nothing in `STATUS.md` §5 distinguishes *"this shape is refused"* from
+> *"this code is refused"*.
+
+That is a defect in how refusals are written, not in §864: the entry now says
+which **shape** it refused.

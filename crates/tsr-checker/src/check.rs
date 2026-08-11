@@ -622,7 +622,8 @@ impl Checker<'_, '_> {
                 self.check_circular_type_parameter_constraint(node);
                 ambient
             }
-            Node::TypeLiteralNode(_) => {
+            Node::TypeLiteralNode(literal) => {
+                self.check_duplicate_type_literal_members(literal.members);
                 self.check_private_name_in_object_literal(node);
                 // A type literal carries index signatures exactly as an
                 // interface does, and §69's rule already matches the kind —
@@ -6107,6 +6108,49 @@ impl Checker<'_, '_> {
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
         let span = self.error_span(node);
         self.report(file, Diagnostic::new(&messages::OBJECT_IS_POSSIBLY_UNDEFINED, span));
+    }
+
+    /// TS2300 — `Duplicate identifier '{0}'`, for two property signatures of one
+    /// name in a single type literal.
+    ///
+    /// Upstream reaches this through the binder: each member is `declareSymbol`'d
+    /// into the literal's own members table and the second collides
+    /// (`binder.go:217`). This port's binder gives a type literal no members
+    /// table, so the question is asked here instead.
+    ///
+    /// **Properties only.** Two `MethodSignature`s of one name are a legal
+    /// overload set; call, construct and index signatures have no name to
+    /// collide on.
+    ///
+    /// `docs/architecture/checker-notes-diag2.md` §904.
+    fn check_duplicate_type_literal_members(&mut self, members: &[tsr_ast::TypeElement<'_>]) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let named: Vec<(NodeId, &str)> = members
+            .iter()
+            .filter_map(|member| {
+                let tsr_ast::TypeElement::PropertySignatureDeclaration(property) = member else {
+                    return None;
+                };
+                match property.name {
+                    tsr_ast::PropertyName::Identifier(name) => Some((name.node_id?, name.text)),
+                    tsr_ast::PropertyName::StringLiteral(name) => Some((name.node_id?, name.text)),
+                    _ => None,
+                }
+            })
+            .collect();
+        for (index, &(id, text)) in named.iter().enumerate() {
+            if !named.iter().enumerate().any(|(other, &(_, name))| other != index && name == text) {
+                continue;
+            }
+            let Some(file) = self.source_file_of_for_diagnostics(id) else { continue };
+            let span = self.error_span(id);
+            self.report(
+                file,
+                Diagnostic::with_args(&messages::DUPLICATE_IDENTIFIER_0, span, [text.to_string()]),
+            );
+        }
     }
 
     fn check_modifier_order(&mut self, node: NodeId, modifiers: &[ModifierLike<'_>]) {
