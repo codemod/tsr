@@ -7503,3 +7503,37 @@ single-blocker family: it is **blocked behind cross-file binding**,
 not behind a gate refinement. §173 took the one slice that was
 independent of it (the export-assignment form, which references a
 purely local name); the remainder waits on `bd tsr-9or.1`.
+
+
+## §175 — an unannotated setter parameter takes the accessor's type (+92/0) [checker-1]
+
+**The near-miss census's second conversion, and it took THREE roads
+to find the one the type actually travels.** `set bar(n)` beside
+`get bar() { return 0; }` answered the implicit `any`; upstream's
+`getTypeOfAccessors` (`checker.go:18515-18529`) resolves an
+accessor's type in a fixed order — the getter's annotation, then the
+setter's, then the GETTER'S BODY return inference — and the setter's
+value parameter takes that type (`inferSetterParamType`, whose
+oracle records `>bar : number` on both accessors).
+
+Three attempts, each refuted by a probe rather than by reasoning:
+
+1. `get_widened_type_for_variable_like_declaration` — the arm never
+   fired; a parameter's type does not travel that road.
+2. `get_contextually_typed_parameter_type` (the right road) reading
+   the paired getter through `get_signature_from_declaration` — also
+   never fired, because **`signature_parts_of` has no GetAccessor
+   arm at all**. That is the audit's fifth missing arm, hiding
+   underneath this one exactly as corollary 5's second half predicts.
+3. The same road reading the SHARED accessor symbol —
+   `getTypeOfAccessors` operates on the symbol the getter and setter
+   both bind to, which is upstream's own formulation and needs no
+   signature. **+92 / 0.**
+
+divergentAccessorsVisibility1 9, typeOfThisGeneral 8,
+accessors_spec_section-4.5_error-cases 4, long tail.
+
+**The missing GetAccessor arm in `signature_parts_of` is left
+standing and unmeasured** — this arm routed around it rather than
+fixing it, and whether it is worth its own slice is an open
+question, not a closed one.

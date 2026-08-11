@@ -3035,6 +3035,38 @@ impl<'a> Checker<'a, '_> {
         widened
     }
 
+    /// §175: the GET accessor declared beside a SET accessor — same
+    /// container, same property name. `GetDeclarationOfKind(symbol,
+    /// KindGetAccessor)` (`checker.go:18517`) reaches it through the shared
+    /// symbol; this walks the container's members, which is the same set.
+    pub(crate) fn paired_get_accessor(&self, setter: NodeId) -> Option<NodeId> {
+        let name = match self.node_map.get(setter)? {
+            Node::SetAccessorDeclaration(node) => match node.name {
+                tsr_ast::PropertyName::Identifier(name) => name.text,
+                tsr_ast::PropertyName::StringLiteral(name) => name.text,
+                _ => return None,
+            },
+            _ => return None,
+        };
+        let container = self.nodes.parent(setter)?;
+        let members: &[tsr_ast::ClassElement<'_>] = match self.node_map.get(container)? {
+            Node::ClassDeclaration(class) => class.members,
+            Node::ClassExpression(class) => class.members,
+            _ => return None,
+        };
+        members.iter().find_map(|member| match member {
+            tsr_ast::ClassElement::GetAccessorDeclaration(getter) => {
+                let getter_name = match getter.name {
+                    tsr_ast::PropertyName::Identifier(n) => n.text,
+                    tsr_ast::PropertyName::StringLiteral(n) => n.text,
+                    _ => return None,
+                };
+                (getter_name == name).then_some(getter.node_id).flatten()
+            }
+            _ => None,
+        })
+    }
+
     /// The type annotation of a declaration, if it has one.
     pub(crate) fn type_annotation_of(&self, declaration: NodeId) -> Option<TypeNode<'a>> {
         match self.node_map.get(declaration)? {

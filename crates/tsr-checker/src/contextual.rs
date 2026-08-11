@@ -163,6 +163,29 @@ impl<'a> Checker<'a, '_> {
         parameter: NodeId,
     ) -> Option<TypeId> {
         let function = self.nodes.parent(parameter)?;
+        // §175 (`checker-notes-narrow.md`): an unannotated SETTER value
+        // parameter takes the ACCESSOR's type, which upstream resolves in a
+        // fixed order (`checker.go:18520-18529`): the getter's annotation,
+        // the setter's, then the GETTER'S BODY return inference. So
+        // `set bar(n)` beside `get bar() { return 0; }` is `number`, not
+        // the implicit any (`inferSetterParamType`). This sits on the
+        // contextual road because that is the road a parameter's type
+        // actually travels.
+        if self.nodes.kind(function) == tsr_ast::SyntaxKind::SetAccessor
+            && self.paired_get_accessor(function).is_some()
+            && let Some(accessor) = self.binder.symbol_of(function)
+        {
+            // `getTypeOfAccessors` on the SHARED symbol (`checker.go:18515`)
+            // — the getter and setter bind to one symbol and its type IS the
+            // accessor's type. Read through the symbol rather than the
+            // getter's signature because `signature_parts_of` has no
+            // GetAccessor arm at all (the audit's fifth missing arm), so the
+            // signature road answers None here.
+            let accessor_type = self.get_type_of_symbol(accessor);
+            if accessor_type != self.intrinsics.error {
+                return Some(accessor_type);
+            }
+        }
         let parameters = self.contextualisable_parameters(function)?;
 
         // `slices.Index(fn.Parameters(), parameter)` (`checker.go:29489`). A
