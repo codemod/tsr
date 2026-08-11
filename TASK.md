@@ -800,3 +800,28 @@ possibly the PRINT lane, check ownership first); (c) `E ||| E | never`
 conversion of the first such lead (capturedLetConstInLoop → checker-2's
 §155) is the precedent: censuses here convert at ratio when the
 mechanism is one function away.
+
+## checker-2 window close #2 (2026-08-10, §159–§168)
+
+**Landed**: §159 checkDerived worker slice 1 (+13), §160 reference
+assignability in assignment narrowing (+20), §161 written type args on
+constructor interfaces (+192 at 64:1 — the day's largest arm until
+checker-1's §162), §162v2 the interface-constructor road transcribed
+(+44, zero R→W where its induced twin churned 23), §162.1
+getInstanceType's erased leg (+19), §163 isTypeDerivedFrom's structural
+arms (+17), §165 the hasOwnProperty arm (+10/2). **Total +315 landed,
+zero R→W across every transcription.**
+
+**Refused/reverted with banked texts**: §157 (graft 4:14), §162
+(induced 59:41), §164 global-target arms (+0), §166 typeof-switch
+exhaustiveness (+0 both suites), §167 predicate-road tails (+0), §168
+this-read (+0). The tail sweep priced at 1-in-3 reachable.
+
+**Codified**: the transcription law (conventions.md) + the pins
+corollary (induced reasoning hides in test pins).
+
+**Board at close**: right 414,927/478,954 = 86.63% with checker-1's
+§162. Ranked rocks: (1) fixing-mapper unit [checker-1's amended Phase 1:
+lattice + inferToMultipleTypes TOGETHER], (2) asserts/effects-signature
+machinery, (3) the thisType subsystem [twice-measured requirement],
+(4) dependent destructuring, (5) predicate inference.
