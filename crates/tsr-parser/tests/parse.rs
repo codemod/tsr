@@ -1548,3 +1548,64 @@ fn a_nested_non_async_function_leaves_the_await_context() {
     });
     assert!(!found, "the inner function is not async, so its `await` is an identifier");
 }
+
+/// §194. A heritage clause's list stops where upstream's does.
+///
+/// `isListElement`'s `PCHeritageClauseElement` arm (`parser.go:858`) is tested
+/// before every element including the first. Two tokens fail it that this
+/// parser used to consume: a `{` that is really the class body, and an
+/// `extends`/`implements` keyword. Each manufactured a base expression over a
+/// missing or misread name, which the `.types` walker then reported.
+#[test]
+fn a_heritage_list_stops_at_the_class_body() {
+    let arena = Arena::new();
+    for (source, expected) in [
+        ("class C extends A, {}", 1usize),
+        ("class D extends A, B, {}", 2),
+        ("class E extends A {}", 1),
+    ] {
+        let parsed = parse(&arena, source);
+        let Some(Statement::ClassDeclaration(class)) = parsed.source_file.statements.first() else {
+            panic!("expected a class in {source:?}");
+        };
+        let types: usize = class.heritage_clauses.iter().map(|clause| clause.types.len()).sum();
+        assert_eq!(types, expected, "{source:?}");
+    }
+}
+
+/// `class C extends implements A {}` is an `extends` clause with NO types and a
+/// separate `implements` clause — upstream records one assertion for the whole
+/// file, and this parser used to record three.
+#[test]
+fn extends_followed_by_implements_yields_an_empty_extends_clause() {
+    let arena = Arena::new();
+    let parsed = parse(&arena, "class C extends implements A {}");
+    let Some(Statement::ClassDeclaration(class)) = parsed.source_file.statements.first() else {
+        panic!("expected a class");
+    };
+    let clauses: Vec<(SyntaxKind, usize)> = class
+        .heritage_clauses
+        .iter()
+        .map(|clause| (clause.token.kind, clause.types.len()))
+        .collect();
+    assert_eq!(clauses, vec![(SyntaxKind::ExtendsKeyword, 0), (SyntaxKind::ImplementsKeyword, 1)]);
+}
+
+/// The control that keeps the `{` test honest: a NON-empty object literal, and
+/// an empty one followed by something that continues the header, really are
+/// base expressions. Without this, refusing every `{` also passes.
+#[test]
+fn an_object_literal_can_still_be_a_base_expression() {
+    let arena = Arena::new();
+    for source in ["class C extends { x: 1 } {}", "class D extends {} implements I {}"] {
+        let parsed = parse(&arena, source);
+        let Some(Statement::ClassDeclaration(class)) = parsed.source_file.statements.first() else {
+            panic!("expected a class in {source:?}");
+        };
+        assert_eq!(
+            class.heritage_clauses.first().map(|clause| clause.types.len()),
+            Some(1),
+            "{source:?} extends an object literal"
+        );
+    }
+}

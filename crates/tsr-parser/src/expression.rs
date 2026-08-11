@@ -1842,6 +1842,80 @@ impl<'a> Parser<'a> {
         })
     }
 
+    /// Whether a left-hand-side expression can start at the cursor.
+    ///
+    /// Upstream's `isStartOfLeftHandSideExpression` (`parser.go:6167`). The one
+    /// deviation is the fallback: upstream's is `isIdentifier`, which refuses
+    /// `yield`/`await` inside a yield or await context, and this port has no
+    /// yield context (§193), so it uses [`Self::is_binding_identifier`] —
+    /// upstream's own context-free variant of the same test.
+    pub(crate) fn is_start_of_left_hand_side_expression(&mut self) -> bool {
+        match self.token.kind {
+            SyntaxKind::ThisKeyword
+            | SyntaxKind::SuperKeyword
+            | SyntaxKind::NullKeyword
+            | SyntaxKind::TrueKeyword
+            | SyntaxKind::FalseKeyword
+            | SyntaxKind::NumericLiteral
+            | SyntaxKind::BigIntLiteral
+            | SyntaxKind::StringLiteral
+            | SyntaxKind::NoSubstitutionTemplateLiteral
+            | SyntaxKind::TemplateHead
+            | SyntaxKind::OpenParenToken
+            | SyntaxKind::OpenBracketToken
+            | SyntaxKind::OpenBraceToken
+            | SyntaxKind::FunctionKeyword
+            | SyntaxKind::ClassKeyword
+            | SyntaxKind::NewKeyword
+            | SyntaxKind::SlashToken
+            | SyntaxKind::SlashEqualsToken
+            | SyntaxKind::Identifier => true,
+            // `isNextTokenOpenParenOrLessThanOrDot` (`parser.go:6225`) — a bare
+            // `import` is a declaration, `import(` / `import<` / `import.` an
+            // expression.
+            SyntaxKind::ImportKeyword => self.peek_kind(|kind| {
+                matches!(
+                    kind,
+                    SyntaxKind::OpenParenToken | SyntaxKind::LessThanToken | SyntaxKind::DotToken
+                )
+            }),
+            _ => self.is_binding_identifier(),
+        }
+    }
+
+    /// Whether an expression can start at the cursor.
+    ///
+    /// Upstream's `isStartOfExpression` (`parser.go:6144`). The one deviation is
+    /// upstream's error-tolerance arm, which treats the start of *any* binary
+    /// operator as the start of an expression so it can parse out a missing
+    /// identifier and give a good message. This port has no `isBinaryOperator`;
+    /// every operator that also begins a **unary** expression (`+`, `-`, `~`,
+    /// `!`, `<`) is listed here on its own account, so only the genuinely binary
+    /// ones (`*`, `&&`, `instanceof`) are missed — and only in the direction of
+    /// answering `false` where upstream answers `true`.
+    pub(crate) fn is_start_of_expression(&mut self) -> bool {
+        if self.is_start_of_left_hand_side_expression() {
+            return true;
+        }
+        matches!(
+            self.token.kind,
+            SyntaxKind::PlusToken
+                | SyntaxKind::MinusToken
+                | SyntaxKind::TildeToken
+                | SyntaxKind::ExclamationToken
+                | SyntaxKind::DeleteKeyword
+                | SyntaxKind::TypeOfKeyword
+                | SyntaxKind::VoidKeyword
+                | SyntaxKind::PlusPlusToken
+                | SyntaxKind::MinusMinusToken
+                | SyntaxKind::LessThanToken
+                | SyntaxKind::AwaitKeyword
+                | SyntaxKind::YieldKeyword
+                | SyntaxKind::PrivateIdentifier
+                | SyntaxKind::AtToken
+        )
+    }
+
     /// Whether a *binding* can start here: a pattern, a private name, or a
     /// binding identifier.
     ///

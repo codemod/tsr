@@ -269,7 +269,46 @@ half (`if false && self.in_await_context`), one killing the guard entirely
 (`if true || self.is_await_expression()`), which is what separates the two
 directions the pair above describes.
 
-### Slice 3 and after — what the remaining shapes need, and the wall
+### Slice 3 — §194, heritage clause elements (+5 cases, 0 lost)
+
+The largest sub-family left after §193, and the first slice where the wall
+below turned out **not** to apply.
+
+`isListElement`'s `PCHeritageClauseElement` arm (`parser.go:858-870`) refuses
+two tokens this parser used to consume as base expressions:
+
+- **A `{` that is really the class body.** `isValidHeritageClauseObjectLiteral`
+  (`:6278`) treats an *empty* `{}` as the base expression only when what
+  follows continues the header — `{`, `,`, `extends`, `implements`. A
+  non-empty `{` is unambiguous and always an element.
+- **An `extends` or `implements` keyword** that is followed by something an
+  expression could start with (`isHeritageClauseExtendsOrImplementsKeyword`,
+  `:6301`). That is what tells `class C extends implements A` — an `extends`
+  clause with **no** types plus a separate `implements` clause, one assertion
+  in upstream's baseline — from a class genuinely extending a variable *named*
+  `implements`.
+
+**Why the wall did not apply here.** Slice 1's licence was that for
+`PCVariableDeclarations` every corpus token failing the element test also
+satisfies `isListTerminator`, so a two-way break cannot disagree with
+upstream's three-way decision. The same holds for this context, and more
+tightly: `isListTerminator(PCHeritageClauseElement)` is exactly `{`, `extends`,
+`implements` (`:923`) — the same three tokens the element test refuses. The
+recovery arm is unreachable for them by construction, not by coincidence.
+
+Measured: five cases, all in the structural pool
+(`parserErrorRecovery_ExtendsOrImplementsClause1/2/3/5`,
+`classHeritageWithTrailingSeparator`), **0 lost**.
+
+`isStartOfExpression` and `isStartOfLeftHandSideExpression` came back for this,
+now with call sites and with the `import` arm ported properly — its absence is
+what cost the lookahead-only await version four cases.
+
+Three tests, each red under a named mutation, the third being the control that
+an object literal really can be a base expression (without it, refusing every
+`{` passes).
+
+### Slice 4 and after — what the remaining shapes need, and the wall
 
 The other list contexts in the 27 need predicates this parser does not have.
 `PCArgumentExpressions` is `token == ... || isStartOfExpression()`

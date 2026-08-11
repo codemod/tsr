@@ -93,6 +93,16 @@ impl<'a> Parser<'a> {
             let token = self.take_token();
             let mut types = Vec::new();
             loop {
+                // `isListElement(PCHeritageClauseElement)` (`parser.go:858`),
+                // tested BEFORE each element including the first, exactly as
+                // `parseDelimitedList` tests it. Every token that fails this
+                // test in the corpus's error-recovery cases also satisfies
+                // `isListTerminator(PCHeritageClauseElement)` — `{`, `extends`,
+                // `implements` (`:923`) — so breaking here and upstream's
+                // three-way decision cannot disagree on them. §194.
+                if !self.is_heritage_clause_element() {
+                    break;
+                }
                 let type_start = self.pos();
                 let expression = self.parse_left_hand_side_for_heritage();
                 let type_arguments = self.parse_type_arguments_opt();
@@ -114,6 +124,66 @@ impl<'a> Parser<'a> {
             ));
         }
         clauses
+    }
+
+    /// Whether a heritage clause element can start at the cursor.
+    ///
+    /// `isListElement`'s `PCHeritageClauseElement` arm (`parser.go:858-870`),
+    /// with `inErrorRecovery` false — the value `parseDelimitedList` passes.
+    ///
+    /// Two subtleties, both upstream's and both load-bearing in the corpus:
+    ///
+    /// - A `{` is an element only when what follows makes it an object literal
+    ///   rather than the class body. `class C extends A, {` must stop at the
+    ///   `{`, or the class body is consumed as a base expression.
+    /// - `extends`/`implements` is not an element even though it is an
+    ///   identifier-shaped token, so `class C extends implements A {}` gives an
+    ///   `extends` clause with **no** types and a separate `implements` clause,
+    ///   which is why upstream records one assertion for it and this port
+    ///   recorded three.
+    fn is_heritage_clause_element(&mut self) -> bool {
+        if self.at(SyntaxKind::OpenBraceToken) {
+            return self.is_valid_heritage_clause_object_literal();
+        }
+        self.is_start_of_left_hand_side_expression()
+            && !self.is_heritage_clause_extends_or_implements_keyword()
+    }
+
+    /// `isValidHeritageClauseObjectLiteral` (`parser.go:6278`).
+    ///
+    /// `extends {}` is the base expression only when the `{}` is followed by
+    /// something that continues the header — `{`, `,`, `extends`, `implements`.
+    /// A non-empty `{` is always an element; only the empty one is ambiguous
+    /// with the class body.
+    fn is_valid_heritage_clause_object_literal(&mut self) -> bool {
+        self.look_ahead(|parser| {
+            parser.next_token();
+            if !parser.at(SyntaxKind::CloseBraceToken) {
+                return true;
+            }
+            parser.next_token();
+            matches!(
+                parser.token.kind,
+                SyntaxKind::CommaToken
+                    | SyntaxKind::OpenBraceToken
+                    | SyntaxKind::ExtendsKeyword
+                    | SyntaxKind::ImplementsKeyword
+            )
+        })
+    }
+
+    /// `isHeritageClauseExtendsOrImplementsKeyword` (`parser.go:6301`).
+    ///
+    /// An `extends` or `implements` that is followed by something an expression
+    /// could start with — which is what tells `class C extends implements A`'s
+    /// `implements` from a class genuinely extending a variable *named*
+    /// `implements`.
+    fn is_heritage_clause_extends_or_implements_keyword(&mut self) -> bool {
+        matches!(self.token.kind, SyntaxKind::ExtendsKeyword | SyntaxKind::ImplementsKeyword)
+            && self.look_ahead(|parser| {
+                parser.next_token();
+                parser.is_start_of_expression()
+            })
     }
 
     /// The expression after `extends` or `implements`.
