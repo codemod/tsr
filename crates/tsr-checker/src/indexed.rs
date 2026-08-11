@@ -137,6 +137,31 @@ impl Checker<'_, '_> {
         (self.element_access_lookup(node, object_type, index), was_optional)
     }
 
+    /// # The JS-literal arm, transcribed but NOT built (needs an object flag)
+    ///
+    /// `getPropertyTypeForIndexType`'s failure path answers `anyType` — twice,
+    /// at `checker.go:27130` and `:27189` — when `isJSLiteralType(objectType)`
+    /// (`utilities.go:1753`):
+    ///
+    /// ```go
+    /// if c.noImplicitAny { return false }          // meaningless in that mode
+    /// if t.objectFlags&ObjectFlagsJSLiteral != 0 { return true }
+    /// union: every constituent; intersection: some constituent
+    /// ```
+    ///
+    /// `ObjectFlagsJSLiteral` is set on object-literal types created in a JS
+    /// file (the expando pattern), and **this port carries no such flag**, so
+    /// the arm cannot be written faithfully today. The build is three pieces:
+    /// mark the type at [`Checker::check_object_literal`] when
+    /// `in_js_file(node)`, carry it (a side table, per ADR-0003, rather than
+    /// widening `TypeData`), and consult it here under `!noImplicitAny`.
+    ///
+    /// Head case: `compiler/jsNegativeElementAccessNotBound`, a `.js` file
+    /// with `var indexMap = {}; indexMap[-1] = 0;` — upstream records
+    /// `>indexMap[-1] : any` where this port answers `errorType`. Sized at
+    /// one deficit-1 case there, and the same arm covers every failed element
+    /// access on a JS object literal.
+    ///
     /// The lookup half: the index type against the receiver's properties and
     /// index signatures.
     fn element_access_lookup(
