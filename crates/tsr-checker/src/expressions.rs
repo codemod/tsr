@@ -320,6 +320,14 @@ impl Checker<'_, '_> {
                 TypeData::StringLiteral(node.text.to_string()),
                 true,
             ),
+            // §167 (`checker-notes-narrow.md`): `checkRegularExpressionLiteral`
+            // (`checker.go:8014-8018`) is one line past its grammar check —
+            // *return c.globalRegExpType*. This dispatch had no arm at all,
+            // so every regex literal answered errorType and took its uses
+            // with it (215 corpus lines want `RegExp`).
+            Expression::RegularExpressionLiteral(_) => self
+                .global_type_symbol_with_arity("RegExp", 0)
+                .map_or(self.intrinsics.error, |symbol| self.get_declared_type_of_symbol(symbol)),
             Expression::NumericLiteral(node) => self.store.intern_literal(
                 TypeFlags::NUMBER_LITERAL,
                 TypeData::NumberLiteral(printing::normalise_number(node.text)),

@@ -7204,3 +7204,29 @@ are ONE transcription (`getTypeWithThisArgument`,
 read, the call return through a property access, and the second
 mint table — for **+141 / 2 combined**, with no new machinery in
 any of them. Every increment came from enumerating another site.
+
+
+## §167 — a regular-expression literal is `RegExp` [checker-1]
+
+**Score: +328 / 3 (109:1) — LANDED, from a one-line missing
+dispatch arm.** `checkRegularExpressionLiteral`
+(`checker.go:8014-8018`) is a grammar check and then
+*return c.globalRegExpType*. This port's expression dispatch had
+NO `RegularExpressionLiteral` arm at all, so every regex literal
+answered errorType and carried its use sites down with it:
+regularExpressionAnnexB 36, useRegexpGroups 32,
+parserRegularExpression4 23, and a long tail across the parser
+and control-flow corpora — 320 G→R plus 8 W→R.
+
+The three adverse: doYouNeedToChangeYourTargetLibraryES2016Plus 2
+(a lib-version case where `RegExp` resolves to a shape whose
+members this port types differently) and assignmentTypeNarrowing 1.
+
+**Third missing-arm find of the window**, after
+`signature_parts_of`'s absent ConstructorDeclaration (§162) and
+the two this-mint tables (§166). The pattern is now unmistakable
+enough to state as guidance: when a want-shape census shows a
+large simple class (here `RegExp` at 215 wanted lines), check
+whether the DISPATCH has an arm for the node kind before
+investigating anything downstream — three of this window's four
+largest arms were absent match arms, not wrong logic.
