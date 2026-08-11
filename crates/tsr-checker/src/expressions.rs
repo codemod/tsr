@@ -666,6 +666,33 @@ impl Checker<'_, '_> {
             Expression::JsxElement(node) => self.check_jsx_element(node.node_id),
             Expression::JsxSelfClosingElement(node) => self.check_jsx_element(node.node_id),
             Expression::JsxFragment(node) => self.check_jsx_element(node.node_id),
+            // `checkClassExpression` (`checker.go:11832`) is
+            // `getTypeOfSymbol(getSymbolOfDeclaration(node))` — the class's
+            // static side, printed `typeof C`.
+            //
+            // **§168 refused this arm and the refusal was right about what it
+            // measured and wider than it.** Its finding was that the arm prints
+            // `typeof __class` — the binder's synthetic name — where the
+            // baseline wants `typeof V`, the name of the variable the class
+            // was assigned to. That is true of an **anonymous** class
+            // expression and says nothing about a **named** one, whose symbol
+            // carries the name the source wrote:
+            // `compiler/exportDefaultParenthesizeES6` records
+            // `>class Foo {} : typeof Foo`.
+            //
+            // So the arm is taken exactly where §168's measurement applies and
+            // refused exactly where it does not. The anonymous case still needs
+            // the per-site contextual naming that refused §145, §156, §158 and
+            // §168, and `functionsInClassExpressions` and
+            // `implementsInClassExpression` are still gaps because of it.
+            // `docs/conventions.md` corollary 11. §207.
+            Expression::ClassExpression(node) if node.name.is_some() => {
+                let Some(id) = node.node_id else { return self.intrinsics.error };
+                let Some(symbol) = self.binder.symbol_of(id) else {
+                    return self.intrinsics.error;
+                };
+                self.get_type_of_symbol(symbol)
+            }
             _ => self.intrinsics.error,
         }
     }

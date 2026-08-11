@@ -2429,3 +2429,31 @@ fn a_null_initialiser_widens_only_when_strict_null_checks_is_off() {
     }
     panic!("`c` is declared nowhere");
 }
+
+/// §207. A **named** class expression is `typeof C`.
+///
+/// `checkClassExpression` (`checker.go:11832`) is
+/// `getTypeOfSymbol(getSymbolOfDeclaration(node))` — the class's static side.
+///
+/// §168 refused this arm, and its finding was real: for an **anonymous** class
+/// expression the symbol carries the binder's synthetic `__class`, so the arm
+/// prints `typeof __class` where the baseline wants the name of the variable
+/// the class was assigned to. That says nothing about a NAMED class
+/// expression, whose symbol carries the name the source wrote —
+/// `compiler/exportDefaultParenthesizeES6` records `>class Foo {} : typeof Foo`.
+#[test]
+fn a_named_class_expression_is_typeof_its_own_name() {
+    assert_eq!(type_of_initialiser("const V = class Foo {};"), "typeof Foo");
+    assert_eq!(type_of_initialiser("const V = class Foo { m() {} };"), "typeof Foo");
+}
+
+/// The control that keeps §168's refusal in force where it was measured: an
+/// ANONYMOUS class expression is still a gap, because naming it needs the
+/// contextual naming that refused §145, §156, §158 and §168 — the variable's
+/// name, not the binder's `__class`. Without this, dropping the `name.is_some()`
+/// guard also passes the test above and prints `typeof __class` across the
+/// corpus.
+#[test]
+fn an_anonymous_class_expression_is_still_a_gap() {
+    assert_eq!(type_of_initialiser("const V = class {};"), "error");
+}
