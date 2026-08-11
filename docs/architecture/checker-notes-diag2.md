@@ -50224,3 +50224,66 @@ corpus and not once in the fixture that motivated it.
 
 Three right lines and no wrong ones is worth keeping; the heritage-clause path
 is a second, separate build and is left with its number: **3 lines, 1 case**.
+
+## §1039 — TS2314's heritage half, which §1038 priced
+
+§1038 measured the type-grammar path at three right lines and zero cases, and
+left the expression-grammar path with its number: **3 lines, 1 case**. Building
+it.
+
+`check_type_argument_arity` already accepts an `ExpressionWithTypeArguments` in
+a heritage clause and hands its expression to `declared_type_parameter_arity`.
+After §1037 that function matches `Identifier` and `QualifiedName`; a heritage
+base spelled `M.E` is a **`PropertyAccessExpression`** and still returns `None`.
+
+The resolution is the same two steps — namespace, then export — reading
+`expression`/`name` instead of `left`/`right`. **Three node kinds, one question,
+and the port needs all three arms because the grammar chose the kind, not the
+meaning.**
+
+```
+bar:  >= +1,  0 LOST via `diagpass`,  extraonly delta <= +1,
+      TS2314's existing 166 right lines unchanged
+```
+
+### Falsifiers
+
+1. **`class D extends M.E<string> { }` reports.** Supplying the argument is the
+   point and the arity comparison must still run.
+2. **A heritage base that is a bare identifier stops reporting.** That path is
+   §942's and carries most of the row.
+3. **`class D extends a.b { }` with `a` a variable reports.** Not a type
+   reference; the namespace lookup must fail closed.
+
+## §1040 — §1039 measured: the heritage arm is a **no-op**, and the widening that would fix it costs a case
+
+```
+                                              board   TS2314 right   extra   extraonly
+§1038 (type-grammar arm only)                 2,499        166          0        75
+§1039 (+ expression-grammar arm)              2,499        166          0        75
+§1039 + `| VALUE` on the namespace lookup     2,499        169          5        76
+```
+
+Two probes established why. The first said both `QualifiedName` and
+`PropertyAccessExpression` **reach** `declared_type_parameter_arity`, so the
+missing arm was not the obstacle. The second — placed after the namespace
+lookup — printed **nothing at all**, which is its own answer: the `?` on
+`resolve_name` short-circuits before it, so the *left* of `M.E` does not resolve
+under `NAMESPACE_MODULE | TYPE`.
+
+Adding `| VALUE` resolves it. It also adds **five wrong lines** and one
+`extraonly` case, and moves **no case in either direction**. Declined, with the
+numbers, exactly as §1010 declined TS2323's wide form.
+
+> **A probe that prints nothing is a measurement**, not a failed probe. It was
+> placed after a `?` and its silence located the failure more precisely than any
+> value it could have printed. Worth naming because the instinct on seeing no
+> output is to assume the probe is broken and add another.
+>
+> §973's rule was *when a build measures exactly +0, probe before re-reading*.
+> This adds: **place the probe after the step you doubt, not at the value you
+> want** — the silence tells you which `?` fired.
+
+The expression-grammar arm ships anyway. It is correct, it costs nothing, and it
+is the half that will start paying the moment the namespace lookup does — which
+is now recorded as the actual blocker rather than the arm.

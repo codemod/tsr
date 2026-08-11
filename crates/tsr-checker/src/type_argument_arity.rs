@@ -325,9 +325,19 @@ impl Checker<'_, '_> {
     /// access expressions** — a different node with different fields. §1030's
     /// lesson: the walk is not the thing. §1037.
     fn qualified_type_name_symbol(&mut self, name: NodeId) -> Option<tsr_binder::SymbolId> {
-        let Node::QualifiedName(qualified) = self.node_map.get(name)? else { return None };
-        let left = qualified.left?.node_id()?;
-        let right = qualified.right?.node_id?;
+        // **Three node kinds, one question.** `M.E` is a `QualifiedName` in the
+        // *type* grammar and a `PropertyAccessExpression` in the *expression*
+        // grammar — a heritage clause's base uses the second. The port needs
+        // both arms because the grammar chose the kind, not the meaning. §1039.
+        let (left, right) = match self.node_map.get(name)? {
+            Node::QualifiedName(qualified) => {
+                (qualified.left?.node_id()?, qualified.right?.node_id?)
+            }
+            Node::PropertyAccessExpression(access) => {
+                (access.expression?.node_id()?, access.name?.node_id()?)
+            }
+            _ => return None,
+        };
         let left_text = self.identifier_text(left)?.to_string();
         let member = self.identifier_text(right)?.to_string();
         let namespace = self.binder.resolve_name(
@@ -335,6 +345,10 @@ impl Checker<'_, '_> {
             self.node_map,
             left,
             &left_text,
+            // **Not `| VALUE`.** Widening the meaning does resolve the
+            // namespace — `have` reaches `want` at 174 — but five of the eight
+            // lines it adds are wrong and `extraonly` rises by one, with **no
+            // case moving either way**. Measured and declined; §1040.
             SymbolFlags::NAMESPACE_MODULE | SymbolFlags::TYPE,
         )?;
         let namespace = self.binder.merged_symbol(namespace);
