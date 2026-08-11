@@ -45670,3 +45670,86 @@ missing 303 lines** — more than any other code this session has touched.
 
 `STATUS.md` §5's TS2362 entry is corrected in place. The 303 lines are real, they
 sit in cases with other defects, and the row is **open**.
+
+## §929 — the nullish guard skipped the whole expression
+
+§928's corpus-wide count put TS2362 at **303 lines**, and three cases hold 180:
+
+```
+60  arithmeticOperatorWithNullValueAndInvalidOperands
+60  arithmeticOperatorWithTypeParameter
+60  arithmeticOperatorWithUndefinedValueAndInvalidOperands
+```
+
+Two of the three are one shape:
+
+```ts
+declare var a: boolean;
+var r1a1 = null * a;
+//         ^ TS18050 The value 'null' cannot be used here
+//                ^ TS2363 The right-hand side of an arithmetic operation must be …
+```
+
+Upstream reports **both**: `checkNonNullType` is applied **per operand**, and the
+arithmetic check then runs on each. This port's rule returns for the **whole
+expression** the moment either side is nullish:
+
+```rust
+if self.operand_is_nullish(left_type) || self.operand_is_nullish(right_type) {
+    return true;   // §50.3
+}
+```
+
+§50.3 was right that a nullish operand's own diagnostic is TS18050/TS18048 and
+not TS2362 — and wrong to conclude that the **other** operand is therefore
+silent. **The guard is per-operand upstream and per-expression here**, and the
+non-nullish side has been losing its diagnostic ever since.
+
+```
+bar:  corpus-wide TS2362 and TS2363 DOWN,  0 LOST via `diagpass`,
+      extraonly delta <= +2
+```
+
+### Falsifiers
+
+1. **A nullish operand reports TS2362.** It is the one §50.3 correctly silenced.
+2. **TS18050's or TS18048's row moves.** Those are the nullish operands' own
+   codes and are reported elsewhere.
+
+## §930 — §929 built: **+4/−0**, and 140 lines of TS2362
+
+```
+diagnostics   2,378 → 2,382   (+4)   43.40%
+diagpass      LOST: (none)
+              GAINED: arithmeticOperatorWithNullValueAndInvalidOperands,
+                      arithmeticOperatorWithUndefinedValueAndInvalidOperands,
+                      exponentiationOperatorWithNullValueAndInvalidOperands,
+                      exponentiationOperatorWithUndefinedValueAndInvalidOperands
+extraonly     75, unchanged
+TS2362        303 → 163 lines corpus-wide
+TS2363        →  120
+```
+
+Two of the four cases were not in §928's top-eight listing at all — the
+exponentiation pair — and converted anyway, because the guard was one condition
+serving every arithmetic operator.
+
+### What the corpus-wide count was worth
+
+§886 called this row finished on a **restricted zero**. §927 found the label,
+§928 added the honest number and it read **303**, §929 read the top of the
+distribution and found one guard, §930 measures **+4 cases and 140 lines**.
+
+```
+§886   "the row is finished"          restricted 0,  corpus-wide 303
+§930   the row is 163                 +4 cases,  −140 lines
+```
+
+> Four sections from *a mislabelled instrument* to *the largest single line-gain
+> this session*, and none of them was a new idea about the checker — §929's fix
+> is one condition moved from an expression to its operands, and §50.3 had
+> written down the reasoning that made it wrong four hundred sections ago.
+>
+> **The row was never hard. It was invisible**, and it was invisible because a
+> number that had been printed on every build since §156 meant something other
+> than its label.

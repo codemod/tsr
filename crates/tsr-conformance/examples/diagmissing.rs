@@ -38,7 +38,10 @@ fn main() {
     // ones this code alone blocks. §927 found that the restricted figure had
     // been printed as `total missing` for seven hundred sections; this is the
     // number that label promised. §928.
-    let corpus_wide: usize = cases.par_iter().map(|case| count_all(case, code)).sum();
+    let mut wide: Vec<(usize, String)> =
+        cases.par_iter().filter_map(|case| count_all(case, code)).collect();
+    wide.sort_unstable_by_key(|&(count, _)| std::cmp::Reverse(count));
+    let corpus_wide: usize = wide.iter().map(|(n, _)| n).sum();
     // **Cheapest case first.** A partial fix converts a case only if it supplies
     // *every* line (§273), so the case worth opening is the one wanting fewest.
     // Printing alphabetically cost §339 a build: `diagslice` called TS2454
@@ -57,23 +60,30 @@ fn main() {
     println!("missing TS{code} lines IN SOLE-OBSTACLE CASES: {total}");
     println!("cases blocked on TS{code} alone: {}", rows.len());
     println!("missing TS{code} lines CORPUS-WIDE: {corpus_wide}");
+    // **The distribution decides the owner.** §922 established it on the extras
+    // side: a flat count is a rule mis-firing everywhere, a concentrated one is
+    // a rule meeting one unported feature, and those have different owners.
+    for (count, name) in wide.iter().take(8) {
+        println!("  {count:5}  {name}");
+    }
 }
 
 /// Every missing line for this code, over the suite's whole judged population —
 /// the count `measure`'s sole-obstacle filter discards. §928.
-fn count_all(case: &CaseEntry, code: u32) -> usize {
+fn count_all(case: &CaseEntry, code: u32) -> Option<(usize, String)> {
     if case.has_varied_errors() || case.has_known_divergence() || !case.has_any_baseline() {
-        return 0;
+        return None;
     }
-    let Ok(baseline) = case.expected_errors() else { return 0 };
+    let baseline = case.expected_errors().ok()?;
     let expected: Vec<BaselineDiagnostic> =
         baseline.as_deref().map(errors_baseline::parse).unwrap_or_default();
     if expected.is_empty() {
-        return 0;
+        return None;
     }
-    let Ok(test) = case.load() else { return 0 };
+    let test = case.load().ok()?;
     let actual = tsr_conformance::diagnostics_suite::reported_for(&test);
-    expected.iter().filter(|d| d.code == code && !actual.contains(d)).count()
+    let count = expected.iter().filter(|d| d.code == code && !actual.contains(d)).count();
+    (count > 0).then(|| (count, case.name.clone()))
 }
 
 fn measure(case: &CaseEntry, code: u32) -> Option<(String, Vec<String>)> {

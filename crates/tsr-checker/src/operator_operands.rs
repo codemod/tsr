@@ -314,11 +314,13 @@ impl Checker<'_, '_> {
         let right_type = self.check_expression(right);
         // `checkNonNullType` runs first at this site and reports TS18050 /
         // TS18048 in place of these (§50.3).
-        if self.operand_is_nullish(left_type) || self.operand_is_nullish(right_type) {
-            // `checkNonNullType` answers `errorType`, so both operands pass
-            // and the assignment check still runs. §861.
-            return true;
-        }
+        // **Per operand, not per expression.** §50.3 is right that a *nullish*
+        // operand's own diagnostic is TS18050/TS18048 rather than TS2362 —
+        // `checkNonNullType` reports it and answers `errorType`. It does that
+        // **for that operand**, and upstream then runs the arithmetic check on
+        // each side independently, so `null * a` with `a: boolean` is TS18050
+        // on the `null` *and* TS2363 on the `a`. Returning for the whole
+        // expression lost the second, in 120 of §928's 303 lines. §929.
         // Two boolean operands are **TS2447** on the operator token, reported
         // before the operand check and returning (`checker.go:12372`).
         if self.type_of(left_type).flags.intersects(TypeFlags::BOOLEAN_LIKE)
@@ -343,6 +345,11 @@ impl Checker<'_, '_> {
             ),
         ] {
             let Some(at) = operand.node_id() else { continue };
+            // The nullish operand itself stays silent here — §50.3's rule, now
+            // applied to the operand rather than to the expression. §929.
+            if self.operand_is_nullish(operand_type) {
+                continue;
+            }
             if !self.operand_is_definitely_not_numeric(operand_type) {
                 continue;
             }
