@@ -45098,3 +45098,73 @@ did **not** convert. It wants more than TS2300.
                                                  ---
                                                  +12,  TS2300  20 → 8 cases
 ```
+
+## §914 — a property beside a real accessor
+
+```ts
+class C {
+    x: number;
+    get x(): number { return 1; }   // TS2300 on both
+}
+```
+
+§912's third question, named there and declined. Upstream's binder declares a
+property and an accessor into the same members table, and their exclusion masks
+collide: `PropertyExcludes` includes `Accessor`, so the second declaration
+reports.
+
+**A getter/setter pair does not.** `GetAccessorExcludes` omits `SetAccessor` and
+vice versa — that pair is the one case in the table designed to merge, which is
+why §912 excluded accessors wholesale rather than guess at the mask.
+
+The rule is therefore not *"accessors collide"* but *"a property collides with an
+accessor, and accessors do not collide with each other"*, keyed by
+`(is_static, normalised name)` exactly as §912's is.
+
+```
+bar:  +2 (fieldAndGetterWithSameName, propertyAndAccessorWithSameName),
+      0 LOST via `diagpass`,  WRONG delta <= +1
+```
+
+### Falsifiers
+
+1. **A `get`/`set` pair reports.** The one shape the members table merges.
+2. **Two getters of one name report.** That is TS2300 upstream too, but it is a
+   different mask and not this build's — declined, and named here so the decline
+   is visible.
+
+## §915 — §914 built: **+2 of 2**, TS2300 is 20 → 6 in six builds
+
+```
+diagnostics   2,373 → 2,375   (bar was +2;  +2)   43.28%
+diagpass      LOST: (none)
+              GAINED: fieldAndGetterWithSameName, propertyAndAccessorWithSameName
+extraonly     79, unchanged
+TS2300        8 cases → 6,  33 lines → 24
+```
+
+Both falsifiers negative — in particular the first, which is the whole reason
+§912 declined accessors rather than guessing: a `get`/`set` pair is the one shape
+the members table is built to merge, and the rule now collects accessors as
+*accessor* entries that only ever report against a **property**.
+
+```
+§904  +4   type literal members
+§906  +1   class members, literal computed names
+§908  +2   a merged namespace's `prototype`
+§910  +2   interface bodies, string-literal names
+§912  +3   normalised numeric names, statics split
+§914  +2   a property beside an accessor
+          ---
+          +14,  TS2300  20 → 6 cases,  71 → 24 lines
+```
+
+> Six builds on one code, and **every one of them was a different question about
+> where members live**: four node kinds, a name normalisation, a table split, and
+> an exclusion mask. Not one needed a type, a relation, or a flow answer.
+>
+> §870 measured the reachable pool as **91% relation-and-type** and that number
+> has held all session — but TS2300 was in the other 9% and worth **fourteen
+> cases**, more than any single build this session found anywhere else. **A small
+> share of a large corpus is still a lot of cases**, and the classification's
+> value was never that the remainder was empty.

@@ -6179,14 +6179,29 @@ impl Checker<'_, '_> {
         // written spelling so the printer can reproduce it (§671). And a
         // `static` member does not collide with an instance member, because
         // upstream declares them into different tables. §912.
-        let named: Vec<(NodeId, bool, String)> = members
+        let named: Vec<(NodeId, bool, String, bool)> = members
             .iter()
             .filter_map(|member| {
-                let tsr_ast::ClassElement::PropertyDeclaration(property) = member else {
-                    return None;
+                // **A property collides with an accessor** — upstream's
+                // `PropertyExcludes` includes `Accessor` — while a `get`/`set`
+                // pair is the one shape the members table is built to merge.
+                // So accessors are collected as *accessor* entries and only
+                // ever reported against a property, never against each other.
+                // §914.
+                let (modifiers, name, is_accessor) = match member {
+                    tsr_ast::ClassElement::PropertyDeclaration(property) => {
+                        (property.modifiers, property.name, false)
+                    }
+                    tsr_ast::ClassElement::GetAccessorDeclaration(accessor) => {
+                        (accessor.modifiers, accessor.name, true)
+                    }
+                    tsr_ast::ClassElement::SetAccessorDeclaration(accessor) => {
+                        (accessor.modifiers, accessor.name, true)
+                    }
+                    _ => return None,
                 };
-                let is_static = has_modifier(property.modifiers, SyntaxKind::StaticKeyword);
-                let (id, text) = match property.name {
+                let is_static = has_modifier(modifiers, SyntaxKind::StaticKeyword);
+                let (id, text) = match name {
                     tsr_ast::PropertyName::Identifier(name) => {
                         (name.node_id?, name.text.to_string())
                     }
@@ -6216,12 +6231,18 @@ impl Checker<'_, '_> {
                     | tsr_ast::PropertyName::BigIntLiteral(_)
                     | tsr_ast::PropertyName::NoSubstitutionTemplateLiteral(_) => return None,
                 };
-                Some((id, is_static, text))
+                Some((id, is_static, text, is_accessor))
             })
             .collect();
-        for (index, (id, is_static, text)) in named.iter().enumerate() {
-            if !named.iter().enumerate().any(|(other, (_, other_static, name))| {
-                other != index && other_static == is_static && name == text
+        for (index, (id, is_static, text, is_accessor)) in named.iter().enumerate() {
+            // Two accessors of one name never report here: a `get`/`set` pair
+            // merges, and a same-kind pair is a different mask (§914's second
+            // falsifier, declined).
+            if !named.iter().enumerate().any(|(other, (_, other_static, name, other_accessor))| {
+                other != index
+                    && other_static == is_static
+                    && name == text
+                    && !(*is_accessor && *other_accessor)
             }) {
                 continue;
             }
