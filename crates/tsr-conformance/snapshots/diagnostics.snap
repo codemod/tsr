@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; scanner, parser and binder only, with no checker (bd tsr-4sc)
-Passed         : 2391/5488 (43.57%)
-Failed         : 3097
+Passed         : 2396/5488 (43.66%)
+Failed         : 3092
 Skipped        : 6956 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -11,7 +11,7 @@ Skipped        : 6956 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 3097 failures:
+First 100 of 3092 failures:
 compiler/ClassDeclaration26
   2 unexpected (first TS1005 at ClassDeclaration26.ts(2,22)), 5 missing
 compiler/TransportStream
@@ -72,8 +72,6 @@ compiler/anyIndexedAccessArrayNoException
   1 missing (first TS2538 at anyIndexedAccessArrayNoException.ts(1,12))
 compiler/anyMappedTypesError
   1 missing (first TS7039 at anyMappedTypesError.ts(1,12))
-compiler/arguments
-  6 missing (first TS2304 at arguments.ts(6,8))
 compiler/argumentsObjectCreatesRestForJs
   2 missing (first TS2554 at main.js(3,9))
 compiler/argumentsPropertyNameInJsMode1
@@ -212,3 +210,5 @@ compiler/augmentedTypesEnum
   2 missing (first TS2432 at augmentedTypesEnum.ts(18,11))
 compiler/augmentedTypesEnum3
   1 missing (first TS2432 at augmentedTypesEnum3.ts(16,5))
+compiler/augmentedTypesFunction
+  4 missing (first TS2814 at augmentedTypesFunction.ts(13,10))

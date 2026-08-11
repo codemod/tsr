@@ -3997,6 +3997,28 @@ impl Checker<'_, '_> {
         // residue that remains — `validRegexp`'s `i` in
         // `var x = / [a - z /]$ / i;` — is a *recovery* difference, and the
         // owner is the parser, not this guard.
+        // **`arguments` is synthesised for function-like containers, and an
+        // arrow function is not one.** §249 declined the name everywhere
+        // because this port does not synthesise the symbol; that is right about
+        // *resolution* and incomplete about *position*. Where no non-arrow
+        // function encloses the reference, upstream resolves nothing and
+        // reports TS2304 — `(() => arguments)()` at top level, `typeof
+        // arguments` in an interface, `++arguments` in a script. §951.
+        if text == "arguments"
+            && self.is_value_reference(node)
+            && !self.in_js_file(node)
+            && !self.file_has_parse_errors
+            && !self.reference_has_non_arrow_function_container(node)
+        {
+            if let Some(file) = self.source_file_of_for_diagnostics(node) {
+                let span = self.error_span(node);
+                self.report(
+                    file,
+                    Diagnostic::with_args(&messages::CANNOT_FIND_NAME_0, span, [text.to_string()]),
+                );
+            }
+            return;
+        }
         if !self.is_value_reference(node) || is_specially_diagnosed_name(text) {
             return;
         }
@@ -12669,6 +12691,25 @@ pub(crate) fn has_modifier(modifiers: &[ModifierLike<'_>], keyword: SyntaxKind) 
 /// the name and on `UsesWildcardTypes`, so reporting TS2304 for any of them is a
 /// wrong code at a right position. A refusal list, like the Node core modules
 /// above.
+impl Checker<'_, '_> {
+    /// Is this reference enclosed by a function-like that owns an `arguments`
+    /// object? An **arrow function is not one** — it closes over the
+    /// enclosing function's, and at top level there is none. §951.
+    fn reference_has_non_arrow_function_container(&self, node: NodeId) -> bool {
+        self.nodes.ancestors(node).any(|ancestor| {
+            matches!(
+                self.nodes.kind(ancestor),
+                SyntaxKind::FunctionDeclaration
+                    | SyntaxKind::FunctionExpression
+                    | SyntaxKind::MethodDeclaration
+                    | SyntaxKind::Constructor
+                    | SyntaxKind::GetAccessor
+                    | SyntaxKind::SetAccessor
+            )
+        })
+    }
+}
+
 fn is_specially_diagnosed_name(name: &str) -> bool {
     matches!(
         name,

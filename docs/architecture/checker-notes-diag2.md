@@ -46603,3 +46603,86 @@ that range, not the middle.
 `diagsole` also changes what a refusal costs. TS2403 is refused at −33 and shows
 **32 sole-obstacle cases** — the largest refused row on the board, and the first
 time that price has been legible next to the refusal.
+
+## §951 — TS2304 on `arguments` outside any function
+
+§950's list, top actionable row: TS2304 is **13 sole-obstacle cases, 22 lines**,
+and six of the thirteen are one name.
+
+`is_specially_diagnosed_name` declines `arguments` **everywhere** — §249
+narrowed a list of sixteen to two and kept this one, on the ground that upstream
+*synthesises* the symbol in `resolveName`'s own arm for every function-like
+container, so a port without that machinery would report where upstream is
+silent.
+
+That reasoning is right and **incomplete**: upstream synthesises `arguments` for
+function-like containers, and **an arrow function is not one**. So the name is
+unresolved wherever no non-arrow function encloses it, and upstream says so:
+
+```ts
+var a = () => arguments;              emitArrowFunctionWhenUsingArguments02   (1,15)
+(() => arguments)();                  arguments                               (6,8)
+interface I { method(a: typeof arguments): void; … }   arguments        (9,25)…(13,34)
+++arguments; --arguments;             unaryOperatorsInStrictMode          (5,3)(6,3)
+arguments++; arguments--;                                                 (9,1)(10,1)
+```
+
+and is silent one line above, where the same arrow sits inside `function f`:
+
+```ts
+function f() { var x = arguments[12]; (() => arguments)(); }   // no error, either line
+```
+
+**The refusal was about resolution and this is about position.** The symbol is
+still unsynthesised — `bd tsr-o9tl` and the 399-line `.types` gradient are
+untouched — but the *diagnostic* needs only the ancestor walk, and the walk is
+the thing upstream is actually doing.
+
+```
+bar:  >= +3 cases,  0 LOST via `diagpass`,  extraonly delta <= +2
+```
+
+### Falsifiers
+
+1. **`arguments` inside a plain function reports.** `arguments.ts` line 3 is the
+   control and it must stay silent, in the same file as six that must not.
+2. **A method's or accessor's `arguments` reports.** Same walk, and the corpus
+   is full of them.
+3. **`extraonly` jumps.** §249 declined this name for a measured reason; if the
+   arrow restriction is not the whole of it, the wrong lines come back.
+
+## §952 — §951 built: **+5/−0**, fourteen lines and every one of them right
+
+```
+diagnostics   2,391 → 2,396   (+5)   43.66%
+diagpass      LOST: (none)
+              GAINED: arguments, unaryOperatorsInStrictMode,
+                      emitArrowFunctionWhenUsingArguments01_ES6,
+                      emitArrowFunctionWhenUsingArguments02_ES6, parserStrictMode4
+extraonly     75, unchanged
+TS2304        have 2,885 → 2,899   missing 186 → 172
+```
+
+**`have` +14 and `missing` −14.** Not one of the fourteen new lines is wrong,
+which is the strongest measurement this row has produced and the reason all
+three falsifiers came back negative without a second pass: `arguments.ts` line 3
+— the arrow inside `function f` — is in the *same file* as six that must report,
+so the control and the rule were scored together and the case converted.
+
+`parserStrictMode4` was not in the bar. Fifth time this session a build paid in
+a case it had not named.
+
+> §249 declined `arguments` because **this port does not synthesise the symbol**,
+> and that is still true — `bd tsr-o9tl` is open and the 399-line `.types`
+> gradient is untouched. What §249 did not separate is that **the diagnostic
+> needs the ancestor walk, not the symbol.** Upstream's own condition for
+> synthesising is *"is there a function-like container"*, and answering that
+> question is exactly as hard as `nodes.ancestors(node).any(…)`.
+>
+> A refusal written about a *mechanism* silently covers every *position*, and
+> §950's list is what made the cost legible: six of TS2304's thirteen
+> sole-obstacle cases were one declined name.
+
+Remaining in this row: seven cases, and they are unrelated to each other —
+`defaultIsNotVisibleInLocalScope`, `parseJsxExtends2`, two spelling-suggestion
+fixtures, and three `.js` files whose owner is the JSDoc resolver.
