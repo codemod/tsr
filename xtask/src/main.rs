@@ -7,6 +7,7 @@
 //!                        --upstream <path> checks a newer checkout, which is
 //!                        the drift report (bd tsr-l68)
 //! cargo xtask issue-ids  verify every `bd` id cited in docs/ actually exists
+//! cargo xtask gate       the five per-build checks, in one command that FAILS
 //! cargo xtask measure    clippy, then — only if it is clean — the conformance run
 //! ```
 //!
@@ -18,6 +19,7 @@
 
 mod anchors;
 mod ast_json;
+mod gate;
 mod gen_diagnostics;
 mod gen_kind;
 mod gen_libs;
@@ -50,14 +52,15 @@ fn main() -> Result<()> {
             anchors::run(&workspace_root(), upstream)
         }
         Some("issue-ids") => issue_ids::run(&workspace_root()),
+        Some("gate") => gate::run(&workspace_root()),
         Some("measure") => measure::run(&workspace_root()),
         Some(other) => {
             bail!(
-                "unknown task {other:?}; expected `codegen`, `perf`, `anchors`, `issue-ids` or `measure`"
+                "unknown task {other:?}; expected `codegen`, `perf`, `anchors`, `issue-ids`, `gate` or `measure`"
             )
         }
         None => {
-            eprintln!("usage: cargo xtask <codegen|perf|anchors|issue-ids|measure>");
+            eprintln!("usage: cargo xtask <codegen|perf|anchors|issue-ids|gate|measure>");
             Ok(())
         }
     }

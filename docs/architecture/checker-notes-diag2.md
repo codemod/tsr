@@ -45480,3 +45480,36 @@ builds.
 
 `bd` gets the issue: make `anchors`, `issue-ids` and the clippy gate exit
 non-zero into the session's own workflow the way `measure` already does.
+
+## §924 — `cargo xtask gate`
+
+The five per-build checks, in one command that **fails**:
+
+```
+[gate] fmt          cargo fmt --all --check
+[gate] clippy       cargo clippy --workspace --all-targets -- -D warnings
+[gate] test         cargo test --workspace
+[gate] anchors      every upstream anchor still resolves
+[gate] issue-ids    every `bd` id cited in docs/ exists
+[gate] all five clean
+```
+
+Verified against the failure it exists for — §922's own lint, reintroduced:
+
+```
+gate exit code: 1     with `sort_unstable_by` restored
+clean exit code: 0    with it fixed
+Error: gate `clippy` failed.
+```
+
+`measure` has refused to run on a red clippy since §259, and that is the reason
+every coverage number in this session is trustworthy. The other four printed. Now
+one command runs all five in order, stops at the first failure, and exits
+non-zero — so the check no longer depends on someone reading a number that has
+said `0` four hundred times.
+
+> §923 filed this as a chore rather than building it, on the reasoning that the
+> session's work was diagnostics and this was tooling. **That was the wrong call
+> for a twenty-line file that removes a whole class of error**, and the class had
+> already occurred once. The cost of building it was less than the cost of
+> writing the issue describing it.

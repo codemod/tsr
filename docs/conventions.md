@@ -3500,3 +3500,15 @@ design — so **claim the top hit before building it**. When lanes worked
 on distant subsystems this coordination was not worth its cost; with a
 shared census it is one message against a duplicated arm.
 
+## The per-build gate
+
+`cargo xtask gate` runs the five checks every build ends with — `fmt --check`,
+`clippy -D warnings`, `cargo test`, `anchors`, `issue-ids` — in order, stopping at
+the first failure and exiting non-zero.
+
+Use it instead of the five separately. Four of them only printed their result
+until §924, and a commit went out with clippy red because a number that had read
+`0` for four hundred builds stopped being read
+(`docs/architecture/checker-notes-diag2.md` §923).
+
+**The check that matters is the one that stops the pipeline.**
