@@ -7909,3 +7909,56 @@ counter caps at **1000**, then reports
   `getConditionalTypeInstantiation` (`:22485`) plus the
   distributive-root machinery, a SECOND transcription the next
   window needs beside this one.
+
+
+## §186 — `getConditionalTypeInstantiation`: the distribution road, transcribed [checker-1]
+
+§185's companion, and the shorter of the two
+(`checker.go:22485-22515`). This is where DISTRIBUTION lives —
+§183 asserted it sat inside `getConditionalType`; it does not.
+
+### The whole rule
+
+    if root.outerTypeParameters is empty: return t unchanged
+    typeArguments = map(root.outerTypeParameters, mapper)
+    key           = conditionalTypeKey(typeArguments, alias, forConstraint)
+    cached        = root.instantiations[key]     // memoised per key
+    newMapper     = typeMapper(root.outerTypeParameters, typeArguments)
+    distributionType = root.isDistributive
+                       ? getReducedType(newMapper.Map(root.checkType))
+                       : nil
+    if distributionType != nil
+       && checkType != distributionType
+       && distributionType.flags & (Union | Never) != 0:
+         result = mapTypeWithAlias(distributionType, |t| =>
+                    getConditionalType(root,
+                      prependTypeMapping(checkType, t, newMapper),
+                      forConstraint, nil))
+    else:
+         result = getConditionalType(root, newMapper, forConstraint, alias)
+
+### The three things this settles
+
+1. **Distribution is gated on `root.isDistributive`** — a property
+   of the conditional's ROOT (set when the check type is a naked
+   type parameter), computed once at root creation, not re-derived
+   per instantiation. This port has no conditional ROOT concept at
+   all, which is the structural prerequisite.
+2. **`Never` is in the same flag test as `Union`**, so the empty
+   distribution falls out of `mapTypeWithAlias` naturally rather
+   than needing the special case I hand-wrote in §183's slice 4 —
+   which is why that hand-written case did not fire.
+3. **Results are memoised on `root.instantiations` per
+   (typeArguments, alias, forConstraint)** — the cache is part of
+   the algorithm, not an optimisation, because tail recursion in
+   `getConditionalType` re-enters through it.
+
+### The build order this implies
+
+conditional ROOT (with `isDistributive` and `outerTypeParameters`)
+→ `getConditionalTypeInstantiation` → `getConditionalType`'s loop
+with its deferral test → the resolution rules §185 lists. The
+primitive-domain decider §182 landed is the LAST step of the last
+item; everything above it is unbuilt. That ordering is the whole
+value of the two transcriptions, and it is the opposite of the
+order I attacked it in.
