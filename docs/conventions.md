@@ -3422,3 +3422,16 @@ finished being measured either.** Both failure modes — a premature
 "unreachable" and a premature "under bar" — are the same mistake:
 treating a site's number as a road's number. Enumerate the sites, then
 judge.
+
+### Corollary 3 (2026-08-10): a collapsed upstream DISTINCTION is a latent bug, not a simplification
+
+checker-1's §165 found `members.rs:416` overwriting the receiver with
+its apparent form — collapsing upstream's `getTypeWithThisArgument(
+apparentType, receiver)` into one type. The collapse was invisible until
+something CONSUMED the distinction (a this-argument substitution), then
+it answered the constraint where the receiver was wanted. **When a port
+merges two upstream values because they are equal at every site it
+currently has, it has planted a bug that fires when the next site
+arrives.** Where upstream carries two names, carry two — and when a
+transcription's first pair shows a small adverse count, check whether a
+collapsed distinction is producing it before pricing the arm.
