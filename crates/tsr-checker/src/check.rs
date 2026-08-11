@@ -216,6 +216,7 @@ impl Checker<'_, '_> {
                 ambient
             }
             Node::ImportEqualsDeclaration(declaration) => {
+                self.check_circular_import_alias(node);
                 // **`import a = b.c` carries TS2694 too**, under a wider
                 // meaning: an alias may name a value, where a type reference may
                 // not. §559.

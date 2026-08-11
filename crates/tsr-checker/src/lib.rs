@@ -107,6 +107,7 @@ pub mod call_arity;
 pub mod calls;
 pub mod check;
 pub mod checker;
+mod circular_alias;
 pub mod comparison_overlap;
 pub mod computed_name;
 pub mod contextual;

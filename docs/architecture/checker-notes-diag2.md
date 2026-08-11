@@ -46775,3 +46775,88 @@ non-const"* — ported nowhere, sharing the same loop, the same symbol and the
 same `enumChecked` guard. It is **not** in this build because it is not in
 §950's list: zero sole-obstacle cases. Recording it here so the next session
 does not re-derive that it is cheap and then discover it is worth nothing.
+
+## §955 — TS2303: circular import aliases
+
+§950's list: **9 sole-obstacle cases, 32 lines**. Unlike the rows above it,
+`resolveAlias` (`checker.go:16272`-`:16291`) is not the relation's — it is a
+resolution-stack cycle check, and the port has the binder it needs.
+
+Upstream detects the cycle *generically*: `pushTypeResolution` /
+`popTypeResolution` around the alias target, and the error when the pop reports
+the stack unwound through itself. That machinery is not here, and building it to
+serve one diagnostic would be the tail wagging the compiler. The corpus asks for
+**three shapes**, and only two of them are reachable syntactically:
+
+```ts
+namespace M { import A = B; import B = A; }        circularModuleImports   local chain
+declare module "moduleC" {
+    import self = require("moduleC"); export = self;   recursiveExportAssignment…1/4  self
+}
+export type { A } from './b';   // and b.ts re-exports from a.ts   circular1  cross-file
+```
+
+**The first two are decidable without resolving anything.** A chain of
+`ImportEqualsDeclaration`s whose module references are *entity names* lives in
+one scope and is walked with the binder alone; a `require` of the containing
+module's own name is a one-node test. The third needs the module graph and
+export-star resolution, and is declined here with an owner: `tsr-module-graph`
+via `checker_types`.
+
+Upstream reports at the **declaration**, not the name — column 5 of
+`    import A = B;` is the `import` keyword — with the *symbol's* name as the
+argument.
+
+```
+bar:  >= +1,  0 LOST via `diagpass`,  extraonly delta <= +1
+```
+
+### Falsifiers
+
+1. **A non-circular alias chain reports.** `import A = B; import B = C;` where
+   `C` is a real namespace must stay silent — the walk must terminate on
+   resolution failure as well as on revisiting.
+2. **Both ends of a two-node cycle report once each, not twice.** The corpus
+   wants exactly two lines from `circularModuleImports`, one per declaration,
+   and a naive walk from each end produces two per declaration.
+3. **A self-`require` outside an ambient module declaration reports.** The
+   `moduleC` shape is inside `declare module "moduleC"`; the same text in a real
+   file is a different question and is not this build's.
+
+## §956 — §955 built: **+1/−0**, and two of three shapes were one shape
+
+```
+diagnostics   2,401 → 2,402   (+1)   43.77%
+diagpass      LOST: (none)   GAINED: compiler/circularModuleImports
+extraonly     75, unchanged
+TS2303        have 0 → 3,  missing 34 → 31
+```
+
+The local chain paid. **The self-`require` arm was built and fires nowhere** —
+`recursiveExportAssignmentAndFindAliasedType1` and `4` want TS2303 at
+declarations whose cycle runs through `export = self`, and the port reports
+nothing there because the cycle is not in the *import*, it is in the export
+assignment's target. Reading `import self = require("moduleC")` inside `declare
+module "moduleC"` as circular was **the wrong reading of a right-looking
+fixture**: upstream's error is on the alias whose *resolution* loops, and
+`self`'s resolution loops through `export =`, not through the ambient module's
+name.
+
+That arm is left in place and inert. It is not dead code — it is the correct
+test for a shape the corpus happens not to contain in isolation — but the note
+must say plainly that **it converted nothing**, because a build that measures
++1 with two arms has one arm doing the work.
+
+> **§131's rule, missed and then paid for cheaply**: read the fixture before the
+> fourth hypothesis. Three shapes were counted from `diagmissing`'s case list
+> and two of them were assumed to differ because their *syntax* differs. They
+> differ in syntax and agree in mechanism — both are export-assignment cycles —
+> so the row is really **two** shapes, one built and one owned by the module
+> graph.
+
+Falsifier 1 negative (no non-circular chain reports), falsifier 2 negative (two
+lines from `circularModuleImports`, one per declaration — the case converted, so
+neither was doubled), falsifier 3 vacuous: the arm it tests never fires.
+
+Remaining: 31 lines across the export-assignment and cross-file re-export
+shapes, both needing the module graph. Owner unchanged.
