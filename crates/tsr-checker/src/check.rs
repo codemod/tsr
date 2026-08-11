@@ -5225,6 +5225,16 @@ impl Checker<'_, '_> {
         })
     }
 
+    /// Does this class member carry `static`? §974.
+    fn member_is_static(&self, member: NodeId) -> bool {
+        let modifiers = match self.node_map.get(member) {
+            Some(Node::PropertyDeclaration(n)) => n.modifiers,
+            Some(Node::ClassStaticBlockDeclaration(_)) => return true,
+            _ => return false,
+        };
+        tsr_ast::has_syntactic_modifier(modifiers, SyntaxKind::StaticKeyword)
+    }
+
     /// Is `node` read inside `declaration`'s own initializer, with no
     /// function-like boundary between them? §964.
     fn reference_is_in_own_initializer(&self, node: NodeId, declaration: NodeId) -> bool {
@@ -7887,9 +7897,30 @@ impl Checker<'_, '_> {
         // `this.X`, and not `this.a.b` — upstream declines an access whose own
         // expression is an access.
         let Some(receiver) = access.expression.and_then(|e| e.node_id()) else { return };
-        if self.nodes.kind(receiver) != SyntaxKind::ThisKeyword {
+        // **A static initializer names the class, not `this`.**
+        // `isInPropertyInitializerOrClassStaticBlock` does not mention `this` at
+        // all — it asks where the *initializer* is, and ordinary resolution
+        // finds `Test._A` on the static side as it finds `this._a` on the
+        // instance side. §974.
+        // **A JSX tag name is not a property read.** `static a = <C.z></C.z>`
+        // puts a property access in tag position, and upstream does not report
+        // TS2729 there — `useBeforeDeclaration_jsx` was §974's one wrong line.
+        // §975.
+        if self.nodes.parent(node).is_some_and(|parent| {
+            matches!(
+                self.nodes.kind(parent),
+                SyntaxKind::JsxOpeningElement
+                    | SyntaxKind::JsxSelfClosingElement
+                    | SyntaxKind::JsxClosingElement
+            )
+        }) {
             return;
         }
+        let statics = match self.nodes.kind(receiver) {
+            SyntaxKind::ThisKeyword => false,
+            SyntaxKind::Identifier => true,
+            _ => return,
+        };
         let Some(parent) = self.nodes.parent(node) else { return };
         if matches!(
             self.nodes.kind(parent),
@@ -7919,6 +7950,22 @@ impl Checker<'_, '_> {
             Some(Node::ClassExpression(c)) => c.members,
             _ => return,
         };
+        // The identifier must name **this** class, and the member being
+        // initialised must sit on the same side as the one it reads —
+        // falsifiers 1 and 2 of §974.
+        if statics {
+            let names_this_class = self
+                .declaration_name_of(class)
+                .and_then(|at| self.identifier_text(at))
+                .zip(self.identifier_text(receiver))
+                .is_some_and(|(class_name, written)| class_name == written);
+            if !names_this_class {
+                return;
+            }
+        }
+        if self.member_is_static(member) != statics {
+            return;
+        }
         // Both ends are in the same ordered list, so "declared before use" is
         // an index comparison — `isBlockScopedNameDeclaredBeforeUse` without a
         // symbol.
@@ -7966,6 +8013,11 @@ impl Checker<'_, '_> {
             let tsr_ast::ClassElement::PropertyDeclaration(property) = element else { continue };
             let tsr_ast::PropertyName::Identifier(declared) = property.name else { continue };
             if declared.text != name.text || target_at.is_some() {
+                continue;
+            }
+            if tsr_ast::has_syntactic_modifier(property.modifiers, SyntaxKind::StaticKeyword)
+                != statics
+            {
                 continue;
             }
             // `isOptionalPropertyDeclaration` — the `?` is the postfix token.

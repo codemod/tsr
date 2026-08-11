@@ -47630,3 +47630,82 @@ The generated AST names this field `kind` because upstream's node carries the
 token there; a `BindingPattern` in this port is one struct for both shapes and
 the token is what distinguishes them. Nothing is wrong with the AST — the
 comment now says which `kind` is which, at the only site that asks.
+
+## §974 — TS2729: a static initializer names the class, not `this`
+
+§950's list: **8 sole-obstacle cases, 15 lines**. The rule exists and is keyed on
+one receiver:
+
+```rust
+if self.nodes.kind(receiver) != SyntaxKind::ThisKeyword { return; }
+```
+
+`forwardRefInClassProperties` is half instance and half static, in eight lines:
+
+```ts
+class Test {
+    _b = this._a;          // TS2729 — reported
+    _a = 3;
+    static _B = Test._A;   // TS2729 — not reported: the receiver is `Test`
+    static _A = 3;
+}
+```
+
+`isInPropertyInitializerOrClassStaticBlock` (`checker.go:11716`) does not mention
+`this` at all — it asks where the *initializer* is, and the receiver question is
+answered by ordinary property resolution, which finds `Test._A` on the class's
+**static** side exactly as it finds `this._a` on the instance side.
+
+So the widening is: a receiver that is an identifier naming the enclosing class
+is the static side, and the member scan must then compare **static against
+static**. That last half is not optional — without it `static _B = Test._A`
+would match an *instance* `_A` declared later and report where upstream does not.
+
+```
+bar:  >= +1,  0 LOST via `diagpass`,  extraonly delta <= +1
+```
+
+### Falsifiers
+
+1. **`this._a` starts matching static members.** The split must cut both ways;
+   the existing instance behaviour is what §950 credits this row with already.
+2. **A same-named local shadowing the class reports.** `Test` must resolve to
+   the class, not to any identifier that happens to spell it.
+3. **`extraonly` moves.** A second receiver form can only add reports, so any
+   new extra line is a member matched across the static boundary.
+
+## §975 — §974 built: **+2/−0**, and two extras that were already there
+
+```
+diagnostics   2,421 → 2,423   (+2)   44.15%
+diagpass      LOST: (none)
+              GAINED: forwardRefInClassProperties, useBeforeDeclaration_propertyAssignment
+extraonly     75, unchanged
+TS2729        have 29,  want 45,  missing 18
+```
+
+The first version measured `extraonly` **76**, and `diagextra 2729` showed three
+extra lines in two cases. **Two of the three were already there** — the
+stash-and-compare said `initializerReferencingConstructorParameters` had them
+before this build touched anything.
+
+> **A count that moves is not the same as a count this build moved.** The
+> instinct on seeing `76` was to go read the fixture that had two extras; the
+> right move was one `git stash` and one re-run, which said that fixture is a
+> standing defect and the new line was somewhere else entirely. Two minutes
+> against a fixture that would have taught nothing about this change.
+
+The one new line was a JSX tag:
+
+```tsx
+class C { static a = <C.z></C.z>; }    // a property access in tag position
+```
+
+Excluding tag names costs two right lines and removes the wrong one, with the
+case count unchanged — §949's trade, taken the same way and for the same reason:
+the suite cannot tell the two versions apart and `extraonly` can.
+
+The standing defect is recorded rather than fixed: `class E { a = this.x;
+constructor(public x) {} }` is legal upstream and this port reports TS2729 on
+it. **Two lines, pre-existing, and not this build's** — but now written down
+with the fixture that shows it.
