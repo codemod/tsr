@@ -396,6 +396,14 @@ impl Checker<'_, '_> {
                     let Some(signature) = self.get_signature_from_declaration(id) else {
                         return error;
                     };
+                    // §201: a private-named METHOD is the same non-member as a
+                    // private-named property — the grammar refuses it and
+                    // upstream's `propertiesTable` never sees it, so
+                    // `{ #foo() {} }` is `{}`
+                    // (`conformance/privateNameInObjectLiteral-2.types`).
+                    if matches!(method.name, tsr_ast::PropertyName::PrivateIdentifier(_)) {
+                        continue;
+                    }
                     let tsr_ast::PropertyName::Identifier(name) = method.name else {
                         // A computed or string-literal method name needs the
                         // same quoting rules the property path has and is not
@@ -487,6 +495,51 @@ impl Checker<'_, '_> {
                 tsr_ast::PropertyName::NumericLiteral(literal) => {
                     printing::normalise_number(literal.text)
                 }
+                // **A computed name that cannot name a property contributes
+                // NOTHING — not a member, and not a gap.** `checkObjectLiteral`
+                // (`checker.go:13317-13332`) never puts a computed-name member
+                // in `propertiesTable` unless its name type carries
+                // `StringOrNumberLiteralOrUnique`; otherwise it either sets an
+                // index-signature flag (when the name type is assignable to
+                // `string | number | symbol`) or drops the member on the floor.
+                //
+                // So `{ [0 in []]: true }` — a `boolean` name — is `{}`, and
+                // `{ [Symbol.prototype]: 0 }` is `{}`. This port gapped the
+                // whole literal instead. §201.
+                //
+                // The two arms this does NOT take, each still a gap:
+                //
+                // - A name type that IS a string/number literal or a unique
+                //   symbol is **late-bound** — it names a real member — and
+                //   printing that name is unported.
+                // - A name type assignable to `string | number | symbol`
+                //   yields an INDEX SIGNATURE, also unported. It is separated
+                //   by flags rather than by assignability here, which is
+                //   narrower than upstream in the safe direction: a type this
+                //   port cannot see as string-like keeps gapping instead of
+                //   silently losing an index signature.
+                tsr_ast::PropertyName::ComputedPropertyName(computed) => {
+                    let Some(expression) = computed.expression else { return error };
+                    let name_type = self.check_expression(expression);
+                    let flags = self.type_of(name_type).flags;
+                    if flags.intersects(
+                        TypeFlags::STRING_LIKE
+                            | TypeFlags::NUMBER_LIKE
+                            | TypeFlags::ES_SYMBOL_LIKE
+                            | TypeFlags::ANY,
+                    ) {
+                        return error;
+                    }
+                    continue;
+                }
+                // A **private name** cannot be an object-literal member. The
+                // grammar refuses it, the parser has already reported, and the
+                // binder declares nothing — so upstream's `propertiesTable`
+                // never sees it and `{ #foo: 1 }` is `{}`
+                // (`conformance/privateNameInObjectLiteral-1.types`). Gapping
+                // the literal turned a reported syntax error into a second,
+                // silent type failure. §201.
+                tsr_ast::PropertyName::PrivateIdentifier(_) => continue,
                 _ => return error,
             };
             let member_type = match value {

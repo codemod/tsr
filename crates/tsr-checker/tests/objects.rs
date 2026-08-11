@@ -187,3 +187,62 @@ fn a_method_member_prints_as_a_signature() {
     // and the ordering is the literal's own.
     assert_eq!(type_of_initialiser("const o = { a: 1, m() {} };"), "{ a: number; m(): void; }");
 }
+
+/// [`type_of_initialiser_at`] for a fixture that is DELIBERATELY not
+/// well-formed.
+///
+/// A private name in an object literal is a grammar error; the parser reports
+/// and the member is not a member. The point of §201 is that the *type* answer
+/// survives the syntax error, so the fixture cannot be required to parse
+/// cleanly.
+fn type_of_first_initialiser_allowing_parse_errors(source: &str) -> String {
+    let arena = Arena::new();
+    let parsed = tsr_parser::parse(&arena, source);
+    let bound = tsr_binder::bind(
+        &arena,
+        parsed.source_file,
+        &parsed.nodes,
+        tsr_binder::FileInfo { name: "test.ts", text: source },
+    );
+    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+    let Statement::VariableStatement(statement) = parsed.source_file.statements[0] else {
+        panic!("statement 0 must be a variable statement");
+    };
+    let initialiser = statement
+        .declaration_list
+        .and_then(|list| list.declarations.first().copied())
+        .and_then(|declaration| declaration.initializer)
+        .expect("an initialiser");
+    let id = checker.check_expression(initialiser);
+    checker.type_to_string(id)
+}
+
+/// §201. A member that cannot name a property contributes NOTHING — not a
+/// member, and not a gap.
+///
+/// `checkObjectLiteral` (`checker.go:13317-13332`) puts a computed-name member
+/// in `propertiesTable` only when its name type carries
+/// `StringOrNumberLiteralOrUnique`; otherwise it either sets an index-signature
+/// flag or drops the member. A private name never reaches the table at all.
+/// This port gapped the whole literal for both, turning a reported syntax error
+/// into a second, silent type failure.
+#[test]
+fn a_member_that_cannot_name_a_property_leaves_the_literal_empty() {
+    // A `boolean` computed name: not a literal, not assignable to
+    // `string | number | symbol`. `conformance/parserComputedPropertyName41`.
+    assert_eq!(type_of_initialiser_at("var v = { [0 in []]: true };", 0), "{}");
+    // `conformance/privateNameInObjectLiteral-1` and `-2`.
+    assert_eq!(type_of_first_initialiser_allowing_parse_errors("var o = { #foo: 1 };"), "{}");
+    assert_eq!(type_of_first_initialiser_allowing_parse_errors("var o = { #foo() {} };"), "{}");
+}
+
+/// The control, and the reason the arm tests FLAGS rather than dropping every
+/// computed name: a name type that is string-, number- or symbol-like yields an
+/// INDEX SIGNATURE upstream, which is unported — so it must keep gapping rather
+/// than silently answering `{}`. Without this, "drop every computed member"
+/// also passes the test above and loses an index signature wherever one is due.
+#[test]
+fn a_string_like_computed_name_still_gaps_rather_than_vanishing() {
+    assert_eq!(type_of_initialiser_at("declare const k: string;\nvar v = { [k]: 1 };", 1), "error");
+    assert_eq!(type_of_initialiser_at("declare const n: number;\nvar v = { [n]: 1 };", 1), "error");
+}
