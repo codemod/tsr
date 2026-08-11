@@ -320,6 +320,7 @@ impl Checker<'_, '_> {
                 ambient
             }
             Node::InterfaceDeclaration(_) => {
+                self.check_interface_extends_entity_name(node);
                 self.check_exports_on_merged_declarations(node);
                 self.check_conflicting_inherited_primitives(node);
                 self.check_private_name_in_object_literal(node);
@@ -5259,6 +5260,44 @@ impl Checker<'_, '_> {
     /// The other positions are a second slice with that predicate as its
     /// subject — `checker-notes-diag2.md` §83. TS2448 (block-scoped variable)
     /// and TS2450 (enum) are its siblings and wait on the same thing.
+    /// TS2499 — `An interface can only extend an identifier/qualified-name with
+    /// optional type arguments.`
+    ///
+    /// `checkInterfaceDeclaration` (`checker.go:5017`). `IsEntityNameExpression`
+    /// is an identifier or a property access whose chain is entirely
+    /// identifiers; everything else is the error. Written as *is an entity
+    /// name* rather than as a list of what is not, because the rule reports on
+    /// a **negative** — §1019's decision about defaults. §1031.
+    fn check_interface_extends_entity_name(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let Some(Node::InterfaceDeclaration(interface)) = self.node_map.get(node) else { return };
+        let mut reports = Vec::new();
+        for clause in interface.heritage_clauses {
+            if clause.token.kind != SyntaxKind::ExtendsKeyword {
+                continue;
+            }
+            for base in clause.types {
+                let Some(expression) = base.expression.and_then(|e| e.node_id()) else { continue };
+                if !self.is_entity_name_expression(expression) {
+                    reports.push(expression);
+                }
+            }
+        }
+        for at in reports {
+            let Some(file) = self.source_file_of_for_diagnostics(at) else { continue };
+            let span = self.nodes.span(at);
+            self.report(
+                file,
+                Diagnostic::new(
+                    &messages::AN_INTERFACE_CAN_ONLY_EXTEND_AN_IDENTIFIER_SLASHQUALIFIED_NAME_WITH_OPTIONAL_TYPE_ARGUMENTS,
+                    span,
+                ),
+            );
+        }
+    }
+
     /// TS2511 — `Cannot create an instance of an abstract class.`
     ///
     /// `checkNewExpression` (`checker.go:8615`) reads the constructed type's

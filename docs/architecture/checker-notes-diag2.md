@@ -49894,3 +49894,98 @@ The remaining seven lines are `abstractClassUnionInstantiation` — a `new` on a
 **union** of class types, which needs each constituent's declaration. That is why
 this rule keys on an identifier rather than on the callee's type, and it is the
 type side's.
+
+## §1031 — TS2499: an interface can only extend an entity name
+
+§950's 2-case band, and the rule is two lines of `checkInterfaceDeclaration`
+(`checker.go:5017`-`:5020`):
+
+```go
+for _, heritageElement := range ast.GetExtendsHeritageClauseElements(node) {
+    expr := heritageElement.Expression()
+    if !ast.IsEntityNameExpression(expr) || ast.IsOptionalChain(expr) { … }
+```
+
+```ts
+interface color {}
+interface blue extends color() { }     // TS2499 — a call is not an entity name
+```
+
+`IsEntityNameExpression` is an identifier, or a property access whose chain is
+entirely identifiers. Everything else — a call, a `new`, a literal, an element
+access, an optional chain — is the error. This is §1019's shape again and takes
+the same decision about defaults: because the rule reports on a **negative**, an
+unrecognised expression must be *silence*, so the test is written as "is an
+entity name" and not as a list of things that are not.
+
+### The survey this band has produced
+
+The 2-case band is nearly exhausted for this layer, and the reasons are worth
+listing once rather than re-censusing:
+
+```
+TS1212  ASI — this port parses `interface\nI\n{}` as an interface declaration
+        where upstream's ASI makes three statements.   Owner: tsr-parser
+TS2456  cross-file circular type aliases.              Owner: the module graph
+TS2307, TS2305  module resolution.                     Owner: the module graph
+TS1142  line-break placement.                          Owner: tsr-parser
+TS2502, TS2351, TS2417  circularity and the relation.  Owner: the type side
+TS2343  the tslib helper table (§'s TS2354).           Owner: emit helpers
+TS1268, TS2499  grammar.                               **buildable here**
+```
+
+**Four rows now wait on the module graph** (§955, §1000, TS2323's named half,
+TS2456).
+
+```
+bar:  >= +1 of the 2,  0 LOST via `diagpass`,  extraonly delta <= +1
+```
+
+### Falsifiers
+
+1. **`interface I extends A.B.C {}` reports.** A qualified name is an entity
+   name and is most of the corpus's interfaces.
+2. **A class's `extends` reports.** This arm is the *interface* declaration's;
+   a class extending a call expression is legal.
+
+## §1032 — §1031 built: **+2/−0**, and the helper was already there
+
+```
+diagnostics   2,495 → 2,497   (+2)   45.50%
+diagpass      LOST: (none)
+              GAINED: declarationEmitInterfaceWithNonEntityNameExpressionHeritage,
+                      interfaceMayNotBeExtendedWitACall
+extraonly     75, unchanged
+TS2499        have 0 → 2,  want 3,  missing 1,  **0 extra**
+```
+
+Both cases, two right lines, none wrong.
+
+The build wrote `is_entity_name_expression` and `cargo` rejected it as a
+duplicate: **the helper already existed**, six thousand lines away, written for
+another rule. The compiler caught in one build what a `grep` before writing
+would have caught in none.
+
+> §989 said *the second use is where a helper earns its name*; §1026 found the
+> third; this is the fourth, and it is the first found **by collision rather
+> than by memory**. In a file this size that is the realistic mechanism, and
+> `-D warnings` plus `E0592` is a better index than recall.
+
+### Where the 2-case band stands
+
+Recorded once rather than re-censused:
+
+```
+TS1212  ASI — this port parses `interface\nI\n{}` as an interface declaration
+        where upstream's ASI makes three statements       Owner: tsr-parser
+TS2456  cross-file circular type aliases                  Owner: the module graph
+TS2307, TS2305  module resolution                         Owner: the module graph
+TS1142  line-break placement                              Owner: tsr-parser
+TS2502, TS2351, TS2417  circularity and the relation      Owner: the type side
+TS2343  the tslib helper table                            Owner: emit helpers
+TS1268  index-signature parameter type                    **buildable here**
+```
+
+**Four rows wait on the module graph** — §955's cross-file alias cycle, §1000's
+TS1362, TS2323's named half, and TS2456. That is the largest single lever left
+for this layer and none of the four can be reached without it.
