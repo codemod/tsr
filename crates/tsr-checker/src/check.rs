@@ -5296,12 +5296,13 @@ impl Checker<'_, '_> {
             | SyntaxKind::UnknownKeyword
             | SyntaxKind::ObjectKeyword
             | SyntaxKind::BigIntKeyword => true,
-            // **§985's helper, and its decline costs a line here.** It answers
-            // `false` for `RegExp` — a `lib.d.ts` interface this port's
-            // type-position resolution does not reach from inside a type
-            // literal — where §985 could afford the decline and this rule
-            // cannot. Probed, not assumed. §1034.
-            SyntaxKind::TypeReference => self.type_reference_names_a_class_or_interface(annotation),
+            // **This rule's own answer, not §985's.** That helper asks *is this
+            // definitely a class or interface* and says `false` when unsure,
+            // which suits TS2370. `isValidIndexKeyType` is a small allow-list,
+            // so a reference here is invalid **unless** something says it might
+            // be valid — an alias (`type S = string`) or a type parameter
+            // (TS1337's cell). §1035.
+            SyntaxKind::TypeReference => !self.type_reference_may_be_a_key(annotation),
             _ => false,
         };
         if !invalid {
@@ -5317,6 +5318,31 @@ impl Checker<'_, '_> {
                 span,
             ),
         );
+    }
+
+    /// Might this written type reference be a valid index key? A **type alias**
+    /// could name one, and a **type parameter** is TS1337's cell rather than
+    /// this rule's. Everything else — an interface, a class, an unresolved
+    /// name — is not. §1035.
+    fn type_reference_may_be_a_key(&mut self, annotation: NodeId) -> bool {
+        let Some(Node::TypeReferenceNode(reference)) = self.node_map.get(annotation) else {
+            return true;
+        };
+        let Some(name) = reference.type_name.and_then(|n| n.node_id()) else { return true };
+        let Some(text) = self.identifier_text(name).map(str::to_string) else { return true };
+        let Some(symbol) =
+            self.binder.resolve_name(self.nodes, self.node_map, name, &text, SymbolFlags::TYPE)
+        else {
+            return false;
+        };
+        let declarations =
+            self.binder.symbols().get(self.binder.merged_symbol(symbol)).declarations.clone();
+        declarations.iter().any(|&declaration| {
+            matches!(
+                self.nodes.kind(declaration),
+                SyntaxKind::TypeAliasDeclaration | SyntaxKind::TypeParameter
+            )
+        })
     }
 
     /// TS2499 — `An interface can only extend an identifier/qualified-name with

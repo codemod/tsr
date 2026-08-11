@@ -50067,3 +50067,80 @@ Not attempted here: `RegExp` is a `lib.d.ts` interface and reaching it from a
 type position inside a type literal is a resolution question, not a grammar one.
 Recorded with the number — **2 cases, 6 lines** — and the observation that both
 remaining cases hinge on exactly this.
+
+## §1035 — TS1268's own answer, as §1034 prescribed
+
+§1034 ended with the fix stated: *"not to change the helper — TS2370 would
+regress — but to give this caller its own answer for the case the helper
+declines."* Doing that.
+
+§985's helper asks **"is this definitely a class or interface"** and answers
+`false` when unsure, which is right for a rule that may decline. TS1268 needs
+the opposite polarity: `isValidIndexKeyType` is a small allow-list — `string`,
+`number`, `symbol`, a template literal, or a union of those — so a reference is
+invalid **unless something about it says it might be valid**.
+
+The two things that say so, syntactically:
+
+```
+resolves to a TypeAliasDeclaration    `type S = string` is a valid key
+resolves to a TypeParameterDeclaration  generic — TS1337's cell, not this one
+```
+
+Everything else — an interface, a class, or a name that resolves to nothing —
+is reported. `RegExp` is the first; §1034's probe showed the helper declining
+it.
+
+> **The same question asked by two rules wants two different defaults**, and the
+> defaults are not a style choice: they follow from whether the rule reports on a
+> positive or a negative, which is §1020's rule applied to a *helper* rather than
+> to a `match`. §985's caller reports when it is **sure** the type is wrong;
+> this one reports unless it is **shown** the type might be right.
+
+```
+bar:  >= +1 of the 2,  0 LOST via `diagpass`,  extraonly delta <= +1
+```
+
+### Falsifiers
+
+1. **`[k: S]` with `type S = string` reports.** The alias arm is the whole
+   reason this is not "any reference is invalid".
+2. **`[k: K]` with `K` a type parameter reports.** TS1337's cell; §1033 already
+   had this falsifier and it must survive the widening.
+3. **`extraonly` moves.** Reporting on unresolved names is the risk this
+   polarity takes, and it is the one the corpus will price.
+
+## §1036 — §1035 built: **+2/−0**, and §1034's prescription measured
+
+```
+diagnostics   2,497 → 2,499   (+2)   45.54%
+diagpass      LOST: (none)
+              GAINED: declarationEmitIndexTypeNotFound, parserIndexSignature8
+extraonly     75, unchanged
+TS1268        have 8 → 11,  want 14,  missing 3,  **0 extra**
+```
+
+Both of the row's sole-obstacle cases, three more right lines, still none wrong.
+All three falsifiers negative — including the third, which was the real risk:
+**reporting on an unresolved name cost nothing**, because a reference that
+resolves to neither an alias nor a type parameter is, in this corpus, always
+something that genuinely cannot be a key.
+
+> §1034 ended by naming the fix and predicting what it must not do — *"not to
+> change the helper, TS2370 would regress"* — and the two-build split is the
+> point. **The first build measured `+0` and produced the diagnosis; the second
+> spent one edit on it.** Had §1033 widened §985's helper instead, TS2370's
+> three-wrong-line balance would have moved and the cause would have been two
+> rules away from the symptom.
+>
+> **A helper shared by two rules is a coupling, and the moment to notice is when
+> the second caller wants a different default** — not when a later measurement
+> shows a row that used to be clean.
+
+The polarity is the transferable part: §985's caller reports when it is **sure**
+the type is wrong; TS1268 reports unless it is **shown** the type might be
+right. Same question, opposite defaults, and §1020 already named why — one rule
+reports on a positive and the other on a negative.
+
+Three lines remain, all in `declarationEmitIndexTypeNotFound`'s sibling
+positions, and they are the union and template-literal spellings of a valid key.
