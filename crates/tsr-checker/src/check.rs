@@ -669,6 +669,7 @@ impl Checker<'_, '_> {
             Node::Identifier(identifier) => {
                 self.check_identifier_assignment_target(node, ambient);
                 self.check_readonly_identifier_assignment(node, ambient);
+                self.check_parameter_self_reference(node, identifier.text);
                 self.check_value_identifier(node, identifier.text);
                 self.check_type_reference_name(node, identifier.text);
                 self.check_await_as_binding_name(node);
@@ -5042,7 +5043,7 @@ impl Checker<'_, '_> {
         reason = "one arm per expression-bearing node kind; splitting it would \
                   hide the exhaustiveness that is the point of the list"
     )]
-    fn is_value_reference(&self, node: NodeId) -> bool {
+    pub(crate) fn is_value_reference(&self, node: NodeId) -> bool {
         let Some(parent) = self.nodes.parent(node) else { return false };
         let Some(typed) = self.node_map.get(parent) else { return false };
         let is = |slot: Option<NodeId>| slot == Some(node);

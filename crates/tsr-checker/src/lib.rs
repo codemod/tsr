@@ -138,6 +138,7 @@ pub mod nullable_operand;
 pub mod objects;
 pub mod operator_operands;
 pub mod optionality;
+mod parameter_self_reference;
 pub mod printing;
 pub mod readonly_target;
 pub mod relater;

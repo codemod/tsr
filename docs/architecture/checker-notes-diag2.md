@@ -47862,3 +47862,85 @@ cost two right lines: not every narrowing is a trade.
 > input has substituted for a test this port cannot perform.
 
 33 lines remain, wanting the evolving-any analysis. Owner: flow.
+
+## §980 — TS2372: a parameter's initializer cannot name the parameter
+
+§950's list: **5 sole-obstacle cases, 8 lines**, and nothing about it needs a
+type.
+
+```ts
+function foo(x: number = x) { }            selfReferencesInFunctionParameters
+function bar(x0 = "", x: number = x) { }
+function f(await = await) { }              asyncFunctionDeclaration3_es6 and three siblings
+```
+
+`resolveNameHelper` (`checker.go:1850`-`:1858`) reports it while resolving the
+identifier, from state it threads down the walk —
+`associatedDeclarationForContainingInitializerOrBindingName` and
+`withinDeferredContext`. This port has neither, but both are recoverable from
+the tree: the associated declaration is the nearest enclosing
+`ParameterDeclaration` reached **through its initializer**, and the deferred
+context is any function-like crossed on the way.
+
+```ts
+function f(a = () => a) { }     // legal — the arrow defers the read
+```
+
+That last is falsifier 2 and is the reason the walk stops at a function-like
+rather than at the parameter.
+
+Upstream's sibling on the `else if` — TS2373, *cannot reference identifier
+declared after it* — needs the container's `locals` and a position comparison.
+It is **not** built here: `diagsole` prices it at zero cases, and §969's lesson
+is that the neighbouring cell of a rule is worth exactly what the corpus says
+and not what the code's symmetry suggests.
+
+```
+bar:  >= +2,  0 LOST via `diagpass`,  extraonly delta <= +1
+```
+
+### Falsifiers
+
+1. **A later parameter's name reports.** `bar(x0 = "", x = x)` must report on
+   `x` only; `x0` is a different parameter and is TS2373's cell, not this one.
+2. **`a = () => a` reports.** The deferred context is the whole reason the walk
+   is bounded.
+3. **A parameter's *type* naming the parameter reports.** `(x: typeof x)` is a
+   type position and this rule is about values.
+
+## §981 — §980 built: **+5/−0**, and walk state recovered from the tree
+
+```
+diagnostics   2,434 → 2,439   (+5)   44.44%
+diagpass      LOST: (none)
+              GAINED: selfReferencesInFunctionParameters, asyncArrowFunction3_es2017,
+                      asyncArrowFunction3_es6, asyncFunctionDeclaration3_es2017,
+                      asyncFunctionDeclaration3_es6
+extraonly     75, unchanged
+TS2372        have 0 → 14,  missing 2,  **0 extra**
+```
+
+Every sole-obstacle case, fourteen right lines, none wrong. All three falsifiers
+negative and two of them were checked by the fixtures themselves —
+`selfReferencesInFunctionParameters` contains both `bar(x0 = "", x = x)` (only
+`x` reports) and the deferred `a = () => a`.
+
+> Upstream reports this from **walk state**: two fields threaded down
+> `resolveNameHelper` that say which parameter's initializer we are inside and
+> whether a deferred context intervenes. This port threads neither, and the
+> obvious reading is that the rule needs the resolver rewritten.
+>
+> It does not. **Both fields are properties of the path from the node to the
+> root**, and the tree still has that path: the associated declaration is the
+> nearest enclosing parameter *reached through its initializer*, and the
+> deferred context is any function-like crossed getting there. Fifteen lines of
+> ancestor walk for state upstream carries in two variables.
+>
+> Worth naming because the shape recurs: **threaded state is usually a cached
+> ancestor query**, and a port without the thread can often ask the tree
+> instead. §946's `ambient` widening was the same observation from the other
+> direction — there the thread existed and was missing a case.
+
+TS2373, the `else if` on the same site — *cannot reference identifier declared
+after it* — is **not** built: `diagsole` prices it at zero cases. §969's lesson
+applied before spending a build on it rather than after.
