@@ -350,7 +350,18 @@ impl Checker<'_, '_> {
             if self.operand_is_nullish(operand_type) {
                 continue;
             }
-            if !self.operand_is_definitely_not_numeric(operand_type) {
+            // **An unconstrained type parameter is decidably not numeric**, and
+            // the relation cannot say so — `pair_is_reportable` refuses anything
+            // carrying `UNDECIDABLE_HERE` and a type parameter carries it, so
+            // there is nothing to relate. §456 made this argument for computed
+            // property names and it holds here for the same reason: an
+            // unconstrained `T` is bounded by `unknown`, which is not assignable
+            // to `number`. A **constrained** one is declined — only the
+            // constraint decides, and that is the relation's job when it can
+            // answer. §931.
+            if !self.operand_is_unconstrained_type_parameter(at)
+                && !self.operand_is_definitely_not_numeric(operand_type)
+            {
                 continue;
             }
             let Some(file) = self.source_file_of_for_diagnostics(at) else { continue };
@@ -366,6 +377,60 @@ impl Checker<'_, '_> {
     /// so `Unknown` is silence. An enum answers `Unknown` here and is
     /// assignable upstream, which is the safe direction — the message itself
     /// names enums.
+    /// Is this operand a reference whose declared type is a type parameter with
+    /// **no constraint**? §456's predicate, at a second site. §931.
+    fn operand_is_unconstrained_type_parameter(&mut self, node: NodeId) -> bool {
+        let Some(text) = self.identifier_text(node).map(str::to_string) else { return false };
+        let Some(symbol) = self.binder.resolve_name(
+            self.nodes,
+            self.node_map,
+            node,
+            &text,
+            tsr_binder::SymbolFlags::VALUE,
+        ) else {
+            return false;
+        };
+        let declarations =
+            self.binder.symbols().get(self.binder.merged_symbol(symbol)).declarations.clone();
+        for declaration in declarations {
+            let annotation = match self.node_map.get(declaration) {
+                Some(Node::VariableDeclaration(variable)) => variable.r#type,
+                Some(Node::ParameterDeclaration(parameter)) => parameter.r#type,
+                _ => None,
+            };
+            let Some(annotation) = annotation.and_then(|t| t.node_id()) else { continue };
+            let Some(Node::TypeReferenceNode(reference)) = self.node_map.get(annotation) else {
+                continue;
+            };
+            let Some(name) = reference.type_name.and_then(|n| n.node_id()) else { continue };
+            let Some(type_text) = self.identifier_text(name).map(str::to_string) else { continue };
+            let Some(type_symbol) = self.binder.resolve_name(
+                self.nodes,
+                self.node_map,
+                name,
+                &type_text,
+                tsr_binder::SymbolFlags::TYPE,
+            ) else {
+                continue;
+            };
+            let type_declarations = self
+                .binder
+                .symbols()
+                .get(self.binder.merged_symbol(type_symbol))
+                .declarations
+                .clone();
+            if type_declarations.iter().any(|&d| {
+                matches!(
+                    self.node_map.get(d),
+                    Some(Node::TypeParameterDeclaration(parameter)) if parameter.constraint.is_none()
+                )
+            }) {
+                return true;
+            }
+        }
+        false
+    }
+
     fn operand_is_definitely_not_numeric(&mut self, operand: TypeId) -> bool {
         if self
             .type_of(operand)

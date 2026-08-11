@@ -45753,3 +45753,79 @@ distribution and found one guard, §930 measures **+4 cases and 140 lines**.
 > **The row was never hard. It was invisible**, and it was invisible because a
 > number that had been printed on every build since §156 meant something other
 > than its label.
+
+## §931 — an unconstrained type parameter is decidably not numeric
+
+TS2362's residue after §930 is 163 lines, and one case holds 60:
+
+```ts
+function foo<T>(t: T) {
+    let a!: any;
+    var r1a1 = a * t;     // TS2363 on `t`
+}
+```
+
+`operand_is_definitely_not_numeric` never reaches the relation for `t`:
+`pair_is_reportable` refuses anything carrying `UNDECIDABLE_HERE`, and a type
+parameter carries it. The relation genuinely cannot answer — **there is nothing
+to relate.**
+
+§456 made this exact argument for computed property names:
+
+> *"An unconstrained type parameter cannot be a computed name, and the relation
+> cannot say so — it has nothing to relate. **The syntax can**: a
+> `TypeParameterDeclaration` with no `constraint`."*
+
+The same holds here and for the same reason: an unconstrained `T` is bounded by
+`unknown`, and `unknown` is not assignable to `number`. A **constrained** one is
+declined, exactly as §456 declines it — `T extends number` is numeric and
+`T extends keyof U` is not, and only the constraint decides.
+
+```
+bar:  TS2362 corpus-wide DOWN,  0 LOST via `diagpass`,  extraonly delta <= +2
+```
+
+### Falsifiers
+
+1. **`function f<T extends number>(t: T) { t * 1 }` reports.** The constraint is
+   numeric and the arm must not fire.
+2. **A constrained-but-non-numeric `T` reports.** Also declined — §456's bound,
+   and the relation's job when it can answer.
+
+## §932 — §931 built: **+2/−0**, and TS2362 is 303 → 94 in three builds
+
+```
+diagnostics   2,382 → 2,384   (+2)   43.44%
+diagpass      LOST: (none)
+              GAINED: arithmeticOperatorWithTypeParameter,
+                      exponentiationOperatorWithTypeParameter
+extraonly     75, unchanged
+TS2362        163 → 94 lines corpus-wide
+TS2363        120 → 51
+```
+
+Both falsifiers negative: a constrained `T` is still declined, and the relation
+keeps the cases it can answer.
+
+```
+§886   "the row is finished"        restricted 0,  corpus-wide 303
+§930   the nullish guard, per operand      +4      303 → 163
+§931   §456's predicate, second site        +2      163 →  94
+                                            ---
+                                            +6 cases,  209 lines
+```
+
+Both fixes are **predicates this port already had, applied at a site that had
+never asked**: §50.3's nullish rule moved from the expression to its operands,
+and §456's unconstrained-type-parameter test read at an operand instead of a
+computed name.
+
+> Neither build needed a fact about TypeScript that was not already written down
+> here. **What was missing was the question**, and the question was unaskable
+> while `diagmissing` reported a restricted zero for the row.
+>
+> Three builds, six cases, 209 lines, and the whole chain starts at a **label**.
+
+TS2362's remaining 94 lines head with
+`compoundExponentiationAssignmentLHSCannotBeAssigned` at 36 — a different shape,
+and the row is genuinely open rather than finished.
