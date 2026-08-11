@@ -3663,3 +3663,41 @@ private-name cluster (a `#x` reached from a derived class, or shadowed
 by a nested class) and §195's residue (an attribute whose name is
 missing, where we now answer `true` and upstream answers its error
 type) are both this shape.
+
+### Corollary 11 (2026-08-11): a refusal is protected from re-derivation; its stated REASON is not
+
+`STATUS.md` §5's rule — *a refused item stays on this page with the number
+that refused it, so the next session does not spend a cycle rediscovering
+the same negative* — is load-bearing and should stay. But it protects the
+**verdict**, and a refusal carries two other things that it does not
+protect:
+
+1. **A scope.** "This exit stays a gap, that one is served."
+2. **A reason for the scope**, which is frequently a claim about
+   *upstream's* control flow rather than about the measurement.
+
+§199 is the worked example. §21 measured the overload-failure intersection
+honestly and landed it, then wrote: *"The arity-mismatch exit stays a gap:
+upstream routes it through `pickLongestCandidateSignature`, a different
+mechanism, unsized."* `getCandidateForOverloadFailure`
+(`checker.go:9498`) never asks why `chooseOverload` failed — its branch is
+on the **candidate set**, and arity never enters it. Deleting three words
+from the condition was +3 cases.
+
+This differs from corollary 8 in what it costs to check. Those four were
+claims about *our* code ("already handled elsewhere"), falsifiable only by
+measuring. A claim about upstream's control flow is falsifiable by **one
+read of the callee**, which makes it both cheaper to check and worse to
+leave standing.
+
+So:
+
+- **When you refuse a slice, say which of the two you are recording**: "the
+  measurement did not cover this" (a fact about the run, durable) or
+  "upstream does something else here" (a fact about the source, and it
+  should carry the `file.go:line` that says so).
+- **A refusal whose scope cites upstream's control flow is a one-read
+  audit.** Cheap enough to redo whenever the family comes back up the
+  board, and §199 says the hit rate is not low.
+- Re-reading a refusal's *reason* is not re-deriving the refusal, and
+  §5's rule was never meant to forbid it.
