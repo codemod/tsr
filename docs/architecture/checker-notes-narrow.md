@@ -7726,3 +7726,29 @@ is a census of gap lines whose want is a conditional's branch, not
 a build. The four attempts at the fixing-mapper are a standing
 warning about building a subsystem piece before knowing which
 population it serves.
+
+
+**Score: +9 / 2 — LANDED, and the gate is the whole story.** The
+general road built as specced: a conditional whose CHECK type
+mentions no type parameter picks a branch by
+`is_type_assignable_to`. Ungated it measured **+47 / 58, net
+negative** — conditionalTypes1 16, recursiveArrayNotCircular 15,
+unknownType2 13.
+
+**The mechanism, and it is a trap worth naming.** §182's own entry
+above argued the decline was "in the SAFE direction" because
+`is_type_assignable_to` answers `false` between two object types
+rather than guessing. That is true where the answer is used as a
+DECLINE. Here it is used as a DECISION: `false` picks the FALSE
+branch, so every object-typed check silently took the wrong arm.
+**A predicate that fails safe under one caller fails dangerously
+under another** — the safety is a property of the USE, not of the
+predicate, and the entry above got that wrong before measuring it.
+
+Gated to the relater's proven domain (both check and extends
+primitive-flavoured): **+9 / 2** (conditionalTypes1 8,
+tailRecursiveConditionalTypes 1; instantiateContextualTypes 2
+adverse). Small, but it is the first conditional evaluation this
+port has outside the `extends never` shape, and the road is now
+built — widening it is a question of widening the RELATER, which
+is a named and separate subsystem.

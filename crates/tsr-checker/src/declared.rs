@@ -2486,11 +2486,14 @@ impl<'a> Checker<'a, '_> {
             return None;
         };
         let Some(TypeNode::ConditionalTypeNode(conditional)) = alias.r#type else { return None };
-        if !matches!(conditional.extends_type, Some(TypeNode::KeywordTypeNode(keyword))
-            if keyword.kind == SyntaxKind::NeverKeyword)
-        {
-            return None;
-        }
+        // §182 slice 1 (`checker-notes-narrow.md`): the `extends never`
+        // shape was the only one evaluated; `getConditionalType`'s
+        // non-deferred fast path evaluates ANY conditional whose CHECK type
+        // is decidable, choosing a branch by assignability. The general
+        // road is taken below; this shape keeps its own `literal_key_texts`
+        // reading because keyof-emptiness is not an assignability question.
+        let extends_is_never = matches!(conditional.extends_type,
+            Some(TypeNode::KeywordTypeNode(keyword)) if keyword.kind == SyntaxKind::NeverKeyword);
         let parameters = self.local_type_parameters_of(symbol);
         if parameters.len() != arguments.len() {
             return None;
@@ -2511,8 +2514,9 @@ impl<'a> Checker<'a, '_> {
         let mut result = None;
         if let Some(check_node) = conditional.check_type {
             let check = self.get_type_from_type_node(check_node);
+            let keys = if extends_is_never { self.literal_key_texts(check) } else { None };
             if check != error
-                && let Some(keys) = self.literal_key_texts(check)
+                && let Some(keys) = keys
             {
                 let branch =
                     if keys.is_empty() { conditional.true_type } else { conditional.false_type };
@@ -2520,6 +2524,44 @@ impl<'a> Checker<'a, '_> {
                     let evaluated = self.get_type_from_type_node(branch);
                     if evaluated != error {
                         result = Some(evaluated);
+                    }
+                }
+            }
+            // The general fast path: a decidable check picks a branch.
+            // `is_type_assignable_to` answers `false` between two object
+            // types rather than guessing, so an undecidable check keeps the
+            // gap — the decline is in the safe direction.
+            if result.is_none()
+                && !extends_is_never
+                && check != error
+                && let Some(extends_node) = conditional.extends_type
+            {
+                let extends = self.get_type_from_type_node(extends_node);
+                // Both sides must sit in the relater's PROVEN domain —
+                // primitives, literals and unions of them. Outside it
+                // `is_type_assignable_to` answers `false` rather than
+                // guessing, which is a safe DECLINE but a confident WRONG
+                // DECISION here: false would pick the false branch.
+                // Measured: the ungated arm cost 58 adverse
+                // (conditionalTypes1 16, recursiveArrayNotCircular 15,
+                // unknownType2 13) against 47 gains.
+                let primitive_domain = |checker: &Self, id: crate::types::TypeId| {
+                    let flags = checker.store.get(id).flags;
+                    flags.intersects(crate::flags::TypeFlags::PRIMITIVE)
+                };
+                if extends != error
+                    && !self.mentions_any_type_parameter(check, 2)
+                    && primitive_domain(self, check)
+                    && primitive_domain(self, extends)
+                {
+                    let takes_true = self.is_type_assignable_to(check, extends);
+                    let branch =
+                        if takes_true { conditional.true_type } else { conditional.false_type };
+                    if let Some(branch) = branch {
+                        let evaluated = self.get_type_from_type_node(branch);
+                        if evaluated != error {
+                            result = Some(evaluated);
+                        }
                     }
                 }
             }
