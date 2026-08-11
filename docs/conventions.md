@@ -3452,3 +3452,19 @@ building anything, enumerate the sites that run the rule you already
 have — and before accepting a stated prerequisite, test whether the
 road can simply read AROUND it.
 
+**Why the enumeration corollaries are affordable** (checker-1, and it
+belongs beside them or a future window will treat enumeration as
+expensive and go back to reasoning): **a full `scorepair` is cheap
+here** — measuring one more site costs one run. The discipline of
+"enumerate the sites, then judge" is only rational because the
+measurement is nearly free; if that ever stops being true, these
+corollaries must be re-priced rather than assumed.
+
+**Custody note, same window**: checker-2 announced "§166 synced and
+re-accepted" while §166 was still in checker-1's working tree. The
+numbers happened to agree, but the claim was false when made and was
+corrected within the hour. **"Synced" means after THEIR push and YOUR
+pull — verify the commit is in your log before saying it.** This is the
+same slip that produced the earlier stale-baseline misattribution, and
+it is cheaper to announce late than to unwind an attribution.
+
