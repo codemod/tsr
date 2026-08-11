@@ -49989,3 +49989,81 @@ TS1268  index-signature parameter type                    **buildable here**
 **Four rows wait on the module graph** — §955's cross-file alias cycle, §1000's
 TS1362, TS2323's named half, and TS2456. That is the largest single lever left
 for this layer and none of the four can be reached without it.
+
+## §1033 — TS1268: an index signature's parameter type
+
+§1032 named this the band's last buildable row.
+
+```ts
+var foo:  { [index: any]; };      // TS1268
+var foo2: { [index: RegExp]; };   // TS1268
+```
+
+`checkGrammarIndexSignature` (`grammarchecks.go:832`) asks
+`everyType(t, isValidIndexKeyType)` — `string`, `number`, `symbol`, a template
+literal, or a union of those. The **written** annotation answers it for the
+corpus's shapes, and the arms *above* it in the same function are what bound the
+slice:
+
+```
+a literal or generic type   →  TS1337, a different message
+no annotation at all        →  TS1148
+```
+
+So a **type parameter** must stay silent here even though it is not a valid key
+type — it is TS1337's, and reporting TS1268 on it would be §961's *right
+position, wrong code*. The rule therefore fires only for a keyword type that is
+not `string`/`number`/`symbol`, or a reference to a class or interface
+declaration — §985's test, reused, and for the same reason: a reference that
+resolves to a **type alias** could be anything.
+
+```
+bar:  >= +1 of the 2,  0 LOST via `diagpass`,  extraonly delta <= +1
+```
+
+### Falsifiers
+
+1. **`[index: string]` or `[index: number]` reports.** Every index signature in
+   the corpus.
+2. **`[k: K]` with `K` a type parameter reports.** That is TS1337's cell.
+3. **A template-literal key reports.** `[k: \`a${string}\`]` is valid and is not
+   a keyword type, so the allow-by-omission default covers it.
+
+## §1034 — §1033 built: **+0**, eight right lines, and a helper that declines one too many
+
+```
+diagnostics   2,497 → 2,497   (+0)   45.50%
+diagpass      LOST: (none)   GAINED: (none)
+extraonly     75, unchanged
+TS1268        have 0 → 8,  want 14,  missing 6,  **0 extra**
+```
+
+**Twenty-first `+0` kept for fidelity.** Eight right lines, none wrong, and the
+row's two sole-obstacle cases each stayed one line short. `parserIndexSignature8`
+shows exactly which line:
+
+```
+expected   parserIndexSignature8.ts(1,13) TS1268     var foo:  { [index: any]; }
+           parserIndexSignature8.ts(2,14) TS1268     var foo2: { [index: RegExp]; }
+actual     parserIndexSignature8.ts(1,13) TS1268
+```
+
+A probe at the reference arm — not a re-reading — said
+`type_reference_names_a_class_or_interface` answers **false** for `RegExp`.
+
+> That helper is §985's, written for TS2370 where a reference it cannot resolve
+> is safely declined: a rest parameter typed by an unresolvable name is better
+> left alone than reported. **Here the same decline costs the line the case
+> needs.** The helper is correct; its *tolerance* is calibrated for a rule that
+> can afford to be quiet, and this rule cannot.
+>
+> §1026 said a helper earns its name on the second use; §1032 found the fourth
+> by collision. This is the first time a reuse has been **right and
+> insufficient** — and the distinction matters, because the fix is not to change
+> the helper (TS2370 would regress) but to give this caller its own answer for
+> the case the helper declines.
+
+Not attempted here: `RegExp` is a `lib.d.ts` interface and reaching it from a
+type position inside a type literal is a resolution question, not a grammar one.
+Recorded with the number — **2 cases, 6 lines** — and the observation that both
+remaining cases hinge on exactly this.

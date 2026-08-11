@@ -69,7 +69,7 @@ impl Checker<'_, '_> {
 
     /// Does this reference name a class or interface declaration that is not
     /// one of `lib.d.ts`'s array-like interfaces? §984.
-    fn type_reference_names_a_class_or_interface(&mut self, annotation: NodeId) -> bool {
+    pub(crate) fn type_reference_names_a_class_or_interface(&mut self, annotation: NodeId) -> bool {
         let Some(Node::TypeReferenceNode(reference)) = self.node_map.get(annotation) else {
             return false;
         };

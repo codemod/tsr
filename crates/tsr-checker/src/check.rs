@@ -926,6 +926,9 @@ impl Checker<'_, '_> {
         if self.nodes.kind(node) == SyntaxKind::NewExpression {
             self.check_new_on_abstract_class(node);
         }
+        if self.nodes.kind(node) == SyntaxKind::IndexSignature {
+            self.check_index_signature_parameter_type(node);
+        }
         if self.nodes.kind(node) == SyntaxKind::SuperKeyword {
             self.check_super_in_computed_name(node);
             self.check_super_call_outside_constructor(node);
@@ -5260,6 +5263,62 @@ impl Checker<'_, '_> {
     /// The other positions are a second slice with that predicate as its
     /// subject — `checker-notes-diag2.md` §83. TS2448 (block-scoped variable)
     /// and TS2450 (enum) are its siblings and wait on the same thing.
+    /// TS1268 — `An index signature parameter type must be 'string', 'number',
+    /// 'symbol', or a template literal type.`
+    ///
+    /// `checkGrammarIndexSignature` (`grammarchecks.go:832`) asks
+    /// `everyType(t, isValidIndexKeyType)`. The **written** annotation answers
+    /// it for the corpus's shapes, and the arms *above* it in the same function
+    /// bound the slice: a literal or generic type is **TS1337** and a missing
+    /// annotation is TS1148, so a type parameter must stay silent here even
+    /// though it is not a valid key type. §1033.
+    fn check_index_signature_parameter_type(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let Some(Node::IndexSignatureDeclaration(signature)) = self.node_map.get(node) else {
+            return;
+        };
+        let [parameter] = signature.parameters else { return };
+        if parameter.dot_dot_dot_token.is_some()
+            || parameter.question_token.is_some()
+            || parameter.initializer.is_some()
+            || !parameter.modifiers.is_empty()
+        {
+            return;
+        }
+        let Some(annotation) = parameter.r#type.and_then(|t| t.node_id()) else { return };
+        let invalid = match self.nodes.kind(annotation) {
+            SyntaxKind::AnyKeyword
+            | SyntaxKind::BooleanKeyword
+            | SyntaxKind::VoidKeyword
+            | SyntaxKind::NeverKeyword
+            | SyntaxKind::UnknownKeyword
+            | SyntaxKind::ObjectKeyword
+            | SyntaxKind::BigIntKeyword => true,
+            // **§985's helper, and its decline costs a line here.** It answers
+            // `false` for `RegExp` — a `lib.d.ts` interface this port's
+            // type-position resolution does not reach from inside a type
+            // literal — where §985 could afford the decline and this rule
+            // cannot. Probed, not assumed. §1034.
+            SyntaxKind::TypeReference => self.type_reference_names_a_class_or_interface(annotation),
+            _ => false,
+        };
+        if !invalid {
+            return;
+        }
+        let Some(name) = parameter.name.and_then(|n| n.node_id()) else { return };
+        let Some(file) = self.source_file_of_for_diagnostics(name) else { return };
+        let span = self.nodes.span(name);
+        self.report(
+            file,
+            Diagnostic::new(
+                &messages::AN_INDEX_SIGNATURE_PARAMETER_TYPE_MUST_BE_STRING_NUMBER_SYMBOL_OR_A_TEMPLATE_LITERAL_TYPE,
+                span,
+            ),
+        );
+    }
+
     /// TS2499 — `An interface can only extend an identifier/qualified-name with
     /// optional type arguments.`
     ///
