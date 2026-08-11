@@ -508,14 +508,39 @@ impl<'a> Parser<'a> {
         };
 
         let mut declarations = Vec::new();
+        let mut trailing_comma = false;
         loop {
             declarations.push(self.parse_variable_declaration());
             if !self.eat(SyntaxKind::CommaToken) {
                 break;
             }
+            // **Re-test after the separator.** Upstream's `parseDelimitedList`
+            // (`parser.go:664-667`) does not fall into `parseElement` after a
+            // comma — it `continue`s to the top of the loop and asks
+            // `isListElement` again, which for `PCVariableDeclarations` is
+            // `isBindingIdentifierOrPrivateIdentifierOrPattern` (`:871`). So
+            // `var a,` at end of file produces ONE declaration upstream, and
+            // this loop used to produce two: the second with a missing
+            // identifier that nothing in the source spells.
+            //
+            // The consequence was not a wrong type but an extra `.types` line
+            // with empty source text, which fails the case on its assertion
+            // COUNT while every line it does render is right — see
+            // `docs/architecture/checker-notes-nearmiss.md` §191.
+            if !self.is_binding_identifier_or_private_identifier_or_pattern() {
+                trailing_comma = true;
+                break;
+            }
         }
         let declarations = self.arena.alloc_slice(&declarations);
         let end = self.node_end();
+        // Upstream derives this from the list's span outrunning its last node
+        // (`ast.go:137`); this AST keeps child slices plain, so the fact has to
+        // be recorded on the parent (`NodeFlags::HAS_TRAILING_COMMA`) or it is
+        // unrecoverable. `checkGrammarVariableDeclarationList`
+        // (`grammarchecks.go:1648`) is what reads it, for TS1009.
+        let flags =
+            if trailing_comma { flags | tsr_ast::NodeFlags::HAS_TRAILING_COMMA } else { flags };
         self.finish_node_with_flags(
             VariableDeclarationList::new(declarations),
             SyntaxKind::VariableDeclarationList,

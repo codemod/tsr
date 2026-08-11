@@ -1443,3 +1443,54 @@ fn a_new_expressions_callee_span_excludes_the_new_keyword() {
         "the callee must not swallow `new`: {seen:?}"
     );
 }
+
+/// §191. `var a,` is ONE declaration, not two.
+///
+/// Upstream's `parseDelimitedList` re-tests `isListElement` after each comma
+/// (`parser.go:664-667`), so a trailing comma ends the list; this parser used
+/// to fall straight into `parseElement` and manufacture a second declaration
+/// whose name is a missing identifier. Nothing in the source spells that name,
+/// and the `.types` walker duly emitted an assertion with empty source text —
+/// which fails the case on its assertion COUNT even when every type is right.
+/// See `docs/architecture/checker-notes-nearmiss.md` §191.
+#[test]
+fn a_trailing_comma_does_not_manufacture_a_variable_declaration() {
+    let arena = Arena::new();
+    for source in ["var a,", "var a,;", "var a, ;", "let b,\nclass C {}"] {
+        let parsed = parse(&arena, source);
+        let list = parsed
+            .source_file
+            .statements
+            .iter()
+            .find_map(|statement| match statement {
+                Statement::VariableStatement(node) => node.declaration_list,
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("no variable statement in {source:?}"));
+        assert_eq!(
+            list.declarations.len(),
+            1,
+            "{source:?} must declare exactly one binding, not a missing-identifier second"
+        );
+        assert!(
+            parsed
+                .nodes
+                .flags(list.node_id.expect("the list is a node"))
+                .contains(tsr_ast::NodeFlags::HAS_TRAILING_COMMA),
+            "{source:?} must record the trailing comma; TS1009 is derived from it"
+        );
+    }
+}
+
+/// The control for the test above: a comma followed by a real binding still
+/// continues the list. Without this, deleting the loop body entirely passes.
+#[test]
+fn a_comma_followed_by_a_binding_continues_the_variable_list() {
+    let arena = Arena::new();
+    let statements = statements(&arena, "var a, b, { c } = o;");
+    let Some(Statement::VariableStatement(node)) = statements.first() else {
+        panic!("expected a variable statement");
+    };
+    let list = node.declaration_list.expect("a declaration list");
+    assert_eq!(list.declarations.len(), 3);
+}

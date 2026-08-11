@@ -171,3 +171,66 @@ and is not evidence for the work until measured.
 
 The reason it is worth doing anyway is that these 27 are the only pool in the
 corpus where the checker is already completely right.
+
+### Slice 1 — variable declarations (+4 cases, 0 lost)
+
+Landed. `parse_variable_declaration_list` (`crates/tsr-parser/src/statement.rs`)
+now re-tests `is_binding_identifier_or_private_identifier_or_pattern` — a
+direct port of `parser.go:6221`, which is `isListElement`'s answer for
+`PCVariableDeclarations` (`:871`) — after eating each comma, and records
+`NodeFlags::HAS_TRAILING_COMMA` when it stops there.
+
+Measured at the rebase onto `c260de51` (checker-2's §180), one full coverage
+run before and after:
+
+| suite | before | after |
+|---|---|---|
+| `checker_types` cases | 4,697 / 9,538 (49.25%) | **4,701 (49.29%)** |
+| `checker_types` lines | 420,818 | 420,823 |
+| `diagnostics` | — | **unchanged** |
+| `binder_symbols` | 8,444/8,444, 553 skipped for parse errors | 8,447/8,447, **550** |
+| `printer_round_trip` | 11,743/11,743, 701 skipped | 11,746/11,746, **698** |
+
+The two 100% suites are the interesting column. Three cases each moved *out of
+the skip bucket and into the passing one*: this port had been reporting a parse
+error ("Identifier expected") on the manufactured name, and now reports
+nothing — which is upstream's behaviour, since upstream's TS1009 for `var a,`
+comes from `checkGrammarVariableDeclarationList` (`grammarchecks.go:1648`)
+reading the trailing comma off the list, not from the parser at all.
+
+**Residue, named:** TS1009 itself is still unported, so the flag this slice now
+sets has no reader in `tsr-checker`. It is recorded anyway because upstream
+derives the fact from the list's span outrunning its last child
+(`ast.go:137-143`) and this AST cannot — see `NodeFlags::HAS_TRAILING_COMMA`'s
+own doc comment.
+
+Two tests, the first a true positive confirmed red under the mutation
+`if false && !self.is_binding_identifier...`, the second its control (a comma
+followed by a real binding must still continue the list — without it, deleting
+the loop body passes).
+
+### Slice 2 and after — what the remaining shapes need, and the wall
+
+The other list contexts in the 27 need predicates this parser does not have.
+`PCArgumentExpressions` is `token == ... || isStartOfExpression()`
+(`parser.go:882`), and `isStartOfExpression` (`:6144`) rests on
+`isStartOfLeftHandSideExpression`, `isBinaryOperator` and an `isIdentifier`
+that consults the yield and await contexts — **none of which this port tracks**
+(`grep -rn 'yield_context' crates/tsr-parser/src` is empty).
+
+More importantly, upstream's loop is a *three-way* decision, not a two-way one.
+When the token is neither a list element nor a terminator,
+`abortParsingListOrMoveToNextToken` (`:698`) asks `isInSomeParsingContext` —
+whether the token would be an element or terminator of any *enclosing* list —
+and only breaks if so; otherwise it reports that context's own error, skips one
+token, and **retries**. That third arm needs the `parsingContexts` bitmask,
+which only exists if `parseDelimitedList` itself is what runs every list.
+
+So slice 1 is exactly the part that needed none of that: for
+`PCVariableDeclarations`, every token that fails the element test in the 27
+also satisfies `isListTerminator` (`canParseSemicolon()` at `:934`), so the
+two-way approximation and upstream's three-way decision cannot disagree. **Any
+further slice has to either prove the same coincidence for its context or port
+the machinery.** Approximating the third arm would be the kind of
+nearly-right recovery that produces a diagnostic upstream never emits, at a
+position upstream never names.

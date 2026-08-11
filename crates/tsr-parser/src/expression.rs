@@ -1762,6 +1762,34 @@ impl<'a> Parser<'a> {
 
     // ---- names ----------------------------------------------------------
 
+    /// Whether the cursor is on a token [`Self::parse_identifier`] will accept.
+    ///
+    /// Upstream's `isBindingIdentifier` (`parser.go:6262`), which is
+    /// deliberately *not* `isIdentifier` (`:6248`): the latter also rejects
+    /// `yield`/`await` inside a yield or await context, and upstream's own
+    /// comment says `let await` is allowed here and refused later by the
+    /// binder. Extracted from `parse_identifier`'s own admissibility test so
+    /// that a list loop can ask *before* parsing whether an element is there —
+    /// asking afterwards is what manufactures a missing identifier (§191).
+    pub(crate) fn is_binding_identifier(&self) -> bool {
+        self.at(SyntaxKind::Identifier)
+            || (self.token.kind.is_keyword()
+                && (self.token.kind as u16) > (SyntaxKind::LAST_RESERVED_WORD as u16))
+    }
+
+    /// Whether a *binding* can start here: a pattern, a private name, or a
+    /// binding identifier.
+    ///
+    /// Upstream's `isBindingIdentifierOrPrivateIdentifierOrPattern`
+    /// (`parser.go:6221`), which is `isListElement`'s answer for
+    /// `PCVariableDeclarations` (`:871`).
+    pub(crate) fn is_binding_identifier_or_private_identifier_or_pattern(&self) -> bool {
+        self.at(SyntaxKind::OpenBraceToken)
+            || self.at(SyntaxKind::OpenBracketToken)
+            || self.at(SyntaxKind::PrivateIdentifier)
+            || self.is_binding_identifier()
+    }
+
     /// Parse an identifier, synthesising one if the cursor is elsewhere.
     ///
     /// Ported from `Parser.parseIdentifier` via `isIdentifier`
@@ -1772,10 +1800,7 @@ impl<'a> Parser<'a> {
     /// [`Self::parse_identifier_name`], where every keyword is a name.
     pub(crate) fn parse_identifier(&mut self) -> &'a Identifier<'a> {
         let start = self.pos();
-        let admissible = self.at(SyntaxKind::Identifier)
-            || (self.token.kind.is_keyword()
-                && (self.token.kind as u16) > (SyntaxKind::LAST_RESERVED_WORD as u16));
-        if admissible {
+        if self.is_binding_identifier() {
             let text = self.token_value();
             self.next_token();
             return self.finish_node(Identifier::new(text), SyntaxKind::Identifier, start);
