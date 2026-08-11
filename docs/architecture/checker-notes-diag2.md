@@ -49473,3 +49473,64 @@ augments `"./index"`.
 
 One line remains, in `declarationEmitRelativeModuleError`, which wants TS2436 at
 a position this arm does not reach; it costs no case.
+
+## §1019 — TS2406: a `for…in` left-hand side must be a reference
+
+§950's 2-case band, and the two fixtures are one line each:
+
+```ts
+for (foo() in b) { }        // TS2406
+for (new foo() in b) { }    // TS2406
+```
+
+`checkForInStatement` (`checker.go:4013`) hands the left-hand side to
+`checkReferenceExpression`, which reports this when the expression is not
+assignable-to. §1005 built the *type* half of the same statement's checks and
+stopped there; this is the reference half, and it needs no type at all — an
+identifier, a property access and an element access are references, and a call,
+a `new`, a literal and a parenthesised non-reference are not.
+
+The `for (var a in b)` form does not reach this: its initializer is a
+**declaration list**, which upstream tests before the expression path.
+
+```
+bar:  >= +1 of the 2,  0 LOST via `diagpass`,  extraonly delta <= +1
+```
+
+### Falsifiers
+
+1. **`for (a in b)` reports.** The ordinary form, and most of the corpus.
+2. **`for (var a in b)` reports.** A declaration list is not an expression and
+   must not be handed to the reference test.
+3. **`for (a.b in c)` or `for (a[0] in c)` reports.** Both are references and
+   both appear in the corpus.
+
+## §1020 — §1019 built: **+2/−0**, row complete
+
+```
+diagnostics   2,487 → 2,489   (+2)   45.35%
+diagpass      LOST: (none)   GAINED: parserForStatement6, parserForStatement7
+extraonly     75, unchanged
+TS2406        have 0 → 2,  want 2,  **missing 0**
+```
+
+Both cases; the row is finished. Seventh complete row this stretch.
+
+The rule is written as an **allow-list of what is not a reference** — a call, a
+`new`, a numeric or string literal, a tagged template — rather than a deny-list
+of what is. That is the opposite of how `checkReferenceExpression` is written
+upstream, and it is deliberate: upstream can ask *is this assignable-to* of a
+resolved expression, and a port that inverts the question into "anything I do
+not recognise is fine" declines instead of mis-reporting.
+
+> §1016 named the risk in the other direction — a `_ => return` that answers
+> "cannot tell" where the truth is "certainly yes". **The two are the same
+> choice made about different defaults, and which one is right depends on
+> whether the rule reports on a positive or a negative.** TS2371 reports when a
+> body is *absent*, so an unknown kind is a report; TS2406 reports when an
+> expression is *not* a reference, so an unknown kind is silence. Getting this
+> backwards is how a rule passes its own falsifiers and fails the corpus.
+
+Falsifiers 1 and 3 hold by construction — identifiers, property accesses and
+element accesses are simply not in the list. Falsifier 2 likewise: a declaration
+list is a different node kind and never matches.

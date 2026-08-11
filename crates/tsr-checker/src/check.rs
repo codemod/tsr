@@ -890,6 +890,7 @@ impl Checker<'_, '_> {
         }
         if matches!(typed, Node::ForInOrOfStatement(_)) {
             self.check_for_in_variable_type(node);
+            self.check_for_in_reference_expression(node);
             self.check_for_in_or_of_declarations(node);
             self.check_for_await_context(node);
         }
@@ -5253,6 +5254,44 @@ impl Checker<'_, '_> {
     /// The other positions are a second slice with that predicate as its
     /// subject — `checker-notes-diag2.md` §83. TS2448 (block-scoped variable)
     /// and TS2450 (enum) are its siblings and wait on the same thing.
+    /// TS2406 — `The left-hand side of a 'for...in' statement must be a
+    /// variable or a property access.`
+    ///
+    /// `checkForInStatement` (`checker.go:4013`) hands the left-hand side to
+    /// `checkReferenceExpression`. No type is needed: an identifier, a property
+    /// access and an element access are references; a call, a `new`, a literal
+    /// and anything else are not. The `for (var a in b)` form never reaches
+    /// here — its initializer is a declaration list. §1019.
+    fn check_for_in_reference_expression(&mut self, node: NodeId) {
+        if self.file_has_parse_errors || self.in_js_file(node) {
+            return;
+        }
+        let Some(Node::ForInOrOfStatement(statement)) = self.node_map.get(node) else { return };
+        if statement.kind.kind != SyntaxKind::ForInStatement {
+            return;
+        }
+        let Some(initializer) = statement.initializer.and_then(|i| i.node_id()) else { return };
+        if !matches!(
+            self.nodes.kind(initializer),
+            SyntaxKind::CallExpression
+                | SyntaxKind::NewExpression
+                | SyntaxKind::NumericLiteral
+                | SyntaxKind::StringLiteral
+                | SyntaxKind::TaggedTemplateExpression
+        ) {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(initializer) else { return };
+        let span = self.nodes.span(initializer);
+        self.report(
+            file,
+            Diagnostic::new(
+                &messages::THE_LEFT_HAND_SIDE_OF_A_FOR_IN_STATEMENT_MUST_BE_A_VARIABLE_OR_A_PROPERTY_ACCESS,
+                span,
+            ),
+        );
+    }
+
     /// TS2323 — `Cannot redeclare exported variable '{0}'.`
     ///
     /// `checkExportsOnMergedDeclarations`'s exports loop (`checker.go:5716`),
