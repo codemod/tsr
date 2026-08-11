@@ -1320,16 +1320,94 @@ impl Checker<'_, '_> {
         }
         let (Some(class), Some(is_static)) = (class, is_static) else { return error };
         let Some(symbol) = self.binder.symbol_of(class) else { return error };
+        // §202. The **static** side, which is what `super(...)` and a `super`
+        // inside a static member want, differs from the instance side twice
+        // over, and both differences are `getBaseConstructorTypeOfClass`
+        // (`checker.go:17434`) reading `getEffectiveBaseTypeNode` — the
+        // heritage of **this class node** — and typing its *expression*:
+        //
+        // 1. **Type arguments are irrelevant.** `B` is `typeof B` whatever
+        //    follows it in angle brackets, so `class D extends B<any>`'s
+        //    `super()` is `typeof B`. The instance side really does depend on
+        //    them and this port cannot instantiate one, so it keeps refusing —
+        //    the refusal is passed as a parameter rather than baked into the
+        //    shared helper, so the second caller does not inherit the first's.
+        // 2. **Only the CLASS's own heritage counts.** `base_symbols_of` walks
+        //    every declaration of the symbol, which for a class merged with an
+        //    interface includes the interface's `extends`. Upstream never looks
+        //    there: `interface Foo extends Array<number> {}` beside
+        //    `class Foo { constructor() { super() } }` is an error and `any`,
+        //    not `ArrayConstructor`. That case was the single loss on §202's
+        //    first measurement and is why this arm reads the node.
+        if is_static || is_call {
+            let clauses = match self.node_map.get(class) {
+                Some(Node::ClassDeclaration(node)) => node.heritage_clauses,
+                Some(Node::ClassExpression(node)) => node.heritage_clauses,
+                _ => return error,
+            };
+            let mut extends = clauses
+                .iter()
+                .filter(|clause| clause.token.kind == SyntaxKind::ExtendsKeyword)
+                .flat_map(|clause| clause.types.iter());
+            // Exactly one `extends` entry, which is the grammar for a class.
+            let (Some(entry), None) = (extends.next(), extends.next()) else { return error };
+            let Some(base) = self.base_symbol_of_heritage_entry(entry, false) else {
+                return error;
+            };
+            // Type arguments are irrelevant to the static side only when they
+            // are *legal*. A wrong ARITY makes the whole base type an error
+            // upstream — `getTypeFromClassOrInterfaceReference` reports and
+            // answers `errorType` — so `class B extends A<number, string>` over
+            // a non-generic `A` records `>super : any`, not `>typeof A`. Two
+            // cases lost a line to that on §202's first measurement, which is
+            // the difference between "the arguments do not change the answer"
+            // and "the arguments cannot be there at all".
+            //
+            // **Too many only.** Upstream's window is
+            // `[minTypeArgumentCount, len(typeParameters)]` (§136), so a
+            // *short* list is legal whenever the missing positions are
+            // defaulted. Testing `!=` was measured and is wrong: it refuses
+            // those, costing four lines in `compiler/genericDefaultsJs`.
+            //
+            // Residue, named: a list shorter than the **minimum** is also an
+            // upstream error and is not detected here, because this port does
+            // not compute `minTypeArgumentCount`. It costs one line in
+            // `superCallFromClassThatDerivesFromGenericTypeButWithIncorrectNumberOfTypeArguments1`,
+            // measured, and no case.
+            if entry.type_arguments.len() > self.type_parameter_count_of(base) {
+                return error;
+            }
+            return self.get_type_of_symbol(base);
+        }
         let Some(bases) = self.base_symbols_of(symbol) else { return error };
         // Exactly one `extends` entry, which is the grammar for a class. Zero is
         // a base-less class — upstream's own error — and more than one cannot
         // arise; both gap rather than guessing which base `super` means.
         let [base] = bases[..] else { return error };
-        if is_static || is_call {
-            self.get_type_of_symbol(base)
-        } else {
-            self.get_declared_type_of_symbol(base)
-        }
+        self.get_declared_type_of_symbol(base)
+    }
+
+    /// How many type parameters a class or interface symbol declares.
+    ///
+    /// The **maximum** over its declarations rather than the first's: a merged
+    /// interface may repeat the list, and an ambient declaration may carry it
+    /// where the value declaration does not. Taking the maximum keeps a
+    /// legal-arity heritage entry legal; taking the first would make one
+    /// spelling of a merge refuse arguments the other admits.
+    fn type_parameter_count_of(&self, symbol: tsr_binder::SymbolId) -> usize {
+        self.binder
+            .symbols()
+            .get(symbol)
+            .declarations
+            .iter()
+            .filter_map(|&declaration| match self.node_map.get(declaration) {
+                Some(Node::ClassDeclaration(node)) => Some(node.type_parameters.len()),
+                Some(Node::ClassExpression(node)) => Some(node.type_parameters.len()),
+                Some(Node::InterfaceDeclaration(node)) => Some(node.type_parameters.len()),
+                _ => None,
+            })
+            .max()
+            .unwrap_or(0)
     }
 
     /// Whether a class member carries `static`. `ast.IsStatic` (`checker.go:7946`).

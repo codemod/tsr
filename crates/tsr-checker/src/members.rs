@@ -1552,6 +1552,29 @@ impl Checker<'_, '_> {
     /// consequence is that `class C extends someExpression` is a gap; the
     /// declaration form, which is what the corpus is mostly made of, is not.
     pub(crate) fn base_symbols_of(&mut self, owner: SymbolId) -> Option<Vec<SymbolId>> {
+        self.base_symbols_of_ex(owner, true)
+    }
+
+    /// [`Self::base_symbols_of`], with the type-argument refusal made optional.
+    ///
+    /// **The refusal belongs to the INSTANCE side only.** A heritage entry's
+    /// type arguments decide what `extends B<any>` contributes as a member
+    /// table, and this port cannot instantiate one, so the member road must
+    /// gap. They decide nothing about the base's **static** side:
+    /// `getBaseConstructorTypeOfClass` (`checker.go:17434`) types the heritage
+    /// entry's *expression*, and `B` is `typeof B` whatever follows it in
+    /// angle brackets.
+    ///
+    /// So `super()` inside `class D extends B<any>` is `typeof B` upstream and
+    /// was a gap here — the caller inherited a conservatism it did not need,
+    /// which is `docs/conventions.md` corollary 11 one layer in: not a refusal
+    /// whose stated reason is wrong, but a shared helper whose reason is right
+    /// for its first caller and wider than the second caller requires. §202.
+    pub(crate) fn base_symbols_of_ex(
+        &mut self,
+        owner: SymbolId,
+        refuse_type_arguments: bool,
+    ) -> Option<Vec<SymbolId>> {
         let declarations = self.binder.symbols().get(owner).declarations.clone();
         let mut bases = Vec::new();
         for declaration in declarations {
@@ -1568,7 +1591,7 @@ impl Checker<'_, '_> {
                     continue;
                 }
                 for base in clause.types {
-                    bases.push(self.base_symbol_of_heritage_entry(base)?);
+                    bases.push(self.base_symbol_of_heritage_entry(base, refuse_type_arguments)?);
                 }
             }
         }
@@ -1576,11 +1599,12 @@ impl Checker<'_, '_> {
     }
 
     /// The symbol one `extends` entry names, or `None` if it is a gap.
-    fn base_symbol_of_heritage_entry(
+    pub(crate) fn base_symbol_of_heritage_entry(
         &mut self,
         entry: &tsr_ast::ExpressionWithTypeArguments<'_>,
+        refuse_type_arguments: bool,
     ) -> Option<SymbolId> {
-        if !entry.type_arguments.is_empty() {
+        if refuse_type_arguments && !entry.type_arguments.is_empty() {
             return None;
         }
         let Some(tsr_ast::Expression::Identifier(name)) = entry.expression else {
