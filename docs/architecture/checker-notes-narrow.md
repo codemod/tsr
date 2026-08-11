@@ -8108,3 +8108,30 @@ or a later merge keyed on matching names — loses the local.
 `resolve_name` on `A` in `export default class A {}` and find
 whether the locals table holds it. Everything above is verified;
 the remaining step is one instrumented run, not a search.
+
+
+**§188 RESOLVED to the right side of the boundary — the binder is
+innocent.** Instrumented `declare_into` and ran it:
+
+    SS188 local name=A owner=NodeId(7) default=true
+
+The local symbol **A IS declared**, under the written name, in the
+source file's locals. So binding is correct and every hypothesis
+about `locals_owner`, the marker flags, or a missing local half is
+DEAD. The defect is in **RESOLUTION**: `resolve_name` does not
+find a local that demonstrably exists.
+
+The one asymmetry left, and the place to look: for a non-default
+`export class C {}` the local and the export are BOTH named `C`;
+for `export default class A {}` the local is `A` and the export is
+`default`. If resolution reaches the real symbol by following
+`local.ExportSymbol` and that follow is keyed on a MATCHING NAME
+rather than on the stored symbol id, the default case breaks
+exactly this way and the non-default case cannot.
+
+**Status: root cause isolated to resolve_name's ExportSymbol
+follow; binder cleared by measurement.** No code changed — the
+instrumentation was reverted. Next window reads
+`resolve_name`'s handling of `EXPORT_VALUE` markers, which is a
+single function, and the 13 single-blocker cases plus the binder's
+own 223-case warning are the prize.
