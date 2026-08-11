@@ -47549,3 +47549,84 @@ sole-signature path is still declined for calls carrying type arguments and only
 the overload path was opened. Falsifiers 2 and 3 negative — `extraonly`
 unchanged at 75, and a filtered candidate list can only narrow the accepted
 range.
+
+## §972 — TS2554: a rest parameter with a binding pattern has a fixed arity
+
+TS2554's remaining sole-obstacle cases, and the fourth instance in sixteen
+builds of §971's shape.
+
+```ts
+function takeFirstTwoEntries(...[[k1, v1], [k2, v2]]) { }
+takeFirstTwoEntries(new Map(…));     // TS2554 — Expected 2 arguments, but got 1
+```
+
+`sole_signature_arity` answers `(minimum, None)` for any signature with a rest
+parameter:
+
+```rust
+if parameters.iter().any(|p| p.dot_dot_dot_token.is_some()) {
+    return Some((Self::minimum_argument_count(&parameters), None));
+}
+```
+
+**`None` means unbounded, and that is right for `...args: T[]` and wrong for
+`...[a, b]`.** A rest parameter whose *name* is an array binding pattern
+destructures a fixed number of arguments: two elements, two required arguments,
+maximum two. The decline reads the `...` and never the name.
+
+The pattern's elements decide both bounds — an element with an initializer is
+optional, a nested rest element makes it unbounded again — so the arithmetic is
+the same one `minimum_argument_count` already does, applied one level down.
+
+```
+bar:  >= +1 (iterableArrayPattern25),  0 LOST via `diagpass`,
+      extraonly delta <= +1
+```
+
+### Falsifiers
+
+1. **`...args: T[]` gains a maximum.** The ordinary rest must stay unbounded;
+   this is the case the guard was written for.
+2. **`...[a, ...rest]` gains a maximum.** A nested rest is unbounded again and
+   the fixed count is wrong.
+3. **An object binding pattern is treated as an array one.** `...{a, b}` is not
+   a positional destructuring and has no arity to read.
+
+## §973 — §972 built: **+1/−0**, and a field named `kind` that is not a kind
+
+```
+diagnostics   2,420 → 2,421   (+1)   44.11%
+diagpass      LOST: (none)   GAINED: conformance/iterableArrayPattern25
+extraonly     75, unchanged
+TS2554        have 101 → 106,  missing 101
+```
+
+Five right lines, none wrong. Falsifier 1 negative — `...args: T[]` is still
+unbounded, since the new arm returns `None` for anything but an array pattern.
+
+The first measurement was **+0**, and the probe answered it in one run:
+
+```
+PROBE2554 params=1 name_is_pattern=Some(true) kind=Some(OpenBracketToken) fixed=None
+```
+
+**`BindingPattern::kind` is the opening token — `[` or `{` — not the node's
+`SyntaxKind`.** The comparison read `pattern.kind.kind != SyntaxKind::ArrayBindingPattern`,
+which type-checks, reads correctly in English, and is false for every array
+pattern in the corpus.
+
+> This is the *third* silent-zero this session that a one-line probe at the
+> right place resolved in a single run — §947 (edit in the wrong match arm),
+> §970 (`ranges.len() < 2` under a filter), and this. In all three the code
+> compiled, the logic was defensible, and the measurement was the only thing
+> that knew.
+>
+> Worth stating as a rule rather than three anecdotes: **when a build measures
+> exactly +0, probe before re-reading.** Re-reading found nothing in any of the
+> three, because in all three the text said what I meant and meant something
+> else.
+
+The generated AST names this field `kind` because upstream's node carries the
+token there; a `BindingPattern` in this port is one struct for both shapes and
+the token is what distinguishes them. Nothing is wrong with the AST — the
+comment now says which `kind` is which, at the only site that asks.

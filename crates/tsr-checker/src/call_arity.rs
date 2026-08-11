@@ -648,6 +648,13 @@ impl<'a> Checker<'a, '_> {
             .filter(|parameter| !Self::is_this_parameter_declaration(parameter))
             .collect();
         if parameters.iter().any(|parameter| parameter.dot_dot_dot_token.is_some()) {
+            // **`None` is unbounded, which is right for `...args: T[]` and
+            // wrong for `...[a, b]`.** A rest parameter named by an array
+            // binding pattern destructures a fixed number of arguments, and the
+            // guard above reads the `...` and never the name. §972.
+            if let Some(fixed) = Self::destructured_rest_arity(&parameters) {
+                return Some(fixed);
+            }
             return Some((Self::minimum_argument_count(&parameters), None));
         }
         let maximum = parameters.len();
@@ -670,6 +677,40 @@ impl<'a> Checker<'a, '_> {
     /// `function f(a, b = 0, c)`, which upstream requires **three** arguments
     /// for. `requiredInitializedParameter1` is that case, and the first-optional
     /// reading silently accepted `f(0, 1)`.
+    /// The arity of a signature whose **last** parameter is a rest named by an
+    /// array binding pattern: `(...[a, b])` takes exactly two arguments.
+    ///
+    /// `None` when the shape does not apply — an ordinary rest, an object
+    /// pattern, a nested rest element, or a rest that is not last. §972.
+    fn destructured_rest_arity(
+        parameters: &[&tsr_ast::ParameterDeclaration<'_>],
+    ) -> Option<(usize, Option<usize>)> {
+        let (rest, leading) = parameters.split_last()?;
+        if rest.dot_dot_dot_token.is_none()
+            || leading.iter().any(|parameter| parameter.dot_dot_dot_token.is_some())
+        {
+            return None;
+        }
+        let Some(tsr_ast::BindingName::BindingPattern(pattern)) = rest.name else { return None };
+        // **`BindingPattern::kind` is the opening *token*, not the node's
+        // `SyntaxKind`** — `[` for an array pattern and `{` for an object one.
+        // Comparing it against `SyntaxKind::ArrayBindingPattern` was §972's
+        // first measurement: +0, with the arm reached and returning `None`.
+        if pattern.kind.kind != SyntaxKind::OpenBracketToken {
+            return None;
+        }
+        if pattern.elements.iter().any(|element| element.dot_dot_dot_token.is_some()) {
+            return None;
+        }
+        let required = pattern
+            .elements
+            .iter()
+            .rposition(|element| element.initializer.is_none())
+            .map_or(0, |index| index + 1);
+        let leading_minimum = Self::minimum_argument_count(leading);
+        Some((leading_minimum + required, Some(leading.len() + pattern.elements.len())))
+    }
+
     fn minimum_argument_count(parameters: &[&tsr_ast::ParameterDeclaration<'_>]) -> usize {
         parameters
             .iter()
