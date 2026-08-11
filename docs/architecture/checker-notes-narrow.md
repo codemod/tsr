@@ -7183,3 +7183,24 @@ reachable at this site. The rest are read through other roads
 (declaration lines, get_type_of_symbol) and still want §163's
 representation work. Recorded so the next window does not read
 "embedded half done".
+
+
+## §166 — the dual mint read AROUND, not unified [checker-1]
+
+**Score: +26 / 0 — LANDED.** §164's falsifier (b) recorded the
+INTERFACE this-mint (`declared.rs:163`, keyed per interface
+declaration in `this_type_nodes`) as out of the slice's domain, and
+§163's spec called unifying the two mints a PREREQUISITE. It is
+not — not for reading. Consulting BOTH tables at the substitution
+site, changing neither, completes the rule: valueOfTypedArray 8
+(lib interfaces' `valueOf(): this`), controlFlowInstanceof 4+4,
+tail spread. The unification remains a prerequisite for the
+REPRESENTATION work (carrying a this-argument on references), which
+is untouched here.
+
+**The three-arm pattern, worth stating once**: §164, §165 and §166
+are ONE transcription (`getTypeWithThisArgument`,
+`checker.go:19573`) applied at three different sites — the member
+read, the call return through a property access, and the second
+mint table — for **+141 / 2 combined**, with no new machinery in
+any of them. Every increment came from enumerating another site.

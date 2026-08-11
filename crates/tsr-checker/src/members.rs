@@ -500,31 +500,39 @@ impl Checker<'_, '_> {
         // member's type is the this-type itself the substitution's whole
         // effect is that answer. A receiver that IS a this-type substitutes
         // to itself, so it is skipped rather than looped.
-        let property_type = if property_type != this_argument
-            && self.this_types.values().any(|&minted| minted == property_type)
-        {
-            this_argument
-        } else if property_type != this_argument
-            && let Some(&minted) = self
-                .this_types
-                .values()
-                .find(|&&minted| self.mentions_type_parameter(property_type, &[minted], &["this"]))
-        {
-            // §165 (`checker-notes-narrow.md`), §164's embedded half: where
-            // the this-type sits INSIDE the member's type — `fn(): this`
-            // read off `c` wants `() => C` — the same
-            // `getTypeWithThisArgument` substitution runs through
-            // `instantiate_type`, which already handles it: a this-type is
-            // TYPE_PARAMETER-flagged, so arm 1 maps it and the signature
-            // text is REBUILT rather than reused. An instantiation that
-            // gaps keeps the original rather than answering error.
-            let map = [(minted, this_argument)];
-            let names = ["this"];
-            let image = self.instantiate_type(property_type, &map, &[minted], &names);
-            if image == self.intrinsics.error { property_type } else { image }
-        } else {
-            property_type
-        };
+        // §166 (`checker-notes-narrow.md`): the port mints `this` in TWO
+        // tables — `this_types` per CLASS symbol (`expressions.rs`) and
+        // `this_type_nodes` per INTERFACE declaration (`declared.rs:163`) —
+        // and §164/§165 reached only the first, so a lib INTERFACE's
+        // `valueOf(): this` still printed `this`. Consulting both at the
+        // substitution site completes the rule WITHOUT unifying the mints
+        // (that unification is rock #3's prerequisite for the
+        // representation work, and is deliberately not attempted here).
+        let this_minted: Vec<TypeId> =
+            self.this_types.values().chain(self.this_type_nodes.values()).copied().collect();
+        let property_type =
+            if property_type != this_argument && this_minted.contains(&property_type) {
+                this_argument
+            } else if property_type != this_argument
+                && let Some(minted) = this_minted.iter().copied().find(|&minted| {
+                    self.mentions_type_parameter(property_type, &[minted], &["this"])
+                })
+            {
+                // §165 (`checker-notes-narrow.md`), §164's embedded half: where
+                // the this-type sits INSIDE the member's type — `fn(): this`
+                // read off `c` wants `() => C` — the same
+                // `getTypeWithThisArgument` substitution runs through
+                // `instantiate_type`, which already handles it: a this-type is
+                // TYPE_PARAMETER-flagged, so arm 1 maps it and the signature
+                // text is REBUILT rather than reused. An instantiation that
+                // gaps keeps the original rather than answering error.
+                let map = [(minted, this_argument)];
+                let names = ["this"];
+                let image = self.instantiate_type(property_type, &map, &[minted], &names);
+                if image == self.intrinsics.error { property_type } else { image }
+            } else {
+                property_type
+            };
         // `checkPropertyAccessExpressionOrQualifiedName` ends by narrowing the
         // property's declared type by the flow reaching this access
         // (`getFlowTypeOfReference`, `checker.go:11430`) — `bd tsr-6ka`. Until
