@@ -7796,3 +7796,32 @@ build: conditional evaluation needs the DISTRIBUTION rule before it
 needs a wider decider. That ordering was not obvious from
 upstream's source — `getConditionalType` interleaves them — and it
 took three negatives to establish.
+
+
+**Slice 4 (distribution's empty case + the by-construction widening)
+measured +23 / 15 and REVERTED. The road is CLOSED for this
+window, on four measurements.** The empty-distribution detection —
+a naked type-parameter check bound to `never` — did not fire on
+unknownType2 at all, and its 13 adverse are unchanged across slices
+3 and 4. Their shape, read rather than guessed: wants are
+`"idk" | "no" | "yes"`, `string`, `boolean`, `number` and the arm
+now answers `unknown` — so the `extends unknown` case takes a true
+branch that evaluates to `unknown` where upstream produces the
+narrower type.
+
+**I claimed "cannot be wrong" for these cases TWICE and was wrong
+both times.** By-construction reasoning about a conditional is
+exactly the induction this project's law forbids: `extends unknown`
+is a trivially true assignability question and STILL the wrong
+branch decision, because the conditional's semantics are not the
+assignability question — distribution, deferral and the
+naked-parameter rule all sit between them.
+
+**Standing verdict for the next window**: conditional evaluation
+past slice 1's primitive-domain gate requires
+`getConditionalType` TRANSCRIBED WHOLE — distribution, the
+deferral test, and the branch choice together. Four partial
+attempts in one sitting (slice 2 ternary +29/24, slice 3
+construction +24/16, slice 4 distribution-empty + construction
++23/15, all against slice 1's landed +9/2) is enough evidence that
+this subsystem behaves like the fixing-mapper: no partial credit.
