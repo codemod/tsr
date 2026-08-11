@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; scanner, parser and binder only, with no checker (bd tsr-4sc)
-Passed         : 2475/5488 (45.10%)
-Failed         : 3013
+Passed         : 2479/5488 (45.17%)
+Failed         : 3009
 Skipped        : 6956 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -11,7 +11,7 @@ Skipped        : 6956 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 3013 failures:
+First 100 of 3009 failures:
 compiler/ClassDeclaration26
   2 unexpected (first TS1005 at ClassDeclaration26.ts(2,22)), 5 missing
 compiler/TransportStream
@@ -27,7 +27,7 @@ compiler/accessInstanceMemberFromStaticMethod01
 compiler/accessorBodyInTypeContext
   8 unexpected (first TS1131 at accessorBodyInTypeContext.ts(2,15)), 4 missing
 compiler/accessorInferredReturnTypeErrorInReturnStatement
-  1 missing (first TS2339 at accessorInferredReturnTypeErrorInReturnStatement.ts(4,18))
+  1 unexpected (first TS18048 at accessorInferredReturnTypeErrorInReturnStatement.ts(4,12)), 1 missing
 compiler/accessors_spec_section-4.5_error-cases
   2 missing (first TS2322 at accessors_spec_section-4.5_error-cases.ts(3,48))
 compiler/addMoreOverloadsToBaseSignature
@@ -51,7 +51,7 @@ compiler/aliasUsageInOrExpression
 compiler/allowImportClausesToMergeWithTypes
   3 unexpected (first TS2709 at a.ts(7,10)), 1 missing
 compiler/allowJscheckJsTypeParameterNoCrash
-  2 unexpected (first TS2300 at app.js(6,7)), 1 missing
+  3 unexpected (first TS2300 at app.js(6,7)), 1 missing
 compiler/ambientExportDefaultErrors
   4 missing (first TS2714 at foo.d.ts(1,16))
 compiler/ambientExternalModuleWithRelativeExternalImportDeclaration

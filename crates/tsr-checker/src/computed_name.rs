@@ -81,6 +81,29 @@ impl Checker<'_, '_> {
             }
             return;
         }
+        // **A written union with a constituent that can never be a name.** §52
+        // built this row on the relation and §274 recorded its silence policy:
+        // an undecidable relation reports nothing. `string | boolean` is
+        // decidable and already fires; `number | number[]` is not, and the
+        // written annotation settles it without a type — the name must be valid
+        // for *every* constituent, which is §1002's reading of the same shape.
+        //
+        // Additive and exclusive: this runs before the relation guard and
+        // returns, so the decidable path is untouched and the two cannot both
+        // report the same line. §1003.
+        if self.name_is_union_with_a_non_nameable_constituent(expression) {
+            if let Some(file) = self.source_file_of_for_diagnostics(node) {
+                let span = self.error_span(node);
+                self.report(
+                    file,
+                    Diagnostic::new(
+                        &messages::A_COMPUTED_PROPERTY_NAME_MUST_BE_OF_TYPE_STRING_NUMBER_SYMBOL_OR_ANY,
+                        span,
+                    ),
+                );
+            }
+            return;
+        }
         if !self.type_of(named).flags.intersects(TypeFlags::NULLABLE) {
             if self.type_of(named).flags.intersects(ALLOWED_KINDS) {
                 return;
@@ -159,6 +182,41 @@ impl Checker<'_, '_> {
             )
         })
     }
+    /// Is this name an identifier whose written annotation is a **union** with
+    /// a constituent that can never be a property name? §1003.
+    fn name_is_union_with_a_non_nameable_constituent(
+        &mut self,
+        expression: tsr_ast::Expression<'_>,
+    ) -> bool {
+        let Some(id) = expression.node_id() else { return false };
+        let Some(text) = self.identifier_text(id).map(str::to_string) else { return false };
+        let Some(symbol) = self.binder.resolve_name(
+            self.nodes,
+            self.node_map,
+            id,
+            &text,
+            tsr_binder::SymbolFlags::VALUE,
+        ) else {
+            return false;
+        };
+        let declarations =
+            self.binder.symbols().get(self.binder.merged_symbol(symbol)).declarations.clone();
+        let [declaration] = declarations.as_slice() else { return false };
+        let Some(Node::VariableDeclaration(variable)) = self.node_map.get(*declaration) else {
+            return false;
+        };
+        let Some(annotation) = variable.r#type.and_then(|t| t.node_id()) else { return false };
+        let Some(Node::UnionTypeNode(union)) = self.node_map.get(annotation) else { return false };
+        union.types.iter().any(|member| {
+            member.node_id().is_some_and(|id| {
+                matches!(
+                    self.nodes.kind(id),
+                    SyntaxKind::ArrayType | SyntaxKind::TupleType | SyntaxKind::TypeLiteral
+                )
+            })
+        })
+    }
+
     /// Is this computed name an identifier whose declared type is a type
     /// parameter with **no constraint**?
     ///

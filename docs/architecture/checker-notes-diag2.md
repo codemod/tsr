@@ -48823,3 +48823,75 @@ one of them. Writing the falsifier before the code is what stopped that being a
 The remaining 31 lines are the type side's: a JSX attributes value
 (`correctlyMarkAliasAsReferences1`, `3`) and a template-literal type
 (`spreadNonObject1`), neither of which has a written constraint to read.
+
+## §1003 — TS2464: a written union with a constituent that can never be a name
+
+§950's list: **3 sole-obstacle cases, 3 lines**, and the row already has a rule.
+`computedPropertyNames6_ES6` shows exactly where it stops:
+
+```ts
+declare var p1: number | string;      // legal
+declare var p2: number | number[];    // TS2464 — missing
+declare var p3: string | boolean;     // TS2464 — already reported
+```
+
+§52 built this on the relation and §274 recorded the cost of its silence policy:
+*an undecidable relation is silence*. `string | boolean` is decidable — `boolean`
+is not assignable to `string | number | symbol` — and `number | number[]` is
+not, so the row stopped one line short in three fixtures.
+
+The written annotation decides it without the relation. **A union whose written
+constituents include an array, a tuple or a type literal can never be a property
+name**, whatever the rest of the union is, for the same reason §1002's spread
+rule reports on `number | string[]`: the name must be valid for every
+constituent.
+
+This is deliberately *additive* — it runs before the relation guard and returns,
+so the existing decidable path is untouched and the two cannot both fire.
+
+```
+bar:  >= +2 of the 3,  0 LOST via `diagpass`,  extraonly delta <= +1
+```
+
+### Falsifiers
+
+1. **`number | string` reports.** `p1` is the control and sits in every one of
+   the three fixtures.
+2. **A non-union array annotation double-reports.** `[a]` where `a: number[]`
+   is already the relation's, decidably, and a second report would duplicate a
+   right line — the failure §992 spent three builds learning to see.
+3. **A type alias to a union is missed.** Accepted: the annotation is read
+   syntactically, so `type U = number | number[]` declines. It costs nothing the
+   corpus asks for.
+
+## §1004 — §1003 built: **+4/−0**, and §274's decline paid off
+
+```
+diagnostics   2,475 → 2,479   (+4)   45.17%
+diagpass      LOST: (none)
+              GAINED: computedPropertyNames6_ES6, computedPropertyNames15_ES6
+extraonly     no new row attributable (compared stashed, per §987)
+TS2464        have 0 → 39,  want 42,  missing 3,  **0 extra**
+```
+
+Thirty-nine right lines and no wrong ones, from an arm that reads the written
+annotation where the relation could not decide.
+
+> §274 recorded this row's silence policy and named its cost — *"the relation
+> cannot decide it, so the silence policy declines a case whose answer is not in
+> doubt"* — and left the number. **Seven hundred sections later the decline is
+> what made the fix safe**: because the relation path reports only what it can
+> decide, an additive arm that returns before it cannot double a line, and
+> falsifier 2 was answered by construction rather than by measurement.
+>
+> A policy of declining the undecidable is usually described as a cost. It is
+> also what makes a rule *extensible*: every later arm knows exactly which
+> answers the earlier one already gave.
+
+The falsifier that would have been expensive to discover late is falsifier 1 —
+`p1: number | string` sits in all three fixtures and is legal, so a rule keyed
+on "is a union" rather than "has a non-nameable constituent" fails every case it
+converts.
+
+Three lines remain, in a fixture whose union is behind a type alias — read
+syntactically, an alias declines, and it costs nothing else.
