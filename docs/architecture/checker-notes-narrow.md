@@ -7075,3 +7075,32 @@ condition is now DISCHARGED rather than pending — a future window
 should not re-open it on the topLevel half alone. The isFixed half
 remains its only live question, and that arrives with the
 fixing-mapper unit's Phase 2.
+
+
+### §162-window census: the qualified-name wrongs are ALIAS-shaped, not a missing rule
+
+155 wrong lines want a QUALIFIED name where we print the bare one
+(importDecl 20, enumLiteralAssignableToEnumInsideUnion 12,
+duplicateObjectLiteralProperty_computedName3 8, instantiatedModule 6,
+ambientModuleWithTemplateLiterals 6, enumMerging 5, tail spread).
+Transcribed the deciding predicate before probing —
+`needsQualification` (`symbolaccessibility.go:688-726`): walk the
+symbol tables in scope from the enclosing declaration; the first
+table holding the NAME decides — the same symbol means no
+qualification, a DIFFERENT symbol of the same MEANING means qualify —
+and `getSymbolChain` (`nodebuilderimpl.go:1086`) also qualifies when
+the accessible chain is EMPTY (the symbol has no bare-name route at
+all).
+
+**Probed before barring, and the bar was not written**: the plain
+shape already works on both roads — `module m4 { export class d {} }`
+prints `m4.d` for an annotation (`var v: m4.d`) AND for an inferred
+return (`function f() { return new m4.d(); }` gives `() => m4.d`).
+So this is not a missing qualification rule; the residue is
+ALIAS-shaped (importDecl's 20 are import-alias spellings) and belongs
+to the §157/§158 family ledger, whose verdict already stands: ES-alias
+texts TRAVEL and want per-site re-rendering. Recorded here so the
+next window does not re-census it as a fresh 155-line opportunity —
+it is 155 lines of an already-refused wall, minus whatever the
+enum-merging shapes (12+5) turn out to be, which is the only part
+worth a fresh probe.
