@@ -10494,7 +10494,12 @@ impl Checker<'_, '_> {
     }
 
     fn check_comma_left(&mut self, node: NodeId, left: Option<NodeId>) {
-        if self.file_has_parse_errors || self.allow_unreachable_code {
+        // **`allowUnreachableCode` is upstream's; `file_has_parse_errors` is
+        // not.** `checkComma` suppresses on the first and asks nothing about
+        // the second, and this port declined `[a, b, ...]`'s two TS2695 lines
+        // because it had already emitted the TS1005 beside them. The class is a
+        // mixture (§900), so this is its own measurement. §901.
+        if self.allow_unreachable_code {
             return;
         }
         let Some(left) = left else { return };

@@ -44658,3 +44658,70 @@ parameters and this rule names every one of them.
 
 Five of §894's eleven remain and one of them — `varArgWithNoParamName` — is now
 known to cost more than it pays. **Four candidates left, each one measurement.**
+
+## §901 — the comma-operator gate
+
+Two of §894's remaining four want **TS2695**:
+
+```ts
+// parserErrorRecoveryArrayLiteralExpression3, parseCommaSeparatedNewlineNew
+[a, b, ...]     // TS2695 twice, beside the TS1005s
+```
+
+`check_comma_left` opens with `file_has_parse_errors || allow_unreachable_code`.
+Upstream's `checkComma` has the second — `allowUnreachableCode` genuinely
+suppresses it — and not the first.
+
+The per-rule tally decides nothing in advance (§900), so this is its own
+measurement.
+
+```
+bar:  >= +1,  0 LOST via `diagpass`,  extraonly delta <= +2
+```
+
+### Falsifiers
+
+1. **`extraonly` rises above +2.** A recovered comma list invents left operands
+   and every one of them is side-effect-free.
+2. **TS2695's row moves the wrong way.**
+
+## §902 — §901 built: **+2/−0**, and the class's per-rule tally closes
+
+```
+diagnostics   2,359 → 2,361   (bar was >= +1;  +2)   43.02%
+diagpass      LOST: (none)
+              GAINED: parseCommaSeparatedNewlineNew,
+                      parserErrorRecoveryArrayLiteralExpression3
+extraonly     79, unchanged
+```
+
+`checkComma` suppresses on `allowUnreachableCode` and asks nothing about parse
+diagnostics; this port asked both and declined `[a, b, …]`'s two TS2695 lines
+because it had already emitted the TS1005 beside them.
+
+### The `file_has_parse_errors` class, measured to the end
+
+```
+§894   all 127 gates                 +11 / −8    extraonly +27    reverted
+§895   the 21 semantic ones           −1         extraonly +13    reverted
+§896   check_operator_operands        +4 /  0    extraonly  +0    kept
+§898   check_type_reference_name      +1 /  0    extraonly  +2    kept
+§900   check_implicit_any_parameters  −1         extraonly  +5    reverted
+§901   check_comma_left               +2 /  0    extraonly  +0    kept
+                                      -------
+                        kept, per rule:  +7 / 0,  extraonly +2
+```
+
+**Seven of §894's eleven, for two wrong lines**, against the wholesale run's
+eleven for twenty-seven. The remaining four are
+`objectLiteralWithSemicolons5`, `objectLiteralShorthandPropertiesErrorWithModule`
+and two more whose codes are TS2378 and TS2339 — the type side's, not this
+class's.
+
+> Eight measurements to convert one class-level `+11 / −8` into a per-rule
+> `+7 / 0`. **The wholesale experiment was not a false start; it was the only
+> thing that could name the eleven** — and every one of the four kept builds
+> since has been a lookup in the list it produced.
+>
+> §900's negative is what makes the method honest: three kept, two reverted, and
+> **no way to have predicted which without asking.**
