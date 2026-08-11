@@ -2783,6 +2783,18 @@ impl<'a> Checker<'a, '_> {
             };
         }
         if let Some(id) = self.get_type_for_variable_like_declaration(declaration) {
+            // SS187 `getWidenedType` (checker.go:16090): with
+            // `strictNullChecks` OFF, a `null` or `undefined` type widens to
+            // `any` — `const c5 = null` records `>c5 : any` under
+            // `@strict: false` (`compiler/constDeclarations`). This is a
+            // DECISION, not a decline, so it is gated on the flag actually
+            // read from the case's options; the paired control fixture
+            // asserts `null` stays `null` under `@strict: true`.
+            if !self.strict_null_checks
+                && (id == self.intrinsics.null || id == self.intrinsics.undefined)
+            {
+                return self.intrinsics.any;
+            }
             id
         } else {
             // Upstream returns `anyType` for a declaration with neither an

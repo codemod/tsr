@@ -2365,3 +2365,35 @@ fn a_written_argument_list_still_has_to_match() {
         "I<string>"
     );
 }
+
+/// SS187's control, on checker-1's caution: the nullable widening is a
+/// DECISION taken on `strictNullChecks` being OFF, so it must not fire when
+/// the flag is on. The positive half is the conformance board
+/// (`compiler/constDeclarations` moved on it); this pins the negative half,
+/// which no corpus case would catch if the flag were ever unset-by-default
+/// rather than read from the case's options.
+#[test]
+fn a_null_initialiser_widens_only_when_strict_null_checks_is_off() {
+    let arena = Arena::new();
+    let source = "const c = null;";
+    let parsed = tsr_parser::parse(&arena, source);
+    let bound = tsr_binder::bind(
+        &arena,
+        parsed.source_file,
+        &parsed.nodes,
+        tsr_binder::FileInfo { name: "test.ts", text: source },
+    );
+    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+    checker.set_strict_null_checks(true);
+    for index in 0..parsed.nodes.len() {
+        #[allow(clippy::cast_possible_truncation)]
+        let id = tsr_ast::NodeId::new(index as u32);
+        if let Some(symbol) = bound.lookup_local(id, "c") {
+            let computed = checker.get_type_of_symbol(symbol);
+            let answer = checker.type_to_string(computed);
+            assert_eq!(answer, "null", "strict null checks must keep the null type");
+            return;
+        }
+    }
+    panic!("`c` is declared nowhere");
+}
