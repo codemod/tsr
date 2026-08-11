@@ -1902,3 +1902,32 @@ window has no measurement budget left to price it honestly. It is the
 first item for the next window in my lane, ahead of the ranked rocks,
 because it costs one run to test and the corollary predicts these are
 where the cheap points are.
+
+## §193 LEAD (traced, not built): an extends-clause name resolves in VALUE scope
+
+Two deficit-1 cases, `compiler/classExtendsClauseClassNotReferringConstructor`
+and `…ClassMergedWithModuleNotReferingConstructor`, want `A : number`
+where this port answers `A : A`.
+
+```ts
+class A { a: number; }
+namespace Foo {
+    var A = 1;
+    class B extends A { b: string; }   // >A : number
+}
+```
+
+The heritage expression `A` is an ordinary **expression**, so it resolves
+to the innermost VALUE binding — the namespace's `var A = 1` — and NOT to
+the outer class. Upstream records `>A : number` (the case's name says it:
+the extends clause is *not* referring to the constructor). We answer the
+class type, so our heritage road is resolving by name in a way that
+prefers the type meaning or skips the local scope.
+
+**Not built**: this is a symbol-resolution change and both of its likely
+sites (`qualified_heritage_reference`, and the heritage arm of the
+producer's node walk) are shared with the other lane's active work. The
+next window should confirm which road types the heritage expression
+before touching either — one print of the resolved symbol at that node
+decides it. Sized: 2 deficit-1 cases here, plus whatever share of the
+`Foo`/`typeof C` deficit-1 rows is the same defect.
