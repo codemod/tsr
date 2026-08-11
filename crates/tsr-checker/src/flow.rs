@@ -782,9 +782,18 @@ impl Checker<'_, '_> {
         while Some(container) != declaration_container
             && matches!(
                 self.nodes.kind(container),
-                tsr_ast::SyntaxKind::FunctionExpression
+                // SS172: upstream ascends through `IsFunctionLike`
+                // (ast/utilities.go:518), which includes FUNCTION
+                // DECLARATIONS; this enumeration omitted them while the
+                // enumeration at the top of this module for the same family
+                // lists them - two spellings of one concept disagreeing,
+                // which is the SS169 shape and a self-inconsistency
+                // regardless of whether the corpus fires it.
+                tsr_ast::SyntaxKind::FunctionDeclaration
+                    | tsr_ast::SyntaxKind::FunctionExpression
                     | tsr_ast::SyntaxKind::ArrowFunction
                     | tsr_ast::SyntaxKind::MethodDeclaration
+                    | tsr_ast::SyntaxKind::Constructor
                     | tsr_ast::SyntaxKind::GetAccessor
                     | tsr_ast::SyntaxKind::SetAccessor
             )
@@ -1027,8 +1036,28 @@ impl Checker<'_, '_> {
             // never - dropped.
         }
         if mapped.is_empty() {
-            // The all-never tail (subtype/assignable/intersection) declines.
-            return None;
+            // SS173: the ALL-NEVER TAIL (flow.go:952-963, transcribed):
+            // subtype(candidate, t) -> candidate; assignable(t, candidate)
+            // -> t; assignable(candidate, t) -> candidate; else the
+            // intersection. Each rung decidable-only; an undecidable rung
+            // declines the whole worker as before.
+            use crate::relater::{Relation, Ternary};
+            match self.relate_ternary(candidate, t, Relation::Subtype) {
+                Ternary::Related => return Some(candidate),
+                Ternary::NotRelated => {}
+                _ => return None,
+            }
+            match self.relate_ternary(t, candidate, Relation::Assignable) {
+                Ternary::Related => return Some(t),
+                Ternary::NotRelated => {}
+                _ => return None,
+            }
+            match self.relate_ternary(candidate, t, Relation::Assignable) {
+                Ternary::Related => return Some(candidate),
+                Ternary::NotRelated => {}
+                _ => return None,
+            }
+            return Some(self.get_intersection_type(&[t, candidate], None));
         }
         mapped.dedup();
         Some(self.rebuild_union_subset(t, &mapped))
