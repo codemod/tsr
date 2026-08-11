@@ -7478,3 +7478,28 @@ finer question the gate was built to dodge: not "does this file
 import anything" but "is THIS name plausibly one of the port's
 unbound imports". `§119`'s `module_specifier_unfindable` is the
 machinery for it, and that is the next slice.
+
+
+## §174 — a findable import DOES excuse the gap: refused at 41:60 [checker-1]
+
+§173's follow-on, and the sharper question it named: not "does this
+file import anything" but "is THIS name plausibly one of the port's
+unbound imports". Built it with §119's calibrated
+`module_specifier_unfindable` — an import whose specifier RESOLVES
+has its bindings, so an identifier resolving nowhere should be
+upstream's TS2304.
+
+**Measured +41 / 60 and reverted.** The premise is false for this
+port: cross-file binding is itself unported (ADR-0034,
+`bd tsr-9or.1`), so a FINDABLE module's names are missing too —
+exportsAndImports3 6+6, es6ImportNamedImportDts 4,
+unusedImports_entireImportDeclaration 4 all name imports whose
+modules resolve and whose bindings this port still does not have.
+The guard's blanket conservatism over IMPORT forms is therefore
+correct, and it stays until cross-file binding lands.
+
+That also prices the rest of the `want any / got error`
+single-blocker family: it is **blocked behind cross-file binding**,
+not behind a gate refinement. §173 took the one slice that was
+independent of it (the export-assignment form, which references a
+purely local name); the remainder waits on `bd tsr-9or.1`.
