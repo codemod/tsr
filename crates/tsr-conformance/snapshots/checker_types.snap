@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 4769/9538 (50.00%)
-Assertion lines: 421579/478954 (88.02%)  — a gradient, not a pass rate
-Failed         : 4769
+Passed         : 4816/9538 (50.49%)
+Assertion lines: 421803/478954 (88.07%)  — a gradient, not a pass rate
+Failed         : 4722
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 4769 failures:
+First 100 of 4722 failures:
 compiler/2dArrays
   2dArrays.ts: >allShipsSunk : error — expected >allShipsSunk : () => boolean
 compiler/ClassDeclaration26
@@ -117,8 +117,6 @@ compiler/anyAndUnknownHaveFalsyComponents
   anyAndUnknownHaveFalsyComponents.ts: >foo1 : error — expected >foo1 : () => any
 compiler/anyAsReturnTypeForNewOnCall
   anyAsReturnTypeForNewOnCall.ts: >o : error — expected >o : any
-compiler/anyDeclare
-  anyDeclare.ts: >myFn : any — expected >myFn : () => void
 compiler/anyInferenceAnonymousFunctions
   anyInferenceAnonymousFunctions.ts: >function (a1, a2) {    return a1.concat({});} : any — expected >function (a1, a2) {    return a1.concat({});} : (a1: any, a2: any) => any
 compiler/anyMappedTypesError
@@ -213,3 +211,5 @@ compiler/arrayLiteralAndArrayConstructorEquivalence1
   arrayLiteralAndArrayConstructorEquivalence1.ts: >myCars : any — expected >myCars : any[]
 compiler/arrayLiteralComments
   arrayLiteralComments.ts: >testArrayWithFunc : error — expected >testArrayWithFunc : (string | number | number[] | (() => void) | { a: number; })[]
+compiler/arrayLiteralContextualType
+  arrayLiteralContextualType.ts: >[    new Giraffe(),    new Elephant()] : error — expected >[    new Giraffe(),    new Elephant()] : (Elephant | Giraffe)[]

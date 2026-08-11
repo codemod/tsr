@@ -3584,3 +3584,82 @@ discriminate that kind. A 100% suite bounds what it measures, not what
 exists — and no gradient reading would have found this. It took an arm
 that refused to fire.
 
+
+### Corollary 8 (2026-08-11): a comment asserting redundancy is a lead, not a fact
+
+Four times in one window a doc comment stated that some guard, arm or
+merge was unnecessary because the same result was reached another way —
+and four times the claim was false, in exactly the sub-case where the
+"other way" also fails:
+
+| # | site | the claim | what it cost |
+|---|---|---|---|
+| 1 | `unary_result_type` (§192) | an `error` operand makes bigint-ness unknown, so `number` would be a guess | 78 lines, 2 cases; upstream's `maybeTypeOfKind` is a flag test and cannot answer yes for `Any` |
+| 2 | `types_producer.rs` property-access guard (checker-2 §183) | "already covered by a rule reached along a different route" | 1 case; the route also fails when the access itself fails |
+| 3 | `types_producer.rs:811` | the same claim again, still standing an hour after §183 disproved it | corrected in place |
+| 4 | `declare_into_with_excludes` (§196) | "Still merge … **Upstream does the same**" | **47 cases**; upstream mints a fresh table-less symbol (`binder.go:286`) |
+
+The shape is always the same: **the redundancy holds in the healthy
+case and fails in the error case**, which is precisely the population
+the corpus's error-recovery and duplicate-identifier tests are made of.
+
+So:
+
+- **A "this is already handled" comment with no measurement behind it is
+  a to-do, not documentation.** Treat it as a ranked lead.
+- **Falsify it against a BASELINE, not against upstream's source.** §196
+  needed no Go at all: `varAndFunctionShareName.symbols` records two
+  symbols and `.types` prints two different answers for the same
+  spelling, which one merged symbol cannot produce. That asymmetry is
+  visible in thirty seconds and is decisive.
+- **When you write such a comment yourself, write the falsifier beside
+  it** — the case that would fail if the redundancy did not hold. A
+  redundancy claim with no named witness is the same unfalsified
+  assertion the four rows above were.
+
+### Corollary 9 (2026-08-11): census the EXPRESSION, not only the type
+
+The `checker_types` near-miss board (`examples/nearmiss.rs`, §190) ranks
+blocked lines by what they *want*. That first cut is a distribution over
+types and it systematically hides families, because one defect scatters
+across many want-types and one want-type collects many defects.
+
+Two arms from the same census make the point:
+
+- `want number, got any` read as **42 scattered gaps**. Dumped with the
+  blocked lines' **expressions**, eight were literally `x : number` in a
+  `tsx` case — one missing match arm, **+55 cases** (§195).
+- `want () => any, got any` (14) and `want () => void, got any` (10)
+  read as a function-typing family. By expression they were
+  `varAndFunctionShareName`, `duplicateIdentifierInCatchBlock`,
+  `multipleExportDefault1/2`, `augmentedTypes*` — a **duplicate
+  identifier** family, **+47 cases** (§196), nothing to do with function
+  types.
+
+One command separates them:
+
+```
+nearmiss --max 1 | awk -F'\t' '{print $1"\t"$5}'
+```
+
+**Never conclude a want-shape row is a tail without it.** This is the
+general form of the dispatch-census corollary above: a histogram keyed
+on the *answer* cannot see a defect keyed on the *syntax*.
+
+### Corollary 10 (2026-08-11): `want any, got <concrete>` inverts the usual reading
+
+Once a baseline writer renders `errorType` as `any` (checker-2's §180),
+the census grows a row that reads like a printing question and is not
+one. Its diagnosis is the mirror of the ordinary case:
+
+| row | meaning |
+|---|---|
+| `want <concrete>, got any` | the checker answers `error` or a genuine `any` — a **missing** arm |
+| `want any, got <concrete>` | **upstream refused to resolve this and we did** — an over-resolution bug in the lookup |
+
+The second is the port being *more* successful than upstream, which is
+never a gradient gap and never a printing guard. checker-2's
+private-name cluster (a `#x` reached from a derived class, or shadowed
+by a nested class) and §195's residue (an attribute whose name is
+missing, where we now answer `true` and upstream answers its error
+type) are both this shape.

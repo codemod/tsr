@@ -382,6 +382,80 @@ Four tests, each red under a distinct named mutation: the arm removed
 (`if false`), the widening dropped (`check_expression` for
 `check_expression_for_mutable_location`), and the `trueType` arm dropped.
 
+---
+
+## §196 A conflicting declaration gets its own symbol — the binder was merging
+
+The board's second big arm, found the same way as §195 and by the same
+two-step: `want () => any, got any` was 14 deficit-1 cases and
+`want () => void, got any` another 10; dumped **with their expressions** they
+were `varAndFunctionShareName`, `duplicateIdentifierInCatchBlock`,
+`multipleExportDefault1/2`, `augmentedTypes*`, `anyDeclare` — a
+duplicate-identifier family, not a function-typing family.
+
+### The forcing fact
+
+`declareSymbolEx`'s conflict branch ends (`binder.go:286`) with
+
+```go
+symbol = b.newSymbol(ast.SymbolFlagsNone, name)
+```
+
+a fresh symbol that is deliberately **not** put in the symbol table. The table
+keeps the first declaration's symbol with its original flags; the conflicting
+declaration gets a private symbol carrying only itself.
+
+This port merged, and the comment at the site said so explicitly:
+
+> *"Still merge, so the checker has one symbol to resolve against rather than a
+> hole. **Upstream does the same.**"*
+
+Upstream does not. **This is the fourth unfalsified "upstream does the same" /
+"already handled elsewhere" comment this window has turned out to be wrong**
+(§192's `getUnaryResultType`, checker-2's §183 and its duplicate at
+`types_producer.rs:811`, and now this) — see the conventions entry that pattern
+earned.
+
+### The evidence is in a baseline nobody had read
+
+`compiler/varAndFunctionShareName` is two lines:
+
+```ts
+var myFn;
+function myFn(): any { }
+```
+
+Its `.symbols` baseline records **two** symbols, one declaration each. Its
+`.types` baseline prints `any` for the first name and `() => any` for the
+second — **two different answers for the same spelling**, which one merged
+symbol cannot produce however good the checker gets. That asymmetry is the
+whole diagnosis, and it is visible without reading a line of upstream Go.
+
+### Ported whole, including the exception
+
+Upstream's one carve-out comes with it: a get/set accessor conflicting with a
+non-accessor or with the other kind marks the **existing** symbol a full
+accessor, so every later declaration conflicts too (`binder.go:283-287`).
+
+### Measured
+
+**+47 whole cases, 0 lost** (per-case, through `casequery --list`), and one
+coverage run:
+
+| suite | before | after |
+|---|---|---|
+| `checker_types` | 4,768 (49.99%), 421,578 lines | **4,816 (50.49%)**, 421,803 |
+| `diagnostics` | 2,443 | **2,445** |
+| `binder_symbols` | 8,4xx/8,4xx, 100% | unchanged, 100% |
+
+The `binder_symbols` column is the one that mattered going in — this is a
+binder change and that suite is at 100%, so any regression would have been
+loud. `compiler/varAndFunctionShareName` passes it before and after.
+
+Two tests: the non-merge invariant, and the control that declarations which
+*legitimately* merge still share one symbol (`var x; var x;`, and an interface
+with a namespace) — without which "never merge anything" also passes.
+
 ### Slice 4 and after — what the remaining shapes need, and the wall
 
 The other list contexts in the 27 need predicates this parser does not have.

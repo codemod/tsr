@@ -1348,3 +1348,63 @@ fn a_numeric_member_binds_under_its_canonical_value() {
     let class2 = bound2.result.lookup_local(bound2.root(), "D").expect("class D");
     assert!(bound2.result.symbols().get(class2).members.contains_key("-1"));
 }
+
+/// §196. A declaration that CONFLICTS gets its own symbol, not a merge.
+///
+/// `declareSymbolEx` (`binder.go:286`) ends its conflict branch with
+/// `symbol = b.newSymbol(SymbolFlagsNone, name)` — a fresh symbol that is
+/// deliberately *not* put in the symbol table. The table keeps the first
+/// declaration's symbol with its original flags; the conflicting declaration
+/// gets a private one carrying only itself.
+///
+/// This port merged instead, under a comment claiming upstream did the same.
+/// The `.symbols` baseline says otherwise: `compiler/varAndFunctionShareName`
+/// is `var myFn;` then `function myFn(): any {}` and records **two** symbols,
+/// one declaration each — which is also why the two names print `any` and
+/// `() => any` in `.types`, an answer one merged symbol cannot give.
+#[test]
+fn a_conflicting_declaration_does_not_merge_into_the_existing_symbol() {
+    let arena = Arena::new();
+    let bound = bind(&arena, "var myFn;\nfunction myFn(): any { }");
+
+    // The table's symbol carries ONE declaration's flags, not both ORed
+    // together. Which one is a separate question — see the note below.
+    let flags = bound.top_level("myFn").expect("myFn is a top-level local");
+    assert!(
+        !(flags.intersects(SymbolFlags::FUNCTION)
+            && flags.intersects(SymbolFlags::FUNCTION_SCOPED_VARIABLE)),
+        "a conflicting pair must not have merged into one symbol: {flags:?}"
+    );
+
+    // And that symbol carries only its own declaration.
+    let id = bound.result.lookup_local(bound.root(), "myFn").expect("myFn");
+    assert_eq!(
+        bound.result.symbols().get(id).declarations.len(),
+        1,
+        "a conflicting declaration must not be added to the existing symbol"
+    );
+}
+
+/// The control, and the thing that makes the test above about *conflict* rather
+/// than about declaration counting: declarations that legitimately merge still
+/// share one symbol. `var x; var x;` is legal, and an interface merges with a
+/// namespace.
+#[test]
+fn compatible_declarations_still_merge_into_one_symbol() {
+    let arena = Arena::new();
+    let bound =
+        bind(&arena, "var x = 1;\nvar x = 2;\ninterface I {}\nnamespace I { export var y = 1; }");
+
+    let x = bound.result.lookup_local(bound.root(), "x").expect("x");
+    assert_eq!(
+        bound.result.symbols().get(x).declarations.len(),
+        2,
+        "two `var`s of the same name are one symbol with two declarations"
+    );
+
+    let i = bound.top_level("I").expect("I");
+    assert!(
+        i.contains(SymbolFlags::INTERFACE) && i.intersects(SymbolFlags::MODULE),
+        "an interface and a namespace merge: {i:?}"
+    );
+}

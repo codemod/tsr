@@ -3945,11 +3945,41 @@ impl<'a, 'n> Binder<'a, 'n> {
                 for earlier in previous {
                     report(self, earlier);
                 }
-                // Still merge, so the checker has one symbol to resolve
-                // against rather than a hole. Upstream does the same.
+                // **Upstream does NOT merge, and the comment that stood here
+                // saying it does was wrong for two sessions.** `binder.go:286`,
+                // the last statement of the conflict branch, is
+                // `symbol = b.newSymbol(SymbolFlagsNone, name)` — a fresh symbol
+                // that is deliberately *not* put in the symbol table. The table
+                // keeps the first declaration's symbol with its original flags;
+                // the conflicting declaration gets a private one carrying only
+                // itself.
+                //
+                // It is observable in the `.symbols` baseline, which is where it
+                // was found: `compiler/varAndFunctionShareName` is `var myFn;`
+                // followed by `function myFn(): any {}` and records **two**
+                // symbols, one declaration each. And in `.types`, where the two
+                // names then print `any` and `() => any` — different answers for
+                // the same spelling, which one merged symbol cannot produce.
+                // §196.
+                //
+                // Upstream's one exception first: a get/set accessor conflicting
+                // with a non-accessor or the other kind marks the EXISTING symbol
+                // a full accessor, so every later declaration conflicts too
+                // (`binder.go:283-287`).
+                if existing_flags.intersects(SymbolFlags::ACCESSOR)
+                    && (existing_flags & SymbolFlags::ACCESSOR) != (flags & SymbolFlags::ACCESSOR)
+                {
+                    self.symbols.get_mut(existing).flags |= SymbolFlags::ACCESSOR;
+                }
+                let conflicted = self.symbols.create(name, flags);
+                if !matches!(destination, Destination::Locals) {
+                    self.symbols.get_mut(conflicted).parent = symbol_owner;
+                }
+                conflicted
+            } else {
+                self.symbols.get_mut(existing).flags |= flags;
+                existing
             }
-            self.symbols.get_mut(existing).flags |= flags;
-            existing
         } else {
             let created = self.symbols.create(name, flags);
             match destination {
