@@ -45374,3 +45374,50 @@ mine     an arm that was REDUNDANT    logic looked right, the dispatch was long
 
 The check is the same in both directions and costs one command: **before adding a
 rule, ask who else already reports its code.**
+
+## §921 — the other half of §846's check: `have > want`
+
+§846 read `diagemit` for `have == 0` — a rule built and never reached. §919's
+`−1` came from the opposite: a code emitted **more** than the corpus wants,
+because two producers report it at one position and the suite compares
+multisets.
+
+The census of producers gives the risk list:
+
+```
+22 of 281 message constants have more than one emitting function
+TS2300   5 producers   (the four §904-§914 built, plus merge_conflicts.rs)
+TS6196   3            TS2540   3            TS2307   3            TS6133   3
+```
+
+Most are legitimate — call arity and `new` arity, the type path and the value
+path. The measurement that separates risk from fact is `have > want`:
+
+```
+295  TS1005    582 / 877     tsr-parser's recovery
+150  TS2304   2735 / 2885
+138  TS1003    105 / 243     tsr-parser's
+129  TS18048   175 / 304   <- the largest checker-side over-emission
+129  TS1131     10 / 139     tsr-parser's
+110  TS1109    224 / 334     tsr-parser's
+ 76  TS2552    237 / 313
+ 45  TS1344     60 / 105
+ 29  TS2364     69 /  98
+ 25  TS18047    12 /  37
+```
+
+**TS18048's 129 is §850's**, and worth stating plainly: §850 wired the nullable
+receiver site, gained `+3` cases, and recorded `+11` wrong lines in `extraonly`.
+The aggregate over-emission is **129** — the other 118 sit in cases already
+failing for other reasons, where `extraonly` cannot see them.
+
+> `extraonly` counts wrong lines **in cases one removal from passing**;
+> `have − want` counts them **everywhere**. §850's `+11` was the right number for
+> the decision it faced and the wrong number for the size of what it did.
+> **Neither is the cost of a build — the pair is**, and this session has been
+> quoting one of them for seventy sections.
+
+Recorded as a view, not a work list: five of the ten rows are `tsr-parser`'s
+recovery, and the checker-side four (TS2304, TS18048, TS2552, TS2364) each need
+their own reading before anything is touched — §919 is what happens when that
+reading is skipped.
