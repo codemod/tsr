@@ -825,3 +825,13 @@ corollary (induced reasoning hides in test pins).
 lattice + inferToMultipleTypes TOGETHER], (2) asserts/effects-signature
 machinery, (3) the thisType subsystem [twice-measured requirement],
 (4) dependent destructuring, (5) predicate inference.
+
+**Rock (6), added after close**: the JS **assignment-analysis** road
+(~344 lines). checker-1's §148 measurement + checker-2's §169
+baseline-writer read, merged: a JS var's type comes from its
+ASSIGNMENTS — cycles land errorType (which the baseline writer spells
+`error`), parameter-fed lands any, no assignments lands the implicit
+any. The blanket gate was measured and refused (131 W→R / 302 R→GAP,
+net −171), so the road must be built properly or not at all. This is
+the largest single family on the wrong board and it is NOT
+incrementally winnable.
