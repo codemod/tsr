@@ -198,6 +198,22 @@ pub fn reported_for(test: &crate::TestCase) -> Vec<BaselineDiagnostic> {
             );
             reported.extend(bound.diagnostics().iter().cloned());
         });
+        // `SortAndDeduplicateDiagnostics` again — the harness applies it to the
+        // whole list and the binder's half needs it as much as the checker's:
+        // `class A { m1: string; m1(a: string): void; m1(a: number): void; … }`
+        // makes `declare_into_with_excludes` report on the property **once per
+        // collision it takes part in**, and upstream's three identical
+        // diagnostics collapse to the one its baseline records. §997.
+        let mut seen: std::collections::HashSet<(u32, u32, u32, Vec<String>)> =
+            std::collections::HashSet::new();
+        reported.retain(|diagnostic| {
+            seen.insert((
+                diagnostic.span.start,
+                diagnostic.span.end,
+                diagnostic.message.code(),
+                diagnostic.args.clone(),
+            ))
+        });
         for diagnostic in reported {
             let (line, character) = line_and_character(&unit.content, diagnostic.span.start);
             actual.push(BaselineDiagnostic {

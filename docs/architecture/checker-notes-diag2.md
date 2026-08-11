@@ -48578,3 +48578,46 @@ Four TS2300 cases still over-count. With the faithful key they are **not** a
 dedupe question: their copies differ in span or arguments, so upstream would keep
 them too and the baseline wants fewer. That is a genuine over-report in the
 TS2300 family and is left with its number.
+
+## §997 — §996's other half: the binder's list needed it too
+
+```
+diagnostics   2,469 → 2,473   (+4)   45.06%
+diagpass      LOST: (none)
+              GAINED: cloduleWithDuplicateMember1, letAndVarRedeclaration,
+                      nonMergedDeclarationsAndOverloads, duplicateExportAssignments
+extraonly     74, unchanged
+diagcount     **0 cases, 0 surplus lines, 0 sole-cases** — corpus-wide
+```
+
+§996 called the four remaining over-counts *"a genuine over-report in the TS2300
+family"*. They were not. **They were the same defect in the half of the pipeline
+§995 did not touch**: the deduplication went into `from_check_traversal`, over
+`checker.diagnostics()`, and the parser-and-binder half three hundred lines above
+kept its own list untouched.
+
+```ts
+class A {
+    m1: string;
+    m1 (a: string): void;
+    m1 (a: number): void;
+    m1 (a: any): void { }
+}
+```
+
+`declare_into_with_excludes` reports on the **property** once per collision it
+takes part in — three collisions, three identical diagnostics — and upstream's
+harness collapses them to the one its baseline records.
+
+> Two builds, and the second was necessary only because the first assumed one
+> producer. §996 even wrote *"the conformance harness is part of the
+> specification"* and then applied the harness's rule to one of the two lists
+> the harness sees. **A fix applied to one producer of a shared output is a
+> hypothesis, not a fix**, and `diagcount` was sitting there able to say so —
+> it read `4 sole-cases` immediately after §996 and I described those four
+> instead of asking why an instrument that had just gone from 12 to 4 had not
+> gone to 0.
+
+`diagcount` now reads zero on every count, corpus-wide. **The multiset blind
+spot §992 named is closed**: no case in the corpus fails because a right line is
+emitted too many times, and the instrument that proves it runs in one command.
