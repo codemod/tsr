@@ -47294,3 +47294,93 @@ a resolution.
 
 Falsifier 1 (`const g = () => g` must stay silent) is negative — the
 function-like boundary test is what version 3 kept when it dropped classes.
+
+## §966 — TS1118: two getters with the same name in one object literal
+
+§950's list, the cheapest row left: **4 sole-obstacle cases, 4 lines**, all one
+shape.
+
+```ts
+var v = {
+    get foo() { … },
+    get foo() { … },   // TS1118
+};
+```
+
+`check_duplicate_object_literal_names` exists and **abandons the literal
+entirely** when it contains anything other than property and shorthand
+assignments:
+
+```rust
+if literal.properties.iter().any(|p| !matches!(p, PropertyAssignment | Shorthand)) {
+    return;
+}
+```
+
+so one accessor anywhere in the literal turns the whole rule off. Upstream does
+not partition that way: `checkGrammarObjectLiteralExpression`
+(`grammarchecks.go:1112`-`:1150`) walks every member, assigns each a
+**declaration meaning**, and picks one of four messages from the pair
+`(current, existing)`.
+
+Only the accessor cell is built here, as a separate pass:
+
+```
+get  then get      TS1118
+set  then set      TS1118
+get  then set      legal — the pair merges to GetOrSetAccessor
+get,set then get   TS1118 — existing is already the merged pair
+```
+
+The other three cells — method/method (TS2300), property/property (TS1117),
+property/accessor (TS1119) — are **not** built. Widening the existing rule to
+the full table is the right shape eventually and is not attempted in a build
+whose whole yield is four cases: the bail-out above means those three currently
+report *nothing* when an accessor is present, and turning them on is a
+measurement of its own.
+
+```
+bar:  >= +3 of the 4,  0 LOST via `diagpass`,  extraonly delta <= +1
+```
+
+### Falsifiers
+
+1. **`get foo` beside `set foo` reports.** The merge is the one legal pairing
+   and it is the reason this cell is not simply "a repeated name".
+2. **An accessor duplicated across two different literals reports.** The table
+   is per-literal.
+3. **A property assignment named like an accessor reports.** That is TS1119's
+   cell and is deliberately absent — it must stay absent, not fall into this
+   one.
+
+## §967 — §966 built: **+4/−0**, row complete, and 44%
+
+```
+diagnostics   2,413 → 2,417   (+4)   **44.04%**
+diagpass      LOST: (none)
+              GAINED: computedPropertyNames49_ES5, 49_ES6, 50_ES5, 50_ES6
+extraonly     75, unchanged
+TS1118        have 0 → 4,  want 4,  **missing 0**
+```
+
+All four cases, the row is finished, and the board crosses **44%** — from
+**1.46%** when this workstream opened.
+
+Falsifier 1 is the one that mattered and the fixtures answered it: `50_ES5` and
+`50_ES6` are the `get`/`set` pair variant, and both converted, so the merge is
+being read rather than a repeated name being counted.
+
+> The defect was not a missing rule; it was a **bail-out**. One accessor
+> anywhere in an object literal turned off the duplicate-name check for the
+> whole literal, and that decision was made where the rule reads its members,
+> five hundred sections before the row was priced. §958's sentence generalises:
+> **a rule that declines a whole shape is invisible to every instrument that
+> counts what rules emit.** `diagemit` said `unported`; `diagsole` said four
+> cases; neither could say *the rule is right there and refuses to look*.
+
+The three other cells of upstream's meaning table — method/method (TS2300),
+property/property (TS1117), property/accessor (TS1119) — report **nothing**
+whenever an accessor is present, for the same reason. They are not built here
+because this build's whole yield is four cases and turning them on is a
+measurement of its own; recorded so the next session finds the bail-out named
+rather than rediscovering it.

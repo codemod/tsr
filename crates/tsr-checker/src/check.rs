@@ -577,6 +577,7 @@ impl Checker<'_, '_> {
             }
             Node::ObjectLiteralExpression(_) => {
                 self.check_spread_property_overrides(node);
+                self.check_duplicate_object_literal_accessors(node);
                 self.check_duplicate_object_literal_names(node);
                 self.check_private_name_in_object_literal(node);
                 ambient
@@ -8720,6 +8721,62 @@ impl Checker<'_, '_> {
     /// members alike would be a wrong code at a right position. A spread
     /// contributes names this port cannot enumerate and stops the check, as it
     /// does in `check_excess_properties`. §180.
+    /// TS1118 — `An object literal cannot have multiple get/set accessors with
+    /// the same name.`
+    ///
+    /// The accessor cell of `checkGrammarObjectLiteralExpression`'s meaning
+    /// table (`grammarchecks.go:1139`-`:1145`). A `get`/`set` pair merges and is
+    /// legal; a repeat of either kind, or anything after the merged pair, is the
+    /// error. §966.
+    fn check_duplicate_object_literal_accessors(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let Some(Node::ObjectLiteralExpression(literal)) = self.node_map.get(node) else { return };
+        // `(name, saw_get, saw_set)` — upstream's `seen` table restricted to the
+        // two accessor meanings.
+        let mut seen: Vec<(String, bool, bool)> = Vec::new();
+        let mut repeats: Vec<NodeId> = Vec::new();
+        for property in literal.properties {
+            let Some(at) = property.node_id() else { continue };
+            let is_get = match self.nodes.kind(at) {
+                SyntaxKind::GetAccessor => true,
+                SyntaxKind::SetAccessor => false,
+                _ => continue,
+            };
+            let Some(name_id) = self.declaration_name_of(at) else { continue };
+            let key = match self.identifier_text(name_id) {
+                Some(text) => text.to_string(),
+                None => match self.computed_name_spelling(name_id) {
+                    Some(spelling) => format!("[]{spelling}"),
+                    None => continue,
+                },
+            };
+            match seen.iter_mut().find(|(existing, _, _)| *existing == key) {
+                None => seen.push((key, is_get, !is_get)),
+                Some((_, saw_get, saw_set)) => {
+                    if (is_get && *saw_get) || (!is_get && *saw_set) {
+                        repeats.push(name_id);
+                    } else {
+                        *saw_get = true;
+                        *saw_set = true;
+                    }
+                }
+            }
+        }
+        for name_id in repeats {
+            let Some(file) = self.source_file_of_for_diagnostics(name_id) else { continue };
+            let span = self.error_span(name_id);
+            self.report(
+                file,
+                Diagnostic::new(
+                    &messages::AN_OBJECT_LITERAL_CANNOT_HAVE_MULTIPLE_GET_SLASHSET_ACCESSORS_WITH_THE_SAME_NAME,
+                    span,
+                ),
+            );
+        }
+    }
+
     fn check_duplicate_object_literal_names(&mut self, node: NodeId) {
         if self.file_has_parse_errors {
             return;
