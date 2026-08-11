@@ -147,6 +147,22 @@ impl Checker<'_, '_> {
         let parameters = match self.node_map.get(*declaration) {
             Some(Node::FunctionDeclaration(function)) => function.type_parameters,
             Some(Node::ClassDeclaration(class)) => class.type_parameters,
+            // **A variable holding a function literal** carries the signature's
+            // type parameters on the literal, and `var f2 = (x: number) => …;
+            // f2<string>(1)` is TS2558 exactly as a declared function is. The
+            // annotation and property-access forms need the *type's* signature
+            // list and are the type side's; this one is syntactic. §942.
+            Some(Node::VariableDeclaration(variable)) => {
+                match variable
+                    .initializer
+                    .and_then(|e| e.node_id())
+                    .and_then(|id| self.node_map.get(id))
+                {
+                    Some(Node::ArrowFunction(arrow)) => arrow.type_parameters,
+                    Some(Node::FunctionExpression(function)) => function.type_parameters,
+                    _ => return,
+                }
+            }
             _ => return,
         };
         // A generic constructor of its own would supply the signature's type
@@ -160,10 +176,15 @@ impl Checker<'_, '_> {
         {
             return;
         }
+        // **A non-generic callee is `Expected 0 type arguments, but got N`**,
+        // which is the message's own wording and what
+        // `callNonGenericFunctionWithTypeArguments` is about — its header reads
+        // *"it is always illegal to provide type arguments to a non-generic
+        // function"*. The guard that stood here returned on `maximum == 0` with
+        // no comment, no anchor and no measurement, while every other guard in
+        // this function carries a reason; `written >= 0 && written <= 0` below
+        // is exactly the test that should decide it. §942.
         let maximum = parameters.len();
-        if maximum == 0 {
-            return;
-        }
         let minimum = parameters
             .iter()
             .position(|parameter| parameter.default_type.is_some())

@@ -46180,3 +46180,86 @@ tail, and a tail is worked by breadth rather than depth.
 > like nothing.** 42.5% of the missing text is in codes that never appeared in a
 > ranking, because every ranking before §933 was ordered by a number that put
 > them last.
+
+## §942 — TS2558 on a non-generic callee: an unexplained zero
+
+§941 said work the tail by breadth. Its head is **TS2558, 77 lines**, and the
+row has never been named in these notes.
+
+```ts
+function f(x: number) { return null; }
+var r = f<string>(1);     // TS2558 — Expected 0 type arguments, but got 1
+```
+
+`check_call_type_argument_arity` resolves the callee, counts its type parameters,
+and then:
+
+```rust
+let maximum = parameters.len();
+if maximum == 0 {
+    return;
+}
+```
+
+**No comment, no anchor, no measurement** — and it is the one shape the fixture
+is about. `callNonGenericFunctionWithTypeArguments`'s own header says *"it is
+always illegal to provide type arguments to a non-generic function"*, and the
+message spells the count: `Expected 0 type arguments, but got 1`.
+
+Every other guard in that function carries a reason. This one reads as an early
+return written to avoid a division-by-zero shape that never arises — `minimum`
+and `maximum` are both `0` and `written >= 0 && written <= 0` is exactly the test
+that should fire.
+
+```
+bar:  >= +1 (callNonGenericFunctionWithTypeArguments),  0 LOST via `diagpass`,
+      extraonly delta <= +2
+```
+
+### Falsifiers
+
+1. **A call with no type arguments reports.** The function returns early on an
+   empty list, above this guard.
+2. **TS2315's row moves.** It is the type-reference arity code from the sibling
+   function.
+
+## §943 — §942 built: **+1/−0**, and the tail's first row pays
+
+```
+diagnostics   2,384 → 2,385   (+1)   43.46%
+diagpass      LOST: (none)   GAINED: compiler/tooManyTypeParameters1
+extraonly     75, unchanged
+TS2558        have 19 → 27,  missing 77 → 69
+```
+
+Two changes, measured together and then separately:
+
+```
+the unexplained `if maximum == 0 { return }`     +3 lines,  +0 cases
+a variable holding a function literal            +5 lines,  +1 case
+```
+
+The first is the row's own message — *Expected **0** type arguments, but got 1* —
+declined by a guard with no comment, no anchor and no measurement, in a function
+where every other guard carries a reason. The second is syntactic: `var f2 = (x)
+=> …` keeps the signature's type parameters on the literal.
+
+**What is left of TS2558 is the type side**, and the fixture says so plainly:
+
+```ts
+declare var f3: { (x: number): any; }
+var r3 = f3<string>(1);      // needs the annotation's call signature
+class C { f(x: number) {} }
+new C().f<string>(1);        // needs the property access's signature
+```
+
+> §941 predicted the tail would pay in small increments and this is the first
+> draw: **one row nobody had named, +1 case and 8 lines, from removing a guard
+> that had never been justified.** The guard cost nothing to write and 77 lines
+> to leave.
+>
+> The row also converted a case the bar did not name — `tooManyTypeParameters1`,
+> not the fixture the build was aimed at. **A rule fixed for one fixture pays in
+> whichever case happens to be one line short**, which is the third time this
+> session (§884, §913, this) that the gain landed somewhere the bar had not
+> looked.
