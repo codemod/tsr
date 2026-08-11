@@ -912,6 +912,9 @@ impl Checker<'_, '_> {
         if matches!(typed, Node::ExportAssignment(_)) {
             self.check_export_assignment_alone(node);
         }
+        if self.nodes.kind(node) == SyntaxKind::PropertyAccessExpression {
+            self.check_private_static_access(node);
+        }
         if self.nodes.kind(node) == SyntaxKind::SuperKeyword {
             self.check_super_in_computed_name(node);
             self.check_super_call_outside_constructor(node);
@@ -5379,7 +5382,7 @@ impl Checker<'_, '_> {
     }
 
     /// Does this class member carry `static`? §974.
-    fn member_is_static(&self, member: NodeId) -> bool {
+    pub(crate) fn member_is_static(&self, member: NodeId) -> bool {
         let modifiers = match self.node_map.get(member) {
             Some(Node::PropertyDeclaration(n)) => n.modifiers,
             Some(Node::ClassStaticBlockDeclaration(_)) => return true,

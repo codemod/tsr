@@ -48672,3 +48672,85 @@ conformance/octalIntegerLiteralError            want: ',' expected.   got: ';' e
 Filed as `bd` follow-up rather than fixed here: the eight lines are in
 `tsr-parser`'s error recovery and cost **zero** cases, since all six of these
 cases already pass.
+
+## §999 — TS2341: a private static reached through the class name
+
+§950's list: **5 sole-obstacle cases, 11 lines**. Every one of them is the same
+shape, and the fixture states the rule in its header — *"Any attempt to access a
+private property member outside the class body that contains its declaration
+results in a compile-time error."*
+
+```ts
+class C { private static bar: string; }
+class D extends C { }
+namespace D { export var y = D.bar; }     // TS2341
+```
+
+Upstream reaches this through `checkPropertyAccessibility` on a resolved
+property symbol. The corpus's cases need none of that: the receiver is an
+**identifier naming a class**, the member is found by walking that class's own
+members and then its `extends` chain, and the access site's containment is an
+ancestor test.
+
+Three details the fixtures force:
+
+- **The member is inherited.** `D` declares nothing; `bar` is `C`'s, and the
+  reported class name is `C` — the *declaring* class, not the one named at the
+  access.
+- **A merged namespace is still outside.** `namespace D { … D.bar … }` merges
+  with `class D` and upstream reports anyway; containment is measured against
+  the **class declaration** node, not the symbol.
+- **Statics only.** A private *instance* member reached through a value needs
+  the value's type; declining that is what keeps this syntactic.
+
+TS1009 was the alternative and is **declined with its owner**: seven cases, and
+every one needs `NodeList.HasTrailingComma`, which this port's AST does not
+record and the checker cannot recover — there is no source text on the checker
+and no comma token in the tree. Owner: `tsr-parser`, and it is an AST change
+rather than a rule.
+
+```
+bar:  >= +2 of the 5,  0 LOST via `diagpass`,  extraonly delta <= +1
+```
+
+### Falsifiers
+
+1. **Access inside the declaring class reports.** Every private static in the
+   corpus is used inside its own class somewhere.
+2. **A non-private static reports.** The modifier is the rule.
+3. **A shadowing local named like the class reports.** The receiver must resolve
+   to the class, not merely spell it.
+
+## §1000 — §999 built: **+1/−0**, fifty-two right lines and one case
+
+```
+diagnostics   2,473 → 2,474   (+1)   45.08%
+diagpass      LOST: (none)   GAINED: privateStaticNotAccessibleInClodule2
+extraonly     74, unchanged
+TS2341        have 0 → 52,  want 111,  missing 59,  **0 extra**
+```
+
+**Fifty-two right lines, no wrong ones, one conversion.** The ratio is the note:
+the syntactic slice reaches half the row's lines and almost none of its cases,
+because a case converts only when it supplies *every* missing line (§273) and
+these fixtures mix private statics with private **instance** members in the same
+file. `memberFunctionsWithPrivateOverloads` wants both; this build gives it one.
+
+> §950's ranking counts a case once per code, and a code's *lines* can be
+> half-built without a single case moving. **TS2341 was priced at five cases and
+> paid one**, and the four that did not move are not blocked by anything this
+> layer can fix — they want a receiver's type.
+>
+> That is the clearest instance this session of a row where the **line** count
+> and the **case** count point in different directions, and it is worth naming
+> because §941 was steered by line counts and §950 replaced them with case
+> counts. Neither is wrong; a row can be *mostly built* and *barely converted*
+> at the same time.
+
+All three falsifiers negative — no access inside a declaring class reports, no
+non-private static does, and the receiver is resolved rather than spelled.
+
+TS1009 is declined with its owner: seven cases, all needing
+`NodeList.HasTrailingComma`, which this AST does not record. There is no source
+text on the checker and no comma token in the tree, so the enabling change is in
+`tsr-parser` and is an **AST** change rather than a rule.

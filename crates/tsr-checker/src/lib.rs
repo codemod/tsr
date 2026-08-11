@@ -140,6 +140,7 @@ pub mod operator_operands;
 pub mod optionality;
 mod parameter_self_reference;
 pub mod printing;
+mod private_static_access;
 pub mod readonly_target;
 pub mod relater;
 pub mod resolution;
