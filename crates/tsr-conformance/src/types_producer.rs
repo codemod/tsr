@@ -827,6 +827,22 @@ pub fn type_id_at_location<'a>(
     // The meta-property guard is DEAD: the parser constructs no
     // `MetaProperty` node at all (checker-1's probe), so `new.target` never
     // reaches this walk as one.
+    // SS182 (measured twice, both negative — do not re-derive): HOISTING
+    // the SS178 guard above the declaration-name branch, so it can reach an
+    // `import X = N` NAME, costs cases either way — 4,697 -> 4,685 computing
+    // the type with `check_expression`, 4,697 -> 4,682 computing it the way
+    // that branch does. The branch's answers for import/export names are
+    // right more often than the guard's substitution is, so the guard stays
+    // BELOW it and the `import X = N` population (aliasInaccessibleModule
+    // and kin, ~28 one-blocker files) stays a gap. Whoever revisits it needs
+    // the node builder's actual rendering of an unresolvable alias, not a
+    // reordering.
+    //
+    // SS179/SS181: the BINDING ELEMENT, LABEL NAME and GLOBAL SCOPE
+    // AUGMENTATION guards measured +0 cases TWICE — before SS180 and after,
+    // against a population SS180 had shifted by 299 cases. Two independent
+    // zeroes settle it: case-inert in this corpus.
+    //
     // SS178: two more of the seven, TRANSCRIBED verbatim
     // (`isImportStatementName`/`isExportStatementName`,
     // type_symbol_baseline.go:458-479): an identifier that IS the name of an
