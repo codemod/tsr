@@ -48196,3 +48196,67 @@ wrong code.
 Twenty-sixth repair of the shared tree: a `map(…).unwrap_or_else(panic!)` in the
 other workstream's `jsx_attribute_types.rs` was blocking `xtask measure` for
 both of us.
+
+## §988 — TS2480: `let` as a name in a `let` or `const` declaration
+
+§950's list: **4 sole-obstacle cases, 13 lines**, and the rule is two lines of
+upstream.
+
+```ts
+let x = 50, let = 5;                    letInLetDeclarations_ES6
+const x = 50, let = 5;                  letInConstDeclarations_ES6
+for (let of []) { }                     for-of51
+for (let let of []) { }                 letInLetConstDeclOfForOfAndForIn_ES6
+```
+
+`checkGrammarNameInLetOrConstDeclarations` (`grammarchecks.go:1629`) reports on
+an identifier named `let`, and **recurses into binding patterns** — the `else`
+branch walks the elements so `let [let] = …` reports on the inner name.
+
+`var let = 5` is legal, which is the whole reason the check is keyed on the
+declaration list's flags rather than on the name alone. §965 already built
+`declaration_is_block_scoped_variable` for TS2448 and it answers exactly this
+question.
+
+```
+bar:  >= +3 of the 4,  0 LOST via `diagpass`,  extraonly delta <= +1
+```
+
+### Falsifiers
+
+1. **`var let = 5` reports.** ES5 code in the corpus uses `let` as an ordinary
+   name and this is the rule's only real boundary.
+2. **A *reference* to `let` reports.** The rule is about declaration names, and
+   `let` appears as an expression in the same fixtures.
+3. **A binding pattern's `let` is missed.** The recursion is upstream's `else`
+   branch and is not optional — `letInLetConstDeclOfForOfAndForIn_ES6` wants
+   eight lines from four declarations.
+
+## §989 — §988 built: **+4/−0**, row complete, and a helper paying for the second time
+
+```
+diagnostics   2,448 → 2,452   (+4)   44.68%
+diagpass      LOST: (none)
+              GAINED: letInConstDeclarations_ES6, letInLetConstDeclOfForOfAndForIn_ES6,
+                      letInLetDeclarations_ES6, for-of51
+extraonly     75, unchanged
+TS2480        have 0 → 15,  want 15,  **missing 0**
+```
+
+All four cases; the row is finished. **Sixth complete row this stretch** (§954,
+§967, §969, §983, §988, plus TS1117).
+
+Falsifier 3 was the one that decided the shape: `letInLetConstDeclOfForOfAndForIn_ES6`
+wants **eight lines from four declarations**, which only happens if the binding
+pattern recursion is there — upstream's `else` branch, easy to read past because
+the interesting line is in the `if`.
+
+> `declaration_is_block_scoped_variable` was written for §965's TS2448 four
+> builds ago and answers this rule's only real question — `var let = 5` is
+> legal and `let let = 5` is not. **The second use is where a helper earns its
+> name**: written inline it would have been a `flags.contains(CONST) ||
+> flags.contains(LET)` in two places, and the two places would have drifted.
+
+Nothing about this rule needed a type, a symbol, or a resolution. It needed the
+declaration list's flags and a recursion, and it had been unbuilt for the whole
+port.

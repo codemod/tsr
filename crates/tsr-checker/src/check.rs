@@ -421,6 +421,7 @@ impl Checker<'_, '_> {
                 ambient
             }
             Node::VariableDeclaration(declaration) => {
+                self.check_grammar_name_in_let_or_const(node);
                 self.check_implicit_any_variable(node, ambient);
                 self.check_exports_on_merged_declarations(node);
                 self.check_implicit_any_binding_pattern(node);
@@ -5238,6 +5239,47 @@ impl Checker<'_, '_> {
     /// The other positions are a second slice with that predicate as its
     /// subject — `checker-notes-diag2.md` §83. TS2448 (block-scoped variable)
     /// and TS2450 (enum) are its siblings and wait on the same thing.
+    /// TS2480 — `'let' is not allowed to be used as a name in 'let' or 'const'
+    /// declarations.`
+    ///
+    /// `checkGrammarNameInLetOrConstDeclarations` (`grammarchecks.go:1629`).
+    /// `var let = 5` is legal, which is why this is keyed on the declaration
+    /// list's flags and not on the name alone. §988.
+    fn check_grammar_name_in_let_or_const(&mut self, node: NodeId) {
+        if self.file_has_parse_errors || !self.declaration_is_block_scoped_variable(node) {
+            return;
+        }
+        let Some(Node::VariableDeclaration(declaration)) = self.node_map.get(node) else { return };
+        let Some(name) = declaration.name else { return };
+        self.report_let_named_bindings(name);
+    }
+
+    /// Upstream's `else` branch: a binding pattern recurses into its elements.
+    fn report_let_named_bindings(&mut self, name: tsr_ast::BindingName<'_>) {
+        match name {
+            tsr_ast::BindingName::Identifier(identifier) if identifier.text == "let" => {
+                let Some(at) = identifier.node_id else { return };
+                let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
+                let span = self.nodes.span(at);
+                self.report(
+                    file,
+                    Diagnostic::new(
+                        &messages::LET_IS_NOT_ALLOWED_TO_BE_USED_AS_A_NAME_IN_LET_OR_CONST_DECLARATIONS,
+                        span,
+                    ),
+                );
+            }
+            tsr_ast::BindingName::BindingPattern(pattern) => {
+                for element in pattern.elements {
+                    if let Some(inner) = element.name {
+                        self.report_let_named_bindings(inner);
+                    }
+                }
+            }
+            tsr_ast::BindingName::Identifier(_) => {}
+        }
+    }
+
     /// Is this declaration a `const` or `let` variable? §964.
     fn declaration_is_block_scoped_variable(&self, declaration: NodeId) -> bool {
         if self.nodes.kind(declaration) != SyntaxKind::VariableDeclaration {
