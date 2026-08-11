@@ -506,7 +506,15 @@ impl Checker<'_, '_> {
                 self.check_overload_ambient_agreement(node);
                 self.check_implicit_any_parameters(node, ambient);
                 self.check_implicit_any_return(node, ambient);
-                ambient
+                // **A member's own `declare` is an ambient context for its
+                // body.** The threading widens at `VariableStatement`,
+                // `FunctionDeclaration`, `EnumDeclaration` and
+                // `ModuleDeclaration` and nowhere else, so `class C { declare
+                // Foo() { } }` reached `check_grammar_statement_in_ambient_context`
+                // with `ambient == false` and its TS1183 never fired — even
+                // though that function's own comment describes this shape.
+                // §135's hazard, third sighting; §946.
+                ambient || self.member_has_declare_modifier(node)
             }
             // §81. No walk arm claimed this kind before, which is what §49's
             // trap says to check before pricing a rule that measures zero.

@@ -46353,3 +46353,99 @@ one — which is why the narrow form is safe to ship and the wide one is not.
 > in small increments; this is the small end of that, and the next row should be
 > chosen knowing that TS2774's shape was *four fixtures deep* rather than four
 > lines wide.
+
+## §946 — TS1183: §135's hazard, third sighting
+
+§941's tail, third draw. TS1183 is 60 lines, but the census is lopsided:
+
+```
+    54  compiler/giant                              one fixture, failing for a hundred reasons
+     4  compiler/accessorBodyInTypeContext          parser divergence — TS1131/TS1012 where
+                                                    upstream has TS1183. Not this layer's.
+     1  conformance/derivedUninitializedPropertyDeclaration
+     1  conformance/parserMemberFunctionDeclaration5
+```
+
+**Six reachable lines, not sixty**, and one fixture is a single line from
+passing:
+
+```ts
+class C {
+    declare Foo() { }      // TS1031 at (2,5) — have it
+}                          // TS1183 at (2,19) — the body's `{`
+```
+
+The machinery is already built and its comment already describes this exact
+shape — `check_grammar_statement_in_ambient_context` says *"a method body in an
+ambient class reports TS1183 for the block"*. It never fires here because the
+walk-threaded `ambient` widens at `VariableStatement`, `FunctionDeclaration`,
+`EnumDeclaration`, `ModuleDeclaration` and **nowhere else**, so a *member's own*
+`declare` is invisible to it.
+
+> That is **§135's hazard for the third time** — §134 hit it in the type-only
+> alias rule, §135 swept `check_computed_property_name`, and here it is again in
+> a rule written before either. `member_has_declare_modifier` was built for
+> §135 and is reused unchanged.
+>
+> **A hazard that recurs three times in one workstream is not a bug, it is the
+> shape of the threading.** The widening belongs in the `ambient` match itself,
+> not in each consumer.
+
+```
+bar:  >= +1 (parserMemberFunctionDeclaration5),  0 LOST via `diagpass`,
+      extraonly delta <= +1
+```
+
+### Falsifiers
+
+1. **A method without `declare` reports.** The whole rule is the modifier.
+2. **A `declare` property gains a wrong line.** `derivedUninitializedPropertyDeclaration`
+   wants TS1183 on a `declare property!: any` — at the `!`, not a body — and
+   that case also needs TS1255 and loses TS2415, so it must not convert and must
+   not gain a wrong line either.
+3. **`giant` moves.** If 54 lines appear there the widening is too broad.
+
+## §947 — §946 built: **+1/−0**, and a one-line edit that landed in the wrong arm
+
+```
+diagnostics   2,386 → 2,387   (+1)   43.49%
+diagpass      LOST: (none)   GAINED: conformance/parserMemberFunctionDeclaration5
+extraonly     75, unchanged
+TS1183        have 17 → 19,  missing 60 → 58
+```
+
+All three falsifiers negative: no method without `declare` reports, the
+`declare property!` case gained nothing, and `giant` did not move — its 54 lines
+are still 54.
+
+### The interesting part is not the rule, it is the first measurement
+
+The widening measured **exactly zero** on its first run. The rule looked right,
+the anchor was right, and the helper was right. **The edit had landed in the
+wrong match arm** — a `python` `replace(old, new, 1)` guarded by `assert old in
+s`, which proves the string is *present* and says nothing about *which*
+occurrence gets replaced. It went to a different declaration kind three hundred
+lines above the method arm.
+
+The probe found it in two runs, and only because it was placed at the walk's
+**entry** rather than inside the rule:
+
+```
+PROBE kind=MethodDeclaration ambient=false is_method=true declare=true
+PROBE kind=Block             ambient=false
+```
+
+`is_method` and `declare` both true at entry, `ambient` still false at the
+Block: the arm that should have consumed them never ran. A probe inside the rule
+would have shown the same silence as no probe at all.
+
+> **`assert old in s` is not a uniqueness check.** Four hundred and twenty-two
+> builds in, this is the first edit this session to land in the wrong place
+> silently, and the only reason it cost one measurement instead of a wrong
+> conclusion is §143's rail: *probe at the entry, not at a branch.* The
+> uniqueness assertion is `s.count(old) == 1`, and that is what the corrected
+> edit used.
+>
+> A zero that means "the code never ran" and a zero that means "the rule
+> declined" are indistinguishable from the outside, which is exactly why the
+> rail exists.
