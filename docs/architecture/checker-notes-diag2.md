@@ -49070,3 +49070,103 @@ before the build instead of after. Twenty-six builds later the same query said
 > whose blockers this workstream has since removed. Declines recorded on a
 > missing **mechanism** — the relation, flow, the module graph — do not move and
 > should not be re-queried.
+
+## §1009 — TS2323, and the sweep §1008 asked for
+
+§1008 said declines recorded on **price** expire. Acting on it: every such
+decline this session named with a number, re-queried in one command.
+
+```
+TS2473   0 → 0     the enum const/non-const sibling (§954)
+TS1119   0 → 0     the object-literal property/accessor cell (§969)
+TS1253   0 → 0     the one SILENT row worth nothing (§959)
+TS1189   0 → 0     the other (§961)
+TS2708   ? → 1     refused at −7/+10
+TS2323   0 → 9     refused at +0/+9
+```
+
+**Four unchanged, one worth a single case, and one at nine.** That is the shape
+worth knowing: re-querying is cheap, most declines stay dead, and the sweep
+earns its keep on the one row that moved.
+
+TS2323 — *Cannot redeclare exported variable '{0}'* — is upstream's
+`checkExportsOnMergedDeclarations` loop over a module's **exports**
+(`checker.go:5716`-`:5732`): count each exported symbol's declarations, ignoring
+overloads, accessors and interfaces, and report on every one of them when the
+count exceeds one.
+
+```ts
+const foo = 1
+export default foo
+export default class Foo {}     // both `export default`s are TS2323
+```
+
+Two details carry it, and the second is why the earlier attempt measured nine
+wrong lines:
+
+- **`isNotOverload`** — a signature without a body is not a declaration for this
+  count and takes no report.
+- **A type alias merged with a value is legal.** Upstream's exemption is
+  literal: `TypeAlias` and a count of **`<= 2`** continues, because *"count
+  should be either 1 (just type alias) or 2 (type alias + merged value)"*.
+  Without it every `type X` merged with a `const X` reports.
+
+```
+bar:  >= +4 of the 9,  0 LOST via `diagpass`,  extraonly delta <= +1
+```
+
+### Falsifiers
+
+1. **An overload set reports.** Every `declare function f(): void; function f() {}`
+   in the corpus is the control, and the count is what excludes them.
+2. **`type X = …; const X = 1` reports.** The `<= 2` exemption, stated in
+   upstream's own comment.
+3. **A non-exported redeclaration reports.** This walks the module's *exports*;
+   locals are TS2300's, already built.
+
+## §1010 — §1009 measured and **reverted**: +4/−2, and 21 wrong lines
+
+```
+                                      cases   LOST   TS2323 extra   extraonly
+after every guard upstream states      +4      2         21           75 → 81
+reverted                                0      0          0           75
+```
+
+The build was made faithfully and still fails. Four guards were ported, three of
+them found by measurement rather than by reading:
+
+```
+isNotOverload / not accessor / not interface   read from the source
+skip the `__export` star bucket                 read from the source
+skip Namespace and Enum symbols                 51 wrong lines found it
+skip module-augmentation declarations           found it, and changed nothing
+```
+
+The last is the tell. Adding `isTopLevelInExternalModuleAugmentation` — the
+predicate upstream applies to the *same* symbol table six lines above — moved
+**no number at all**, which means the augmentation fixtures' extras come from
+somewhere else, and that somewhere is the gap between this port's `exports`
+table and upstream's `getExportsOfModule`.
+
+> `getExportsOfModule` is not a field read. It **resolves** — export stars,
+> alias targets, `export =` — and returns a computed table. This port has the
+> declared table. For most rules the two agree; for a rule whose entire content
+> is *"count what is in the table"*, they cannot.
+
+**Two cases lost is the reason this is reverted rather than kept at +2.** §949,
+§975 and §996 all took the smaller number for the cleaner column; this is the
+first time that principle costs the whole build, and taking it anyway is what
+makes those three decisions mean anything.
+
+### The refusal, with its number
+
+TS2323 is worth **9 sole-obstacle cases** and is refused on
+`getExportsOfModule`, not on the rule. Owner: the module graph — the same owner
+as §955's cross-file alias cycle and §1000's TS1362. **Three rows now wait on
+one mechanism**, which is a better argument for building it than any of them
+alone.
+
+And §1008's sweep still paid: five declines re-queried, four dead, one (TS2708)
+worth a single case, and this one worth nine *behind a named mechanism* rather
+than behind nothing. **A decline that names its blocker is worth re-querying;
+this one now does.**
