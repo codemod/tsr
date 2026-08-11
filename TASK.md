@@ -941,3 +941,61 @@ the ClassExpression dispatch arm (checker-1's §168, e7b0ca4d): the arm
 is correct and measures +190/322 ALONE, and lands only paired with the
 naming rule.
 
+
+### checker-1 handoff #3 (2026-08-10, the near-miss pivot + three corrections)
+
+**Board: cases 46.05% (4,392/9,538), gradient 86.79%** (415,692/478,954).
+All other suites 100%. Tree clean, everything pushed.
+
+**The strategic finding, and it should shape the next window.**
+`checker_types` reports two numbers that reward *different work*: the line
+GRADIENT and the CASE pass rate (a case passes only when every line in it
+is right). Censused: **1,656 cases are blocked by ≤2 non-right lines, 851
+by exactly one.** Converting that whole pool is worth **0.69% of the
+gradient but +17.4 points of the case rate.** Measured leverage: §167
+moved 328 lines / 30 cases (0.09 cases/line); §173 moved 27 lines / 16
+cases (0.59). **Whoever sets the target must say which number it is** —
+the answers point at different months of work. This remains unanswered.
+
+**Landed** (near-miss pivot, +254 lines / 45 cases): §173 export-assignment
+is not import machinery (+27/1); §175 unannotated setter parameter takes
+the accessor's type (+92/0); §176 the accessor arms in `signature_parts_of`
+(+3/0); §177 element access reads the APPARENT type's index signatures
+(+130/2); §179 the `+` arm tests assignability for type parameters (+2/0).
+Earlier: §167 regex literal is `RegExp` (+328/3), §169 function expressions
+take no contextual return when showable (+39/3).
+
+**THREE CORRECTIONS to my own published claims — read these before trusting
+this file's older entries.**
+1. **§180 (most important)**: I cited "cross-file binding is unported" as a
+   blocker EIGHT times, from a `tsr-compiler` module note, without ever
+   probing it. It is partly stale: later-lib members resolve today
+   (`flat`, `at`, `padStart`, `includes`, `Object.entries` prints its full
+   overload set). §174's *measurement* stands; its *explanation* does not,
+   and the ~150 single-blocker cases it priced need a fresh probe.
+2. **§178**: I proposed enumerating upstream's `getApparentType` call sites
+   as "a census with a known yield" and then misused it — matched a
+   call-site NAME to the wrong enclosing function and cost **−4,400 lines**
+   before reverting. A census output is a list of places to READ, never a
+   list of places to change.
+3. **The fixing-mapper's fourth piece** is structural MEMBER inference
+   (`inferFromProperties`/`inferFromSignatures`, `inference.go:822-825`),
+   not "reference matching" as I first wrote. Upstream's reference arm
+   requires the same target exactly as ours does.
+
+**Where the remaining mass actually is, re-probed rather than assumed.**
+Overload resolution WORKS (`o("s")`/`o(1)` pick correctly). Generic
+inference through `T[]` WORKS (`g([1,2])` is `number`). What fails is a
+union parameter with an object-literal argument (`Object.entries({a:1})`
+errors though its signature resolves) and element types lost through
+generic instantiation (`[1,2].flat()` gives `FlatArray<unknown, 1>[]`).
+Both are the **fixing-mapper unit**, whose four pieces must land together:
+lattice, `inferToMultipleTypes`, the recorded-priority channel (all three
+written and preserved in the session scratchpad), and structural member
+inference (untranscribed — the opener).
+
+**Method that worked, for whoever continues**: pre-check the corpus before
+building (three of my +0 arms would have been skipped); iterate with
+`scorepair` only and gate once before pushing; batch arms; and claim a
+census target before building it — a shared cheap census collides by
+construction, which cost this window one duplicated arm.
