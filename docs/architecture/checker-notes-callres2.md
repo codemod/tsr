@@ -1859,3 +1859,21 @@ C`). So this is §162's shape exactly — a missing arm exposing a second
 missing rule underneath — and the pair is: (1) this arm, (2) the class
 expression symbol's NAME resolution from its assignment context. Land
 them together or neither.
+
+**§170 SUPERSEDED — it is checker-1's §168 (e7b0ca4d), measured twice.**
+We ran the same arm independently inside the same hour: identical
+numbers (+190 G→R / 322 G→W), identical mechanism (`typeof __class`
+against the binding's name), identical verdict (land as a pair or not
+at all). **The canonical record is their §168 in
+checker-notes-narrow.md**; this entry stands only as the duplicate's
+disclosure. Corollary 5's evidence is FOUR finds — §162, §166, §167,
+ClassExpression — not five.
+
+**And the pair's spec grows a lineage from their record**: the second
+rule is *contextual naming for synthetic symbols*, which is the naming
+wall's FOURTH measured instance (after the namespace mint, the
+class-alias mint, and ES-alias references). It is therefore NOT
+specific to class expressions — **one build could discharge all four**,
+which raises the pair's value well above its own 190 lines and should
+be reflected wherever it is ranked.
+

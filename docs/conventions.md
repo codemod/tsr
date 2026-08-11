@@ -3474,8 +3474,9 @@ Four of this window's largest finds were **absent match arms**, not
 wrong logic: `signature_parts_of` had no `ConstructorDeclaration` arm
 (§162, +432/55), the this-substitution consulted one of two mint tables
 (§166, +26), the expression dispatch had no `RegularExpressionLiteral`
-arm (§167, +328/3 at 109:1) and no `ClassExpression` arm (§170,
-+190/322 — reverted, see below).
+arm (§167, +328/3 at 109:1) and no `ClassExpression` arm (+190/322 —
+reverted; checker-1's §168, which checker-2 duplicated independently
+within the hour — **four finds, one of them measured twice**).
 
 **The census costs one run**:
 `verdictdump | awk '$2=="GAP" {print $3}' | sort | uniq -c | sort -rn`
@@ -3491,4 +3492,11 @@ anonymous class symbol `__class` while upstream takes the name from the
 binding it is assigned to. A missing arm has been hiding whatever sits
 under it for as long as it has been missing, so price the PAIR — and
 land them together or neither.
+
+**The census collides by construction.** Both lanes ran this census and
+both went to the same top hit within an hour, duplicating a full
+build-and-measure. A cheap shared census generates COLLIDING targets by
+design — so **claim the top hit before building it**. When lanes worked
+on distant subsystems this coordination was not worth its cost; with a
+shared census it is one message against a duplicated arm.
 
