@@ -46686,3 +46686,92 @@ a case it had not named.
 Remaining in this row: seven cases, and they are unrelated to each other —
 `defaultIsNotVisibleInLocalScope`, `parseJsxExtends2`, two spelling-suggestion
 fixtures, and three `.js` files whose owner is the JSDoc resolver.
+
+## §953 — TS2432: only one enum declaration may omit its first initializer
+
+§950's list, next actionable row for this layer: **5 sole-obstacle cases, 8
+lines**, and one shape.
+
+`checkEnumDeclaration` (`checker.go:5079`-`:5117`) is unusually self-contained —
+no types, no relation, just the symbol's declaration list in source order:
+
+```go
+seenEnumMissingInitialInitializer := false
+for _, declaration := range enumSymbol.Declarations {
+    if declaration.Kind != ast.KindEnumDeclaration { continue }
+    members := declaration.Members(); if len(members) == 0 { continue }
+    if members[0].Initializer() == nil {
+        if seenEnumMissingInitialInitializer {
+            c.error(members[0].Name(), …only_one_declaration_can_omit…)
+        } else { seenEnumMissingInitialInitializer = true }
+    }
+}
+```
+
+Two details are load-bearing and both are stated in upstream's own comments:
+
+- **"Only perform this check once per symbol."** The loop runs over *every*
+  declaration, so without the `enumChecked` link it fires once per declaration
+  and reports each violation N times. §11's lesson under a different name, and
+  under multiset comparison an N-fold right line fails the case exactly as a
+  wrong one does — this port has the same hazard and the same fix shape
+  (`ambient_statement_reported` in §946's rule is the precedent).
+- **Empty and non-enum declarations `continue` rather than reset.** A merged
+  `namespace E {}` between two enums does not clear the flag.
+
+The error is on **the member's name**, not the declaration and not the enum.
+
+```
+bar:  >= +2 (augmentedTypesEnum3, enumsWithMultipleDeclarations2 are single-line),
+      0 LOST via `diagpass`,  extraonly delta <= +1
+```
+
+### Falsifiers
+
+1. **A single-declaration enum reports.** `len(Declarations) > 1` is not the
+   guard on *this* loop upstream — the loop runs regardless — but a lone
+   declaration can never set the flag twice, so a report there means the
+   once-per-symbol state is keyed wrong.
+2. **A right line appears twice.** The failure mode the `enumChecked` flag
+   exists to prevent, and the one the suite scores as harshly as a wrong line.
+3. **A merged namespace resets the flag.** `augmentedTypesEnum` is exactly that
+   shape, which is why it is in the bar rather than in the count only.
+
+## §954 — §953 built: **+5/−0**, and a row finished
+
+```
+diagnostics   2,396 → 2,401   (+5)   43.75%
+diagpass      LOST: (none)
+              GAINED: augmentedTypesEnum, augmentedTypesEnum3,
+                      enumsWithMultipleDeclarations1, enumsWithMultipleDeclarations2,
+                      enumMergingErrors
+extraonly     75, unchanged
+TS2432        have 0 → 9,  want 9,  **missing 0**
+```
+
+**The row is finished** — every line the corpus asks for, none it does not. That
+is the fourth complete row this session and the first since §918.
+
+All five sole-obstacle cases converted, including `augmentedTypesEnum`, which is
+falsifier 3's shape: a `namespace` merged between two enum declarations, where
+`continue`-not-reset is the difference between five conversions and four.
+
+The `enum_checked` set earned its place before it was tested — upstream's
+comment *"only perform this check once per symbol"* is the only reason the loop
+is written over `symbol.Declarations` rather than over the node being visited,
+and without it every violation would have reported once per declaration. **No
+falsifier was needed for that one because the shape of the fix is the shape of
+the bug**, and §946's `ambient_statement_reported` is the same set for the same
+reason.
+
+`diagemit`'s `RULE_CODES` gained 2432 and 2774; both were reading `unported`
+while their rules ran. §878's regeneration is not automatic and this is the
+second time the list has lagged the code.
+
+### The sibling left on the table
+
+`checker.go:5090`-`:5097` is TS2473 — *"Enum declarations must all be const or
+non-const"* — ported nowhere, sharing the same loop, the same symbol and the
+same `enumChecked` guard. It is **not** in this build because it is not in
+§950's list: zero sole-obstacle cases. Recording it here so the next session
+does not re-derive that it is cheap and then discover it is worth nothing.

@@ -324,6 +324,7 @@ impl Checker<'_, '_> {
                 ambient
             }
             Node::EnumDeclaration(declaration) => {
+                self.check_enum_first_member_initializers(node);
                 for member in declaration.members {
                     if let Some(at) = member.node_id {
                         self.check_enum_member_name(at);
@@ -12129,7 +12130,7 @@ impl Checker<'_, '_> {
     }
 
     /// `ast.GetNameOfDeclaration` for the kinds this rule reports on.
-    fn declaration_name_of(&self, node: NodeId) -> Option<NodeId> {
+    pub(crate) fn declaration_name_of(&self, node: NodeId) -> Option<NodeId> {
         match self.node_map.get(node)? {
             Node::FunctionDeclaration(declaration) => {
                 declaration.name.and_then(|name| name.node_id)
