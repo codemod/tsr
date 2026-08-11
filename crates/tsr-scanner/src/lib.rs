@@ -626,41 +626,48 @@ impl<'a> Scanner<'a> {
 
         while let Some(ch) = self.peek() {
             if ch == '\\' {
-                // A unicode escape inside an identifier: `abc` is `abc`.
+                // A unicode escape inside an identifier: `\u0061bc` is `abc`.
+                //
+                // **Peeked, not consumed.** `scanIdentifierParts`
+                // (`scanner.go:1571-1579`) tests `peekUnicodeEscape()`, which
+                // does not move the cursor, and `break`s with `pos` still on
+                // the backslash when the escape is invalid *or* decodes to
+                // something that cannot continue an identifier. This port
+                // consumed the `\` and the `u` before finding out, so
+                // `var arg\uxxxx` scanned as `arg\u` + `xxxx` where upstream
+                // scans `arg` + an invalid-character `\` + `uxxxx`, and
+                // `\u0031a` kept its backslash. The TYPES were right in both
+                // cases; the assertion's source TEXT was not, which fails a
+                // baseline line just the same. §208.
+                //
+                // Breaking rather than reporting here is also upstream's: the
+                // main scanner's fallback arm sees the `\` next and reports
+                // `Invalid character` once, at the backslash.
                 let escape_start = self.pos;
-                self.bump();
-                if let Some(decoded_char) = self.scan_unicode_escape().and_then(char::from_u32) {
-                    {
-                        // Whether this escape spells the identifier's FIRST
-                        // character is decided by where the escape began, not
-                        // by the cursor after it — the escape just consumed
-                        // six characters (`\u0031a`: `1` cannot start an
-                        // identifier, and upstream errors;
-                        // `invalidUnicodeEscapeSequance4`).
-                        let is_valid = if escape_start == start {
-                            is_identifier_start(decoded_char)
-                        } else {
-                            is_identifier_part(decoded_char)
-                        };
-                        if !is_valid {
-                            self.error(
-                                &messages::INVALID_CHARACTER,
-                                Span::new(escape_start, self.pos),
-                            );
-                        }
-                        let buffer = decoded.get_or_insert_with(|| {
-                            self.source[start as usize..escape_start as usize].to_string()
-                        });
-                        buffer.push(decoded_char);
-                        *flags |= TokenFlags::UNICODE_ESCAPE;
+                let peeked = self.peek_unicode_escape().and_then(char::from_u32);
+                // Whether this escape spells the identifier's FIRST character
+                // is decided by where the escape began, not by the cursor
+                // after it (`\u0031a`: `1` cannot start an identifier;
+                // `invalidUnicodeEscapeSequance4`).
+                let valid = match peeked {
+                    Some(decoded_char) if escape_start == start => {
+                        is_identifier_start(decoded_char)
                     }
-                } else {
-                    // `scan_unicode_escape` reports the specific error itself
-                    // now, as upstream's does (`scanner.go:1854`); reporting
-                    // again here was the second half of §222's 22 invented
-                    // lines.
+                    Some(decoded_char) => is_identifier_part(decoded_char),
+                    None => false,
+                };
+                if !valid {
                     break;
                 }
+                self.bump();
+                let Some(decoded_char) = self.scan_unicode_escape().and_then(char::from_u32) else {
+                    break;
+                };
+                let buffer = decoded.get_or_insert_with(|| {
+                    self.source[start as usize..escape_start as usize].to_string()
+                });
+                buffer.push(decoded_char);
+                *flags |= TokenFlags::UNICODE_ESCAPE;
                 continue;
             }
 
@@ -671,6 +678,19 @@ impl<'a> Scanner<'a> {
             if let Some(buffer) = decoded.as_mut() {
                 buffer.push(ch);
             }
+        }
+
+        // **A LEADING escape that cannot start an identifier is not an
+        // identifier at all.** Upstream tests it in `scan()` before ever
+        // calling `scanIdentifier`, and answers `Invalid character` plus one
+        // consumed backslash. This port dispatches here on the leading `\`,
+        // so the same answer has to be produced here — and it has to consume
+        // something, or the caller re-dispatches on the same backslash for
+        // ever. §208's first build did exactly that and hung the corpus run.
+        if self.pos == start {
+            self.bump();
+            self.error(&messages::INVALID_CHARACTER, Span::new(start, self.pos));
+            return SyntaxKind::Unknown;
         }
 
         let text = &self.source[start as usize..self.pos as usize];
@@ -694,6 +714,21 @@ impl<'a> Scanner<'a> {
     /// to encode it.
     fn scan_unicode_escape(&mut self) -> Option<u32> {
         self.scan_unicode_escape_ex(true)
+    }
+
+    /// `peekUnicodeEscape` (`scanner.go:1571`): decode the escape the cursor is
+    /// sitting on **without moving** and without reporting.
+    ///
+    /// The cursor is on the backslash, which this steps over and then restores.
+    /// Silent by construction — a caller that peeks and declines must leave the
+    /// diagnostic to whoever consumes the character, or the same backslash is
+    /// reported twice.
+    fn peek_unicode_escape(&mut self) -> Option<u32> {
+        let saved = self.pos;
+        self.bump();
+        let decoded = self.scan_unicode_escape_ex(false);
+        self.pos = saved;
+        decoded
     }
 
     /// `scanUnicodeEscape(shouldEmitInvalidEscapeError)` (`scanner.go:1854`).

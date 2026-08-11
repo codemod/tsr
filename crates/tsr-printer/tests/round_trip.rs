@@ -190,12 +190,42 @@ fn recovered_new_type_assertion_does_not_gain_a_second_call() {
 fn a_digit_starting_escape_is_a_scan_error_like_upstream() {
     // `\u0031` decodes to `1`, which cannot start an identifier; upstream
     // reports Invalid_character (`invalidUnicodeEscapeSequance4`), so the
-    // recovery tree owes no round trip. The print still reproduces the
-    // spelling for whoever asks.
+    // recovery tree owes no round trip.
     let parsed = tsr_parser::ParsedFile::parse(r"var \u0031a;".to_string());
     assert!(!parsed.diagnostics().is_empty(), "upstream errors here");
+    // §208: this asserted the print reproduced the whole spelling,
+    // `var \u0031a;`. **Upstream's own emit does not**, and its baseline says
+    // so outright — `invalidUnicodeEscapeSequance4.js` records `var u0031a;`.
+    // The backslash is not part of any node: the scanner stops the identifier
+    // before an escape that cannot begin one, reports the `\` as an invalid
+    // character, and `u0031a` is the identifier. The old assertion was pinning
+    // this port's own over-consumption.
+    //
+    // This port prints `var ;` — neither the old spelling nor upstream's, and
+    // the difference is NOT the scanner's. Reaching `var u0031a;` needs
+    // `parseDelimitedList`'s third recovery arm: at the `\`,
+    // `isListElement(PCVariableDeclarations)` is false and `isListTerminator`
+    // is false, so upstream reports `Variable_declaration_expected`, **skips
+    // one token and retries**, and only then finds `u0031a`. That arm is
+    // §191's named wall and needs the `parsingContexts` bitmask
+    // (`docs/architecture/checker-notes-nearmiss.md`). Pinned as what this
+    // port does, with the distance to upstream stated, rather than left
+    // asserting a spelling the scanner no longer produces.
     let output = printed(r"var \u0031a;");
-    assert!(output.contains(r"var \u0031a;"));
+    assert!(output.contains("var ;"), "{output}");
+    // The neighbouring line of the same upstream case is the control, and it
+    // is why §208 is a correction rather than a loosening: a VALID escape
+    // inside an identifier is still CONSUMED, so the identifier is one token
+    // spelling `a1` rather than `a` followed by an invalid character.
+    //
+    // The print shows the decoded form. That is a separate, pre-existing gap
+    // and §208 neither caused nor fixed it: upstream's emit keeps the source
+    // spelling (`invalidUnicodeEscapeSequance4.js` records
+    // `var a\u0031;`) because its printer reuses the original text for an
+    // identifier written with an escape. Asserted as what this port does, so
+    // the control cannot pass vacuously and the divergence is on the record.
+    let valid = printed(r"var a\u0031;");
+    assert!(valid.contains("var a1;"), "{valid}");
 }
 
 #[test]
