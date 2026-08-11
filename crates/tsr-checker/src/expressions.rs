@@ -1946,8 +1946,11 @@ impl Checker<'_, '_> {
             // enumeration stopped before them and answered `error`. The
             // §169 shape: a gate that lists kinds, missing the ones nobody
             // had a case for yet.
-            Some(Node::GetAccessorDeclaration(_) | Node::SetAccessorDeclaration(_))
-            | Some(Node::ConstructorDeclaration(_)) => return any,
+            Some(
+                Node::GetAccessorDeclaration(_)
+                | Node::SetAccessorDeclaration(_)
+                | Node::ConstructorDeclaration(_),
+            ) => return any,
             _ => return error,
         };
         if asterisk.is_none() {
