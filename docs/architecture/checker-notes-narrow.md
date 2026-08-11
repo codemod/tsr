@@ -8042,3 +8042,38 @@ visible from any suite number; both took an arm that refused to
 fire. That pattern — *a 100% suite bounds what it MEASURES, not
 what exists* — now has two independent confirmations and belongs
 wherever the suites are described as done.
+
+
+**§188 SHARPENED by one more probe.** The entry above blamed
+classes; it is broader and more precise than that:
+
+    export default function f() { return 1; }
+    const x = f();
+    //  f : () => number   <- the DECLARATION line is RIGHT
+    //  f : any, x : any   <- the REFERENCE does not resolve
+
+    export class C {}      //  C : C   (non-default export: fine)
+
+So **every default-exported declaration fails NAME RESOLUTION while
+its own declaration line types correctly** — the producer reaches
+the declaration through its node, but `resolve_name` finds nothing.
+Non-default exports are unaffected.
+
+The binder's intent is explicitly the opposite: `binder.rs:3618-3660`
+documents the two-symbol split ("a local, and an export on the
+container's own symbol"), notes that the export half is renamed to
+`default` "which is why the local half below keeps the written
+name", and carries a measured warning that creating only the export
+"loses every unqualified reference to it, which is a 223-case
+regression measured 2026-08-04". That is precisely the symptom
+here, so either the local is not created for this shape or it lands
+where `resolve_name` does not look — `locals_owner(flags)` is the
+first thing to check.
+
+Value if fixed: 13 single-blocker cases directly, plus every
+unqualified reference in any file using `export default` — the
+223-case warning suggests the reach is much wider than the
+near-miss census alone shows. **The measurement protocol is one
+`scorepair` run before landing**, which is what the −56 incident
+(51d583a5) established and is affordable; my earlier note declined
+this on "budget" and that reasoning was wrong.
