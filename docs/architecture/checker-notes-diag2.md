@@ -46140,3 +46140,43 @@ exactly one bigint   →  reportOperatorError  ← TS2365, and the branch that w
 
 TS2365 is 265 lines. The comparison family's remainder is the enum and
 type-parameter shapes §934 listed, both the relation's.
+
+## §941 — the corrected ranking, classified: the remainder is a **long tail**
+
+§870 classified the **reachable pool** — 1,214 cases needing no new rule — and
+got *91% relation-and-type*. That number has been quoted all session. §933's
+corrected `missing` column allows the same question of **lines**, corpus-wide:
+
+```
+other       5338   42.5%     654 distinct codes
+relation    5126   40.8%     TS2322, TS2345, TS2741, TS2365, TS2411 …
+type        1299   10.3%     TS2339, TS7006, TS2554, TS2564 …
+parser       569    4.5%     TS1005, TS1003, TS1109 …
+flow         235    1.9%     TS2454, TS18047-9 …
+TOTAL      12567
+```
+
+**Both are true and they answer different questions**, exactly as §933 said of
+`cases blocked alone` versus `missing`. §870 asked *what converts without new
+rules* and the answer is dominated by two owners. This asks *how much diagnostic
+text is absent* and the answer is dominated by **654 codes nobody has named**:
+
+```
+TS2304  186   TS2300   97   TS2558  77   TS2774  65   TS2538  64
+TS1183   60   TS2693   58   TS7053  53   TS1335  51   TS2540  48
+TS18050  47   TS2873   46   TS1206  46   TS2537  41   TS2356  40
+```
+
+Average **eight lines a code**. That is not a wall behind one workstream; it is a
+tail, and a tail is worked by breadth rather than depth.
+
+> The session's own history says which is cheaper. TS2300 went **20 → 6 cases in
+> six builds** (§904–§915) at a few lines each, and every one was a shape nobody
+> had named. Meanwhile TS2322 sits at **2,426 lines** and no build this session
+> has touched it.
+>
+> **§870's classification was right and load-bearing — it stopped this workstream
+> spending itself on the relation — and it was also the reason the tail looked
+> like nothing.** 42.5% of the missing text is in codes that never appeared in a
+> ranking, because every ranking before §933 was ordered by a number that put
+> them last.
