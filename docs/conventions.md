@@ -3742,3 +3742,46 @@ merged tree, blocking the other lane's commit hook. Clippy only
 re-lints crates it recompiles, so a warm cache can hide a lint that the
 post-rebase run — which almost always recompiles — will surface.
 
+### Corollary 14 (2026-08-11): evidence narrower than the claim
+
+Corollary 11 asks whether a refusal's *reason* is true; corollary 12's
+sibling asks whether its *scope* matches the reason. A third shape is
+harder than both, because the evidence is **genuine**:
+
+> For a refusal citing a MEASURED defect, ask **which sub-population the
+> measurement actually ranged over.**
+
+checker-1's §207 is the worked case. §168 refused `checkClassExpression`
+on a real measurement: the arm printed `typeof __class` — the binder's
+synthetic name — where the baseline wanted the variable's name. Nothing
+in that refusal was false. But every fixture behind it was an
+**anonymous** class expression, and the refusal was written over the
+**node kind**. A named class expression carries the name the source
+wrote; the separator is one word (`node.name.is_some()`), and the
+wrongly-refused population was about three quarters of the row. +17
+cases.
+
+The same session produced the mirror image, which is why the question is
+worth asking in both directions: **§191** widened an arity gate on a
+true general rule (upstream's window is `[minTypeArgumentCount, len]`)
+and measured **−17**, because admitting a short list without running
+`fillMissingTypeArguments` prints `C<A>` where upstream prints
+`C<A, X>`. A rule can be true of the population and still be wrong to
+apply alone. `a9a33f97`.
+
+### Corollary 15 (2026-08-11): a fixture needs both halves
+
+Two techniques earned separately are one rule:
+
+> **Assert that the fixture REACHES the branch, and assert WHICH WAY the
+> branch went.**
+
+§198's anti-vacuity guard does the first — when an arm's only trigger is
+another gap, assert the gap first, so the test fails loudly if that gap
+closes instead of quietly ceasing to reach its branch. §206's control
+does the second — a fixture pinning "a computed member must not silently
+vanish" also pinned *which of the two things it becomes*, and caught a
+`NUMBER_LIKE` vs `StringOrNumberLiteralOrUnique` misclassification one
+commit after it was written. **A fixture with neither half can pass for
+years.**
+
