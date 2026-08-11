@@ -45223,3 +45223,46 @@ it is one line: which declarations the report loop visits, as against which the
 count admits.
 
 **Refused, 9 cases, priced at +0 / +9.**
+
+## §917 — §916's residue is §864's question, and the claim in it was wrong
+
+§916 said the nine wrong lines were *"upstream counts `!IsInterfaceDeclaration`
+but reports on every `isNotOverload` declaration, and this port reports on the
+interface where the baseline does not."* **That is not what the baseline says.**
+
+```
+exportInterfaceClassAndValue
+
+  export const foo = 1
+  export declare class foo {}
+  export interface foo {}
+
+expected   TS2451 at (1,14),  TS2451 at (2,22)
+actual     the same two, exactly — the case PASSES
+```
+
+Upstream reports **no TS2323 at all** here, on any declaration. §916's TS2323
+rule added three lines on top of two already-correct ones and broke a passing
+case. The claim was read off the *rule* and not off the *baseline*, which is
+§884's error and §907's, a third time.
+
+### Why upstream is silent, and what it joins
+
+`reportMergeSymbolError` has already fired — TS2451, because `const foo` is
+block-scoped — and the three declarations do not end up on **one export symbol**
+for `checkExportsOnMergedDeclarations` to count. This port merges them into one
+symbol with three declarations, so the count reaches three and reports.
+
+**That is §864's question exactly**, and it now has a third row on it:
+
+```
+§864   TS2451 beside TS2300     6 lines    both message selectors faithful; the tables differ
+§916   TS2323                   9 cases    the count sees a symbol upstream never builds
+       TS2300's own residue     6 cases    the shapes §904-§914 did not reach
+```
+
+> Three rows, three sections apart, each refused on its own and each time to
+> *"the symbol table"* — and only laying them side by side shows they are one
+> issue. **A refusal names an owner; it does not notice that the owner already
+> has two.** That is what `bd` is for, and none of the three had been filed
+> together until now — `bd tsr-scsu` now carries all three with their numbers.
