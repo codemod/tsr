@@ -805,6 +805,44 @@ pub fn type_id_at_location<'a>(
     // {}` used as `<foo/>` — has a real type, never reaches the fast path at
     // all, and must keep printing it. The corpus discriminates this at 32 lines
     // printing `() => any` and 24 printing `typeof foo`.
+    // SS178: two more of the seven, TRANSCRIBED verbatim
+    // (`isImportStatementName`/`isExportStatementName`,
+    // type_symbol_baseline.go:458-479): an identifier that IS the name of an
+    // import/export statement routes to the node builder, so an `any`-flagged
+    // type prints `any` rather than the intrinsic `error`. Head case:
+    // `export import X = N` over a non-exported namespace, where upstream
+    // records `>X : any` beside `>N : error` — the SAME errorType, two
+    // spellings, decided by this guard.
+    if nodes.kind(id) == SyntaxKind::Identifier
+        && let Some(parent) = nodes.parent(id)
+        && match map.get(parent) {
+            Some(Node::ImportSpecifier(specifier)) => {
+                specifier.name.and_then(|n| n.node_id) == Some(id)
+                    || specifier.property_name.and_then(|n| n.node_id()) == Some(id)
+            }
+            Some(Node::ImportClause(clause)) => {
+                clause.name.and_then(|n| n.node_id) == Some(id)
+            }
+            Some(Node::ImportEqualsDeclaration(declaration)) => {
+                declaration.name.and_then(|n| n.node_id) == Some(id)
+            }
+            Some(Node::ExportAssignment(assignment)) => {
+                assignment.expression.and_then(|e| e.node_id()) == Some(id)
+            }
+            Some(Node::ExportSpecifier(specifier)) => {
+                specifier.name.and_then(|n| n.node_id()) == Some(id)
+                    || specifier.property_name.and_then(|n| n.node_id()) == Some(id)
+            }
+            _ => false,
+        }
+    {
+        let computed = tsr_ast::Expression::try_from(node)
+            .map_or(error, |expression| checker.check_expression(expression));
+        if computed == error || computed == checker.intrinsics().any {
+            return checker.intrinsics().any;
+        }
+    }
+
     if nodes.kind(id) == SyntaxKind::Identifier
         && let Some(parent) = nodes.parent(id)
         && jsx_tag_name_of(parent, map) == Some(id)
