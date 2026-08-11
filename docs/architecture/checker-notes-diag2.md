@@ -45990,3 +45990,48 @@ TS2365 is 295 lines and six fixtures wide. The next reading starts from
 `numberVsBigIntOperations` (48) rather than the comparison family, since the
 comparison family's remaining lines are the enum and type-parameter shapes §934
 listed and both are the relation's.
+
+## §937 — TS2365's largest fixture sits behind §49's decline, in a shape §49 was not about
+
+`numberVsBigIntOperations` is 48 of TS2365's 295 lines:
+
+```ts
+let bigInt = 1n, num = 2;
+bigInt += 2;    // TS2365 — Operator '+=' cannot be applied to 'bigint' and 'number'
+num *= 1n;      // and every compound arithmetic assignment, both directions
+```
+
+`check_operator_operands` handles **`+` and the four relational operators only**:
+
+```rust
+if !addition && !relational { return; }
+```
+
+§49 named that decline and measured it:
+
+> *"A compound assignment's left operand goes through the assignment-target
+> checks first, and those answer `errorType` when they fail — `f += 1` on a class
+> is TS2629 and `IsTypeAny(errorType)` then supplies a result type, so TS2365
+> never fires. This port models neither TS2629 nor TS2364, so its left operand
+> keeps a real type and the rule invents a diagnostic. `arithAssignTyping`
+> (7 lines) and `parserStrictMode5` are exactly that."*
+
+**That reasoning is about an invalid assignment target.** `bigInt += 2` has a
+perfectly valid one; the diagnostic upstream reports is about the **operand
+types**, and nothing in §49's mechanism suppresses it.
+
+So the decline is correct for the shape it measured and over-broad by an
+operator set. What has changed since §49: **§861 built the `leftOk && rightOk`
+gate** and this port now models the reference-expression check TS2364 comes from,
+which is the machinery §49 said was absent.
+
+> **A decline scoped to an operator when its reason is scoped to an operand.**
+> §900 measured the same shape from the other side — a gate that was right about
+> its class and wrong about one member — and the resolution there was per-rule
+> measurement. Here it would be per-operand: admit the compound assignments when
+> the left operand *is* a valid target, which §861's gate already computes.
+
+**Not built.** §49's seven wrong lines are a real measurement and this is the
+fourth build in a row where reading beat guessing; the next attempt should widen
+the operator set **and** gate on the target, then measure — not one without the
+other.
