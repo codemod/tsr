@@ -7626,3 +7626,24 @@ are real gaps with real upstream rules; they need the enclosing
 functions read before anything is written, and the callee one is in
 `calls.rs`, which is checker-2's surface and needs a heads-up
 first.
+
+
+## §179 — the `+` arm tests ASSIGNABILITY, not raw flags (+2/0) [checker-1]
+
+§178's genuine residue, done the way §178 should have been: the
+enclosing function read first. `checkBinaryLikeExpressionWorker`'s
+arithmetic arm (`checker.go:12359-12400`) answers `number` whenever
+NEITHER operand is possibly bigint — which this port already does —
+but the `+` arm asks `isTypeAssignableToKind`, and assignability
+consults a type PARAMETER's constraint. This port tested
+`flags & Kind` on the operand, and a type parameter carries no kind
+flags, so `n + 1` for `n: T extends number` fell to the error tail.
+
+Mapping ONLY type parameters to their constraint for the kind test:
+**+2 / 0** (typeParameterExtendsPrimitive). Small, and the smallness
+is the point — §178 applied the apparent type to EVERY operand on a
+guess and cost 4,400 lines; the same intuition, narrowed to the one
+case upstream's rule actually covers and verified against the
+enclosing function, is worth two lines and no regressions. The
+correct version of a catastrophic change is usually much smaller
+than the catastrophic one.

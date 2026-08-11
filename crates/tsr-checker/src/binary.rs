@@ -216,6 +216,23 @@ impl Checker<'_, '_> {
         if self.is_error(left) || self.is_error(right) {
             return self.intrinsics.error;
         }
+        // §179 (`checker-notes-narrow.md`): upstream's `+` arm asks
+        // `isTypeAssignableToKind`, not `flags & Kind`, and assignability
+        // consults a type PARAMETER's constraint — `n + 1` for
+        // `n: T extends number` is `number`. This port tests raw flags, and
+        // a type parameter carries none, so such an operand fell through to
+        // the error tail. Only TYPE PARAMETERS are mapped to their
+        // constraint here: §178 measured that reading EVERY operand through
+        // its apparent type costs 4,400 lines, because a primitive's
+        // apparent form is an interface that carries no kind flags either.
+        let kind_source = |checker: &mut Self, id: TypeId| -> TypeId {
+            if checker.store.get(id).flags.intersects(TypeFlags::TYPE_PARAMETER) {
+                checker.type_parameter_constraint(id).unwrap_or(id)
+            } else {
+                id
+            }
+        };
+        let (left, right) = (kind_source(self, left), kind_source(self, right));
         let left_flags = self.store.get(left).flags;
         let right_flags = self.store.get(right).flags;
         let both = |kind: TypeFlags| left_flags.intersects(kind) && right_flags.intersects(kind);
