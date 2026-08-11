@@ -48391,3 +48391,87 @@ functions do not both fire; this port's two did.
 `TS1235` keeps one wrong line, in `withStatementErrors`, where a namespace sits
 inside a `with` block — a context this port does not model (`NodeFlagsInWithStatement`
 is never set, §-noted long ago). It costs no case.
+
+## §993 — `diagcount`, and the twelve cases nothing could see
+
+§992 named the hole: every instrument in this workstream compares **sets**, the
+suite compares **multisets**, and a right line emitted twice passes every set
+test while failing the case. `diagcount` is the multiset view — a case appears
+when some `(file, line, column, code)` is reported more often than the baseline
+records it.
+
+```
+15 cases over-count a right line;  25 surplus lines;
+12 cases blocked by the over-count ALONE
+
+    code  surplus  sole-cases
+  TS2300       10           6
+  TS1070        9           9
+  TS1221        5           5
+  TS2540        1           1
+```
+
+**Twelve conversions that no census in this workstream could rank**, and the
+number is small enough to be honest about: the blindness cost §990 one build,
+not a hundred. But it cost §950's entire ranking its claim to be a ranking, and
+that is worth the instrument.
+
+### The two causes found
+
+**TS1070** — `'{0}' modifier cannot appear on a type member` — has one producer
+and two callers. `check_modifier_order` is dispatched by kind at `check.rs:767`
+for `PropertySignatureDeclaration` and `MethodSignatureDeclaration`, and again
+sixty lines later by a fallback whose exclusion list names the six *class*
+member kinds and **not the two signature kinds**. Every type member was checked
+twice.
+
+**TS1221** — `Generators are not allowed in an ambient context` — has two
+producers. `check_generator_in_ambient_context` keys on the walk's threaded
+`ambient` and covers `FunctionDeclaration`; a second rule keys on
+`declaration_is_in_an_ambient_context` and covers function declarations,
+function expressions and methods, *and* picks TS2394 when the generator is an
+overload. The second subsumes the first.
+
+> Both are **the same defect as §991's TS1344 with a different mechanism**: one
+> rule reached twice, one rule written twice. Three instances now, and what
+> makes them invisible is not the duplication but the *rightness* — every one of
+> these lines is at a correct position with a correct code, which is why review,
+> `diagmissing`, `diagsole` and `extraonly` all pass them.
+
+```
+bar:  >= +9,  0 LOST via `diagpass`,  TS1070 and TS1221 surplus → 0
+```
+
+## §994 — §993 built: **+7/−0**, and the census gets a multiset column
+
+```
+diagnostics   2,460 → 2,467   (+7)   44.95%
+diagpass      LOST: (none)
+              GAINED: generatorInAmbientContext2, generatorInAmbientContext4.d,
+                      generatorOverloads2, interfaceWithAccessibilityModifiers,
+                      interfaceWithPrivateMember, override9,
+                      parserModifierOnPropertySignature1
+extraonly     75 → 74
+diagcount     12 sole-cases → 5;  TS1070 and TS1221 surplus → 0
+```
+
+Seven of the twelve, from two edits: two node kinds added to an exclusion list,
+and one subsumed rule deleted. `generatorInAmbientContext2` was not in the
+`[sole]` list and converted anyway — its surplus shared a case with another
+defect that the same deletion fixed.
+
+> The instrument is the build. **`diagcount` took one run to write and found
+> twelve conversions that `diagmissing`, `diagsole`, `extraonly` and `diagextra`
+> had all been reporting as clean for two hundred sections**, because every one
+> of those lines is at a right position with a right code and only the *count*
+> is wrong.
+>
+> The general lesson is narrower than "write more instruments": **an instrument
+> that compares sets cannot audit a suite that compares multisets**, and this
+> workstream built five set-comparing instruments before noticing. §919 knew the
+> suite's rule and wrote it down; nothing propagated it to the tools.
+
+Five cases remain — TS2300 (4) and TS2540 (1) — and they are **not** the same
+shape. `duplicateExportAssignments` wants one TS2300 at a position and gets two
+because two *different* rules both report a duplicate identifier there, which is
+a merge question rather than a dispatch one. Left with the number.

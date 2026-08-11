@@ -313,7 +313,6 @@ impl Checker<'_, '_> {
                 self.check_overload_ambient_agreement(node);
                 let ambient =
                     ambient || has_modifier(declaration.modifiers, SyntaxKind::DeclareKeyword);
-                self.check_generator_in_ambient_context(declaration.asterisk_token, ambient);
                 self.check_implicit_any_parameters(node, ambient);
                 self.check_implicit_any_return(node, ambient);
                 ambient
@@ -806,6 +805,13 @@ impl Checker<'_, '_> {
                 | Node::SetAccessorDeclaration(_)
                 | Node::ConstructorDeclaration(_)
                 | Node::ParameterDeclaration(_)
+                // **The two signature kinds are dispatched by kind above** and
+                // were missing from this exclusion list, so every type member
+                // ran `check_modifier_order` twice and every TS1070 was emitted
+                // twice. Nine cases, invisible to every set-comparing
+                // instrument because both copies are *right*. §993.
+                | Node::PropertySignatureDeclaration(_)
+                | Node::MethodSignatureDeclaration(_)
         ) && let Some(modifiers) = modifiers_of(typed)
             && !modifiers.is_empty()
         {
@@ -7189,24 +7195,6 @@ impl Checker<'_, '_> {
     /// wins: an ambient generator is TS1221 and a bodiless one TS1222, so the
     /// ambient test must come first or `declare function* f();` takes the wrong
     /// code. §180.
-    fn check_generator_in_ambient_context(
-        &mut self,
-        asterisk: Option<&tsr_ast::Token<'_>>,
-        ambient: bool,
-    ) {
-        if !ambient || self.file_has_parse_errors {
-            return;
-        }
-        let Some(token) = asterisk else { return };
-        let Some(id) = token.node_id else { return };
-        let Some(file) = self.source_file_of_for_diagnostics(id) else { return };
-        let span = self.nodes.span(id);
-        self.report(
-            file,
-            Diagnostic::new(&messages::GENERATORS_ARE_NOT_ALLOWED_IN_AN_AMBIENT_CONTEXT, span),
-        );
-    }
-
     /// TS2378 — `A 'get' accessor must return a value.`
     ///
     /// `checkAccessorDeclaration` (`checker.go:2941`) tests
