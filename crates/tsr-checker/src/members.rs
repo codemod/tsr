@@ -170,7 +170,7 @@ impl Checker<'_, '_> {
         } else {
             result
         };
-        self.propagate_optional_type_marker(result, non_optional != receiver_type)
+        self.propagate_optional_type_marker_at(node.node_id, result, non_optional != receiver_type)
     }
 
     /// The §45 `Record<string, V>` read: `Some(V)` only for a reference to
@@ -245,12 +245,29 @@ impl Checker<'_, '_> {
         if node_is_chain_root {
             return self.get_non_nullable_type(expression_type);
         }
-        if receiver.is_some_and(|id| self.expression_is_optional_chain(id)) {
-            return self.filter_type(expression_type, |checker, constituent| {
-                !checker.store.get(constituent).flags.intersects(crate::flags::TypeFlags::UNDEFINED)
-            });
+        if let Some(receiver) = receiver.filter(|&id| self.expression_is_optional_chain(id)) {
+            // `removeOptionalTypeMarker` (`checker.go:29073`), done by identity:
+            // the receiver link's own pre-union type is precisely what the
+            // marker was added to. Filtering `undefined` by flag instead would
+            // also take away a genuine one — `this?.a.#b` with `a?: A`, which
+            // upstream reports on. §5 of `checker-notes-nnaccess.md`.
+            return self.pre_optional_marker.get(&receiver).copied().unwrap_or(expression_type);
         }
         expression_type
+    }
+
+    /// Remember an optional-chain link's type before the marker joins it, so
+    /// the next link can subtract exactly that. §5 of `checker-notes-nnaccess.md`.
+    pub(crate) fn propagate_optional_type_marker_at(
+        &mut self,
+        node: Option<tsr_ast::NodeId>,
+        id: TypeId,
+        was_optional: bool,
+    ) -> TypeId {
+        if was_optional && let Some(node) = node {
+            self.pre_optional_marker.insert(node, id);
+        }
+        self.propagate_optional_type_marker(id, was_optional)
     }
 
     /// `propagateOptionalTypeMarker` (`checker.go:29082`): when the chain

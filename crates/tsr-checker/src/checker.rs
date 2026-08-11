@@ -459,6 +459,19 @@ pub struct Checker<'a, 'n> {
     pub(crate) non_null_type_variables: FxHashMap<(TypeId, String), TypeId>,
     /// §85's reverse map: mint → (base type variable, refinement kind).
     pub(crate) non_null_mint_bases: FxHashMap<TypeId, (TypeId, crate::flow::NonNullKind)>,
+    /// §5 of `checker-notes-nnaccess.md`: an optional-chain link's type **before**
+    /// `propagateOptionalTypeMarker` unioned the marker in, keyed by the link's
+    /// node.
+    ///
+    /// This stands in for upstream's `optionalType` — an `undefined` distinct
+    /// from the real one, which is how `removeOptionalTypeMarker`
+    /// (`checker.go:29073`) takes back exactly what the chain added and leaves a
+    /// genuine `undefined` alone. This port has one `undefined`
+    /// (`checker-notes-nnaccess.md` §2), so subtracting the marker by *flag* is
+    /// wrong in both directions: `this?.a.#b` with `a?: A` must still report
+    /// possibly-`undefined` and did not. Remembering the pre-union type is the
+    /// same subtraction done by identity instead.
+    pub(crate) pre_optional_marker: FxHashMap<tsr_ast::NodeId, TypeId>,
     /// §92: alias-body evaluations, keyed (alias symbol, arguments); error
     /// marks a remembered refusal.
     pub(crate) alias_body_evaluations: FxHashMap<(tsr_binder::SymbolId, Vec<TypeId>), TypeId>,
@@ -816,6 +829,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             alias_inline_level: 0,
             non_null_type_variables: FxHashMap::default(),
             non_null_mint_bases: FxHashMap::default(),
+            pre_optional_marker: FxHashMap::default(),
             jsdoc_entries: FxHashMap::default(),
             identity_unmapped_type_parameters: false,
             render_type_parameter_scope: Vec::new(),

@@ -3184,11 +3184,26 @@ impl Checker<'_, '_> {
         if self.file_has_parse_errors {
             return;
         }
-        let receiver = match self.node_map.get(node) {
-            Some(Node::PropertyAccessExpression(access)) => access.expression,
-            Some(Node::ElementAccessExpression(access)) => access.expression,
+        let (receiver, is_chain_root) = match self.node_map.get(node) {
+            Some(Node::PropertyAccessExpression(access)) => {
+                (access.expression, access.question_dot_token.is_some())
+            }
+            Some(Node::ElementAccessExpression(access)) => {
+                (access.expression, access.question_dot_token.is_some())
+            }
             _ => return,
         };
+        // **`a?.b` asks the question of a receiver that has already been
+        // stripped.** `checkPropertyAccessExpression` (`checker.go:11249`)
+        // routes a chain link through `checkPropertyAccessChain`, which hands
+        // `checkNonNullType` the result of `getOptionalExpressionType` — and at
+        // a chain **root** that is `getNonNullableType`, whose answer carries no
+        // nullable facts at all, so the reporter below can never fire. Skipping
+        // outright is therefore not a suppression: it is the branch upstream
+        // takes. §5 of `checker-notes-nnaccess.md`.
+        if is_chain_root {
+            return;
+        }
         let receiver_expression = receiver;
         let Some(receiver) = receiver.and_then(|e| e.node_id()) else { return };
         let text = match self.nodes.kind(receiver) {
@@ -3203,7 +3218,7 @@ impl Checker<'_, '_> {
                 // than the facts being wrong. §850.
                 if name != "undefined" {
                     if let Some(expression) = receiver_expression {
-                        self.report_nullable_operand(expression);
+                        self.report_nullable_receiver(expression, receiver);
                     }
                     return;
                 }
@@ -3240,7 +3255,7 @@ impl Checker<'_, '_> {
             // §849.
             _ => {
                 let Some(expression) = receiver_expression else { return };
-                self.report_nullable_operand(expression);
+                self.report_nullable_receiver(expression, receiver);
                 return;
             }
         };
@@ -3254,6 +3269,21 @@ impl Checker<'_, '_> {
                 [text.to_string()],
             ),
         );
+    }
+
+    /// The facts of a **receiver**, read from the type `checkNonNullType` is
+    /// actually given.
+    ///
+    /// The chain-root case is gone before this is reached; what is left is the
+    /// *inner link* — the `.c` of `a?.b.c`, whose receiver type carries the
+    /// propagated optional marker. `getOptionalExpressionType`
+    /// (`checker.go:29064`) removes that marker and nothing else, so
+    /// `a?.b.c` with `b: X | null` still reports possibly-`null`, exactly as
+    /// upstream does. §5 of `checker-notes-nnaccess.md`.
+    fn report_nullable_receiver(&mut self, expression: tsr_ast::Expression<'_>, receiver: NodeId) {
+        let receiver_type = self.check_expression(expression);
+        let non_optional = self.get_optional_expression_type(receiver_type, Some(receiver), false);
+        self.report_nullable_operand_of_type(expression, non_optional);
     }
 
     /// TS2394 — `This overload signature is not compatible with its
@@ -10674,7 +10704,7 @@ impl Checker<'_, '_> {
         // not.** `checkComma` suppresses on the first and asks nothing about
         // the second, and this port declined `[a, b, ...]`'s two TS2695 lines
         // because it had already emitted the TS1005 beside them. The class is a
-        // mixture (§900), so this is its own measurement. §901.
+        // mixture (§900), so this is its own measurement. §910.
         if self.allow_unreachable_code {
             return;
         }

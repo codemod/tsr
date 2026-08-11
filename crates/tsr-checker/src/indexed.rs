@@ -95,13 +95,13 @@ impl Checker<'_, '_> {
             } else {
                 computed
             };
-            return self.propagate_optional_type_marker(computed, was_optional);
+            return self.propagate_optional_type_marker_at(node.node_id, computed, was_optional);
         }
         let narrowed = self.get_flow_type_of_reference(id, None, computed);
         // `checkElementAccessChain` wraps the whole access — flow narrowing
         // included — in `propagateOptionalTypeMarker` (`checker.go:8140`),
         // the same ordering as the property-access twin.
-        self.propagate_optional_type_marker(narrowed, was_optional)
+        self.propagate_optional_type_marker_at(node.node_id, narrowed, was_optional)
     }
 
     /// The type `a[b]` computes before flow narrowing, and whether an

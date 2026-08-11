@@ -680,3 +680,160 @@ fn a_switch_with_a_default_is_unaffected() {
         Vec::<String>::new()
     );
 }
+
+// ---------------------------------------------------------------------------
+//
+// # An optional chain asks the nullable question of an already-stripped receiver
+//
+// `checkPropertyAccessExpression` (`checker.go:11249`) sends a chain link to
+// `checkPropertyAccessChain`, which hands `checkNonNullType` the answer of
+// `getOptionalExpressionType` (`checker.go:29064`) rather than the receiver's
+// own type. At a chain **root** that is `getNonNullableType`, so no nullable
+// fact survives to report on; at an inner link it is
+// `removeOptionalTypeMarker`, which takes back exactly what the chain added.
+//
+// This port reported on the receiver unconditionally, so **every** `a?.b` in a
+// real repository produced TS18048 — 117 of the unexpected diagnostics in
+// `conformance/controlFlowOptionalChain` alone.
+//
+// # The marker is subtracted by identity, not by flag
+//
+// Upstream's marker is an `undefined` distinct from the real one; this port has
+// a single `undefined` (`checker-notes-nnaccess.md` §2). Filtering `undefined`
+// out of an inner link's receiver therefore removes genuine ones too, and
+// `privateIdentifierChain.1` measured it: `this?.a.#b` with `a?: A` must still
+// report and stopped. The link's pre-union type is remembered instead
+// (`Checker::pre_optional_marker`), which subtracts the same union member
+// upstream subtracts.
+//
+// # The mutations
+//
+// | # | mutation | reddens |
+// |---|---|---|
+// | 1 | drop the `is_chain_root` early return | all four silence tests, plus the two chain true positives — which gain a *second* code |
+// | 2 | inner link returns the receiver type unchanged | [`a_deeper_link_is_silent_when_only_the_marker_is_undefined`] and [`a_null_behind_a_chain_still_reports`] |
+// | 3 | subtract the marker by filtering the `UNDEFINED` flag | [`a_genuine_undefined_behind_a_chain_still_reports`] **only** |
+// | 3b | subtract every nullable at an inner link | that one **and** [`a_null_behind_a_chain_still_reports`] |
+// | 4 | delete the receiver rule outright | the four true positives, and nothing else |
+//
+// Rows 3 and 3b are separate because they redden different tests, and the first
+// draft of this table claimed row 3 reddened both. It does not: a filter that
+// removes `UNDEFINED` leaves a `null` alone, so the `null` test cannot tell that
+// mutation from the fix. Only row 3b can, which is why it is written down.
+//
+// # Two fixtures here were vacuous on the first run
+//
+// [`a_chain_link_does_not_report_on_the_marker`] and
+// [`an_element_access_chain_root_is_silent_too`] were written with `string[]`,
+// mirroring the real repository. This harness loads no lib, so the array type
+// answered `errorType` and the rule declined for a reason that had nothing to do
+// with chains — both stayed green under mutation 1. Rewritten to lib-free
+// shapes, both redden. Every silence test in this file is only as good as its
+// fixture actually reaching the rule.
+// `docs/architecture/checker-notes-nnaccess.md` §5.
+
+/// `stage?.toLowerCase()` — the receiver of a chain root.
+#[test]
+fn a_chain_root_does_not_report_on_its_receiver() {
+    assert_eq!(
+        codes(&[(
+            "/a.ts",
+            "declare const stage: string | undefined;\nexport const s = stage?.toLowerCase();\n"
+        )]),
+        Vec::<String>::new()
+    );
+}
+
+/// `result.logs?.map(…)` — the receiver is itself a property access, and it is
+/// the shape that produced the report on a real repository.
+#[test]
+fn a_chain_link_does_not_report_on_the_marker() {
+    assert_eq!(
+        codes(&[(
+            "/a.ts",
+            "declare const result: { logs?: { m(): number } };\nexport const m = result.logs?.m();\n"
+        )]),
+        Vec::<String>::new()
+    );
+}
+
+/// `chain.a?.b.c` — the `.c` link's receiver is `{ c: number } | undefined`
+/// where the `undefined` is **only** the propagated marker.
+#[test]
+fn a_deeper_link_is_silent_when_only_the_marker_is_undefined() {
+    assert_eq!(
+        codes(&[(
+            "/a.ts",
+            "declare const chain: { a?: { b: { c: number } } };\nexport const c = chain.a?.b.c;\n"
+        )]),
+        Vec::<String>::new()
+    );
+}
+
+/// An element access root, `arr?.[0]`, which travels the twin in `indexed.rs`.
+#[test]
+fn an_element_access_chain_root_is_silent_too() {
+    assert_eq!(
+        codes(&[(
+            "/a.ts",
+            "declare const arr: { [k: number]: number } | undefined;\nexport const e = arr?.[0];\n"
+        )]),
+        Vec::<String>::new()
+    );
+}
+
+/// **True positive.** No chain at all: the rule must still fire.
+#[test]
+fn an_unchained_possibly_undefined_receiver_still_reports() {
+    assert_eq!(
+        codes(&[(
+            "/a.ts",
+            "declare const nope: string | undefined;\nexport const s = nope.toLowerCase();\n"
+        )]),
+        vec!["TS18048".to_string()]
+    );
+}
+
+/// **True positive.** A chain whose inner link carries a *genuine* `undefined`
+/// — `b?: { c }` — reports, because only the marker is subtracted.
+#[test]
+fn a_genuine_undefined_behind_a_chain_still_reports() {
+    assert_eq!(
+        codes(&[(
+            "/a.ts",
+            "declare const g: { a?: { b?: { c: number } } };\nexport const c = g.a?.b.c;\n"
+        )]),
+        vec!["TS18048".to_string()]
+    );
+}
+
+/// **True positive.** `null` is never the marker, so an inner link over a
+/// nullable-by-`null` property keeps reporting — the arm a flag filter that
+/// only removes `UNDEFINED` would still pass, and a filter of all nullables
+/// would not.
+#[test]
+fn a_null_behind_a_chain_still_reports() {
+    assert_eq!(
+        codes(&[(
+            "/a.ts",
+            "declare const n: { a?: { b: { c: number } | null } };\nexport const c = n.a?.b.c;\n"
+        )]),
+        vec!["TS18047".to_string()]
+    );
+}
+
+/// **True positive.** A parenthesis ends the chain — upstream's
+/// `NodeFlagsOptionalChain` does not propagate through one — so the access on
+/// `(p.a?.b)` is an ordinary nullable receiver and reports. The message is the
+/// unnamed twin, because `entityNameToString` has no spelling for a
+/// parenthesised expression.
+#[test]
+fn a_parenthesis_ends_the_chain_and_the_access_reports() {
+    assert_eq!(
+        codes(&[(
+            "/a.ts",
+            "declare const p: { a?: { b: number } };\nexport const t = (p.a?.b).toFixed(2);\n"
+        )]),
+        vec!["TS2532".to_string()]
+    );
+}

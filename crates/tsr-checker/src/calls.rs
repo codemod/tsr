@@ -482,7 +482,7 @@ impl Checker<'_, '_> {
         if result == error || !chain_stripped {
             return result;
         }
-        self.propagate_optional_type_marker(result, true)
+        self.propagate_optional_type_marker_at(node.node_id, result, true)
     }
 
     fn check_call_expression_worker(
