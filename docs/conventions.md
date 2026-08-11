@@ -3701,3 +3701,44 @@ So:
   board, and §199 says the hit rate is not low.
 - Re-reading a refusal's *reason* is not re-deriving the refusal, and
   §5's rule was never meant to forbid it.
+
+### Corollary 12 (2026-08-11): the +0 tiebreak — wrong answer or gap?
+
+Corollary 6 disposes of a transcribed change that measures **+0** by
+provenance. Two arms landed the same hour with the same +0 and opposite
+dispositions showed the rule needed a sharper test, which checker-1
+supplied:
+
+> **Would deleting the change re-introduce a WRONG ANSWER, or merely
+> re-introduce a GAP?** Wrong answer → keep at +0. Gap → the +0 is a
+> real argument to revert.
+
+The distinction is whether the change makes the port answer a question
+it was **already being asked**. An unexercised *capability* runs on
+inputs the port previously never reached; corrected *logic* was already
+running and returning the wrong thing.
+
+Worked pair, both at +0, cited by hash rather than paraphrase:
+
+- **`d1dba6b9` (§189) — KEPT.** The truthiness filter abandoned
+  narrowing for every constituent when one lacked the discriminant;
+  upstream tests such a constituent as `unknown`
+  (`flow.go:744-747`). The path was already running and already wrong.
+  Deleting it restores a wrong answer.
+- **`f4484a57` (§190) — REVERTED.** The decorator exclusion
+  (`utilities.go:994-1011`) would refuse a private name written inside
+  its own class's decorator. No corpus fixture reaches that position.
+  Deleting it restores only a gap.
+
+A +0 keep must state that **no gradient is attributable to it** — see
+corollary 6's honesty clause.
+
+### Corollary 13 (2026-08-11): run the gate that LANDS
+
+Per-crate `cargo clippy -p <crate>` is not the gate that lands;
+`cargo clippy --workspace --all-targets` **after the final rebase** is.
+§189 passed the former on its author's tree and arrived red on the
+merged tree, blocking the other lane's commit hook. Clippy only
+re-lints crates it recompiles, so a warm cache can hide a lint that the
+post-rebase run — which almost always recompiles — will surface.
+
