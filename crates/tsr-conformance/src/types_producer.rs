@@ -442,12 +442,41 @@ pub fn type_id_at_location<'a>(
             // with TYPE meaning skipped the shadowing binding and found the
             // outer class. VALUE first, TYPE as the fallback so every
             // previously-answered heritage name keeps its answer.
-            Some(Node::Identifier(name)) if nodes.kind(id) == SyntaxKind::Identifier => binder
-                .resolve_name(nodes, map, id, name.text, tsr_binder::SymbolFlags::VALUE)
-                .or_else(|| {
-                    binder.resolve_name(nodes, map, id, name.text, tsr_binder::SymbolFlags::TYPE)
-                })
-                .map(|s| (s, None)),
+            // SS195: upstream's workaround is `t = GetTypeAtLocation(EWTA)`
+            // and then **`if t == nil || IsTypeAny(t) { t = GetTypeAtLocation
+            // (node) }`** — the fallback matters. A SELF-EXTENDING class
+            // (`class A extends A {}`) has no resolvable base, so upstream
+            // falls back to the identifier's own value type and records
+            // `>A : typeof A`, while `class B extends A` records `>A : A`.
+            // Both spellings sit in `classInheritence` two lines apart. The
+            // shortcut below answers the instance type unconditionally, so
+            // declining it for self-extension lets the ordinary identifier
+            // road answer.
+            Some(Node::Identifier(name))
+                if nodes.kind(id) == SyntaxKind::Identifier
+                    && !nodes
+                        .parent(clause)
+                        .and_then(|owner| map.get(owner))
+                        .and_then(|owner| match owner {
+                            Node::ClassDeclaration(class) => class.name.map(|n| n.text),
+                            Node::ClassExpression(class) => class.name.map(|n| n.text),
+                            _ => None,
+                        })
+                        .is_some_and(|owner_name| owner_name == name.text) =>
+            {
+                binder
+                    .resolve_name(nodes, map, id, name.text, tsr_binder::SymbolFlags::VALUE)
+                    .or_else(|| {
+                        binder.resolve_name(
+                            nodes,
+                            map,
+                            id,
+                            name.text,
+                            tsr_binder::SymbolFlags::TYPE,
+                        )
+                    })
+                    .map(|s| (s, None))
+            }
             // §60: a QUALIFIED base (`extends N.C<...>`) resolves through
             // the namespace and prints the qualified spelling — the newly
             // un-gated §41 road's heritage-expression twin.
