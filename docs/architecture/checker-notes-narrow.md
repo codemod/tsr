@@ -7962,3 +7962,46 @@ primitive-domain decider §182 landed is the LAST step of the last
 item; everything above it is unbuilt. That ordering is the whole
 value of the two transcriptions, and it is the opposite of the
 order I attacked it in.
+
+
+## §187 — union ORDER: 171 lines, and the mechanism is upstream's ORIGIN union [checker-1, specced]
+
+Gradient-directed census (the user named the line gradient as the
+target): **171 WRONG lines whose want and got have IDENTICAL
+constituents in a different ORDER** — controlFlowAliasing 50,
+narrowingUnionWithBang 11, unionTypeCallSignatures 10,
+unionTypeConstructSignatures 10, contextualTypeWithUnionTypeObjectLiteral 6,
+unionTypeIndexSignature 6, tail.
+
+**Probed, and it is NOT narrowing** (controlFlowAliasing's name
+misleads):
+
+    type F = { kind: 'foo'; foo: string };
+    type B = { kind: 'bar'; bar: number };
+    declare const u: F | B;    //  we print  B | F
+
+The reversal happens at the DECLARATION, in union construction.
+`crate::unions`' `compare_types` sorts constituents
+(`sort_order_flags`, then `compare_type_names`), so `B` precedes
+`F` alphabetically and the written order is lost.
+
+**Upstream's mechanism**: `getUnionType` keeps a sorted set for
+IDENTITY but carries an **origin** union for one built from a
+written node, and the node builder prints the ORIGIN's constituents
+— i.e. source order. This port has no origin concept; it prints the
+sorted set.
+
+**Relation to the two existing records.** §138 refused
+"union-order-is-per-site" at 299:1,098 — that refusal is about
+order varying BETWEEN SITES and stands. §137 landed a written-union
+admission flag (+308 at 154:1) for signature RETURN annotations,
+which is the same idea applied to one road. This entry is the
+general case: an origin carried on the union itself rather than an
+admission flag per consuming road.
+
+**Why it is not attempted here**: an origin is a representation
+change (a second constituent list on the union, threaded through
+interning and printing), and this window has already measured that
+partial builds of representation changes fail — nine of them across
+two subsystems. It needs a fresh window, and §137's flag is the
+proof the payoff is real.
