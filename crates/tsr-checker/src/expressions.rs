@@ -1940,6 +1940,14 @@ impl Checker<'_, '_> {
             // An arrow cannot be a generator at all, so it always takes the
             // not-a-generator arm below.
             Some(Node::ArrowFunction(f)) => (None, f.r#type, true),
+            // SS184: an ACCESSOR or CONSTRUCTOR container cannot be a
+            // generator either, so upstream's `functionFlags&Generator == 0`
+            // arm answers `anyType` (checker.go:10967-10969) — this
+            // enumeration stopped before them and answered `error`. The
+            // §169 shape: a gate that lists kinds, missing the ones nobody
+            // had a case for yet.
+            Some(Node::GetAccessorDeclaration(_) | Node::SetAccessorDeclaration(_))
+            | Some(Node::ConstructorDeclaration(_)) => return any,
             _ => return error,
         };
         if asterisk.is_none() {
