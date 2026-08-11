@@ -3531,3 +3531,45 @@ until §924, and a commit went out with clippy red because a number that had rea
 (`docs/architecture/checker-notes-diag2.md` §923).
 
 **The check that matters is the one that stops the pipeline.**
+
+### Corollary 6 (2026-08-10): the provenance tiebreak for a +0
+
+The unexercised-branch rule ("a +0 keep needs a demonstration
+independent of the board") and the collapsed-distinction rule ("a
+divergence is a latent bug whether or not it fires") both apply to a
+transcribed change that measures zero, and they point opposite ways.
+**Tiebreak by PROVENANCE and by what the change does:**
+
+- **DERIVED code measuring +0 → revert.** It has no authority except
+  the board, and the board declined it.
+- **TRANSCRIBED code that REMOVES A SELF-INCONSISTENCY → keep**, even
+  at +0. Two enumerations of one concept disagreeing is a bug already
+  present; aligning them to upstream removes it whether or not the
+  corpus currently walks the difference. (checker-1's §171: a `return`
+  inside a get accessor walked past its own container. checker-2's
+  §172: the flow-container ascent omitted `FunctionDeclaration` while
+  the same family's other enumeration listed it.)
+- **TRANSCRIBED code that ADDS A CAPABILITY → revert and bank.** It is
+  correct but unexercised, and correctness alone does not earn
+  permanence. (checker-1's §170, the concise async arrow body: +0/1,
+  banked.)
+
+**And when a keep is made, state that no gradient is attributable to
+it.** That is the honest price of keeping something the board did not
+pay for.
+
+### Corollary 7 (2026-08-10): instrument the ENTRY when a transcribed arm measures zero
+
+"The branch is unexercised" and "the node never arrives" are identical
+in a scorepair and have completely different owners. checker-1 wrote
+`checkNewTargetMetaProperty` correctly, measured zero, and only an
+entry probe revealed the cause: **the parser never constructs a
+`MetaProperty` node at all**, so 163 corpus lines sit behind a parser
+change with the checker half already written.
+
+The corollary that stings: **`parser_typescript` reads 100% while an
+entire AST node kind is missing**, because the suite does not
+discriminate that kind. A 100% suite bounds what it measures, not what
+exists — and no gradient reading would have found this. It took an arm
+that refused to fire.
+
