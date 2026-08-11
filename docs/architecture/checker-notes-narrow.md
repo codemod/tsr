@@ -7346,3 +7346,28 @@ the latent-bug convention can point opposite ways, and the
 tiebreak is provenance - unexercised code that was DERIVED gets
 reverted, unexercised code that was TRANSCRIBED from upstream and
 removes a self-inconsistency gets kept.
+
+
+## §172 — new.target: the arm is written and the node never arrives [checker-1, banked]
+
+`checkNewTargetMetaProperty` (`checker.go:10768-10780`) is four
+lines — the type of the CONTAINER's symbol, and for a CONSTRUCTOR
+the container's PARENT's symbol — over
+`GetNewTargetContainer` (`ast/utilities.go:2160`: the
+this-container, admitted only as Constructor, FunctionDeclaration
+or FunctionExpression, which is why arrows do not host it). The
+corpus carries 163 `.types` lines mentioning `new.target`.
+
+Built the arm as `Expression::MetaProperty` with the container
+walk. **It never executes**: an `eprintln` on the arm's entry
+produced NOTHING for `function q() { return new.target; }`, whose
+probe still answers error. So the node does not reach
+`check_expression`'s dispatch at all — this is a ROUTING question
+(what the parser produces for `new.target`, and which road types
+it) and not a missing-arm one, which makes it the first find of the
+claimed audit that corollary 5's method does not settle by itself.
+
+Reverted rather than left dead. The next window's step is one
+probe: dump the node kind the parser gives `new.target` and find
+which check road receives it — until that is known, the arm's
+correctness is untestable and its 163-line ceiling unpriced.
