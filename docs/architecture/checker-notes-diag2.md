@@ -45421,3 +45421,38 @@ Recorded as a view, not a work list: five of the ten rows are `tsr-parser`'s
 recovery, and the checker-side four (TS2304, TS18048, TS2552, TS2364) each need
 their own reading before anything is touched — §919 is what happens when that
 reading is skipped.
+
+## §922 — `diagextra`, and TS18048's 158 lines are two cases
+
+§921 measured TS18048 at `have − want = 129` where §850 had recorded **11** from
+`extraonly`, and could not say where the other 118 were.
+`crates/tsr-conformance/examples/diagextra.rs` answers it: every extra over the
+suite's **whole judged population**, optionally filtered to one code.
+
+```
+cargo run --release -p tsr-conformance --example diagextra 18048
+
+  102  conformance/controlFlowOptionalChain
+   18  conformance/deleteChain
+    5  conformance/callChain.3
+    5  conformance/jsxEsprimaFbTestSuite
+    4  controlFlowAliasedDiscriminants, neverNullishThroughParentheses,
+       controlFlowOptionalChain3, neverReturningFunctions1
+  cases with an extra: 14   extra lines: 158
+```
+
+**Two cases hold 120 of the 158.** `controlFlowOptionalChain` alone is 102 —
+optional chains, where a narrowed receiver stops being nullish and this port does
+not narrow. Every name in the list is a flow fixture.
+
+> §850 recorded `+11` and reasoned that the wrong lines were narrowing's. **The
+> reasoning was right and the number was 14× short**, and neither `extraonly` nor
+> `diagdup` could have told it — the first counts only near-passing cases, the
+> second only collisions at a right position.
+>
+> The distribution is the part worth having: a flat 158 would be a rule
+> systematically over-firing; **102 in one case is a rule meeting one unported
+> narrowing**, and those are different problems with different owners.
+
+**Priced to flow, 158 lines, 14 cases**, with the concentration recorded so the
+next attempt starts at `controlFlowOptionalChain` and not at the rule.
