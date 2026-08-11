@@ -695,6 +695,7 @@ impl Checker<'_, '_> {
             }
             Node::FunctionDeclaration(n) => self.check_illegal_decorator(n.modifiers),
             Node::InterfaceDeclaration(n) => {
+                self.check_duplicate_type_literal_members(n.members);
                 self.check_illegal_decorator(n.modifiers);
                 self.check_type_parameter_lists_identical(node);
             }
@@ -6178,6 +6179,12 @@ impl Checker<'_, '_> {
                 let tsr_ast::ClassElement::PropertyDeclaration(property) = member else {
                     return None;
                 };
+                // **A string-literal member name is the same collision.**
+                // `class C { "a": string; "a": number }` folds to one name
+                // exactly as a literal computed name does. §910.
+                if let tsr_ast::PropertyName::StringLiteral(literal) = property.name {
+                    return Some((literal.node_id?, literal.text.to_string()));
+                }
                 let tsr_ast::PropertyName::ComputedPropertyName(computed) = property.name else {
                     return None;
                 };

@@ -44952,3 +44952,71 @@ and a symbol upstream mints that this port does not.
 Thirteen cases remain on TS2300 alone; the next fixture in the list is
 `checkerInitializationCrash`, whose two lines are in a `node_modules` `.d.ts` —
 a different shape again.
+
+## §910 — the same duplicate, a third node kind
+
+```ts
+interface I { a: string; a: number; }          // duplicateInterfaceMembers1
+class C { "a": string; "a": number; }          // duplicateStringNamedProperty1
+```
+
+§904 built the rule for **type literals**, §906 for **class members with literal
+computed names**. TS2300's residue holds it twice more: an **interface body**,
+and a class member named by a **string literal**.
+
+§904's helper already accepts a `StringLiteral` property name; it was only ever
+called with a type literal's members. §906's class helper only looks at computed
+names. So one call site and one arm, not a new rule.
+
+**Within one body, not across declarations.** Two `interface I` blocks each
+declaring `a` is a legal merge and a different question (TS2717); the rule works
+per members list, which is per body, and that is the right granularity by
+construction.
+
+```
+bar:  +2 (duplicateInterfaceMembers1, duplicateStringNamedProperty1),
+      0 LOST via `diagpass`,  WRONG delta <= 0
+```
+
+### Falsifiers
+
+1. **A merged interface reports.** Two bodies, two lists, no collision.
+2. **An overload set reports.** Methods are excluded, as in §904.
+
+## §911 — §910 built: **+2 of 2**, TS2300 is 20 → 11 in four builds
+
+```
+diagnostics   2,368 → 2,370   (bar was +2;  +2)   43.19%
+diagpass      LOST: (none)
+              GAINED: duplicateInterfaceMembers1, duplicateStringNamedProperty1
+extraonly     79, unchanged
+TS2300        13 cases → 11,  55 lines → 45
+```
+
+```
+§904   type literal members                   +4    20 → 16
+§906   class members, literal computed names  +1    16 → 15
+§908   a merged namespace's `prototype`       +2    15 → 13
+§910   interface bodies, string-literal names +2    13 → 11
+                                              ---
+                                              +9    in four builds
+```
+
+§910 was **one call site and one arm**: §904's helper already accepted a
+`StringLiteral` name and had only ever been handed a type literal's members.
+`duplicateStringNamedProperty1` — `interface Album { "artist": string; artist:
+string }` — needed nothing new at all, only the arm that passes an interface
+body in.
+
+> Four builds, four node kinds, one predicate. **The rule was right the first
+> time and wrong about how many places hold members**, which is not a defect of
+> the rule but of the dispatch — and the dispatch is where §857, §871 and §874
+> also went wrong, in the opposite direction.
+>
+> `check_duplicate_type_literal_members` is now called from three arms and named
+> after one of them. **A helper named for its first caller mis-describes itself
+> the moment it acquires a second**, and this one is on its third.
+
+Eleven cases remain; the head is now `checkerInitializationCrash`, whose two
+lines are in `node_modules` `.d.ts` files — a `declare global` re-export shape,
+different again.
