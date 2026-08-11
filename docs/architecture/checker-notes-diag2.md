@@ -47384,3 +47384,84 @@ whenever an accessor is present, for the same reason. They are not built here
 because this build's whole yield is four cases and turning them on is a
 measurement of its own; recorded so the next session finds the bail-out named
 rather than rediscovering it.
+
+## §968 — TS1117: a literal computed name is the same name
+
+§967 predicted the next build would be the three unbuilt cells of the object
+literal meaning table. **It measured wrong.** `diagmissing` on all three:
+
+```
+TS1119   0 sole-obstacle cases,  0 lines corpus-wide     — the corpus never asks
+TS2300   (the method/method cell is not distinguishable in this row's census)
+TS1117   2 sole-obstacle cases,  7 lines
+```
+
+and neither TS1117 fixture contains an accessor:
+
+```ts
+var X = { 0b11: '', 3: '' };       duplicateIdentifierDifferentSpelling
+const t1 = { 1: 1, [1]: 0 };       duplicateObjectLiteralProperty_computedName1
+const t2 = { 1: 1, [+1]: 0 };
+```
+
+So the bail-out §967 named is **not** what is costing this row. The cost is the
+*key*: `check_duplicate_object_literal_names` keys a plain name by its text and
+a computed name by a spelling prefixed `[]`, which puts them in two namespaces
+and makes `{ 1: 1, [1]: 0 }` two different properties.
+
+Upstream has one namespace. `getEffectivePropertyNameForPropertyNameNode` folds
+a **literal** computed name to its text before comparison, and
+`GetTextOfPropertyName` normalises a numeric name — which is the second half of
+the same row: `0b11` and `3` are one name because both print as `3`.
+
+`normalise_number` (`printing.rs:162`) is already ported and is what §906 used
+for the class-member half of exactly this question. **This is the object-literal
+half, four hundred sections later.**
+
+```
+bar:  >= +1 of the 2,  0 LOST via `diagpass`,  extraonly delta <= +1
+```
+
+### Falsifiers
+
+1. **A non-literal computed name folds.** `{ [a]: 1, a: 1 }` names nothing in
+   particular and §52's bound applies — it must stay in the `[]` namespace.
+2. **`{ "1": 1, 1: 1 }` reports twice.** String and numeric spellings of one
+   name must land on one key, not two that each report.
+3. **`extraonly` moves.** Merging two namespaces can only *add* collisions, so
+   any wrong line here is a fold that upstream does not do.
+
+## §969 — §968 built: **+2/−0**, row complete, and §967's prediction was wrong
+
+```
+diagnostics   2,417 → 2,419   (+2)   44.08%
+diagpass      LOST: (none)
+              GAINED: duplicateIdentifierDifferentSpelling,
+                      duplicateObjectLiteralProperty_computedName1
+extraonly     75, unchanged
+TS1117        have 0 → 29,  want 29,  **missing 0**
+```
+
+Both cases; the row is finished. Twenty-nine lines from folding two namespaces
+into one.
+
+> **§967 ended by naming the next build, and the next build was not it.** It
+> said the three unbuilt cells of the meaning table were the remaining cost, on
+> the strength of having just found the bail-out. `diagmissing` on all three
+> took one command and said otherwise: **TS1119 has zero lines in the entire
+> corpus**, and neither TS1117 fixture contains an accessor at all.
+>
+> The bail-out is real and still unfixed; it is simply **not what this row was
+> paying for**. A cause found is not the cause of the next thing, and §967's
+> sentence — *a rule that declines a whole shape is invisible* — was true and
+> still pointed at the wrong row.
+
+What was costing it: the key. A plain name keyed by text, a computed name keyed
+by a spelling prefixed `[]`, and therefore two namespaces where upstream has
+one. `{ 1: 1, [1]: 0 }` was two properties; `{ 0b11: '', 3: '' }` was two names.
+`normalise_number` was already ported and §906 already used it for the
+class-member half of this exact question — **this is the object-literal half,
+sixty sections later.**
+
+Falsifier 1 is preserved by construction: a non-literal computed name returns
+`None` and falls back to the `[]` namespace, which is §52's bound.

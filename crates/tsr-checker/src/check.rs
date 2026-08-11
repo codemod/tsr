@@ -8777,6 +8777,47 @@ impl Checker<'_, '_> {
         }
     }
 
+    /// `getEffectivePropertyNameForPropertyNameNode` with
+    /// `GetTextOfPropertyName`: the name a property actually declares, with a
+    /// **literal computed name folded to its text** and a numeric name
+    /// normalised, so `1`, `"1"`, `[1]` and `[+1]` are one key and `0b11` is
+    /// `3`.
+    ///
+    /// A **non-literal** computed name names no particular property and returns
+    /// `None` — §52's bound, and falsifier 1 of §968. §968.
+    fn effective_property_name_key(&self, name_id: NodeId) -> Option<String> {
+        match self.node_map.get(name_id)? {
+            Node::Identifier(identifier) => Some(identifier.text.to_string()),
+            Node::StringLiteral(literal) => Some(literal.text.to_string()),
+            Node::NumericLiteral(literal) => Some(crate::printing::normalise_number(literal.text)),
+            Node::ComputedPropertyName(computed) => {
+                let inner = computed.expression?.node_id()?;
+                match self.node_map.get(inner)? {
+                    Node::StringLiteral(literal) => Some(literal.text.to_string()),
+                    Node::NumericLiteral(literal) => {
+                        Some(crate::printing::normalise_number(literal.text))
+                    }
+                    // `[+1]` and `[-1]`: upstream evaluates the literal, and a
+                    // sign on a numeric literal is still a literal name.
+                    Node::PrefixUnaryExpression(unary) => {
+                        let operand = unary.operand?.node_id()?;
+                        let Node::NumericLiteral(literal) = self.node_map.get(operand)? else {
+                            return None;
+                        };
+                        let value = crate::printing::normalise_number(literal.text);
+                        match unary.operator.kind {
+                            SyntaxKind::PlusToken => Some(value),
+                            SyntaxKind::MinusToken => Some(format!("-{value}")),
+                            _ => None,
+                        }
+                    }
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
+
     fn check_duplicate_object_literal_names(&mut self, node: NodeId) {
         if self.file_has_parse_errors {
             return;
@@ -8824,8 +8865,8 @@ impl Checker<'_, '_> {
             // the spelling is an identifier or a chain of them. The key sits in
             // its own namespace, so `{ x: 1, [x]: 2 }` does not collide —
             // `x` and the value of `x` are different properties. §757.
-            let key = match self.identifier_text(name_id) {
-                Some(text) => text.to_string(),
+            let key = match self.effective_property_name_key(name_id) {
+                Some(key) => key,
                 None => match self.computed_name_spelling(name_id) {
                     Some(spelling) => format!("[]{spelling}"),
                     None => continue,
