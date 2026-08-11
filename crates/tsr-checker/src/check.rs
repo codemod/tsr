@@ -5212,6 +5212,38 @@ impl Checker<'_, '_> {
     /// The other positions are a second slice with that predicate as its
     /// subject — `checker-notes-diag2.md` §83. TS2448 (block-scoped variable)
     /// and TS2450 (enum) are its siblings and wait on the same thing.
+    /// Is this declaration a `const` or `let` variable? §964.
+    fn declaration_is_block_scoped_variable(&self, declaration: NodeId) -> bool {
+        if self.nodes.kind(declaration) != SyntaxKind::VariableDeclaration {
+            return false;
+        }
+        self.nodes.ancestors(declaration).any(|ancestor| {
+            self.nodes.kind(ancestor) == SyntaxKind::VariableDeclarationList
+                && (self.nodes.flags(ancestor).contains(tsr_ast::NodeFlags::CONST)
+                    || self.nodes.flags(ancestor).contains(tsr_ast::NodeFlags::LET))
+        })
+    }
+
+    /// Is `node` read inside `declaration`'s own initializer, with no
+    /// function-like boundary between them? §964.
+    fn reference_is_in_own_initializer(&self, node: NodeId, declaration: NodeId) -> bool {
+        let mut found = false;
+        for ancestor in self.nodes.ancestors(node) {
+            if ancestor == declaration {
+                found = true;
+                break;
+            }
+            if self.is_function_like_or_static_block(ancestor) {
+                return false;
+            }
+        }
+        if !found {
+            return false;
+        }
+        // The *name* of the declaration is not a use of it.
+        self.declaration_name_of(declaration) != Some(node)
+    }
+
     fn check_used_before_its_declaration(&mut self, node: NodeId, text: &str) {
         if self.file_has_parse_errors {
             return;
@@ -5242,27 +5274,42 @@ impl Checker<'_, '_> {
         // `checkResolvedBlockScopedVariable` (`checker.go:1888`) picks the
         // message off the symbol's flags and shares everything below.
         let is_class = entry.flags.intersects(SymbolFlags::CLASS);
-        let (message, kinds): (_, &[SyntaxKind]) =
-            if entry.flags.intersects(SymbolFlags::BLOCK_SCOPED_VARIABLE) {
-                (
-                    &messages::BLOCK_SCOPED_VARIABLE_0_USED_BEFORE_ITS_DECLARATION,
-                    &[SyntaxKind::VariableDeclaration],
-                )
-            } else if entry.flags.intersects(SymbolFlags::REGULAR_ENUM) {
-                // `RegularEnum`, not `Enum` (`checker.go:1908`). A `const enum`
-                // is inlined at every use site, so it has no temporal dead zone
-                // and upstream says nothing about using one early —
-                // `enumUsedBeforeDeclaration` reports on its `Color` and not on
-                // its `ConstColor`, and `ENUM` here was §99's one wrong line.
-                (&messages::ENUM_0_USED_BEFORE_ITS_DECLARATION, &[SyntaxKind::EnumDeclaration])
-            } else if is_class {
-                (
-                    &messages::CLASS_0_USED_BEFORE_ITS_DECLARATION,
-                    &[SyntaxKind::ClassDeclaration, SyntaxKind::ClassExpression],
-                )
-            } else {
-                return;
-            };
+        // **`export const bar = bar` resolves to a symbol carrying only
+        // `EXPORT_VALUE`**, so the selection below fell through and returned.
+        // Four of `exportedBlockScopedDeclarations`'s eight lines are that
+        // shape. Upstream reaches the local through the export symbol; this
+        // asks the declaration instead, which is the same answer for a `const`
+        // or `let` and costs no resolution. §964.
+        let exported_block_scoped = entry.flags.intersects(SymbolFlags::EXPORT_VALUE)
+            && entry.declarations.len() == 1
+            && entry
+                .declarations
+                .first()
+                .is_some_and(|&d| self.declaration_is_block_scoped_variable(d));
+        let (message, kinds): (_, &[SyntaxKind]) = if entry
+            .flags
+            .intersects(SymbolFlags::BLOCK_SCOPED_VARIABLE)
+            || exported_block_scoped
+        {
+            (
+                &messages::BLOCK_SCOPED_VARIABLE_0_USED_BEFORE_ITS_DECLARATION,
+                &[SyntaxKind::VariableDeclaration],
+            )
+        } else if entry.flags.intersects(SymbolFlags::REGULAR_ENUM) {
+            // `RegularEnum`, not `Enum` (`checker.go:1908`). A `const enum`
+            // is inlined at every use site, so it has no temporal dead zone
+            // and upstream says nothing about using one early —
+            // `enumUsedBeforeDeclaration` reports on its `Color` and not on
+            // its `ConstColor`, and `ENUM` here was §99's one wrong line.
+            (&messages::ENUM_0_USED_BEFORE_ITS_DECLARATION, &[SyntaxKind::EnumDeclaration])
+        } else if is_class {
+            (
+                &messages::CLASS_0_USED_BEFORE_ITS_DECLARATION,
+                &[SyntaxKind::ClassDeclaration, SyntaxKind::ClassExpression],
+            )
+        } else {
+            return;
+        };
         // A symbol with more than one declaration is a MERGE: the arm below
         // picks one declaration by kind and compares *its* position, which for
         // a merge is arbitrary among its members. §96 measured six LOST and this
@@ -5304,7 +5351,25 @@ impl Checker<'_, '_> {
         }
         // `declaration.Pos() <= usage.Pos()` is upstream's "declaration is
         // before usage" test, so the report is its negation.
-        if self.nodes.span(declaration).start <= self.nodes.span(node).start {
+        // **A reference inside the declaration it names is in the temporal dead
+        // zone**, whatever the positions say: `const foo = foo` reads `foo`
+        // before the initializer finishes. `isBlockScopedNameDeclaredBeforeUse`
+        // compares positions for the ordinary case and asks this separately.
+        //
+        // `const g = () => g` is legal — the read happens after initialization
+        // — so a function-like boundary between the two declines. §964.
+        // **Variables only.** `class C extends C {}` puts the reference inside
+        // the declaration too, and upstream reports TS2506 there — *referenced
+        // directly or indirectly in its own base expression* — not TS2449.
+        // Letting the arm see classes was §964's first measurement: −3 cases
+        // and five new `extraonly` rows, every one of them a TS2449 on a class
+        // extending itself. §965.
+        let inside_own_initializer = self.nodes.kind(declaration)
+            == SyntaxKind::VariableDeclaration
+            && self.reference_is_in_own_initializer(node, declaration);
+        if !inside_own_initializer
+            && self.nodes.span(declaration).start <= self.nodes.span(node).start
+        {
             return;
         }
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
@@ -5325,7 +5390,12 @@ impl Checker<'_, '_> {
                 if binary.operator_token.is_some_and(|t| t.kind.is_assignment_operator())
                     && binary.left.and_then(|left| left.node_id()) == Some(node))
         });
-        if !is_write
+        // **The companion TS2454 does not follow the self-initializer arm.**
+        // `exportedBlockScopedDeclarations` wants TS2448 alone on every one of
+        // its eight lines, and letting *used before being assigned* ride along
+        // was §964's first measurement: −3 cases and `extraonly` 75 → 80. §965.
+        if !inside_own_initializer
+            && !is_write
             && message.code()
                 == messages::BLOCK_SCOPED_VARIABLE_0_USED_BEFORE_ITS_DECLARATION.code()
             && self.declaration_has_a_decidable_type(declaration)

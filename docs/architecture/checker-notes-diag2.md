@@ -47201,3 +47201,96 @@ The remaining 25 lines need `getPropertiesOfType`: an accessor's type
 (`objectSpreadSetonlyAccessor`), a JSX attributes type
 (`tsxGenericAttributesType1`) and interface-declared operands. Owner: the type
 side.
+
+## §964 — TS2448: a block-scoped variable used inside its own initializer
+
+§950's list: **5 sole-obstacle cases, 22 lines**, and one of them is eight
+lines of a single shape:
+
+```ts
+const foo = foo;            // TS2448 + TS2454
+export const bar = bar;     // TS2448 + TS2454
+function f() { const bar = bar; }
+```
+
+`check_used_before_its_declaration` already reports the row. It declines this
+shape on one line:
+
+```rust
+if self.nodes.span(declaration).start <= self.nodes.span(node).start {
+    return;
+}
+```
+
+which is right for *every* reference except one **inside the declaration it
+names**. `isBlockScopedNameDeclaredBeforeUse` (`checker.go`) compares positions
+for the ordinary case and then asks separately whether the usage sits within the
+declaration's own initializer — a `const` is in its temporal dead zone until the
+initializer finishes, so `const foo = foo` reads `foo` before it exists.
+
+**The deferred case is the reason this is not simply `<`**:
+
+```ts
+const g = () => g;    // legal — the read happens after initialization
+```
+
+so the arm must find a function-like boundary between the reference and the
+declaration and decline when there is one. That is `isUsedInFunctionOrInstanceProperty`
+in a narrower form, and it is syntactic.
+
+```
+bar:  >= +1,  0 LOST via `diagpass`,  extraonly delta <= +1
+```
+
+### Falsifiers
+
+1. **`const g = () => g` reports.** The boundary test is the whole of the
+   difference between the two shapes.
+2. **A reference *after* the declaration double-reports.** The existing path
+   already handles those and the new arm must not also fire.
+3. **`extraonly` moves.** This row's second diagnostic (TS2454, *used before
+   being assigned*) is emitted from the same site, so widening the first can
+   widen the second — which is either two right lines or two wrong ones.
+
+## §965 — §964 built: **+1/−0**, after two wrong widenings priced at one run each
+
+```
+diagnostics   2,412 → 2,413   (+1)   43.97%
+diagpass      LOST: (none)   GAINED: compiler/exportedBlockScopedDeclarations
+extraonly     75, unchanged
+TS2448        have 25 → 29,  missing 28
+```
+
+The build took **four measurements**, and the three discarded ones are the note:
+
+```
+                                                  cases   extraonly   TS2448
+1  self-initializer arm, all declaration kinds     −3        80          25
+2  … with the TS2454 companion suppressed          −3        80          25
+3  … restricted to VariableDeclaration            ±0        75          25
+4  … plus the export-symbol route                 +1        75          29
+```
+
+**Version 1 was −3, and version 2 was the wrong repair.** `extraonly`'s diff
+named the real cause in one command — five new rows, every one a **TS2449** on
+`class C extends C {}`. A class's heritage clause is inside its own declaration,
+so "reference inside the declaration it names" caught classes too, and upstream
+reports TS2506 there (*referenced directly or indirectly in its own base
+expression*), not TS2449.
+
+> Version 2 suppressed the TS2454 companion on a hypothesis about *which*
+> diagnostic was wrong, and measured **identically** to version 1 — the cheapest
+> possible refutation, and the reason to keep a discarded version's number
+> rather than only its verdict. **`extraonly`'s diff points at the case; the
+> code column points at the rule.** One `comm` did what a second hypothesis
+> could not.
+
+Version 4 is the other half of the row. `export const bar = bar` resolves to a
+symbol carrying **only `EXPORT_VALUE`** — not `BLOCK_SCOPED_VARIABLE` — so the
+message selection fell through and returned, and four of this fixture's eight
+lines were that shape. Upstream reaches the local through the export symbol;
+asking the *declaration* whether it is `const`/`let` is the same answer without
+a resolution.
+
+Falsifier 1 (`const g = () => g` must stay silent) is negative — the
+function-like boundary test is what version 3 kept when it dropped classes.
