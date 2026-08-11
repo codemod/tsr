@@ -1036,6 +1036,15 @@ impl Checker<'_, '_> {
             // never - dropped.
         }
         if mapped.is_empty() {
+            // The worker's two remaining upstream legs are deliberately
+            // absent, each for a measured reason: the INSTANTIABLE-CONSTRAINT
+            // leg (flow.go:933-948, intersections for generic constituents
+            // related by constraint) was transcribed and measured +0 — no
+            // corpus row reaches it through this port's callers; and the
+            // KEY-PROPERTY fast path (flow.go:888-897) is a >=10-constituent
+            // lookup that picks the constituent the per-constituent map
+            // already finds, so it cannot change an answer.
+            //
             // SS173: the ALL-NEVER TAIL (flow.go:952-963, transcribed):
             // subtype(candidate, t) -> candidate; assignable(t, candidate)
             // -> t; assignable(candidate, t) -> candidate; else the
