@@ -7056,3 +7056,22 @@ appears in a written annotation already print `this` correctly in
 some baselines — check before substituting there; (c)
 `thisTypeSyntacticContext`'s 13 may be the type-position mint's
 error road rather than the substitution's.
+
+
+### §162 follow-on — the parked widen branch UNPARKED, measured ZERO, reverted
+
+`same_base_literal_supertype`'s widen branch carried its own
+unblocking condition ("declines until steps 2/4 supply
+topLevel/isFixed") and §162 supplied the topLevel half. Rebuilt with
+`isTypeParameterAtTopLevelInReturnType` threaded in (the type
+parameter's id passed down to the resolver helper): **zero lines
+moved, either way.** The branch is UNREACHABLE at this baseline —
+a multi-candidate literal set for a non-primitive-constrained
+parameter whose return does not carry it at top level does not
+occur in the corpus today, because the single-candidate road (which
+§162 gave the same predicate) already answers those calls. Reverted
+per the unexercised-branch rule, text banked here; the park's
+condition is now DISCHARGED rather than pending — a future window
+should not re-open it on the topLevel half alone. The isFixed half
+remains its only live question, and that arrives with the
+fixing-mapper unit's Phase 2.
