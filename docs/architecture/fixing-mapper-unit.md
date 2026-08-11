@@ -302,3 +302,30 @@ iteration-2 (−41, structure without the quality out-param). The
 Phase-1 build that lands carries: the lattice + the structure +
 the priority-report out-param, together. Fresh window, full
 inference.rs read, the promiseType pair as the first comparator.
+
+
+## Fixing-mapper unit — the FOURTH piece found, build reverted [checker-1]
+
+Built lattice + `inferToMultipleTypes` + the recorded-priority
+channel TOGETHER (the three pieces the two earlier probes had taken
+separately). Measured +31/57, then +15/21 with a conservative gate.
+Reverted.
+
+**What the third attempt bought: the missing piece is now named.**
+The promiseType/promiseTypeStrictNull split is not a lattice or a
+structure problem — it is that upstream matches a source REFERENCE
+against a STRUCTURALLY RELATED target reference. `resolve(value: T |
+PromiseLike<T>)` given `Promise<never>`: upstream infers T:=never
+through `Promise`-vs-`PromiseLike`, marks the source MATCHED, and
+drops it from the unmatched union. This port's reference arm
+requires IDENTICAL target symbols (`ts == ss`), so the source stays
+unmatched and poisons the union —
+`Promise<number | Promise<never>>` where `Promise<number>` is
+wanted, which is exactly the 26+18 adverse both attempts produced.
+
+So the unit is FOUR pieces, not three: lattice, inferToMultipleTypes,
+the recorded-priority channel, and **reference matching across
+related targets** (variance-based inference through base types /
+`getTypeReferenceIfMatched`). The first three are written and
+preserved in the scratchpad (fm1.py, fm2.py); the fourth is
+untranscribed and is the next window's opener.
