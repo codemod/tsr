@@ -7752,3 +7752,23 @@ adverse). Small, but it is the first conditional evaluation this
 port has outside the `extends never` shape, and the road is now
 built — widening it is a question of widening the RELATER, which
 is a named and separate subsystem.
+
+
+**Slice 2 measured and REVERTED — the ternary's own NotRelated is not
+trustworthy here either.** Slice 1's primitive-domain gate looked
+like a crude stand-in for `relate_ternary`, which exists precisely
+to separate "not related" from "cannot tell" and whose doc comment
+describes this exact hazard. Swapping the gate for it measured
+**+29 / 24**, against slice 1's +9 / 2 — worse. The adverse
+(unknownType2 13, conditionalTypes1 8) are pairs where the relater
+answers `NotRelated` and upstream takes the TRUE branch, so its
+negative is over-confident for THIS caller even though it is
+calibrated for overload selection.
+
+Kept slice 1. The lesson generalises the one slice 1 already
+recorded: a ternary is not automatically safer than a boolean —
+**each caller must establish which of the three answers it is
+entitled to act on**, and `NotRelated` turns out to be actionable
+for overload rejection but not for conditional branch selection.
+Widening this road therefore means widening the RELATER's positive
+domain, not swapping which predicate asks it.
