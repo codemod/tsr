@@ -454,7 +454,7 @@ pub fn type_id_at_location<'a>(
             // road answer.
             Some(Node::Identifier(name))
                 if nodes.kind(id) == SyntaxKind::Identifier
-                    && !nodes
+                    && nodes
                         .parent(clause)
                         .and_then(|owner| map.get(owner))
                         .and_then(|owner| match owner {
@@ -462,7 +462,7 @@ pub fn type_id_at_location<'a>(
                             Node::ClassExpression(class) => class.name.map(|n| n.text),
                             _ => None,
                         })
-                        .is_some_and(|owner_name| owner_name == name.text) =>
+                        .is_none_or(|owner_name| owner_name != name.text) =>
             {
                 binder
                     .resolve_name(nodes, map, id, name.text, tsr_binder::SymbolFlags::VALUE)
