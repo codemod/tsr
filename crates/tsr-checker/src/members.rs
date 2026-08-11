@@ -413,6 +413,14 @@ impl Checker<'_, '_> {
         // was not. Reversing it here would answer `any` for a primitive whose
         // global interface is missing — the direction that manufactures
         // confident wrong answers.
+        // §164/§165: the THIS-ARGUMENT is the ORIGINAL receiver, not the
+        // apparent one — `getTypeWithThisArgument(apparentType, receiver)`
+        // (`checker.go:19573` at its member call sites) reads members from
+        // the apparent type while substituting `this` with what the caller
+        // actually wrote. `x: T extends A` calling `x.self(): this` is
+        // `T`, not `A` (thisTypeAndConstraints, the §165 first pair's four
+        // R→W).
+        let this_argument = receiver_type;
         let receiver_type = self.apparent_type(receiver_type);
         if receiver_type == self.intrinsics.any {
             return self.intrinsics.any;
@@ -492,10 +500,28 @@ impl Checker<'_, '_> {
         // member's type is the this-type itself the substitution's whole
         // effect is that answer. A receiver that IS a this-type substitutes
         // to itself, so it is skipped rather than looped.
-        let property_type = if property_type != receiver_type
+        let property_type = if property_type != this_argument
             && self.this_types.values().any(|&minted| minted == property_type)
         {
-            receiver_type
+            this_argument
+        } else if property_type != this_argument
+            && let Some(&minted) = self
+                .this_types
+                .values()
+                .find(|&&minted| self.mentions_type_parameter(property_type, &[minted], &["this"]))
+        {
+            // §165 (`checker-notes-narrow.md`), §164's embedded half: where
+            // the this-type sits INSIDE the member's type — `fn(): this`
+            // read off `c` wants `() => C` — the same
+            // `getTypeWithThisArgument` substitution runs through
+            // `instantiate_type`, which already handles it: a this-type is
+            // TYPE_PARAMETER-flagged, so arm 1 maps it and the signature
+            // text is REBUILT rather than reused. An instantiation that
+            // gaps keeps the original rather than answering error.
+            let map = [(minted, this_argument)];
+            let names = ["this"];
+            let image = self.instantiate_type(property_type, &map, &[minted], &names);
+            if image == self.intrinsics.error { property_type } else { image }
         } else {
             property_type
         };

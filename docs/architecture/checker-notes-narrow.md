@@ -7155,3 +7155,31 @@ falsifier (b) held by construction — the INTERFACE this-mint
 `this_types`, so the dual-mint defect stayed untouched rather
 than half-fixed. §163's remaining scope is now exactly: the
 embedded 233 + the dual-mint unification.
+
+
+## §165 — §164's embedded half through instantiate_type, and the apparent/this split [checker-1]
+
+**Score: +26 / 0 — LANDED, and the second iteration found upstream's
+own distinction.** Where the this-type sits INSIDE a member's type
+(`fn(): this` read off `c` wants `() => C`), the same
+`getTypeWithThisArgument` substitution runs through
+`instantiate_type`, which already handles it for free: a this-type
+is TYPE_PARAMETER-flagged, so arm 1 maps it and the signature TEXT
+is rebuilt rather than reused — no new rendering machinery.
+
+**Iteration 1 measured +22/4** and the four were REAL: `x: T` with
+`T extends A` calling `x.self(): this` answered `A` where `T` is
+wanted (thisTypeAndConstraints). The mechanism is upstream's own
+split, which this port had collapsed: members are read from the
+APPARENT type, but the this-argument is the ORIGINAL receiver —
+`getTypeWithThisArgument(apparentType, receiver)`. `members.rs:416`
+overwrote `receiver_type` with its apparent form and both §164's
+arm and this one were then substituting the constraint. Capturing
+`this_argument` before the apparent-type step fixed it: **+26/0**,
+four more lines than the over-firing version.
+
+**The embedded 233 is NOT closed by this** — only 26 of it is
+reachable at this site. The rest are read through other roads
+(declaration lines, get_type_of_symbol) and still want §163's
+representation work. Recorded so the next window does not read
+"embedded half done".
