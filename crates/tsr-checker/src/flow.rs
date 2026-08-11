@@ -3810,8 +3810,21 @@ impl Checker<'_, '_> {
         let facts = if assume_true { TypeFacts::TRUTHY } else { TypeFacts::FALSY };
         let mut kept = Vec::new();
         for constituent in constituents {
-            let Some(member_type) = self.get_type_of_property_of_type(constituent, member) else {
-                return t;
+            // SS189 CONFIRMED and built (checker-1's SS204 sub-shape: a true
+            // reason applied more bluntly than the fact it protects).
+            // Upstream's `filterType` predicate reads
+            // `getTypeOfPropertyOrIndexSignatureOfType(t, propName)`
+            // **OrElse unknownType** (flow.go:744-747): a constituent LACKING
+            // the member becomes `unknown` and is TESTED, never a reason to
+            // abandon the narrowing for its siblings. The outer whole-decline
+            // stays - that one is upstream's too, on
+            // `getTypeOfPropertyOfType(nonNullType, ...)` at flow.go:736.
+            let member_type = match self.get_type_of_property_of_type(constituent, member) {
+                Some(found) => found,
+                None => {
+                    kept.push(constituent);
+                    continue;
+                }
             };
             let decidable = {
                 let flags = self.store.get(member_type).flags;
