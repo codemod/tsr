@@ -3435,3 +3435,20 @@ currently has, it has planted a bug that fires when the next site
 arrives.** Where upstream carries two names, carry two — and when a
 transcription's first pair shows a small adverse count, check whether a
 collapsed distinction is producing it before pricing the arm.
+
+### Corollary 4 (2026-08-10): enumerate sites before declaring a PREREQUISITE
+
+Corollary 2 says a site's number is not a road's number. Its converse:
+a defect at one site is not a PREREQUISITE for the road. checker-1's
+§166 tested rock #3's stated blocker — a `this` type minted into two
+tables — by simply CONSULTING BOTH at the substitution site, and gained
+26 lines without unifying anything; the unification remains required
+only for the representation work that actually rewrites those types.
+
+Across §164/§165/§166: three arms, ONE transcription, three different
+sites, **+141/2 combined, no new machinery in any of them.** The
+operative habit is now measured three times consecutively: before
+building anything, enumerate the sites that run the rule you already
+have — and before accepting a stated prerequisite, test whether the
+road can simply read AROUND it.
+
