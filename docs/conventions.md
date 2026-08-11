@@ -3478,6 +3478,25 @@ arm (§167, +328/3 at 109:1) and no `ClassExpression` arm (+190/322 —
 reverted; checker-1's §168, which checker-2 duplicated independently
 within the hour — **four finds, one of them measured twice**).
 
+**Widened by checker-1's §169**: the target is not only the dispatch —
+it is **the dispatch AND every predicate the dispatch consults.** §169
+was not a missing arm: `declaration_takes_no_contextual_return`
+enumerated `FunctionDeclaration` and `MethodDeclaration` and answered
+false for everything else, so `function* gd(){ yield 1 }` inferred
+`Generator<number, void, unknown>` while the IDENTICAL expression
+answered error and an annotated expression already worked. **A gate
+that enumerates node kinds is a dispatch wearing different clothes**,
+and it fails the same way: by stopping early. When one spelling of a
+construct works and another does not, look for an enumeration that
+lists the working spelling.
+
+**And the missing case is often already answered elsewhere in the
+port.** §169's gate asks "does this take no contextual return?" —
+precisely what §94's `has_no_contextual_type` was built to answer for
+expressions — so the fix reused a proven predicate instead of inventing
+a test. An early-stopped enumeration usually stopped because nobody had
+the second case yet; by the time it is found, the port often does.
+
 **The census costs one run**:
 `verdictdump | awk '$2=="GAP" {print $3}' | sort | uniq -c | sort -rn`
 — a large count on a SIMPLE want-shape (a plain named type, no
