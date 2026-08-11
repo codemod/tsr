@@ -539,6 +539,8 @@ pub struct Checker<'a, 'n> {
     /// upstream's *"only perform this check once per symbol"*. Keyed on the
     /// symbol, because the loop it guards runs over every declaration. §953.
     pub(crate) enum_checked: rustc_hash::FxHashSet<tsr_binder::SymbolId>,
+    /// Once per symbol for `checkExportsOnMergedDeclarations`. §960.
+    pub(crate) merged_spaces_checked: rustc_hash::FxHashSet<tsr_binder::SymbolId>,
     /// Symbols `checkFunctionOrConstructorSymbol` has already visited.
     ///
     /// Upstream's `links.functionOrConstructorChecked` (`checker.go:3463`,
@@ -850,6 +852,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             checked_files: rustc_hash::FxHashSet::default(),
             ambient_statement_reported: rustc_hash::FxHashSet::default(),
             enum_checked: rustc_hash::FxHashSet::default(),
+            merged_spaces_checked: rustc_hash::FxHashSet::default(),
             function_symbol_checked: rustc_hash::FxHashSet::default(),
             overload_agreement_checked: rustc_hash::FxHashSet::default(),
             modifier_chain_reported: rustc_hash::FxHashSet::default(),

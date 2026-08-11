@@ -46996,3 +46996,117 @@ opened next session either.
 > stating plainly: a detector that finds nothing is evidence, and the next
 > session should not spend a cycle re-running this one hoping for a different
 > answer.
+
+## §960 — TS2395: merged declarations must be all exported or all local
+
+§950's list: **6 sole-obstacle cases, 13 lines**.
+
+```ts
+export type A = {}
+type A = {}          // TS2395 on both names
+```
+
+`checkExportsOnMergedDeclarations` (`checker.go:6909`-`:6958`) partitions a
+symbol's declarations into three **declaration spaces** — Type, Value,
+Namespace — by whether each carries `export`, `export default`, or neither, and
+reports where the exported and non-exported sets intersect.
+
+`getDeclarationSpaces` (`:6961`) is syntactic for six kinds and **not** for two:
+
+```
+interface, type alias            Type                     syntactic
+class, enum, enum member         Type | Value             syntactic
+variable, function, binding      Value                    syntactic
+method/property signature        Type                     syntactic
+module declaration               Namespace [| Value]      needs GetModuleInstanceState
+import equals, namespace import,
+  import clause, export assignment  union of the TARGET's  needs resolveAlias
+```
+
+The last two are **declined and contribute `None`**, which is sound in this
+direction: a declaration contributing no space can only make the intersection
+smaller, so the rule under-reports rather than mis-reports. §955 declined
+`resolveAlias` for the same reason and this is the second row to pay for its
+absence — worth noting together rather than separately, because it is now a
+**measured** cost rather than an anticipated one.
+
+Two further faithfulness points:
+
+- The sibling message on the `default` branch is TS2652 and is **not** emitted,
+  but its condition **is** computed, because upstream's `else if` means a
+  declaration in the default-common set must *not* get TS2395.
+- Upstream runs the body once per *kind* (`GetDeclarationOfKind(symbol, node.Kind)
+  != node`), which double-reports a symbol whose declarations differ in kind.
+  This port keys once per **symbol**, as §953 does — under-reporting where
+  upstream repeats rather than reproducing a repeat this port cannot verify.
+
+```
+bar:  >= +2,  0 LOST via `diagpass`,  extraonly delta <= +1
+```
+
+### Falsifiers
+
+1. **An all-exported or all-local merge reports.** The intersection is empty in
+   both cases and this is the rule's entire content.
+2. **A declaration outside the intersecting space reports.** Upstream's comment
+   is explicit — *"only error on the declarations that contributed"* — so
+   `export class C {}` merged with `interface C {}` reports on neither name for
+   the Namespace space it does not touch.
+3. **`extraonly` moves.** The declined alias arm makes the rule quiet, never
+   loud; any new extra line means a space was guessed rather than read.
+
+## §961 — §960 built: **+3/−0**, after an invented call site cost twelve lines
+
+```
+diagnostics   2,407 → 2,410   (+3)   43.91%
+diagpass      LOST: (none)
+              GAINED: multivar, nonMergedOverloads, typeAliasesDoNotMerge
+extraonly     75, unchanged (was 78 on the first version)
+TS2395        have 0 → 21,  missing 17,  **0 extra**
+```
+
+The first version hooked the rule on `FunctionDeclaration` as well as the five
+kinds upstream uses. That measured the same **+3** and cost **12 wrong lines and
+3 `extraonly` cases** — and the fixture said exactly what was wrong:
+
+```
+expected   overloadModifiersMustAgree.ts(6,18) TS2384    ambient agreement
+           overloadModifiersMustAgree.ts(7,17) TS2383    export agreement
+actual     overloadModifiersMustAgree.ts(6,18) TS2395
+           overloadModifiersMustAgree.ts(7,17) TS2395
+```
+
+**Right positions, wrong code**, which is the signature of a rule running where
+another rule belongs. `checkExportsOnMergedDeclarations` has **six call sites and
+a function declaration is not one of them** — class (`:4298`), interface
+(`:5000`), enum (`:5073`), module (`:5161`), variable-like (`:5941`), type alias
+(`:6883`). Overload sets have their own diagnostics.
+
+> §920's rule — *census the dispatch, expect a second rule underneath* — applies
+> to **upstream's** dispatch too, and one `grep` for the call sites would have
+> been cheaper than the measurement that found it. The rule was read; the
+> callers were not.
+
+### The correction to §959
+
+§959 reported *"the honest result of the sweep is that there is no trove"* on a
+derivation that could read **two** of the three layouts `rustfmt` produces for
+`messages.rs`. There is a third — a name long enough that the *type* wraps —
+which is exactly the shape of TS2395's own constant, so §960's rule read
+`unported` while it was firing.
+
+Scanning forward for `Message::new(` and then for the first integer handles all
+three:
+
+```
+ported rows   187 → 230 → 279
+SILENT rows   1 → 1 → 2      (TS1189 joins TS1253)
+```
+
+**§959's "no trove" was measured on an incomplete instrument and is corrected
+here rather than left standing.** The conclusion survives — two silent rules,
+both worth nothing: `diagmissing` prices TS1189 at **0 sole-obstacle cases**,
+its two lines split between `parserForInStatement4` and `parserForOfStatement20`.
+But it was true by luck rather than by measurement, and the third layout was
+found the same way the first two were: by a row reading `unported` with its rule
+committed and firing.

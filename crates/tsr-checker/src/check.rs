@@ -247,6 +247,7 @@ impl Checker<'_, '_> {
                 ambient
             }
             Node::ClassDeclaration(declaration) => {
+                self.check_exports_on_merged_declarations(node);
                 self.check_super_call_is_first(node);
                 self.check_derived_constructor_calls_super(node);
                 self.check_static_side_kind_mismatch(node);
@@ -317,6 +318,7 @@ impl Checker<'_, '_> {
                 ambient
             }
             Node::InterfaceDeclaration(_) => {
+                self.check_exports_on_merged_declarations(node);
                 self.check_conflicting_inherited_primitives(node);
                 self.check_private_name_in_object_literal(node);
                 self.check_heritage_conformance(node);
@@ -325,6 +327,7 @@ impl Checker<'_, '_> {
                 ambient
             }
             Node::EnumDeclaration(declaration) => {
+                self.check_exports_on_merged_declarations(node);
                 self.check_enum_first_member_initializers(node);
                 for member in declaration.members {
                     if let Some(at) = member.node_id {
@@ -417,6 +420,7 @@ impl Checker<'_, '_> {
                 ambient
             }
             Node::VariableDeclaration(declaration) => {
+                self.check_exports_on_merged_declarations(node);
                 self.check_implicit_any_binding_pattern(node);
                 self.check_using_is_initialized(node);
                 self.check_outer_scoped_variable(node);
@@ -669,6 +673,12 @@ impl Checker<'_, '_> {
                 self.check_used_before_assigned(node, identifier.text);
                 self.check_used_before_its_declaration(node, identifier.text);
                 self.mark_identifier_reference(node, identifier.text);
+                ambient
+            }
+            // §960: a type alias is the other half of `export type A = {}` /
+            // `type A = {}`, and had no arm in this match at all.
+            Node::TypeAliasDeclaration(_) => {
+                self.check_exports_on_merged_declarations(node);
                 ambient
             }
             _ => ambient,

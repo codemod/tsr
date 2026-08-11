@@ -132,6 +132,7 @@ pub mod meaning_mismatch;
 pub mod member_completeness;
 pub mod members;
 pub mod merge_conflicts;
+mod merged_export_spaces;
 pub mod nonexistent_property;
 pub mod nullable_operand;
 pub mod objects;

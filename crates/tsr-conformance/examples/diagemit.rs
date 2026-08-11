@@ -126,23 +126,20 @@ fn rule_codes() -> BTreeSet<u32> {
     for (index, line) in source.lines().enumerate() {
         let Some(rest) = line.strip_prefix("pub static ") else { continue };
         let Some(name) = rest.split(':').next() else { continue };
-        // **Two layouts, and only handling one of them was this instrument's
-        // own version of the bug it exists to find.** `rustfmt` keeps a short
-        // declaration on one line — `… = Message::new(2432, Category::Error, …)`
-        // — and wraps a long one so the code lands on the next. Reading only
-        // the next line silently dropped every single-line constant, which is
-        // why TS2432 and TS2774 read `unported` on this derivation's first run
-        // with their rules committed and firing. §959.
-        let after = rest.split("Message::new(").nth(1);
-        let code = after
-            .and_then(|tail| tail.split(',').next())
-            .and_then(|first| first.trim().parse::<u32>().ok())
-            .or_else(|| {
-                source
-                    .lines()
-                    .nth(index + 1)
-                    .and_then(|next| next.trim().trim_end_matches(',').parse::<u32>().ok())
-            });
+        // **Three layouts, and each one found by a row reading `unported`
+        // with its rule committed and firing.** `rustfmt` puts short
+        // declarations on one line, wraps the arguments of medium ones, and
+        // wraps the *type* of long ones — so `Message::new(` may be on this
+        // line or two below it, and the code may follow on the same line or the
+        // next. Scanning forward for the call and then for the first integer
+        // handles all three and is not a fourth guess about formatting. §961.
+        let code = source
+            .lines()
+            .skip(index)
+            .take(4)
+            .skip_while(|line| !line.contains("Message::new("))
+            .flat_map(|line| line.rsplit("Message::new(").next().unwrap_or(line).split(','))
+            .find_map(|piece| piece.trim().parse::<u32>().ok());
         let Some(code) = code else { continue };
         code_of.insert(name, code);
     }
@@ -162,7 +159,11 @@ fn rule_codes() -> BTreeSet<u32> {
                 }
                 let Ok(text) = std::fs::read_to_string(&path) else { continue };
                 for reference in text.split("messages::").skip(1) {
+                    // `rustfmt` may wrap after `messages::`, so skip whitespace
+                    // before reading the constant. A long name is exactly the
+                    // kind this derivation exists to catch. §961.
                     let name: String = reference
+                        .trim_start()
                         .chars()
                         .take_while(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || *c == '_')
                         .collect();
