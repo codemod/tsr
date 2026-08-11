@@ -7104,3 +7104,54 @@ next window does not re-census it as a fresh 155-line opportunity —
 it is 155 lines of an already-refused wall, minus whatever the
 enum-merging shapes (12+5) turn out to be, which is the only part
 worth a fresh probe.
+
+
+## §164 — §163's decidable slice 1: a BARE this-type property answers the receiver [claimed: checker-1]
+
+§163's 317 split: **96 lines want a concrete type where we print a
+BARE `this`** (typeOfThisInInstanceMember 18+18,
+instancePropertyInClassType 10, thisTypeInObjectLiterals 6,
+instancePropertiesInheritedIntoClassType 5, thisTypeAndConstraints 4,
+tail) and 233 want it EMBEDDED in a larger text (`() => C`). The
+bare half needs no re-rendering and is the decidable slice.
+
+**The transcription** (`getTypeWithThisArgument`,
+`checker.go:19573-19596`): a member's type is read with the RECEIVER
+as the this-argument. Where the member's type IS the this-type, the
+substitution's whole effect is "answer the receiver" — no reference
+rebuild, no text re-render, which is exactly why this half is
+separable from the representation change §163 describes.
+
+**The arm**: in `access_member_lookup`, after `property_type` is
+computed, a property type that IS a minted class this-type
+(`this_types`, keyed by class symbol, TYPE_PARAMETER-flagged, text
+`this`) answers the RECEIVER's type instead.
+
+**Bar: ≥50 net at ≥5:1.** Falsifiers: (a) a receiver that is ITSELF
+the this-type (`this.foo` inside the class) must not self-substitute
+into a loop — the substitution is identity there and must be skipped
+or it is a no-op at best; (b) an INTERFACE this-type
+(`declared.rs:163`'s separate mint) is not in `this_types` and this
+slice deliberately does not reach it — the dual-mint defect §163
+records; (c) polymorphic uses (`f<T extends this>`) are not member
+reads and are out of the arm's domain.
+
+
+**Score: +89 / 2 adverse (44:1) — LANDED.** Two sites, one
+transcription: the member read (+30/0 alone) and the CALL return
+when the callee is a property access — `c.fn()` where `fn(): this`
+answers `C`, the same `getTypeWithThisArgument` reading with the
+access's own left operand as the this-argument. typeOfThisInInstanceMember
+23+23, instancePropertyInClassType 18 (§162's own exposed residue,
+closed by its successor), instancePropertiesInheritedIntoClassType,
+thisTypeAndConstraints, tail spread. The 2 adverse
+(fluentClasses) are the EMBEDDED half — `() => C` wanted where
+`() => this` prints — which is precisely the 233-line class this
+slice excludes by construction: those need the signature text
+re-rendered, and that is §163's representation question. Falsifier
+(a) held (a this-typed receiver skips rather than loops);
+falsifier (b) held by construction — the INTERFACE this-mint
+(`declared.rs:163`) is a different table and never enters
+`this_types`, so the dual-mint defect stayed untouched rather
+than half-fixed. §163's remaining scope is now exactly: the
+embedded 233 + the dual-mint unification.

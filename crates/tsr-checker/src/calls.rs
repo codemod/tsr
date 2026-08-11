@@ -583,6 +583,20 @@ impl Checker<'_, '_> {
                 bump(&COUNTERS.single_candidate_answered);
             }
         }
+        // §164 (`checker-notes-narrow.md`) at the CALL site: a signature
+        // that RETURNS the this-type answers the receiver, which is the same
+        // `getTypeWithThisArgument` reading the member road takes — the
+        // receiver here is the property access's own left operand
+        // (`c.fn()` is `C`, not `this`).
+        if self.this_types.values().any(|&minted| minted == signature.r#type)
+            && let Expression::PropertyAccessExpression(access) = callee
+            && let Some(receiver) = access.expression
+        {
+            let receiver_type = self.check_expression(receiver);
+            if receiver_type != error && receiver_type != signature.r#type {
+                return receiver_type;
+            }
+        }
         signature.r#type
     }
 

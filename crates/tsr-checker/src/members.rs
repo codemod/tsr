@@ -485,6 +485,20 @@ impl Checker<'_, '_> {
                     error
                 }
             };
+        // §164 (`checker-notes-narrow.md`), §163's decidable slice 1: a
+        // member whose type IS the owner's `this` type answers the
+        // RECEIVER — `getTypeWithThisArgument` (`checker.go:19573`) reads a
+        // member with the receiver as the this-argument, and where the
+        // member's type is the this-type itself the substitution's whole
+        // effect is that answer. A receiver that IS a this-type substitutes
+        // to itself, so it is skipped rather than looped.
+        let property_type = if property_type != receiver_type
+            && self.this_types.values().any(|&minted| minted == property_type)
+        {
+            receiver_type
+        } else {
+            property_type
+        };
         // `checkPropertyAccessExpressionOrQualifiedName` ends by narrowing the
         // property's declared type by the flow reaching this access
         // (`getFlowTypeOfReference`, `checker.go:11430`) — `bd tsr-6ka`. Until
