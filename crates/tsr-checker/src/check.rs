@@ -9440,6 +9440,18 @@ impl Checker<'_, '_> {
             Some(Node::FunctionDeclaration(function)) => function.body.is_none(),
             Some(Node::MethodDeclaration(method)) => method.body.is_none(),
             Some(Node::ConstructorDeclaration(constructor)) => constructor.body.is_none(),
+            // **A signature has no body to be missing**, which is the strongest
+            // case for this diagnostic rather than a kind to skip: `interface I
+            // { fun(a = 3); }` and `var f: (a = 3) => number` are both TS2371.
+            // The `_ => return` below reads as "unknown kind, decline" and was
+            // declining the two shapes the row still wanted. §1015.
+            Some(
+                Node::MethodSignatureDeclaration(_)
+                | Node::CallSignatureDeclaration(_)
+                | Node::ConstructSignatureDeclaration(_)
+                | Node::FunctionTypeNode(_)
+                | Node::ConstructorTypeNode(_),
+            ) => true,
             _ => return,
         };
         if !missing_body {

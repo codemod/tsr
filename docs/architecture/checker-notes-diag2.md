@@ -49327,3 +49327,74 @@ kind of change that moves it; the diagnostics workstream should not spend
 another suite's number on two of its own cases. Filed with the number: **7 cases
 blocked by column alone, of which 5 are parser recovery and 2 (`TS1003` on JSX
 private names, `TS1010`) are separate**.
+
+## §1015 — TS2371: a signature has no body to be missing
+
+§950's 2-case band. `check_parameter_initializer_needs_body` exists and asks
+three kinds whether their body is absent:
+
+```rust
+Some(Node::FunctionDeclaration(f)) => f.body.is_none(),
+Some(Node::MethodDeclaration(m))   => m.body.is_none(),
+Some(Node::ConstructorDeclaration(c)) => c.body.is_none(),
+_ => return,
+```
+
+`defaultArgsInOverloads` is one file containing all five shapes, and the two it
+still wants are the two that **cannot have a body at all**:
+
+```ts
+interface I { fun(a = 3); }        // MethodSignature   — TS2371
+var f: (a = 3) => number;          // FunctionType      — TS2371
+```
+
+The `_ => return` reads as "unknown kind, decline", and for a rule about a
+*missing* body it is the wrong default: a construct with no body slot is the
+strongest case for the diagnostic, not a case to skip. TS1016 was the
+alternative from the same band and is **declined with its owner** — both its
+cases are JSDoc (`checkJsdocOptionalParamOrder`, `jsdocParseBackquotedParamName`),
+a subsystem this port does not have.
+
+```
+bar:  >= +1,  0 LOST via `diagpass`,  extraonly delta <= +1
+```
+
+### Falsifiers
+
+1. **A method *with* a body reports.** Lines 5, 10 and 13 of the same fixture
+   are implementations with initializers and are legal.
+2. **A constructor type or call signature is missed.** `(a = 3) => number` is a
+   `FunctionType`; the same rule covers `ConstructorType`, call and construct
+   signatures, and leaving them out would pass falsifier 1 and half the row.
+
+## §1016 — §1015 built: **+2/−0**, both cases, and a `_ => return` that meant the opposite
+
+```
+diagnostics   2,484 → 2,486   (+2)   45.30%
+diagpass      LOST: (none)
+              GAINED: defaultArgsInOverloads, callSignaturesWithParameterInitializers
+extraonly     75, unchanged
+TS2371        have 27,  want 31,  missing 4,  **0 extra**
+```
+
+Both sole-obstacle cases, twenty-seven right lines, none wrong. Falsifier 1 was
+scored by the same run — `defaultArgsInOverloads` contains three implementations
+*with* bodies and initializers, all legal, in the same file as the two errors.
+
+> The whole build is five node kinds added to a `match`, and the interesting
+> part is what the `_ => return` was doing. For a rule named *"does this owner
+> lack a body"*, an unrecognised kind reads as **"cannot tell, decline"** — and
+> for the kinds it was actually hiding, the answer is not *unknown* but
+> **certainly yes**: a `MethodSignature` and a `FunctionType` have no body slot
+> at all.
+>
+> **A catch-all arm answers a question; it is worth checking which one.** Here
+> it silently answered "no" to *"has no body"* for every construct that can
+> never have one. §966's bail-out, §971's `ranges.len() < 2` and §979's absent
+> arm are the same family: a default that was right for the cases in front of
+> the author and wrong for the ones that arrived later.
+
+TS1016 was the alternative from the same band and is declined with its owner:
+both cases are **JSDoc** — `checkJsdocOptionalParamOrder` and
+`jsdocParseBackquotedParamName` — a subsystem this port does not have. Recorded
+so the band's next reader does not re-census it.
