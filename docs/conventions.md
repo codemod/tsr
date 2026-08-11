@@ -3785,3 +3785,27 @@ vanish" also pinned *which of the two things it becomes*, and caught a
 commit after it was written. **A fixture with neither half can pass for
 years.**
 
+### Corollary 16 (2026-08-11): a refusal YOU wrote is not evidence
+
+Corollaries 11–14 audit refusals inherited from earlier sessions. The
+same failure occurs **within one session, in hours**, and the author is
+the last person to notice:
+
+- **`97803011`** — an arm recorded as *"cannot be written faithfully
+  today"* with a three-piece build named. **§185 built all three pieces
+  three hours later.** The scoping that made the refusal credible is
+  exactly what made it survive.
+- **`a82331be` → §194** — a lead recorded as *"not built: a resolution
+  change whose likely sites are shared with the other lane"*. The
+  refusal itself named the deciding probe (*which road types this
+  expression?*). Running it cost **one grep**, answered the whole
+  question — the road was in a file this lane owns outright — and the
+  defect was one argument. **+3 cases.**
+
+**Before writing "not built", run the probe the refusal is about to
+name.** If the refusal can name a deciding experiment, that experiment
+is nearly always cheaper than the sentence justifying its absence. And a
+capacity claim ("I can't finish this safely") is a claim about the
+world, subject to the same rule as any other: check it, or write it as
+a question rather than a finding.
+
