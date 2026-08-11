@@ -46449,3 +46449,101 @@ would have shown the same silence as no probe at all.
 > A zero that means "the code never ran" and a zero that means "the rule
 > declined" are indistinguishable from the outside, which is exactly why the
 > rail exists.
+
+## §948 — TS2693: §880's refusal, revisited with the six names instead of ten
+
+§941's tail, fourth draw. TS2693 is 58 lines and — unlike §946's row — it is
+**well spread**: the largest fixture holds 8. `diagmissing` reports **4 cases
+blocked on TS2693 alone, 7 lines**, and all four are one shape:
+
+```ts
+var x = any;                 primitiveTypeAssignment       (1,9) (3,9) (5,9)
+var b = new boolean();       newNonReferenceType           (1,13) (2,13)
+var t: any[] = new any[1];   cannotInvokeNewOnIndexExpression (1,23)
+f: number;                   undeclaredVarEmit             (1,4)
+```
+
+The cascade that reports this is **already written** —
+`report_meaning_mismatch_in_value_position`'s `is_primitive_type_name` arm at
+`meaning_mismatch.rs:167`. Four probes said all four fixtures reach
+`check_value_identifier` with `value_ref=true` and `resolves=false`; a fifth,
+placed immediately above the cascade, said **none of them reach it**.
+
+`check.rs:4085` is why — **§880's decline**:
+
+```rust
+if matches!(text, "string" | "number" | "boolean" | "symbol" | "object"
+                | "bigint" | "any" | "never" | "unknown" | "void") {
+    …report only inside a heritage clause…
+    return;
+}
+```
+
+§880's own comment is the case for reopening it: *"The decline above was
+measured against a rule that reported TS2693 **everywhere**; the heritage arm is
+the half this port has."* It also records, two comments down, that **upstream's
+`isPrimitiveTypeName` is six names and this list is ten** — `void`, `object`,
+`symbol` and `bigint` are on it only because reporting TS2863 beside a *parse*
+error cost `classExtendingPrimitive2`.
+
+So the build is not "undo §880". It is: **fall through to the cascade for
+upstream's six names, keep the decline for the other four.**
+
+```
+bar:  >= +2 of the 4 sole-obstacle cases,  0 LOST via `diagpass`,
+      extraonly delta <= +4
+```
+
+### Falsifiers
+
+1. **`extraonly` jumps.** §880 measured a TS2693-everywhere rule badly; if the
+   six-name restriction is not the difference, the wrong lines return and this
+   is refused again with the number.
+2. **`classExtendingPrimitive2` breaks.** That is the case the four extra names
+   were added for, and they are untouched here — if it moves, the list was not
+   the mechanism.
+3. **A heritage case double-reports.** The heritage arm above and the cascade's
+   own heritage branch would both fire if the fallthrough is not exclusive.
+
+## §949 — §948 built: **+4/−0**, and the same four cases at half the lines
+
+```
+diagnostics   2,387 → 2,391   (+4)   43.57%
+diagpass      LOST: (none)
+              GAINED: cannotInvokeNewOnIndexExpression, newNonReferenceType,
+                      primitiveTypeAssignment, undeclaredVarEmit
+```
+
+All four sole-obstacle cases, exactly the bar. But the first version was not the
+one shipped, and the difference is the whole note:
+
+```
+                        have   want   missing   extraonly   cases
+six names, no gate       126     78        21          76      +4
+six names, parse gate     35     78        50          75      +4
+```
+
+The first reported **48 lines upstream does not have** and cost a case in
+`extraonly`. They were not scattered — `diagextra` put them in
+`arrowFunctionsMissingTokens`, `parseInvalidNullableTypes`,
+`parserUnterminatedGeneric2`, `expressionWithJSDocTypeArguments`: **files the
+parser recovered**, where a primitive spelling lands in a value position that
+was never written as one.
+
+Gating on `file_has_parse_errors` removed all 48 — and 29 right lines with them,
+which is the price and is recorded as such. **The case count did not move.**
+
+> **Two versions converting the identical four cases are not equivalent**, and
+> the suite cannot tell them apart. `extraonly` and `diagemit`'s `have > want`
+> can. §880's refusal was made *because* a TS2693-everywhere rule reported wrong
+> lines; shipping the ungated version would have reproduced that with a +4
+> attached and called it progress.
+>
+> The 50 lines still missing are the honest remainder: recovered syntax needs a
+> finer test than "this file has a parse error anywhere in it", and that test is
+> the parser's to give.
+
+Falsifier 2 negative — `classExtendingPrimitive2` did not move; the four extra
+names (`void`, `object`, `symbol`, `bigint`) are untouched and still decline.
+Falsifier 3 negative — the heritage arm now `return`s before the fallthrough, so
+nothing reaches both.

@@ -4104,15 +4104,26 @@ impl Checker<'_, '_> {
             // it. `class C4a extends void {}` is a *parse* error — TS1109,
             // `Expression expected` — and reporting TS2863 beside it cost
             // `classExtendingPrimitive2`, measured. §880.
-            if matches!(text, "any" | "string" | "number" | "boolean" | "never" | "unknown")
-                && self
-                    .nodes
-                    .ancestors(node)
-                    .any(|a| self.nodes.kind(a) == SyntaxKind::HeritageClause)
-            {
+            let upstream_six =
+                matches!(text, "any" | "string" | "number" | "boolean" | "never" | "unknown");
+            let in_heritage = self
+                .nodes
+                .ancestors(node)
+                .any(|a| self.nodes.kind(a) == SyntaxKind::HeritageClause);
+            if upstream_six && in_heritage {
                 self.report_primitive_type_as_value_at(node, text);
+                return;
             }
-            return;
+            // **Outside a heritage clause the six names fall through to the
+            // cascade**, whose `isPrimitiveTypeName` arm is TS2693 and was
+            // unreachable for as long as this decline swallowed them. §880
+            // measured a rule that reported TS2693 *everywhere* — including for
+            // `void`, `object`, `symbol` and `bigint`, which upstream's
+            // `isPrimitiveTypeName` does not list and which stay declined here.
+            // §948.
+            if !upstream_six || self.file_has_parse_errors {
+                return;
+            }
         }
         // `OnPropertyWithInvalidInitializer` (`nameresolver.go`, reached from
         // `resolveNameHelper`): an instance property's initialiser that names a
