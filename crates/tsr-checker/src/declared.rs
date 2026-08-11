@@ -2549,6 +2549,17 @@ impl<'a> Checker<'a, '_> {
                     let flags = checker.store.get(id).flags;
                     flags.intersects(crate::flags::TypeFlags::PRIMITIVE)
                 };
+                // SS177's REASON CORRECTED (checker-1's SS199 class: a
+                // refusal is protected from re-derivation, its stated reason
+                // is not). I recorded "`unknown extends unknown` DISTRIBUTES
+                // rather than tests" — **that is wrong**. Distribution needs
+                // `root.isDistributive` AND a check type that maps to a
+                // union or never (checker.go:22496-22504); `unknown` is
+                // neither a naked type parameter nor a union, so it does not
+                // distribute. The measurement below stands; its explanation
+                // does not, and the next attempt must find the real cause of
+                // unknownType2's 13 rather than build on this.
+                //
                 // SS177 (measured, reverted): widening the POSITIVE domain
                 // by provably-assignable cases — identity, and two
                 // references to one target with identical arguments — is
