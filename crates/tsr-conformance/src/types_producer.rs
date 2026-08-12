@@ -1531,6 +1531,44 @@ fn render_case(
                 if answer == "error" && is_import_or_export_statement_name(id, nodes, node_map) {
                     answer = "any".to_string();
                 }
+                // §254 `!ast.IsGlobalScopeAugmentation(node.Parent)`
+                // (`type_symbol_baseline.go:385`, the FIFTH condition), on
+                // checker-1's diagnosis.
+                //
+                // Upstream's error type is `newIntrinsicType(TypeFlagsAny,
+                // "error")` (`checker.go:979`) — intrinsic name `"error"`, not
+                // `"any"` — so upstream's baselines CAN print `error`, and
+                // which spelling appears depends only on which arm of
+                // `writeTypeOrSymbol` ran. The fast path prints the intrinsic
+                // name; the node-builder path prints `any` for anything
+                // `TypeFlagsAny`. This guard routes a global augmentation away
+                // from the fast path, so upstream prints `any` where this port
+                // printed `error` — the SAME type, two spellings.
+                //
+                // That distinction is worth carrying beyond this arm:
+                // *upstream printing `any` where we print `error`* is
+                // sometimes ADR-0038's ceiling and sometimes a missing writer
+                // guard, and **the discriminator is which arm upstream took**,
+                // not what it printed.
+                //
+                // §179/§181 MEASURED THIS GUARD AT +0 TWICE and recorded it as
+                // case-inert. That was true then and is not a contradiction
+                // now: §253 fixed `IsAmbientModule`'s missing disjunct, which
+                // is what makes a global augmentation's name reach this walk at
+                // all. The guard was inert because its population was empty —
+                // an arm can be correct and unmeasurable until an unrelated
+                // fix creates the nodes it acts on. Neither zero was wrong;
+                // both were about a different tree.
+                if answer == "error"
+                    && let Some(parent) = nodes.parent(id)
+                    && matches!(
+                        node_map.get(parent),
+                        Some(Node::ModuleDeclaration(module))
+                            if module.keyword.kind == SyntaxKind::GlobalKeyword
+                    )
+                {
+                    answer = "any".to_string();
+                }
                 if answer == "error"
                     && let Some(parent) = nodes.parent(id)
                     && matches!(
