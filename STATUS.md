@@ -1867,11 +1867,30 @@ another carrier, but a **synthesised** signature that no declaration contains. S
 the shape that fixed §252 does not extend here, and reading §252 as the precedent
 would be the wrong start.
 
-**Not attempted**, and the reason is scheduling rather than doubt: this is a new
-capability (minting an index signature that has no declaration behind it) rather
-than a missing arm, and starting one on the last of a session's budget is how the
-tree ends up dirty or the change ends up unmeasured. It is small, it is concrete,
-and it should be a session's first build rather than its last.
+**ATTEMPTED (§261) AND REVERTED AT +0 — and the zero is NOT yet a measurement.**
+The arm was built where the diagnosis pointed: `index_infos_of_symbol` synthesises
+`[number]: string` for a `REGULAR_ENUM` symbol (gated off `CONST_ENUM`, which has no
+runtime object and so no reverse mapping). It compiles, and `scorepair` reports
+**"no transitions vs baseline"** — not one line in any direction.
+
+**What was NOT verified, stated because corollary 27 says an unconfirmed zero is
+not a measurement:** whether the arm *fires*. The evidence points at "no". The same
+case records `>E : typeof E` **correctly**, so the enum's object type resolves; but
+`get_applicable_index_info` takes a TYPE and reaches `index_infos_of_symbol` through
+that type's members symbol, and an anonymous `typeof E` type may carry no members
+symbol at all — in which case the collector is never asked about the enum and
+everything above is untested.
+
+That is §244's shape exactly: a correct arm on the wrong road, reporting a clean
+zero. **One `dbg!` in `index_infos_of_symbol` distinguishes "the enum symbol never
+arrives" from "it arrives and something downstream drops the signature"**, and those
+need opposite repairs — the first is a routing question in `get_applicable_index_info`,
+the second is in the element-access fallback.
+
+Not spent, and this is the honest reason rather than a principled one: the session's
+budget ran out at the probe. The build is small and the diagnosis is now one command
+from being settled either way; **that command is the next session's first move**, and
+it should precede rebuilding the arm rather than follow it.
 
 ## 5. Refused, with the number that refused it
 
