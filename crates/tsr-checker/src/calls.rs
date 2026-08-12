@@ -529,7 +529,43 @@ impl Checker<'_, '_> {
             bump(&COUNTERS.untyped_call);
             return self.intrinsics.any;
         }
-        let Some(signature) = self.resolve_call_signature(callee_type, Some(node.arguments)) else {
+        let resolved = self.resolve_call_signature(callee_type, Some(node.arguments));
+        let Some(signature) = resolved else {
+            // §250. Overload resolution FAILING does not make the call's type
+            // unknown. Upstream reports on the arguments and then takes a
+            // candidate anyway — `getCandidateForOverloadFailure`
+            // (`checker.go:10285`) — so the call still prints a return type.
+            //
+            //     function f<T, U>() { }
+            //     f<number, string, number>();
+            //     >f<number, string, number>() : void
+            //
+            // Witnesses `compiler/callWithWrongNumberOfTypeArguments` (too many
+            // type arguments, one signature) and
+            // `compiler/signatureLengthMismatchInOverload` (no matching
+            // overload, two signatures).
+            //
+            // Upstream's choice among candidates is a ranking this port does
+            // not have, so instead of guessing it this answers ONLY where the
+            // choice cannot matter: every candidate agrees on the return type,
+            // and that type mentions no type parameter, so inference could not
+            // have changed it either. Where candidates disagree the gap stays —
+            // picking one would be inventing upstream's ranking, and
+            // `getCandidateForOverloadFailure` ranks by argument-count
+            // closeness, which is not derivable from the return types.
+            //
+            // The discriminating input is a failing call whose candidates have
+            // DIFFERENT return types (conventions corollary 25). This declines
+            // there by construction rather than by measurement, which is why no
+            // fixture is needed to defend it.
+            if let TypeData::Anonymous { symbol, .. } = self.store.get(callee_type).data
+                && let Some(candidates) = self.get_signatures_of_symbol(symbol)
+                && let Some(first) = candidates.first().map(|candidate| candidate.r#type)
+                && candidates.iter().all(|candidate| candidate.r#type == first)
+                && !self.mentions_any_type_parameter(first, 2)
+            {
+                return first;
+            }
             return error;
         };
         // Upstream would now report on the arguments; see the module docs for
