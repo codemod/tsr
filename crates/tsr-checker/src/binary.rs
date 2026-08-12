@@ -235,8 +235,43 @@ impl Checker<'_, '_> {
         let (left, right) = (kind_source(self, left), kind_source(self, right));
         let left_flags = self.store.get(left).flags;
         let right_flags = self.store.get(right).flags;
+        // §258. `isTypeAssignableToKind` descends a UNION — every constituent
+        // must match the kind — where a raw flags test sees only the union's
+        // own flags, which carry no kind at all. That is why `a + b` on two
+        // enum-typed operands gapped: `Choice.Yes | Choice.No` is a `UNION`,
+        // and `both(NUMBER_LIKE)` asked the wrong node.
+        //
+        //     enum Choice { Unknown, Yes, No }
+        //     var a: Choice, b: Choice;
+        //     var x = a + b;
+        //     >a + b : number
+        //
+        // Witness `conformance/enumLiteralTypes1`, whose eleven blocked lines
+        // §257 measured as the population its `any` fallback would have
+        // answered WRONGLY — this computes them instead, which is the repair
+        // that refusal named as its own reopening condition.
+        //
+        // Only unions are descended, and only one level. An intersection needs
+        // ANY constituent to match rather than all, which is a different rule
+        // and a different witness; it stays on flags until it has one.
+        let has_kind = |checker: &mut Self, id: TypeId, kind: TypeFlags| -> bool {
+            if checker.store.get(id).flags.intersects(kind) {
+                return true;
+            }
+            if let crate::types::TypeData::Union { types, .. } = &checker.store.get(id).data {
+                let constituents = types.clone();
+                return !constituents.is_empty()
+                    && constituents
+                        .iter()
+                        .all(|&c| checker.store.get(c).flags.intersects(kind));
+            }
+            false
+        };
         let both = |kind: TypeFlags| left_flags.intersects(kind) && right_flags.intersects(kind);
-        if both(TypeFlags::NUMBER_LIKE) {
+        if both(TypeFlags::NUMBER_LIKE)
+            || (has_kind(self, left, TypeFlags::NUMBER_LIKE)
+                && has_kind(self, right, TypeFlags::NUMBER_LIKE))
+        {
             return self.intrinsics.number;
         }
         if both(TypeFlags::BIG_INT_LIKE) {
