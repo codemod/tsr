@@ -1170,9 +1170,26 @@ pub fn type_id_at_location<'a>(
     // Sizing: 155 of the 1,628 one-blocker files want `any` and get `error`,
     // and SS178's two guards took 6 of them.
     //
-    // The meta-property guard is DEAD: the parser constructs no
-    // `MetaProperty` node at all (checker-1's probe), so `new.target` never
-    // reaches this walk as one.
+    // The meta-property guard WAS dead because the parser constructed no
+    // `MetaProperty` node at all (checker-1's probe). §259: checker-1's §233
+    // built it — `new.target` now parses as one — so the population exists and
+    // the guard was RE-TESTED under conventions corollary 31, which says a
+    // recorded `+0` is true of a tree rather than of an arm.
+    //
+    // Result: **still zero.** `+0` cases and `scorepair` reporting "no
+    // transitions vs baseline", not one line in any direction.
+    //
+    // So the reason changes and the verdict does not. It is no longer dead for
+    // want of nodes; it is inert because `new.target`'s type is not the error
+    // type, and this guard only ever rewrites `error`. That moves it from the
+    // DORMANT category (§254's, revived when its population appeared) to the
+    // REDUNDANT one (§256's, waiting on a different arm), and the re-test
+    // trigger changes with it: not "did something create my population" but
+    // "did something start answering `error` here".
+    //
+    // Running tally for corollary 31's habit: **four re-tests, two verdict
+    // changes** — §254 revived (+5), §255 inert -> 1:4 adverse, §256 unchanged,
+    // §259 unchanged with a new reason.
     // SS182 (measured twice, both negative — do not re-derive): HOISTING
     // the SS178 guard above the declaration-name branch, so it can reach an
     // `import X = N` NAME, costs cases either way — 4,697 -> 4,685 computing
