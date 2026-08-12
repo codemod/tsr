@@ -1518,6 +1518,40 @@ the body expression it depends on does not. Not answered today, and deliberately
 not guessed — the last three inferences-from-a-witness in this file were wrong
 (§247's node, §247's probe position, §247's probe scope).
 
+### The type-alias name row — the handoff's premise is contradicted by its own witness
+
+checker-1 handed over four deficit-1 cases on the rule "a type alias's name takes
+`getDeclaredTypeOfSymbol`, so `type T = {}` records `>T : {}`", later corrected by
+them to the writer re-render at `type_symbol_baseline.go` (`typeNode.Text() ==
+node.Text()` → re-render with `TypeFormatFlagsInTypeAlias`).
+
+**Neither version survives the witness.** `conformance/nonGenericTypeReferenceWithTypeArguments`
+contains the same construct twice and upstream's baseline spells it **two different
+ways in one file**:
+
+```text
+type T = { };          // top level
+>T : T                 // line 16 of the baseline
+
+    type T = {};       // inside `function f<U>() { … }`
+>T : {}                // line 49
+```
+
+This port prints `T` in both positions, so the top-level line matches and only the
+function-local one blocks — which is why the case reads deficit 1 and why a rule of
+the form "an alias name prints its declared type" would **break the line that
+currently passes** while fixing the one that fails.
+
+The discriminator is unknown. Two candidates, neither tested: the alias being
+declared inside a **generic function** (type parameters in scope may leave the
+`aliasSymbol` unset, so the type renders structurally and the writer guard never
+fires), or the **source spacing** — the two declarations differ by exactly one
+character, `{ }` versus `{}`.
+
+Not built and not guessed. Settling it needs upstream executed on this fixture,
+the same instrument checker-1's §227 is blocked on. Recorded so the next session
+starts from "upstream prints both spellings" rather than from the handoff's premise.
+
 ## 5. Refused, with the number that refused it
 
 > **§5 IS DANGEROUS WHEN STALE.** Its whole purpose is "do not re-derive
