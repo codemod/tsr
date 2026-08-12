@@ -102,14 +102,77 @@ fn yield_outside_any_function_is_any() {
 }
 
 #[test]
-fn a_generator_with_a_return_annotation_is_a_gap_and_notably_not_any() {
-    // This is the case that makes the `any` above a real decision rather than a
-    // blanket. Upstream computes the NEXT type of the annotation, and
-    // `Generator<number>`'s next type is `unknown`, not `any` — so answering
-    // `any` here would be a wrong line, not a conservative one.
+fn an_annotation_with_no_third_type_parameter_has_no_next_slot_to_read() {
+    // **The name changed with §225 and the assertion did not.** This used to be
+    // `a_generator_with_a_return_annotation_is_a_gap_and_notably_not_any`, and
+    // that is no longer true in general — an annotated generator now reads its
+    // annotation's NEXT type. What survives is the narrower fact this fixture
+    // actually pins: `interface Generator<T>` has ONE type parameter, so there
+    // is no third slot and no default, and the answer stays a gap.
+    //
+    // The original reason is still the load-bearing one and is now carried by
+    // `the_next_slot_is_read_and_not_assumed` below: upstream computes the
+    // annotation's next type, and the real `Generator<T = unknown, TReturn =
+    // any, TNext = unknown>` has `unknown` there — so answering `any` would be
+    // a wrong line, not a conservative one.
     assert_eq!(
         type_of_first_yield(
             "interface Generator<T> {}\nfunction* g(): Generator<number> { yield 1; }"
+        ),
+        "error"
+    );
+}
+
+/// §225. An annotated generator's yield type is the annotation's NEXT type:
+/// the third type argument, or the third type parameter's default.
+///
+/// The decidable slice of `getIterationTypesOfGeneratorFunctionReturnType` — a
+/// direct reference to a named generic with at least three type parameters,
+/// which is what the corpus writes. `conformance/generatorTypeCheck13` and
+/// `generatorReturnTypeFallback.5`, both deficit 1.
+#[test]
+fn an_annotated_generator_reads_its_annotations_next_type() {
+    // The DEFAULT road: the real `IterableIterator<T, TReturn = any, TNext =
+    // any>` (`es2015.iterable.d.ts:37`) with only two arguments written.
+    assert_eq!(
+        type_of_first_yield(
+            "interface IterableIterator<T, TReturn = any, TNext = any> {}\n\
+             function* g(): IterableIterator<number, string> { yield 0; }"
+        ),
+        "any"
+    );
+    // The WRITTEN road, which must win over the default.
+    assert_eq!(
+        type_of_first_yield(
+            "interface G<T, R = any, N = any> {}\n\
+             function* g(): G<number, void, string> { yield 0; }"
+        ),
+        "string"
+    );
+}
+
+/// The control that makes §225 a *reading* rather than an assumption, and the
+/// one the superseded pin's comment was really about.
+///
+/// The two globals disagree in the third slot —
+/// `Generator<T = unknown, TReturn = any, TNext = unknown>` against
+/// `IterableIterator<T, TReturn = any, TNext = any>` — so a rule that answered
+/// `any` for every annotated generator passes the first assertion above and
+/// fails here. Nothing else in this file discriminates the two.
+#[test]
+fn the_next_slot_is_read_and_not_assumed() {
+    assert_eq!(
+        type_of_first_yield(
+            "interface Generator<T = unknown, TReturn = any, TNext = unknown> {}\n\
+             function* g(): Generator<number> { yield 1; }"
+        ),
+        "unknown"
+    );
+    // And a third parameter with NO default is a slot this port cannot fill,
+    // which is a gap rather than `any`.
+    assert_eq!(
+        type_of_first_yield(
+            "interface G<T, R, N> {}\nfunction* g(): G<number> { yield 1; }"
         ),
         "error"
     );

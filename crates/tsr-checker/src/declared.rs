@@ -14,6 +14,50 @@ use tsr_binder::{SymbolFlags, SymbolId};
 use crate::{checker::Checker, flags::TypeFlags, resolution::PropertyName, types::TypeId};
 
 impl<'a> Checker<'a, '_> {
+    /// The NEXT type of a generator's written return annotation — the third
+    /// type argument, or the third type parameter's default. §225.
+    ///
+    /// The decidable slice of `getIterationTypesOfGeneratorFunctionReturnType`
+    /// (`checker.go`): a **direct reference to a named generic** with at least
+    /// three type parameters. That covers `Generator<…>`,
+    /// `IterableIterator<…>` and `Iterator<…>`, which is what the corpus
+    /// writes. Anything else — a union, an alias needing expansion, a
+    /// structural type with a `next` member, a reference with too few
+    /// parameters — answers `None` and keeps the gap.
+    ///
+    /// **Not gated on the target being one of the three globals**, deliberately.
+    /// The rule upstream applies is about the *iteration types* of whatever the
+    /// annotation resolves to, and a user-written
+    /// `interface MyGen<T, R, N> { … }` has its next type in the same slot for
+    /// the same reason. Gating on the name would be fitting the witness
+    /// (corollary 20) and would also be *narrower than the reason given*.
+    pub(crate) fn next_type_of_annotated_generator(&mut self, annotation: TypeNode<'a>) -> Option<TypeId> {
+        let TypeNode::TypeReferenceNode(reference) = annotation else { return None };
+        // A written third argument wins; nothing else is consulted.
+        if let Some(&written) = reference.type_arguments.get(2) {
+            return Some(self.get_type_from_type_node(written));
+        }
+        // Otherwise the third parameter's DEFAULT, read off the declaration.
+        // An unwritten slot with no default is not `any` — it is a slot this
+        // port cannot fill, so it gaps.
+        let target = self.resolve_entity_name(reference.type_name?, SymbolFlags::TYPE)?;
+        let declarations = self.binder.symbols().get(target).declarations.clone();
+        for declaration in declarations {
+            let parameters = match self.node_map.get(declaration) {
+                Some(Node::InterfaceDeclaration(node)) => node.type_parameters,
+                Some(Node::TypeAliasDeclaration(node)) => node.type_parameters,
+                Some(Node::ClassDeclaration(node)) => node.type_parameters,
+                _ => continue,
+            };
+            if let Some(parameter) = parameters.get(2)
+                && let Some(default) = parameter.default_type
+            {
+                return Some(self.get_type_from_type_node(default));
+            }
+        }
+        None
+    }
+
     /// The type a type node denotes.
     ///
     /// Ported from `Checker.getTypeFromTypeNodeWorker` (`checker.go:22811`),

@@ -2282,7 +2282,19 @@ impl Checker<'_, '_> {
         // CONTAINER does. Both are `getContextualType`'s parent switch, and
         // both are written as declines so a mistake costs a gap.
         let contextualised = contextualisable && !self.container_is_provably_uncontextualised(container);
-        if node.asterisk_token.is_some() || annotation.is_some() || contextualised {
+        // §225: an ANNOTATED generator's yield type is the annotation's NEXT
+        // type, and for the shape the corpus actually writes that is readable
+        // without `getIterationTypesOfGeneratorFunctionReturnType`. The
+        // refusal's stated reason — "note this is *not* `any`, since
+        // `Generator<number>`'s next type is `unknown`" — is exactly right and
+        // is the reason this reads the slot rather than assuming `any`:
+        // `Generator<T = unknown, TReturn = any, TNext = unknown>` and
+        // `IterableIterator<T, TReturn = any, TNext = any>` disagree, so the
+        // answer has to come from the declaration.
+        if let Some(annotation) = annotation {
+            return self.next_type_of_annotated_generator(annotation).unwrap_or(error);
+        }
+        if node.asterisk_token.is_some() || contextualised {
             return error;
         }
         any
