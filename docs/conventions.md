@@ -4433,3 +4433,40 @@ routinely turned up nothing, the wide form would be free and this would be
 ceremony. Two attempts, two hits (§232 here; conventions corollary 11 is the
 same shape one layer in, a shared helper whose conservatism belonged to its
 first caller). Re-price if that stops holding.
+
+### Corollary 30 (2026-08-12): a disjunction is the easiest thing to under-port
+
+Three arms in one session were the same defect, and the defect has a shape that can
+be checked mechanically rather than noticed:
+
+| arm | upstream | what was ported | cost |
+|---|---|---|---:|
+| §204 | `!IsPropertyAccessOrQualifiedName(node.Parent)` — a test on the parent | a match on the property-access **name** position | +10 |
+| §252 | `getIndexInfosOfSymbol` walks the symbol's members | two of the three declaration **carriers** | +6 |
+| §253 | `Name().Kind == KindStringLiteral \|\| IsGlobalScopeAugmentation(node)` | the **first disjunct** | +6 |
+
+> **When a ported predicate is a disjunction upstream, count the `\|\|` in the Go and
+> count the arms in the Rust. A missing disjunct passes every test you think to
+> write, because the disjunct you ported is the one you were thinking about.**
+
+This is corollary 20's mechanism rather than another instance of it. Twenty says a
+port longer than the predicate has encoded the witness; thirty says *why* the
+missing part stays missing. The first disjunct covers the common case — that is
+generally why it is written first — so the ported half is right about everything
+the author had in mind, every fixture they reach for, and every control they think
+to add. **The second disjunct's population is by definition the one that was not
+being considered.**
+
+`declare global { … }` is the cleanest illustration. It *is* an ambient module
+upstream, by the second half of a two-clause test, and nothing about the first half
+hints that a module's name might not be a string literal. The port was correct for
+every ambient module anyone would think to write down.
+
+Why this one is worth having when so many rules are judgement: it needs no
+understanding of the subject matter. `grep '||'` in the upstream function, count
+the branches in the port, compare. It applies to `&&` chains read as filters too —
+§252's collector was a three-way match with one arm absent.
+
+How you would know this is wrong: if the missing disjuncts turn out to cover
+populations the corpus never exercises, the count is a cheap check that buys
+nothing and the real work is elsewhere. Measured so far: three for three, 22 cases.
