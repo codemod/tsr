@@ -311,23 +311,34 @@ impl<'a> Parser<'a> {
             return Some(ClassElement::SemicolonClassElement(node));
         }
 
+        // A class member is one of the two positions where `const` is a
+        // modifier rather than a declaration keyword; see `parse_modifiers_ex`.
+        let modifiers = self.parse_modifiers_ex(true, true);
+
         // `static { … }` is a static initialization block; `static` followed by
         // anything else is a modifier.
+        //
+        // **After the modifier run, not before** — upstream's order
+        // (`parseClassElement`, `parser.go:2500`, having told `parseModifiersEx`
+        // to stop at `static {`). Checked first, as this port did, the branch is
+        // unreachable for `async static { }` or `public static { }`: the
+        // leading modifier is not `static`, so the run swallows both keywords
+        // and the `{` is read as an object literal. Illegal modifiers on a
+        // static block are still a static block upstream —
+        // `conformance/classStaticBlock20` records one assertion for three of
+        // them. §211.
         if self.at(SyntaxKind::StaticKeyword) && self.next_is_open_brace() {
             self.next_token();
             // `parseClassStaticBlockBody` (`parser.go:2539`) turns the await
             // context ON unconditionally: `static { await x }` is legal.
             let body = self.with_await_context(true, Self::parse_block);
+            let modifiers = self.arena.alloc_slice(&modifiers);
             return Some(ClassElement::ClassStaticBlockDeclaration(self.finish_node(
-                ClassStaticBlockDeclaration::new(&[], Some(body)),
+                ClassStaticBlockDeclaration::new(modifiers, Some(body)),
                 SyntaxKind::ClassStaticBlockDeclaration,
                 start,
             )));
         }
-
-        // A class member is one of the two positions where `const` is a
-        // modifier rather than a declaration keyword; see `parse_modifiers_ex`.
-        let modifiers = self.parse_modifiers_ex(true);
 
         // `[key: string]: T` — an index signature on a class.
         if self.at(SyntaxKind::OpenBracketToken) && self.bracket_holds_index_signature() {
@@ -549,7 +560,7 @@ impl<'a> Parser<'a> {
         matched
     }
 
-    fn next_is_open_brace(&mut self) -> bool {
+    pub(crate) fn next_is_open_brace(&mut self) -> bool {
         self.peek_kind(|kind| kind == SyntaxKind::OpenBraceToken)
     }
 

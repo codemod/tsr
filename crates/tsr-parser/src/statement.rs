@@ -284,7 +284,7 @@ impl<'a> Parser<'a> {
     /// modifiers: `@dec public readonly x` and `public @dec x` are both accepted
     /// by the grammar.
     pub(crate) fn parse_modifiers(&mut self) -> Vec<ModifierLike<'a>> {
-        self.parse_modifiers_ex(false)
+        self.parse_modifiers_ex(false, false)
     }
 
     /// `parseModifiersEx`'s `permitConstAsModifier` (`parser.go:3859`).
@@ -300,9 +300,17 @@ impl<'a> Parser<'a> {
     /// this, our parser ends the modifier run at `static`, takes `const` as the
     /// member *name*, and then reads `H = 1` as a second member — two
     /// declarations where upstream has one, with different names.
+    /// `stop_on_start_of_class_static_block` is upstream's third parameter
+    /// (`parseModifiersEx`, `parser.go:4023`), passed `true` only by
+    /// `parseClassElement`. Without it `async static { }` eats `static` as a
+    /// modifier and leaves the `{` to be read as an object literal, so
+    /// `conformance/classStaticBlock20` — three static blocks, each written
+    /// with an illegal modifier — records one assertion upstream and three
+    /// here. §211.
     pub(crate) fn parse_modifiers_ex(
         &mut self,
         permit_const_as_modifier: bool,
+        stop_on_start_of_class_static_block: bool,
     ) -> Vec<ModifierLike<'a>> {
         let mut modifiers = Vec::new();
         let mut seen_static = false;
@@ -313,6 +321,15 @@ impl<'a> Parser<'a> {
             }
             let kind = self.token.kind;
             if !is_modifier(kind) {
+                break;
+            }
+            // `static {` is the head of a class static BLOCK, never a modifier
+            // run — upstream stops here so `parseClassElement` can see the
+            // `static` itself (`parser.go:4023`, `:2500`).
+            if stop_on_start_of_class_static_block
+                && kind == SyntaxKind::StaticKeyword
+                && self.next_is_open_brace()
+            {
                 break;
             }
             // `const` opens a variable declaration in most positions, and
