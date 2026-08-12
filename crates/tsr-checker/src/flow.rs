@@ -3839,7 +3839,16 @@ impl Checker<'_, '_> {
                 kept.push(constituent);
             }
         }
-        if kept.is_empty() || kept.len() == total {
+        if kept.is_empty() {
+            // SS198 (second call site, found by checker-1's SS210 pre-flight:
+            // `grep` the name before measuring). The TRUTHINESS twin of the
+            // member filter carried the identical emptied-set defect —
+            // answering `t` where upstream's `filterType` answers the empty
+            // union, which is `never`. Fixed with its sibling rather than
+            // after it.
+            return self.intrinsics.never;
+        }
+        if kept.len() == total {
             return t;
         }
         self.rebuild_union_subset(t, &kept)
@@ -3876,7 +3885,18 @@ impl Checker<'_, '_> {
                 None => return t,
             }
         }
-        if kept.is_empty() || kept.len() == total {
+        if kept.is_empty() {
+            // SS198: an EMPTIED filter is `never`, on both branches —
+            // upstream's `filterType` builds the union of what survived and
+            // the empty union IS `never`. Answering `t` here kept a
+            // constituent every clause had already returned:
+            // `discriminantsAndTypePredicates` narrows to `never` after both
+            // `x.type === ...` arms return, and we answered `B`. Same defect
+            // SS155 fixed in the equality filter; this is its member-literal
+            // twin, and the two were written from one another.
+            return self.intrinsics.never;
+        }
+        if kept.len() == total {
             return t;
         }
         self.rebuild_union_subset(t, &kept)
