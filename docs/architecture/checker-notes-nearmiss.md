@@ -774,3 +774,80 @@ obvious fix breaks `>T : T` at the top level, which no failing fixture would
 have flagged. Corollary 25 asks which input separates your rule from the wrong
 one — here that input is already green, so the census cannot show it and only
 reading the baseline can.
+
+## §230 Upstream can be *executed*, not only read — and the first question it answered reversed a static reading
+
+Two rows had been recorded as "needs upstream executed" (§227 here and in
+`flow.rs`; §229's type-alias singleton). That instrument turns out to already
+exist and cost nothing to use.
+
+### The recipe
+
+```sh
+# 1. write a probe fixture into upstream's LOCAL cases (not the submodule's)
+vendor/typescript-go/testdata/tests/cases/compiler/<name>.ts
+
+# 2. run upstream's own baseline runner; Go 1.25 and the tree are both present,
+#    `bundled.Embedded` is on by default (`!noembed`), no submodule needed
+cd vendor/typescript-go && go test ./internal/testrunner -run TestLocal
+
+# 3. read what upstream actually printed
+vendor/typescript-go/testdata/baselines/local/compiler/<name>.types
+
+# 4. DELETE both the fixture and the generated baselines
+```
+
+Step 4 is not optional: the fixture and its four baselines are untracked files
+inside a **pinned submodule**, and leaving them makes the submodule dirty for
+every other worktree on the machine. Check with `git status` inside
+`vendor/typescript-go`, not just in the port.
+
+The test "fails" by design — `new baseline created` is the success signal, and
+the exit code is 0. Corollary 26's family: read the artefact, not the status.
+
+### What it answered, and why the answer could not have been read
+
+§227's shape is `var x;` (auto-typed) referenced from `export = x`. Upstream
+prints `any`; this port printed `undefined`. A static read of
+`checker.go:11149-11190` predicts **`undefined`** — `t` is `autoType`, which
+disables the whole `t != autoType && …` disjunct group, no other disjunct of
+`assumeInitialized` applies, so `initialType` is `undefinedType` and neither
+final branch fires. The reading was careful, was written down twice, and was
+wrong.
+
+One probe fixture settled it, and the shape of the answer is what matters:
+
+```text
+x;
+>x : undefined
+
+export = x;
+>x : any
+```
+
+**One symbol, two sites, two answers — three lines apart in one file.** That
+single fact eliminates every symbol-level disjunct at once (`isAlias`,
+`isModuleExports`, `isParameter`), because none of them can vary by reference
+site. What remains is that `export = x` makes `x` the entity name of an *alias
+declaration* (`getTargetOfExportAssignment`, `checker.go:14889`), so it answers
+the symbol's declared type and never enters the flow walk at all.
+
+**+4 cases, 0 lost** (`exportAssignmentWith{DeclareAndExportModifiers,
+DeclareModifier,ExportModifier}`, `conformance/exportAssignTypes`).
+
+### The lesson is about the method, not the arm
+
+The arm is four lines. The reading that preceded it was two careful passes over
+upstream and produced a confident, documented, wrong prediction — and the thing
+that would have caught it was available the whole time and cost about five
+minutes.
+
+So: **when a static read of upstream predicts what this port already does and
+the baseline disagrees, stop reading and run it.** That situation is not a hard
+puzzle, it is a signal that one of the premises is false, and premises are
+cheaper to test than to re-derive.
+
+It also supplies controls no fixture in the corpus provides. Here the control
+— that an *ordinary* reference to the same symbol must keep narrowing to
+`undefined` — is what makes the wider rule ("an auto-typed variable always
+reads `any`") visibly wrong instead of merely unmeasured.

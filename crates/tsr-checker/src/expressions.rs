@@ -466,6 +466,37 @@ impl Checker<'_, '_> {
                                     self.get_base_type_of_literal_type(flowed)
                                 }
                                 AssignmentTargetKind::None => {
+                                    // §230: the expression of an
+                                    // `export = x` is not flow-narrowed. It is
+                                    // the entity name of an ALIAS declaration
+                                    // (`getTargetOfExportAssignment`,
+                                    // `checker.go:14889`), so it answers the
+                                    // symbol's declared type and never enters
+                                    // the flow walk — which is why an
+                                    // auto-typed `var x;` reads `any` there and
+                                    // `undefined` in an ordinary reference.
+                                    //
+                                    // **Both halves measured against upstream
+                                    // ITSELF**, not inferred: a probe fixture
+                                    // run through upstream's own
+                                    // `TestLocal` baseline runner records
+                                    // `x;` → `undefined` and, three lines
+                                    // later in the same file on the same
+                                    // symbol, `export = x;` → `any`. A symbol
+                                    // answering two ways at two sites is what
+                                    // rules out every symbol-level disjunct of
+                                    // `assumeInitialized` (`:11150-11158`) —
+                                    // those cannot vary by reference site.
+                                    if self
+                                        .nodes
+                                        .parent(node_id)
+                                        .is_some_and(|parent| {
+                                            self.nodes.kind(parent)
+                                                == SyntaxKind::ExportAssignment
+                                        })
+                                    {
+                                        return declared;
+                                    }
                                     // §50 (`checker-notes-narrow.md`): a
                                     // dependent destructured local narrows
                                     // its PARENT at the use site and
