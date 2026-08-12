@@ -1209,6 +1209,31 @@ fn render_case(
                 if case.had_error_baseline && answer == "error" {
                     answer = "any".to_string();
                 }
+                // SS204 `!ast.IsPropertyAccessOrQualifiedName(node.Parent)`
+                // (`type_symbol_baseline.go:383`, the THIRD condition). SS183
+                // ported this guard for one position only — the NAME side of a
+                // property access — because that was the position its witness
+                // occupied. Upstream's test is on `node.Parent` alone: EITHER
+                // side of EITHER construct. `moduleOuterQualification` is the
+                // half SS183 missed, and it is the left side of a qualified
+                // name:
+                //
+                //     namespace inner { export interface Beta extends outer.Beta {} }
+                //     >outer : any        <- parent is a QualifiedName
+                //
+                // The guard belongs to the WRITER, not the checker, which is
+                // why it sits here beside SS180 rather than inside
+                // `type_at_location`: it does not change what any type IS, only
+                // whether an any-flagged one takes the intrinsic fast path.
+                if answer == "error"
+                    && let Some(parent) = nodes.parent(id)
+                    && matches!(
+                        nodes.kind(parent),
+                        SyntaxKind::PropertyAccessExpression | SyntaxKind::QualifiedName
+                    )
+                {
+                    answer = "any".to_string();
+                }
                 if explain && answer == "error" {
                     gaps.push(id);
                 }
