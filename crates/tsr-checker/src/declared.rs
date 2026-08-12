@@ -1409,6 +1409,27 @@ impl<'a> Checker<'a, '_> {
     /// wrong arity; without diagnostics the answer is a gap — which is also what
     /// happens when a file is checked with no lib files, as every unit test here
     /// is.
+    ///
+    /// # The arity is silent, and it has bitten twice
+    ///
+    /// `global_type_symbol(name)` means *"no such global at arity 1"* and reads
+    /// as *"no such global"*. A caller whose type has a different arity gets a
+    /// perfectly legitimate `None` and an arm that never runs — no error, no
+    /// warning, a plausible negative. Two in one day: `checker-2`'s §251
+    /// (`Iterable`/`IterableIterator`/`Generator`, all arity 3 in the modern
+    /// lib) and §231 (`Function`, arity **0**, whose `typeof` narrowing arm had
+    /// therefore never executed in any program).
+    ///
+    /// **Every caller has now been audited and the rest are correct** — do not
+    /// redo this. The full set is `Array`, `ReadonlyArray`, `Promise` and
+    /// `Function`; the first three are genuinely arity 1, and the two call
+    /// sites that pass a *variable* name (`contextual.rs`, and the array/tuple
+    /// road above) only ever pass `"Array"` or `"ReadonlyArray"`.
+    ///
+    /// **Prefer [`Checker::global_type_symbol_with_arity`] in new code.** Its
+    /// arity is written at the call site, where the reader can check it against
+    /// the lib, rather than inherited from a default that is right for four
+    /// types and wrong for everything else.
     pub(crate) fn global_type_symbol(&self, name: &str) -> Option<SymbolId> {
         self.global_type_symbol_with_arity(name, 1)
     }

@@ -215,7 +215,10 @@ impl<'a> Checker<'a, '_> {
                         }
                     }
                 }
-                _ => continue,
+                // Any other declaration kind carries no index signature.
+                // (`_ => continue` here is the same thing and clippy calls it
+                // redundant, since the loop body ends immediately after.)
+                _ => {}
             }
         }
         for base in self.base_symbols_of(owner)? {
