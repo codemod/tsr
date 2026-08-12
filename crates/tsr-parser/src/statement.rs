@@ -731,8 +731,25 @@ impl<'a> Parser<'a> {
         }
 
         self.expect(SyntaxKind::SemicolonToken);
-        let condition =
-            if self.at(SyntaxKind::SemicolonToken) { None } else { Some(self.parse_expression()) };
+        // §236: **both halves**. Upstream's guard is
+        // `p.token != KindSemicolonToken && p.token != KindCloseParenToken`
+        // (`parser.go:1319`); this had only the first, so `for () { }` — where
+        // the token after the failed `;` is `)` — parsed an expression and
+        // manufactured a zero-width identifier. `compiler/for` rendered one
+        // assertion more than upstream and failed on the count alone with every
+        // line otherwise right.
+        //
+        // The incrementor below already tests `)` because that is the only
+        // thing that can follow it. The condition can be closed by EITHER
+        // token, and a guard written from the common case sees only the
+        // common one — `docs/conventions.md` corollary 30.
+        let condition = if self.at(SyntaxKind::SemicolonToken)
+            || self.at(SyntaxKind::CloseParenToken)
+        {
+            None
+        } else {
+            Some(self.parse_expression())
+        };
         self.expect(SyntaxKind::SemicolonToken);
         let incrementor =
             if self.at(SyntaxKind::CloseParenToken) { None } else { Some(self.parse_expression()) };
