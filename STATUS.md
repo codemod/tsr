@@ -1650,6 +1650,42 @@ record as *"following `export =` to a module object"* rather than the wider
 *"following `export =`"* — corollary 16's question asked of a refusal that is
 otherwise correct.
 
+### §253 is half of a rule — the line now appears, and one shape prints the wrong type
+
+§253 fixed `IsAmbientModule`'s missing disjunct, so `declare global { … }` keeps a
+VALUE meaning and its name is no longer dropped from the walk. **That was the
+whole fix for `moduleAugmentationGlobal6` and kin (+6 cases).** It is not the whole
+fix everywhere.
+
+`compiler/duplicatePackage_globalMerge` now emits the line and gets the type wrong:
+
+```text
+/node_modules/@types/react/index.d.ts
+    declare global { }
+    WANT global : typeof global      GOT global : any
+```
+
+and a second unit in the same case still emits nothing at all:
+
+```text
+/tests/node_modules/@types/react/index.d.ts
+    WANT global : typeof global      GOT <none>
+```
+
+So there are at least two more shapes behind this one, and the difference from the
+fixed cases is **not** established. The obvious candidate — an EMPTY `declare
+global { }` body being uninstantiated, so the symbol never gets `VALUE_MODULE` and
+`get_type_of_func_class_enum_module_worker` falls through to the error type, which
+§180/§248 then spell `any` — is a **guess and is recorded as one**. It was not
+probed, and the last three times a mechanism was inferred from a witness in this
+area (§247's node, its probe position, its probe scope) the inference was wrong.
+
+Cheap next step, and it is one probe now that upstream is executable: put
+`declare global { }` and `declare global { interface I {} }` in one fixture and
+read both lines. If they differ, instantiation is the discriminator; if they agree,
+it is the second unit's file position and this is a resolution question rather than
+a rendering one.
+
 ## 5. Refused, with the number that refused it
 
 > **§5 IS DANGEROUS WHEN STALE.** Its whole purpose is "do not re-derive
