@@ -1907,3 +1907,51 @@ fn an_ordinary_new_expression_is_not_a_meta_property() {
         assert_eq!(news, 1, "{source:?} must build one NewExpression");
     }
 }
+
+
+/// §235. An argument-list token that starts no argument is SKIPPED, not parsed.
+///
+/// `abortParsingListOrMoveToNextToken` (`parser.go:698`) is upstream's third
+/// arm: when a token neither starts an element nor terminates the list nor
+/// belongs to an enclosing one, it reports, **skips one token and retries**,
+/// creating no node. This port parsed an argument regardless, so `Foo(,` minted
+/// a zero-width missing identifier and rendered one assertion more than
+/// upstream — `conformance/parserErrorRecovery_ArgumentList6` and friends, the
+/// structural pool of `nearmiss --structural`.
+#[test]
+fn an_argument_list_skips_a_token_that_starts_no_argument() {
+    let arena = Arena::new();
+    let parsed = parse(&arena, "Foo(,");
+    let count = all_nodes(tsr_ast::Node::SourceFile(parsed.source_file))
+        .iter()
+        .filter(|node| matches!(node, tsr_ast::Node::Identifier(_)))
+        .count();
+    // `Foo` and nothing else: no manufactured argument for the comma.
+    assert_eq!(count, 1, "only `Foo` is an identifier here");
+}
+
+/// The control that the first draft failed, and it cost three thousand lines.
+///
+/// `isListElement(PCArgumentExpressions)` is
+/// `token == KindDotDotDotToken || isStartOfExpression()` (`parser.go:884`).
+/// Porting only the second half skipped every **spread** argument, because
+/// `...` starts no expression: `variadicTuples1` −466 lines,
+/// `genericRestParameters1` −310, `callWithSpread` −218 — against a +2 case
+/// delta that looked like a win.
+#[test]
+fn a_spread_argument_is_an_argument() {
+    let arena = Arena::new();
+    let parsed = parse(&arena, "f(...args);");
+    let Some(Statement::ExpressionStatement(statement)) = parsed.source_file.statements.first()
+    else {
+        panic!("expected an expression statement");
+    };
+    let Some(Expression::CallExpression(call)) = statement.expression else {
+        panic!("expected a call");
+    };
+    assert_eq!(call.arguments.len(), 1, "the spread is the argument, not a skipped token");
+    assert!(
+        matches!(call.arguments[0], Expression::SpreadElement(_)),
+        "and it is a spread element"
+    );
+}

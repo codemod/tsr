@@ -794,6 +794,32 @@ impl<'a> Parser<'a> {
             ) {
                 break;
             }
+            // §235: upstream's THIRD arm, for this context only.
+            // `abortParsingListOrMoveToNextToken` (`parser.go:698`) reports,
+            // **skips one token, and retries** — creating no node — when the
+            // token neither starts an element nor terminates the list nor
+            // belongs to an enclosing one. This port parsed an argument
+            // regardless, so `Foo(,` minted a zero-width missing identifier and
+            // rendered one assertion more than upstream.
+            //
+            // The `parsingContexts` bitmask this arm needs in general does not
+            // exist here — see `checker-notes-nearmiss.md` §191/§228. What
+            // stands in for it is the break above, which already leaves on the
+            // three closers that certainly end an enclosing block, object or
+            // index. A token that starts no expression and is none of those is
+            // one upstream skips.
+            // `isListElement(PCArgumentExpressions)` is
+            // `token == KindDotDotDotToken || isStartOfExpression()`
+            // (`parser.go:884`) — **both halves**. The first draft ported only
+            // the second and measured +2 cases against roughly **three thousand
+            // lines lost**, every one of them a spread argument:
+            // `variadicTuples1` −466, `genericRestParameters1` −310,
+            // `callWithSpread` −218. Corollary 30, by the author of the commit
+            // that had just cited it.
+            if !self.at(SyntaxKind::DotDotDotToken) && !self.is_start_of_expression() {
+                self.next_token();
+                continue;
+            }
             let before = self.pos();
             arguments.push(self.parse_argument());
             if !self.eat(SyntaxKind::CommaToken) {
