@@ -4122,3 +4122,45 @@ The operative habit is therefore not "write controls for name-shaped arms" but:
 And a faithful transcription of a short upstream function is exactly the change
 one is least tempted to check — there is no judgement in it to doubt. The
 judgement is in whether the rest of the port can afford the answer.
+
+### Corollary 25 (2026-08-12): a delta can be true of two arms and evidence for neither
+
+Corollary 24 says the instrument cannot see inside a failing case. This one is
+about the cases it *can* see, and it is worse, because here the number is
+correct and still means nothing.
+
+> **Before trusting a delta, name the input that would distinguish your arm from
+> the plausible wrong one, and check whether any fixture contains it. If none
+> does, the number is evidence for the fixtures, not for the rule.**
+
+Worked case, and it is a true collision. Both lanes built the bare-`yield`
+no-strict arm within an hour, from the same §135 deferral note, against the same
+witness, and **both measured +5 on the same cases**. They are not the same arm:
+
+- **§220** contributes `any` at the site, because upstream's bare yield
+  contributes `undefinedWideningType` and `getWidenedType` maps that to `any`.
+- **§245** contributed `undefined` and widened the *aggregate*, on the reading
+  that `getReturnTypeFromBody` widens at the end.
+
+The discriminating input is a **mixed** generator, `function* f() { yield; yield 1 }`
+under no-strict. §220 aggregates `{any, number}` → `any`, which is upstream's
+answer. §245 aggregates `{undefined, number}` → `number | undefined`, and its
+aggregate widening does not fire because the union is not itself the undefined
+type. A wrong answer, not a partial one.
+
+**No fixture in the row contains a mixed yield.** The census was therefore
+structurally incapable of separating a correct arm from an incorrect one, and
++5 would have shipped the wrong one green. §245 was withdrawn on inspection of
+the collision, not on any measurement — no measurement available could have
+done it.
+
+The check is cheap and mechanical, and it is *not* "write more tests": it is one
+question asked before reading the number. What input separates this rule from
+the nearest wrong rule? Then grep the corpus for it. A row of fixtures that all
+exercise the easy half of a rule is the normal case, not the exceptional one —
+fixtures are written to demonstrate features, not to discriminate between two
+candidate implementations of them.
+
+How you would know this is wrong: if the discriminating input turns out to be in
+the corpus after all, the delta *was* evidence and the worry was unfounded. That
+is a one-command check, which is the whole point.
