@@ -166,15 +166,56 @@ impl<'a> Checker<'a, '_> {
         let declarations = self.binder.symbols().get(owner).declarations.clone();
         let mut infos = Vec::new();
         for declaration in declarations {
-            let members: &[TypeElement<'a>] = match self.node_map.get(declaration) {
-                Some(Node::InterfaceDeclaration(node)) => node.members,
-                Some(Node::TypeLiteralNode(node)) => node.members,
-                _ => continue,
+            // §252. A CLASS declares index signatures too, and this collector
+            // read only the two `TypeElement` carriers. `getIndexInfosOfSymbol`
+            // makes no such distinction — it walks the symbol's members, and a
+            // class's `[x: string]: string` is one of them.
+            //
+            //     class C { foo!: string; [x: string]: string; }
+            //     declare var c: C;
+            //     var r2: string = c[''];
+            //     >c[''] : string        <- this port answered `any`
+            //
+            // Witness `conformance/objectTypeWithStringIndexerHidingObjectIndexer`,
+            // whose four sub-cases are a class, an interface, a type literal and
+            // an `Object` augmentation — the interface and literal ones already
+            // passed, which is exactly why the class gap was invisible: three of
+            // four carriers worked.
+            //
+            // A class member is a `ClassElement`, not a `TypeElement`, so the
+            // arm is separate rather than another line in the match. The
+            // *element* is the only difference; the info is built by the same
+            // `index_info_of`, which the AST makes possible because both
+            // carriers wrap the identical `IndexSignatureDeclaration` node.
+            let mut push_from = |checker: &mut Self, signature| {
+                if let Some(info) = checker.index_info_of(signature) {
+                    infos.push(info);
+                }
             };
-            for member in members {
-                let TypeElement::IndexSignatureDeclaration(signature) = member else { continue };
-                let Some(info) = self.index_info_of(signature) else { continue };
-                infos.push(info);
+            match self.node_map.get(declaration) {
+                Some(Node::InterfaceDeclaration(node)) => {
+                    for member in node.members {
+                        if let TypeElement::IndexSignatureDeclaration(signature) = member {
+                            push_from(self, signature);
+                        }
+                    }
+                }
+                Some(Node::TypeLiteralNode(node)) => {
+                    for member in node.members {
+                        if let TypeElement::IndexSignatureDeclaration(signature) = member {
+                            push_from(self, signature);
+                        }
+                    }
+                }
+                Some(Node::ClassDeclaration(node)) => {
+                    for member in node.members {
+                        if let tsr_ast::ClassElement::IndexSignatureDeclaration(signature) = member
+                        {
+                            push_from(self, signature);
+                        }
+                    }
+                }
+                _ => continue,
             }
         }
         for base in self.base_symbols_of(owner)? {
