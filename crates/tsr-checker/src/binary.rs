@@ -274,11 +274,22 @@ impl Checker<'_, '_> {
         {
             return self.intrinsics.number;
         }
-        if both(TypeFlags::BIG_INT_LIKE) {
+        // §260, and this is corollary 30 applied to §258 itself: §258 wired the
+        // union descent into ONE of this function's three kind tests, because
+        // `NUMBER_LIKE` was the one its witness needed. The other two ask the
+        // same question of the same nodes and were left on raw flags — the
+        // half-a-predicate shape, committed one commit after writing the rule
+        // against it.
+        if both(TypeFlags::BIG_INT_LIKE)
+            || (has_kind(self, left, TypeFlags::BIG_INT_LIKE)
+                && has_kind(self, right, TypeFlags::BIG_INT_LIKE))
+        {
             return self.intrinsics.bigint;
         }
         if left_flags.intersects(TypeFlags::STRING_LIKE)
             || right_flags.intersects(TypeFlags::STRING_LIKE)
+            || has_kind(self, left, TypeFlags::STRING_LIKE)
+            || has_kind(self, right, TypeFlags::STRING_LIKE)
         {
             return self.intrinsics.string;
         }
