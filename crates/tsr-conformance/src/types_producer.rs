@@ -1569,6 +1569,33 @@ fn render_case(
                 {
                     answer = "any".to_string();
                 }
+                // §255, REVERTED, and the re-test was worth running. §254
+                // established that a recorded +0 is true of a TREE rather than
+                // of an ARM, so §179/§181's other two zeroes were re-measured
+                // rather than assumed still zero. The BINDING ELEMENT guard
+                // (`!ast.IsBindingElement(node.Parent)`,
+                // `type_symbol_baseline.go:382`) applied whole:
+                //
+                //     +2 cases
+                //     GAP->RIGHT   112
+                //     GAP->WRONG   436   <-- 1 : 4 against
+                //
+                // So it is no longer case-inert — it is ACTIVELY HARMFUL at
+                // line level, and the case tally says +2. That is corollary
+                // 24's sharpest instance in this file: a two-case gain hiding
+                // 436 gaps turned into confident wrong answers.
+                //
+                // The reason is already documented at the binding-element note
+                // further down: upstream's guard covers EVERY child of a
+                // binding element, and those positions were measured NOT to
+                // behave alike — the bound name, the property name, the
+                // initialiser and the dots each want something different. The
+                // guard whole is wrong here; the property-name subset (already
+                // ported) is the part that holds.
+                //
+                // Re-tested 2026-08-12. The record changes from "case-inert"
+                // to "measured 1:4 adverse", which is a much stronger refusal
+                // than the zero it replaces.
                 if answer == "error"
                     && let Some(parent) = nodes.parent(id)
                     && matches!(

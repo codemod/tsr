@@ -4512,3 +4512,25 @@ failure mode this corollary addresses is not "old negatives are wrong" — it is
 changes routinely reproduced them, the discipline would be pure cost. Two
 re-tests so far, one flip and one confirmation — which is exactly the ratio that
 makes checking worthwhile and guessing useless.
+
+**The sibling zero was re-tested the same hour, and came back worse than zero.**
+§179/§181 also measured the binding-element guard
+(`!ast.IsBindingElement(node.Parent)`, `type_symbol_baseline.go:382`) at `+0`.
+Re-run on the tree that revived its sibling:
+
+```text
++2 cases
+GAP->RIGHT   112
+GAP->WRONG   436      <- 1 : 4 against
+```
+
+It is no longer case-inert; it is **actively harmful at line level while the case
+tally reads +2** — corollary 24's sharpest instance yet, a two-case gain hiding 436
+gaps turned into confident wrong answers. Reverted, with the measurement kept at
+the site.
+
+**Both outcomes argue the same habit, which is the point:** one zero became a `+5`
+arm and the other became a measured 1:4 refusal. Neither stayed a zero. A refusal
+that says *"1:4 adverse, here are the numbers"* is a far stronger record than one
+that says *"measured +0 twice"*, because the next reader can tell what would have
+to change for it to be revisited.
