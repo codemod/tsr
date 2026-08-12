@@ -719,6 +719,32 @@ impl<'a> Checker<'a, '_> {
             // arm are not ported — each such miss stays a gap
             // (`checker-notes-modobj.md` §10.11).
             SyntaxKind::ImportClause => return self.import_clause_default_target(declaration),
+            // **No `NamespaceExportDeclaration` arm, and it is not an omission.**
+            // `getTargetOfNamespaceExportDeclaration` (`checker.go:15011`) is
+            // three lines — `resolveExternalModuleSymbol(node.Parent.Symbol(),
+            // dontResolveAlias=true)`, which this port's
+            // `resolve_external_module_symbol` already matches exactly, since it
+            // returns the `export=` symbol without resolving it further. §222
+            // transcribed it and MEASURED IT DOWN.
+            //
+            // +1 case (`conformance/umd7`), 0 lost — and **−14 lines in
+            // `conformance/umd-augmentation-1` alone**, of which the worst is
+            // `>m : typeof m` going **right → `error`**. Not a gap becoming a
+            // wrong answer this time (corollary 24's case) but a *correct* line
+            // becoming wrong, which no case-level tally shows: the case was
+            // already failing and stayed failing, so `+1 / −0` was the whole
+            // report. The rest are qualification losses — `m.Vector` printing
+            // as `Vector` — because making the UMD target reachable puts names
+            // through a printer that cannot qualify them through the alias.
+            //
+            // That is the SAME blocker as `module_object_of`'s: `bd tsr-e2u`,
+            // the naming half. Two independent arms now measure positive on
+            // cases and negative on correctness for one missing capability,
+            // which is the argument for building that capability rather than
+            // any further arm that depends on it.
+            //
+            // Gating this to exclude the augmented shape would be fitting the
+            // witness — corollary 20 — so it is left out whole.
             _ => {}
         }
         // `getTargetOfNamespaceImport` (`checker.go:14724`) and
