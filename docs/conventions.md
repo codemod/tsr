@@ -4371,3 +4371,65 @@ blocker.** It was never priced. So the corollary has a second half:
 build per question, or an instrumented fork to maintain — then deferring would
 be rational and the reading would be the cheaper path. Re-price it if that
 changes.
+
+### Corollary 29 (2026-08-12): is the refusal's scope the same as its reason's scope?
+
+Corollary 16 asks whether a refusal's stated reason is *real* — whether it
+describes something that actually goes wrong. This is the question that comes
+after, and it bites refusals that pass 16 cleanly:
+
+> **A refusal states a reason and covers a construct. Those are two different
+> sets, and nothing checks that they are the same one.**
+
+A reason is written about the case in front of you. The refusal is written
+against the syntax you were looking at. The gap between them is invisible
+because everything you measured is inside it — the measurement confirms the
+reason, the reason justifies the refusal, and the population the reason has
+nothing to say about is never sampled.
+
+**Worked case, §219 → §232.** `module_object_of` refused to follow `export =`,
+because following it hands the printer a `declare namespace __React` and prints
+`typeof __React` where every tsx baseline records `typeof React`. That reason is
+correct, was measured, and is about **naming a module object**. The refusal
+covered the whole construct — including `export = a` over `var a = 10`, which
+resolves to a plain variable, answers `number`, and prints no name at all.
+There was nothing there for the reason to object to.
+
+Splitting the guard on the resolved target's module flags: **+4 cases, 0 lost,
+18 lines wrong→right and 0 right→wrong.** The hazard the reason names is
+untouched, because that population still declines.
+
+Note what did *not* find it. The refusal had a measurement (+4/−0/+40 lines), a
+named mechanism, three controls, and a doc comment sizing the follow-on work.
+All of it was right. It took another reader asking whether the witnesses the
+reason cited were the same witnesses the guard caught.
+
+**The mechanical form of the question**, worth asking of any refusal you write:
+
+- name the population the reason is *about*;
+- name the population the guard *covers*;
+- if the second is larger, the difference is unmeasured surface being refused
+  for a reason that does not reach it.
+
+**And a second-order error to watch, because it followed immediately.** The
+sizing derived from the wide refusal was also wrong: `bd tsr-e2u` was recorded
+at ~11 cases because removing the *whole* guard moved 11, and all of it was
+attributed to the one cause the guard named. It is ~7. **A refusal's price is
+measured on its scope, so an over-wide refusal over-prices the work behind
+it** — the same error one level up, and the one that decides what gets built
+next.
+
+**Write the refusal pin anyway, even when the refusal feels permanent.** §219's
+pin asserted a decline that looked settled for good. One commit later it was the
+regression test that caught §232's first draft reading module flags off the
+`export=` *alias* symbol — which carries `ALIAS`, never a module flag — letting
+exactly the case §219 exists to prevent through, printing `typeof __X`. A pin
+written to assert a refusal became the regression test for that refusal's own
+narrowing. That is not foreseeable when you write it, which is the argument for
+writing it.
+
+*How you would know this is wrong:* if narrowing a refusal to its reason
+routinely turned up nothing, the wide form would be free and this would be
+ceremony. Two attempts, two hits (§232 here; conventions corollary 11 is the
+same shape one layer in, a shared helper whose conservatism belonged to its
+first caller). Re-price if that stops holding.
