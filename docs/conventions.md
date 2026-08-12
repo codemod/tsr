@@ -3978,3 +3978,37 @@ So:
   wearing a handoff. Handing over a symptom labelled as a cause is worse
   than handing over the symptom.
 - **A "verified" in a handoff should name the specific thing eliminated.**
+
+### Corollary 22 (2026-08-11): anything named by POSITION is two-lane-unsafe
+
+Two lanes wrote a corollary 17 and an 18 within the same hour, because a
+numbered list is a **shared mutable counter** that both were treating as
+append-only local state. That collision was cheap to repair — renumber by
+landing order, fix the three `STATUS.md` citations — and it is the harmless
+member of a family.
+
+The dangerous member is the **`§N` build number**. Those are cited from
+commit messages, which are immutable, so a collision there cannot be
+repaired the way this one was: two different builds would permanently
+answer to one name, and every later citation would be ambiguous about
+which. This session's two lanes stayed clear of each other only because
+their ranges happened not to overlap — checker-1 in §190–§214, checker-2
+in §153–§204 — and nothing enforced that.
+
+Third member: **`STATUS.md` §5's row order**, and any other place a row is
+identified by where it sits rather than by what it says.
+
+So, when more than one agent is writing:
+
+- **Claim a numeric range before using it**, and say so where the other
+  lane will see it. A range is cheap; a collision in commit messages is
+  permanent.
+- **Prefer content-addressed references.** A commit hash, a fixture name
+  or an upstream `file.go:line` cannot collide. `§199` can, and already
+  nearly did.
+- **When you must cite a number, cite it with its lane or its hash** the
+  first time it appears in a document — `§204 (checker-2, 
+  `a4874675`)` survives a renumber; `§204` does not.
+- **Check the counter before appending to it.** `grep '^### Corollary'`
+  costs nothing and is exactly the pre-flight corollary 17 prescribes for
+  predicates, applied to prose.
