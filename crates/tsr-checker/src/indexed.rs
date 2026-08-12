@@ -215,6 +215,41 @@ impl Checker<'_, '_> {
         {
             return self.intrinsics.any;
         }
+        // §263, MEASURED AND REVERTED — incomplete rather than wrong, and the
+        // damage names the missing half.
+        //
+        // `noUncheckedIndexedAccess` adds `undefined` to an index-signature
+        // result. `members.rs:551` already does this on the PROPERTY road and
+        // this element-access road does not, so one program answers the
+        // narrowed type through one road and the bare type through the other.
+        // Surfaced by §262's two adverse lines.
+        //
+        // Applying it at all three `get_applicable_index_info` sites here:
+        //
+        //     +0 cases
+        //     WRONG->RIGHT 19   (noUncheckedIndexedAccess 9,
+        //                        noUncheckedIndexedAccessCompoundAssignments 8,
+        //                        noUncheckedIndexAccess 2)
+        //     RIGHT->WRONG  4   (noUncheckedIndexedAccessCompoundAssignments 2,
+        //                        noUncheckedIndexedAccess 2)
+        //
+        // 19:4 favourable, but it damages four lines that were RIGHT and buys
+        // no case at all — which is the test §248 passed and §249 failed, and
+        // this fails it too. Not landed on a favourable ratio alone.
+        //
+        // The damaged lines are in the same two fixtures that gain, which is
+        // the tell: the flag is being applied where upstream does AND where it
+        // does not. Upstream narrows a READ; the LHS of a compound assignment
+        // reads the DECLARED type (`checkAssignmentOperator`), and
+        // `noUncheckedIndexedAccessCompoundAssignments` is named for exactly
+        // that distinction. So the missing half is a write-position exclusion,
+        // and it is decidable from the parent — an element access whose parent
+        // is a compound-assignment LHS.
+        //
+        // Not built: the exclusion needs its own witnesses opened, and a
+        // +0-case arm is not the place to spend the last of a budget. The
+        // measurement is here so the next attempt starts from 19:4 and a named
+        // sub-population rather than from scratch.
         let Some(name) = self.property_name_from_index(index_type) else {
             // Not a literal, so it names no property. `getIndexedAccessType`
             // falls to the index signatures (`checker.go:21902`).
