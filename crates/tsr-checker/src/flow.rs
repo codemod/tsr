@@ -363,6 +363,48 @@ impl Checker<'_, '_> {
                 // want-`any` population), and the initial IS that answer;
                 // strict same-container keeps `undefined`, which the §9.2
                 // revert's losses pinned.
+                //
+                // # §227: an open row this arm decides, and a diagnosis that
+                // did NOT complete
+                //
+                // Three deficit-1 cases —
+                // `compiler/exportAssignmentWith{DeclareAndExportModifiers,
+                // DeclareModifier,ExportModifier}` — are `var x;` followed by
+                // `declare export = x;`, and upstream records `>x : any` on
+                // **both** the declaration and the reference. This port gets
+                // the declaration right and answers `undefined` at the
+                // reference, which is this arm's strict leg.
+                //
+                // What was checked and eliminated, so nobody repeats it:
+                //
+                // - **Not a compiler-options bug.** The obvious theory is that
+                //   the harness turns `strictNullChecks` on where upstream
+                //   leaves it off. It does not: `strict_option_value`
+                //   (`tsr-core/src/options.rs:916`) is
+                //   `if unknown { !strict.is_false() }`, and upstream's
+                //   `GetStrictOptionValue` (`core/compileroptions.go:294`) is
+                //   `options.Strict != TSFalse`. Character-for-character the
+                //   same rule, so both run these fixtures strict.
+                // - **Not a missing `autoType`.** `is_auto` exists and is set
+                //   correctly here.
+                //
+                // What is NOT explained: how upstream reaches `any`. Reading
+                // `checker.go:11149-11158`, `assumeInitialized` looks false for
+                // this shape — `t` IS `autoType`, which disables the whole
+                // `t != autoType && …` group, and no other disjunct applies
+                // (not a parameter, not an alias, same container, no `!`, the
+                // `declare` sits on the export assignment rather than on
+                // `var x`). That gives `initialType = undefinedType`, a flow
+                // type of `undefined`, and neither final branch at `:11182` or
+                // `:11190` fires — so a static read of upstream predicts
+                // `undefined`, which is what this port already answers, and the
+                // baseline says otherwise.
+                //
+                // So one of those steps is wrong and it needs upstream
+                // *executed*, not read. **Do not "fix" this arm from the
+                // baseline**: making the strict leg answer `any` would satisfy
+                // three cases by contradicting §9.2, whose revert losses are
+                // what pinned `undefined` here in the first place.
                 None if is_auto && !self.strict_null_checks => self.intrinsics.any,
                 None if is_auto => self.intrinsics.undefined,
                 None => declared_type,
