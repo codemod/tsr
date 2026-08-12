@@ -332,6 +332,38 @@ fn main() {
 
     let pool = rows.iter().filter(|r| !r.passed && r.deficit > 0 && r.deficit <= max);
 
+    // `--want <type>` opens a census row. `--shapes` ranks the rows and then
+    // strands you: it says 16 cases want `typeof React` and gives no way to
+    // reach them, so the next step was `grep`ping the board's free text, which
+    // matches on the case NAME and therefore silently misses every member whose
+    // name does not contain the word. Corollary 21 says open two members before
+    // calling a row a family; this is what makes that affordable. The key is
+    // `type_of` — the same function `--shapes` groups by — so a row printed
+    // there is reachable here by exactly the string shown.
+    if let Some(wanted) = args.iter().position(|a| a == "--want").and_then(|i| args.get(i + 1)) {
+        let mut found = 0usize;
+        for row in pool {
+            let members: Vec<_> =
+                row.blocked.iter().filter(|b| &type_of(&b.want) == wanted).collect();
+            if members.is_empty() {
+                continue;
+            }
+            found += 1;
+            println!("{}\t(deficit {})", row.name, row.deficit);
+            for b in members {
+                println!(
+                    "\t{}:{}\tWANT {}\tGOT {}",
+                    b.file,
+                    b.position,
+                    b.want,
+                    b.got.as_deref().unwrap_or("<absent>")
+                );
+            }
+        }
+        eprintln!("cases blocked on `{wanted}`: {found}");
+        return;
+    }
+
     if shapes {
         // What the blocked lines WANT, ranked. `cases` is the number of distinct
         // cases a shape blocks, which is the column that predicts conversions —

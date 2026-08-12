@@ -1722,6 +1722,42 @@ impl<'a> Checker<'a, '_> {
     /// deliberately excluded — and shipping it here would be adding unmeasured
     /// surface to a slice whose whole argument is that the surface was measured.
     /// `bd tsr-e2u` carries it.
+    ///
+    /// # §219: the refusal was tested, and it holds — but the price is now known
+    ///
+    /// "Unmeasured surface" is a reason that expires the moment someone
+    /// measures, so this was built and measured rather than re-argued. Removing
+    /// the guard — `Some(self.resolve_external_module_symbol(module))`, which is
+    /// upstream's own first line in `resolveESModuleSymbol` (`checker.go:15569`,
+    /// `dontResolveAlias=true`) — is worth **+4 cases, −0, +40 lines**, every
+    /// movement positive: `es6ExportAssignment2`/`4`,
+    /// `es6ImportEqualsExportModuleCommonJsError`/`Es2015Error`.
+    ///
+    /// It is nonetheless still refused, because the doc above was right about
+    /// the mechanism and the per-case tally cannot see it. Following `export =`
+    /// hands the printer a `declare namespace __X` instead of a module symbol,
+    /// and [`Checker::type_to_string_at`]'s interception is gated on
+    /// `is_module_symbol || is_ambient_module` — so the line comes out
+    /// `typeof __React` where every tsx baseline records `typeof React`, and
+    /// the **two-alias gap is bypassed entirely**, which is the worse half:
+    /// that gap exists because the corpus contradicts every tie-break, and
+    /// walking past it turns a gap into a confident wrong name. `casedelta`
+    /// counts matched lines, so a gap that becomes wrong-but-different is
+    /// invisible to it — which is exactly why +4/−0 is not sufficient here.
+    ///
+    /// Widening that gate is the actual fix and is **not** a one-liner: adding
+    /// `VALUE_MODULE | NAMESPACE_MODULE` makes the interception fire and then
+    /// `module_name_at` declines, so the line becomes `error` instead, and it
+    /// regresses a passing case that wants `typeof N`. (`NAMESPACE_MODULE`
+    /// alone fires on nothing — a namespace containing a class is
+    /// INSTANTIATED, so the binder stamps `VALUE_MODULE`.) The two changes are
+    /// one piece of work and `bd tsr-e2u` should carry both halves.
+    ///
+    /// **How you would know this is wrong:** if `module_name_at` learns to name
+    /// an `export =` target through the importing alias, then this guard is
+    /// pure loss and the +4 is free. Test it with
+    /// `import * as X from 'm'` over `declare module 'm' { export = __X }`
+    /// expecting `typeof X`.
     fn module_object_of(&mut self, location: NodeId, specifier: NodeId) -> Option<SymbolId> {
         let module = self.resolve_external_module_name(location, specifier)?;
         if self.resolve_external_module_symbol(module) == module { Some(module) } else { None }

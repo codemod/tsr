@@ -397,3 +397,38 @@ fn an_export_equals_namespace_prints_the_importing_alias_name() {
     );
     assert_eq!(rendered_at(&fixture, "X", SyntaxKind::ImportEqualsDeclaration), "typeof X");
 }
+
+/// §219. A namespace import of an `export =` module is still refused, and
+/// **this is the falsifier for that refusal rather than a pin on the answer.**
+///
+/// `getTargetOfNamespaceImport` (`checker.go:14724`) is
+/// `resolveESModuleSymbol(resolveExternalModuleName(...))`, whose first line
+/// (`checker.go:15569`) follows `export =`. This port declines instead — see
+/// `Checker::module_object_of`, where the measurement lives: removing the
+/// guard is +4 cases / −0 / +40 lines, and is still wrong, because the printer
+/// then names the target `typeof __X` and walks past the two-alias gap.
+///
+/// The sibling `an_export_equals_namespace_prints_the_importing_alias_name`
+/// reaches the SAME module through `import X = require('m')` and gets
+/// `typeof X`. The two together are the whole finding: the refusal is about
+/// this arm, not about `export =`, and the naming path is what differs.
+///
+/// So this asserts the decline. The day `module_name_at` can name an
+/// `export =` target through the importing alias, this fails, and the right
+/// response is to flip it to `typeof X` and drop the guard — not to relax the
+/// assertion.
+#[test]
+fn a_namespace_import_of_an_export_equals_module_declines() {
+    let arena = Arena::new();
+    let fixture = program(
+        &arena,
+        &[
+            (
+                "decl",
+                "declare namespace __X { export class C { x: string } }\ndeclare module 'm' { export = __X }\n",
+            ),
+            ("core", "import * as X from \"m\";\n"),
+        ],
+    );
+    assert_eq!(rendered_at(&fixture, "X", SyntaxKind::NamespaceImport), "error");
+}
