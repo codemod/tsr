@@ -718,3 +718,59 @@ Revised price: **7 structural cases**, all of them otherwise perfect, all on
 one piece of machinery. The remaining two are `parserFuzz1` (`static`) and
 `parserEnum4`, whose count difference is a *type* disagreement wearing a
 count difference.
+
+## §229 The type-alias name row splits 3 + 1, and the fourth is a corpus singleton
+
+Four deficit-1 cases want `>T : {}` where this port prints `>T : T`:
+`conformance/labeledStatementWithLabel`, `_es2015`, `_strict`, and
+`conformance/nonGenericTypeReferenceWithTypeArguments`. The three
+`labeledStatementWithLabel*` were diffed before being counted — they are
+genuinely distinct fixtures, not one under three names.
+
+**It is not one family, and the first two hypotheses were both wrong.**
+
+The rule is not "an alias name prints its declared type" — that breaks a line
+that currently passes. `nonGenericTypeReferenceWithTypeArguments` contains the
+construct twice and upstream spells it *two ways in one file*: `>T : T` for the
+top-level `type T = { };`, `>T : {}` for the `type T = {};` inside `f<U>`. This
+port prints `T` in both, so it already has one of them right.
+
+Nor is it the source spacing — `{ }` against `{}` — which is what the two
+declarations differ by. A grep over every baseline settles it without needing
+upstream executed:
+
+```
+compiler/exportDefaultTypeAndFunctionOverloads.types
+type Foo = {}
+>Foo : Foo
+```
+
+Unspaced, top level, prints its own name.
+
+**What does discriminate, for three of the four, is the label.** Same nesting
+depth, same spacing, and `labeledStatementWithLabel.types` records `>label :
+any` followed by `>T : {}`. So:
+
+| source | upstream |
+|---|---|
+| `type Foo = {}` | `>Foo : Foo` |
+| `label: type T = {}` | `>T : {}` |
+| `    type T = {};` inside `f<U>` | `>T : {}` |
+
+A plausible mechanism, **untested and labelled as a guess**: the writer passes
+`node.Parent` to `TypeToTypeNode` as the enclosing declaration, and a labelled
+type alias is a grammar error, so the alias symbol may not be accessible from
+there — the builder cannot use the name and renders structurally. That predicts
+`{}` for an alias declared anywhere a declaration is not legal.
+
+**The fourth is worth leaving alone.** A grep for an indented `type X = {}`
+across every baseline in the corpus returns exactly **one** occurrence: this
+fixture. There is no second witness, so the rule behind it cannot be induced,
+and it is one line in one case. Corollary 21 asks for two members before
+calling something a family; one member is not even a lead.
+
+The trap worth naming: **this row's danger arrived as a *passing* line.** The
+obvious fix breaks `>T : T` at the top level, which no failing fixture would
+have flagged. Corollary 25 asks which input separates your rule from the wrong
+one — here that input is already green, so the census cannot show it and only
+reading the baseline can.
