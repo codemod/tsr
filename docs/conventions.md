@@ -4066,7 +4066,7 @@ How you would know this is wrong: if the mutation the pin claims to catch does
 redden it. That is a one-command check and it is the only thing that converts a
 pin from decoration into a control.
 
-### Corollary 24 (2026-08-12): a per-case tally cannot see a gap becoming a wrong answer
+### Corollary 24 (2026-08-12): a per-case tally cannot see anything that happens inside an already-failing case
 
 `casedelta` and the near-miss board count **matched** lines. A line that was
 already wrong and becomes *differently* wrong moves neither. So the whole class
@@ -4097,3 +4097,28 @@ a wrong type is a wrong line and the tally counts it.
 *text* of every non-matching line across a change, the tally's blind spot would
 close and the controls could follow the measurement instead of preceding it.
 Nothing does that today; `nearmiss --case` does it for one case at a time.
+
+#### Widened the same day, by §222 — the blind spot is bigger than the heading said
+
+The heading first read *"cannot see a gap becoming a wrong answer"*. That is one
+instance of the real limit, which is structural: **a failing case contributes
+nothing either way, so every line inside it moves for free.** Gaps becoming
+wrong answers is one thing that can happen there. So is a **right answer
+becoming wrong**, and that is strictly worse.
+
+§222 is the demonstration. A three-line transcription of
+`getTargetOfNamespaceExportDeclaration` (`checker.go:15011`) — no judgement
+anywhere in the arm, and this port's `resolve_external_module_symbol` already
+matched its `dontResolveAlias=true` semantics exactly — measured **+1 case,
+−0**. It also took **−14 lines in `conformance/umd-augmentation-1` alone**,
+including `>m : typeof m` going **right → `error`**. The case was already
+failing and stayed failing, so the entire regression was invisible to the
+per-case report.
+
+The operative habit is therefore not "write controls for name-shaped arms" but:
+**read the line movement beside the case delta, always.** `casedelta`'s
+`matched` column gives it for free and both §219 and §222 were caught by it.
+
+And a faithful transcription of a short upstream function is exactly the change
+one is least tempted to check — there is no judgement in it to doubt. The
+judgement is in whether the rest of the port can afford the answer.
