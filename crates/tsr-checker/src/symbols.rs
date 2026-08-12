@@ -2835,6 +2835,42 @@ impl<'a> Checker<'a, '_> {
     /// - a self-referencing *initialiser* yields `anyType`.
     ///
     /// `bd tsr-4sc.2`'s issue text said "errorType" flatly. It is not.
+    ///
+    /// # §221: this fallback is too COARSE for a function, and that is a second
+    /// constituency for the lazy-return-type work §217 named
+    ///
+    /// A function referenced inside its own body should not reach here at all.
+    /// Upstream's `getTypeOfFuncClassEnumModule` builds the anonymous type from
+    /// the *signature*, which needs no body, and defers the return type behind
+    /// its own resolution frame (`TypeSystemPropertyNameResolvedReturnType`).
+    /// So a cycle through the body degrades **the return slot** to `any` and
+    /// the signature survives: upstream prints `() => any`. This port computes
+    /// the return type eagerly as part of the symbol's type, so the guard above
+    /// — which wraps the *whole* computation, deliberately and correctly for
+    /// everything else — fires, and the answer is `any` for the entire
+    /// function.
+    ///
+    /// `compiler/recursiveNamedLambdaCall` is the witness: `doScrollCheck` is a
+    /// named function expression calling itself through
+    /// `setTimeout( doScrollCheck, 50 )`, upstream records
+    /// `>doScrollCheck : () => any`, and this port answers `any`. It is a
+    /// deficit-1 case, so the whole case turns on that one line.
+    ///
+    /// **Do not "fix" it here.** Four probes rule out the obvious narrower
+    /// patches: a plain function returning `any`, a class method, a method on a
+    /// generic-based class, and a *simple* self-referential function
+    /// (`function f() { return g(f); }`) all already print `() => any`
+    /// correctly, as does a named function expression's own variable. Only the
+    /// **reference site inside the body** is wrong, which is precisely the
+    /// position that distinguishes a whole-symbol frame from a return-slot
+    /// frame. Returning something other than `any` from this function would
+    /// break the four cases that work in order to reach the one that does not.
+    ///
+    /// The prerequisite is `PropertyName::ResolvedReturnType`, which does not
+    /// exist (`resolution.rs:191` has `Type` and `DeclaredType`), and it cannot
+    /// be added usefully until return types are computed lazily. That is the
+    /// same blocker §217 recorded from the opposite direction — it is now
+    /// carried by two independent findings rather than one.
     fn report_circularity_error(&mut self, declaration: NodeId) -> TypeId {
         if self.type_annotation_of(declaration).is_some() {
             return self.intrinsics.error;

@@ -329,3 +329,4 @@ fn the_bare_yield_contribution_is_the_only_thing_strictness_changes() {
         "() => Generator<any, void, unknown>"
     );
 }
+
