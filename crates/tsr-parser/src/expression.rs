@@ -1009,6 +1009,45 @@ impl<'a> Parser<'a> {
                 self.next_token();
                 continue;
             }
+            // §237: `isListElement(PCArrayLiteralMembers)` — the same third arm
+            // §235 gave argument lists, in the context that falls through to
+            // the same predicate. Upstream (`parser.go:877-883`) answers `true`
+            // for `,` and `.` and otherwise falls through to
+            // `token == KindDotDotDotToken || isStartOfExpression()`; a token
+            // failing all of that is reported, **skipped, and the list retries**
+            // (`abortParsingListOrMoveToNextToken`, `:698`), creating no node.
+            //
+            // `.` is upstream's completion affordance — *"not an array literal
+            // member, but don't want to close the array"* — and is deliberately
+            // NOT skipped here, so it keeps reaching `parse_argument` as it does
+            // today. The comma is handled by the elision arm above.
+            // **The break comes first, and the first draft omitted it** — which
+            // reproduced §191's exact prediction, that a skip without the
+            // `parsingContexts` mask eats a token belonging to an outer
+            // construct. `new DisplayPosition([), 3, …], NoMove, 0)`
+            // (`conformance/parser0_004152`): upstream ends the array at `[`
+            // because `)` closes the enclosing ARGUMENT list, and the skip
+            // swallowed it and consumed the rest of the call — **−8 lines**.
+            //
+            // So the stand-in for `isInSomeParsingContext` here is the same one
+            // §235 relies on: the closers that certainly end an enclosing
+            // construct. For an array element that is `)`, `}` and `;`; `]` is
+            // this list's own terminator and is handled by the `while`.
+            if matches!(
+                self.token.kind,
+                SyntaxKind::CloseParenToken
+                    | SyntaxKind::CloseBraceToken
+                    | SyntaxKind::SemicolonToken
+            ) {
+                break;
+            }
+            if !self.at(SyntaxKind::DotDotDotToken)
+                && !self.at(SyntaxKind::DotToken)
+                && !self.is_start_of_expression()
+            {
+                self.next_token();
+                continue;
+            }
             let before = self.pos();
             elements.push(self.parse_argument());
             if self.eat(SyntaxKind::CommaToken) {

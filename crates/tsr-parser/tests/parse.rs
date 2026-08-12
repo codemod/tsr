@@ -1955,3 +1955,53 @@ fn a_spread_argument_is_an_argument() {
         "and it is a spread element"
     );
 }
+
+
+/// §237. An array literal ends at a token that closes an ENCLOSING construct,
+/// and skips one that closes nothing.
+///
+/// `isListElement(PCArrayLiteralMembers)` falls through to
+/// `token == KindDotDotDotToken || isStartOfExpression()` (`parser.go:877-883`),
+/// and a token failing it is reported, skipped, and the list retried —
+/// `abortParsingListOrMoveToNextToken` (`:698`) — unless it belongs to an
+/// enclosing list, in which case the list aborts.
+#[test]
+fn an_array_literal_aborts_on_an_enclosing_closer() {
+    let arena = Arena::new();
+    // `conformance/parser0_004152` in miniature. Upstream ends the array at
+    // `[` because `)` closes the enclosing ARGUMENT list.
+    let parsed = parse(&arena, "f([), 3]);");
+    let arrays: Vec<_> = all_nodes(tsr_ast::Node::SourceFile(parsed.source_file))
+        .into_iter()
+        .filter_map(|node| match node {
+            tsr_ast::Node::ArrayLiteralExpression(array) => Some(array),
+            _ => None,
+        })
+        .collect();
+    let [array] = arrays.as_slice() else { panic!("expected one array literal") };
+    assert!(array.elements.is_empty(), "the array ends at `[`; `)` belongs to the call");
+}
+
+/// The half the first draft omitted, and it is the whole reason the break comes
+/// before the skip.
+///
+/// Without the abort, the skip swallowed the `)` and consumed the rest of the
+/// call — **−8 lines** in `parser0_004152`, which is §191's exact prediction
+/// that a skip without the `parsingContexts` mask eats a token belonging to an
+/// outer construct. With it, that case *passes*.
+#[test]
+fn an_array_literal_skips_a_token_that_closes_nothing() {
+    let arena = Arena::new();
+    // `@` starts no expression and closes no enclosing construct, so upstream
+    // skips it and carries on: the array still has its two elements.
+    let parsed = parse(&arena, "var a = [1, @, 2];");
+    let arrays: Vec<_> = all_nodes(tsr_ast::Node::SourceFile(parsed.source_file))
+        .into_iter()
+        .filter_map(|node| match node {
+            tsr_ast::Node::ArrayLiteralExpression(array) => Some(array),
+            _ => None,
+        })
+        .collect();
+    let [array] = arrays.as_slice() else { panic!("expected one array literal") };
+    assert_eq!(array.elements.len(), 2, "`@` is skipped, not parsed into an element");
+}
