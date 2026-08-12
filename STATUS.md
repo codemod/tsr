@@ -1705,6 +1705,32 @@ Which makes this a **binder/resolution** question rather than a `.types` one, an
 therefore closer to checker-1's lane than to this one. Handed over with the two
 probe results, which are the part that cost anything to obtain.
 
+### `for-inStatements`' remaining `x : string` lines are NOT the for-in rule
+
+Two deficit-2 lines in `conformance/for-inStatements` want `x : string` and get
+`any`, and the obvious reading — the for-in binding rule is missing or partial — is
+**wrong**. Probed in three shapes, all correct today:
+
+```text
+for (var x in {}) { }                                    -> string
+class B extends A { boz() { for (var x in super.biz) {} } } -> string
+function f() { for (var x in {}) {} for (var x in {}) {} }  -> string
+```
+
+The third shape matters because the fixture declares `var x` five times in one
+function body, which merges into one symbol with five declarations — the reason to
+suspect the rule reads only the first. It does not; the answer is `string`.
+
+So the remaining failures are something else in that file, and **whoever takes this
+should not start from the for-in arm**. Recorded as an elimination rather than a
+lead: the cost of the three probes was two minutes, and the value is that the next
+session does not spend an hour on `get_type_for_variable_like_declaration`'s ForIn
+arm, which is correct.
+
+A caution that cost time here: `nearmiss`'s line numbers are **baseline-relative,
+not source-relative**, so reading them as source lines points at the wrong
+construct. That is how this was mistaken for the `super.biz` cases.
+
 ## 5. Refused, with the number that refused it
 
 > **§5 IS DANGEROUS WHEN STALE.** Its whole purpose is "do not re-derive
