@@ -633,3 +633,53 @@ the controls have to be written before the tally is read — otherwise the tally
 answers first and there is no longer a reason to write them. The three controls
 §219 wrote are the only reason its failure mode is known; the measurement alone
 said ship it.
+
+### §228 The refused third arm now has a measured constituency: the structural pool
+
+`nearmiss --structural` lists the nine cases where **every baseline line this
+port renders is correct and the case still fails** — the count differs. Six of
+those nine are one shape, and it is the arm above.
+
+| case | ours | upstream |
+|---|---:|---:|
+| `conformance/parserErrorRecovery_ArgumentList6` | 3 | 2 |
+| `conformance/parserErrorRecovery_ArgumentList7` | 4 | 3 |
+| `conformance/parserErrorRecovery_ClassElement3` | 5 | 4 |
+| `conformance/parserConstructorDeclaration8` | 2 | 1 |
+| `compiler/classFieldsBrokenConstructorEmitNoCrash1` | 4 | 3 |
+| `compiler/for` | 44 | 43 |
+
+Each renders **exactly one extra assertion**, always last, always with empty
+expression text.
+
+**The obvious reading is wrong and a second witness kills it.** "Empty text
+should be skipped" is the first hypothesis, and `parserErrorRecovery_ClassElement3`
+refutes it: upstream's own baseline has `>  : any` at position 2, an empty-text
+line, and then stops. Upstream is not filtering these — it is *creating one
+fewer node*. The writer has no width filter to add
+(`type_symbol_baseline.go:304-316` visits every `IsExpressionNode || Identifier
+|| IsDeclarationName`), and its one relevant skip, `IsOmittedExpression`, is
+already ported (`types_producer.rs:260`) and does not apply: an argument-list
+comma is not an omitted expression.
+
+So `Foo(,` is decided in `parseArgumentList`. Upstream's
+`isListElement(PCArgumentExpressions)` is `isStartOfExpression()`, which a `,`
+fails; `isListTerminator` wants `)`, which it also fails; so the **third arm**
+fires — report, skip one token, retry — and **no node is created**. This
+port's two-way approximation has no third arm, falls through to parsing an
+expression, and mints a zero-width missing identifier.
+
+**This does not license approximating it.** The refusal above stands on the
+*direction* of failure, and nothing here changes that. What changes is the
+price: the piece is worth **6 cases that need no checker work at all**, every
+one of which is otherwise perfect. That is a better return than most checker
+arms on the board and it should be read as an argument for porting
+`parseDelimitedList` properly — the bitmask and all three arms — rather than
+for widening the two-way version.
+
+The remaining three structural cases are *not* this family and are listed
+separately so nobody counts nine: `switchStatementsWithMultipleDefaults`
+(`default` — an escaped keyword upstream treats as a label name, which
+`IsLabelName` skips), `parserFuzz1` (`static`), and `parserEnum4`
+(`(typeof SignatureFlags)[""]`, which is a *type* disagreement wearing a count
+difference).
