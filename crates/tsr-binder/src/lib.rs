@@ -579,34 +579,45 @@ impl<'a> BindResult<'a> {
                 return Some(found);
             }
             // **A named function expression's own name is in scope inside it,
-            // and this walk does not answer it — REFUSED at +1 case / -10
-            // lines, §216.**
+            // and this walk does not answer it — REFUSED, §216/§217.**
             //
-            // The arm itself is four lines and upstream's is at
+            // The arm is four lines and upstream's is at
             // `nameresolver.go:233-244`: `bindFunctionExpression` gives the name
             // a symbol in NO symbol table, so no `locals` lookup can find it and
             // the walk compares the name being resolved against the function
-            // expression's written name. Built, measured, reverted.
+            // expression's written name. Built, measured at **+1 case / −10
+            // lines**, reverted.
             //
-            // **It is blocked on the RETURN-TYPE circularity answer, not on
-            // itself.** Resolving `y` inside `function y() { return y; }` makes
-            // the symbol's type depend on itself. Upstream's
-            // `getReturnTypeOfSignature` answers `anyType` on that cycle
-            // (`checker.go:20020`) and so records `>y : () => any`; this port's
-            // resolution stack has no `ResolvedReturnType` key, so the cycle is
-            // caught one level out — at the symbol's `Type` — and answers
-            // `errorType`. Landing the arm alone turns four cases' `any` lines
-            // into `error` lines: `namedFunctionExpressionCall` 3/12 -> 0/12,
-            // `templateStringWithEmbeddedFunctionExpression` 4/5 -> 2/5 and its
-            // ES6 twin, `functionExpressionWithResolutionOfTypeOfSameName01`
-            // 4/5 -> 1/5. Only `recursiveNamedLambdaCall` converts.
+            // # The blocker, and the first diagnosis of it was WRONG
             //
-            // FALSIFIER, one function: give `Resolutions` a `NodeId`-keyed
-            // instance and a `PropertyName::ResolvedReturnType`, guard
-            // `return_type_from_body` with it, and answer `any` — not `error` —
-            // when the pop fails. If `function y() { return y; }` then reads
-            // `() => any`, this arm is a four-line transcription and the whole
-            // row converts.
+            // Resolving `y` inside `function y() { return y; }` closes a type
+            // cycle through the function's own inferred return. §216 recorded
+            // the blocker as "the return-type cycle answers `errorType` where
+            // upstream's `getReturnTypeOfSignature` answers `anyType`
+            // (`checker.go:20020`)", and named a one-function falsifier: give
+            // the return inference its own resolution key.
+            //
+            // **§217 built exactly that and it changed nothing** — same +1/−10.
+            // The cycle never reaches the return key, because it is caught one
+            // level out at `(symbol, Type)`:
+            // `get_type_of_func_class_enum_module` (`symbols.rs:1842`) pushes
+            // that key and its worker builds the signature's return type
+            // EAGERLY, so the re-entry lands on the symbol before the return
+            // guard can see it.
+            //
+            // Upstream does not have that shape. `getTypeOfFuncClassEnumModule`
+            // answers an anonymous type immediately and computes each
+            // signature's return **on demand**, so the symbol's resolution has
+            // already completed by the time any body is checked. The real
+            // blocker is therefore **eager return types inside the symbol's
+            // type** — an architectural difference, not a missing key — and
+            // that is a deferred-signature-return change, not a four-line arm.
+            //
+            // FALSIFIER, corrected: make `get_signatures_of_symbol` produce
+            // signatures whose return type is computed lazily, then re-apply the
+            // four lines. If `function y() { return y; }` reads `() => any`, the
+            // row converts. §217's resolution key is the *second* half of that
+            // and was reverted with this, being unreachable without the first.
             if matches!(
                 nodes.kind(node),
                 SyntaxKind::ClassDeclaration
