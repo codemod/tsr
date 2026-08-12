@@ -252,6 +252,35 @@ impl Checker<'_, '_> {
         }
         // Upstream reports and answers `any` here; without diagnostics the honest
         // answer is that nothing was computed.
+        //
+        // §257, ATTEMPTED TWICE AND REVERTED — the conclusion holds and the
+        // stated reason is not why. Upstream's line really is `return
+        // c.anyType` (`checker.go:12455`), deliberate error recovery with its
+        // own comment ("Otherwise, the result is of type Any"), so porting it
+        // is NOT ADR-0038's forbidden gap-wearing-`any`. The premise about
+        // diagnostics is beside the point. It still must not be ported, for a
+        // reason only measurement gives:
+        //
+        //   whole fallback -> any     +4 cases   GAP->RIGHT 10  WRONG->RIGHT 12
+        //                                        **GAP->WRONG 57**
+        //   narrowed to non-literal   +0 cases   WRONG->RIGHT 12
+        //                             operands   **GAP->WRONG 32**
+        //
+        // The adverse population is LITERAL and ENUM-LITERAL arithmetic
+        // (`enumLiteralTypes1/2` 11 lines each, `numericLiteralTypes1/2`,
+        // `stringLiteralTypesWithVariousOperators01`), where upstream computes
+        // a real `number`/`string` and this port cannot yet. Every line that
+        // reaches this fallback from that population is a gap THIS PORT OWNS,
+        // and answering `any` replaces it with a confident wrong answer.
+        //
+        // So the `error` here is load-bearing, and what it is bearing is not
+        // "we have no diagnostics" but **"the arithmetic above this line is
+        // incomplete"**. It should be revisited when literal arithmetic lands —
+        // at which point the adverse population stops reaching here at all and
+        // the port becomes free — and not before. Narrowing by flags does not
+        // rescue it: the second attempt kept 32 adverse lines and bought
+        // nothing, because enum-literal operands do not carry the flags the
+        // narrowing tested for.
         self.intrinsics.error
     }
 
