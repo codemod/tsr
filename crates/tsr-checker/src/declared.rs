@@ -14,6 +14,89 @@ use tsr_binder::{SymbolFlags, SymbolId};
 use crate::{checker::Checker, flags::TypeFlags, resolution::PropertyName, types::TypeId};
 
 impl<'a> Checker<'a, '_> {
+
+    /// The instantiated base type an `extends` heritage entry names — the
+    /// checker half of the `React.Component<Prop, {}>` row. §226.
+    ///
+    /// # What this is for, and why it is not `base_symbols_of`
+    ///
+    /// Upstream's baseline writer has a guard
+    /// (`type_symbol_baseline.go:370-374`) that, for a node whose parent is an
+    /// `ExpressionWithTypeArguments` in a class `extends` clause, records
+    /// `GetTypeAtLocation(node.Parent)` instead of the node's own type — the
+    /// comment there says *"Workaround to ensure we output 'C' instead of
+    /// 'typeof C' for base class expressions"*. That lands in `getTypeOfNode`'s
+    /// arm at `checker.go:31958`, which answers the class's first base type.
+    ///
+    /// So `class Poisoned extends React.Component<{}, {}>` records
+    /// `>React.Component : React.Component<{}, {}>` where this port records
+    /// `typeof React.Component`. Twelve deficit-1 cases, all `tsx`.
+    ///
+    /// **[`Self::base_symbols_of`] cannot serve this**, and the reason is worth
+    /// keeping because it nearly cost a `+0` build:
+    /// `base_symbol_of_heritage_entry` refuses a non-`Identifier` expression
+    /// *and* refuses any entry carrying type arguments, and every one of the
+    /// twelve witnesses trips both. That type-argument refusal is correct for
+    /// its own caller — a heritage entry's arguments decide what
+    /// `extends B<any>` contributes as a **member table**, which this port
+    /// cannot instantiate. This caller wants no member table. It wants the
+    /// written reference as a printed type, which is the thing the arguments
+    /// already answer. `docs/conventions.md` corollary 11.
+    ///
+    /// # The split with `types_producer`
+    ///
+    /// `base` arrives already resolved, because resolving it means walking a
+    /// `PropertyAccessExpression` through aliases (`import React =
+    /// require('react')`) and that walk already exists on the producer side
+    /// from its import-equals work. Duplicating it here to keep the boundary
+    /// tidy would be the worse trade.
+    ///
+    /// `None` keeps the caller's current answer rather than producing a gap:
+    /// upstream's writer guard falls back to `GetTypeAtLocation(node)` when
+    /// this yields nothing, so a decline here is exactly today's behaviour.
+    ///
+    /// # An empty argument list declines, deliberately
+    ///
+    /// All twelve witnesses write two arguments. `class C extends B {}` would
+    /// also reach here and upstream would answer `B`, but that population has
+    /// not been measured and adding it would be unmeasured surface riding along
+    /// on a measured change — the §219 lesson.
+    ///
+    /// **The mutation test then found a better reason than the one above.**
+    /// Deleting this decline does not merely widen the arm: it renders
+    /// `Base<>`, because `create_type_reference` prints the bracket list it is
+    /// given. So the empty case is not "unmeasured but probably fine" — it is
+    /// malformed, and enabling it needs a bare-reference road rather than one
+    /// line. Recorded because the weaker reason was already written down and
+    /// would have made this look like a free win.
+    pub fn base_type_of_heritage_entry(
+        &mut self,
+        base: SymbolId,
+        type_arguments: &[TypeNode<'a>],
+    ) -> Option<TypeId> {
+
+        if type_arguments.is_empty() {
+            return None;
+        }
+        let arguments: Vec<TypeId> = type_arguments
+            .iter()
+            .map(|&argument| self.get_type_from_type_node(argument))
+            .collect();
+        // **No guard on unresolvable arguments, and the first draft had one.**
+        // It declined when any argument came back as the error type, on the
+        // reasoning that `Base<error>` is a wrong line rather than a gap. The
+        // test written for it failed: `interface C extends Base<Missing>`
+        // renders `Base<Missing>`, not `Base<error>`, because
+        // `get_type_from_type_node` answers an unresolved name with a type
+        // printed by that name. So the guard named a case it could not detect.
+        //
+        // Removed rather than re-aimed. Whatever this port spells for an
+        // unresolved type argument, it spells the same way in every other
+        // reference, so this arm introduces no new wrongness — and a detection
+        // invented here would be unmeasured machinery guarding a case nobody
+        // has seen in the corpus.
+        Some(self.create_type_reference(base, arguments))
+    }
     /// The NEXT type of a generator's written return annotation — the third
     /// type argument, or the third type parameter's default. §225.
     ///
