@@ -837,3 +837,140 @@ fn a_parenthesis_ends_the_chain_and_the_access_reports() {
         vec!["TS2532".to_string()]
     );
 }
+
+// ---------------------------------------------------------------------------
+//
+// # `typeof x === "object"` must not manufacture a `null`
+//
+// `narrowTypeByTypeName` (`flow.go:670`):
+//
+// ```go
+// case "object":
+//     if t.flags&TypeFlagsAny != 0 { return t }
+//     return c.getUnionType([]*Type{ …nonPrimitive…, …null… })
+// ```
+//
+// A **flags** test. This port wrote `t == self.intrinsics.any` — an identity
+// one — and upstream's `errorType` is `newIntrinsicType(TypeFlagsAny, "error")`,
+// as are `wildcardType` and `blockedStringType` (`crate::intrinsics`). Every one
+// of them is admitted by the flag and excluded by the identity comparison.
+//
+// # Why a transliteration slip cost three real-repo reports
+//
+// `errorType` is this port's answer for *anything it cannot resolve yet*, and it
+// has far more gaps than upstream does — so a rule that treats `errorType` as an
+// ordinary type gets exercised constantly here and almost never there. Falling
+// through this arm turned an unresolved receiver into `object | null`, and the
+// next property access reported `possibly 'null'` on a value whose type nobody
+// had ever established. The `null` came from the narrowing itself.
+//
+// Three user reports, three unrelated libraries — a Playwright `page.evaluate`
+// chain, a `Record`-defaulted generic from a wasm loader, a t3-env `createEnv` —
+// all landed here. Two of them I had already attributed to their *producers*
+// (`checker-notes-printseam.md` §9) and called blocked on the mapped-type
+// subsystem. That attribution was right about the gap and wrong about the
+// **diagnostic**: the gap is upstream-shaped and silent, and only this arm
+// turned it into an error message.
+//
+// **A gap must stay a gap.** Any rule that converts `errorType` into a concrete
+// type is a candidate for the same bug; this is the one that was found by being
+// reported three times.
+//
+// Corpus: **zero rows changed** on `checker_types` and `diagnostics`,
+// per-case — the corpus resolves what it writes, so nothing here reaches the
+// arm. Real repository: **6 false positives gone, none new.**
+//
+// | # | mutation | reddens |
+// |---|---|---|
+// | 1 | back to `t == self.intrinsics.any` | [`an_unresolved_receiver_is_not_narrowed_into_a_null`] |
+// | 2 | drop the guard entirely | that, and [`a_plain_any_receiver_is_left_alone`] |
+// | 3 | return `t` for every type, not just the any-flagged ones | nothing in this file — `narrowing.rs::typeof_object_keeps_null_and_drops_the_primitives` |
+//
+// **Row 3 was written twice and wrong both times, and that is the finding.**
+// It first named [`a_genuinely_nullable_receiver_still_reports_after_typeof_object`]:
+// returning `t` unchanged *keeps* the `null`, so that test passes under the
+// mutation. It then named [`typeof_object_still_removes_the_primitives_it_should`],
+// on the theory that leaving `string` in the union would report TS2339 — it does
+// not; this port answers a property access on such a union silently.
+//
+// **No diagnostic test in this file can see mutation 3**, because the mutation
+// makes the checker narrow *less* and this file only ever asks whether a
+// diagnostic fired. The assertion that catches it is a **type** assertion, and
+// it lives in `narrowing.rs`. Worth stating plainly: a suite of "did it report?"
+// tests is structurally blind to under-narrowing, and the only way to find that
+// out is to run the mutation rather than reason about it. Two predictions, two
+// losses.
+
+#[test]
+fn an_unresolved_receiver_is_not_narrowed_into_a_null() {
+    // `Unresolved` is `errorType`, so the union is too. Before the fix the
+    // guard minted `object | null` and the access reported TS18047.
+    let codes = codes(&[(
+        "/a.ts",
+        "declare const x: Unresolved | null;\nexport function f() {\n  if (x && typeof x === \"object\") { return x.foo; }\n  return 0;\n}\n",
+    )]);
+    assert!(
+        codes.contains(&"TS2304".to_string()),
+        "the unresolved name must still report: {codes:?}"
+    );
+    assert!(!codes.contains(&"TS18047".to_string()), "a gap must not become a null: {codes:?}");
+}
+
+#[test]
+fn a_plain_any_receiver_is_left_alone() {
+    // The arm upstream's guard exists for, and the one the identity test did
+    // cover. Kept so a rewrite cannot lose it while fixing the flag.
+    assert_eq!(
+        codes(&[(
+            "/a.ts",
+            "declare const x: any;\nexport function f() {\n  if (typeof x === \"object\") { return x.foo; }\n  return 0;\n}\n"
+        )]),
+        Vec::<String>::new()
+    );
+}
+
+#[test]
+fn a_genuinely_nullable_receiver_still_reports_after_typeof_object() {
+    // **True positive, and it is the whole point of the arm being there.**
+    // `typeof null === "object"`, so narrowing a real union by `=== "object"`
+    // *keeps* `null` — upstream builds `object | null` deliberately. A guard
+    // that returned `t` for every type would silence this.
+    assert_eq!(
+        codes(&[(
+            "/a.ts",
+            "declare const x: { a: number } | null;\nexport function f() {\n  if (typeof x === \"object\") { return x.a; }\n  return 0;\n}\n"
+        )]),
+        vec!["TS18047".to_string()]
+    );
+}
+
+#[test]
+fn a_truthiness_guard_still_removes_the_null_it_should() {
+    // The pair to the test above: with `x &&` in front, the `null` is gone and
+    // nothing reports. This is what the real code was written to do, and it is
+    // the assertion that fails if a future change over-corrects by making the
+    // `object` arm drop `null` unconditionally.
+    assert_eq!(
+        codes(&[(
+            "/a.ts",
+            "declare const x: { a: number } | null;\nexport function f() {\n  if (x && typeof x === \"object\") { return x.a; }\n  return 0;\n}\n"
+        )]),
+        Vec::<String>::new()
+    );
+}
+
+#[test]
+fn typeof_object_still_removes_the_primitives_it_should() {
+    // **True positive.** The arm does two things: it keeps `null` (because
+    // `typeof null === "object"`) and it drops everything that is not
+    // object-like. A guard that returned `t` for every type would leave
+    // `string` in the union, and `x.a` would report TS2339 on it — so the codes
+    // here name both halves of the arm at once.
+    assert_eq!(
+        codes(&[(
+            "/a.ts",
+            "declare const x: string | { a: number } | null;\nexport function f() {\n  if (typeof x === \"object\") { return x.a; }\n  return 0;\n}\n"
+        )]),
+        vec!["TS18047".to_string()]
+    );
+}

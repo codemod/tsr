@@ -4899,7 +4899,21 @@ impl Checker<'_, '_> {
                 self.narrow_type_by_type_facts(t, implied, TypeFacts::TYPEOF_EQ_SYMBOL)
             }
             "object" => {
-                if t == self.intrinsics.any {
+                // `if t.flags&TypeFlagsAny != 0 { return t }` (`flow.go:670`) —
+                // a **flags** test, and this port wrote `t == anyType`, an
+                // identity one. Upstream's `errorType` is
+                // `newIntrinsicType(TypeFlagsAny, "error")` and so are
+                // `wildcardType` and `blockedStringType`
+                // (`crate::intrinsics`); every one of them is excluded by an
+                // identity comparison and admitted by the flag.
+                //
+                // The cost was a **manufactured** type: a receiver this port
+                // could not resolve went into `typeof x === "object"` as
+                // `errorType` and came out as `object | null`, so the very next
+                // access reported TS18047 — a `null` that exists in no program,
+                // invented by a narrowing of a gap. Three separate real-repo
+                // reports traced back here. §6 of `checker-notes-nnaccess.md`.
+                if self.type_of(t).flags.intersects(crate::flags::TypeFlags::ANY) {
                     return t;
                 }
                 let non_primitive = self.intrinsics.non_primitive;
@@ -4910,7 +4924,8 @@ impl Checker<'_, '_> {
                 self.get_union_type(&[object_half, null_half])
             }
             "function" => {
-                if t == self.intrinsics.any {
+                // The same flags test one arm down (`flow.go:675`).
+                if self.type_of(t).flags.intersects(crate::flags::TypeFlags::ANY) {
                     return t;
                 }
                 // `c.globalFunctionType`. A lib-less program has no `Function`

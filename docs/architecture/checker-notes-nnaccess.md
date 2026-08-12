@@ -284,3 +284,75 @@ the reporter and let it run its own test, after the stand-in has had its say.
 Generalised: **a shared reporter that enriches its own inputs cannot have its
 precondition hoisted into its callers.** Hoisting reads as deduplication and is
 a silent behaviour change.
+
+## 6 — a gap must stay a gap: `typeof x === "object"` was manufacturing `null`
+
+Three user reports across one session, three unrelated libraries, one line of
+code.
+
+```go
+// narrowTypeByTypeName, flow.go:670
+case "object":
+    if t.flags&TypeFlagsAny != 0 { return t }
+    return c.getUnionType([]*Type{ …nonPrimitive…, …null… })
+```
+
+Upstream guards this arm with a **flags** test. This port wrote
+`t == self.intrinsics.any` — an **identity** test. Upstream's `errorType` is
+`newIntrinsicType(TypeFlagsAny, "error")`, and so are `wildcardType` and
+`blockedStringType` (`crate::intrinsics` documents all four). Every one is
+admitted by the flag and excluded by the comparison.
+
+### Why one transliteration slip produced three bug reports
+
+`errorType` is this port's answer for *anything it cannot resolve yet*. Upstream
+reaches this arm with `errorType` almost never; this port reaches it constantly,
+because it has thousands of gaps upstream does not. So a rule that treats
+`errorType` as an ordinary type is quiet in the corpus and loud in the world.
+
+Falling through built `object | null` out of a gap, and the next property access
+reported `'x' is possibly 'null'` — a `null` that exists in no program, invented
+by the narrowing itself. The three reports:
+
+| reported as | the unresolved producer |
+|---|---|
+| `'rule' is possibly 'null'` after `!rule \|\| typeof rule !== "object"` | a `Record`-defaulted generic from a wasm loader |
+| `'session' is possibly 'null'` after `session && typeof session === "object"` | a Playwright `page.evaluate` chain |
+| `'error' is possibly 'null'` through an `&&` chain | (same arm, same shape) |
+
+**I had attributed two of these to their producers** (`checker-notes-printseam.md`
+§9) and called them blocked on the mapped-type subsystem. That was right about
+the gap and **wrong about the diagnostic**: the gap is upstream-shaped and
+silent, and only this arm turned it into an error message. Fixing the producer
+would have hidden the arm; fixing the arm fixes every producer at once.
+
+The general rule this is an instance of: **no rule may convert `errorType` into
+a concrete type.** Any place that does is the same bug waiting for a different
+library to find it. This one was found by being reported three times.
+
+### Measured
+
+| | base | after |
+|---|---:|---:|
+| `checker_types` | 422,620 | **422,620** — per-case, **zero rows changed** |
+| `diagnostics` | 2,519 | **2,519** — per-case, **zero rows changed** |
+| `apps/nextjs` | 69 errors | **63** — six gone, **none new** |
+
+The corpus resolves what it writes, so nothing in it reaches this arm with an
+`errorType`. That is the same profile as every other defect in
+`real_repo_regressions.rs`, and it is why that file exists.
+
+**A near-miss on the numbers, recorded because it nearly went into a commit
+message.** The first after-run read +6,917 lines and +123 cases against a
+baseline worktree cut before a rebase. Re-cutting the baseline at the true `HEAD`
+read *exactly* the after-numbers: the entire delta was other sessions' landings.
+A baseline is only a baseline at the commit you are actually sitting on.
+
+### How you would know this was wrong
+
+Four diagnostic tests in `real_repo_regressions.rs` and one type test in
+`narrowing.rs`. The mutation table records that **no diagnostic test can see the
+mutation that returns `t` for every type** — that mutation makes the checker
+narrow *less*, and a suite of "did it report?" assertions is structurally blind
+to under-narrowing. Two predictions about which test would catch it were written
+and both lost to the actual run. The type assertion is what catches it.

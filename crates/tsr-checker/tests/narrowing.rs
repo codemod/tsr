@@ -576,3 +576,48 @@ fn an_in_guard_over_an_optional_property_keeps_the_else_branch() {
     let source = "interface A { x?: number }\ndeclare const c: A;\nif (\"x\" in c) {} else { c; }";
     assert_eq!(type_of_last_expression(source), "A");
 }
+
+/// `typeof x === "object"` builds `object | null` — and leaves the any-flagged
+/// types alone.
+///
+/// `narrowTypeByTypeName` (`flow.go:670`) guards this arm with
+/// `t.flags&TypeFlagsAny != 0`, a **flags** test. This port compared identity
+/// against `anyType`, which excludes `errorType` — the type it answers for every
+/// gap — so an unresolved receiver came out of a `typeof` guard as
+/// `object | null` and the next access reported a `null` no program contains.
+/// Three real-repo reports; `real_repo_regressions.rs` holds the diagnostic
+/// half. The assertions here are the type half, because a diagnostic test
+/// cannot tell "narrowed correctly" from "not narrowed at all" — measured: the
+/// mutation that returns `t` for *every* type reddens nothing over there.
+#[test]
+fn typeof_object_keeps_null_and_drops_the_primitives() {
+    assert_eq!(
+        type_of_last_expression(
+            "declare const x: string | { a: number } | null;\nif (typeof x === \"object\") { x; }\n"
+        ),
+        "{ a: number; } | null"
+    );
+    // With the truthiness guard in front, the `null` is gone.
+    assert_eq!(
+        type_of_last_expression(
+            "declare const x: string | { a: number } | null;\nif (x && typeof x === \"object\") { x; }\n"
+        ),
+        "{ a: number; }"
+    );
+    // `any` is returned unchanged — upstream's guard, and the arm the identity
+    // comparison did cover.
+    assert_eq!(
+        type_of_last_expression("declare const x: any;\nif (typeof x === \"object\") { x; }\n"),
+        "any"
+    );
+    // And `errorType` — what the flags test admits and the identity test did
+    // not. It prints `error` through this helper (`type_to_string`; the `any`
+    // spelling of ADR-0038 is the *baseline* renderer's), and the assertion
+    // that matters is that it is **not** `object | null`.
+    assert_eq!(
+        type_of_last_expression(
+            "declare const x: Unresolved | null;\nif (typeof x === \"object\") { x; }\n"
+        ),
+        "error"
+    );
+}
