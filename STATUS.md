@@ -1785,6 +1785,38 @@ A caution that cost time here: `nearmiss`'s line numbers are **baseline-relative
 not source-relative**, so reading them as source lines points at the wrong
 construct. That is how this was mistaken for the `super.biz` cases.
 
+### `spellingSuggestionGlobal1/2/4` — diagnosed to a binder question, and it is ONE member
+
+Three deficit-1 cases wanting `global : any` where this port answers
+`typeof global`. **They are near-duplicates**: `1` and `4` differ by a single
+keyword (`const x` vs `var x`), and `2` adds an unrelated local. One cause, one
+member — the census counts three (conventions corollary 21).
+
+```ts
+export {}
+declare global { const x: any }
+global.x                    // >global : any   upstream
+```
+
+**The failing node is a REFERENCE, not the declaration name**, which is why §254's
+writer guard provably cannot reach it: that guard only rewrites `error`, and this
+port answers a concrete `typeof global`.
+
+The diagnosis: **`declare global { … }` does not declare a binding named
+`global`.** The `global` keyword there is syntax, not a declaration of a name. So
+upstream's `global` in `global.x` is an *unresolved* name — errorType, which is
+any-flagged, which the property-access guard (`node.Parent` is a
+`PropertyAccessExpression`, §183/§204) then renders as `any`. Every step after the
+resolution is already ported and correct; the divergence is that this port
+*resolves* the name at all.
+
+That makes it a **binder** question rather than a `.types` one — whether
+`declare global`'s keyword is being bound as a symbol name — and it is handed over
+on that basis. Note the shape: the port is MORE specific than upstream
+(`typeof global` vs `any`), which checker-1's own tell flags as suspicious and
+which here means we resolved where upstream refused. Corollary 10's inversion, a
+fourth time.
+
 ## 5. Refused, with the number that refused it
 
 > **§5 IS DANGEROUS WHEN STALE.** Its whole purpose is "do not re-derive
