@@ -1827,18 +1827,24 @@ sites that got the answer. Surveyed, and the other four are **not** all candidat
 
 | site | asks | candidate? |
 |---|---|---|
-| `expressions.rs:969` | `BIG_INT_LIKE` in the unary arithmetic arm | **yes** — the closest sibling to `check_addition`; `-x` on a bigint-literal union has the identical shape |
+| `expressions.rs:969` | `BIG_INT_LIKE` in the unary arithmetic arm | ~~**yes**~~ **NO — corrected on reading.** Upstream uses `maybeTypeOfKind` here, not `isTypeAssignableToKind`, and it descends a union with **ANY**-constituent semantics rather than ALL. Applying §258's ALL-descent would be the wrong rule; applying the right one turns some current answers from *wrong* into *gaps* (this arm answers `error` for bigint by an existing documented gap), which is an honesty gain and **not** a case gain |
 | `flow.rs:5502-5506` | the `typeof` family of a narrowed type | **probably not** — narrowing already decomposes unions before this point, so a union should not reach it; needs one probe to confirm rather than assume |
 | `members.rs:737-741` | which global interface supplies a primitive's apparent members | **no** — a union has no single apparent type; upstream takes the union's own path, and descending here would pick one constituent's members arbitrarily |
 | `relater.rs:667-673` | source-vs-target primitive relations | **no** — the relater has its own union handling upstream (`eachTypeRelatedToType`), and bolting a descent into the flag comparison would duplicate it wrongly |
 
-So one candidate, one to probe, two where the raw-flag test is correct precisely
-because a union means something different there. **The greppable check finds the
-sites; it does not decide them** — that is worth saying, because the check is cheap
+So **zero candidates**, one to probe, and three where descending is wrong — two
+because a union means something different there, and one because upstream descends
+with the OPPOSITE quantifier. **The greppable check finds the sites; it does not
+decide them** — that is worth saying, because the check is cheap
 enough to over-apply, and two of these four would have been regressions.
 
-Not built: `expressions.rs:969` is a real lead with no opened witness yet, and the
-`flow.rs` one needs the probe before it is even a lead.
+Nothing built, and the survey's own first verdict was wrong — I called
+`expressions.rs:969` a candidate on the *shape* of the call and had to withdraw it
+on reading the upstream function it stands for. That is the check's failure mode in
+miniature: **it matches on the flag test, and the flag test is not the rule** —
+`isTypeAssignableToKind`, `maybeTypeOfKind` and a bare `flags &` all look alike at
+the call site and quantify differently over unions. Four sites surveyed, four
+non-candidates, one probe outstanding.
 
 ## 5. Refused, with the number that refused it
 
