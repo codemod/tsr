@@ -926,6 +926,30 @@ fresh run at `7cecc02` (fourth session; every row within noise). Two lists, beca
 project's ordering rule has two halves: **rank by the conversion, and where the
 conversion is unknown, rank by how cheap it is to find out.**
 
+### 4.-0.5 `bd tsr-e2u` — the module-object `export =` pair, sized at ~11 cases
+
+**Newly sized, 2026-08-12, and the sizing is the point.** Two changes that look
+independent and are not:
+
+1. `module_object_of` must follow `export =` (upstream's own first line in
+   `resolveESModuleSymbol`, `checker.go:15569`);
+2. `type_to_string_at`'s interception must name the resulting target through the
+   importing alias, instead of only recognising module and ambient-module
+   symbols.
+
+**(1) alone measures +4 / −0 / +40 lines and is still wrong** — it prints
+`typeof __React` where every tsx baseline records `typeof React`, and it walks
+past the two-alias gap. **(2) alone is unreachable**, since there is no target to
+name until (1) lands. **Together they are worth the +4 plus up to 7 more**: the
+entire deficit-1 half of the `typeof React` census row (`conformance/multiline`,
+`correctlyMarkAliasAsReferences1`–`4`, `controlFlowOptionalChain3`,
+`tsxElementResolution19`), each blocked on that single line.
+
+The 7 are **measured, not projected**: every one is byte-identical across the
+§219 experiment, which is what proves they are waiting on (2) and not on (1).
+See `Checker::module_object_of`'s doc comment for the full arithmetic, and
+conventions corollary 24 for why the +4 was not sufficient to license shipping.
+
 ### 4.-1 The driver, newly on the board — and the tracker it is not filed in
 
 > **The full plan now lives in [STATUS-cli.md](STATUS-cli.md)**, which is this

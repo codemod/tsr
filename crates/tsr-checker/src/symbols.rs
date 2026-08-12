@@ -1758,6 +1758,31 @@ impl<'a> Checker<'a, '_> {
     /// pure loss and the +4 is free. Test it with
     /// `import * as X from 'm'` over `declare module 'm' { export = __X }`
     /// expecting `typeof X`.
+    ///
+    /// # What the two halves are each worth, measured rather than guessed
+    ///
+    /// The `tsx` corpus resolves `react` through
+    /// `declare module "react" { export = __React }` (`tests/lib/react.d.ts:2354`),
+    /// so the whole `typeof React` census row runs through this function. Seven
+    /// of its members sit at deficit 1 — `conformance/multiline`,
+    /// `correctlyMarkAliasAsReferences1`–`4`, `controlFlowOptionalChain3`,
+    /// `tsxElementResolution19` — each blocked on nothing but
+    /// `>React : typeof React`.
+    ///
+    /// **All seven are byte-identical across the experiment above.** Following
+    /// `export =` moved their tallies not at all, which is the direct evidence
+    /// that the resolution half and the naming half are not two independent
+    /// wins to be taken in either order:
+    ///
+    /// - resolution alone: **+4** (the `es6ExportAssignment` family, whose
+    ///   answers do not name the module object);
+    /// - naming alone: **+0**, and unreachable — there is no target to name
+    ///   until the guard above comes off;
+    /// - both: the +4, plus up to **7** more from this row.
+    ///
+    /// So `bd tsr-e2u` is worth ~11 cases and cannot be half-taken. Anyone
+    /// sizing it from the +4 alone will under-price it by roughly a factor of
+    /// three, and anyone taking the +4 alone will ship the wrong names.
     fn module_object_of(&mut self, location: NodeId, specifier: NodeId) -> Option<SymbolId> {
         let module = self.resolve_external_module_name(location, specifier)?;
         if self.resolve_external_module_symbol(module) == module { Some(module) } else { None }
