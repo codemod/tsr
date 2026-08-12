@@ -1873,8 +1873,26 @@ The arm was built where the diagnosis pointed: `index_infos_of_symbol` synthesis
 runtime object and so no reverse mapping). It compiles, and `scorepair` reports
 **"no transitions vs baseline"** — not one line in any direction.
 
-**What was NOT verified, stated because corollary 27 says an unconfirmed zero is
-not a measurement:** whether the arm *fires*. The evidence points at "no". The same
+**PROBED, and the zero is now explained.** `index_infos_of_symbol` is **never
+called at all** on this case — the probe printed nothing, zero invocations. So the
+arm was correct-but-unreachable and the `+0` measured nothing about it, exactly as
+suspected.
+
+**The repair is therefore a ROUTING question and not a collector one.**
+`get_applicable_index_info` never reaches the collector for the enum's object type,
+so no signature synthesised there can ever be found. Whoever takes this should start
+in `get_applicable_index_info`'s handling of an anonymous `typeof E` type — the
+question is why that type's members symbol does not lead back to the enum — and only
+then re-add the synthesis, which is four lines and already written up above.
+
+That inverts the build order the diagnosis originally implied: **the arm is the
+second half, not the first.**
+
+The original note is kept below because the reasoning that led to the probe is the
+reusable part.
+
+**What was NOT verified before the probe, stated because corollary 27 says an
+unconfirmed zero is not a measurement:** whether the arm *fires*. The evidence points at "no". The same
 case records `>E : typeof E` **correctly**, so the enum's object type resolves; but
 `get_applicable_index_info` takes a TYPE and reaches `index_infos_of_symbol` through
 that type's members symbol, and an anonymous `typeof E` type may carry no members
