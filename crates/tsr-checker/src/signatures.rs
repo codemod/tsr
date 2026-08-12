@@ -1093,22 +1093,87 @@ impl<'a> Checker<'a, '_> {
                 //   no contextual signature" was the right premise about the
                 //   wrong position. Statement position is the one place the
                 //   value is provably unused.
-                // Statement position and a computed property name are the two
-                // positions that provably give a yield **no contextual type**
-                // (`generatorTypeCheck42` pins the second: the yield's value
-                // becomes a property key and `next` still reads `unknown`).
-                // Everywhere else the contextual-typing subsystem decides, and
-                // it is refused — decline rather than model it. The gate runs
-                // BEFORE the bare-yield arm: `const value = yield;` feeds the
-                // NEXT slot from its declaration (generatorImplicitAny wants
-                // `any`/contextual `string` there — the first §135 pair's 3
-                // G→W came from the bare arm skipping this test).
-                if self.nodes.parent(id).is_none_or(|parent| {
-                    !matches!(
-                        self.nodes.kind(parent),
-                        SyntaxKind::ExpressionStatement | SyntaxKind::ComputedPropertyName
-                    )
-                }) {
+                // A yield contributes to the NEXT slot only from a position
+                // that has a contextual type, so a yield with **no** contextual
+                // type is one this port can answer without modelling
+                // contextual typing at all. The gate runs BEFORE the bare-yield
+                // arm: `const value = yield;` feeds the NEXT slot from its
+                // declaration (generatorImplicitAny wants `any`/contextual
+                // `string` there — the first §135 pair's 3 G→W came from the
+                // bare arm skipping this test).
+                //
+                // # §223: this was an allowlist of two, and is now the predicate
+                //
+                // §135 admitted exactly `ExpressionStatement` and
+                // `ComputedPropertyName` — "the two positions that provably
+                // give a yield no contextual type" — and refused everything
+                // else. Both claims were true; the list was not the rule.
+                // `getContextualType` (`checker.go:29354`) is a switch on the
+                // PARENT's kind, and every kind absent from it provably yields
+                // no contextual type. So the honest port is the switch's
+                // complement, not two of its gaps: upstream has no
+                // `ExpressionWithTypeArguments` arm, which is why
+                // `class C extends (yield 0) {}` inside a generator
+                // (`generatorTypeCheck40`) reads `Generator<number, void,
+                // unknown>` and this port declined it.
+                //
+                // Transcribed as the DECLINE list so the failure direction is
+                // safe: a kind wrongly listed here costs a gap, a kind wrongly
+                // omitted costs a wrong `next` slot. Corollary 20 — the
+                // predicate is shorter than the witnesses were.
+                let contextual = {
+                    // `KindParenthesizedExpression` and `KindNonNullExpression`
+                    // delegate to their own parent (`:29392`, `:29394`), so they
+                    // are walked through rather than listed. Without this,
+                    // `(yield 0)` — the shape every heritage-clause fixture
+                    // writes — never reaches the test at all.
+                    let mut current = self.nodes.parent(id);
+                    while let Some(parent) = current {
+                        if matches!(
+                            self.nodes.kind(parent),
+                            SyntaxKind::ParenthesizedExpression | SyntaxKind::NonNullExpression
+                        ) {
+                            current = self.nodes.parent(parent);
+                            continue;
+                        }
+                        break;
+                    }
+                    current.is_some_and(|parent| {
+                        matches!(
+                            self.nodes.kind(parent),
+                            SyntaxKind::VariableDeclaration
+                                | SyntaxKind::Parameter
+                                | SyntaxKind::PropertyDeclaration
+                                | SyntaxKind::PropertySignature
+                                | SyntaxKind::BindingElement
+                                | SyntaxKind::ArrowFunction
+                                | SyntaxKind::ReturnStatement
+                                | SyntaxKind::YieldExpression
+                                | SyntaxKind::AwaitExpression
+                                | SyntaxKind::CallExpression
+                                | SyntaxKind::NewExpression
+                                | SyntaxKind::Decorator
+                                | SyntaxKind::TypeAssertionExpression
+                                | SyntaxKind::AsExpression
+                                | SyntaxKind::BinaryExpression
+                                | SyntaxKind::PropertyAssignment
+                                | SyntaxKind::ShorthandPropertyAssignment
+                                | SyntaxKind::SpreadAssignment
+                                | SyntaxKind::ArrayLiteralExpression
+                                | SyntaxKind::ConditionalExpression
+                                | SyntaxKind::TemplateSpan
+                                | SyntaxKind::SatisfiesExpression
+                                | SyntaxKind::ExportAssignment
+                                | SyntaxKind::JsxExpression
+                                | SyntaxKind::JsxAttribute
+                                | SyntaxKind::JsxSpreadAttribute
+                                | SyntaxKind::JsxOpeningElement
+                                | SyntaxKind::JsxSelfClosingElement
+                                | SyntaxKind::ImportAttribute
+                        )
+                    })
+                };
+                if contextual {
                     return None;
                 }
                 // §135: a BARE `yield;` contributes `undefined` (strict) —

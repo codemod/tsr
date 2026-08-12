@@ -330,3 +330,64 @@ fn the_bare_yield_contribution_is_the_only_thing_strictness_changes() {
     );
 }
 
+
+
+/// §223. The no-contextual-type gate is `getContextualType`'s complement, not
+/// a list of two positions.
+///
+/// A yield contributes to the NEXT slot only from a position that HAS a
+/// contextual type, so a yield with none is answerable without modelling
+/// contextual typing. §135 admitted `ExpressionStatement` and
+/// `ComputedPropertyName` on exactly that reasoning and refused the rest —
+/// true about both, but a list is not a rule. `getContextualType`
+/// (`checker.go:29354`) switches on the PARENT's kind and every kind absent
+/// from it provably has no contextual type; upstream has no
+/// `ExpressionWithTypeArguments` arm, so a heritage-clause expression is one
+/// of them. `conformance/generatorTypeCheck40`.
+#[test]
+fn a_yield_in_a_heritage_clause_has_no_contextual_type() {
+    assert_eq!(
+        generator_declaration_type("function* g() { class C extends (yield 0) { } }", "g", false),
+        "() => Generator<number, void, unknown>"
+    );
+    // The bare form, which is §220's contribution reached through §223's gate —
+    // the two arms compose and `generatorTypeCheck55`/`60` need both.
+    assert_eq!(
+        generator_declaration_type("function* g() { class C extends (yield) { } }", "g", false),
+        "() => Generator<any, void, unknown>"
+    );
+}
+
+/// The three controls, one per way the predicate could be wrong.
+#[test]
+fn the_contextual_gate_still_declines_where_upstream_has_an_arm() {
+    // A parent WITH an arm still declines — `KindVariableDeclaration`
+    // (`:29356`). This is the case §135 was protecting and it must not move.
+    assert_eq!(
+        generator_declaration_type("function* g() { var v = yield 1; }", "g", false),
+        "error"
+    );
+    // `KindYieldExpression` (`:29360`) is in the switch, which is why
+    // `generatorTypeCheck36`'s `yield yield 0` is untouched by §223. Without
+    // this, "everything not in a statement contributes" also passes the test
+    // above.
+    assert_eq!(generator_declaration_type("function* g() { yield yield 0; }", "g", false), "error");
+    // The parenthesis walk (`:29392` delegates to its own parent). **This
+    // assertion is the one that catches it, and the obvious one does not.**
+    // `(yield 1);` in statement position passes with the walk deleted, because
+    // `ParenthesizedExpression` is not in the decline list either way — so the
+    // outcome is the same for the wrong reason. Only a paren whose own parent
+    // IS contextual can tell them apart. Deleting
+    // `SyntaxKind::ParenthesizedExpression` from the walk reddens exactly this
+    // line and nothing else.
+    assert_eq!(
+        generator_declaration_type("function* g() { var v = (yield 1); }", "g", false),
+        "error"
+    );
+    // Kept beside it as the case that does NOT discriminate, so the next
+    // reader does not mistake it for the control.
+    assert_eq!(
+        generator_declaration_type("function* g() { (yield 1); }", "g", false),
+        "() => Generator<number, void, unknown>"
+    );
+}
