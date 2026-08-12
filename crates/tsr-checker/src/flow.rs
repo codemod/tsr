@@ -5103,6 +5103,51 @@ impl Checker<'_, '_> {
     /// answer is the one given today. Claiming a type is truthy when it is not
     /// would delete a constituent and print a plausible wrong type.
     pub(crate) fn get_type_facts(&self, t: TypeId) -> TypeFacts {
+        // SS201 `getIntersectionTypeFacts` (checker.go:31118-31134),
+        // TRANSCRIBED after SS200's induced version failed:
+        //
+        // ```go
+        // ignoreObjects := c.maybeTypeOfKind(t, TypeFlagsPrimitive)
+        // oredFacts := None; andedFacts := All
+        // for _, t := range t.Types() {
+        //     if !(ignoreObjects && t.flags&TypeFlagsObject != 0) {
+        //         f := getTypeFactsWorker(t, ...)
+        //         oredFacts |= f; andedFacts &= f
+        //     }
+        // }
+        // return oredFacts&OrFactsMask | andedFacts&AndFactsMask
+        // ```
+        //
+        // Two rules SS200's plain AND had neither of: an intersection
+        // holding a PRIMITIVE ignores its object constituents outright (they
+        // are type tags — `string & { __kind__: "name" }`), which is
+        // witness 1; and the fold is OR for exactly two bits
+        // (`TypeofEQFunction | TypeofNEObject`, checker.go:478) and AND for
+        // every other, which is witness 2.
+        if let TypeData::Intersection { types, .. } = &self.store.get(t).data {
+            let constituents = types.clone();
+            let ignore_objects = constituents
+                .iter()
+                .any(|&c| self.store.get(c).flags.intersects(TypeFlags::PRIMITIVE));
+            let or_mask = TypeFacts::TYPEOF_EQ_FUNCTION | TypeFacts::TYPEOF_NE_OBJECT;
+            let mut ored = TypeFacts::empty();
+            let mut anded = TypeFacts::all();
+            let mut counted = false;
+            for constituent in constituents {
+                let is_object = self.store.get(constituent).flags.intersects(TypeFlags::OBJECT);
+                if ignore_objects && is_object {
+                    continue;
+                }
+                let facts = self.get_type_facts(constituent);
+                ored |= facts;
+                anded &= facts;
+                counted = true;
+            }
+            if counted {
+                return (ored & or_mask) | (anded & !or_mask);
+            }
+        }
+
         // SS200 (measured, reverted — an INDUCED rule, not a transcribed
         // one): an intersection currently falls to the undecidable default
         // (every bit) and so survives EVERY typeof query. Folding the
