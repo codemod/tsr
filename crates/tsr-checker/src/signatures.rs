@@ -2595,6 +2595,39 @@ impl<'a> Checker<'a, '_> {
     /// (`fatarrowfunctionsOptionalArgs`: `foo(...arg: any[])` taking arrows).
     /// `false` wherever the callee or its signature cannot be shown — the
     /// gap stays honest.
+    // §242, NOT BUILT — the sibling this helper is missing, recorded with its
+    // witness and the reason it was refused today rather than left as a shape.
+    //
+    // This helper lifts the gate when the contextual parameter type IS `any`.
+    // Upstream has a second nil path into the same conclusion: a contextual
+    // type that materializes with **no call signature at all**.
+    // `getContextualSignature` ends at `getSignaturesOfType(t, SignatureKindCall)`
+    // and returns nil on an empty list, so the unannotated parameter is
+    // implicitly `any` and the arrow prints its own signature.
+    //
+    //     interface Applicable { apply(blah: any); }   // a METHOD, no call signature
+    //     function fn(c: Applicable) { }
+    //     fn(a => { });
+    //     >a => { } : (a: any) => void                 // upstream; this port gaps
+    //
+    // Witness `compiler/assignmentCompatability_checking-apply-member-off-of-
+    // function-interface` (the `-call-` fixture is the same file with one word
+    // changed, so it is ONE member, not two — conventions corollary 21).
+    //
+    // REFUSED TODAY for a directional reason, not a size one. This port has no
+    // "call signatures of an arbitrary type" query; `single_call_signature`
+    // reads `TypeData::Anonymous` only, and an interface is not that. Building
+    // the count on top of what exists means a zero would mean *"we did not
+    // resolve it"* as often as *"it has none"* — and this gate's whole purpose
+    // is to keep unannotated parameters from printing a confident `any`. A
+    // wrong `(a: any) => void` is worse than the gap it replaces, which is the
+    // same direction §191/§197 refused `parseDelimitedList` on.
+    //
+    // The falsifier is cheap and named: implement `call_signatures_of_type` for
+    // the interface/object case and check it against a type KNOWN to have a
+    // call signature (`interface F { (): void }`). If that answers 1 and
+    // `Applicable` answers 0, the ambiguity is gone and this becomes a
+    // transcription. `bd tsr-4sc` owns the query.
     fn argument_context_is_any(&mut self, declaration: NodeId) -> bool {
         let Some(parent) = self.nodes.parent(declaration) else { return false };
         let Some(Node::CallExpression(call)) = self.node_map.get(parent) else { return false };
