@@ -4065,3 +4065,35 @@ something that looks like a check but cannot fail in the direction that matters.
 How you would know this is wrong: if the mutation the pin claims to catch does
 redden it. That is a one-command check and it is the only thing that converts a
 pin from decoration into a control.
+
+### Corollary 24 (2026-08-12): a per-case tally cannot see a gap becoming a wrong answer
+
+`casedelta` and the near-miss board count **matched** lines. A line that was
+already wrong and becomes *differently* wrong moves neither. So the whole class
+of regressions where a **gap turns into a confident wrong answer** is invisible
+to the instrument both lanes reach for first.
+
+§219 is the demonstration. Removing a documented refusal in `module_object_of`
+— to follow `export =`, which is upstream's own first line in
+`resolveESModuleSymbol` (`checker.go:15569`) — measured **+4 cases, −0, +40
+lines, every movement positive**. On the tally alone it was a clean win. It was
+reverted, because three controls written *before* the tally was read showed the
+change printed `typeof __React` where every tsx baseline records
+`typeof React`, and walked straight past the two-alias gap — a gap that exists
+because the corpus contradicts every tie-break, so bypassing it manufactures
+exactly the confident wrong name the gap was protecting against.
+
+**The rule.** When an arm's product is a *name* — a module object, a qualifier,
+an alias, a type-parameter spelling — the per-case tally is necessary and not
+sufficient. Write a control that pins the **spelling** and a control that pins
+the **gap**, and write both before you run the measurement. Afterwards there is
+no longer a felt reason to write them: the number has already answered.
+
+This does not apply to arms whose product is a *type*. §220, one commit later,
+turned a decline into `Generator<any, void, unknown>` and +5/−0 settled it —
+a wrong type is a wrong line and the tally counts it.
+
+**How you would know this is wrong:** if an instrument existed that diffed the
+*text* of every non-matching line across a change, the tally's blind spot would
+close and the controls could follow the measurement instead of preceding it.
+Nothing does that today; `nearmiss --case` does it for one case at a time.

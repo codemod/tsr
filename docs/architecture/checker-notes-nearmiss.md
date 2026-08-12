@@ -579,3 +579,57 @@ further slice has to either prove the same coincidence for its context or port
 the machinery.** Approximating the third arm would be the kind of
 nearly-right recovery that produces a diagnostic upstream never emits, at a
 position upstream never names.
+
+## §219–§220 `--want`, and the two things the board cannot tell you
+
+`--shapes` ranks the deficit-1 census by what the blocked lines *want*. It is
+the instrument that made §190's board actionable, and for two sessions it also
+quietly wasted work, because ranking a row and *reaching* it are different
+operations and only the first existed. The gap was filled with `grep` over the
+board's free text — which matches on the **case name**, so
+`conformance/multiline` never appears in a search for `React` even though its
+only blocked line is `>React : typeof React`.
+
+`nearmiss --want "<type>"` prints every blocked line in a census row, keyed by
+the same `type_of` the ranking groups on, so a row printed by `--shapes` is
+reachable by exactly the string shown. Corollary 21 — open two members before
+calling a row a family — is only affordable if opening a member is cheap.
+
+Two findings came straight out of using it, and neither is visible from the
+ranked table:
+
+### A shape is not a cause
+
+`() => Generator<any, void, unknown>` ranks as **9 cases, one shape**. Opening
+two members found two unrelated blockers:
+
+- `YieldExpression3_es6` — `function* foo() { yield; yield; }` under
+  `@strict: false`. Blocked at the bare-yield arm, which §135 built for strict
+  and explicitly deferred for no-strict. **§220 fixes it: +5 cases.**
+- `generatorTypeCheck36` — `function* g() { yield yield 0; }`. Blocked at the
+  contextual-position gate, because the inner yield's value is consumed by the
+  outer one and so has a contextual type this port does not model. Untouched by
+  §220.
+
+Sizing that row at nine from the table alone, or from its first member, would
+have been wrong by four in one direction and by five in the other. `typeof
+React` (16 cases) split the same way the moment it was opened — `GOT any` for
+the ordinary `import * as React`, `GOT error` for the `unusedImports1x` family.
+
+### A per-case tally cannot see a gap becoming a wrong answer
+
+§219 removed a refusal in `module_object_of` and measured **+4 cases, −0, +40
+lines, every movement positive**. It is still wrong, and was reverted.
+
+Following `export =` hands the printer a `declare namespace __X` instead of a
+module symbol, so the line prints `typeof __React` where every tsx baseline
+records `typeof React` — and the two-alias case walks straight past the gap
+that exists precisely because the corpus contradicts every tie-break.
+
+`casedelta` counts **matched** lines. A line that was already wrong and becomes
+differently wrong does not move it. So for any arm whose product is a *name*
+rather than a *type*, the per-case tally is necessary and not sufficient, and
+the controls have to be written before the tally is read — otherwise the tally
+answers first and there is no longer a reason to write them. The three controls
+§219 wrote are the only reason its failure mode is known; the measurement alone
+said ship it.

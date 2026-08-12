@@ -1116,12 +1116,26 @@ impl<'a> Checker<'a, '_> {
                 // §15 bar's recorded leg. Under no-strict the contribution is
                 // `any`; decline there rather than model it this slice.
                 let Some(operand) = operand else {
-                    if !self.strict_null_checks {
-                        return None;
-                    }
-                    let undefined = self.intrinsics.undefined;
-                    if !operand_types.contains(&undefined) {
-                        operand_types.push(undefined);
+                    // §220: the no-strict half, which §135 deferred with "the
+                    // contribution is `any`; decline there rather than model it
+                    // this slice". It is `any` for a reason worth naming rather
+                    // than asserting: upstream has TWO undefined types, and a
+                    // bare `yield` under no-strict contributes
+                    // `undefinedWideningType`, which `getWidenedType`
+                    // (`checker.go:20224`) maps to `any` — the same rule that
+                    // makes `var x;` an `any`. This port carries no
+                    // widening/non-widening distinction on `undefined`, so the
+                    // outcome is applied at the contribution site instead. The
+                    // two spellings agree everywhere a bare yield can appear;
+                    // they would part company only if the port grew a real
+                    // widening type, and then this line is what to delete.
+                    let contribution = if self.strict_null_checks {
+                        self.intrinsics.undefined
+                    } else {
+                        self.intrinsics.any
+                    };
+                    if !operand_types.contains(&contribution) {
+                        operand_types.push(contribution);
                     }
                     continue;
                 };

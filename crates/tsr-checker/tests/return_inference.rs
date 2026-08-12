@@ -196,7 +196,7 @@ fn an_async_declaration_with_no_valued_return_is_promise_void() {
 }
 
 /// The printed type of `name`, bound beside a stand-in lib declaring `Generator`.
-fn type_of_declaration_with_generator(source: &str, name: &str) -> String {
+fn generator_declaration_type(source: &str, name: &str, strict_null_checks: bool) -> String {
     let lib = "interface Generator<T, TReturn, TNext> {}\n";
     let arena = Arena::new();
     let mut nodes = tsr_ast::NodeTable::new();
@@ -226,8 +226,14 @@ fn type_of_declaration_with_generator(source: &str, name: &str) -> String {
     let root = tsr_ast::Node::SourceFile(parsed.source_file).node_id().expect("registered");
     let symbol = bound.lookup_local(root, name).unwrap_or_else(|| panic!("`{name}` is declared"));
     let mut checker = Checker::new(&bound, &nodes, &node_map);
+    checker.set_strict_null_checks(strict_null_checks);
     let id = checker.get_type_of_symbol(symbol);
     checker.type_to_string(id)
+}
+
+/// The strict default, which is [`Checker::new`]'s own.
+fn type_of_declaration_with_generator(source: &str, name: &str) -> String {
+    generator_declaration_type(source, name, true)
 }
 
 #[test]
@@ -274,5 +280,52 @@ fn await_unwraps_the_global_promise_and_passes_primitives_through() {
     assert_eq!(
         type_of_declaration_with_promise("async function f() { return await 1; }", "f"),
         "() => Promise<number>"
+    );
+}
+
+/// §220. A bare `yield;` under **no-strict** contributes `any`.
+///
+/// §135 built the strict half and deferred this one in as many words — "under
+/// no-strict the contribution is `any`; decline there rather than model it this
+/// slice" — so the whole signature answered `error` for
+/// `function* foo() { yield; yield; }`, which is
+/// `conformance/YieldExpression3_es6` verbatim. Five cases.
+///
+/// `any` is not an assertion about no-strict, it is the widening rule: upstream
+/// has two undefined types and a bare yield under no-strict contributes
+/// `undefinedWideningType`, which `getWidenedType` (`checker.go:20224`) maps to
+/// `any` — the same rule that makes `var x;` an `any`.
+#[test]
+fn a_bare_yield_under_no_strict_contributes_any() {
+    assert_eq!(
+        generator_declaration_type("function* g() { yield; yield; }", "g", false),
+        "() => Generator<any, void, unknown>"
+    );
+}
+
+/// The two controls that make the arm's shape observable, because without them
+/// "contribute `any` unconditionally" and "contribute `undefined`
+/// unconditionally" each pass the test above or its strict sibling.
+#[test]
+fn the_bare_yield_contribution_is_the_only_thing_strictness_changes() {
+    // Strict keeps `undefined` — §135's measured half, unchanged by §220.
+    assert_eq!(
+        generator_declaration_type("function* g() { yield; }", "g", true),
+        "() => Generator<undefined, void, unknown>"
+    );
+    // A VALUED yield is unaffected either way: the contribution rule applies to
+    // the bare form alone, so no-strict must not smear `any` over a real
+    // operand type.
+    assert_eq!(
+        generator_declaration_type("function* g() { yield 1; }", "g", false),
+        "() => Generator<number, void, unknown>"
+    );
+    // And mixed, which is where the two contributions actually meet: `any`
+    // absorbs the union, so this reads `any` under no-strict and
+    // `number | undefined` under strict. A single-contribution model cannot
+    // produce both.
+    assert_eq!(
+        generator_declaration_type("function* g() { yield 1; yield; }", "g", false),
+        "() => Generator<any, void, unknown>"
     );
 }
