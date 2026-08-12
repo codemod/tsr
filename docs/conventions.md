@@ -3809,3 +3809,62 @@ capacity claim ("I can't finish this safely") is a claim about the
 world, subject to the same rule as any other: check it, or write it as
 a question rather than a finding.
 
+
+### Corollary 17 (2026-08-11): change a predicate, grep its name, list the call sites
+
+§209 widened `bracket_holds_index_signature` to upstream's nine shapes and
+rewrote **one** of its two consumers. Its own commit message stated the
+generalisation — *a narrow recognition predicate silently licenses narrow
+consumers downstream, so grep for everyone who consumes what it recognises
+before measuring* — and the grep was not run on the predicate the same commit
+had just widened. §210 fixed the second consumer an hour later, +6 cases.
+
+That is corollary 16 aimed at a **lesson** instead of a refusal: *a rule you
+have just written feels already applied*. It is the hardest form to catch,
+because writing the rule down supplies the feeling of having obeyed it.
+
+So the rule is a **pre-flight, not a principle** — principles are what get
+exempted:
+
+- **When a change alters what a predicate RECOGNISES, `grep` the predicate's
+  name and list every call site in the commit message, with line numbers.**
+  A count in the message is checkable by the next reader; an intention is not.
+- The consumers were not bugs before. They were **specialisations of the same
+  wrong assumption**, correct exactly while the predicate was narrow, and they
+  become wrong at the instant it is right. Expect one per call site.
+- It generalises past parsers: any place where one function decides *whether*
+  and others decide *what to do about it*.
+
+**Confirmed within the hour, in the other lane.** checker-2 ran the grep before
+measuring a narrowing fix to a union member filter and found the identical
+defect in a sibling filter written from the same template — the **third**
+instance of one emptied-set bug across three filters, the first two found
+hours apart by measurement. The pre-flight found the third for free.
+
+### Corollary 18 (2026-08-11): ask whether the function already exists before asking how to write it
+
+Four times in one session, across two lanes and three crates, the port
+**already had the machinery** and the defect was that a site did not use it:
+
+| # | site | what already existed |
+|---|---|---|
+| 1 | §209's printer half | `ListFormat::INDEX_SIGNATURE_PARAMETERS`, defined and never referenced |
+| 2 | checker-2's §194 | heritage-name resolution wanted `SymbolFlags::VALUE`; the flag was one argument away |
+| 3 | checker-2's §195 | upstream's self-extension fallback was already transcribed in a comment at the site, unbuilt |
+| 4 | checker-2's §196 | the shared `quote` the rest of the printer uses |
+
+Add to these the refusals whose stated prerequisite was a subsystem that
+already exists (corollary 8's `index_signatures.rs` and array-elision rows),
+and the pattern is not rare — it is one of the most common shapes in the port.
+
+Its cause is structural rather than careless: a 300k-LOC transliteration is
+built in slices, and a slice written for one call site is invisible to the
+next person who needs it three crates away. Hand-rolling a five-line loop is
+faster than finding the ten-line helper, and it is indistinguishable from
+correct until the shared assumption changes underneath it — which is exactly
+corollary 17's cascade.
+
+**Ask "is there already a function that does this?" before "how do I do
+this?"** — and when the answer is yes, prefer the shared one even if the
+hand-rolled version would be shorter, because the value is not the lines
+saved but that the two sites cannot drift.
