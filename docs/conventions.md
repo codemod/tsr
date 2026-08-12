@@ -4278,6 +4278,44 @@ a re-render guard at the bottom of `writeTypeOrSymbol`).
 > writer.** The checker's version of the rule is the one that greps well; the
 > writer's is the one that fires.
 
+**The probe as a control source, which changes what the corpus is for.** Upstream
+can be executed on a fixture you write — drop it in
+`vendor/typescript-go/testdata/tests/cases/compiler/`, run
+`go test ./internal/testrunner -run TestLocal`, read the generated `.types`, then
+delete both and verify the submodule clean *including untracked*. (The run
+"fails" by design; `new baseline created` is the success signal — corollary 26's
+family, read the artefact not the status.)
+
+This dissolves the hardest part of corollary 25. That corollary asks whether the
+corpus contains the input separating your rule from the nearest wrong one, and
+its uncomfortable answer is often *no*. **A written probe supplies controls the
+corpus structurally cannot.** Two from one window:
+
+- Five alias positions in one fixture — top level, labelled, inside `f<U>`,
+  inside a **non-generic** `g()`, inside a namespace. The non-generic case killed
+  the genericity hypothesis and the namespace case killed the nesting
+  hypothesis, in a single run. The corpus contains exactly one indented
+  `type X = {}` and cannot pose the question at all.
+- One symbol referenced from two sites three lines apart (`x;` and
+  `export = x;`), answering `undefined` and `any`. That eliminated every
+  symbol-level explanation at once. No corpus fixture has both positions on one
+  symbol.
+
+The corollary-21 consequence is worth stating plainly, because both lanes got it
+wrong in the same window: **"there is only one witness in the corpus" stops being
+a reason to stop and becomes a reason to write a second one.** Corollary 21 says
+do not call one member a family; it does not say do not *make* a second member.
+Invoking a rule against over-generalising to license under-investigating is a
+misuse of it.
+
+**And a wrapper can narrow a query silently.** `global_type_symbol(name)` delegates
+to `global_type_symbol_with_arity(name, 1)`. Called for `Iterable`, which the
+modern lib declares as `Iterable<T, TReturn = undefined, TNext = any>`, it
+answers `None` — meaning *"no such type at arity 1"* while reading as *"no such
+type"*. An arm built on it never fired and measured a clean `+0`. Same shape as
+the `--case` mode above: the name promises a scope the implementation does not
+have, and the failure surfaces as a plausible negative rather than an error.
+
 How you would know this is wrong: run the instrument against an input whose
 answer you already know, including a *negative* input. An instrument that cannot
 produce a known-false is not measuring.
