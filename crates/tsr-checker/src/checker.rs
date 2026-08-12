@@ -1327,6 +1327,15 @@ impl<'a, 'n> Checker<'a, 'n> {
             return self.qualified_name_at(id, printed, reference);
         };
         if let Some(name) = self.module_name_at(module, reference) {
+            // SS197 (measured -66 cases, reverted): qualifying with
+            // `globalThis.` when the bare name resolves to a DIFFERENT symbol
+            // at the reference is far too broad — 12 cases want the
+            // qualification and the same test fires on ~78 that do not.
+            // Upstream's rule is `getSymbolChain`'s ACCESSIBILITY walk, which
+            // asks whether the symbol is reachable by its own name from the
+            // reference's scope chain, not merely whether some other symbol
+            // shares the spelling. The `collisionCodeGenModuleWith*` family
+            // (12 deficit-1 cases) needs that walk, not a shadowing probe.
             return Some(format!("typeof {name}"));
         }
         // §143 slice 1 (`checker-notes-narrow.md`): a container NO alias
