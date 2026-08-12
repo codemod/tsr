@@ -1847,6 +1847,32 @@ miniature: **it matches on the flag test, and the flag test is not the rule** �
 the call site and quantify differently over unions. Four sites surveyed, four
 non-candidates, one probe outstanding.
 
+### `indexIntoEnum` — the enum reverse mapping, diagnosed and not built
+
+```ts
+namespace M { enum E { } var x = E[0]; }
+>E[0] : string        // upstream; this port answers `error`
+```
+
+Two lines in one deficit-2 case. Upstream's enum object type carries an implicit
+**numeric index signature returning `string`** — the reverse mapping, where `E[0]`
+yields the member *name* rather than a member. This port's `index_infos_of_symbol`
+(§252) collects signatures from declaration members only, and an enum declares none
+syntactically, so the element-access road reaches its index-signature fallback and
+finds nothing.
+
+Note the interaction with §252: that arm added the CLASS carrier to a collector
+that read interfaces and type literals. An enum needs something different — not
+another carrier, but a **synthesised** signature that no declaration contains. So
+the shape that fixed §252 does not extend here, and reading §252 as the precedent
+would be the wrong start.
+
+**Not attempted**, and the reason is scheduling rather than doubt: this is a new
+capability (minting an index signature that has no declaration behind it) rather
+than a missing arm, and starting one on the last of a session's budget is how the
+tree ends up dirty or the change ends up unmeasured. It is small, it is concrete,
+and it should be a session's first build rather than its last.
+
 ## 5. Refused, with the number that refused it
 
 > **§5 IS DANGEROUS WHEN STALE.** Its whole purpose is "do not re-derive
