@@ -578,6 +578,35 @@ impl<'a> BindResult<'a> {
             {
                 return Some(found);
             }
+            // **A named function expression's own name is in scope inside it,
+            // and this walk does not answer it — REFUSED at +1 case / -10
+            // lines, §216.**
+            //
+            // The arm itself is four lines and upstream's is at
+            // `nameresolver.go:233-244`: `bindFunctionExpression` gives the name
+            // a symbol in NO symbol table, so no `locals` lookup can find it and
+            // the walk compares the name being resolved against the function
+            // expression's written name. Built, measured, reverted.
+            //
+            // **It is blocked on the RETURN-TYPE circularity answer, not on
+            // itself.** Resolving `y` inside `function y() { return y; }` makes
+            // the symbol's type depend on itself. Upstream's
+            // `getReturnTypeOfSignature` answers `anyType` on that cycle
+            // (`checker.go:20020`) and so records `>y : () => any`; this port's
+            // resolution stack has no `ResolvedReturnType` key, so the cycle is
+            // caught one level out — at the symbol's `Type` — and answers
+            // `errorType`. Landing the arm alone turns four cases' `any` lines
+            // into `error` lines: `namedFunctionExpressionCall` 3/12 -> 0/12,
+            // `templateStringWithEmbeddedFunctionExpression` 4/5 -> 2/5 and its
+            // ES6 twin, `functionExpressionWithResolutionOfTypeOfSameName01`
+            // 4/5 -> 1/5. Only `recursiveNamedLambdaCall` converts.
+            //
+            // FALSIFIER, one function: give `Resolutions` a `NodeId`-keyed
+            // instance and a `PropertyName::ResolvedReturnType`, guard
+            // `return_type_from_body` with it, and answer `any` — not `error` —
+            // when the pop fails. If `function y() { return y; }` then reads
+            // `() => any`, this arm is a four-line transcription and the whole
+            // row converts.
             if matches!(
                 nodes.kind(node),
                 SyntaxKind::ClassDeclaration

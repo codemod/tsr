@@ -1944,9 +1944,8 @@ impl<'a> Checker<'a, '_> {
         // order. Only the type-only population moves.
         let symbol_data = self.binder.symbols().get(symbol);
         let symbols = self.binder.symbols();
-        let contributes_a_property = |&member: &SymbolId| {
-            symbols.get(member).flags.intersects(SymbolFlags::VALUE)
-        };
+        let contributes_a_property =
+            |&member: &SymbolId| symbols.get(member).flags.intersects(SymbolFlags::VALUE);
         if symbol_data.exports.values().any(contributes_a_property)
             || symbol_data.members.values().any(contributes_a_property)
         {
