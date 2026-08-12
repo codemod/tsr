@@ -1680,11 +1680,30 @@ global { }` body being uninstantiated, so the symbol never gets `VALUE_MODULE` a
 probed, and the last three times a mechanism was inferred from a witness in this
 area (§247's node, its probe position, its probe scope) the inference was wrong.
 
-Cheap next step, and it is one probe now that upstream is executable: put
-`declare global { }` and `declare global { interface I {} }` in one fixture and
-read both lines. If they differ, instantiation is the discriminator; if they agree,
-it is the second unit's file position and this is a resolution question rather than
-a rendering one.
+**PROBED, and the guess was WRONG.** Upstream, on two fixtures written for this:
+
+```text
+declare global { }                  >global : typeof global
+declare global { interface I { } }  >global : typeof global
+```
+
+Identical. **Instantiation is not the discriminator** — upstream prints
+`typeof global` for a global augmentation name unconditionally. The guess above is
+struck rather than deleted, because it was the obvious mechanism and the next
+reader would otherwise re-derive it.
+
+The port, probed on the same two sources with no lib loaded, answers **`error` for
+both**. So the corpus cases that *do* print `typeof global` are not getting it from
+the declaration at all — they are resolving `global` to a **merged global symbol**
+that carries a value meaning, and the failing units are the ones where that merge
+did not happen or resolved elsewhere. That relocates the question from *rendering*
+to *global symbol merging*, and specifically to why two units of
+`duplicatePackage_globalMerge` — one under `/node_modules`, one under
+`/tests/node_modules` — resolve differently.
+
+Which makes this a **binder/resolution** question rather than a `.types` one, and
+therefore closer to checker-1's lane than to this one. Handed over with the two
+probe results, which are the part that cost anything to obtain.
 
 ## 5. Refused, with the number that refused it
 
