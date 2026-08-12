@@ -331,27 +331,37 @@ impl<'a> Parser<'a> {
 
         // `[key: string]: T` — an index signature on a class.
         if self.at(SyntaxKind::OpenBracketToken) && self.bracket_holds_index_signature() {
-            self.next_token();
-            let parameter_start = self.pos();
-            let name = self.parse_identifier();
-            let parameter_type = self.parse_type_annotation();
-            let parameter = self.finish_node(
-                ParameterDeclaration::new(
-                    &[],
-                    None,
-                    Some(BindingName::Identifier(name)),
-                    None,
-                    parameter_type,
-                    None,
-                ),
-                SyntaxKind::Parameter,
-                parameter_start,
-            );
+            // **§209's second consumer, and it is §209's own lesson.** That
+            // section widened `bracket_holds_index_signature` to upstream's
+            // nine shapes and rewrote the TYPE-LITERAL consumer to
+            // `parseIndexSignatureDeclaration`'s bracketed parameter LIST
+            // (`parser.go:3562`). This one — the CLASS member — was left
+            // reading a single bare `id: type`, which is the same narrow
+            // assumption the predicate used to license, at the other of its
+            // two call sites.
+            //
+            // `class C { [a: number = 1]: number; }` is the witness:
+            // `parse_parameter` reads the initializer and upstream records
+            // `>1 : 1` for it, where the hand-rolled read stopped at the type
+            // annotation and left `= 1` behind to be re-scanned into an
+            // expression position. §210.
+            self.expect(SyntaxKind::OpenBracketToken);
+            let mut parsed = Vec::new();
+            while !self.at(SyntaxKind::CloseBracketToken) && !self.at(SyntaxKind::EndOfFile) {
+                let before = self.pos();
+                parsed.push(self.parse_parameter());
+                if !self.eat(SyntaxKind::CommaToken) {
+                    break;
+                }
+                if self.pos() == before {
+                    break;
+                }
+            }
             self.expect(SyntaxKind::CloseBracketToken);
             let value_type = self.parse_type_annotation();
             self.parse_semicolon();
             let modifiers = self.arena.alloc_slice(&modifiers);
-            let parameters = self.arena.alloc_slice(&[parameter]);
+            let parameters = self.arena.alloc_slice(&parsed);
             return Some(ClassElement::IndexSignatureDeclaration(self.finish_node(
                 IndexSignatureDeclaration::new(modifiers, parameters, value_type, None, &[]),
                 SyntaxKind::IndexSignature,

@@ -1749,3 +1749,52 @@ fn a_computed_property_name_is_not_an_index_signature() {
         assert!(!found, "{source:?} must not parse as an index signature");
     }
 }
+
+/// §210. A CLASS index signature's bracket is the same parameter list as a type
+/// literal's.
+///
+/// §209 widened `bracket_holds_index_signature` to upstream's nine shapes and
+/// rewrote the type-literal consumer to `parseIndexSignatureDeclaration`'s
+/// bracketed parameter list (`parser.go:3562`). It left the class-member
+/// consumer reading a single bare `id: type` — the same narrow assumption the
+/// predicate used to license, in the other of its two call sites.
+///
+/// `class C { [a: number = 1]: number; }` is the witness: upstream records
+/// `>1 : 1` for the initializer, which only exists if the parameter went
+/// through the ordinary parameter parser.
+#[test]
+fn a_class_index_signatures_bracket_takes_a_parameter_list() {
+    let arena = Arena::new();
+    for (source, expected) in [
+        ("class C { [] }", 0usize),
+        ("class C { [a: number]: number; }", 1),
+        ("class C { [a: number = 1]: number; }", 1),
+        ("class C { [a: string, b: number]: number; }", 2),
+    ] {
+        let parsed = parse(&arena, source);
+        let signatures: Vec<usize> = all_nodes(tsr_ast::Node::SourceFile(parsed.source_file))
+            .iter()
+            .filter_map(|node| match node {
+                tsr_ast::Node::IndexSignatureDeclaration(signature) => {
+                    Some(signature.parameters.len())
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(signatures, vec![expected], "{source:?}");
+    }
+}
+
+/// The discriminating half: the initializer must be ON the parameter, not left
+/// behind to be re-scanned. Counting parameters alone passes for a reader that
+/// stops at the type annotation, which is exactly what this port did.
+#[test]
+fn a_class_index_signature_parameter_keeps_its_initializer() {
+    let arena = Arena::new();
+    let parsed = parse(&arena, "class C { [a: number = 1]: number; }");
+    let found = all_nodes(tsr_ast::Node::SourceFile(parsed.source_file)).iter().any(|node| {
+        matches!(node, tsr_ast::Node::IndexSignatureDeclaration(signature)
+            if signature.parameters.iter().any(|p| p.initializer.is_some()))
+    });
+    assert!(found, "the `= 1` belongs to the parameter");
+}
