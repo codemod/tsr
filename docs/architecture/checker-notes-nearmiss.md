@@ -677,9 +677,44 @@ arms on the board and it should be read as an argument for porting
 `parseDelimitedList` properly — the bitmask and all three arms — rather than
 for widening the two-way version.
 
-The remaining three structural cases are *not* this family and are listed
-separately so nobody counts nine: `switchStatementsWithMultipleDefaults`
-(`default` — an escaped keyword upstream treats as a label name, which
-`IsLabelName` skips), `parserFuzz1` (`static`), and `parserEnum4`
-(`(typeof SignatureFlags)[""]`, which is a *type* disagreement wearing a count
-difference).
+The remaining three structural cases were first listed here as *not* this
+family — `switchStatementsWithMultipleDefaults`, `parserFuzz1` (`static`) and
+`parserEnum4` (`(typeof SignatureFlags)[""]`). **One of the three turned out to
+be this family after all**; see immediately below, and note that the
+"not this family" call was made from the symptom rather than from the
+parser.
+
+
+#### Seven, not six — and the seventh exercises the *other* branch
+
+`switchStatementsWithMultipleDefaults` was listed above as "not this family",
+on the reading that `def\u0061ult:` is a label name upstream skips via
+`IsLabelName`. The skip is real and **already ported**
+(`types_producer.rs:1087`, `is_label_name`), which is precisely why the case
+still fails: if the guard is present and the line is still emitted, this port
+is not building a `LabeledStatement` there at all.
+
+It is not. And the reason is the same third arm, taking its **other** branch:
+
+- `isListElement(PCSwitchClauses)` is `token == case || token == default`. An
+  escaped `def\u0061ult` scans as an **Identifier** — an identifier written
+  with escapes is never a keyword — so it fails.
+- `isListTerminator` wants `}`. Also fails.
+- So `abortParsingListOrMoveToNextToken` asks `isInSomeParsingContext`. An
+  identifier **does** start a statement in the enclosing statement list, so the
+  answer is *yes* and upstream **aborts the clause list** rather than skipping a
+  token. The remaining text is then parsed as ordinary statements, where
+  `def\u0061ult:` is a `LabeledStatement`, and `IsLabelName` skips its label.
+
+So the six above take `abortParsingListOrMoveToNextToken`'s *skip-and-retry*
+branch and this one takes its *abort* branch. **That is worth more than the
+extra case.** A partial port of this arm — one branch, or a `parsingContexts`
+mask covering only the contexts a particular fixture needs — cannot serve both,
+and the two branches fail in opposite directions: skip-and-retry consumes a
+token, abort refuses to. Getting the `isInSomeParsingContext` answer wrong in
+either direction produces a differently-shaped tree, not a slightly-worse one.
+
+Revised price: **7 structural cases**, all of them otherwise perfect, all on
+one piece of machinery. The remaining two are `parserFuzz1` (`static`) and
+`parserEnum4`, whose count difference is a *type* disagreement wearing a
+count difference.
