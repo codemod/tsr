@@ -82,11 +82,30 @@ enum_glob_use = "allow"
 missing_errors_doc = "allow"
 missing_panics_doc = "allow"
 
+# **Build speed is a measurement cost here, not a shipping cost.** This port has
+# no released binary; `release` exists so the conformance corpus (9,538 cases,
+# 49k baselines) runs in seconds rather than minutes. Every arm is measured by
+# touching one checker file and re-running, dozens of times a session, so the
+# *rebuild* is on the critical path and the last 5% of runtime speed is not.
+#
+# `lto = "thin"` with `codegen-units = 1` costs ~15s of whole-program relink on
+# every one-file change and buys single-digit-percent runtime. Both are off.
+# `opt-level` stays at 3: the conformance run is compute-bound and dropping it
+# makes the run *much* slower, which is the opposite of the goal.
+#
+# `[profile.dist]` below keeps the slow-and-fast build for anyone who needs it.
 [profile.release]
 opt-level = 3
+lto = false
+codegen-units = 16
+panic = "abort"
+
+# The old `release`: whole-program LTO, one codegen unit. For a shipped
+# artefact or a benchmark where the last few percent matter.
+[profile.dist]
+inherits = "release"
 lto = "thin"
 codegen-units = 1
-panic = "abort"
 
 # Release code with symbols, for `perf`.
 #
@@ -107,3 +126,13 @@ strip = false
 # 49k-baseline corpus.
 [profile.dev.package."*"]
 opt-level = 2
+
+# Debuginfo generation dominates a debug build on macOS, and nothing in this
+# workspace is debugged under a debugger — failures are read from assertions and
+# from the corpus. Line tables keep panic backtraces useful, which is the only
+# thing the debug info is actually used for.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.test]
+debug = "line-tables-only"
