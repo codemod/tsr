@@ -4145,6 +4145,7 @@ pub(crate) const INTERNAL_FUNCTION: &str = "__function";
 /// The name every index signature in a container shares, so that two of them
 /// merge into one symbol — which is what upstream's `__index` is for.
 pub(crate) const INTERNAL_INDEX: &str = "__index";
+
 /// The name every late-bound member shares until the checker resolves it
 /// (`ast.InternalSymbolNameComputed`). Unlike the other internal names it is
 /// deliberately *not* a key in any symbol table: two `[k]`s in one class are two
@@ -4730,6 +4731,35 @@ fn declaration_name<'a>(
         // `declare module "fs"` is the symbol `"fs"`, **with the quotes in the
         // name**, exactly as `getDeclarationName` spells it
         // (`internal/binder/binder.go:311`). See [`quoted_module_name`].
+        //
+        // # §234: `declare global` should be `__global` here, and doing that costs 5 cases
+        //
+        // Upstream returns `ast.InternalSymbolNameGlobal` (`binder.go:308-311`)
+        // for a global scope augmentation rather than the identifier the parser
+        // synthesises, so **`global` is not a resolvable name upstream**.
+        // Confirmed by executing upstream over a probe fixture rather than
+        // reading it: `TS2304: Cannot find name 'global'`, reported twice, while
+        // `globalThis` resolves normally in the same file. That is why
+        // `spellingSuggestionGlobal1`/`2`/`4` want `>global : any` at a
+        // reference where this port answers a confident `typeof global` —
+        // upstream's `any` is a rendered `errorType` for an unresolved name.
+        //
+        // **Making this arm return an internal name measured 0 won and 5 LOST**
+        // (`doubleUnderscoreReactNamespace`,
+        // `evalOrArgumentsInDeclarationFunctions`,
+        // `newNamesInGlobalAugmentations1`, `globalAugmentationModuleResolution`,
+        // `nodeModulesTripleSlashReferenceModeOverrideOldResolutionError`) plus
+        // a scatter of −1s. The name is **load-bearing for merging**: this
+        // binder merges global augmentations by matching the declaration name
+        // across files, and upstream merges them by a separate path that does
+        // not need the name to agree. Renaming the symbol without porting that
+        // path breaks the merge.
+        //
+        // So the fix is not here. The reference should fail to resolve while
+        // the declaration keeps its name — a filter in `resolve_name` that
+        // declines a global-augmentation module symbol, not a rename. Recorded
+        // rather than attempted because the merge path is the real dependency
+        // and it has not been read.
         Node::ModuleDeclaration(n) => n.name.map(|name| match name {
             tsr_ast::ModuleName::StringLiteral(literal) => quoted_module_name(arena, literal.text),
             tsr_ast::ModuleName::Identifier(identifier) => identifier.text,
