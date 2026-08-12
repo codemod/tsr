@@ -1544,15 +1544,38 @@ function-local one blocks — which is why the case reads deficit 1 and why a ru
 the form "an alias name prints its declared type" would **break the line that
 currently passes** while fixing the one that fails.
 
-The discriminator is unknown. Two candidates, neither tested: the alias being
-declared inside a **generic function** (type parameters in scope may leave the
-`aliasSymbol` unset, so the type renders structurally and the writer guard never
-fires), or the **source spacing** — the two declarations differ by exactly one
-character, `{ }` versus `{}`.
+**SETTLED by executing upstream** (checker-1's §230 instrument: drop a fixture into
+`vendor/typescript-go/testdata/tests/cases/compiler/`, run
+`go test ./internal/testrunner -run TestLocal`, read the generated `.types`, then
+delete both — the submodule must be verified clean afterwards, including untracked).
 
-Not built and not guessed. Settling it needs upstream executed on this fixture,
-the same instrument checker-1's §227 is blocked on. Recorded so the next session
-starts from "upstream prints both spellings" rather than from the handoff's premise.
+One probe, five positions, and it kills **both** candidate hypotheses:
+
+```text
+type A = {};                       >A : A
+label: type B = {};                >B : {}
+function f<U>() { type C = {}; }   >C : {}
+function g()    { type D = {}; }   >D : {}     <- NOT generic, still structural
+namespace N { type E = {}; }       >E : E      <- nested, but named
+```
+
+Spacing was already ruled out by checker-1's grep (`type Foo = {}` at top level
+prints `Foo`). **Genericity is ruled out here**: a non-generic function body
+produces `{}` just as a generic one does. And nesting *per se* is not it either —
+a namespace-nested alias prints its own name.
+
+The line that separates them is **accessibility from the enclosing declaration**.
+Top-level and namespace aliases are reachable by a symbol chain; a function-local
+alias and a labelled one are not, so `symbolToTypeNode` cannot spell the name and
+the builder renders structurally. That is checker-1's guess confirmed and
+generalised — the trigger is not "the position is illegal" but "the symbol is
+unreachable from where the type is being printed", which also explains why the
+legal-but-local `function g()` case behaves like the illegal labelled one.
+
+**Consequence for the row: it is one rule, not 3 + 1.** All four cases want the
+same predicate, and it is the `getSymbolChain` accessibility walk already recorded
+as a lead for `typeof globalThis.X`. Sizing the two together is the right move,
+since neither is worth building the walk alone.
 
 ## 5. Refused, with the number that refused it
 
