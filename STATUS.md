@@ -1485,6 +1485,38 @@ to every consumer that asks. Three cases do not buy that.
 Reopening condition: if `emptyObjectType` is ever minted for its own reasons, this
 row converts behind it at no extra cost, and the array road remains separate.
 
+### The `() => any` method row — diagnosed to one question, not yet answered
+
+Fourteen deficit-1/2 lines wanting `() => any` where this port prints `any`.
+Two witnesses opened independently, `compiler/jsxFactoryIdentifierWithAbsentParameter`
+and `compiler/jsxFactoryMissingErrorInsideAClass`, and they agree on the construct:
+a **class method whose body returns a JSX element**.
+
+```ts
+export class AppComponent {
+    render() { return <div />; }
+}
+>render : () => any        // upstream; this port prints `any`
+```
+
+**The printed `any` is not the port's answer.** Both cases carry an upstream
+`.errors.txt`, so §180's `hadErrorBaseline` arm is rewriting an underlying
+`error` — the method's signature is not being built at all. That matters for
+whoever takes this: the census row says `any`, the defect is `error`, and looking
+for a rule that produces `any` would be looking for the wrong thing.
+
+**What is already known to work**, from the same case's own passing lines: the
+body's expression types correctly (`>div : any` and `><div /> : any` both match),
+and methods in general build signatures throughout the corpus. So the decline is
+specific and is neither "JSX is unsupported" nor "methods are unsupported".
+
+**The open question, stated so it can be answered in one probe rather than
+reasoned about:** which of `get_signatures_of_symbol`, the return-type-from-body
+aggregate, or the method's own symbol road returns the error type here, given that
+the body expression it depends on does not. Not answered today, and deliberately
+not guessed — the last three inferences-from-a-witness in this file were wrong
+(§247's node, §247's probe position, §247's probe scope).
+
 ## 5. Refused, with the number that refused it
 
 > **§5 IS DANGEROUS WHEN STALE.** Its whole purpose is "do not re-derive
