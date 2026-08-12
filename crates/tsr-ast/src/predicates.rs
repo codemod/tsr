@@ -465,10 +465,31 @@ pub fn meaning_from_declaration(id: NodeId, tree: Tree<'_, '_>) -> SemanticMeani
         // nothing but types is bare `Namespace`, and its name gets no `.types`
         // line. See [`module_instance_state`].
         SyntaxKind::ModuleDeclaration => {
+            // §253. `IsAmbientModule` (`ast/utilities.go:1652`) is a
+            // DISJUNCTION, and only its first half was ported:
+            //
+            // ```go
+            // return IsModuleDeclaration(node) &&
+            //     (node.AsModuleDeclaration().Name().Kind == KindStringLiteral ||
+            //      IsGlobalScopeAugmentation(node))
+            // ```
+            //
+            // `IsGlobalScopeAugmentation` (`:1690`) is `Keyword == KindGlobalKeyword`,
+            // so `declare global { … }` is an ambient module whose NAME is an
+            // identifier rather than a string literal. Without the second half
+            // it fell to the instantiation test, answered bare `Namespace`, and
+            // the meaning guard dropped its name from the walk entirely —
+            // upstream records `>global : typeof global` and this port emitted
+            // nothing at all.
+            //
+            // Witness `compiler/moduleAugmentationGlobal6`:
+            // `declare global { interface Array<T> { x } }`, where the `x` line
+            // matched and the `global` line was simply absent.
             let ambient = matches!(
                 tree.node(id),
                 Some(Node::ModuleDeclaration(n))
                     if matches!(n.name, Some(crate::ModuleName::StringLiteral(_)))
+                        || n.keyword.kind == SyntaxKind::GlobalKeyword
             );
             if ambient || module_instance_state(id, tree) == ModuleInstanceState::Instantiated {
                 SemanticMeaning::NAMESPACE | SemanticMeaning::VALUE
