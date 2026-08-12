@@ -900,6 +900,44 @@ emitted an error at that position**, and the two populations point in opposite
 directions. Quoting the ceiling as a reason to distrust the board, without
 running the check, would have talked both lanes out of 28 convertible cases.
 
+#### A third population, and the discriminator is sharper than "did upstream error"
+
+**2026-08-12, later.** `upstream says `any`, we say `error`` has a third cause,
+and it is neither of the two above. Found while diagnosing `declare global` in a
+module (`compiler/declarationEmitRetainsJsdocyComments` and five siblings).
+
+Upstream's error type is `c.errorType = c.newIntrinsicType(TypeFlagsAny,
+"error")` (`checker.go:979`) — intrinsic name **`"error"`**, flags `Any`. So
+upstream's baselines *can* contain `error`, and which spelling you get depends
+on **which arm of `writeTypeOrSymbol` runs**:
+
+| arm | how it renders an `errorType` |
+|---|---|
+| fast path — `t.AsIntrinsicType().IntrinsicName()` | **`error`** |
+| node builder — `TypeToTypeNode` on a `TypeFlagsAny` intrinsic | **`any`** |
+
+The guard chain decides the arm, and one of its conditions —
+`!ast.IsGlobalScopeAugmentation(node.Parent)` — is **not ported**. So for a
+global augmentation this port takes the fast path and prints `error` while
+upstream takes the builder and prints `any`, **with both holding the same
+type**. That is a missing writer guard worth 3 deficit-1 cases and parts of four
+more, not a ceiling line.
+
+So the three populations are:
+
+| upstream's `any` is… | discriminator | convertible? |
+|---|---|---|
+| a computed `any` | no error at that position | **yes** — 28 measured |
+| a rendered `errorType`, fast path | upstream errored there (`parserStrictMode*`) | **no** — ADR-0038 |
+| a rendered `errorType`, **builder path** | a guard-chain condition selects the arm | **yes** — a missing guard |
+
+**The heuristic recorded above — "we are more specific than upstream, read the
+`.errors.txt`" — is necessary and not sufficient.** It separates the first two
+and is blind to the third, because the third *also* has upstream emitting no
+error and *also* has both sides holding the same type. The sharper question is
+**which arm upstream took**, and the way to answer it is to read the guard chain
+against the node's parent rather than to read the diagnostic baseline.
+
 **Consequences for any target:**
 
 ```
