@@ -3899,3 +3899,38 @@ reason it was supposed to be right**, within one run, rather than by
 luck. That is corollary 15's "assert which way the branch went" applied
 to a whole attempt instead of a fixture.
 
+
+### Corollary 18 (2026-08-11): if your port is longer than the predicate, you ported the witness
+
+Corollary 16 says a refusal's scope must match its reason's scope. The same
+defect has a quieter form on the *building* side, and it does not look like a
+mistake at the time, because the code is correct — merely narrow.
+
+> **When a ported predicate is substantially longer than the upstream predicate
+> it replaces, suspect that what got encoded is the position the witness
+> happened to occupy rather than the rule.**
+
+Worked case, one guard ported twice, ten cases apart:
+
+- **§183** ported `type_symbol_baseline.go:383` as a twelve-line pattern match:
+  is the parent a `PropertyAccessExpression`, *and is this node its `name`*?
+  That was true of the witness (`Obj.fn = function(){}`), it measured positive,
+  and it stood for weeks.
+- **§204** ported the same line as upstream writes it —
+  `!ast.IsPropertyAccessOrQualifiedName(node.Parent)`, a test on the parent
+  **alone**: either side of either construct. Witness
+  `moduleOuterQualification`, where `outer` is the *left* of a qualified name in
+  `extends outer.Beta`. **+10 cases** were sitting in the half §183 did not
+  cover.
+
+The tell is mechanical and needs no insight into the domain: upstream's
+condition named one predicate over one field, and the port named two fields and
+a position. **Length asymmetry in a transcription is a smell**, because faithful
+transcription is normally length-preserving — the extra clauses came from
+somewhere, and the only thing present at porting time that upstream's author did
+not have is the witness.
+
+How you would know this is wrong: if the narrow port's extra clauses can be
+traced to a *stated* upstream fact (a different call site, a documented
+exception) rather than to the fixture in hand. Then the asymmetry is real
+information and not an artefact.
