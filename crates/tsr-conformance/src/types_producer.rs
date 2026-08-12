@@ -219,6 +219,36 @@ fn entity_name_symbol(
     }
 }
 
+/// Whether an identifier IS the name of an import or export statement.
+///
+/// §248, extracted from §178's inline condition so the WRITER can ask it too.
+/// Ported from `isImportStatementName`/`isExportStatementName`
+/// (`type_symbol_baseline.go:458-479`).
+fn is_import_or_export_statement_name(id: NodeId, nodes: &NodeTable, map: &NodeMap<'_>) -> bool {
+    if nodes.kind(id) != SyntaxKind::Identifier {
+        return false;
+    }
+    let Some(parent) = nodes.parent(id) else { return false };
+    match map.get(parent) {
+        Some(Node::ImportSpecifier(specifier)) => {
+            specifier.name.and_then(|n| n.node_id) == Some(id)
+                || specifier.property_name.and_then(|n| n.node_id()) == Some(id)
+        }
+        Some(Node::ImportClause(clause)) => clause.name.and_then(|n| n.node_id) == Some(id),
+        Some(Node::ImportEqualsDeclaration(declaration)) => {
+            declaration.name.and_then(|n| n.node_id) == Some(id)
+        }
+        Some(Node::ExportAssignment(assignment)) => {
+            assignment.expression.and_then(|e| e.node_id()) == Some(id)
+        }
+        Some(Node::ExportSpecifier(specifier)) => {
+            specifier.name.and_then(|n| n.node_id()) == Some(id)
+                || specifier.property_name.and_then(|n| n.node_id()) == Some(id)
+        }
+        _ => false,
+    }
+}
+
 fn selects(id: NodeId, tree: Tree<'_, '_>) -> bool {
     let kind = tree.kind(id);
     let kept = predicates::is_expression_node(id, tree)
@@ -1363,6 +1393,28 @@ fn render_case(
                 // why it sits here beside SS180 rather than inside
                 // `type_at_location`: it does not change what any type IS, only
                 // whether an any-flagged one takes the intrinsic fast path.
+                // §248. The SAME guard as §178, applied at the WRITER instead
+                // of as an early return in `type_at_location`.
+                //
+                // §182 measured HOISTING §178's guard above the
+                // declaration-name branch and it lost cases twice
+                // (4,697 → 4,685 and → 4,682), because that replaced the
+                // branch's COMPUTATION, whose answers for import/export names
+                // are right more often than the guard's substitution. This is
+                // a different change and §182's negatives do not cover it:
+                // here nothing is recomputed. A non-error answer is left
+                // exactly as the branch produced it, and only the `error`
+                // string is rewritten — which is where upstream's guard
+                // applies, since `writeTypeOrSymbol` decides the SPELLING of
+                // an any-flagged type after the checker has answered.
+                //
+                // Witnesses `moduleResolution_packageJson_yesAtPackageRoot`
+                // and `moduleLocalImportNotIncorrectlyRedirected`, opened
+                // independently: both are `import { x } from "…"` specifier
+                // names over a module this port does not resolve.
+                if answer == "error" && is_import_or_export_statement_name(id, nodes, node_map) {
+                    answer = "any".to_string();
+                }
                 if answer == "error"
                     && let Some(parent) = nodes.parent(id)
                     && matches!(
