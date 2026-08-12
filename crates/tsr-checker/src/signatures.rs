@@ -271,15 +271,59 @@ impl<'a> Checker<'a, '_> {
         else {
             return None;
         };
+        self.signature_candidates_of_interface_symbol(symbol, kind, 0)
+    }
+
+    /// Every call/construct signature an interface symbol carries — **its own
+    /// members and its bases'** — with an inheritance depth so a cyclic
+    /// `extends` cannot spin.
+    ///
+    /// `extends` used to decline outright, at BOTH of this function's callers,
+    /// which is a refusal whose scope was wider than its reason:
+    /// `resolveDeclaredMembers` (`checker.go:18410`'s interface arm) unions the
+    /// declared signatures with the inherited ones, so declining the whole set
+    /// means `interface I7 extends I6 {}` over `interface I6 { (): void }`
+    /// cannot be called at all. `compiler/interfaceDeclaration1` records
+    /// `>v1() : void`.
+    ///
+    /// Narrow, and each restriction is upstream machinery this port lacks
+    /// rather than a guess: a base written with **type arguments** declines,
+    /// because the signatures would need instantiating (the same refusal
+    /// `base_symbols_of` makes for members, §202); a base that is not a
+    /// resolvable interface declines; depth is capped, a cyclic `extends`
+    /// being upstream's own error and this walk having no resolution stack.
+    ///
+    /// §215.
+    fn signature_candidates_of_interface_symbol(
+        &mut self,
+        symbol: SymbolId,
+        kind: SignatureKind,
+        depth: u32,
+    ) -> Option<Vec<Signature>> {
+        const MAX_HERITAGE_DEPTH: u32 = 8;
+        if depth > MAX_HERITAGE_DEPTH {
+            return None;
+        }
         let declarations: Vec<NodeId> =
             self.binder.symbols().get(symbol).declarations.iter().copied().collect();
         let mut elements: Vec<NodeId> = Vec::new();
+        let mut inherited: Vec<Signature> = Vec::new();
         for declaration in declarations {
             let Some(Node::InterfaceDeclaration(interface)) = self.node_map.get(declaration) else {
                 continue;
             };
-            if !interface.heritage_clauses.is_empty() {
-                return None;
+            for clause in interface.heritage_clauses {
+                if clause.token.kind != SyntaxKind::ExtendsKeyword {
+                    continue;
+                }
+                for entry in clause.types {
+                    let base = self.base_symbol_of_heritage_entry(entry, true)?;
+                    inherited.extend(self.signature_candidates_of_interface_symbol(
+                        base,
+                        kind,
+                        depth + 1,
+                    )?);
+                }
             }
             for member in interface.members {
                 let wanted = match member {
@@ -300,6 +344,9 @@ impl<'a> Checker<'a, '_> {
                 candidates.push(signature);
             }
         }
+        // Own members first, then the bases' — upstream appends the inherited
+        // set after the declared one.
+        candidates.extend(inherited);
         Some(candidates)
     }
 
@@ -358,40 +405,24 @@ impl<'a> Checker<'a, '_> {
         else {
             return None;
         };
-        let declarations: Vec<NodeId> =
-            self.binder.symbols().get(symbol).declarations.iter().copied().collect();
-        let mut elements: Vec<NodeId> = Vec::new();
-        for declaration in declarations {
-            let Some(Node::InterfaceDeclaration(interface)) = self.node_map.get(declaration) else {
-                continue;
-            };
-            if !interface.heritage_clauses.is_empty() {
-                return None;
-            }
-            for member in interface.members {
-                let wanted = match member {
-                    tsr_ast::TypeElement::CallSignatureDeclaration(_) => SignatureKind::Call,
-                    tsr_ast::TypeElement::ConstructSignatureDeclaration(_) => {
-                        SignatureKind::Construct
-                    }
-                    _ => continue,
-                };
-                if wanted == kind {
-                    elements.extend(member.node_id());
-                }
-            }
-        }
+        // §215: the heritage refusal used to sit here too, and THIS is the copy
+        // on the call path — `calls.rs:910` reaches a callee's signatures
+        // through this function, not through
+        // `signature_candidates_of_named_type`. Widening only the other one
+        // moved the board by ZERO, which is conventions corollary 17 catching
+        // its own author: the same wrong assumption specialised in two
+        // functions, and the grep not run. Both now share one `extends` walk.
+        //
+        // An unbuildable overload no longer kills the set — the all-equal
+        // return check below still gates the KEPT candidates, and a skipped
+        // overload with a DIFFERENT return would have to disagree with a built
+        // sibling to matter, which the typed-array interfaces' uniform returns
+        // make measurable (`checker-notes-narrow.md` §44's queued trace). That
+        // skip now happens inside the shared walk, where the declarations are
+        // read.
+        let declared = self.signature_candidates_of_interface_symbol(symbol, kind, 0)?;
         let mut candidates: Vec<Signature> = Vec::new();
-        for element in elements {
-            // An unbuildable overload no longer kills the set — the
-            // all-equal return check below still gates the KEPT candidates,
-            // and a skipped overload with a DIFFERENT return would have to
-            // disagree with a built sibling to matter, which the typed-array
-            // interfaces' uniform returns make measurable
-            // (`checker-notes-narrow.md` §44's queued trace).
-            let Some(mut signature) = self.get_signature_from_declaration(element) else {
-                continue;
-            };
+        for mut signature in declared {
             if !signature.type_parameters.is_empty() {
                 // §44 (`checker-notes-narrow.md`): ALL-defaulted generics
                 // instantiate their return with the default map and join as

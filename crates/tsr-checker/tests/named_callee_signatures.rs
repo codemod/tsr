@@ -147,13 +147,17 @@ fn a_generic_signature_member_infers_from_arguments() {
 }
 
 #[test]
-fn an_interface_with_a_heritage_clause_is_refused() {
-    // The pair of `a_call_signature_member_answers_its_return_type`. The direct
-    // members are only part of the candidate set — upstream's
-    // `resolveDeclaredMembers` folds the base's signatures in — so answering
-    // from them is answering off data known to be incomplete. That is what
-    // `compiler/inheritedOverloadedSpecializedSignatures` demonstrates, and the
-    // refusal costs 20 convertible lines to prevent 7 wrong ones.
+fn an_interface_with_a_heritage_clause_folds_its_bases_signatures_in() {
+    // **A stand-in come due, and it named its own fix.** This asserted `error`
+    // on the ground that "the direct members are only part of the candidate
+    // set — upstream's `resolveDeclaredMembers` folds the base's signatures in
+    // — so answering from them is answering off data known to be incomplete",
+    // and priced the refusal at 20 convertible lines to prevent 7 wrong ones.
+    //
+    // §215 folds them in, so the data is no longer incomplete and the premise
+    // is gone. Both signatures here return `AST`, the all-equal-return gate
+    // passes over the WHOLE set rather than over a truncated one, and the
+    // answer is upstream's.
     assert_eq!(
         type_of_last(
             "interface AST { kind: string; }\n\
@@ -162,7 +166,7 @@ fn an_interface_with_a_heritage_clause_is_refused() {
              declare const pre: Derived;\n\
              const walked = pre(\"a\");"
         ),
-        "error"
+        "AST"
     );
 }
 
@@ -196,5 +200,65 @@ fn a_symbol_call_outside_a_const_position_answers_symbol() {
              let s = Symbol();"
         ),
         "symbol"
+    );
+}
+
+/// §215. An interface's call signatures include its bases'.
+///
+/// `resolveDeclaredMembers` unions the declared signatures with the inherited
+/// ones (`checker.go:18410`'s interface arm). This port declined any interface
+/// carrying a heritage clause outright — a refusal whose scope was wider than
+/// its reason — so `interface I7 extends I6 {}` over
+/// `interface I6 { (): void }` could not be called at all.
+/// `compiler/interfaceDeclaration1` records `>v1() : void`.
+#[test]
+fn an_interface_inherits_its_bases_call_signature() {
+    assert_eq!(
+        type_of_last(
+            "interface A { (): void }\ninterface B extends A { }\ndeclare var b: B;\nconst x = b();"
+        ),
+        "void"
+    );
+    // Two levels, because the walk recurses.
+    assert_eq!(
+        type_of_last(
+            "interface A { (): string }\ninterface B extends A { }\ninterface C extends B { }\ndeclare var c: C;\nconst x = c();"
+        ),
+        "string"
+    );
+}
+
+/// This road cannot observe the ORDER of the folded signatures —
+/// `get_signature_of_named_type` declines any candidate set whose returns are
+/// not all equal, so a fixture that could tell the orders apart is refused for
+/// that reason first. But the mutation run showed it observes something better
+/// than nothing: **it detects the base's PRESENCE.** Skip the `extends` walk
+/// and `B` has one signature returning `number`, so the answer becomes
+/// `number` rather than a decline. So this pins that the base really is being
+/// folded in, by the decline it causes.
+///
+/// The day overload selection reaches here, this fixture fails and asks to be
+/// rewritten — which is the right time to pin the order.
+#[test]
+fn differing_returns_across_the_heritage_boundary_still_decline() {
+    assert_eq!(
+        type_of_last(
+            "interface A { (): string }\ninterface B extends A { (): number }\ndeclare var b: B;\nconst x = b();"
+        ),
+        "error"
+    );
+}
+
+/// The restrictions, each an upstream mechanism this port lacks rather than a
+/// guess: a base written with TYPE ARGUMENTS declines, because the signatures
+/// would need instantiating — the same refusal `base_symbols_of` makes for
+/// members. Without this control, widening the heritage arm looks free.
+#[test]
+fn an_instantiated_base_still_declines() {
+    assert_eq!(
+        type_of_last(
+            "interface A<T> { (): T }\ninterface B extends A<string> { }\ndeclare var b: B;\nconst x = b();"
+        ),
+        "error"
     );
 }
