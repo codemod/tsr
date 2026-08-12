@@ -1450,6 +1450,40 @@ Upstream's fallthrough makes the eventual shape safe — nil *or* any falls back
 `GetTypeAtLocation(node)` — so a declining resolution reproduces today's answer
 rather than a gap.
 
+### The `empty*BindingPatternParameter*` row — priced, convertible, and blocked on a standing refusal
+
+Eight deficit-1 cases (`emptyObjectBindingPatternParameter01`–`04`,
+`emptyArrayBindingPatternParameter01`–`04`), each a function whose parameter is an
+empty binding pattern, all answering `f : error` where upstream prints the
+signature.
+
+**Priced first, per checker-1's `.errors.txt` test: all four sampled are CLEAN** —
+no upstream diagnostics — so this is not the `parserStrictMode*` ceiling
+population. The cases are genuinely convertible.
+
+**Not one row but three roads**, which is why it is not eight cases of one build:
+
+| shape | want | road |
+|---|---|---|
+| `f({})`, `f(a, {})`, `f({}, a)` | `({}: {}) => void` | `getTypeFromObjectBindingPattern` on an EMPTY pattern → `emptyObjectType` |
+| `f({}? = {a:1,…})` | `({}?: { a: number; b: string; c: boolean; }) => void` | the initialiser's type, not the pattern's |
+| `f([])`, `f([] = [1,2,3,4])` | `([]: Iterable<any, void, undefined>) => void` | the ITERABLE implied type, a different constructor again |
+
+The renderer is not the blocker — `render_binding_pattern` already prints `{}` and
+`[]` correctly for empty patterns. The parameter's TYPE is: an unannotated
+binding-pattern parameter takes `get_type_of_symbol`, which answers the error type,
+and the signature declines whole.
+
+**BLOCKED, and deliberately not worked around.** The three-case object road needs
+`emptyObjectType`, and **this port mints no such intrinsic by decision**
+(`members.rs:653-659`) — a refusal that was re-audited this session and HOLDS. It
+could be faked with an anonymous type printing `{}`, and that is exactly what the
+refusal exists to prevent: a type that prints correctly and lies about its members
+to every consumer that asks. Three cases do not buy that.
+
+Reopening condition: if `emptyObjectType` is ever minted for its own reasons, this
+row converts behind it at no extra cost, and the array road remains separate.
+
 ## 5. Refused, with the number that refused it
 
 > **§5 IS DANGEROUS WHEN STALE.** Its whole purpose is "do not re-derive
