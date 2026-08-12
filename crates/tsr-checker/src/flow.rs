@@ -5103,6 +5103,23 @@ impl Checker<'_, '_> {
     /// answer is the one given today. Claiming a type is truthy when it is not
     /// would delete a constituent and print a plausible wrong type.
     pub(crate) fn get_type_facts(&self, t: TypeId) -> TypeFacts {
+        // SS200 (measured, reverted — an INDUCED rule, not a transcribed
+        // one): an intersection currently falls to the undecidable default
+        // (every bit) and so survives EVERY typeof query. Folding the
+        // constituents' facts with plain AND fixes one witness and breaks
+        // the other, both in `narrowingTypeofObject`:
+        //   `x: number & { _foo: string }` under `typeof x === 'object'`
+        //     wants `never` — AND gives it, because `number`'s facts carry
+        //     no TYPEOF_EQ_OBJECT.
+        //   `x: F & { foo: number }` (F is `{ (): string }`) under the
+        //     function query wants the intersection KEPT — AND drops it,
+        //     because `{ foo: number }`'s ObjectFacts carry no
+        //     TYPEOF_EQ_FUNCTION while `F`'s FunctionFacts do.
+        // So upstream's `getIntersectionTypeFacts` is not a plain AND over
+        // all bits; the EQ bits and the NE bits compose differently. The next
+        // attempt must READ that function — inducing the composition rule is
+        // exactly what SS153/SS157/SS162/SS177/SS197 each cost.
+        //
         // Upstream carries these as one aggregate per kind of type
         // (`TypeFactsUndefinedFacts` `checker.go:471`, `TypeFactsNullFacts`
         // `:472`, and the `NEUndefined | NENull | NEUndefinedOrNull` shared by
