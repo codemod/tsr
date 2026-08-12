@@ -4266,6 +4266,18 @@ Same silent-success family as corollary 26, one layer up: the success signal is
 real and the failure is silent. (Fixed: the filter now sits above the measure,
 and one case takes 0.5s instead of a full corpus run.)
 
+**A fifth face, and the cheapest one to avoid.** Twice in one window a handoff
+quoted upstream *accurately* and attributed the mechanism *wrongly*, and both
+times the real trigger was in the **writer** rather than the checker: the
+extends-clause base type (`getTypeOfNode`'s arm is real, but it is reached from
+`type_symbol_baseline.go:370-374` via the parent, not by visiting the node) and
+the type-alias name (`IsTypeDeclarationName` is real, but the line is produced by
+a re-render guard at the bottom of `writeTypeOrSymbol`).
+
+> **When the symptom is "the baseline prints something we don't", start in the
+> writer.** The checker's version of the rule is the one that greps well; the
+> writer's is the one that fires.
+
 How you would know this is wrong: run the instrument against an input whose
 answer you already know, including a *negative* input. An instrument that cannot
 produce a known-false is not measuring.
