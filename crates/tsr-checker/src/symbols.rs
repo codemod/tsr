@@ -3005,6 +3005,55 @@ impl<'a> Checker<'a, '_> {
                 return Some(arguments[0]);
             }
         }
+        // §251. The SAME shortcut the `Array` arm above already takes, applied
+        // to the other lib types whose first type argument IS their iteration
+        // type by declaration:
+        //
+        //     interface Iterable<T, …>         { [Symbol.iterator](): Iterator<T, …> }
+        //     interface IterableIterator<T, …> { … }
+        //     interface Generator<T, …>        { … }
+        //
+        // This is not a new induction. Upstream reaches an array's element
+        // type through the iteration protocol too, and the `Array` arm above
+        // already declines to walk it and reads the argument instead. These
+        // four types are the population that decision was implicitly about;
+        // naming only `Array` was the accident.
+        //
+        // The protocol itself stays blocked for USER-DEFINED iterables, and
+        // for the reason recorded below — a computed `[Symbol.iterator]`
+        // member is filed under `__computed`, in no symbol table, because late
+        // binding is unported. That blocker is real and this does not pretend
+        // otherwise; it sidesteps it only where the lib's own declaration
+        // makes the answer readable without the walk.
+        //
+        // Witness `conformance/for-of57`: `var iter: Iterable<number>;
+        // for (let num of iter) { }` wants `>num : number`.
+        //
+        // Arity is deliberately not constrained the way the `Array` arm
+        // constrains it: `Generator<T, TReturn, TNext>` and the modern
+        // `Iterable<T, TReturn, TNext>` carry three, and the first slot is the
+        // yield type in every one of them.
+        if let Some((target, arguments)) = self.type_reference_targets.get(&iterated).cloned()
+            && let Some(&first) = arguments.first()
+            && first != self.intrinsics.never
+        {
+            let target = self.binder.merged_symbol(target);
+            // Looked up through `globals()` rather than `global_type_symbol`,
+            // which hard-codes ARITY 1 (`declared.rs:1412`). The modern lib
+            // declares all three with three parameters —
+            // `Iterable<T, TReturn = undefined, TNext = any>` — so the arity
+            // helper answers `None` for every one of them and the arm never
+            // fired. Measured that way first: +0 cases and zero line
+            // transitions, which is conventions corollary 27's first face and
+            // is why the fire check came before the conclusion.
+            let is_lib_iterable = ["Iterable", "IterableIterator", "Generator"]
+                .into_iter()
+                .filter_map(|name| self.binder.globals().get(name).copied())
+                .any(|symbol| self.binder.merged_symbol(symbol) == target);
+            if is_lib_iterable {
+                return Some(first);
+            }
+        }
         let flags = self.store.get(iterated).flags;
         if flags.intersects(crate::flags::TypeFlags::STRING_LITERAL)
             || iterated == self.intrinsics.string
