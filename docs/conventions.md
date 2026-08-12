@@ -3868,3 +3868,34 @@ corollary 17's cascade.
 this?"** — and when the answer is yes, prefer the shared one even if the
 hand-rolled version would be shorter, because the value is not the lines
 saved but that the two sites cannot drift.
+
+### Corollary 17 (2026-08-11): record a failed induction WITH its witnesses
+
+Corollary 12 says what to do with a change that measures +0. This says
+what to do with one that measures **wrong**:
+
+> **When an induced build fails, revert it and record the WITNESSES —
+> the specific rows it fixed and the specific rows it broke — at the
+> site.** The revert costs nothing extra, and those rows are precisely
+> the acceptance test the correct build will need.
+
+Worked case, one function attempted twice an hour apart:
+
+- **§200 (induced, reverted)** — "an intersection satisfies every
+  constituent, so AND their facts." Fixed `number & { _foo: string }`
+  under `typeof === 'object'` (wants `never`); broke
+  `F & { foo: number }` where `F = { (): string }` (wants the
+  intersection KEPT). Both witnesses recorded in the revert.
+- **§201 (transcribed, +3)** — `getIntersectionTypeFacts`
+  (checker.go:31118-31134) has **two** rules the induction had neither
+  of: an intersection containing a PRIMITIVE discards its object
+  constituents as type tags, and the fold is **OR for exactly two bits**
+  (`TypeofEQFunction | TypeofNEObject`, checker.go:478) and AND for
+  every other. Neither follows from what "intersection" means.
+
+Because the witnesses were already at the site, the transcription had
+its acceptance test before it was written — it was known right **for the
+reason it was supposed to be right**, within one run, rather than by
+luck. That is corollary 15's "assert which way the branch went" applied
+to a whole attempt instead of a fixture.
+
