@@ -2352,7 +2352,21 @@ impl<'a> Parser<'a> {
 
     /// Parse a parenthesised parameter list.
     pub(crate) fn parse_parameter_list(&mut self) -> Vec<&'a ParameterDeclaration<'a>> {
-        self.expect(SyntaxKind::OpenParenToken);
+        // §238: **no `(`, no parameters.** `parseParameters` (`parser.go:3274`)
+        // guards the whole body on `parseExpected(KindOpenParenToken)` and
+        // returns `createMissingList()` when it fails. This discarded that
+        // boolean and fell into the loop regardless, so
+        // `class Test { prop = 42; constructor }` — where the token after the
+        // absent `(` is `}` — parsed a parameter and manufactured a zero-width
+        // identifier. `classFieldsBrokenConstructorEmitNoCrash1` and
+        // `parserConstructorDeclaration8` each rendered one assertion more than
+        // upstream and failed on the count alone, every line otherwise right.
+        //
+        // The `expect` here already returned the answer; only the `if` was
+        // missing.
+        if !self.expect(SyntaxKind::OpenParenToken) {
+            return Vec::new();
+        }
         let mut parameters = Vec::new();
         while !self.at(SyntaxKind::CloseParenToken) && !self.at(SyntaxKind::EndOfFile) {
             let before = self.pos();

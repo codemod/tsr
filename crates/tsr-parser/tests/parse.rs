@@ -2005,3 +2005,42 @@ fn an_array_literal_skips_a_token_that_closes_nothing() {
     let [array] = arrays.as_slice() else { panic!("expected one array literal") };
     assert_eq!(array.elements.len(), 2, "`@` is skipped, not parsed into an element");
 }
+
+
+/// §238. No `(`, no parameters.
+///
+/// `parseParameters` (`parser.go:3274`) guards its whole body on
+/// `parseExpected(KindOpenParenToken)` and returns `createMissingList()` when
+/// it fails. This port discarded that boolean and parsed parameters anyway, so
+/// `class Test { constructor }` manufactured a zero-width identifier from the
+/// `}` and rendered one assertion more than upstream.
+/// `classFieldsBrokenConstructorEmitNoCrash1` and
+/// `parserConstructorDeclaration8` failed on the count alone.
+#[test]
+fn a_parameter_list_with_no_open_paren_is_empty() {
+    let arena = Arena::new();
+    let parsed = parse(&arena, "class Test { prop = 42; constructor }");
+    let parameters = all_nodes(tsr_ast::Node::SourceFile(parsed.source_file))
+        .iter()
+        .filter(|node| matches!(node, tsr_ast::Node::ParameterDeclaration(_)))
+        .count();
+    assert_eq!(parameters, 0, "the absent `(` yields no parameters at all");
+}
+
+/// The control: an ordinary parameter list is untouched, including the empty
+/// one, which is what distinguishes "no parens" from "parens with nothing in
+/// them".
+#[test]
+fn an_ordinary_parameter_list_still_parses() {
+    let arena = Arena::new();
+    for (source, expected) in
+        [("class C { constructor() {} }", 0usize), ("class C { constructor(a, b) {} }", 2)]
+    {
+        let parsed = parse(&arena, source);
+        let parameters = all_nodes(tsr_ast::Node::SourceFile(parsed.source_file))
+            .iter()
+            .filter(|node| matches!(node, tsr_ast::Node::ParameterDeclaration(_)))
+            .count();
+        assert_eq!(parameters, expected, "{source:?}");
+    }
+}
