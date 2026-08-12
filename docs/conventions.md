@@ -3971,6 +3971,21 @@ So:
 
 - **Before calling a census row a family, open two members and check they
   have the same cause.** Two is cheap; the row's size is not evidence.
+- **Diff the two fixtures before counting them as two.** The remedy has its
+  own failure mode: a corpus contains near-duplicates, and a census counts
+  *files*. checker-2 opened two members of an arrow-contextual-typing row
+  and found `assignmentCompatability_*` twice — **the same file with one
+  word changed** (`apply` against `call`) — so the row looked like it had
+  two independent witnesses where it had one. Near-duplicates inflate a
+  row exactly where "open two members" is trying to deflate it.
+- **If the two members disagree on cause, that IS the result.** Report it
+  and stop; do not go looking for a third that agrees. Confirmation bias
+  has a natural home in "open two members", and this is what closes it.
+  checker-2 opened three members of the same row and found three causes —
+  a contextual type with no call signature, a function expression in a
+  type assertion, and an error-recovery `super` — and reporting the
+  disagreement was worth more than any of the three builds would have
+  been.
 - **When handing a cluster to someone else, quote the witness and say what
   you eliminated — not what you infer remains.** "The writer is not the
   cause" is a fact; "therefore the parser's recovery arm is" is an
