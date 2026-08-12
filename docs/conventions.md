@@ -3869,7 +3869,7 @@ this?"** — and when the answer is yes, prefer the shared one even if the
 hand-rolled version would be shorter, because the value is not the lines
 saved but that the two sites cannot drift.
 
-### Corollary 17 (2026-08-11): record a failed induction WITH its witnesses
+### Corollary 19 (2026-08-11): record a failed induction WITH its witnesses
 
 Corollary 12 says what to do with a change that measures +0. This says
 what to do with one that measures **wrong**:
@@ -3900,7 +3900,7 @@ luck. That is corollary 15's "assert which way the branch went" applied
 to a whole attempt instead of a fixture.
 
 
-### Corollary 18 (2026-08-11): if your port is longer than the predicate, you ported the witness
+### Corollary 20 (2026-08-11): if your port is longer than the predicate, you ported the witness
 
 Corollary 16 says a refusal's scope must match its reason's scope. The same
 defect has a quieter form on the *building* side, and it does not look like a
@@ -3934,3 +3934,47 @@ How you would know this is wrong: if the narrow port's extra clauses can be
 traced to a *stated* upstream fact (a different call site, a documented
 exception) rather than to the fixture in hand. Then the asymmetry is real
 information and not an artefact.
+
+### Corollary 21 (2026-08-11): a cluster named by its symptom is a list of leads, not a family
+
+`examples/nearmiss.rs`'s `--shapes` output invites being read as a work
+queue: one row, one build. It is not, and the difference is a cost model.
+
+- A **real family** shares a cause, so diagnosis amortises across its
+  members: §195's 55 cases were one missing match arm, §196's 47 were one
+  binder branch.
+- A **symptom cluster** shares only what the output looks like. Every
+  member costs a fresh diagnosis, and the row's size is a measure of
+  nothing.
+
+**You cannot tell which you have from the census.** The worked example:
+~18 one-blocker cases were handed over as "an extra empty-text assertion
+line we emit and upstream does not", with the `.types` writer eliminated
+as the cause. Two members already had *non-empty* text (`static`,
+`default`), which was noticed and set aside as "maybe two shapes". The
+first one opened, `parserForOfStatement21`, turned out to be a **third**
+cause and its own eleven-line rule — `parseVariableDeclarationList`'s
+named `of` lookahead (`parser.go:1583`), nothing to do with the general
+error-recovery arm the rest of the cluster does need.
+
+This is corollary 9 running backwards, and the pair is the point:
+
+| | keyed on | effect |
+|---|---|---|
+| corollary 9 | the **expression** | *reveals* a family the type histogram had scattered |
+| corollary 21 | the **output's appearance** | *invents* a family out of unrelated causes |
+
+Both are one census away from each other and they pull in opposite
+directions.
+
+So:
+
+- **Before calling a census row a family, open two members and check they
+  have the same cause.** Two is cheap; the row's size is not evidence.
+- **When handing a cluster to someone else, quote the witness and say what
+  you eliminated — not what you infer remains.** "The writer is not the
+  cause" is a fact; "therefore the parser's recovery arm is" is an
+  inference from one witness to a mechanism, which is corollary 16's shape
+  wearing a handoff. Handing over a symptom labelled as a cause is worse
+  than handing over the symptom.
+- **A "verified" in a handoff should name the specific thing eliminated.**
