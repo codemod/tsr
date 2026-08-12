@@ -408,6 +408,15 @@ impl Checker<'_, '_> {
                 );
                 if let Some(symbol) = resolved {
                     {
+                        // §213: upstream refuses this resolution outright when
+                        // the reference is in a non-static property initializer
+                        // and the constructor declares the same name — see the
+                        // predicate for why it needs the resolved symbol.
+                        if self.identifier_is_an_invalid_class_field_initializer_reference(
+                            id, node.text, symbol,
+                        ) {
+                            return self.intrinsics.error;
+                        }
                         let declared = self.get_type_of_symbol(symbol);
                         // `getNarrowedTypeOfSymbol` (`checker.go`): only a
                         // variable or parameter reference is narrowed. A class,
@@ -1435,6 +1444,112 @@ impl Checker<'_, '_> {
             })
             .max()
             .unwrap_or(0)
+    }
+
+    /// Whether a bare identifier sits in a position upstream refuses to resolve
+    /// it from: the initializer of a **non-static property** of a class whose
+    /// **constructor declares a local of the same name**.
+    ///
+    /// `NameResolver.Resolve`'s `KindPropertyDeclaration` arm
+    /// (`nameresolver.go:160-169`) remembers such a property, and
+    /// `checkAndReportErrorForInvalidInitializer` (`checker.go:1514`) then makes
+    /// `Resolve` answer **nil** — so the reference is `errorType`, printed
+    /// `any`, even though an outer binding of that name exists and is what the
+    /// programmer meant. Upstream's own comment says why: the initializer is
+    /// emitted *inside the constructor*, where the name would capture the
+    /// constructor's local instead.
+    ///
+    /// `compiler/classMemberInitializerWithLamdaScoping` carries both halves two
+    /// lines apart — the instance initializer's `field1` is `any` and the
+    /// STATIC initializer's `field1` is the outer `string`, because the arm
+    /// tests `!ast.IsStatic(location)`.
+    ///
+    /// Gated on `standard_class_fields`, which is upstream's own first
+    /// condition: with `useDefineForClassFields` (or `target >= ES2022`) the
+    /// scope semantics differ and there is no refusal. §213.
+    ///
+    /// # It fires only on a name the walk was still LOOKING for
+    ///
+    /// Upstream sets the flag *while walking outward* and consults it only at
+    /// the end — so a name that resolves **inside** the initializer never
+    /// reaches the property arm at all. The first draft of this tested the
+    /// syntactic position alone and refused
+    /// `messageHandler = () => { var field = this.field; console.log(field); }`,
+    /// whose `field` is the arrow's own local. That measured **+5 / −4** across
+    /// four otherwise-passing cases, and upstream's own fixture comment says
+    /// the opposite in so many words: *"Using field here shouldnt be error"*.
+    ///
+    /// So the resolved symbol is passed in, and a symbol declared within the
+    /// property's own subtree is exempt.
+    fn identifier_is_an_invalid_class_field_initializer_reference(
+        &mut self,
+        node: NodeId,
+        name: &str,
+        resolved: tsr_binder::SymbolId,
+    ) -> bool {
+        if self.standard_class_fields {
+            return false;
+        }
+        let mut current = self.nodes.parent(node);
+        while let Some(id) = current {
+            match self.nodes.kind(id) {
+                SyntaxKind::PropertyDeclaration => {
+                    if self.has_static_modifier(id) {
+                        return false;
+                    }
+                    // Declared inside this very initializer: the walk would
+                    // have stopped before reaching the property.
+                    if self
+                        .binder
+                        .symbols()
+                        .get(resolved)
+                        .declarations
+                        .iter()
+                        .any(|&declaration| self.node_is_within(declaration, id))
+                    {
+                        return false;
+                    }
+                    let Some(class) = self.nodes.parent(id) else { return false };
+                    let Some(constructor) = self.class_constructor_declaration(class) else {
+                        return false;
+                    };
+                    return self.binder.lookup_local(constructor, name).is_some();
+                }
+                SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression => return false,
+                _ => {}
+            }
+            current = self.nodes.parent(id);
+        }
+        false
+    }
+
+    /// Whether `node` is `ancestor` or sits beneath it.
+    fn node_is_within(&self, node: NodeId, ancestor: NodeId) -> bool {
+        let mut current = Some(node);
+        while let Some(id) = current {
+            if id == ancestor {
+                return true;
+            }
+            current = self.nodes.parent(id);
+        }
+        false
+    }
+
+    /// The `constructor` member of a class node, if it has one —
+    /// `ast.FindConstructorDeclaration` (`nameresolver.go:162`), which requires
+    /// a BODY: an overload signature declares no locals.
+    fn class_constructor_declaration(&self, class: NodeId) -> Option<NodeId> {
+        let members = match self.node_map.get(class)? {
+            Node::ClassDeclaration(node) => node.members,
+            Node::ClassExpression(node) => node.members,
+            _ => return None,
+        };
+        members.iter().find_map(|member| match member {
+            tsr_ast::ClassElement::ConstructorDeclaration(constructor) => {
+                constructor.body.and(constructor.node_id)
+            }
+            _ => None,
+        })
     }
 
     /// Whether a class member carries `static`. `ast.IsStatic` (`checker.go:7946`).

@@ -2457,3 +2457,59 @@ fn a_named_class_expression_is_typeof_its_own_name() {
 fn an_anonymous_class_expression_is_still_a_gap() {
     assert_eq!(type_of_initialiser("const V = class {};"), "error");
 }
+
+/// §213. A non-static property initializer cannot see a name the constructor
+/// also declares.
+///
+/// `NameResolver.Resolve`'s `KindPropertyDeclaration` arm
+/// (`nameresolver.go:160-169`) remembers such a property and
+/// `checkAndReportErrorForInvalidInitializer` (`checker.go:1514`) makes the
+/// resolution answer **nil** — so the reference is the error type even though
+/// an outer binding of that name exists. The initializer is emitted inside the
+/// constructor, where the name would capture the constructor's local.
+#[test]
+fn a_field_initializer_cannot_reference_a_constructor_local() {
+    assert_eq!(
+        type_of_nested_declaration(
+            "var field1: string;\nclass T { constructor(private field1: string) {} m = () => { const x = field1; return x; }; }",
+            "x"
+        ),
+        "error"
+    );
+}
+
+/// Three controls, each for a clause of the arm, because every one of them was
+/// wrong in some draft.
+///
+/// The third is the one that matters most: upstream sets the flag **while
+/// walking outward** and a name resolving INSIDE the initializer never reaches
+/// the property arm. The first draft tested the syntactic position alone and
+/// measured +5/−4, refusing exactly the reference upstream's own fixture
+/// comments call legal.
+#[test]
+fn the_invalid_initializer_refusal_is_narrow() {
+    // A STATIC property is exempt — `!ast.IsStatic(location)`.
+    assert_eq!(
+        type_of_nested_declaration(
+            "var field1: string;\nclass T { constructor(private field1: string) {} static m = () => { const x = field1; return x; }; }",
+            "x"
+        ),
+        "string"
+    );
+    // No constructor local of that name: nothing to capture.
+    assert_eq!(
+        type_of_nested_declaration(
+            "var other: string;\nclass T { constructor(private field1: string) {} m = () => { const x = other; return x; }; }",
+            "x"
+        ),
+        "string"
+    );
+    // Declared INSIDE the initializer: the walk stops before the property.
+    assert_eq!(
+        type_of_nested_declaration(
+            "var field1: string;\nclass T { constructor(private field1: string) {} m = () => { var field1 = 1; const x = field1; return x; }; }",
+            "x"
+        ),
+        "number"
+    );
+}
