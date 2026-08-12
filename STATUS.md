@@ -837,6 +837,35 @@ computed answer coincides with upstream's bail-out. A ceiling built from
 *also* fails to compute — which is not a stable population. Treat `ceiling.rs`'s
 attributed count as the only firm figure and expect it to move.
 
+### The ceiling reaches into the near-miss board, and the board does not say so
+
+**2026-08-12.** `examples/nearmiss.rs` ranks 714 deficit-1 cases and reports
+what converting them would be worth (60.36%). That figure silently assumes
+every one is convertible. Some are not, and they look exactly like the ones
+that are.
+
+Worked case, found by opening a census row rather than by any instrument:
+**`conformance/parserStrictMode3`, `3-negative`, `5`, `6`, `6-negative`, `7` —
+six deficit-1 cases, one shape.** Each is `eval = 1;` under `"use strict"`.
+Upstream records `>eval : any`; this port records `>eval : (x: string) => any`,
+the lib's real declaration.
+
+The port is not being *less* accurate here — it is being **more specific**, and
+that is the tell. Upstream emits `TS1100: Invalid use of 'eval' in strict mode`
+and `TS2630: Cannot assign to 'eval' because it is a function`
+(`parserStrictMode3.errors.txt`), so its `any` is a rendered `errorType`, not a
+computed type. Under ADR-0038 a correct port prints `error` there. **Both the
+current wrong answer and the correct future answer fail to match**, so no amount
+of checker work converts these six.
+
+So the near-miss board's headline over-counts, and the general shape of the
+over-count is: **a deficit-1 line wanting bare `any` where upstream emitted an
+error at that position.** That is a testable population — `.errors.txt` exists
+for every case — and nothing measures it today. Until something does, treat
+`--summary`'s `rate-then` column as an upper bound rather than a target, and
+treat "we are more specific than upstream" as a signal to read the
+`.errors.txt` before starting work.
+
 **Consequences for any target:**
 
 ```
