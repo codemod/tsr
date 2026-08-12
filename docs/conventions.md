@@ -4470,3 +4470,45 @@ the branches in the port, compare. It applies to `&&` chains read as filters too
 How you would know this is wrong: if the missing disjuncts turn out to cover
 populations the corpus never exercises, the count is a cheap check that buys
 nothing and the real work is elsewhere. Measured so far: three for three, 22 cases.
+
+### Corollary 31 (2026-08-12): a recorded +0 is true of a tree, not of an arm
+
+`checker-2`'s finding, from a pair of my own zeroes. Corollary 27 lists four ways
+a measured zero can be an artefact — the arm off the call path, off the answer
+path, off the visit path, off the scope. This is a fifth, and it is not an
+artefact at all:
+
+> **The instrument fired, the arm ran, the measurement was correct — and the
+> tree was different. A zero measured then is not a zero now.**
+
+**Worked case.** §179/§181 measured the `IsGlobalScopeAugmentation` writer guard
+at **+0, twice**, and recorded it as case-inert. Both zeroes were honest and
+neither is contradicted. An hour before §254, §253 ported the missing disjunct of
+`IsAmbientModule` — and *that* is what makes a global augmentation's name reach
+the baseline walk at all. Until then the guard's population was **empty**. With
+the population non-empty, the same guard is **+5 cases, 23 gaps→right, zero
+adverse**.
+
+So the guard was never wrong and never unmeasurable. It was correct and inert,
+and nothing in the record said which.
+
+**The obligation this creates**, which neither lane had been meeting: when a
+change creates or enlarges a population, **the negative records that touch that
+population need re-running**. A refusal or a +0 is evidence about a tree, and we
+rebase onto each other's trees a dozen times a session.
+
+**And re-testing is not the same as expecting a flip.** §222 — the UMD
+namespace-export arm, refused because it took `>m : typeof m` from right to
+`error` in `umd-augmentation-1` — was re-tested on a tree four arms newer. The
+case delta improved (+1 → +2) and **the damage was identical**: the same
+right→wrong line, the same qualification losses. The refusal holds, unchanged,
+and that is now recorded so the next reader does not spend the run again.
+
+A re-test that confirms a refusal is worth as much as one that overturns it. The
+failure mode this corollary addresses is not "old negatives are wrong" — it is
+**"old negatives are unexamined"**.
+
+*How you would know this is wrong:* if re-testing negatives after population
+changes routinely reproduced them, the discipline would be pure cost. Two
+re-tests so far, one flip and one confirmation — which is exactly the ratio that
+makes checking worthwhile and guessing useless.
