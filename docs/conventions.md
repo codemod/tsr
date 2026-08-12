@@ -4281,3 +4281,55 @@ a re-render guard at the bottom of `writeTypeOrSymbol`).
 How you would know this is wrong: run the instrument against an input whose
 answer you already know, including a *negative* input. An instrument that cannot
 produce a known-false is not measuring.
+
+### Corollary 28 (2026-08-12): a static read that predicts what the port already does is a false premise, not a hard puzzle
+
+Corollary 27 is `checker-2`'s and covers the general capability — a probe
+fixture through upstream's own baseline runner supplies controls the corpus
+structurally cannot. This is the narrower situation that should *trigger*
+reaching for it.
+
+You are diagnosing a wrong line. You read upstream carefully. Your read predicts
+the behaviour **this port already has**, and the baseline says something else.
+
+> **That is not a subtle case. It is a false premise in your own reading, and
+> premises are cheaper to test than to re-derive.** Stop reading and run
+> upstream.
+
+The failure it prevents is not getting the answer wrong — it is spending the
+effort somewhere it cannot succeed. A careful read that lands on the port's
+current behaviour has already told you the read is broken; continuing to read
+more carefully cannot fix a broken premise, and the feeling of *nearly* having
+it is exactly what keeps the loop going.
+
+**The worked case is §227/§230.** `var x;` referenced from `export = x` wants
+`any` and this port answered `undefined`. Reading `checker.go:11149-11190`
+predicted `undefined`: `t` is `autoType`, which disables the entire
+`t != autoType && …` disjunct group, no other disjunct of `assumeInitialized`
+applies, so `initialType` is `undefinedType` and neither final branch fires.
+That reading was done twice, was written into a code comment and a STATUS
+entry as *an open question needing upstream executed*, and both times the
+contradiction was recorded rather than resolved.
+
+It took one probe fixture and about five minutes:
+
+```text
+x;              >x : undefined
+export = x;     >x : any
+```
+
+One symbol, two sites, two answers, three lines apart — which eliminates every
+symbol-level disjunct simultaneously, since none can vary by reference site.
+**+4 cases** (§230), and the arm is four lines.
+
+**"This needs upstream executed" was written twice as though it were a
+blocker.** It was never priced. So the corollary has a second half:
+
+> **When you catch yourself recording something as needing an instrument you do
+> not have, price the instrument before writing that down.** Two entries in this
+> session deferred to a tool that already existed and cost five minutes.
+
+*How you would know this is wrong:* if a probe run were expensive — minutes of
+build per question, or an instrumented fork to maintain — then deferring would
+be rational and the reading would be the cheaper path. Re-price it if that
+changes.

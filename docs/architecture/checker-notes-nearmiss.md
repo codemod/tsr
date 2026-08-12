@@ -851,3 +851,51 @@ It also supplies controls no fixture in the corpus provides. Here the control
 — that an *ordinary* reference to the same symbol must keep narrowing to
 `undefined` — is what makes the wider rule ("an auto-typed variable always
 reads `any`") visibly wrong instead of merely unmeasured.
+
+### §229 corrected: it is one rule with four members, and the correction is about method
+
+The section above concluded that the row splits **3 + 1**, that the `f<U>`
+member is a corpus singleton whose rule "cannot be induced", and that it should
+be left alone. The split was wrong and the reasoning behind leaving it was
+worse.
+
+`checker-2` put five positions in one probe fixture through §230's runner:
+
+```text
+type A = {};                       >A : A
+label: type B = {};                >B : {}
+function f<U>() { type C = {}; }   >C : {}
+function g()    { type D = {}; }   >D : {}     ← not generic, still structural
+namespace N { type E = {}; }       >E : E      ← nested, but named
+```
+
+`function g()` beside `function f<U>()` kills **genericity**; `namespace N`
+kills **nesting**. Both in one run, with one variable changed per position —
+better experimental design than the serial tests that were planned.
+
+**The predicate is accessibility from the enclosing declaration.** Top-level and
+namespace-nested aliases are reachable by a symbol chain, so
+`symbolToTypeNode` can spell the name; a function-local alias and a labelled
+one are not, so the builder renders structurally. That is why a *legal*
+`function g()` behaves identically to the *illegal* labelled case — the earlier
+guess ("the position is where a declaration isn't legal") was the right shape
+for the wrong reason.
+
+So it is one rule with four members, and the sizing joins the
+`typeof globalThis.X` row (12 cases) because both want the same
+`getSymbolChain` accessibility walk. Sixteen together is a different
+proposition from four; neither justifies the walk alone.
+
+**The method error is the part to keep.** "One member isn't a lead" is
+corollary 21, and it was invoked here to justify not investigating — a rule
+about not over-generalising, used to license under-investigating. Corollary 21
+says do not call one member a family. It does not say do not *make* a second
+member. That distinction did not matter while the corpus was the only source of
+witnesses; §230 ended that, and the phrase "the corpus contains exactly one
+occurrence" stopped being a reason to stop on the same day it was written.
+
+**Whoever builds the accessibility walk should note that its product is a
+NAME**, so corollary 24 applies at full strength: a per-case tally cannot see a
+gap becoming a confidently wrong qualifier, which is precisely what
+`module_object_of` (§219) and the UMD arm (§222) both did. Line-movement scores
+and spelling controls belong in that build from the start.
