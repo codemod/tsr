@@ -118,6 +118,30 @@ phrase.
   (Option 2 plus a normaliser), the semantic objection is weaker than stated. This
   is testable today with the probe runner and has not been tested.
 
+  > **Tested 2026-08-12, and it does not hold — the objection is *stronger* than
+  > stated.** Five aliases were declared inside a function body (where the name is
+  > not accessible, so upstream must render structurally), each with a written form
+  > differing from the computed one. Upstream's own runner records:
+  >
+  > | written | upstream prints |
+  > |---|---|
+  > | `Array<string>` | `string[]` |
+  > | `1 \| 1` | `1` |
+  > | `string & string` | `string` |
+  > | `{ a: 1 } & { b: 2 }` | `{ a: 1; } & { b: 2; }` |
+  > | `keyof { a: 1; b: 2 }` | `"a" \| "b"` |
+  >
+  > The first three are syntactic normalisations a rewriter could plausibly reach.
+  > **The last one is not.** Turning `keyof { a: 1; b: 2 }` into `"a" | "b"`
+  > requires *evaluating* the type — resolving the object's members and forming the
+  > union of their keys — which is the checker's job and not a normal form of the
+  > written syntax. A normaliser capable of that is a second type checker.
+  >
+  > So Option 2 cannot be rescued by normalisation, and the "syntactic stand-in for
+  > a semantic rule" objection is not a matter of degree. Note also that `f4` shows
+  > the written and computed forms *coinciding* — which is why Option 2 looks
+  > workable on the fixtures anyone reaches for first.
+
 ## Evidence
 
 - `crates/tsr-checker/src/types.rs` — `TypeData::Named`'s note on the divergence.
