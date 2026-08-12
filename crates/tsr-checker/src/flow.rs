@@ -2127,6 +2127,27 @@ impl Checker<'_, '_> {
         } else {
             // §58 (`checker-notes-narrow.md`): a join re-forming a NAMED
             // union's exact member set answers the named type.
+            // SS203: a flow join is upstream's `UnionReductionSubtype` site
+            // (`getUnionType(antecedentTypes, UnionReductionSubtype)`), unlike
+            // a WRITTEN union which reduces only literals. The general
+            // `removeSubtypes` is refused (`bd tsr-eak`), but its DECLARED
+            // heritage slice is decidable and already built for SS159's
+            // narrowing lattice: at `switch (true) { case base instanceof
+            // Derived1: /* fallthrough */ default: }` the join is
+            // `Derived1 | Base`, and upstream prints `Base`.
+            let types = {
+                let mut kept: Vec<TypeId> = Vec::with_capacity(types.len());
+                for &candidate in &types {
+                    let subsumed = types.iter().any(|&other| {
+                        other != candidate
+                            && self.is_derived_from_decidable(candidate, other) == Some(true)
+                    });
+                    if !subsumed {
+                        kept.push(candidate);
+                    }
+                }
+                if kept.is_empty() { types } else { kept }
+            };
             let joined = self.get_union_type(&types);
             match &self.store.get(joined).data {
                 TypeData::Union { types: members, symbol: None, .. } => {
