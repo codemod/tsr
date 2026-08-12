@@ -4551,3 +4551,58 @@ answer — the guard is redundant, not dormant. **A guard whose work another arm
 already done stays zero until THAT arm changes**, which is a re-test trigger too,
 just a different one: not "did something create my population" but "did something
 stop doing my job for me".
+
+### Corollary 32 (2026-08-12): a refusal can be right while its recorded reason is wrong
+
+`checker-2`'s finding, from §257. Corollary 16 asks whether a refusal's stated
+reason is **true**. This asks the question after it:
+
+> **Is the stated reason the *load-bearing* one?** A refusal held up by an
+> unstated reason, with a false one written beside it, is more dangerous than a
+> refusal that is simply wrong — because the reason is what tells the next
+> reader when to revisit.
+
+**Worked case.** `check_addition`'s fallback answers `error`, noted as *"upstream
+reports and answers `any` here; without diagnostics the honest answer is that
+nothing was computed."* That reason is **false twice over**: upstream's line is
+`return c.anyType` (`checker.go:12455`) with the comment *"Otherwise, the result
+is of type Any"* — deliberate error recovery, not a failure to compute — and
+this port has diagnostics now anyway.
+
+An audit against corollary 16 would therefore find the reason expired, conclude
+the refusal had lapsed, and build it. Measured:
+
+```
+whole fallback → any      +4 cases   GAP→RIGHT 10  WRONG→RIGHT 12   GAP→WRONG 57
+```
+
+**+4 cases and 57 gaps turned into confident wrong answers.** The adverse
+population is literal and enum-literal arithmetic, where upstream computes a
+real `number`/`string` and this port cannot yet.
+
+So the `error` *is* load-bearing, and what it bears is **"the arithmetic above
+this line is incomplete"** — a fact about this port, never written down, and not
+the reason that was.
+
+**Why this is worse than a wrong refusal.** A wrong refusal fails an audit and
+gets removed, which is the system working. This one *passes* the audit's
+question, fails it in the wrong direction, and hands the auditor a positive case
+delta as encouragement. Both of the checks we rely on — "is the reason true"
+and "does it measure positive" — point at shipping it.
+
+**The practical form**, and the reason it is cheap: an unstated load-bearing
+reason is almost always a **reopening condition** in disguise. Here it is *"when
+literal arithmetic lands, the adverse population stops reaching this fallback."*
+So when writing a refusal, ask **what would have to change about this port** for
+it to become safe — and if the answer is not the reason already written, the
+written one is not the load-bearing one.
+
+Related to but distinct from corollary 29. Twenty-nine is a reason that is
+**true but too narrow** — the guard covers more than the reason reaches.
+Thirty-two is a reason that is **false while a different, unstated one holds**.
+The first over-refuses; the second invites an under-refusal that measures well.
+
+*How you would know this is wrong:* if refusals whose stated reasons had expired
+turned out, on measurement, to be genuinely safe to remove — then reading the
+reason would be sufficient and this is ceremony. One instance so far, and it was
+worth 57 lines.
