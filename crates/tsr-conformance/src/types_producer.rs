@@ -190,6 +190,35 @@ fn walk_in_order(root: Node<'_>) -> Vec<Node<'_>> {
 /// The third of upstream's drops — an identifier whose parent's
 /// `GetMeaningFromDeclaration` carries no *value* meaning — is **not ported
 /// here**; see [`selects`]'s note.
+/// The symbol an **entity name** names: an identifier resolved in scope, or a
+/// qualified name resolved left-to-right through each container's exports.
+///
+/// §243. Upstream's `getSymbolOfNameOrPropertyAccessExpression` does this as
+/// one recursive walk; here it exists only to serve the leaf of an
+/// import-equals entity name, so it is deliberately limited to the namespace
+/// meaning and answers `None` the moment a step fails. `None` keeps the
+/// caller's gap rather than guessing — the whole reason the leaf was worth
+/// fixing is that a wrong name is worse than a missing one.
+fn entity_name_symbol(
+    id: NodeId,
+    nodes: &NodeTable,
+    map: &NodeMap<'_>,
+    binder: &tsr_binder::BindResult<'_>,
+) -> Option<tsr_binder::SymbolId> {
+    match map.get(id)? {
+        Node::Identifier(name) => {
+            binder.resolve_name(nodes, map, id, name.text, SymbolFlags::NAMESPACE)
+        }
+        Node::QualifiedName(qualified) => {
+            let left = qualified.left.and_then(|left| left.node_id())?;
+            let container = entity_name_symbol(left, nodes, map, binder)?;
+            let right = qualified.right?;
+            binder.symbols().get(container).exports.get(right.text).copied()
+        }
+        _ => None,
+    }
+}
+
 fn selects(id: NodeId, tree: Tree<'_, '_>) -> bool {
     let kind = tree.kind(id);
     let kept = predicates::is_expression_node(id, tree)
@@ -705,6 +734,57 @@ pub fn type_id_at_location<'a>(
 
         if enclosing != Some(SyntaxKind::TypeQuery) {
             return checker.intrinsics().any;
+        }
+    }
+
+    // §243, checker-1's handoff. The arm above serves the **root** of an
+    // import-equals entity name; this serves the **leaf**, which the arm above
+    // cannot reach and should not be widened to.
+    //
+    // ```text
+    // namespace a { export var x = 10; }
+    // namespace c { import b = a.x; export var bVal = b; }
+    // >x : number      <- the leaf; this port answered `any`
+    // ```
+    //
+    // The two need different lookups and that is the entire point. A root is a
+    // name **in scope**, so `resolve_name` finds it. A leaf is a **member of
+    // the root's namespace** — a scope lookup for `x` from that position finds
+    // nothing at all, which is exactly why the arm above falls through to
+    // `any`. Upstream reaches it with `getSymbolAtLocation` on the qualified
+    // name's right, which resolves through the left's exports.
+    //
+    // The declared-then-value fallback is the SAME rule as the root's and is
+    // repeated deliberately rather than shared: it is upstream's
+    // `isInRightSideOfImportOrExportAssignment` order, and collapsing it to
+    // "answer the value type" would break the 34 lines where upstream also
+    // says `any` (see the measurement above). Sized separately from the root's
+    // 133-vs-34, per checker-1's warning not to let one price the other.
+    if let Some(parent) = nodes.parent(id)
+        && nodes.kind(parent) == SyntaxKind::QualifiedName
+        && let Some(Node::QualifiedName(qualified)) = map.get(parent)
+        && qualified.right.and_then(|right| right.node_id) == Some(id)
+        && let Some(Node::Identifier(name)) = map.get(id)
+    {
+        let mut outermost = parent;
+        while let Some(above) = nodes.parent(outermost) {
+            if nodes.kind(above) != SyntaxKind::QualifiedName {
+                break;
+            }
+            outermost = above;
+        }
+        if nodes.parent(outermost).map(|above| nodes.kind(above))
+            == Some(SyntaxKind::ImportEqualsDeclaration)
+            && let Some(left) = qualified.left.and_then(|left| left.node_id())
+            && let Some(container) = entity_name_symbol(left, nodes, map, binder)
+            && let Some(&member) =
+                binder.symbols().get(container).exports.get(name.text)
+        {
+            let declared = checker.get_declared_type_of_symbol(member);
+            if declared != checker.intrinsics().error {
+                return declared;
+            }
+            return checker.get_type_of_symbol(member);
         }
     }
 
@@ -2090,7 +2170,12 @@ mod tests {
                 // the qualified arm was wholly gapped.
                 ("x".to_string(), "1".to_string()),
                 ("M".to_string(), "typeof M".to_string()), // the entity name
-                ("a".to_string(), "error".to_string()),
+                // §243. This read `error` and the comment beside it said so:
+                // the LEAF of the entity name, which no arm answered. It is
+                // the same declared-then-value order as the root — `a` is a
+                // const, whose declared type IS the error type, so the answer
+                // falls through to its value type. The pin was the gap.
+                ("a".to_string(), "1".to_string()),
             ],
         );
 
@@ -2114,9 +2199,13 @@ mod tests {
                 // TARGET chain. "error" here was the gap, not the answer.
                 ("q".to_string(), "E.A".to_string()),
                 ("E".to_string(), "E".to_string()), // the entity name: DECLARED
-                // Still a gap, and a different question: `E.A` on the right of a
-                // qualified name, which no arm answers.
-                ("A".to_string(), "error".to_string()),
+                // §243 answers this too, and it is the half that pins the
+                // ORDER on the leaf rather than on the root: an enum member's
+                // DECLARED type is `E.A` and is not the error type, so the
+                // fallback never runs. Were the leaf collapsed to "answer the
+                // value type", this would still read `E.A` — which is why the
+                // const case above is the one that discriminates.
+                ("A".to_string(), "E.A".to_string()),
             ],
         );
 
