@@ -4195,6 +4195,21 @@ loss is invisible unless the message is read back. Use `git commit -F <file>`
 for anything containing backticks — which, in this project, is anything worth
 writing.
 
+> **Amended the same day, by the author of this corollary violating it four
+> commits later.** The rule above says "for anything containing backticks",
+> which makes it *conditional on noticing* — and noticing is the part that
+> fails, because by then you are thinking about the commit rather than about
+> the shell. §228's message lost the span `` `,` ``, which was the subject of
+> its own sentence, from a paragraph explaining why a comma reaches upstream's
+> third recovery arm. `zsh` printed `command not found: ,` in the middle of the
+> push output.
+>
+> **So the habit is unconditional: never invoke `git commit -m`.** Write the
+> message to a file and use `-F`, every time, including for one-liners.
+> Knowing the hazard, having written it down, and having cited it to someone
+> else the same hour were all insufficient — which is the strongest evidence
+> available that a conditional rule was the wrong shape.
+
 The unifying property is the one that makes all three hard to notice: **the
 success signal is real and the failure is silent.** Same family as
 `rtk`-piped exit codes (memory: `rtk-masks-exit-codes`) and corollary 24's
