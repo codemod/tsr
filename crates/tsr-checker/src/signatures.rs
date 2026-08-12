@@ -2578,6 +2578,7 @@ impl<'a> Checker<'a, '_> {
         if unannotated
             && !self.has_no_contextual_type(node)
             && !self.argument_context_is_any(node)
+            && !self.argument_context_has_no_call_signature(node)
             // Iteration 4 arm (b), WIDENED by SS137: the gate lifts
             // whenever a contextual signature actually MATERIALIZES -
             // originally only the single-generic-argument shape, but a
@@ -2659,27 +2660,89 @@ impl<'a> Checker<'a, '_> {
     // call signature (`interface F { (): void }`). If that answers 1 and
     // `Applicable` answers 0, the ambiguity is gone and this becomes a
     // transcription. `bd tsr-4sc` owns the query.
-    fn argument_context_is_any(&mut self, declaration: NodeId) -> bool {
-        let Some(parent) = self.nodes.parent(declaration) else { return false };
-        let Some(Node::CallExpression(call)) = self.node_map.get(parent) else { return false };
-        if call.arguments.iter().any(|a| matches!(a, tsr_ast::Expression::SpreadElement(_))) {
+    /// §242. `getContextualSignature`'s **other** nil path: a contextual type
+    /// that materializes with no call signature at all. Upstream ends at
+    /// `getSignaturesOfType(t, SignatureKindCall)` and returns nil on an empty
+    /// list, so the unannotated parameter is implicitly `any` and the arrow
+    /// prints its own signature.
+    ///
+    /// ```text
+    /// interface Applicable { apply(blah: any); }   // a METHOD
+    /// function fn(c: Applicable) { }
+    /// fn(a => { });
+    /// >a => { } : (a: any) => void
+    /// ```
+    ///
+    /// Witness `compiler/assignmentCompatability_checking-apply-member-off-of-
+    /// function-interface`.
+    ///
+    /// # Why this is decidable where the general query is not
+    ///
+    /// This was refused hours earlier, in this file, on the ground that a
+    /// zero from a signature *count* would mean "we did not resolve it" as
+    /// often as "it has none" — and a confident wrong `(a: any) => void` is
+    /// worse than the gap it replaces. That refusal was correct about the
+    /// count and wrong about the question: the test does not need a count.
+    /// `declaration_has_call_signature_member` reads the **declaration** and
+    /// asks whether it lists a `CallSignature` or `ConstructSignature` member,
+    /// which is decidable from the tree with no resolution at all. An
+    /// unresolved type has no declarations here and answers `false` to
+    /// `all()`, so the ambiguity never arises.
+    ///
+    /// The narrowness is deliberate: only an interface or type-literal
+    /// contextual type qualifies, because those are the two kinds whose call
+    /// signatures are *syntactically* apparent. Anything else keeps the gap.
+    fn argument_context_has_no_call_signature(&mut self, declaration: NodeId) -> bool {
+        let Some(parameter) = self.argument_context_parameter(declaration) else { return false };
+        if parameter.rest {
             return false;
         }
-        let Some(index) = call.arguments.iter().position(|a| a.node_id() == Some(declaration))
+        let parameter_type = parameter.r#type;
+        let crate::types::TypeData::Named { members: Some(symbol), .. } =
+            self.store.get(parameter_type).data
         else {
             return false;
         };
-        let Some(callee) = call.expression else { return false };
+        let declarations = self.binder.symbols().get(symbol).declarations.clone();
+        !declarations.is_empty()
+            && declarations.iter().all(|&id| {
+                matches!(
+                    self.nodes.kind(id),
+                    tsr_ast::SyntaxKind::InterfaceDeclaration | tsr_ast::SyntaxKind::TypeLiteral
+                ) && !self.declaration_has_call_signature_member(id)
+            })
+    }
+
+    /// The declared type of the parameter this function expression is being
+    /// passed to, where that is knowable. Shared by the two gate lifts —
+    /// [`Self::argument_context_is_any`] and
+    /// [`Self::argument_context_has_no_call_signature`] — which differ only in
+    /// what they ask of the answer. Extracted at §242; the walk is unchanged.
+    fn argument_context_parameter(
+        &mut self,
+        declaration: NodeId,
+    ) -> Option<crate::signatures::Parameter> {
+        let parent = self.nodes.parent(declaration)?;
+        let Some(Node::CallExpression(call)) = self.node_map.get(parent) else { return None };
+        if call.arguments.iter().any(|a| matches!(a, tsr_ast::Expression::SpreadElement(_))) {
+            return None;
+        }
+        let index = call.arguments.iter().position(|a| a.node_id() == Some(declaration))?;
+        let callee = call.expression?;
         let callee_type = self.check_expression(callee);
-        let Some(signature) = self.single_call_signature(callee_type) else { return false };
-        let parameter = match signature.parameters.get(index) {
-            Some(parameter) => parameter,
+        let signature = self.single_call_signature(callee_type)?;
+        match signature.parameters.get(index) {
+            Some(parameter) => Some(parameter.clone()),
             // Past the fixed list: only an `any[]` rest covers the position.
             None => match signature.parameters.last() {
-                Some(last) if last.rest => last,
-                _ => return false,
+                Some(last) if last.rest => Some(last.clone()),
+                _ => None,
             },
-        };
+        }
+    }
+
+    fn argument_context_is_any(&mut self, declaration: NodeId) -> bool {
+        let Some(parameter) = self.argument_context_parameter(declaration) else { return false };
         if parameter.rest {
             // `...arg: any[]` — the sliced element is `any`.
             return self.type_reference_targets.get(&parameter.r#type).is_some_and(

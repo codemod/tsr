@@ -4515,7 +4515,7 @@ impl Checker<'_, '_> {
 
     /// Whether an interface/type-literal declaration lists a call or
     /// construct signature member (`checker-notes-narrow.md` §23).
-    fn declaration_has_call_signature_member(&self, declaration: NodeId) -> bool {
+    pub(crate) fn declaration_has_call_signature_member(&self, declaration: NodeId) -> bool {
         let Some(node) = self.node_map.get(declaration) else { return false };
         match node {
             Node::InterfaceDeclaration(interface) => interface.members.iter().any(|member| {
