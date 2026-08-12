@@ -2513,3 +2513,70 @@ fn the_invalid_initializer_refusal_is_narrow() {
         "number"
     );
 }
+
+/// SS241's control, and the half the conformance board cannot see.
+///
+/// The positive half — a namespace exporting only an `interface` no longer
+/// suppresses the merged function's signature — moved five corpus cases. This
+/// pins the **negative**: a namespace exporting a `var` still suppresses it,
+/// because that export really does add a property to the resolved type and this
+/// port cannot order members yet (`bd tsr-4sc.8`).
+///
+/// Without this, narrowing the bail from "the exports table is non-empty" to
+/// "an export carries VALUE" could be widened to "never bail" by a later
+/// session and every expando function would start printing a wrong answer that
+/// looks like a result.
+#[test]
+fn a_value_export_still_suppresses_a_merged_functions_signature() {
+    let arena = Arena::new();
+    let source = "function f() { }\nnamespace f { export var y = 2; }\n";
+    let parsed = tsr_parser::parse(&arena, source);
+    let bound = tsr_binder::bind(
+        &arena,
+        parsed.source_file,
+        &parsed.nodes,
+        tsr_binder::FileInfo { name: "test.ts", text: source },
+    );
+    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+    for index in 0..parsed.nodes.len() {
+        #[allow(clippy::cast_possible_truncation)]
+        let id = tsr_ast::NodeId::new(index as u32);
+        if let Some(symbol) = bound.lookup_local(id, "f") {
+            let computed = checker.get_type_of_symbol(symbol);
+            let answer = checker.type_to_string(computed);
+            assert_ne!(
+                answer, "() => void",
+                "a VALUE export adds a property; printing the bare signature would be wrong, \
+                 not partial"
+            );
+            return;
+        }
+    }
+    panic!("`f` is declared nowhere");
+}
+
+/// SS241's positive half, pinned locally so the rule survives a corpus refresh.
+#[test]
+fn a_type_only_export_leaves_a_merged_functions_signature_alone() {
+    let arena = Arena::new();
+    let source = "function g() { }\nnamespace g { export interface I { foo(): void } }\n";
+    let parsed = tsr_parser::parse(&arena, source);
+    let bound = tsr_binder::bind(
+        &arena,
+        parsed.source_file,
+        &parsed.nodes,
+        tsr_binder::FileInfo { name: "test.ts", text: source },
+    );
+    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+    for index in 0..parsed.nodes.len() {
+        #[allow(clippy::cast_possible_truncation)]
+        let id = tsr_ast::NodeId::new(index as u32);
+        if let Some(symbol) = bound.lookup_local(id, "g") {
+            let computed = checker.get_type_of_symbol(symbol);
+            let answer = checker.type_to_string(computed);
+            assert_eq!(answer, "() => void", "an interface export contributes no property");
+            return;
+        }
+    }
+    panic!("`g` is declared nowhere");
+}
