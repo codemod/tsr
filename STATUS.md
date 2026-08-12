@@ -1402,6 +1402,40 @@ its whole deliverable and accept that it converts nothing until finished.
 
 ---
 
+### §247 — the `React.Component` heritage row, measured and NOT yet buildable
+
+Twelve deficit-1 cases (`checkJsxChildrenProperty5`/`8`, `tsxAttributeResolution16`,
+`tsxDefaultAttributesResolution1`/`2`/`3`,
+`tsxReactComponentWithDefaultTypeParameter1`/`2`/`3`,
+`tsxSpreadAttributesResolution1`/`3`/`8`), all wanting
+`React.Component : React.Component<{}, {}>` where this port answers
+`typeof React.Component`. Two measurements, both worth keeping:
+
+1. **The node is not where we thought.** A heritage-clause
+   `ExpressionWithTypeArguments` is **never visited** by the walker — instrumented
+   across the whole corpus, 29 EWTA nodes reached, none in a heritage clause,
+   because `is_expression_node`'s EWTA arm requires the node be its parent's
+   `expression` field and a heritage clause's field is `types`. Selecting it
+   measured **5,083 → 4,625, −458 cases**, gradient 88.27 → 78.17. Upstream emits
+   no line for the EWTA. The line comes from the **inner property access**, and the
+   rule is the WRITER guard at `type_symbol_baseline.go:370-374` —
+   `IsExpressionWithTypeArgumentsInClassExtendsClause(node.Parent)` then
+   `GetTypeAtLocation(node.Parent)`.
+
+2. **The resolution half does not yet answer on every witness.** A
+   `heritage_base_symbol` walk (identifier or property access, following aliases)
+   answers `Some` for **3 of 6 witnesses sampled individually**; across the corpus,
+   `React.Component` with two type arguments splits 64 `Some` / 8 `None`. **The
+   import form is NOT the discriminator** — `checkJsxChildrenProperty5` (answers)
+   and `tsxAttributeResolution16` (does not) both use `import React = require('react')`
+   verbatim. Unexplained, and that is why nothing is built: the cross-lane function
+   would receive a half-populated boundary and measure a partial win for reasons
+   neither lane could attribute.
+
+Upstream's fallthrough makes the eventual shape safe — nil *or* any falls back to
+`GetTypeAtLocation(node)` — so a declining resolution reproduces today's answer
+rather than a gap.
+
 ## 5. Refused, with the number that refused it
 
 > **§5 IS DANGEROUS WHEN STALE.** Its whole purpose is "do not re-derive
