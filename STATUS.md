@@ -1618,6 +1618,37 @@ Not attempted. A `+16` estimate does not survive contact with either option, and
 committing to option 2 because it is cheap is the mistake this file exists to
 prevent.
 
+### A slice of `bd tsr-e2u` that avoids the naming hazard BY CONSTRUCTION
+
+`bd tsr-e2u` is refused as one piece — following `export =` measures +4 cases and
+is still wrong, because the printer then hands back `typeof __React` where every
+tsx baseline records `typeof React` (checker-1's §219). The resolution and the
+naming are one build **when the answer is a module object**.
+
+They are not one build when it isn't. Two witnesses, opened independently, whose
+answer through `export =` is an ordinary type:
+
+```ts
+// es6ExportAssignment2
+var a = 10;  export = a;          // a.ts
+import * as a from "./a";         // b.ts   >a : number
+
+// es6ImportEqualsDeclaration2
+declare module "server" { namespace S { export var a: number; } export = S; }
+import {a} from "server";                   >a : number
+```
+
+Neither prints a name, so neither can print a *wrong* name. The discriminator is
+a symbol-flag test rather than a measurement: **decline when the resolved target
+carries `VALUE_MODULE`/`NAMESPACE_MODULE`**, which is exactly the population
+§219's hazard lives in.
+
+Not built here: the resolution half of `bd tsr-e2u` is checker-1's lane and this
+would collide with work in flight. Recorded so the refusal's scope is on the
+record as *"following `export =` to a module object"* rather than the wider
+*"following `export =`"* — corollary 16's question asked of a refusal that is
+otherwise correct.
+
 ## 5. Refused, with the number that refused it
 
 > **§5 IS DANGEROUS WHEN STALE.** Its whole purpose is "do not re-derive
