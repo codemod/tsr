@@ -4534,3 +4534,20 @@ arm and the other became a measured 1:4 refusal. Neither stayed a zero. A refusa
 that says *"1:4 adverse, here are the numbers"* is a far stronger record than one
 that says *"measured +0 twice"*, because the next reader can tell what would have
 to change for it to be revisited.
+
+**The third of the batch was re-tested too, and it is genuinely still zero.** The
+LABEL NAME guard (`!ast.IsLabelName(node)`, `type_symbol_baseline.go:384`) applied
+at the writer on the same tree: `+0` cases, and `scorepair` reporting *"no
+transitions vs baseline"* — not one line in any direction.
+
+**So the batch is two of three, not three of three, and the denominator is the
+honest part.** A habit reported at 2-for-2 reads as free; this one costs a build
+and a score per re-test and changed the verdict twice in three tries.
+
+§256 also distinguishes a **second kind of zero**, different from the empty
+population that revived §254. The label guard stays at zero because a checker-side
+arm already converts an error-typed label to `any` before the writer ever sees the
+answer — the guard is redundant, not dormant. **A guard whose work another arm has
+already done stays zero until THAT arm changes**, which is a re-test trigger too,
+just a different one: not "did something create my population" but "did something
+stop doing my job for me".
