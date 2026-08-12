@@ -1577,6 +1577,47 @@ same predicate, and it is the `getSymbolChain` accessibility walk already record
 as a lead for `typeof globalThis.X`. Sizing the two together is the right move,
 since neither is worth building the walk alone.
 
+### The `getSymbolChain` accessibility walk — taken, then found blocked in the architecture
+
+checker-1 handed this over and it is the right predicate for two rows: the type-alias
+name row (4 cases, settled by upstream probe as *accessibility from the enclosing
+declaration*) and `typeof globalThis.X` (12). Sixteen cases is a different
+proposition from four, so it was worth opening.
+
+**It is blocked, and not by effort.** The walk's output would be "render this type
+structurally instead of by name" — and this port has nothing to render. Probed
+directly:
+
+```text
+type T = {};                      get_declared_type_of_symbol prints "T"
+function g() { type U = {}; }     get_declared_type_of_symbol prints "U"
+```
+
+The printed form is computed **once at creation** from the declaration
+([`TypeData::Named`]'s documented divergence from upstream, `types.rs`), so an
+alias's type carries its own name and **not** the structure behind it. Deciding
+that the name is unusable therefore leaves nothing to print. Upstream has no such
+problem: its node builder renders from the type at each site, with the enclosing
+declaration in hand, which is exactly the knowledge this port discards at creation.
+
+So the accessibility predicate is the easy half. The hard half is that acting on it
+requires a type to be renderable **twice, differently** — which is the
+`TypeData::Named` decision itself, not a missing function.
+
+Two ways forward, neither small, recorded so the next session picks rather than
+rediscovers:
+
+1. Retain the structural rendering alongside the name (widen `TypeData::Named`), and
+   have the writer choose. Touches every consumer of the printed form.
+2. Re-render from the alias's **type node** at the writer when accessibility fails.
+   Cheap for `type T = {}` and wrong in general — it is a syntactic stand-in for a
+   semantic rule, and would print the written form where upstream prints the
+   computed one.
+
+Not attempted. A `+16` estimate does not survive contact with either option, and
+committing to option 2 because it is cheap is the mistake this file exists to
+prevent.
+
 ## 5. Refused, with the number that refused it
 
 > **§5 IS DANGEROUS WHEN STALE.** Its whole purpose is "do not re-derive
