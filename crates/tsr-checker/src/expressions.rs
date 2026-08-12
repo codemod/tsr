@@ -712,6 +712,43 @@ impl Checker<'_, '_> {
     /// missing hop is a gap — `errorType` — never a substitute.
     pub(crate) fn check_jsx_element(&mut self, id: Option<tsr_ast::NodeId>) -> TypeId {
         let Some(id) = id else { return self.intrinsics.error };
+        // §249, INDUCED AND REVERTED, both variants measured. Recorded here
+        // because the induction is attractive and the corpus refuses it.
+        //
+        // The reasoning was: an absent `JSX.Element` is not a failure to
+        // compute but a computed `any` — upstream's `getJsxElementTypeAt`
+        // answers nil when the global is missing and the element falls back to
+        // `anyType`. It looked confirmed, because a method whose body returns a
+        // JSX element declines its whole signature on an `error` return
+        // (`>render : () => any` in `jsxFactoryIdentifierWithAbsentParameter`,
+        // whose `namespace JSX` declares `IntrinsicElements` and no `Element`).
+        //
+        // MEASURED, against a baseline accepted on the same tree with the
+        // change stashed:
+        //
+        //   both branches -> any:     +3 cases, GAP->RIGHT 21, GAP->WRONG 7,
+        //                             **RIGHT->WRONG 69**
+        //   absent-Element only:      +0 cases, GAP->RIGHT 7,  GAP->WRONG 3,
+        //                             **RIGHT->WRONG 36**
+        //
+        // Both DAMAGE correct answers, which is the one thing a per-case tally
+        // cannot show (conventions corollary 24) — the +3 looked like a win.
+        // The `error` here is load-bearing for between 36 and 69 lines, so
+        // whatever upstream does when the global is missing, it is not what
+        // this port's surrounding roads assume.
+        //
+        // What a correct version would need: the distinction upstream draws
+        // between "no JSX namespace at all", "a JSX namespace without
+        // `Element`", and the `jsxFactory`/`jsxFragmentFactory` pragma cases
+        // that dominate the adverse lists (`inlineJsxFactoryDeclarations`,
+        // `inlineJsxAndJsxFragPragmaOverridesCompilerOptions`). Those pragmas
+        // are the population that regressed under BOTH variants and are the
+        // thing to read before trying again.
+        //
+        // Established before building, and still true: the method road is NOT
+        // the defect. A method with an inferred `any` return builds
+        // `() => any` correctly — probed with
+        // `declare const a: any; class C { m() { return a; } }`.
         let Some(jsx) = self.binder.resolve_name(
             self.nodes,
             self.node_map,
