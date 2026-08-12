@@ -698,7 +698,7 @@ impl<'a> Checker<'a, '_> {
     /// work on a chain, bounded because [`Checker::get_type_of_alias`] memoises
     /// the *type* in [`Checker::symbol_types`] and that is what every caller
     /// ultimately wants.
-    pub(crate) fn resolve_alias(&mut self, symbol: SymbolId) -> Option<SymbolId> {
+    pub fn resolve_alias(&mut self, symbol: SymbolId) -> Option<SymbolId> {
         let declaration = self.declaration_of_alias_symbol(symbol)?;
         match self.nodes.kind(declaration) {
             // `getTargetOfExportSpecifier` (`checker.go:14951`) — both halves,

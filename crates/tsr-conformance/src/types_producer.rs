@@ -412,6 +412,64 @@ pub fn type_id_at_location<'a>(
         return computed;
     }
 
+    // §244, checker-1's handoff, and **the placement is the whole build**.
+    //
+    // `IsTypeDeclaration` (`ast/utilities.go:3585`):
+    //
+    // ```go
+    // case KindImportSpecifier, KindExportSpecifier:
+    //     return node.Parent.Parent.IsTypeOnly()
+    // ```
+    //
+    // A specifier inside a type-only clause IS a type declaration, its name is
+    // an `IsTypeDeclarationName` (`:3598`), and `getTypeOfNode` takes the
+    // `getDeclaredTypeOfSymbol` branch. Upstream's ordering puts that ahead of
+    // the declaration-name branch below, which asks `getTypeOfSymbol` and gets
+    // the error type for a type-only symbol.
+    //
+    // ```text
+    // interface A {}
+    // export type { A };
+    // >A : A            <- upstream; this port answered `error`
+    // ```
+    //
+    // Witness `conformance/typeOnlyMerge1`, the same-file one of the two, so
+    // the rule is isolated from the cross-file question.
+    //
+    // **This arm measured +0 when it sat lower in the function**, ahead of the
+    // import/export writer guard but *behind* the declaration-name arm below —
+    // which answers first for exactly these nodes and returns the alias's
+    // value type. Every ingredient was already correct at that point:
+    // `symbol_of` on the specifier answers, `resolve_alias` reaches the
+    // interface, and its declared type prints `A`. Only the position was
+    // wrong, which is why the zero looked like a missing capability. Ordering
+    // is upstream's rule here in the same way it is in `getTypeOfNode`.
+    //
+    // A specifier's own symbol is an alias, so the target is what carries the
+    // declared type; upstream folds that into `getSymbolAtLocation`.
+    if nodes.kind(id) == SyntaxKind::Identifier
+        && let Some(parent) = nodes.parent(id)
+        && matches!(nodes.kind(parent), SyntaxKind::ImportSpecifier | SyntaxKind::ExportSpecifier)
+        && let Some(grandparent) = nodes.parent(parent).and_then(|p| nodes.parent(p))
+        && match map.get(grandparent) {
+            // An import clause spells type-only with its PHASE MODIFIER token,
+            // not a bool — `import defer` is a different phase and must not
+            // qualify.
+            Some(Node::ImportClause(clause)) => clause
+                .phase_modifier
+                .is_some_and(|token| token.kind == SyntaxKind::TypeKeyword),
+            Some(Node::ExportDeclaration(declaration)) => declaration.is_type_only,
+            _ => false,
+        }
+        && let Some(symbol) = binder.symbol_of(parent)
+    {
+        let target = checker.resolve_alias(symbol).unwrap_or(symbol);
+        let declared = checker.get_declared_type_of_symbol(target);
+        if declared != error {
+            return declared;
+        }
+    }
+
     // A declaration name resolves through its parent's symbol.
     if let Some(parent) = nodes.parent(id)
         && map.get(parent).and_then(|p| p.name_id()) == Some(id)
@@ -993,48 +1051,6 @@ pub fn type_id_at_location<'a>(
     // `export import X = N` over a non-exported namespace, where upstream
     // records `>X : any` beside `>N : error` — the SAME errorType, two
     // spellings, decided by this guard.
-    // §244, ATTEMPTED AND MEASURED ZERO. checker-1's handoff, whose upstream
-    // reading is quoted and — as far as this goes — confirmed.
-    //
-    // `IsTypeDeclaration` (`ast/utilities.go:3585`) really does have this arm:
-    //
-    // ```go
-    // case KindImportSpecifier, KindExportSpecifier:
-    //     return node.Parent.Parent.IsTypeOnly()
-    // ```
-    //
-    // so a specifier in a type-only clause is a type declaration, its name is
-    // an `IsTypeDeclarationName`, and `getTypeOfNode` takes the
-    // `getDeclaredTypeOfSymbol` branch *before* the branch that would ask
-    // `getTypeOfSymbol` and get the error type. Head witness
-    // `conformance/typeOnlyMerge1`, whose one blocked line is `>A : A` in
-    // `a.ts` for `interface A {}` / `export type { A };`.
-    //
-    // WHAT WAS BUILT: an arm here, ahead of the guard below, testing the
-    // grandparent clause for type-only (an `ImportClause` spells it with a
-    // `phase_modifier` TypeKeyword token, not a bool — `import defer` must not
-    // qualify) and answering `get_declared_type_of_symbol` on the specifier's
-    // symbol, then on `resolve_alias`'s target, since a specifier's own symbol
-    // is an alias.
-    //
-    // WHAT IT MEASURED: +0 cases, both with and without the alias resolution.
-    //
-    // WHAT I VERIFIED: the arm's shape against upstream; that `a.ts`'s single
-    // assertion is the SPECIFIER's `A` and not the interface's declaration
-    // name (the meaning guard drops the latter, which is why the file has one
-    // line and not two); and that `resolve_alias` exists and is reachable.
-    //
-    // WHAT I DID NOT VERIFY, and this is where the next attempt should start:
-    // **whether `binder.symbol_of` answers at all for an `ExportSpecifier`**.
-    // If it returns `None` the arm never fires and everything above it is
-    // untested speculation; if it returns the alias and `resolve_alias`
-    // answers `None`, the gap is alias resolution for a type-only specifier,
-    // which is a different repair in a different crate. One `dbg!` at this
-    // site distinguishes them and I did not spend it.
-    //
-    // Recorded rather than left in: a +0 arm that might be right would be
-    // indistinguishable from one that is wrong, and the next session would
-    // inherit the ambiguity instead of the question.
     if nodes.kind(id) == SyntaxKind::Identifier
         && let Some(parent) = nodes.parent(id)
         && match map.get(parent) {
