@@ -1240,8 +1240,27 @@ impl Checker<'_, '_> {
                 // `ensure_assignments_marked` walks the symbol's enclosing
                 // function once, then the map answers.
                 self.ensure_assignments_marked(symbol);
-                self.is_parameter_or_mutable_local_variable(symbol)
+                if self.is_parameter_or_mutable_local_variable(symbol)
                     && !self.last_assignment_pos.contains_key(&symbol)
+                {
+                    return true;
+                }
+                // §239: upstream's **third** disjunct (`flow.go:1821`) —
+                // `symbol.ValueDeclaration != nil &&
+                //  ast.IsFunctionExpression(symbol.ValueDeclaration)`. A name
+                // bound to a function expression is a constant reference even
+                // when it is neither a const nor an unassigned local, because
+                // the binding cannot be reassigned through that declaration.
+                //
+                // Found by a systematic sweep rather than by a failing case:
+                // upstream's predicate has three disjuncts and this had two.
+                self.binder
+                    .symbols()
+                    .get(symbol)
+                    .value_declaration
+                    .is_some_and(|declaration| {
+                        self.nodes.kind(declaration) == SyntaxKind::FunctionExpression
+                    })
             }
             Some(Node::PropertyAccessExpression(access)) => {
                 let Some(tsr_ast::MemberName::Identifier(_)) = access.name else {
