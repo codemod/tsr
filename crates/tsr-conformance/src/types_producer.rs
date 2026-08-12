@@ -249,6 +249,66 @@ fn is_import_or_export_statement_name(id: NodeId, nodes: &NodeTable, map: &NodeM
     }
 }
 
+/// The symbol a **heritage entry's expression** names, following aliases.
+///
+/// §247's resolution half. A heritage expression is an `Identifier` or a
+/// `PropertyAccessExpression` — the same idea as an `EntityName` in a different
+/// node shape, which is why this cannot call [`entity_name_symbol`]. Aliases are
+/// followed because the head case is `import React = require('react')`, where
+/// the root is an alias and the export table lives on its target.
+///
+/// Confirmed to answer `Some` on **all twelve** witnesses before checker-1 wrote
+/// the instantiation half — see conventions corollary 27 for why that
+/// confirmation was worth its own step.
+fn heritage_base_symbol(
+    id: NodeId,
+    nodes: &NodeTable,
+    map: &NodeMap<'_>,
+    binder: &tsr_binder::BindResult<'_>,
+    checker: &mut tsr_checker::Checker<'_, '_>,
+) -> Option<tsr_binder::SymbolId> {
+    let symbol = match map.get(id)? {
+        Node::Identifier(name) => {
+            binder.resolve_name(nodes, map, id, name.text, SymbolFlags::NAMESPACE)?
+        }
+        Node::PropertyAccessExpression(access) => {
+            let left = access.expression.and_then(|left| left.node_id())?;
+            let container = heritage_base_symbol(left, nodes, map, binder, checker)?;
+            let name = access.name.and_then(|name| match map.get(name.node_id()?)? {
+                Node::Identifier(identifier) => Some(identifier.text),
+                _ => None,
+            })?;
+            *binder.symbols().get(container).exports.get(name)?
+        }
+        _ => return None,
+    };
+    Some(checker.resolve_alias(symbol).unwrap_or(symbol))
+}
+
+/// Whether `id` is an `ExpressionWithTypeArguments` in a class's `extends`
+/// clause — upstream's `TryGetClassImplementingOrExtendingExpressionWithTypeArguments`
+/// (`ast/utilities.go:1438`) with its `!isImplements` half applied.
+fn is_ewta_in_class_extends_clause(id: NodeId, nodes: &NodeTable, map: &NodeMap<'_>) -> bool {
+    if nodes.kind(id) != SyntaxKind::ExpressionWithTypeArguments {
+        return false;
+    }
+    let Some(clause) = nodes.parent(id) else { return false };
+    if nodes.kind(clause) != SyntaxKind::HeritageClause {
+        return false;
+    }
+    let extends = match map.get(clause) {
+        Some(Node::HeritageClause(heritage)) => {
+            heritage.token.kind == SyntaxKind::ExtendsKeyword
+        }
+        _ => false,
+    };
+    extends
+        && matches!(
+            nodes.parent(clause).map(|owner| nodes.kind(owner)),
+            Some(SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression)
+        )
+}
+
 fn selects(id: NodeId, tree: Tree<'_, '_>) -> bool {
     let kind = tree.kind(id);
     let kept = predicates::is_expression_node(id, tree)
@@ -439,6 +499,62 @@ pub fn type_id_at_location<'a>(
         if computed == error || computed == checker.intrinsics().any {
             return checker.intrinsics().any;
         }
+        return computed;
+    }
+
+    // §247, both lanes. `type_symbol_baseline.go:370-374`:
+    //
+    // ```go
+    // // Workaround to ensure we output 'C' instead of 'typeof C' for base class expressions
+    // if ast.IsExpressionWithTypeArgumentsInClassExtendsClause(node.Parent) {
+    //     t = fileChecker.GetTypeAtLocation(node.Parent)
+    // }
+    // ```
+    //
+    // The line belongs to the node whose PARENT is the extends entry, not to
+    // the entry itself. Measured: a heritage `ExpressionWithTypeArguments` is
+    // never visited by this walk — 29 EWTA nodes reached corpus-wide, none in
+    // a heritage clause — and *making* it visited costs **458 cases**
+    // (5,083 → 4,625), because upstream emits no line for it either.
+    //
+    // ```text
+    // class Poisoned extends React.Component<{}, {}> { }
+    // >React.Component : React.Component<{}, {}>   <- this node
+    // >React : typeof React                        <- already right
+    // >Component : typeof React.Component          <- already right
+    // ```
+    //
+    // Upstream's fallthrough is what makes the split safe: nil OR any falls
+    // back to `GetTypeAtLocation(node)`, so a `None` from either half
+    // reproduces today's answer rather than a gap.
+    if let Some(parent) = nodes.parent(id)
+        && is_ewta_in_class_extends_clause(parent, nodes, map)
+        && let Some(Node::ExpressionWithTypeArguments(entry)) = map.get(parent)
+        && entry.expression.and_then(|e| e.node_id()) == Some(id)
+        && let Some(base) = heritage_base_symbol(id, nodes, map, binder, checker)
+        // Upstream reads `getBaseTypes(classType)` — the base types of the
+        // DERIVING class — not the type of the entry. A class whose `extends`
+        // names something that is not a class has no base types, so upstream
+        // returns `errorType` and the writer falls back to
+        // `GetTypeAtLocation(node)`. Resolving the entry directly would answer
+        // where upstream declines. Measured: without this the call site costs
+        // two right lines (`classExtendsInterfaceInModule`,
+        // `unusedInvalidTypeArguments`).
+        && binder
+            .symbols()
+            .get(base)
+            .declarations
+            .iter()
+            .any(|&declaration| {
+                matches!(
+                    nodes.kind(declaration),
+                    SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
+                )
+            })
+        && let Some(computed) = checker.base_type_of_heritage_entry(base, entry.type_arguments)
+        && computed != error
+        && computed != checker.intrinsics().any
+    {
         return computed;
     }
 
