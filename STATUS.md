@@ -1721,11 +1721,27 @@ The third shape matters because the fixture declares `var x` five times in one
 function body, which merges into one symbol with five declarations — the reason to
 suspect the rule reads only the first. It does not; the answer is `string`.
 
-So the remaining failures are something else in that file, and **whoever takes this
-should not start from the for-in arm**. Recorded as an elimination rather than a
-lead: the cost of the three probes was two minutes, and the value is that the next
-session does not spend an hour on `get_type_for_variable_like_declaration`'s ForIn
-arm, which is correct.
+So the remaining failures are something else, and **whoever takes this should not
+start from the for-in arm**.
+
+**Located, in the same case's own output:** the failing lines are *references* to
+`x`, not its declaration, and the file contains both kinds three lines apart:
+
+```text
+*53   WANT x : string   GOT x : any      <- a reference
+ 56   WANT x : string   GOT x : any      <- a reference
+ 57   WANT x : string   GOT x : string    <- matches
+```
+
+One symbol, one declaration road that is provably correct, and references that
+disagree with each other. That is a **flow** question — the type at a reference
+inside the for-in body — not a declaration question. It is also the shape corollary
+27's probe design is for: the discriminating pair is already in the fixture, three
+lines apart, which is why the case reads deficit 2 rather than "for-in unported".
+
+The elimination cost two minutes of probes and converted "the for-in rule is
+missing" into "the flow type at a reference differs from the declared type for the
+same symbol in the same body". The next session starts there.
 
 A caution that cost time here: `nearmiss`'s line numbers are **baseline-relative,
 not source-relative**, so reading them as source lines points at the wrong
