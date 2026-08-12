@@ -2641,10 +2641,16 @@ impl Checker<'_, '_> {
         }
         let (start, end) = (clause.clause_start as usize, clause.clause_end as usize);
         let slice = &clause_types[start.min(clause_types.len())..end.min(clause_types.len())];
-        if start == end || slice.contains(&self.intrinsics.never) {
-            return t;
-        }
-        let clause_list: Vec<TypeId> = slice.to_vec();
+        // SS199: the DEFAULT clause's half, which the discriminant twin of
+        // this function already has (`flow.go:1139`) and this one declined
+        // whole. Upstream filters away every constituent some OTHER clause
+        // handles, so a switch covering every member literal leaves `never`
+        // in its default — `discriminantsAndNullOrUndefined` records
+        // `>c : never` at `default: never(c)`. The clause LIST for the
+        // filter is every clause's type, not this clause's range.
+        let is_default = start == end || slice.contains(&self.intrinsics.never);
+        let clause_list: Vec<TypeId> =
+            if is_default { clause_types.clone() } else { slice.to_vec() };
         let constituents: Vec<TypeId> = match &self.store.get(t).data {
             TypeData::Union { types, .. } => types.clone(),
             _ => vec![t],
@@ -2668,6 +2674,7 @@ impl Checker<'_, '_> {
                 return t;
             };
             let mut admits = false;
+            // In the default clause, "admitted by a clause" means REMOVED.
             for &clause_type in &clause_list {
                 let regular = self.get_regular_type_of_literal_type(clause_type);
                 match self.comparable_ternary(regular, member_type) {
@@ -2679,12 +2686,14 @@ impl Checker<'_, '_> {
                     None => return t,
                 }
             }
-            if admits {
+            // SS199: the default keeps exactly what no clause handles.
+            if admits != is_default {
                 kept.push(constituent);
             }
         }
         if kept.is_empty() {
-            return t;
+            // SS198's rule at the third filter: an emptied set is `never`.
+            return self.intrinsics.never;
         }
         // §51: keeping EVERY constituent is the identity — rebuilding the
         // union would lose an alias-named type's name (`numericLiteralTypes1`
