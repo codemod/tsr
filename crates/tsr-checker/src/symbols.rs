@@ -745,6 +745,28 @@ impl<'a> Checker<'a, '_> {
             //
             // Gating this to exclude the augmented shape would be fitting the
             // witness — corollary 20 — so it is left out whole.
+            //
+            // # Re-tested 2026-08-12 on a tree four arms newer; the refusal holds
+            //
+            // Corollary 31 says a refusal is evidence about a *tree*, so this was
+            // re-run after §230, §232, §253 and §254 landed. The case delta
+            // improved — **+2 instead of +1** (`umd7` and
+            // `moduleAugmentationWithNonExistentNamedImport`) — and the damage is
+            // **identical**: `conformance/umd-augmentation-1` still goes
+            // `>m : typeof m` **right → `error`**, still loses 14 lines, still
+            // spells `m.Vector` as `Vector`. Same for `umd4`, `umd5` and
+            // `crashDeclareGlobalTypeofExport`.
+            //
+            // So the price did not move, because the blocker did not: the
+            // qualification losses need the naming half of `bd tsr-e2u`, and
+            // nothing landed since touched it. **Recorded so the next reader does
+            // not spend the run again** — a re-test that confirms a refusal is
+            // worth as much as one that overturns it, and only one of the two
+            // usually gets written down.
+            //
+            // Consequence, correcting a note I sent the other lane:
+            // `compiler/unusedImports13` is **not** one arm away. Its other
+            // blocker was fixed by §254, and this one is what remains.
             _ => {}
         }
         // `getTargetOfNamespaceImport` (`checker.go:14724`) and
