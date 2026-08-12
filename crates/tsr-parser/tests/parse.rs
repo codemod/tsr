@@ -1798,3 +1798,63 @@ fn a_class_index_signature_parameter_keeps_its_initializer() {
     });
     assert!(found, "the `= 1` belongs to the parameter");
 }
+
+/// §214. `for (var of X)` declares nothing.
+///
+/// `parseVariableDeclarationList` (`parser.go:1583`) checks, before parsing any
+/// declaration, whether the token is `of` followed by an identifier and then
+/// `)`, and if so builds an EMPTY declaration list so the `of` can be read as
+/// the for-of keyword. Upstream's comment: *"the reason this is not automatic
+/// is that 'of' is a valid identifier"*.
+///
+/// Without it `for (var of of) { }` declares a variable NAMED `of`, eats the
+/// second `of` as the keyword, and leaves `)` for the iterable — a
+/// manufactured missing identifier, and an empty-source-text `.types` line
+/// upstream does not write. `parserForOfStatement21` records exactly one line,
+/// `>of : any`, and it is the EXPRESSION.
+#[test]
+fn for_var_of_x_declares_nothing() {
+    let arena = Arena::new();
+    let parsed = parse(&arena, "for (var of of) { }");
+    let Some(Statement::ForInOrOfStatement(statement)) = parsed.source_file.statements.first()
+    else {
+        panic!("expected a for-of statement");
+    };
+    let Some(tsr_ast::ForInitializer::VariableDeclarationList(list)) = statement.initializer else {
+        panic!("expected a variable declaration list initializer");
+    };
+    assert!(list.declarations.is_empty(), "the list is empty and `of` is the keyword");
+}
+
+/// The lookahead is deliberately narrow, and these are what it excludes: with
+/// anything other than `identifier )` after it, `of` really is a variable name.
+/// Without the second assertion, dropping the lookahead entirely also passes
+/// the test above.
+#[test]
+fn of_is_still_a_variable_name_where_upstreams_lookahead_fails() {
+    let arena = Arena::new();
+    for (source, expected) in [
+        // `of` names the variable; the second `of` is the keyword; `x.y` is the
+        // iterable — so the lookahead (`identifier` then `)`) must fail.
+        ("for (var of of x.y) { }", 1usize),
+        ("for (var of = 1; ; ) { }", 1),
+    ] {
+        let parsed = parse(&arena, source);
+        let Some(Statement::ForInOrOfStatement(statement)) = parsed.source_file.statements.first()
+        else {
+            // A plain `for` is a different node; the point is only that a
+            // declaration was made.
+            let count = all_nodes(tsr_ast::Node::SourceFile(parsed.source_file))
+                .iter()
+                .filter(|node| matches!(node, tsr_ast::Node::VariableDeclaration(_)))
+                .count();
+            assert_eq!(count, expected, "{source:?}");
+            continue;
+        };
+        let Some(tsr_ast::ForInitializer::VariableDeclarationList(list)) = statement.initializer
+        else {
+            panic!("expected a variable declaration list in {source:?}");
+        };
+        assert_eq!(list.declarations.len(), expected, "{source:?}");
+    }
+}

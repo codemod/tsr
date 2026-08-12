@@ -524,6 +524,43 @@ impl<'a> Parser<'a> {
             _ => tsr_ast::NodeFlags::empty(),
         };
 
+        // **`for (var of X)` declares nothing.** `parseVariableDeclarationList`
+        // (`parser.go:1583`) checks, before parsing any declaration at all,
+        // whether the token is `of` followed by an identifier and then `)` —
+        // and if so builds an EMPTY declaration list, letting the `of` be read
+        // as the for-of keyword. Upstream's own comment: *"the reason this is
+        // not automatic is that 'of' is a valid identifier"*.
+        //
+        // Without it, `for (var of of) { }` declares a variable NAMED `of`,
+        // consumes the second `of` as the for-of keyword, and leaves `)` for
+        // the iterable — a manufactured missing identifier, and an
+        // empty-source-text `.types` line upstream does not write
+        // (`parserForOfStatement21` records exactly one, `>of : any`, which is
+        // the *expression*, not a declaration). §214.
+        //
+        // The lookahead is `nextIsIdentifierAndCloseParen` (`:1595`) and it is
+        // deliberately narrow: `for (var of x)` with anything else after `x`
+        // really is a variable named `of`.
+        if self.at(SyntaxKind::OfKeyword)
+            && self.look_ahead(|parser| {
+                parser.next_token();
+                if !parser.is_binding_identifier() {
+                    return false;
+                }
+                parser.next_token();
+                parser.at(SyntaxKind::CloseParenToken)
+            })
+        {
+            let end = self.node_end();
+            return self.finish_node_with_flags(
+                VariableDeclarationList::new(&[]),
+                SyntaxKind::VariableDeclarationList,
+                start,
+                end,
+                flags,
+            );
+        }
+
         let mut declarations = Vec::new();
         let mut trailing_comma = false;
         loop {
