@@ -246,10 +246,29 @@ impl Checker<'_, '_> {
         // and it is decidable from the parent — an element access whose parent
         // is a compound-assignment LHS.
         //
-        // Not built: the exclusion needs its own witnesses opened, and a
-        // +0-case arm is not the place to spend the last of a budget. The
-        // measurement is here so the next attempt starts from 19:4 and a named
-        // sub-population rather than from scratch.
+        // §264 WROTE THE EXCLUSION AND IT MUST LAND WITH §263, NOT AFTER IT.
+        // The predicate is small and decidable — an element access whose parent
+        // is a BinaryExpression, is that expression's `left`, and whose operator
+        // is an assignment operator other than `=`:
+        //
+        //     node.node_id -> parent is BinaryExpression
+        //         && binary.left == this node
+        //         && operator.is_assignment_operator() && operator != EqualsToken
+        //
+        // Applied ALONE, on top of the reverted §263, it measured `+0` and "no
+        // transitions" — correctly, and for a reason worth recording: with
+        // §263's call sites reverted there are no narrowings for an exclusion to
+        // exclude, so the helper was dead code. **A conditional half of a
+        // two-part change is not independently measurable**, and reading its
+        // zero as a verdict on the predicate would have been wrong.
+        //
+        // That also means the +0 here is NOT corollary 27's unconfirmed zero:
+        // the arm provably cannot fire, by construction rather than by
+        // accident, so no probe is owed. The two halves want one commit,
+        // measured together, against the 19:4 §263 recorded above.
+        //
+        // Left unbuilt rather than landed as dead code, which would also fail
+        // the workspace clippy gate.
         let Some(name) = self.property_name_from_index(index_type) else {
             // Not a literal, so it names no property. `getIndexedAccessType`
             // falls to the index signatures (`checker.go:21902`).
