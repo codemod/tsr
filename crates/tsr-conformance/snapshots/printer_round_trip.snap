@@ -2,7 +2,7 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 printer_round_trip Summary:
 What a pass means: every unit of the case parses, prints, and reparses to the same tree
-Passed         : 11793/11793 (100.00%)
-Skipped        : 651 (excluded from the denominator)
+Passed         : 11794/11794 (100.00%)
+Skipped        : 650 (excluded from the denominator)
 
-  651  skipped: the case does not parse cleanly, so there is no tree to preserve
+  650  skipped: the case does not parse cleanly, so there is no tree to preserve
