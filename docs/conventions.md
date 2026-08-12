@@ -4027,3 +4027,41 @@ So, when more than one agent is writing:
 - **Check the counter before appending to it.** `grep '^### Corollary'`
   costs nothing and is exactly the pre-flight corollary 17 prescribes for
   predicates, applied to prose.
+
+### Corollary 23 (2026-08-12): a test asserting a known-wrong value must say so at the assertion
+
+A port under construction is full of assertions that pin what the code *does*
+rather than what it *should* do. That is legitimate — it stops silent drift in a
+subsystem that is not finished. The failure is not writing them; it is writing
+them indistinguishably from real ones.
+
+> **When you pin a value you know to be wrong, say so on the line. The next
+> session must be able to tell "this is the contract" from "this is the gap"
+> without reconstructing your reasoning.**
+
+Worked case, §243: two pinned values came due in the same build. Both had been
+written with the note *"the pin was the gap, not the answer"* beside them, so
+updating `("a", "error")` to `("a", "1")` and `("A", "error")` to
+`("A", "E.A")` took no judgement at all — the previous author had already
+recorded which kind of assertion it was. Without those notes the same diff is a
+decision about whether a contract is being broken, made under time pressure by
+someone who did not write it.
+
+**The second half is sharper and cost a near-miss to find.** Of those two pins,
+only the `const` one discriminates the rule. `import x = M.a` moves
+`error → 1` because a const's *declared* type is the error type, so the answer
+falls through to the value type; `import q = E.A` moves `error → E.A` because an
+enum member's declared type is not, so the fallback never runs — and it would
+read `E.A` under a collapsed "just answer the value type" rule too. So:
+
+> **A pin that would still pass under the rule you are trying to exclude is not
+> evidence.** State which mutation each assertion is supposed to catch, or you
+> cannot know whether you have one control or none.
+
+This is the same defect as §215 (a function widened off the call path, +0) and
+§242 (a refusal that was right about the count and wrong about the question):
+something that looks like a check but cannot fail in the direction that matters.
+
+How you would know this is wrong: if the mutation the pin claims to catch does
+redden it. That is a one-command check and it is the only thing that converts a
+pin from decoration into a control.
