@@ -60,9 +60,13 @@
 //!   (`bd tsr-ha6`).
 //! - **`formatUnionTypes`' nullable reordering and enum collapsing**
 //!   (`printer.go:383`). Both are unreachable given the two decisions above:
-//!   nullable constituents are dropped before printing, and an enum-like
+//!   nullable constituents are dropped before printing, and ~~an enum-like
 //!   constituent only ever reaches a union through its own enum type, which is
-//!   gapped (`bd tsr-8pz`). Porting them would read as coverage and provide
+//!   gapped (`bd tsr-8pz`)~~ — **that half is FALSE and §202 measured it so**:
+//!   flow narrowing builds a union out of enum MEMBERS directly
+//!   (`controlFlowBreakContinueWithLabel` joins `User.A | User.B` at a
+//!   labelled break, where upstream prints `User`), so the enum collapsing is
+//!   reachable and is now ported below. Porting them would read as coverage and provide
 //!   none — the same judgement `crate::declared` made about instantiation depth.
 //! - **A construction limit.** Upstream guards union construction with no count
 //!   of its own; what it guards is `instantiateType` (`checker.go:22111`), which
@@ -388,6 +392,24 @@ impl Checker<'_, '_> {
         // (`checker-notes-arrays.md` §5, `enumLiteralsSubtypeReduction`).
         if types.iter().all(|&t| t == types[0]) {
             return types[0];
+        }
+        // SS202: a union whose constituents are exactly the members of ONE
+        // enum IS that enum's declared type — upstream's `formatUnionTypes`
+        // enum collapsing (`printer.go:383`). This module's header called
+        // that branch UNREACHABLE, on the ground that "an enum-like
+        // constituent only ever reaches a union through its own enum type";
+        // **flow narrowing refutes it** — `controlFlowBreakContinueWithLabel`
+        // builds `User.A | User.B` from two MEMBERS at a labelled-break join
+        // and upstream prints `User`. The member-to-enum road
+        // (`enum_member_owners`) already existed.
+        if let Some(&owner) = self.enum_member_owners.get(&types[0])
+            && types.iter().all(|t| self.enum_member_owners.get(t) == Some(&owner))
+            && let Some(&declared) = self.declared_types.get(&owner)
+            && let TypeData::Union { types: all, .. } = &self.store.get(declared).data
+            && all.len() == types.len()
+            && all.iter().all(|member| types.contains(member))
+        {
+            return declared;
         }
         self.union_type_worker(types, TypeFlags::empty(), None, false)
     }
