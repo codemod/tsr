@@ -405,6 +405,35 @@ impl Checker<'_, '_> {
                 // baseline**: making the strict leg answer `any` would satisfy
                 // three cases by contradicting §9.2, whose revert losses are
                 // what pinned `undefined` here in the first place.
+                //
+                // ## Narrowed once more, from the errors baseline
+                //
+                // `exportAssignmentWithDeclareModifier.errors.txt` records
+                // exactly one diagnostic, `TS1120: An export assignment cannot
+                // have modifiers`, and **no `TS2454` (*used before being
+                // assigned*)**. That is decisive about which branch upstream
+                // took: `TS2454` is emitted by the `else if` at
+                // `checker.go:11190`, so its absence means that branch did not
+                // run, which means `assumeInitialized` was **true**, which
+                // means `initialType = t = autoType`, the flow type stayed
+                // `autoType`, and the first branch answered
+                // `convertAutoToAny(autoType)` = `any`.
+                //
+                // So the open question is now exactly one step wide: **which
+                // disjunct of `assumeInitialized` (`checker.go:11150-11158`) is
+                // true for this shape?** Reading them, none obviously is —
+                // not a parameter, not an alias, same flow container, no
+                // spread/module-exports/binding-element, no `!`, the whole
+                // `t != autoType && …` group disabled because `t` IS auto, and
+                // the `declare` sits on the export assignment rather than on
+                // `var x`, so the declaration carries no `Ambient` flag.
+                //
+                // One of those readings is wrong, and separating them is a
+                // single instrumented run of upstream. That instrument does not
+                // exist and **two rows now want it** — this one and the
+                // type-alias singleton in `checker-notes-nearmiss.md` §229 —
+                // which is the argument for building it rather than routing
+                // around it a third time.
                 None if is_auto && !self.strict_null_checks => self.intrinsics.any,
                 None if is_auto => self.intrinsics.undefined,
                 None => declared_type,
