@@ -4164,3 +4164,39 @@ candidate implementations of them.
 How you would know this is wrong: if the discriminating input turns out to be in
 the corpus after all, the delta *was* evidence and the worry was unfounded. That
 is a one-command check, which is the whole point.
+
+### Corollary 26 (2026-08-12): a conflict resolution that succeeds tells you nothing about whether it was right
+
+Two lanes rebasing continuously produce conflicts several times an hour, and the
+resolution step has no gate behind it. Tests pass, clippy passes, the rebase
+completes. Nothing in the pipeline re-derives what the resolution should have
+been, so a wrong one ships looking exactly like a right one.
+
+Three forms, each caught in one session, each by luck rather than by a check:
+
+**A generated file has exactly one correct resolution: regenerate it.** Taking
+either side of a conflict in `crates/tsr-conformance/snapshots/*.snap`, or
+splicing them, produces a snapshot corresponding to **no tree that has ever
+existed**. It reads perfectly plausibly. Clear the markers only far enough to
+finish the rebase, then throw that away and run the generator. This came up
+twice in one session on the same file.
+
+**Count the conflict regions before resolving any of them.** A script that
+strips markers and keeps one side operates on *every* region in the file. The
+one you read is not necessarily the only one — a STATUS conflict resolved this
+way silently also resolved a second region belonging to an unrelated commit.
+`grep -c '^<<<<<<<'` first; if the count is more than one, resolve them
+individually. (That grep *had* printed both regions; the failure was acting on
+the first without counting.)
+
+**Prose is content.** `git commit -m` with backticks in the message runs command
+substitution and **deletes** every backticked span. The commit succeeds and the
+loss is invisible unless the message is read back. Use `git commit -F <file>`
+for anything containing backticks — which, in this project, is anything worth
+writing.
+
+The unifying property is the one that makes all three hard to notice: **the
+success signal is real and the failure is silent.** Same family as
+`rtk`-piped exit codes (memory: `rtk-masks-exit-codes`) and corollary 24's
+already-failing case. Wherever that pattern holds, the only defence is to read
+back the artefact rather than infer it from the command's success.
