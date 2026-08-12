@@ -2867,6 +2867,23 @@ impl<'a> Checker<'a, '_> {
         {
             return Some(self.intrinsics.string);
         }
+        // **The custom-iterable road is blocked, and the blocker is named so
+        // the next reader does not re-derive it.** `for (var v of new
+        // FooIterator)` wants the ITERATION PROTOCOL: read `[Symbol.iterator]`
+        // off the type, take its call signature's return, read `next` off
+        // that, take ITS return's `value` property. Every one of those four
+        // steps has ported machinery — and the first is unreachable, because
+        // the binder files a computed-name member under `__computed`, which is
+        // *deliberately in no symbol table at all* (`binder.rs`'s
+        // `INTERNAL_COMPUTED`): late binding is unported
+        // (`member_completeness.rs:38`). There is no name to look
+        // `[Symbol.iterator]` up by.
+        //
+        // Measured population, `nearmiss --max 2`: about ten cases, of which
+        // `for-of19` through `for-of23` and `for-of30`/`31` are the clean
+        // witnesses. They will convert when late binding lands and not before;
+        // nothing narrower reaches them, because the protocol's first hop is
+        // the one that is missing. §212.
         None
     }
 
