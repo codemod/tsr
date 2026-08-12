@@ -866,6 +866,35 @@ for every case — and nothing measures it today. Until something does, treat
 treat "we are more specific than upstream" as a signal to read the
 `.errors.txt` before starting work.
 
+#### Sized the same day, and it is much SMALLER than the paragraph above implies
+
+Having written that, I estimated in a handoff that this "bites the `WANT any`
+rows hardest" and called the 212-case bare-`any` row "the least trustworthy on
+the board". **That guess was wrong, and measuring it took one command.**
+
+The strongest possible collision candidates are the deficit-1 lines that want
+bare `any` and where this port answers `error` — i.e. exactly the shape
+ADR-0038 describes. There are **28** of them, out of 100 deficit-1 lines
+wanting bare `any`. Of those 28 cases, the number carrying an upstream
+`.errors.txt` baseline is **zero**.
+
+No error anywhere in any of those 28 cases means upstream reached `any`
+**honestly**, not by rendering an `errorType`. So they are convertible: this is
+ADR-0038's own correction case (the `Array<any>` finding) rather than its
+ceiling case, and the gap is ours to close.
+
+So both statements hold and they are about different populations:
+
+| population | count | convertible? |
+|---|---:|---|
+| deficit-1, want bare `any`, we answer `error`, **no upstream error** | 28 | **yes** — upstream computed it |
+| deficit-1, we answer something *more specific* than the baseline, **upstream errored** (`parserStrictMode*`) | 6 confirmed | **no** — ADR-0038 ceiling |
+
+The discriminator is not "the baseline says `any`". It is **whether upstream
+emitted an error at that position**, and the two populations point in opposite
+directions. Quoting the ceiling as a reason to distrust the board, without
+running the check, would have talked both lanes out of 28 convertible cases.
+
 **Consequences for any target:**
 
 ```
