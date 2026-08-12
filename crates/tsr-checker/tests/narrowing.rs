@@ -621,3 +621,62 @@ fn typeof_object_keeps_null_and_drops_the_primitives() {
         "error"
     );
 }
+
+
+/// §231. `typeof x === "function"` narrows — the arm existed and had never run.
+///
+/// `narrowTypeByTypeName`'s function arm reads `c.globalFunctionType`, and this
+/// port fetched it with `global_type_symbol("Function")`. That convenience
+/// wrapper is `global_type_symbol_with_arity(name, 1)`, while `interface
+/// Function` (`es5.d.ts:257`) takes **no** type parameters — so the lookup
+/// answered `None` for every program and the arm's decline was unconditional.
+/// The comment beside it described that decline as the lib-less case; it was
+/// true of nothing.
+///
+/// Worth **+17 lines across four cases and zero cases**, which is why it needed
+/// looking at rather than dismissing: `narrowingByTypeofInSwitch` (+7),
+/// `typeGuardConstructorClassAndNumber` (+5), `typeGuardOfFormTypeOfFunction`
+/// (+4), `narrowingTypeofFunction` (+1) all carry other blockers. Conventions
+/// corollary 24 as `checker-2`'s §250 sharpened it: a per-case tally
+/// understates as readily as it hides.
+#[test]
+fn typeof_function_narrows_a_union_to_its_callable_member() {
+    // **The intersection is the residue, and it is pinned rather than wished
+    // away.** Upstream answers `() => void`; this port answers
+    // `() => void & Function`, and the reason is one rung up the ladder rather
+    // than in this arm. `narrow_type_by_type_facts` is a faithful
+    // transcription of `narrowTypeByTypeFacts` (`flow.go:685`), whose first
+    // rung is `isTypeRelatedTo(t, impliedType, strictSubtypeRelation)`.
+    // Upstream answers **true** for a function type against `Function`,
+    // because an object type carrying call signatures resolves its members
+    // with the global `Function` as an implicit base; this port has no such
+    // step, the first rung fails, and the third rung intersects instead.
+    //
+    // So the residue is a MEMBERS gap, independent of §231 and present before
+    // it. Fixing that rung turns this assertion into upstream's answer and
+    // turns §231's one adverse line into zero — see the commit for the 18:1
+    // split.
+    assert_eq!(
+        type_of_last_expression(
+            "interface Function {}\n\
+             declare var x: string | (() => void);\n\
+             if (typeof x === \"function\") { x; }"
+        ),
+        "() => void & Function"
+    );
+}
+
+/// The control, and it is the one that would have caught the original defect:
+/// with **no** `Function` in scope the decline is correct, so a fixture that
+/// only tests the narrowing cannot tell "declines when it should" from
+/// "declines always". Both assertions together can.
+#[test]
+fn typeof_function_still_declines_when_the_program_has_no_function_interface() {
+    assert_eq!(
+        type_of_last_expression(
+            "declare var x: string | (() => void);\n\
+             if (typeof x === \"function\") { x; }"
+        ),
+        "string | (() => void)"
+    );
+}

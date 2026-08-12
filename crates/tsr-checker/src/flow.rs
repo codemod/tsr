@@ -5002,7 +5002,17 @@ impl Checker<'_, '_> {
                 // `c.globalFunctionType`. A lib-less program has no `Function`
                 // interface; narrowing is then declined rather than
                 // approximated with a made-up type.
-                let Some(function_symbol) = self.global_type_symbol("Function") else {
+                //
+                // **§231: the arity is 0 and this asked for 1, so the decline
+                // above was unconditional.** `global_type_symbol(name)` is
+                // `global_type_symbol_with_arity(name, 1)`, and `interface
+                // Function` (`es5.d.ts:257`) takes no type parameters — so the
+                // `else` arm fired for *every* program, lib or not, and this
+                // narrowing had never once run. The comment describing the
+                // decline as the lib-less case was written in good faith and
+                // was true of nothing.
+                let Some(function_symbol) = self.global_type_symbol_with_arity("Function", 0)
+                else {
                     return t;
                 };
                 let implied = self.get_declared_type_of_symbol(function_symbol);
