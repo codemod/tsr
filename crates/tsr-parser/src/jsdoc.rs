@@ -423,6 +423,12 @@ impl<'a> Parser<'a> {
                     start,
                 ))
             }
+            // No `"import"` arm, and that is deliberate rather than an omission
+            // waiting to be filled: `parseImportTag`'s pieces already exist in
+            // `module.rs`, but the tag is inert until the reparser turns it into
+            // a `JSImportDeclaration`, so parsing it alone converts nothing and
+            // costs a node the binder ignores. §218, and the arithmetic is in
+            // docs/architecture/jsdoc.md's "Not built".
             "typedef" => self.parse_typedef_tag(start, tag_name, margin, indent_text),
             "overload" => {
                 let type_expression = self.try_parse_type_expression();
