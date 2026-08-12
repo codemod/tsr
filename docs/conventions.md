@@ -4200,3 +4200,57 @@ success signal is real and the failure is silent.** Same family as
 `rtk`-piped exit codes (memory: `rtk-masks-exit-codes`) and corollary 24's
 already-failing case. Wherever that pattern holds, the only defence is to read
 back the artefact rather than infer it from the command's success.
+
+### Corollary 27 (2026-08-12): a zero from an instrument you have not confirmed fires is not a measurement
+
+Four builds in this window produced a number that looked like data and was not.
+They are the same defect seen from four sides, and the fourth is the dangerous
+one.
+
+| face | the thing that was off | what it reports |
+|---|---|---|
+| §215 | a function off the **call path** | `+0` |
+| §244 | an arm off the **answer path** | `+0` |
+| §247's first probe | a probe off the **visit path** | `answered=false` |
+| §247's second probe | an instrument off its **scope** | *a plausible distribution* |
+
+The first three report nothing, and nothing reads as absence. **The fourth
+reported "3 of 6 witnesses, with case names attached", which reads as a
+finding.** It was `head -1` of a corpus-wide stderr stream, so the three
+successes and three failures were whichever heritage entry the corpus reached
+first — no per-case signal existed at all.
+
+> **"Does it fire" and "is it scoped to what I am attributing it to" are separate
+> questions, and only the first one feels like it needs asking.**
+
+**The stopping rule**, which makes the set actionable and would have saved the
+hour:
+
+> **A discriminator that does not discriminate between two byte-identical inputs
+> is a broken instrument, not a subtle finding.**
+
+`checkJsxChildrenProperty5` and `checkJsxChildrenProperty8` have byte-identical
+heritage lines, imports and directives, and the probe reported different
+outcomes for them. The response to that must be to doubt the instrument. What
+actually happened was a hunt for a hidden difference — a BOM was found in one
+failing fixture, tested against all twelve, and correctly discarded — and only
+then was the instrument questioned. The hypothesis was disciplined and the step
+was unnecessary.
+
+**The mechanism, which is worth separating from the instances.** `nearmiss
+--case <name>` filtered its *output* and executed the whole corpus. It had been
+used a dozen times that day for reading one case's diff, which it does
+perfectly; it lies only when asked to scope *execution*, and then it lies
+plausibly.
+
+> **A tool whose name overstates its scope will eventually be trusted for the
+> scope it claims** — and it survives because the correct use and the incorrect
+> use are indistinguishable from outside.
+
+Same silent-success family as corollary 26, one layer up: the success signal is
+real and the failure is silent. (Fixed: the filter now sits above the measure,
+and one case takes 0.5s instead of a full corpus run.)
+
+How you would know this is wrong: run the instrument against an input whose
+answer you already know, including a *negative* input. An instrument that cannot
+produce a known-false is not measuring.
