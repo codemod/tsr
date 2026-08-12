@@ -1818,6 +1818,28 @@ on that basis. Note the shape: the port is MORE specific than upstream
 which here means we resolved where upstream refused. Corollary 10's inversion, a
 fourth time.
 
+### The union-descent survey — four more sites ask the kind question on raw flags
+
+§258/§260 gave `check_addition` `isTypeAssignableToKind`'s union descent (every
+constituent must match, because a union's own flags carry no kind). The greppable
+form of corollary 30 says to count the sites that ask the question against the
+sites that got the answer. Surveyed, and the other four are **not** all candidates:
+
+| site | asks | candidate? |
+|---|---|---|
+| `expressions.rs:969` | `BIG_INT_LIKE` in the unary arithmetic arm | **yes** — the closest sibling to `check_addition`; `-x` on a bigint-literal union has the identical shape |
+| `flow.rs:5502-5506` | the `typeof` family of a narrowed type | **probably not** — narrowing already decomposes unions before this point, so a union should not reach it; needs one probe to confirm rather than assume |
+| `members.rs:737-741` | which global interface supplies a primitive's apparent members | **no** — a union has no single apparent type; upstream takes the union's own path, and descending here would pick one constituent's members arbitrarily |
+| `relater.rs:667-673` | source-vs-target primitive relations | **no** — the relater has its own union handling upstream (`eachTypeRelatedToType`), and bolting a descent into the flag comparison would duplicate it wrongly |
+
+So one candidate, one to probe, two where the raw-flag test is correct precisely
+because a union means something different there. **The greppable check finds the
+sites; it does not decide them** — that is worth saying, because the check is cheap
+enough to over-apply, and two of these four would have been regressions.
+
+Not built: `expressions.rs:969` is a real lead with no opened witness yet, and the
+`flow.rs` one needs the probe before it is even a lead.
+
 ## 5. Refused, with the number that refused it
 
 > **§5 IS DANGEROUS WHEN STALE.** Its whole purpose is "do not re-derive
