@@ -2445,7 +2445,40 @@ impl<'a> Checker<'a, '_> {
         flags: TypeFlags,
         with_type_parameters: bool,
     ) -> TypeId {
-        let name = self.binder.symbols().get(symbol).name.to_string();
+        // §246. The symbol's NAME is not always its declaration's name. A
+        // default-exported class binds as `default` — upstream's
+        // `InternalSymbolNameDefault` — so `export default class A {}` printed
+        // its instance type as `default`, where every baseline records `A`.
+        //
+        // Upstream never meets this because the node builder renders from the
+        // DECLARATION; this port computes the printed form once at creation
+        // (see `TypeData::Named`'s note on that divergence), so the declaration
+        // is what it must read here too.
+        //
+        // Witness `compiler/es2015modulekind` AND ITS FIVE BYTE-IDENTICAL
+        // SIBLINGS — the same file under six names. The census row reading
+        // "six cases" is one cause: conventions corollary 21's `apply`/`call`
+        // trap in its strongest form, where the fixtures are not one word
+        // apart but identical.
+        //
+        // PRE-FLIGHT (checker-1's §210): this exact line appears at SEVEN
+        // sites in this file. Only this one is changed — the other six name
+        // enums, type parameters and aliases, whose symbol name IS their
+        // declaration name in every case reached today, and each is its own
+        // question rather than this one repeated.
+        let symbols = self.binder.symbols();
+        let declared_name = symbols
+            .get(symbol)
+            .declarations
+            .first()
+            .and_then(|&declaration| self.node_map.get(declaration))
+            .and_then(|node| node.name_id())
+            .and_then(|id| self.node_map.get(id))
+            .and_then(|node| match node {
+                tsr_ast::Node::Identifier(identifier) => Some(identifier.text.to_string()),
+                _ => None,
+            });
+        let name = declared_name.unwrap_or_else(|| symbols.get(symbol).name.to_string());
         let printed = if with_type_parameters {
             let parameters = self.local_type_parameter_names_of(symbol);
             if parameters.is_empty() { name } else { format!("{name}<{}>", parameters.join(", ")) }
