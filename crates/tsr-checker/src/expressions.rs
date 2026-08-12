@@ -2267,10 +2267,41 @@ impl Checker<'_, '_> {
             // anything else, so the container's contextual type is irrelevant.
             return any;
         }
-        if node.asterisk_token.is_some() || annotation.is_some() || contextualisable {
+        // §224: `contextualisable` is a property of the container's KIND, and
+        // a kind that *can* be contextually typed is not one that *is*. A
+        // function expression initialising a variable with no annotation is the
+        // case that matters: `getContextualTypeForInitializerExpression`
+        // (`checker.go:29356`'s arm) reads the declaration's type node, so with
+        // no annotation there is provably no contextual type and upstream takes
+        // the `anyType` fallback. `compiler/generatorES6_3` —
+        // `var v = function*() { yield 0 }` — is one line, and it was refused
+        // for a capability the fixture does not use.
+        //
+        // Same predicate as §223 in `signatures.rs`, one function up the tree:
+        // there it asks whether a YIELD has a contextual type, here whether its
+        // CONTAINER does. Both are `getContextualType`'s parent switch, and
+        // both are written as declines so a mistake costs a gap.
+        let contextualised = contextualisable && !self.container_is_provably_uncontextualised(container);
+        if node.asterisk_token.is_some() || annotation.is_some() || contextualised {
             return error;
         }
         any
+    }
+
+    /// Whether a contextualisable function-like container provably has **no**
+    /// contextual type, so [`Self::check_yield_expression`] may take upstream's
+    /// `anyType` fallback rather than gapping. §224.
+    ///
+    /// Only the one shape, deliberately: the initialiser of a
+    /// `VariableDeclaration` that carries no type annotation. Every other
+    /// position is left to the existing refusal — this is a widening with a
+    /// witness, not an attempt at `getContextualType`.
+    fn container_is_provably_uncontextualised(&self, container: NodeId) -> bool {
+        let Some(parent) = self.nodes.parent(container) else { return false };
+        matches!(
+            self.node_map.get(parent),
+            Some(Node::VariableDeclaration(declaration)) if declaration.r#type.is_none()
+        )
     }
 
     /// `ast.GetContainingFunction` (`utilities.go`).

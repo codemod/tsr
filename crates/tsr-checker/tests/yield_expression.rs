@@ -122,11 +122,24 @@ fn yield_star_is_a_gap() {
 }
 
 #[test]
-fn a_generator_expression_is_a_gap_because_it_could_be_contextually_typed() {
-    // The fence is on the container's kind: a function expression can carry a
-    // contextual type, which would make `getContextualIterationType` return
-    // something other than the `anyType` fallback. A declaration cannot.
-    assert_eq!(type_of_first_yield("var f = function* () { yield 1; };"), "error");
+fn a_generator_expression_in_an_unannotated_variable_is_not_contextually_typed() {
+    // **A refusal whose stated reason names a capability the fixture does not
+    // use.** This asserted `error` on the ground that "a function expression
+    // *can* carry a contextual type, which would make
+    // `getContextualIterationType` return something other than the `anyType`
+    // fallback. A declaration cannot."
+    //
+    // True about the kind, and *can* is not *does*. §224: this variable has no
+    // annotation, and `getContextualTypeForInitializerExpression`
+    // (`checker.go:29356`'s arm) reads the declaration's type node — so there
+    // is provably no contextual type here and upstream takes the fallback.
+    // `compiler/generatorES6_3` is this fixture almost verbatim and wants
+    // `any`.
+    //
+    // The fence stays on the kind for every other position; only the one
+    // provably-uncontextualised shape is carved out. The annotated control
+    // below is what keeps that honest.
+    assert_eq!(type_of_first_yield("var f = function* () { yield 1; };"), "any");
 }
 
 #[test]
@@ -146,4 +159,19 @@ fn a_yield_inside_an_arrow_inside_a_generator_is_not_the_generators_yield() {
         ),
         "any"
     );
+}
+
+
+/// The controls, and the first is the whole point of the arm being narrow.
+#[test]
+fn the_container_widening_stops_at_an_annotation() {
+    // ANNOTATED: the declaration's type node IS the contextual type, so this
+    // still declines. Without this, "a function expression in a variable
+    // always answers `any`" passes the test above.
+    assert_eq!(type_of_first_yield("var v: any = function* () { yield 0; };"), "error");
+    // An arrow cannot be a generator, so the widening must not reach it — it
+    // keeps taking the not-a-generator arm.
+    assert_eq!(type_of_first_yield("var v = () => { yield 1; };"), "any");
+    // And the pre-existing declaration case is untouched.
+    assert_eq!(type_of_first_yield("function* g() { yield 1; }"), "any");
 }
