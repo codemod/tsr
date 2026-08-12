@@ -206,6 +206,53 @@ fn main() {
     assert!(corpus.is_available(), "corpus missing; run git submodule update --init --recursive");
     let cases = corpus.discover().expect("discovering cases");
 
+    // **`--case` runs BEFORE the corpus-wide measure, and that placement is the
+    // fix rather than a tidy-up.** This block used to sit below
+    // `cases.par_iter().filter_map(measure)`, so asking for one case still
+    // measured all 9,538 — the filter was on the OUTPUT. That is invisible
+    // until someone instruments the checker and reads the result as per-case:
+    // it cost `checker-2` a published 3-of-6 table that was really "whichever
+    // heritage entry the corpus reached first", retracted at §247. A mode named
+    // for a single case must not execute the corpus.
+
+    if let Some(wanted) = args.iter().position(|a| a == "--case").and_then(|i| args.get(i + 1)) {
+        // The structural pool needs a view no other instrument has: every line
+        // this port rendered beside every line the baseline records, aligned by
+        // position, so an EXTRA line is visible. `traceone` iterates the
+        // baseline's positions and is blind to a line we invented past its end.
+        let case = cases
+            .iter()
+            .find(|c| &c.name == wanted || c.name.ends_with(wanted.as_str()))
+            .expect("case not found");
+        let text = case.expected_types().expect("no .types baseline");
+        let expected = types_baseline::parse(&text);
+        let parsed = case.load().expect("case did not load");
+        let ours: Vec<FileTypes> = types_producer::assertions_for_case(&parsed, &expected, false)
+            .iter()
+            .zip(&expected)
+            .map(|(rendered, expected_file)| {
+                types_producer::to_file_types(&expected_file.file, rendered)
+            })
+            .collect();
+        for (index, expected_file) in expected.iter().enumerate() {
+            println!("=== {} ===", expected_file.file);
+            let empty = Vec::new();
+            let our_lines = ours.get(index).map_or(&empty, |f| &f.assertions);
+            for position in 0..expected_file.assertions.len().max(our_lines.len()) {
+                let want = expected_file.assertions.get(position).map(|a| a.text.as_str());
+                let got = our_lines.get(position).map(|a| a.text.as_str());
+                let mark = if want == got { " " } else { "*" };
+                println!(
+                    "{mark}{position}\tWANT {}\tGOT {}",
+                    want.unwrap_or("<none>"),
+                    got.unwrap_or("<none>")
+                );
+            }
+        }
+        return;
+    }
+
+
     let mut rows: Vec<Row> = cases.par_iter().filter_map(measure).collect();
     rows.sort_by(|a, b| a.name.cmp(&b.name));
 
@@ -248,42 +295,6 @@ fn main() {
         return;
     }
 
-    if let Some(wanted) = args.iter().position(|a| a == "--case").and_then(|i| args.get(i + 1)) {
-        // The structural pool needs a view no other instrument has: every line
-        // this port rendered beside every line the baseline records, aligned by
-        // position, so an EXTRA line is visible. `traceone` iterates the
-        // baseline's positions and is blind to a line we invented past its end.
-        let case = cases
-            .iter()
-            .find(|c| &c.name == wanted || c.name.ends_with(wanted.as_str()))
-            .expect("case not found");
-        let text = case.expected_types().expect("no .types baseline");
-        let expected = types_baseline::parse(&text);
-        let parsed = case.load().expect("case did not load");
-        let ours: Vec<FileTypes> = types_producer::assertions_for_case(&parsed, &expected, false)
-            .iter()
-            .zip(&expected)
-            .map(|(rendered, expected_file)| {
-                types_producer::to_file_types(&expected_file.file, rendered)
-            })
-            .collect();
-        for (index, expected_file) in expected.iter().enumerate() {
-            println!("=== {} ===", expected_file.file);
-            let empty = Vec::new();
-            let our_lines = ours.get(index).map_or(&empty, |f| &f.assertions);
-            for position in 0..expected_file.assertions.len().max(our_lines.len()) {
-                let want = expected_file.assertions.get(position).map(|a| a.text.as_str());
-                let got = our_lines.get(position).map(|a| a.text.as_str());
-                let mark = if want == got { " " } else { "*" };
-                println!(
-                    "{mark}{position}\tWANT {}\tGOT {}",
-                    want.unwrap_or("<none>"),
-                    got.unwrap_or("<none>")
-                );
-            }
-        }
-        return;
-    }
 
     if args.iter().any(|a| a == "--counts") {
         // How much of the board is a WALK disagreement rather than a checker
