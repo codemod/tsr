@@ -1809,9 +1809,61 @@ impl<'a> Checker<'a, '_> {
     /// So `bd tsr-e2u` is worth ~11 cases and cannot be half-taken. Anyone
     /// sizing it from the +4 alone will under-price it by roughly a factor of
     /// three, and anyone taking the +4 alone will ship the wrong names.
+    ///
+    /// # §232: the +4 was NOT part of `tsr-e2u`, and taking it cost nothing
+    ///
+    /// The paragraph above is right about the React row and **wrong about the
+    /// +4**. Those four cases (`es6ExportAssignment2`/`4`,
+    /// `es6ImportEqualsExportModule*`) resolve `export =` to a **plain value**
+    /// — `export = a` over `var a = 10`, answering `number`. No name is
+    /// printed, so §219's reason has nothing to object to, and they were never
+    /// waiting on the naming half at all. Splitting the guard on the resolved
+    /// target's module flags takes them: **+4 cases, 0 lost, and at line level
+    /// 18 wrong→right against 0 right→wrong**.
+    ///
+    /// `bd tsr-e2u` is therefore worth ~7, not ~11 — the React row alone,
+    /// which does still need both halves together. The over-count came from
+    /// measuring the *wide* refusal's removal and attributing all of it to the
+    /// one cause the refusal named.
     fn module_object_of(&mut self, location: NodeId, specifier: NodeId) -> Option<SymbolId> {
         let module = self.resolve_external_module_name(location, specifier)?;
-        if self.resolve_external_module_symbol(module) == module { Some(module) } else { None }
+        let target = self.resolve_external_module_symbol(module);
+        if target == module {
+            return Some(module);
+        }
+        // §232: the refusal above was WIDER THAN ITS REASON, which is
+        // corollary 16's question asked of a refusal that is otherwise right.
+        // The reason is about naming a **module object** — following `export =`
+        // hands the printer a `declare namespace __React` and it prints
+        // `typeof __React`. That hazard exists only when the target *is* a
+        // module object. `export = a` over `var a = 10` resolves to a plain
+        // variable whose answer is `number`: no name to get wrong, so nothing
+        // for the reason to object to.
+        //
+        // So the gate is the flags, not the whole construct. Where the target
+        // carries a module flag the §219 refusal stands unchanged and
+        // `bd tsr-e2u`'s two halves still have to land together; everywhere
+        // else there was never a naming question. Found by `checker-2`
+        // re-reading my refusal against its own witnesses
+        // (`es6ExportAssignment2`, `es6ImportEqualsDeclaration2`).
+        // **The flags belong to the alias's TARGET, not to the alias.**
+        // `resolve_external_module_symbol` is `dontResolveAlias=true`, so
+        // `target` is the `export=` symbol itself and carries `ALIAS`, never a
+        // module flag — testing it directly let `declare module 'm' { export =
+        // __X }` through and printed `typeof __X`, the exact line §219 refused
+        // for. The §219 refusal pin caught it on the first run, which is what
+        // that pin was written for.
+        //
+        // Only the flag test follows the alias; the symbol handed back is still
+        // the unresolved one, which is upstream's `dontResolveAlias` contract.
+        let named = self.resolve_alias(target).unwrap_or(target);
+        let is_module_object = self
+            .binder
+            .symbols()
+            .get(named)
+            .flags
+            .intersects(SymbolFlags::VALUE_MODULE | SymbolFlags::NAMESPACE_MODULE);
+        if is_module_object { None } else { Some(target) }
     }
 
     /// The module specifier of an `ImportDeclaration` or an `ExportDeclaration`.

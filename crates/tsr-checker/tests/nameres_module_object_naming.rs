@@ -417,6 +417,14 @@ fn an_export_equals_namespace_prints_the_importing_alias_name() {
 /// `export =` target through the importing alias, this fails, and the right
 /// response is to flip it to `typeof X` and drop the guard — not to relax the
 /// assertion.
+///
+/// **§232 narrowed the guard and this pin caught the first attempt.** The
+/// narrowed version tests the resolved target's flags for `VALUE_MODULE` /
+/// `NAMESPACE_MODULE`, and the first draft tested them on the `export=`
+/// *alias* symbol — which carries `ALIAS`, never a module flag — so this
+/// fixture went straight through and printed `typeof __X`, the exact line
+/// §219 refused for. Following the alias before reading the flags fixed it.
+/// The pin is doing precisely the job it was written for.
 #[test]
 fn a_namespace_import_of_an_export_equals_module_declines() {
     let arena = Arena::new();
@@ -431,4 +439,29 @@ fn a_namespace_import_of_an_export_equals_module_declines() {
         ],
     );
     assert_eq!(rendered_at(&fixture, "X", SyntaxKind::NamespaceImport), "error");
+}
+
+
+/// §232. `export =` of something that is **not** a module object resolves.
+///
+/// §219 refused to follow `export =` at all, on the ground that the printer
+/// then hands back `typeof __X` where the baseline records the importing
+/// alias's name. That reason is about naming a **module object**, and the
+/// refusal covered the whole construct — conventions corollary 16's question
+/// asked of a refusal that is otherwise correct: *is its scope the same as its
+/// reason's scope?* It was not.
+///
+/// `export = a` over `var a = 10` resolves to a plain variable whose answer is
+/// `number`. There is no name to get wrong, so nothing for §219's reason to
+/// object to. `compiler/es6ExportAssignment2` records `>a : number`.
+///
+/// Found by `checker-2` re-reading my refusal against its own witnesses.
+#[test]
+fn an_export_equals_of_a_plain_value_is_followed() {
+    let arena = Arena::new();
+    let fixture = program(
+        &arena,
+        &[("m", "declare var a: number;\nexport = a;\n"), ("core", "import * as X from \"m\";\n")],
+    );
+    assert_eq!(rendered_at(&fixture, "X", SyntaxKind::NamespaceImport), "number");
 }
