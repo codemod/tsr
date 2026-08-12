@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 5029/9538 (52.73%)
-Assertion lines: 422609/478954 (88.24%)  — a gradient, not a pass rate
-Failed         : 4509
+Passed         : 5038/9538 (52.82%)
+Assertion lines: 422626/478954 (88.24%)  — a gradient, not a pass rate
+Failed         : 4500
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 4509 failures:
+First 100 of 4500 failures:
 compiler/2dArrays
   2dArrays.ts: >allShipsSunk : error — expected >allShipsSunk : () => boolean
 compiler/ClassDeclaration26
@@ -33,10 +33,6 @@ compiler/accessorDeclarationEmitJs
   /a.js: >t1 : error — expected >t1 : { p: string; readonly getter: string; }
 compiler/accessorInferredReturnTypeErrorInReturnStatement
   accessorInferredReturnTypeErrorInReturnStatement.ts: >basePrototype : any — expected >basePrototype : { readonly primaryPath: any; }
-compiler/addMoreCallSignaturesToBaseSignature
-  addMoreCallSignaturesToBaseSignature.ts: >kitty : any — expected >kitty : string
-compiler/addMoreCallSignaturesToBaseSignature2
-  addMoreCallSignaturesToBaseSignature2.ts: >kitty : any — expected >kitty : string
 compiler/aliasBug
   aliasBug.ts: >booz : any — expected >booz : typeof booz
 compiler/aliasDoesNotDuplicateSignatures
@@ -213,3 +209,7 @@ compiler/arrayLiteralTypeInference
   arrayLiteralTypeInference.ts: >[    { id: 2, trueness: false },    { id: 3, name: "three" }] : any — expected >[    { id: 2, trueness: false },    { id: 3, name: "three" }] : ({ id: number; trueness: boolean; } | { id: number; name: string; })[]
 compiler/arrayReferenceWithoutTypeArgs
   arrayReferenceWithoutTypeArgs.ts: >f : any — expected >f : (a: Array) => void
+compiler/arraySigChecking
+  arraySigChecking.ts: >foo : any — expected >foo : {}
+compiler/arraySlice
+  arraySlice.ts: >arr.splice(1, 1) : any — expected >arr.splice(1, 1) : string[] | number[]
