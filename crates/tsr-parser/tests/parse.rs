@@ -1858,3 +1858,52 @@ fn of_is_still_a_variable_name_where_upstreams_lookahead_fails() {
         assert_eq!(list.declarations.len(), expected, "{source:?}");
     }
 }
+
+
+/// §233. `new.target` is a `MetaProperty`, not a `NewExpression`.
+///
+/// `parseNewExpressionOrNewDotTarget` (`parser.go:5746`) tests for the dot
+/// immediately after `new` and returns before any callee is parsed. Without
+/// that test, `parse_primary_expression` met `.`, manufactured a missing
+/// identifier, and the member-chain loop ate `.target` as a property access —
+/// so the tree held a `NewExpression` over a zero-width callee where upstream
+/// holds one node. `conformance/invalidNewTarget.es6` gains **46 lines**.
+///
+/// The node kind matters beyond the tree shape: a writer guard for
+/// `MetaProperty` has been sitting in the baseline chain unable to fire,
+/// recorded as dead because the parser built no such node. Conventions
+/// corollary 31 — a population that could not exist.
+#[test]
+fn new_dot_target_is_a_meta_property() {
+    let arena = Arena::new();
+    let parsed = parse(&arena, "function f() { return new.target; }");
+    let found = (0..u32::try_from(parsed.nodes.len()).expect("fits"))
+        .map(tsr_ast::NodeId::new)
+        .find(|&id| parsed.nodes.kind(id) == SyntaxKind::MetaProperty);
+    let id = found.expect("`new.target` builds a MetaProperty");
+    let Some(tsr_ast::Node::MetaProperty(meta)) = parsed.node_map.get(id) else {
+        panic!("a MetaProperty")
+    };
+    assert_eq!(meta.keyword_token.kind, SyntaxKind::NewKeyword);
+    assert_eq!(meta.name.map(|name| name.text), Some("target"));
+}
+
+/// The controls: an ordinary `new` must be untouched, and the dot test must not
+/// swallow a member-chain callee.
+#[test]
+fn an_ordinary_new_expression_is_not_a_meta_property() {
+    let arena = Arena::new();
+    for source in ["var x = new C();", "var x = new a.b.C();", "var x = new C;"] {
+        let parsed = parse(&arena, source);
+        let metas = (0..u32::try_from(parsed.nodes.len()).expect("fits"))
+            .map(tsr_ast::NodeId::new)
+            .filter(|&id| parsed.nodes.kind(id) == SyntaxKind::MetaProperty)
+            .count();
+        assert_eq!(metas, 0, "{source:?} must build no MetaProperty");
+        let news = (0..u32::try_from(parsed.nodes.len()).expect("fits"))
+            .map(tsr_ast::NodeId::new)
+            .filter(|&id| parsed.nodes.kind(id) == SyntaxKind::NewExpression)
+            .count();
+        assert_eq!(news, 1, "{source:?} must build one NewExpression");
+    }
+}

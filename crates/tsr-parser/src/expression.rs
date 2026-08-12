@@ -677,7 +677,39 @@ impl<'a> Parser<'a> {
 
     fn parse_new_expression(&mut self) -> Expression<'a> {
         let start = self.pos();
+        // The `new` token's kind and span, captured WITHOUT allocating. Using
+        // `take_token` here — the obvious spelling — allocates and registers a
+        // token node on **every** `new` expression, not just the meta-property
+        // one, which shifts every subsequent `NodeId` and measured **−2 lines
+        // in `compiler/valueOfTypedArray`**, a case with no `new.target` in it
+        // at all. Allocate on the meta path only.
+        let new_token = self.token;
         self.next_token();
+        // §233: `new.target` is a `MetaProperty`, not a `NewExpression` whose
+        // callee begins with a dot. `parseNewExpressionOrNewDotTarget`
+        // (`parser.go:5746`) tests for the dot immediately after `new` and
+        // returns before any callee is parsed.
+        //
+        // Without this, `parse_primary_expression` met `.`, manufactured a
+        // missing identifier, and the member-chain loop below then ate
+        // `.target` as a property access — so the tree held a `NewExpression`
+        // over a zero-width callee where upstream holds one node.
+        //
+        // `parse_identifier_name`, not `parse_identifier`: `target` is a plain
+        // identifier here but the grammar admits any identifier NAME, and
+        // upstream uses the name form so that `new.default` parses (and is
+        // rejected later by the checker) rather than failing in the parser.
+        if self.at(SyntaxKind::DotToken) {
+            self.next_token();
+            let name = self.parse_identifier_name();
+            let keyword_token = self.alloc_token(new_token.kind, new_token.span);
+            let node = self.finish_node(
+                MetaProperty::new(keyword_token, Some(name)),
+                SyntaxKind::MetaProperty,
+                start,
+            );
+            return Expression::MetaProperty(node);
+        }
         // Where the *callee* begins, after `new`. The member chain below is
         // finished from here rather than from `start`, because the `new` keyword
         // belongs to the `NewExpression` and not to its callee: in
