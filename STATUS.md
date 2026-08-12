@@ -1422,15 +1422,29 @@ Twelve deficit-1 cases (`checkJsxChildrenProperty5`/`8`, `tsxAttributeResolution
    `IsExpressionWithTypeArgumentsInClassExtendsClause(node.Parent)` then
    `GetTypeAtLocation(node.Parent)`.
 
-2. **The resolution half does not yet answer on every witness.** A
-   `heritage_base_symbol` walk (identifier or property access, following aliases)
-   answers `Some` for **3 of 6 witnesses sampled individually**; across the corpus,
-   `React.Component` with two type arguments splits 64 `Some` / 8 `None`. **The
-   import form is NOT the discriminator** — `checkJsxChildrenProperty5` (answers)
-   and `tsxAttributeResolution16` (does not) both use `import React = require('react')`
-   verbatim. Unexplained, and that is why nothing is built: the cross-lane function
-   would receive a half-populated boundary and measure a partial win for reasons
-   neither lane could attribute.
+2. ~~**The resolution half answers `Some` for 3 of 6 witnesses sampled
+   individually.**~~ **RETRACTED — that number was an artifact and never measured
+   anything per-case.** `nearmiss --case <name>` filters its *output*, not its
+   execution; the probe wrote to stderr, so every "per-case" run emitted the same
+   corpus-wide stream and the reading was `head -1` of it. Aggregated properly,
+   every case reports identical counts (201 `Some` / 1,651 `None` corpus-wide),
+   which is the proof. The retraction is kept visible because the *route* to it is
+   the reusable part: `checkJsxChildrenProperty5` and `checkJsxChildrenProperty8`
+   have byte-identical heritage lines, imports and directives, and supposedly
+   different outcomes — **a discriminator that does not discriminate between two
+   identical inputs is a broken instrument, not a subtle finding.** I reached for a
+   BOM hypothesis first (correctly discarding it: only one of the twelve has one)
+   before questioning the instrument.
+
+   **What survives**: shape-filtered corpus-wide, `React.Component` with two type
+   arguments splits **64 `Some` / 8 `None`**. That is a population statistic and
+   says nothing about the twelve. There is currently **no per-case data** on them,
+   and a scopeable probe is the prerequisite for any further claim.
+
+   This is the fourth face of one defect, after a function off the call path
+   (§215), an arm off the answer path (§244) and a probe off the visit path
+   (§247's first attempt): **an instrument off its intended scope.** All four
+   report a number that looks like data.
 
 Upstream's fallthrough makes the eventual shape safe — nil *or* any falls back to
 `GetTypeAtLocation(node)` — so a declining resolution reproduces today's answer
