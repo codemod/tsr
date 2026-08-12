@@ -1531,6 +1531,29 @@ fn render_case(
                 if answer == "error" && is_import_or_export_statement_name(id, nodes, node_map) {
                     answer = "any".to_string();
                 }
+                // §256, RE-TESTED AND STILL ZERO — the third of §179/§181's
+                // batch, and the one that keeps corollary 31 honest. The LABEL
+                // NAME guard (`!ast.IsLabelName(node)`,
+                // `type_symbol_baseline.go:384`) applied at the writer, on the
+                // tree where its two siblings changed verdict:
+                //
+                //     +0 cases, and `scorepair` reports "no transitions vs
+                //     baseline" — not one line moved in any direction.
+                //
+                // So the batch is 2 of 3, not 3 of 3: §254's guard revived
+                // (+5), §255's went from inert to 1:4 adverse, and this one is
+                // genuinely unchanged. Recorded because a habit with a real
+                // denominator is worth more than one with a perfect record —
+                // corollary 31 names exactly this as its own falsifier, and
+                // this is the datum that keeps it from reading as free.
+                //
+                // The reason it stays zero is visible in the checker-side arm
+                // above (`is_label_name` in `type_at_location`): that arm
+                // ALREADY converts an error-typed label to `any`, so by the
+                // time the writer sees the answer there is nothing left to
+                // rewrite. A guard whose work another arm has already done is
+                // a different kind of zero from an empty population, and it
+                // will stay zero until that arm changes.
                 // §254 `!ast.IsGlobalScopeAugmentation(node.Parent)`
                 // (`type_symbol_baseline.go:385`, the FIFTH condition), on
                 // checker-1's diagnosis.
