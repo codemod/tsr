@@ -1714,22 +1714,27 @@ impl Checker<'_, '_> {
                 },
             )
         {
-            // ...except the SELF-REFERENTIAL recovery shape
+            // ...except the SELF-REFERENTIAL for-IN recovery shape
             // `for (var of in of) { }`, where the head expression IS the
             // bound name: upstream records `any` there
             // (`parserForOfStatement19`, the both-statements draft's one
-            // R->W), and the auto road is what produces it.
-            let self_referential = matches!(
-                (self.node_map.get(statement), node.name),
-                (
-                    Some(Node::ForInOrOfStatement(head)),
-                    Some(tsr_ast::BindingName::Identifier(bound)),
-                ) if matches!(
-                    head.expression,
-                    Some(tsr_ast::Expression::Identifier(iterated))
-                        if iterated.text == bound.text
-                )
-            );
+            // R->W), and the auto road is what produces it. The for-OF
+            // twin (`for (var v of v)`) goes the OTHER way: non-auto, the
+            // §38 arm cycles to the implicit-any road, and `any` is the
+            // declared answer (`for-of32/55`).
+            let self_referential = self.nodes.kind(statement)
+                == tsr_ast::SyntaxKind::ForInStatement
+                && matches!(
+                    (self.node_map.get(statement), node.name),
+                    (
+                        Some(Node::ForInOrOfStatement(head)),
+                        Some(tsr_ast::BindingName::Identifier(bound)),
+                    ) if matches!(
+                        head.expression,
+                        Some(tsr_ast::Expression::Identifier(iterated))
+                            if iterated.text == bound.text
+                    )
+                );
             if !self_referential {
                 return false;
             }
