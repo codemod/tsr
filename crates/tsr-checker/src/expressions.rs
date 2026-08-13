@@ -701,21 +701,23 @@ impl Checker<'_, '_> {
             // `checkVoidExpression` (`checker.go:10633`): the operand checks
             // for its own lines; the expression is `undefined`.
             Expression::VoidExpression(node) => {
+                // §293: the answer does not consult the operand — upstream
+                // returns `undefinedType` whatever it is, exactly as the
+                // comparison arms return `boolean`. The error-propagation
+                // this arm carried was the per-site deviation §271/§291
+                // retired at their sites; `void e.toUpperCase()` on an
+                // `unknown` catch variable is `undefined`
+                // (`useUnknownInCatchVariables01`).
                 let Some(operand) = node.expression else { return self.intrinsics.error };
-                let checked = self.check_expression(operand);
-                if checked == self.intrinsics.error {
-                    return self.intrinsics.error;
-                }
+                self.check_expression(operand);
                 self.intrinsics.undefined
             }
             // `checkDeleteExpression` (`checker.go:10570`): the operand
-            // checks; the expression is `boolean`.
+            // checks; the expression is `boolean` — unconditionally, the
+            // same §293 rule as `void`.
             Expression::DeleteExpression(node) => {
                 let Some(operand) = node.expression else { return self.intrinsics.error };
-                let checked = self.check_expression(operand);
-                if checked == self.intrinsics.error {
-                    return self.intrinsics.error;
-                }
+                self.check_expression(operand);
                 self.intrinsics.boolean
             }
             // `checkPrefixUnaryExpression` (`checker.go:10855`).
