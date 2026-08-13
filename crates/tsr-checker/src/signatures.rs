@@ -1082,7 +1082,7 @@ impl<'a> Checker<'a, '_> {
                 // other delegated shape still declines the whole signature
                 // rather than mistyping the slot.
                 if delegates {
-                    let Some(operand) = operand else { return None };
+                    let operand = operand?;
                     let operand_type = self.check_expression(operand);
                     if operand_type == self.intrinsics.error {
                         return None;
