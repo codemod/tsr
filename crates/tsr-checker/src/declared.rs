@@ -834,6 +834,19 @@ impl<'a> Checker<'a, '_> {
                         {
                             "[Symbol.hasInstance]".to_string()
                         }
+                        // SS327: the general late-bound arm - any computed
+                        // name whose type is a unique symbol spelled as an
+                        // identifier chain prints bracketed, the same rule
+                        // the object-literal road took at SS323
+                        // (`symbolProperty11/12`'s type-literal halves). The
+                        // hasInstance arm above stays: it answers
+                        // SYNTACTICALLY, before any type is computed.
+                        tsr_ast::PropertyName::ComputedPropertyName(computed) => {
+                            match self.late_bound_symbol_member_name(computed) {
+                                Some(name) => name,
+                                None => return error,
+                            }
+                        }
                         _ => return error,
                     };
                     // A method groups with the properties: see the doc comment.
@@ -876,8 +889,18 @@ impl<'a> Checker<'a, '_> {
             let tsr_ast::TypeElement::PropertySignatureDeclaration(property) = member else {
                 return error;
             };
-            let tsr_ast::PropertyName::Identifier(name) = property.name else {
-                return error;
+            let name = match property.name {
+                tsr_ast::PropertyName::Identifier(name) => name.text.to_string(),
+                // SS327: the property-signature half of the late-bound arm -
+                // `{ [Symbol.iterator]: { x } }` in type position prints the
+                // written chain in brackets.
+                tsr_ast::PropertyName::ComputedPropertyName(computed) => {
+                    match self.late_bound_symbol_member_name(computed) {
+                        Some(name) => name,
+                        None => return error,
+                    }
+                }
+                _ => return error,
             };
             let Some(annotation) = property.r#type else { return error };
             let member_type = self.get_type_from_type_node(annotation);
@@ -902,12 +925,7 @@ impl<'a> Checker<'a, '_> {
                     .unwrap_or_else(|| self.type_to_string(member_type)),
                 _ => self.type_to_string(member_type),
             };
-            properties.push(crate::objects::Member::Property {
-                name: name.text.to_string(),
-                optional,
-                readonly,
-                printed,
-            });
+            properties.push(crate::objects::Member::Property { name, optional, readonly, printed });
         }
         signatures.append(&mut indexes);
         signatures.append(&mut properties);

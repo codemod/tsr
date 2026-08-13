@@ -329,7 +329,7 @@ impl Checker<'_, '_> {
     /// identifier chain, or whose type is any other late-bound kind (a
     /// string/number literal spells WITHOUT brackets - `{ [1]: 1 }` is
     /// `{ 1: number; }`), answers `None` and the caller keeps its gap.
-    fn late_bound_symbol_member_name(
+    pub(crate) fn late_bound_symbol_member_name(
         &mut self,
         computed: &tsr_ast::ComputedPropertyName<'_>,
     ) -> Option<String> {
