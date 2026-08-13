@@ -810,6 +810,10 @@ impl Printer<'_> {
             // Ported from `Printer.emitPropertyAssignment` (`internal/printer/printer.go`).
             Member::PropertyAssignment(node) => {
                 self.emit_property_name(&node.name);
+                // §405: the recovery `?` (`{ a?: 1 }`) round-trips.
+                if node.postfix_token.is_some() {
+                    self.write("?");
+                }
                 self.write(": ");
                 if let Some(initializer) = &node.initializer {
                     self.emit_expression(initializer);
@@ -818,6 +822,11 @@ impl Printer<'_> {
             // Ported from `Printer.emitShorthandPropertyAssignment` (`internal/printer/printer.go`).
             Member::ShorthandPropertyAssignment(node) => {
                 self.emit_property_name(&node.name);
+                // §405: the recovery `?` the parser now keeps (`{ name?, id? }`)
+                // round-trips — upstream emits the postfix token too.
+                if node.postfix_token.is_some() {
+                    self.write("?");
+                }
                 if let Some(initializer) = &node.object_assignment_initializer {
                     self.write(" = ");
                     self.emit_expression(initializer);

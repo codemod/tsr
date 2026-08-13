@@ -1257,10 +1257,24 @@ impl<'a> Parser<'a> {
             ));
         }
 
+        // §405: upstream parses an OPTIONAL `?` after the name for error
+        // recovery (`parseObjectLiteralElement`'s `parseOptionalToken`), so
+        // `{ name?, id? }` keeps its member structure — the grammar check
+        // reports, the tree stands (`parserShorthandPropertyAssignment1`).
+        let postfix = if self.at(SyntaxKind::QuestionToken) {
+            let token_start = self.pos();
+            self.next_token();
+            Some(&*self.alloc_token(
+                SyntaxKind::QuestionToken,
+                tsr_core::Span::new(token_start, self.pos()),
+            ))
+        } else {
+            None
+        };
         if self.eat(SyntaxKind::ColonToken) {
             let initializer = self.parse_assignment_expression();
             let node = self.finish_node(
-                PropertyAssignment::new(&[], name, None, None, Some(initializer)),
+                PropertyAssignment::new(&[], name, postfix, None, Some(initializer)),
                 SyntaxKind::PropertyAssignment,
                 start,
             );
@@ -1292,7 +1306,7 @@ impl<'a> Parser<'a> {
             None
         };
         let node = self.finish_node(
-            ShorthandPropertyAssignment::new(&[], name, None, None, None, initializer),
+            ShorthandPropertyAssignment::new(&[], name, postfix, None, None, initializer),
             SyntaxKind::ShorthandPropertyAssignment,
             start,
         );
