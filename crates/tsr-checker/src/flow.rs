@@ -2579,12 +2579,50 @@ impl Checker<'_, '_> {
                 Some(left @ (Node::PropertyAccessExpression(_) | Node::ElementAccessExpression(_))),
                 Some(right),
             ) => {
-                let (Some(left_name), Some(right_name)) =
-                    (accessed_property_name(left), accessed_property_name(right))
-                else {
-                    return false;
-                };
-                if left_name != right_name {
+                let names_match =
+                    match (accessed_property_name(left), accessed_property_name(right)) {
+                        (Some(left_name), Some(right_name)) => left_name == right_name,
+                        // §423: `a[i]` matches `a[i]` when `i` is a CONST — the
+                        // arm the doc above refused pending `isSymbolAssigned`;
+                        // a `const` needs no assignment analysis (upstream's
+                        // isMatchingReference element arm:
+                        // same argument symbol + isConstantVariable).
+                        // `foo[index] !== undefined` narrows `foo[index]`
+                        // (`typeGuardNarrowsIndexedAccessOfKnownProperty3`).
+                        (None, None) => {
+                            let argument =
+                                |checker: &mut Self, node: &Node<'_>| -> Option<SymbolId> {
+                                    let Node::ElementAccessExpression(access) = node else {
+                                        return None;
+                                    };
+                                    let Some(tsr_ast::Expression::Identifier(identifier)) =
+                                        access.argument_expression
+                                    else {
+                                        return None;
+                                    };
+                                    let id = identifier.node_id?;
+                                    let symbol = checker.binder.resolve_name(
+                                        checker.nodes,
+                                        checker.node_map,
+                                        id,
+                                        identifier.text,
+                                        SymbolFlags::VALUE,
+                                    )?;
+                                    let declaration =
+                                        checker.binder.symbols().get(symbol).value_declaration?;
+                                    let list = checker.nodes.parent(declaration)?;
+                                    checker
+                                        .nodes
+                                        .flags(list)
+                                        .intersects(tsr_ast::NodeFlags::CONST)
+                                        .then_some(symbol)
+                                };
+                            let left_argument = argument(self, &left);
+                            left_argument.is_some() && left_argument == argument(self, &right)
+                        }
+                        _ => false,
+                    };
+                if !names_match {
                     return false;
                 }
                 let (Some(left_receiver), Some(right_receiver)) =

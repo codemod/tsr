@@ -437,12 +437,25 @@ fn an_element_access_matches_only_on_a_literal_argument() {
         ),
         "string"
     );
+    // FLIPPED at §423: the refusal's stated missing piece was
+    // `isSymbolAssigned`, and a CONST needs no assignment analysis —
+    // upstream's element arm matches on the same argument SYMBOL plus
+    // `isConstantVariable`, whatever the symbol's type
+    // (`typeGuardNarrowsIndexedAccessOfKnownProperty3/5/6` are the corpus
+    // witnesses). A mutable index still refuses.
     assert_eq!(
         type_of_last_expression(
             "declare const o: { [k: string]: string | undefined };\ndeclare const i: string;\nif (o[i] !== undefined) { o[i]; }"
         ),
+        "string",
+        "a const index is a decidable reference"
+    );
+    assert_eq!(
+        type_of_last_expression(
+            "declare const o: { [k: string]: string | undefined };\nlet j: string = \"a\";\nif (o[j] !== undefined) { o[j]; }"
+        ),
         "string | undefined",
-        "a non-literal index is not a decidable reference"
+        "a mutable index is not"
     );
 }
 
