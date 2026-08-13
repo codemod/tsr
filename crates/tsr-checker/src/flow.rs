@@ -4439,7 +4439,7 @@ impl Checker<'_, '_> {
     /// them to `base_symbols_of_ex(_, false)` moved no case, so the arm
     /// stays as it is — the audit was right in principle and unpaid in this
     /// corpus. Recorded so it is not re-derived.
-    fn heritage_chain_contains(
+    pub(crate) fn heritage_chain_contains(
         &mut self,
         owner: tsr_binder::SymbolId,
         target: tsr_binder::SymbolId,
@@ -4449,7 +4449,14 @@ impl Checker<'_, '_> {
             return false;
         }
         visiting.push(owner);
-        let Some(bases) = self.base_symbols_of(owner) else { return false };
+        // §357 re-ran §188's zero: `base_symbols_of`'s type-argument refusal
+        // belongs to the INSTANCE road, and derivation needs only the base
+        // SYMBOL (upstream's `hasBaseType` walks `getTargetType`). With the
+        // subtype reducer as a new caller the switch stopped being +0:
+        // `DerivedList<number> | List<number>` must reduce to `List<number>`
+        // (`arrayLiteralsWithRecursiveGenerics`), and the refusal read its
+        // generic heritage as "not derived".
+        let Some(bases) = self.base_symbols_of_ex(owner, false) else { return false };
         bases
             .into_iter()
             .any(|base| base == target || self.heritage_chain_contains(base, target, visiting))

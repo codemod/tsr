@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 5468/9538 (57.33%)
-Assertion lines: 428424/478855 (89.47%)  — a gradient, not a pass rate
-Failed         : 4070
+Passed         : 5482/9538 (57.48%)
+Assertion lines: 428631/478855 (89.51%)  — a gradient, not a pass rate
+Failed         : 4056
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 4070 failures:
+First 100 of 4056 failures:
 compiler/2dArrays
   2dArrays.ts: >function (val) { return val.isSunk; } : error — expected >function (val) { return val.isSunk; } : (val: Ship) => boolean
 compiler/ClassDeclaration26
@@ -187,8 +187,6 @@ compiler/arrayLiteralAndArrayConstructorEquivalence1
   arrayLiteralAndArrayConstructorEquivalence1.ts: >myCars3 : any — expected >myCars3 : {}[]
 compiler/arrayLiteralComments
   arrayLiteralComments.ts: >testArrayWithFunc : error — expected >testArrayWithFunc : (string | number | number[] | (() => void) | { a: number; })[]
-compiler/arrayLiteralContextualType
-  arrayLiteralContextualType.ts: >[    new Giraffe(),    new Elephant()] : error — expected >[    new Giraffe(),    new Elephant()] : (Elephant | Giraffe)[]
 compiler/arrayLiteralTypeInference
   arrayLiteralTypeInference.ts: >[    { id: 2, trueness: false },    { id: 3, name: "three" }] : any — expected >[    { id: 2, trueness: false },    { id: 3, name: "three" }] : ({ id: number; trueness: boolean; } | { id: number; name: string; })[]
 compiler/arrayReferenceWithoutTypeArgs
@@ -213,3 +211,5 @@ compiler/arrowFunctionsMissingTokens
   arrowFunctionsMissingTokens.ts: 133 assertion(s), expected 107
 compiler/assertionFunctionWildcardImport1
   src/core/foo.ts: >Debug : any — expected >Debug : typeof Debug
+compiler/assertionFunctionWildcardImport2
+  test.ts: >obj : string | null — expected >obj : string

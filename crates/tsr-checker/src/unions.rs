@@ -1124,6 +1124,28 @@ impl crate::checker::Checker<'_, '_> {
                 return None;
             }
         }
+        // §357: a PRIMITIVE constituent is never a removal candidate unless an
+        // empty object type is present — upstream's gate at the top of the
+        // removal loop (`hasEmptyObject || source.flags&StructuredOrInstantiable`,
+        // checker.go:25955). Without it a non-strict `undefined` beside a class
+        // instance either got removed (the relater says Related) or declined
+        // the whole reduction; upstream keeps it (`generatorTypeCheck22`'s
+        // `Bar | Baz | undefined`). Emptiness is recognised by the printed
+        // `{}` form, the same approximation `intersections.rs` records.
+        let structured_or_instantiable = crate::flags::TypeFlags::OBJECT
+            | crate::flags::TypeFlags::UNION
+            | crate::flags::TypeFlags::INTERSECTION
+            | crate::flags::TypeFlags::TYPE_PARAMETER
+            | crate::flags::TypeFlags::INDEX
+            | crate::flags::TypeFlags::INDEXED_ACCESS
+            | crate::flags::TypeFlags::CONDITIONAL
+            | crate::flags::TypeFlags::SUBSTITUTION
+            | crate::flags::TypeFlags::TEMPLATE_LITERAL
+            | crate::flags::TypeFlags::STRING_MAPPING;
+        let has_empty_object = constituents.iter().any(|&constituent| {
+            matches!(&self.store.get(constituent).data,
+                crate::types::TypeData::Named { text, .. } if text == "{}")
+        });
         // Iterate exactly as upstream does — from the end, re-testing against
         // the surviving list — so removal order cannot differ.
         let mut kept = constituents;
@@ -1131,17 +1153,43 @@ impl crate::checker::Checker<'_, '_> {
         while i > 0 {
             i -= 1;
             let source = kept[i];
+            if !has_empty_object
+                && !self.store.get(source).flags.intersects(structured_or_instantiable)
+            {
+                continue;
+            }
             let mut remove = false;
             for &target in &kept {
                 if target == source {
                     continue;
                 }
+                // §357: upstream removes a class-instance source only when it
+                // DERIVES from the class-instance target — `removeSubtypes`
+                // (checker.go:26011) requires `isTypeDerivedFrom` when both
+                // carry `ObjectFlagsClass`, and a related-but-underived pair
+                // is KEPT, not undecidable. `[new Bar, new Baz]` over two
+                // unrelated classes answers `Bar | Baz`
+                // (`generatorTypeCheck22`). Tested BEFORE the relation, which
+                // an underived pair never needs — that is also what keeps the
+                // relater's absent-property conservatism (row 2's `Unknown`)
+                // out of the class-pair path. The derivation test is §146.1's
+                // declared-heritage walk; its unfollowable links answer "not
+                // derived", which keeps the constituent — measured, not
+                // assumed.
+                if self.is_class_instance(source) && self.is_class_instance(target) {
+                    let (Some(source_symbol), Some(target_symbol)) =
+                        (self.class_instance_symbol(source), self.class_instance_symbol(target))
+                    else {
+                        return None;
+                    };
+                    let mut visiting = Vec::new();
+                    if !self.heritage_chain_contains(source_symbol, target_symbol, &mut visiting) {
+                        continue;
+                    }
+                }
                 match self.relate_ternary(source, target, crate::relater::Relation::StrictSubtype) {
                     Ternary::Unknown => return None,
                     Ternary::Related => {
-                        if self.is_class_instance(source) && self.is_class_instance(target) {
-                            return None;
-                        }
                         remove = true;
                         break;
                     }

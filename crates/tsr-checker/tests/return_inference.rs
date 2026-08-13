@@ -320,13 +320,23 @@ fn the_bare_yield_contribution_is_the_only_thing_strictness_changes() {
         generator_declaration_type("function* g() { yield 1; }", "g", false),
         "() => Generator<number, void, unknown>"
     );
-    // And mixed, which is where the two contributions actually meet: `any`
-    // absorbs the union, so this reads `any` under no-strict and
-    // `number | undefined` under strict. A single-contribution model cannot
-    // produce both.
+    // And mixed, which is where the two contributions actually meet. §220's
+    // draft of this line asserted `any` on the DERIVATION that the bare
+    // yield's `any` absorbs the union. The real mechanics are upstream's
+    // two-stage pipeline (§357): the contribution is `undefinedWideningType`
+    // in BOTH modes; under no-strict `addTypesToUnion` (checker.go:25783)
+    // DROPS the nullable from the aggregate, leaving `1`, and
+    // `getWidenedType` widens the survivor to `number`. What the old
+    // derivation got right: the single-operand cases above (`any` under
+    // no-strict, `undefined` under strict — the empty-set exit at
+    // checker.go:25698 re-supplies `undefinedWideningType`). What replaces
+    // it: `generatorTypeCheck22` (strict-by-default) keeps `undefined`
+    // beside class operands, so the contribution cannot be `any` — only the
+    // union's non-strict drop produces the absorbing behaviour, and it
+    // produces `number` here, not `any`.
     assert_eq!(
         generator_declaration_type("function* g() { yield 1; yield; }", "g", false),
-        "() => Generator<any, void, unknown>"
+        "() => Generator<number, void, unknown>"
     );
 }
 

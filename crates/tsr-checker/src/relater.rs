@@ -547,6 +547,18 @@ impl Relater<'_, '_, '_> {
         // arm because it has no members table (a function type, an
         // index-signature-only type), the same fallthrough means *not
         // computed*. Rows 3 and 6 of `checker-notes-assign.md` §2.
+        // §357: an OBJECT source against a decidable primitive target is a
+        // decision, not an absence — upstream's `isSimpleTypeRelatedTo` has no
+        // arm relating an object to `undefined`/`null`/`void`/`string`/…
+        // (the object arms it does have — `any`/`unknown`/`never`/
+        // `nonprimitive` targets — all fired above), and
+        // `structuredTypeRelatedTo` never relates an object to a
+        // non-structured target. `Baz -> undefined` reads NotRelated, which
+        // is what lets a class-instance union carry its nullable constituent
+        // through subtype reduction (`generatorTypeCheck22`).
+        if s.intersects(TypeFlags::OBJECT) && self.flag_decidable(target) {
+            return Ternary::NotRelated;
+        }
         if self.flag_decidable(source) && self.flag_decidable(target) {
             Ternary::NotRelated
         } else {

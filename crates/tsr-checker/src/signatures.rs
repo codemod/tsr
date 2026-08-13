@@ -1231,11 +1231,16 @@ impl<'a> Checker<'a, '_> {
                     // two spellings agree everywhere a bare yield can appear;
                     // they would part company only if the port grew a real
                     // widening type, and then this line is what to delete.
-                    let contribution = if self.strict_null_checks {
-                        self.intrinsics.undefined
-                    } else {
-                        self.intrinsics.any
-                    };
+                    // §357 amends the site: the contribution is
+                    // `undefinedWideningType` in BOTH modes; what differs is
+                    // what `getWidenedType` later does to it, and that widening
+                    // runs on the AGGREGATE. Alone it widens to `any`
+                    // (§220's cases, mapped at the single-type exit below);
+                    // inside a multi-operand union it survives as `undefined`
+                    // (`generatorTypeCheck22` wants `Bar | Baz | undefined`
+                    // under `@strict: false`). Pushing `any` here collapsed
+                    // that whole union to `any`.
+                    let contribution = self.intrinsics.undefined;
                     if !operand_types.contains(&contribution) {
                         operand_types.push(contribution);
                     }
@@ -1258,6 +1263,13 @@ impl<'a> Checker<'a, '_> {
             }
             let yield_type = match operand_types.as_slice() {
                 [] => self.intrinsics.never,
+                // §220/§357: a lone non-strict bare `yield` is where
+                // `getWidenedType` maps `undefinedWideningType` to `any`
+                // (`checker.go:20224`) — the widening applies at the
+                // aggregate, not at the contribution.
+                [single] if *single == self.intrinsics.undefined && !self.strict_null_checks => {
+                    self.intrinsics.any
+                }
                 // One distinct fresh type: `getWidenedType` (`checker.go:20224`)
                 // widens the freshness away — `yield 1` prints `number`.
                 [single] => self.get_widened_literal_type(*single),
@@ -1270,7 +1282,15 @@ impl<'a> Checker<'a, '_> {
                         return None;
                     }
                     let candidates = many.to_vec();
-                    self.union_with_subtype_reduction(&candidates)?
+                    let reduced = self.union_with_subtype_reduction(&candidates)?;
+                    // §357: under no-strict the union mint DROPS a nullable
+                    // contribution (`addTypesToUnion`, checker.go:25783), so
+                    // a multi-operand aggregate can collapse to one FRESH
+                    // type — `yield 1; yield;` reduces to `1` and
+                    // `getWidenedType` (checker.go:20224) widens the
+                    // survivor to `number`. A surviving union is not fresh
+                    // and passes through unchanged.
+                    self.get_widened_literal_type(reduced)
                 }
             };
             let generator = self.global_type_symbol_with_arity("Generator", 3)?;
