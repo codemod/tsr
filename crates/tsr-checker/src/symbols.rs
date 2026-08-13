@@ -2136,8 +2136,80 @@ impl<'a> Checker<'a, '_> {
             // and not as a union constituent.
             return self.store.new_anonymous(TypeFlags::OBJECT, printed, symbol, false);
         }
-        let Some(signatures) = self.get_signatures_of_symbol(symbol) else {
-            return self.intrinsics.error;
+        // §383: a late-bound METHOD's overloads live on SIBLING declarations —
+        // the binder deliberately gives each `[Symbol.iterator]` its own
+        // `__computed` symbol, so the merge upstream gets from late binding is
+        // reconstructed here: same spelled name, same staticness, method
+        // kinds only. Two or more merge into the overload set
+        // (`symbolProperty42` wants `{ (x: string): string; (x: any): any; }`
+        // on every declaration's line); a lone declaration keeps its road.
+        let late_bound_overloads = 'late: {
+            let data = self.binder.symbols().get(symbol);
+            if data.name != "__computed" {
+                break 'late None;
+            }
+            let (Some(parent), Some(declaration)) = (data.parent, data.value_declaration) else {
+                break 'late None;
+            };
+            let method_static = |checker: &Self, id: tsr_ast::NodeId| -> Option<bool> {
+                match checker.node_map.get(id) {
+                    Some(Node::MethodDeclaration(method)) => {
+                        Some(method.modifiers.iter().any(|modifier| {
+                            matches!(modifier, tsr_ast::ModifierLike::Token(token)
+                                if token.kind == SyntaxKind::StaticKeyword)
+                        }))
+                    }
+                    Some(Node::MethodSignatureDeclaration(_)) => Some(false),
+                    _ => None,
+                }
+            };
+            let Some(own_static) = method_static(self, declaration) else { break 'late None };
+            let members = self.late_bound_members_of(parent);
+            let own_name =
+                members.iter().find(|(_, id)| *id == declaration).map(|(name, _)| name.clone());
+            let Some(own_name) = own_name else { break 'late None };
+            let siblings: Vec<tsr_ast::NodeId> = members
+                .into_iter()
+                .filter(|(name, id)| {
+                    *name == own_name && method_static(self, *id) == Some(own_static)
+                })
+                .map(|(_, id)| id)
+                .collect();
+            if siblings.len() < 2 {
+                break 'late None;
+            }
+            let mut merged: Vec<crate::signatures::Signature> = Vec::with_capacity(siblings.len());
+            let mut printed_forms: Vec<String> = Vec::new();
+            for sibling in siblings {
+                let Some(signature) = self.get_signature_from_declaration(sibling) else {
+                    break 'late None;
+                };
+                // IDENTICAL siblings collapse — an overload spelled the same
+                // as its implementation is ONE signature upstream
+                // (`overloadsWithComputedNames` wants `() => void`, not
+                // `{ (): void; (): void; }`), while distinct spellings keep
+                // the set (`symbolProperty42`'s `(x: string)` + `(x: any)`).
+                let printed = self.signature_to_string(&signature);
+                if !printed_forms.contains(&printed) {
+                    printed_forms.push(printed);
+                    merged.push(signature);
+                }
+            }
+            if merged.len() < 2 {
+                // A deduped-to-one set is that one signature — the ordinary
+                // road prints it as a bare function type.
+                break 'late merged.pop().map(|single| vec![single]);
+            }
+            Some(merged)
+        };
+        let signatures = match late_bound_overloads {
+            Some(merged) => merged,
+            None => {
+                let Some(signatures) = self.get_signatures_of_symbol(symbol) else {
+                    return self.intrinsics.error;
+                };
+                signatures
+            }
         };
         // `createTypeNodeFromObjectType` emits a bare `FunctionTypeNode` only
         // when the resolved type has **no properties and no index signatures**
