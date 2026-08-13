@@ -458,6 +458,29 @@ impl Checker<'_, '_> {
         if let Some(property_type) = self.get_type_of_property_of_type(parent_type, name) {
             return property_type;
         }
+        // §303: the APPARENT-type hop the plain member road already takes —
+        // `var { toExponential } = 0` reads `Number`'s member exactly as
+        // `(0).toExponential` does (`destructuringWithNumberLiteral`). A
+        // primitive carries no members of its own; its interface does.
+        // A type parameter whose constraint is a UNION is excluded: those
+        // destructured members belong to the NARROWING road
+        // (`f<T extends A | B>` narrows by discriminant), and reading the raw
+        // union here turned two of `narrowingDestructuring`'s gaps into
+        // confident `any`s. A NON-union constraint has nothing to narrow and
+        // reads straight (`genericObjectRest`,
+        // `dependentDestructuredVariables` — 12 lines the blanket exclusion
+        // of the second draft forfeited).
+        let apparent = self.apparent_type(parent_type);
+        if self.store.get(parent_type).flags.intersects(TypeFlags::TYPE_PARAMETER)
+            && matches!(self.store.get(apparent).data, TypeData::Union { .. })
+        {
+            return self.intrinsics.error;
+        }
+        if apparent != parent_type
+            && let Some(property_type) = self.get_type_of_property_of_type(apparent, name)
+        {
+            return property_type;
+        }
         let key = if numeric {
             self.store.intern_literal(
                 TypeFlags::NUMBER_LITERAL,
