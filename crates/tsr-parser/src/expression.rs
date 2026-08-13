@@ -2375,6 +2375,22 @@ impl<'a> Parser<'a> {
         }
         let mut parameters = Vec::new();
         while !self.at(SyntaxKind::CloseParenToken) && !self.at(SyntaxKind::EndOfFile) {
+            // §277: a bare `,` cannot start a parameter and mints NO element —
+            // upstream's `parseDelimitedList` falls to its abort-or-skip arm,
+            // reports TS1138 at the token, and moves on. This loop instead
+            // called `parse_parameter`, which synthesized a zero-width
+            // identifier the baseline walker then printed: `get x(,)`
+            // (`trailingCommasInGetter`) rendered one assertion more than
+            // upstream and shifted every later position. Only the comma is
+            // rejected here — `starts_parameter` is a deliberate SUBSET
+            // (contextual keywords scan as keyword kinds), so a head-guard on
+            // its complement would skip valid parameters like `type` or
+            // `async`; the §200 discipline, third application.
+            if self.at(SyntaxKind::CommaToken) {
+                self.error_at_current(&messages::PARAMETER_DECLARATION_EXPECTED);
+                self.next_token();
+                continue;
+            }
             let before = self.pos();
             parameters.push(self.parse_parameter());
             if self.eat(SyntaxKind::CommaToken) {
