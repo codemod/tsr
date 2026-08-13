@@ -329,10 +329,16 @@ impl Checker<'_, '_> {
     /// identifier chain, or whose type is any other late-bound kind (a
     /// string/number literal spells WITHOUT brackets - `{ [1]: 1 }` is
     /// `{ 1: number; }`), answers `None` and the caller keeps its gap.
+    /// The `(name, unique)` pair: a UNIQUE-symbol name is a real late-bound
+    /// member (method spelling, readonly getters, get/set merge - SS323/325);
+    /// a PLAIN-symbol entity name is an index-info COMPONENT row, displayed
+    /// as a property whatever the declaration kind - `{ [s]: () => void }`
+    /// for a method, no readonly, no merge (`symbolProperty1/2` vs
+    /// `symbolProperty5`/`symbolDeclarationEmit10`).
     pub(crate) fn late_bound_symbol_member_name(
         &mut self,
         computed: &tsr_ast::ComputedPropertyName<'_>,
-    ) -> Option<String> {
+    ) -> Option<(String, bool)> {
         fn chain_text(expression: &tsr_ast::Expression<'_>) -> Option<String> {
             match expression {
                 tsr_ast::Expression::Identifier(identifier) => Some(identifier.text.to_string()),
@@ -348,11 +354,19 @@ impl Checker<'_, '_> {
         }
         let expression = computed.expression?;
         let name_type = self.check_expression(expression);
-        if !self.type_of(name_type).flags.intersects(TypeFlags::UNIQUE_ES_SYMBOL) {
+        // SS331 widened UNIQUE to SYMBOL-LIKE: the discriminator between the
+        // per-member display and the `[x: symbol]` index form is whether the
+        // name is an ENTITY REFERENCE, not whether its symbol is unique -
+        // `var s = Symbol()` types PLAIN `symbol` and still displays
+        // `{ [s]: number; ... }` (`symbolProperty2`), while the inline
+        // `[Symbol()]` of `symbolProperty4` is no entity and takes the index
+        // route.
+        let flags = self.type_of(name_type).flags;
+        if !flags.intersects(TypeFlags::ES_SYMBOL_LIKE) {
             return None;
         }
         let text = chain_text(&expression)?;
-        Some(format!("[{text}]"))
+        Some((format!("[{text}]"), flags.intersects(TypeFlags::UNIQUE_ES_SYMBOL)))
     }
 
     /// SS307: the computed-name key dispatch of `checker.go:13317-13324`,
@@ -383,6 +397,19 @@ impl Checker<'_, '_> {
         if flags.intersects(
             TypeFlags::STRING_LITERAL | TypeFlags::NUMBER_LITERAL | TypeFlags::UNIQUE_ES_SYMBOL,
         ) {
+            return ComputedNameKey::LateBound;
+        }
+        // SS331: a symbol-typed ENTITY name late-binds even when the symbol
+        // is not unique - see `late_bound_symbol_member_name`'s note on
+        // `symbolProperty2` vs `symbolProperty4`. The chain test keeps the
+        // inline `[Symbol()]` on the index route below.
+        if flags.intersects(TypeFlags::ES_SYMBOL_LIKE)
+            && matches!(
+                expression,
+                tsr_ast::Expression::Identifier(_)
+                    | tsr_ast::Expression::PropertyAccessExpression(_)
+            )
+        {
             return ComputedNameKey::LateBound;
         }
         // A UNION whose constituents are usable as property names is
@@ -546,18 +573,33 @@ impl Checker<'_, '_> {
                     if let tsr_ast::PropertyName::ComputedPropertyName(computed) = method.name {
                         let key = match self.computed_member_index_key(computed) {
                             ComputedNameKey::LateBound => {
-                                // SS323: a late-bound METHOD keeps the method
-                                // spelling - `{ [Symbol.hasInstance](value:
-                                // any): boolean; }` (`modularizeLibrary_*`,
-                                // `symbolDeclarationEmit9`; the first draft's
-                                // arrow form was 19 G->W).
-                                let Some(name) = self.late_bound_symbol_member_name(computed)
+                                // SS323: a UNIQUE late-bound METHOD keeps the
+                                // method spelling - `{ [Symbol.hasInstance]
+                                // (value: any): boolean; }`
+                                // (`modularizeLibrary_*`; the arrow-form
+                                // draft was 19 G->W). A PLAIN-symbol
+                                // component row is a PROPERTY of the arrow
+                                // form (`symbolProperty1/2`).
+                                let Some((name, unique)) =
+                                    self.late_bound_symbol_member_name(computed)
                                 else {
                                     return error;
                                 };
-                                let printed =
-                                    format!("{name}{}", signature_member_text(self, &signature));
-                                members.push(Member::Signature { printed });
+                                if unique {
+                                    let printed = format!(
+                                        "{name}{}",
+                                        signature_member_text(self, &signature)
+                                    );
+                                    members.push(Member::Signature { printed });
+                                } else {
+                                    let printed = self.signature_to_string(&signature);
+                                    members.push(Member::Property {
+                                        name,
+                                        optional: false,
+                                        readonly: const_context,
+                                        printed,
+                                    });
+                                }
                                 continue;
                             }
                             ComputedNameKey::Nothing => continue,
@@ -633,13 +675,25 @@ impl Checker<'_, '_> {
                         // its return type - the third `[s]: number` row of
                         // `symbolProperty1`'s literal.
                         ComputedNameKey::LateBound => {
-                            let Some(name) = self.late_bound_symbol_member_name(computed) else {
+                            let Some((name, unique)) = self.late_bound_symbol_member_name(computed)
+                            else {
                                 return error;
                             };
                             let Some(signature) = self.get_signature_from_declaration(id) else {
                                 return error;
                             };
                             let printed = self.type_to_string(signature.r#type);
+                            if !unique {
+                                // A component-row getter: plain property, no
+                                // readonly, no merge (`symbolProperty1/2`).
+                                members.push(Member::Property {
+                                    name,
+                                    optional: false,
+                                    readonly: const_context,
+                                    printed,
+                                });
+                                continue;
+                            }
                             let mut has_setter_sibling = false;
                             for sibling in node.properties {
                                 if let tsr_ast::ObjectLiteralElementLike::SetAccessorDeclaration(
@@ -647,8 +701,9 @@ impl Checker<'_, '_> {
                                 ) = sibling
                                     && let tsr_ast::PropertyName::ComputedPropertyName(sibling_name) =
                                         setter.name
-                                    && self.late_bound_symbol_member_name(sibling_name)
-                                        == Some(name.clone())
+                                    && self
+                                        .late_bound_symbol_member_name(sibling_name)
+                                        .is_some_and(|(sibling, _)| sibling == name)
                                 {
                                     has_setter_sibling = true;
                                 }
@@ -689,10 +744,13 @@ impl Checker<'_, '_> {
                         // parameter's type, `any` when unannotated, the same
                         // value rule the index route uses.
                         ComputedNameKey::LateBound => {
-                            let Some(name) = self.late_bound_symbol_member_name(computed) else {
+                            let Some((name, unique)) = self.late_bound_symbol_member_name(computed)
+                            else {
                                 return error;
                             };
-                            if accessor_members.iter().any(|(existing, _)| existing == &name) {
+                            if unique
+                                && accessor_members.iter().any(|(existing, _)| existing == &name)
+                            {
                                 // The getter already owns the display; a
                                 // getter appearing LATER replaces in place.
                                 continue;
@@ -705,7 +763,9 @@ impl Checker<'_, '_> {
                                 .first()
                                 .map_or(self.intrinsics.any, |parameter| parameter.r#type);
                             let printed = self.type_to_string(member_type);
-                            accessor_members.push((name.clone(), members.len()));
+                            if unique {
+                                accessor_members.push((name.clone(), members.len()));
+                            }
                             members.push(Member::Property {
                                 name,
                                 optional: false,
@@ -804,7 +864,7 @@ impl Checker<'_, '_> {
                         // kind whose printed member this port can spell.
                         ComputedNameKey::LateBound => {
                             match self.late_bound_symbol_member_name(computed) {
-                                Some(name) => name,
+                                Some((name, _)) => name,
                                 None => return error,
                             }
                         }
@@ -957,11 +1017,30 @@ impl Checker<'_, '_> {
             let value = match distinct.as_slice() {
                 [single] => *single,
                 many => {
-                    let candidates = many.to_vec();
-                    let Some(reduced) = self.union_with_subtype_reduction(&candidates) else {
-                        return error;
+                    // SS331: the relation answers UNKNOWN for any pair
+                    // involving a signature-shaped type, and one Unknown
+                    // declines the whole reduction - which gapped
+                    // `{ [Symbol()]: 0, [Symbol()]() { }, get ... }`
+                    // (`symbolProperty4`, want
+                    // `number | (() => void)`). A callable is never a strict
+                    // subtype of a non-callable, so the callables pass
+                    // through and only the plain constituents reduce.
+                    let (callable, plain): (Vec<TypeId>, Vec<TypeId>) = many
+                        .iter()
+                        .partition(|candidate| self.signature_types.contains_key(candidate));
+                    let mut kept = if plain.len() > 1 {
+                        let Some(reduced) = self.union_with_subtype_reduction(&plain) else {
+                            return error;
+                        };
+                        match &self.store.get(reduced).data {
+                            crate::types::TypeData::Union { types, .. } => types.clone(),
+                            _ => vec![reduced],
+                        }
+                    } else {
+                        plain
                     };
-                    reduced
+                    kept.extend(callable);
+                    self.get_union_type(&kept)
                 }
             };
             // The parameter name is upstream's synthesized `x` — a real index

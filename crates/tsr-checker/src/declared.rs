@@ -843,7 +843,7 @@ impl<'a> Checker<'a, '_> {
                         // SYNTACTICALLY, before any type is computed.
                         tsr_ast::PropertyName::ComputedPropertyName(computed) => {
                             match self.late_bound_symbol_member_name(computed) {
-                                Some(name) => name,
+                                Some((name, _)) => name,
                                 None => return error,
                             }
                         }
@@ -896,7 +896,7 @@ impl<'a> Checker<'a, '_> {
                 // written chain in brackets.
                 tsr_ast::PropertyName::ComputedPropertyName(computed) => {
                     match self.late_bound_symbol_member_name(computed) {
-                        Some(name) => name,
+                        Some((name, _)) => name,
                         None => return error,
                     }
                 }
