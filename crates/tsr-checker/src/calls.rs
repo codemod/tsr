@@ -1709,7 +1709,17 @@ impl Checker<'_, '_> {
                 // identity — 6 R→W in `orderMattersForSignatureGroupIdentity`
                 // against 3 G→R. The simple domain stands until the relation
                 // reads the modifiers its own doc lists as uncompared.
-                if !simple(self, argument) || !simple(self, parameter.r#type) {
+                // §385 measures the half §337's revert note licensed: a
+                // CLASS-INSTANCE argument is a narrower domain than the
+                // object pairs that lost `orderMattersForSignatureGroupIdentity`
+                // — class instances carry declared members, not literal
+                // identity, and the relation decides them (`symbolProperty13`'s
+                // `foo(new C)` picks the `I` overload). Unknown still
+                // declines the pass.
+                let class_instance_pair = self.class_instance_symbol(argument).is_some();
+                if !class_instance_pair
+                    && (!simple(self, argument) || !simple(self, parameter.r#type))
+                {
                     verdict = Ternary::Unknown;
                     continue;
                 }
