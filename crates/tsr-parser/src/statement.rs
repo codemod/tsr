@@ -710,7 +710,15 @@ impl<'a> Parser<'a> {
             // `for (await using x of …)` — the `await` belongs to the declaration,
             // not to the loop.
             self.eat(SyntaxKind::AwaitKeyword);
-            Some(ForInitializer::VariableDeclarationList(self.parse_variable_declaration_list()))
+            // §411: the DECLARATION half of the `in` ban — a var initializer
+            // in a for head must not read `1 in X` as a comparison, or
+            // `for (var a = 1 in X)` loses its ForIn shape
+            // (`parserForInStatement4/6`; the bare-expression half has had
+            // this since the arm below was written).
+            self.no_in += 1;
+            let list = self.parse_variable_declaration_list();
+            self.no_in -= 1;
+            Some(ForInitializer::VariableDeclarationList(list))
         } else {
             // `in` is banned here so `for (x in y)` is not read as a comparison.
             Some(ForInitializer::from(self.parse_expression_no_in()))

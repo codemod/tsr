@@ -2368,7 +2368,14 @@ impl<'a> Parser<'a> {
         };
 
         let initializer = if self.eat(SyntaxKind::EqualsToken) {
-            Some(self.parse_assignment_expression())
+            // §411: a binding-element DEFAULT re-enables `in` — the for-head
+            // ban covers the declaration's top-level initializer, not the
+            // pattern's element defaults (`for (let [x = 'a' in {}] = [];;)`
+            // parses, `parserForStatement9`).
+            let saved_no_in = std::mem::take(&mut self.no_in);
+            let parsed = self.parse_assignment_expression();
+            self.no_in = saved_no_in;
+            Some(parsed)
         } else {
             None
         };
