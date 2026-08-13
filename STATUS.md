@@ -1931,6 +1931,20 @@ it should precede rebuilding the arm rather than follow it.
 | **`new C<T>()`** — "needs `inferTypeArguments`, same mechanism as a generic call" | **`a9a33f97`** | Written type arguments need **substitution, not inference**, and both roads have had them since §161. Only the inference half (`new C(args)`, no written list) remains. |
 
 
+### New, 2026-08-13, §311 `declare global`'s name line — refused by 5:42
+
+- **The name line's spelling is a writer-side decision this port cannot yet
+  reproduce.** Four deficit-1 cases (`moduleAugmentationGlobal6/6_1/7/7_1`)
+  want `>global : typeof global`; answering that — from `get_type_of_symbol`
+  OR from the producer's declaration-name arm, both measured identically —
+  wins 5 lines and breaks 42: error-carrying cases want `any` on the same
+  line (`duplicateIdentifierRelatedSpans5`), and files where upstream emits
+  NO line for the name shift every later assertion out of alignment
+  (`jsxElementType`, 30+ lines). **Reopening condition: transcribe upstream's
+  `type_symbol_baseline.go` guard chain for WHEN the global name emits and
+  with which arm** — the §254 note already records the fast-path/node-builder
+  split this turns on. Measured on `483de91f`. §311
+
 ### New, this session, TS7008's constructor inference — refused by −3
 
 - **A helper's safety is a property of the caller's polarity, not of the
