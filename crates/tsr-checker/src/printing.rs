@@ -162,14 +162,27 @@ pub(crate) fn quote(value: &str) -> String {
 pub fn normalise_number(text: &str) -> String {
     let cleaned: String = text.chars().filter(|c| *c != '_').collect();
 
+    // §276: a radix prefix with NO digits — `0x`, `0b`, `0o` — is upstream's
+    // scanner-recovery ZERO: `scanNumber` reports "Hexadecimal digit
+    // expected" and keeps value 0, so `0x` records `>0x : 0`
+    // (`scannerS7.8.3_A6.1_T1`). An empty digit run parses as 0 rather than
+    // falling to the keep-the-source arm below, which exists for literals
+    // whose VALUE is unrepresentable, not unreadable.
+    let radix_value = |rest: &str, radix: u32| {
+        if rest.is_empty() {
+            Some(0.0)
+        } else {
+            u128::from_str_radix(rest, radix).ok().map(|v| v as f64)
+        }
+    };
     let value = if let Some(rest) =
         cleaned.strip_prefix("0x").or_else(|| cleaned.strip_prefix("0X"))
     {
-        u128::from_str_radix(rest, 16).ok().map(|v| v as f64)
+        radix_value(rest, 16)
     } else if let Some(rest) = cleaned.strip_prefix("0o").or_else(|| cleaned.strip_prefix("0O")) {
-        u128::from_str_radix(rest, 8).ok().map(|v| v as f64)
+        radix_value(rest, 8)
     } else if let Some(rest) = cleaned.strip_prefix("0b").or_else(|| cleaned.strip_prefix("0B")) {
-        u128::from_str_radix(rest, 2).ok().map(|v| v as f64)
+        radix_value(rest, 2)
     } else if cleaned.len() > 1
         && cleaned.starts_with('0')
         && cleaned.bytes().all(|b| b.is_ascii_digit())
