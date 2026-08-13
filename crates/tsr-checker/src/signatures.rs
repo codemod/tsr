@@ -2186,12 +2186,40 @@ impl<'a> Checker<'a, '_> {
                     let computed = self.get_widened_type_for_variable_like_declaration(id);
                     if node.initializer.is_some()
                         && let Some(tsr_ast::BindingName::BindingPattern(pattern)) = node.name
-                        && self
-                            .tuple_element_lists
-                            .get(&computed)
-                            .is_some_and(|(elements, _)| elements.len() != pattern.elements.len())
+                        && let Some((tuple_elements, _)) =
+                            self.tuple_element_lists.get(&computed).cloned()
+                        && tuple_elements.len() != pattern.elements.len()
                     {
-                        return None;
+                        // §435: `padTupleType` (checker.go:16808) — a SHORT
+                        // default pads OPTIONAL slots from the pattern
+                        // elements' own defaults:
+                        // `function g4([x, y = 0] = [0])` prints
+                        // `[number, number?]` and `g5([x = 0, y = 0] = [])`
+                        // `[number?, number?]`
+                        // (`destructuringWithLiteralInitializers`). A missing
+                        // element default keeps the decline.
+                        if tuple_elements.len() > pattern.elements.len() {
+                            return None;
+                        }
+                        let mut padded: Vec<(crate::types::TypeId, bool)> =
+                            tuple_elements.iter().map(|&t| (t, false)).collect();
+                        for element in &pattern.elements[tuple_elements.len()..] {
+                            let Some(default) = element.initializer else { return None };
+                            let checked = self.check_expression(default);
+                            if checked == self.intrinsics.error {
+                                return None;
+                            }
+                            let widened = self.get_widened_literal_type(checked);
+                            padded.push((widened, true));
+                        }
+                        let labels = vec![None; padded.len()];
+                        return Some(Parameter {
+                            name: name_text,
+                            optional: false,
+                            rest: node.dot_dot_dot_token.is_some(),
+                            r#type: self.create_optional_tuple_type(&padded, &labels, false),
+                            written_text: None,
+                        });
                     }
                     computed
                 }

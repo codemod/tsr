@@ -1484,7 +1484,7 @@ impl<'a> Checker<'a, '_> {
     /// registered in `tuple_element_lists` on the PLAIN member list so
     /// context tests and access see the members. Interned separately from
     /// the all-required spelling.
-    fn create_optional_tuple_type(
+    pub(crate) fn create_optional_tuple_type(
         &mut self,
         elements: &[(TypeId, bool)],
         labels: &[Option<String>],
