@@ -1611,6 +1611,12 @@ impl Checker<'_, '_> {
             }
             let mut verdict = Ternary::Related;
             for (&argument, parameter) in argument_types.iter().zip(&candidate.parameters) {
+                // §337, MEASURED AND REVERTED: widening this domain to OBJECT
+                // pairs (relation-decided, Unknown still declining) picked
+                // wrongly where the relation is too permissive for object
+                // identity — 6 R→W in `orderMattersForSignatureGroupIdentity`
+                // against 3 G→R. The simple domain stands until the relation
+                // reads the modifiers its own doc lists as uncompared.
                 if !simple(self, argument) || !simple(self, parameter.r#type) {
                     verdict = Ternary::Unknown;
                     continue;
