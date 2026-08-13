@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; scanner, parser and binder only, with no checker (bd tsr-4sc)
-Passed         : 2549/5488 (46.45%)
-Failed         : 2939
+Passed         : 2552/5488 (46.50%)
+Failed         : 2936
 Skipped        : 6956 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -11,7 +11,7 @@ Skipped        : 6956 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 2939 failures:
+First 100 of 2936 failures:
 compiler/ClassDeclaration26
   2 unexpected (first TS1005 at ClassDeclaration26.ts(2,22)), 5 missing
 compiler/TransportStream
@@ -107,7 +107,7 @@ compiler/arrayLiteralTypeInference
 compiler/arrayOfSubtypeIsAssignableToReadonlyArray
   2 missing (first TS2322 at arrayOfSubtypeIsAssignableToReadonlyArray.ts(13,1))
 compiler/arraySigChecking
-  3 missing (first TS2322 at arraySigChecking.ts(18,27))
+  1 unexpected (first TS2322 at arraySigChecking.ts(18,5)), 3 missing
 compiler/arrayconcat
   2 missing (first TS18048 at arrayconcat.ts(16,25))
 compiler/arrowExpressionBodyJSDoc
@@ -129,7 +129,7 @@ compiler/assignmentCompat1
 compiler/assignmentCompatBug2
   3 missing (first TS2741 at assignmentCompatBug2.ts(15,1))
 compiler/assignmentCompatBug5
-  4 missing (first TS2322 at assignmentCompatBug5.ts(5,7))
+  1 unexpected (first TS2345 at assignmentCompatBug5.ts(5,6)), 4 missing
 compiler/assignmentCompatFunctionsWithOptionalArgs
   2 missing (first TS2322 at assignmentCompatFunctionsWithOptionalArgs.ts(4,17))
 compiler/assignmentCompatInterfaceWithStringIndexSignature

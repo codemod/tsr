@@ -802,6 +802,31 @@ impl Relater<'_, '_, '_> {
                 constituents.iter().map(|&c| self.is_related_to(c, target)).collect();
             return Ternary::any(parts);
         }
+        // §367: two references to the global `Array`/`ReadonlyArray` relate by
+        // their ELEMENT types, covariantly — upstream reaches this through
+        // `relateVariances` and arrays are covariant by declared variance.
+        // Restricted to those two targets: an arbitrary generic's variance is
+        // not computed here, and a wrong variance is a confident wrong answer
+        // where this rung's absence was only a gap
+        // (`functionOverloads42`: `{a:string}[]` against `{a:number}[]` must
+        // decide, or the overload walk gaps the call).
+        if let (Some((source_target, source_arguments)), Some((target_target, target_arguments))) = (
+            self.checker.type_reference_targets.get(&source).cloned(),
+            self.checker.type_reference_targets.get(&target).cloned(),
+        ) && source_target == target_target
+            && source_arguments.len() == target_arguments.len()
+            && matches!(
+                self.checker.binder.symbols().get(source_target).name,
+                "Array" | "ReadonlyArray"
+            )
+        {
+            let parts: Vec<_> = source_arguments
+                .iter()
+                .zip(&target_arguments)
+                .map(|(&s_arg, &t_arg)| self.is_related_to(s_arg, t_arg))
+                .collect();
+            return Ternary::all(parts);
+        }
         if self.has_members(source) && self.has_members(target) {
             // Row 6 of `checker-notes-assign.md` §2, checked **before** the
             // property walk rather than inside it: a signature-bearing pair is
