@@ -1984,7 +1984,25 @@ Twenty-eight lines. Opened, and the members do not share a cause:
   **whether that is upstream's computed `any` or its errorType rendered through the
   node builder is the question that decides the repair** — checker-1's §254
   established that the discriminator is which arm of `writeTypeOrSymbol` upstream
-  took, not what it printed. Unchecked here.
+  took, not what it printed. **CHECKED: all three of
+  `emitArrowFunctionWhenUsingArguments02_ES6`, `super1` and
+  `superCallWithMissingBaseClass` carry an `.errors.txt`**, so upstream's `any` is
+  its errorType rendered — §180's `hadErrorBaseline` arm already spells ours the
+  same way.
+
+  **So the mismatch is not the leaf, it is the ARROW.** Both sides hold an
+  any-flagged type for the body; upstream still builds the signature and prints
+  `() => any`, while this port declines the whole signature and prints a bare `any`.
+  The unannotated-parameter gate is not what declines it — these arrows have no
+  parameters. `return_type_from_body` answers the error type and the signature build
+  declines on that.
+
+  The faithful rule is that `getReturnTypeFromBody` returns its aggregate even when
+  the aggregate is the error type; the signature is still constructed. **Not built,
+  and deliberately not on a session's last budget**: it would convert a large
+  population of declines into `() => <whatever the body answered>`, which is exactly
+  the shape §257 measured at 57 GAP→WRONG when the answer was wrong. It wants a full
+  line-movement score, not a case tally.
 - `parserArrowFunctionExpression13` — `a ? () => a() : (): any => null;` in a
   conditional, one `.js` unit and one `.ts`. A parse/context question, not the
   `arguments` one.
