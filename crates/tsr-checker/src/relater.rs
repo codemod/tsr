@@ -547,6 +547,22 @@ impl Relater<'_, '_, '_> {
         // arm because it has no members table (a function type, an
         // index-signature-only type), the same fallthrough means *not
         // computed*. Rows 3 and 6 of `checker-notes-assign.md` §2.
+        // §369: a NON-NULLABLE primitive source against the EMPTY object type
+        // relates — upstream's structural walk finds nothing to require of
+        // `{}` (`string | {}` subtype-reduces to `{}`,
+        // `nullishCoalescingOperator2`'s `a7 ?? 'whatever'`). `undefined`,
+        // `null` and `void` stay out — they do not inhabit `{}` under strict
+        // — and the FRESH empty-literal exception (relater.go:3853) cannot
+        // fire here because this port carries no object freshness; the
+        // recognition is the printed `{}`, the same approximation
+        // `intersections.rs` records.
+        if s.intersects(TypeFlags::PRIMITIVE)
+            && !s.intersects(TypeFlags::NULLABLE | TypeFlags::VOID)
+            && matches!(&self.checker.type_of(target).data,
+                TypeData::Named { text, .. } if text == "{}")
+        {
+            return Ternary::Related;
+        }
         // §357: an OBJECT source against a decidable primitive target is a
         // decision, not an absence — upstream's `isSimpleTypeRelatedTo` has no
         // arm relating an object to `undefined`/`null`/`void`/`string`/…
