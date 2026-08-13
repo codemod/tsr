@@ -25,12 +25,15 @@
 //!
 //! # What refuses, each with its number (`checker-notes-destructure.md` §3)
 //!
-//! - **rest elements** (172 lines): `getRestType` (`checker.go:17792`) needs
-//!   spreadability and `Omit`; array rest needs `sliceTupleType`;
-//! - **defaults** (224): the annotation-less path is
-//!   `getUnionTypeEx(..., UnionReductionSubtype, ...)` (`checker.go:17789`),
-//!   the reduction STATUS.md §5 refused for `||`/`??`; the whole element
-//!   refuses, not just the default's contribution;
+//! - **array rest elements**: `sliceTupleType` (`checker.go:17797`). The
+//!   OBJECT half of the original rest refusal (172 lines) LANDED at §319 —
+//!   `getRestType`'s member subtraction over `spread_members_of`; what that
+//!   enumerator refuses (methods, nullables, instantiated references) still
+//!   gaps the rest element;
+//! - **pattern-named defaults**: `padObjectLiteralType`/`padTupleType`
+//!   (`checker.go:16808`). The identifier-named half of the original default
+//!   refusal (224 lines) LANDED at §315, both legs of `checker.go:17781` —
+//!   the reduction the refusal named as missing was built at §206;
 //! - **computed property names** (86): late-bound names (`bd tsr-y4u.11`);
 //! - **contextual pattern parameters** (604, 57% want-any): upstream
 //!   consults `getContextuallyTypedParameterType` (`checker.go:16735`) and
@@ -96,9 +99,10 @@ impl Checker<'_, '_> {
         // outside the annotated-root leg. The whole element refuses, because
         // `[Unported, string]` is not `[any, string]` (the tuple arm's rule,
         // applied to a name's slice of its parent).
-        if element.dot_dot_dot_token.is_some() {
-            return error;
-        }
+        // A REST element branches by pattern kind below (§319): the object
+        // form is `getRestType` (`checker.go:17792`), whose member subtraction
+        // the spread machinery already knows how to enumerate; the array form
+        // still needs `sliceTupleType` and stays refused in its arm.
         // A default is admitted on the two legs `checker.go:17781` separates —
         // annotated root (the strip below) and, since §315, the
         // annotation-less union (`getUnionTypeEx(strip(t) ∪ init,
@@ -142,12 +146,20 @@ impl Checker<'_, '_> {
                 // into an indexed access. `getFlowTypeOfDestructuring`
                 // (`checker.go:17743`) is unported — the module doc's named
                 // risk — so the declared slice is the answer.
+                if element.dot_dot_dot_token.is_some() {
+                    return self.object_rest_type(parent_type, pattern_id, declaration);
+                }
                 let Some((name, numeric)) = Self::binding_element_property_name(element) else {
                     return error;
                 };
                 self.destructuring_property_lookup(parent_type, &name, numeric)
             }
             SyntaxKind::ArrayBindingPattern => {
+                // An ARRAY rest needs `sliceTupleType` (`checker.go:17797`) —
+                // still refused, exactly as the module doc records.
+                if element.dot_dot_dot_token.is_some() {
+                    return error;
+                }
                 // The element's position is the property name
                 // (`checker.go:17769`), which is why the parser records holes
                 // as empty elements — upstream's `slices.Index` counts them.
@@ -498,6 +510,51 @@ impl Checker<'_, '_> {
     /// `getLiteralTypeFromPropertyName` (`checker.go:21762`)'s literal arms,
     /// as a name string plus whether it is numeric. A `PropertyName` form
     /// outside them — bigint, private, template — refuses.
+    /// §319: `getRestType` (`checker.go:17792`), the object-pattern slice —
+    /// the parent's spreadable members minus the names the pattern's OTHER
+    /// elements bound: `var { a, ...rest } = { a: 1, b: "x" }` records
+    /// `>rest : { b: string; }`. Everything `spread_members_of` refuses
+    /// (methods, nullable members, instantiated references) keeps the gap
+    /// this element always had — a partial rest object is a wrong answer
+    /// that looks right. A sibling this port cannot name (a computed
+    /// property) refuses too: subtracting an unknown name leaves a member
+    /// upstream removed.
+    fn object_rest_type(
+        &mut self,
+        parent_type: TypeId,
+        pattern_id: NodeId,
+        declaration: NodeId,
+    ) -> TypeId {
+        let error = self.intrinsics.error;
+        let Some(Node::BindingPattern(pattern)) = self.node_map.get(pattern_id) else {
+            return error;
+        };
+        let mut bound: Vec<String> = Vec::new();
+        for sibling in pattern.elements {
+            if sibling.node_id == Some(declaration) {
+                continue;
+            }
+            let Some((name, _)) = Self::binding_element_property_name(sibling) else {
+                return error;
+            };
+            bound.push(name);
+        }
+        let Some(members) = self.spread_members_of(parent_type) else {
+            return error;
+        };
+        let remaining: Vec<crate::objects::Member> = members
+            .into_iter()
+            .filter(|member| match member {
+                crate::objects::Member::Property { name, .. } => {
+                    !bound.iter().any(|bound_name| bound_name == name)
+                }
+                _ => true,
+            })
+            .collect();
+        let printed = crate::objects::render_object_type(&remaining);
+        self.store.new_named(TypeFlags::OBJECT, printed, None)
+    }
+
     fn binding_element_property_name(
         element: &tsr_ast::BindingElement<'_>,
     ) -> Option<(String, bool)> {

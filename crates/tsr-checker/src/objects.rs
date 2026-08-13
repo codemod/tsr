@@ -886,7 +886,7 @@ impl Checker<'_, '_> {
     /// that would show up as a flapping baseline and be blamed on anything but
     /// the map. Members are therefore sorted by their declaration's source
     /// position, which is the order upstream prints.
-    fn spread_members_of(&mut self, source: TypeId) -> Option<Vec<Member>> {
+    pub(crate) fn spread_members_of(&mut self, source: TypeId) -> Option<Vec<Member>> {
         let error = self.intrinsics.error;
         if source == error {
             return None;

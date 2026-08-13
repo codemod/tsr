@@ -166,10 +166,15 @@ fn the_refused_legs_stay_gaps() {
     let default = "var { d = 1, x } = { d: 5, x: 2 };";
     assert_eq!(type_of_binding(default, "d"), "number");
     assert_eq!(type_of_binding(default, "x"), "number");
-    // A rest element: needs `getRestType` (`checker.go:17792`).
+    // The OBJECT rest leg CAME DUE at §319 — `getRestType`'s member
+    // subtraction runs over `spread_members_of`
+    // (`>rest : { b: string; }`, `conformance/objectRest`). The ARRAY rest
+    // (`sliceTupleType`) is the half still refused.
     let rest = r#"var { a, ...rest } = { a: 1, b: "x" };"#;
-    assert_eq!(type_of_binding(rest, "rest"), "error");
+    assert_eq!(type_of_binding(rest, "rest"), "{ b: string; }");
     assert_eq!(type_of_binding(rest, "a"), "number");
+    let array_rest = r#"var [x, ...tail]: [number, string, string] = [1, "a", "b"];"#;
+    assert_eq!(type_of_binding(array_rest, "tail"), "error");
     // An array literal destructured by an array pattern **is now ported**
     // (`bd tsr-84iz`): upstream infers the *tuple* `[number, string]` through
     // the pattern's implied contextual type
