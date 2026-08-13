@@ -250,6 +250,33 @@ impl Checker<'_, '_> {
                 break 'context TupleContext::No;
             };
             match self.node_map.get(parent) {
+                // §371: a type ASSERTION to a tuple supplies the tuple
+                // context — `<[]>[]` / `[] as []` record the literal as the
+                // empty tuple (`emptyTuplesTypeAssertion01/02`); upstream's
+                // `inTupleContext` reads the contextual type an assertion
+                // supplies.
+                Some(tsr_ast::Node::TypeAssertion(assertion)) => match assertion.r#type {
+                    Some(annotation) => {
+                        let t = self.get_type_from_type_node(annotation);
+                        if self.tuple_element_lists.contains_key(&t) {
+                            TupleContext::Annotated
+                        } else {
+                            TupleContext::No
+                        }
+                    }
+                    None => TupleContext::No,
+                },
+                Some(tsr_ast::Node::AsExpression(assertion)) => match assertion.r#type {
+                    Some(annotation) => {
+                        let t = self.get_type_from_type_node(annotation);
+                        if self.tuple_element_lists.contains_key(&t) {
+                            TupleContext::Annotated
+                        } else {
+                            TupleContext::No
+                        }
+                    }
+                    None => TupleContext::No,
+                },
                 Some(tsr_ast::Node::VariableDeclaration(declaration))
                     if declaration.initializer.and_then(|i| i.node_id()) == Some(id) =>
                 {
@@ -330,8 +357,10 @@ impl Checker<'_, '_> {
             && !node.elements.iter().any(|element| {
                 matches!(element, Expression::SpreadElement(_) | Expression::OmittedExpression(_))
             })
-            && !node.elements.is_empty()
         {
+            // §371: the EMPTY target included — `[] = iterable` records
+            // `>[] : []` (`emptyAssignmentPatterns01_ES6`); §365's draft
+            // excluded it for no upstream reason.
             let mut elements = Vec::with_capacity(node.elements.len());
             for element in node.elements {
                 let element_type = self.check_expression(*element);
