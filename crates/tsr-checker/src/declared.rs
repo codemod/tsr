@@ -14,7 +14,6 @@ use tsr_binder::{SymbolFlags, SymbolId};
 use crate::{checker::Checker, flags::TypeFlags, resolution::PropertyName, types::TypeId};
 
 impl<'a> Checker<'a, '_> {
-
     /// The instantiated base type an `extends` heritage entry names — the
     /// checker half of the `React.Component<Prop, {}>` row. §226.
     ///
@@ -74,14 +73,11 @@ impl<'a> Checker<'a, '_> {
         base: SymbolId,
         type_arguments: &[TypeNode<'a>],
     ) -> Option<TypeId> {
-
         if type_arguments.is_empty() {
             return None;
         }
-        let arguments: Vec<TypeId> = type_arguments
-            .iter()
-            .map(|&argument| self.get_type_from_type_node(argument))
-            .collect();
+        let arguments: Vec<TypeId> =
+            type_arguments.iter().map(|&argument| self.get_type_from_type_node(argument)).collect();
         // **No guard on unresolvable arguments, and the first draft had one.**
         // It declined when any argument came back as the error type, on the
         // reasoning that `Base<error>` is a wrong line rather than a gap. The
@@ -114,7 +110,10 @@ impl<'a> Checker<'a, '_> {
     /// `interface MyGen<T, R, N> { … }` has its next type in the same slot for
     /// the same reason. Gating on the name would be fitting the witness
     /// (corollary 20) and would also be *narrower than the reason given*.
-    pub(crate) fn next_type_of_annotated_generator(&mut self, annotation: TypeNode<'a>) -> Option<TypeId> {
+    pub(crate) fn next_type_of_annotated_generator(
+        &mut self,
+        annotation: TypeNode<'a>,
+    ) -> Option<TypeId> {
         let TypeNode::TypeReferenceNode(reference) = annotation else { return None };
         // A written third argument wins; nothing else is consulted.
         if let Some(&written) = reference.type_arguments.get(2) {

@@ -330,8 +330,6 @@ fn the_bare_yield_contribution_is_the_only_thing_strictness_changes() {
     );
 }
 
-
-
 /// §223. The no-contextual-type gate is `getContextualType`'s complement, not
 /// a list of two positions.
 ///

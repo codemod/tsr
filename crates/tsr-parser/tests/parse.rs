@@ -1859,7 +1859,6 @@ fn of_is_still_a_variable_name_where_upstreams_lookahead_fails() {
     }
 }
 
-
 /// §233. `new.target` is a `MetaProperty`, not a `NewExpression`.
 ///
 /// `parseNewExpressionOrNewDotTarget` (`parser.go:5746`) tests for the dot
@@ -1908,7 +1907,6 @@ fn an_ordinary_new_expression_is_not_a_meta_property() {
     }
 }
 
-
 /// §235. An argument-list token that starts no argument is SKIPPED, not parsed.
 ///
 /// `abortParsingListOrMoveToNextToken` (`parser.go:698`) is upstream's third
@@ -1955,7 +1953,6 @@ fn a_spread_argument_is_an_argument() {
         "and it is a spread element"
     );
 }
-
 
 /// §237. An array literal ends at a token that closes an ENCLOSING construct,
 /// and skips one that closes nothing.
@@ -2005,7 +2002,6 @@ fn an_array_literal_skips_a_token_that_closes_nothing() {
     let [array] = arrays.as_slice() else { panic!("expected one array literal") };
     assert_eq!(array.elements.len(), 2, "`@` is skipped, not parsed into an element");
 }
-
 
 /// §238. No `(`, no parameters.
 ///

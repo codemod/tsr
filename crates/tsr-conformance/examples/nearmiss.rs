@@ -252,7 +252,6 @@ fn main() {
         return;
     }
 
-
     let mut rows: Vec<Row> = cases.par_iter().filter_map(measure).collect();
     rows.sort_by(|a, b| a.name.cmp(&b.name));
 
@@ -294,7 +293,6 @@ fn main() {
         }
         return;
     }
-
 
     if args.iter().any(|a| a == "--counts") {
         // How much of the board is a WALK disagreement rather than a checker

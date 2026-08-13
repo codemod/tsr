@@ -743,13 +743,12 @@ impl<'a> Parser<'a> {
         // thing that can follow it. The condition can be closed by EITHER
         // token, and a guard written from the common case sees only the
         // common one — `docs/conventions.md` corollary 30.
-        let condition = if self.at(SyntaxKind::SemicolonToken)
-            || self.at(SyntaxKind::CloseParenToken)
-        {
-            None
-        } else {
-            Some(self.parse_expression())
-        };
+        let condition =
+            if self.at(SyntaxKind::SemicolonToken) || self.at(SyntaxKind::CloseParenToken) {
+                None
+            } else {
+                Some(self.parse_expression())
+            };
         self.expect(SyntaxKind::SemicolonToken);
         let incrementor =
             if self.at(SyntaxKind::CloseParenToken) { None } else { Some(self.parse_expression()) };

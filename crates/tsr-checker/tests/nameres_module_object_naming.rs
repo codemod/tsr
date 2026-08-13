@@ -441,7 +441,6 @@ fn a_namespace_import_of_an_export_equals_module_declines() {
     assert_eq!(rendered_at(&fixture, "X", SyntaxKind::NamespaceImport), "error");
 }
 
-
 /// §232. `export =` of something that is **not** a module object resolves.
 ///
 /// §219 refused to follow `export =` at all, on the ground that the printer

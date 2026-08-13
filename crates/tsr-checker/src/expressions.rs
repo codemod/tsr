@@ -487,14 +487,9 @@ impl Checker<'_, '_> {
                                     // rules out every symbol-level disjunct of
                                     // `assumeInitialized` (`:11150-11158`) —
                                     // those cannot vary by reference site.
-                                    if self
-                                        .nodes
-                                        .parent(node_id)
-                                        .is_some_and(|parent| {
-                                            self.nodes.kind(parent)
-                                                == SyntaxKind::ExportAssignment
-                                        })
-                                    {
+                                    if self.nodes.parent(node_id).is_some_and(|parent| {
+                                        self.nodes.kind(parent) == SyntaxKind::ExportAssignment
+                                    }) {
                                         return declared;
                                     }
                                     // §50 (`checker-notes-narrow.md`): a
@@ -2349,7 +2344,8 @@ impl Checker<'_, '_> {
         // there it asks whether a YIELD has a contextual type, here whether its
         // CONTAINER does. Both are `getContextualType`'s parent switch, and
         // both are written as declines so a mistake costs a gap.
-        let contextualised = contextualisable && !self.container_is_provably_uncontextualised(container);
+        let contextualised =
+            contextualisable && !self.container_is_provably_uncontextualised(container);
         // §225: an ANNOTATED generator's yield type is the annotation's NEXT
         // type, and for the shape the corpus actually writes that is readable
         // without `getIterationTypesOfGeneratorFunctionReturnType`. The

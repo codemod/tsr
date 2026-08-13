@@ -297,9 +297,7 @@ fn is_ewta_in_class_extends_clause(id: NodeId, nodes: &NodeTable, map: &NodeMap<
         return false;
     }
     let extends = match map.get(clause) {
-        Some(Node::HeritageClause(heritage)) => {
-            heritage.token.kind == SyntaxKind::ExtendsKeyword
-        }
+        Some(Node::HeritageClause(heritage)) => heritage.token.kind == SyntaxKind::ExtendsKeyword,
         _ => false,
     };
     extends
@@ -601,9 +599,9 @@ pub fn type_id_at_location<'a>(
             // An import clause spells type-only with its PHASE MODIFIER token,
             // not a bool — `import defer` is a different phase and must not
             // qualify.
-            Some(Node::ImportClause(clause)) => clause
-                .phase_modifier
-                .is_some_and(|token| token.kind == SyntaxKind::TypeKeyword),
+            Some(Node::ImportClause(clause)) => {
+                clause.phase_modifier.is_some_and(|token| token.kind == SyntaxKind::TypeKeyword)
+            }
             Some(Node::ExportDeclaration(declaration)) => declaration.is_type_only,
             _ => false,
         }
@@ -981,8 +979,7 @@ pub fn type_id_at_location<'a>(
             == Some(SyntaxKind::ImportEqualsDeclaration)
             && let Some(left) = qualified.left.and_then(|left| left.node_id())
             && let Some(container) = entity_name_symbol(left, nodes, map, binder)
-            && let Some(&member) =
-                binder.symbols().get(container).exports.get(name.text)
+            && let Some(&member) = binder.symbols().get(container).exports.get(name.text)
         {
             let declared = checker.get_declared_type_of_symbol(member);
             if declared != checker.intrinsics().error {

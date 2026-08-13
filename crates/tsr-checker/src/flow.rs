@@ -1254,13 +1254,9 @@ impl Checker<'_, '_> {
                 //
                 // Found by a systematic sweep rather than by a failing case:
                 // upstream's predicate has three disjuncts and this had two.
-                self.binder
-                    .symbols()
-                    .get(symbol)
-                    .value_declaration
-                    .is_some_and(|declaration| {
-                        self.nodes.kind(declaration) == SyntaxKind::FunctionExpression
-                    })
+                self.binder.symbols().get(symbol).value_declaration.is_some_and(|declaration| {
+                    self.nodes.kind(declaration) == SyntaxKind::FunctionExpression
+                })
             }
             Some(Node::PropertyAccessExpression(access)) => {
                 let Some(tsr_ast::MemberName::Identifier(_)) = access.name else {

@@ -120,7 +120,10 @@ impl<'a> Checker<'a, '_> {
                 .flags
                 .intersects(tsr_binder::SymbolFlags::REGULAR_ENUM)
         {
-            return Some(vec![IndexInfo { key: self.intrinsics.number, value: self.intrinsics.string }]);
+            return Some(vec![IndexInfo {
+                key: self.intrinsics.number,
+                value: self.intrinsics.string,
+            }]);
         }
         let TypeData::Named { members: Some(owner), .. } = self.store.get(id).data else {
             return Some(Vec::new());
