@@ -1495,6 +1495,18 @@ impl Checker<'_, '_> {
         {
             return true;
         }
+        // §299: an UNANNOTATED, UNINITIALISED variable — `declare var x;`,
+        // `var x;` — is the implicit any in BOTH compilers: contextual typing
+        // never reaches a bare variable declaration, so the 248-G→W
+        // population this gate was narrowed against (unannotated PARAMETERS)
+        // does not contain it. A call through one is upstream's untyped call
+        // (`asOpEmitParens`, `typeAliasExport`).
+        if let Some(tsr_ast::Node::VariableDeclaration(node)) = self.node_map.get(declaration)
+            && node.r#type.is_none()
+            && node.initializer.is_none()
+        {
+            return true;
+        }
         // §297's one-hop half: `var u = (a2 as any);` — unannotated, the
         // initialiser IS the written cast.
         if annotation.is_none()
