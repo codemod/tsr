@@ -606,6 +606,20 @@ impl Checker<'_, '_> {
                     }
                 }
             }
+            Expression::SpreadElement(node) => {
+                // §286: a spread EXPRESSION's own line is the element type it
+                // contributes — `...new SymbolIterator : symbol`
+                // (`iteratorSpreadInCall*`, upstream's `checkSpreadExpression`
+                // through `getSpreadElementType`). The element read is the
+                // §284/§285 seam; a shape that seam declines keeps the gap,
+                // which is what preserves the array-literal guard's behaviour
+                // (`a_spread_or_an_omitted_element_makes_the_literal_a_gap`
+                // tests the LITERAL road, which checks its elements before
+                // ever asking this arm).
+                let Some(operand) = node.expression else { return self.intrinsics.error };
+                let operand_type = self.check_expression(operand);
+                self.array_spread_element_type(operand_type).unwrap_or(self.intrinsics.error)
+            }
             Expression::ParenthesizedExpression(node) => {
                 // §275: the JSDoc CAST — `/** @type {T} */ (expr)` asserts T,
                 // upstream's `checkParenthesizedExpression` through

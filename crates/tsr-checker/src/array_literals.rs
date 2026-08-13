@@ -632,7 +632,7 @@ impl Checker<'_, '_> {
     /// whole; five `arrayLiteralSpread` lines went RIGHT→GAP through the
     /// helper's other arms, so the Array half is kept verbatim and only the
     /// iterator tail is appended — strictly additive by construction.
-    fn array_spread_element_type(&mut self, operand: TypeId) -> Option<TypeId> {
+    pub(crate) fn array_spread_element_type(&mut self, operand: TypeId) -> Option<TypeId> {
         if operand == self.intrinsics.error {
             return None;
         }
