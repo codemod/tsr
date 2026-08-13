@@ -1095,6 +1095,16 @@ impl<'a> Parser<'a> {
         self.expect(SyntaxKind::OpenBraceToken);
         let mut properties = Vec::new();
         while !self.at(SyntaxKind::CloseBraceToken) && !self.at(SyntaxKind::EndOfFile) {
+            // §277's object-literal twin: a bare `,` cannot start a member and
+            // mints NOTHING — upstream reports "Property assignment expected"
+            // and skips it. `{ x: 0,, }` synthesized an empty property here
+            // that printed ` : any` AND leaked into the object's own type as
+            // `{ x: number; : any; }` (`parseErrorDoubleCommaInCall`).
+            if self.at(SyntaxKind::CommaToken) {
+                self.error_at_current(&messages::PROPERTY_ASSIGNMENT_EXPECTED);
+                self.next_token();
+                continue;
+            }
             let before = self.pos();
             properties.push(self.parse_object_literal_element());
             if self.eat(SyntaxKind::CommaToken) {

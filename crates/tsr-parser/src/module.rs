@@ -602,6 +602,19 @@ impl<'a> Parser<'a> {
             // The report stays in the parser rather than moving to a grammar
             // pass: it lands at upstream's own position, and moving it would
             // trade a bounded fix for an unported check. §217.
+            //
+            // §279: but ONLY when an expression can actually start here.
+            // `import` on its own line before another import statement made
+            // this arm call `parse_expression` on the SECOND `import`, which
+            // swallowed that whole declaration into the first one's specifier
+            // (`importCallExpressionIncorrect1/2`). Upstream's expression
+            // parse mints a missing identifier — one TS1109 at the token,
+            // NOTHING consumed — and the next statement parses intact, which
+            // is exactly what its baseline records.
+            if !self.is_start_of_expression() {
+                self.error_at_current(&messages::EXPRESSION_EXPECTED);
+                return Expression::Identifier(self.missing_identifier());
+            }
             self.error_at_current(&messages::STRING_LITERAL_EXPECTED);
             return self.parse_expression();
         }
