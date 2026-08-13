@@ -670,11 +670,27 @@ impl Checker<'_, '_> {
                         index_values.push((key, member_type));
                         continue;
                     }
-                    let tsr_ast::PropertyName::Identifier(name) = method.name else {
-                        // A computed or string-literal method name needs the
-                        // same quoting rules the property path has and is not
-                        // measured; a gap is one line, a guess is a wrong one.
-                        return error;
+                    // §413: numeric and string method names take the SAME
+                    // spelling rules the property path has — `{ 0() { } }`
+                    // is `{ 0(): void; }` and `{ "foo"() { } }` is
+                    // `{ foo(): void; }` (`parserFunctionPropertyAssignment2/3/4`).
+                    let spelled_name;
+                    let name = match method.name {
+                        tsr_ast::PropertyName::Identifier(name) => name.text,
+                        tsr_ast::PropertyName::NumericLiteral(literal) => {
+                            spelled_name = printing::normalise_number(literal.text);
+                            spelled_name.as_str()
+                        }
+                        tsr_ast::PropertyName::StringLiteral(literal)
+                            if is_identifier_text(literal.text) =>
+                        {
+                            literal.text
+                        }
+                        tsr_ast::PropertyName::StringLiteral(literal) => {
+                            spelled_name = printing::quote(literal.text);
+                            spelled_name.as_str()
+                        }
+                        _ => return error,
                     };
                     // `classifyPropertyName` (`nodebuilderimpl.go:2384`) opens
                     // with one special case and it is exactly this: a **method**
@@ -698,7 +714,7 @@ impl Checker<'_, '_> {
                         upsert_member(
                             &mut members,
                             Member::Property {
-                                name: name.text.to_string(),
+                                name: name.to_string(),
                                 optional: false,
                                 readonly: true,
                                 printed: arrow,
@@ -706,10 +722,10 @@ impl Checker<'_, '_> {
                         );
                         continue;
                     }
-                    let printed = if name.text == "new" {
+                    let printed = if name == "new" {
                         format!("\"new\"{}", signature_member_text(self, &signature))
                     } else {
-                        format!("{}{}", name.text, signature_member_text(self, &signature))
+                        format!("{}{}", name, signature_member_text(self, &signature))
                     };
                     upsert_member(&mut members, Member::Signature { printed });
                     continue;
