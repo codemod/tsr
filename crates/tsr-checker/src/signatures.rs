@@ -309,6 +309,26 @@ impl<'a> Checker<'a, '_> {
         let mut elements: Vec<NodeId> = Vec::new();
         let mut inherited: Vec<Signature> = Vec::new();
         for declaration in declarations {
+            // §377: a TYPE LITERAL's members carry call/construct signatures
+            // exactly as an interface's do, with no heritage to fold —
+            // `var a: { (x?: number): any; }` is callable
+            // (`callSignaturesWithOptionalParameters`); the interface-only
+            // match left every literal-typed callee without candidates.
+            if let Some(Node::TypeLiteralNode(literal)) = self.node_map.get(declaration) {
+                for member in literal.members {
+                    let wanted = match member {
+                        tsr_ast::TypeElement::CallSignatureDeclaration(_) => SignatureKind::Call,
+                        tsr_ast::TypeElement::ConstructSignatureDeclaration(_) => {
+                            SignatureKind::Construct
+                        }
+                        _ => continue,
+                    };
+                    if wanted == kind {
+                        elements.extend(member.node_id());
+                    }
+                }
+                continue;
+            }
             let Some(Node::InterfaceDeclaration(interface)) = self.node_map.get(declaration) else {
                 continue;
             };
