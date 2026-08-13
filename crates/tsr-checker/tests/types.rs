@@ -608,12 +608,19 @@ fn or_and_nullish_are_still_a_gap_and_and_is_not() {
 }
 
 #[test]
-fn a_destructuring_assignment_is_a_gap_and_not_its_right_hand_side() {
-    // `[a] = [1]` binds a *pattern*; taking the right-hand type would be nearly
-    // right for the expression and wrong for everything inside the pattern, so
-    // upstream leaves the function before checking either operand.
-    assert_eq!(type_of_initialiser("const x = ([a] = [1]);"), "error");
-    assert_eq!(type_of_initialiser("const x = ({ a } = { a: 1 });"), "error");
+fn a_destructuring_assignment_answers_its_right_hand_side() {
+    // FLIPPED at §365. The old pin asserted the gap while the pattern's own
+    // typing was unported — its stated reason ("taking the right-hand type
+    // would silently mistype the pattern") named the missing piece, and §365
+    // built it: `checkDestructuringAssignment` (checker.go:12683) checks the
+    // pattern and ANSWERS THE RIGHT TYPE, with the RHS tuple/object context
+    // supplied by the pattern (§76's slot machinery). What the old pin got
+    // right: without the pattern road, the fall-through really did mistype
+    // the pattern line. What replaces it: `iterableArrayPattern3`'s
+    // `[a, b] = new FooIterator : FooIterator`, and the playground's
+    // `const x = ([a] = [1])` reading `[number]`.
+    assert_eq!(type_of_initialiser("const x = ([a] = [1]);"), "[number]");
+    assert_eq!(type_of_initialiser("const x = ({ a } = { a: 1 });"), "{ a: number; }");
 }
 
 /// Named types (`bd tsr-4sc.7`, first slice): `getDeclaredTypeOfSymbol` and the

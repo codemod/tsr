@@ -442,6 +442,36 @@ impl Checker<'_, '_> {
         }
     }
 
+    /// §365: whether a literal sits inside a destructuring-ASSIGNMENT target —
+    /// upstream's `ast.IsAssignmentTarget` reduced to the `=` form. The walk
+    /// climbs the pattern spine (literals, member assignments, spreads) and
+    /// answers at the first binary: true exactly when the spine hangs off the
+    /// LEFT of a simple assignment. Binding patterns (`var {x} = …`) never
+    /// reach this — their pattern is not an expression.
+    pub(crate) fn is_assignment_pattern_target(&self, start: tsr_ast::NodeId) -> bool {
+        let mut current = start;
+        while let Some(parent) = self.nodes.parent(current) {
+            match self.node_map.get(parent) {
+                Some(tsr_ast::Node::BinaryExpression(binary)) => {
+                    return binary
+                        .operator_token
+                        .is_some_and(|t| t.kind == tsr_ast::SyntaxKind::EqualsToken)
+                        && binary.left.and_then(|l| l.node_id()) == Some(current);
+                }
+                Some(
+                    tsr_ast::Node::ArrayLiteralExpression(_)
+                    | tsr_ast::Node::ObjectLiteralExpression(_)
+                    | tsr_ast::Node::PropertyAssignment(_)
+                    | tsr_ast::Node::ShorthandPropertyAssignment(_)
+                    | tsr_ast::Node::SpreadAssignment(_)
+                    | tsr_ast::Node::SpreadElement(_),
+                ) => current = parent,
+                _ => return false,
+            }
+        }
+        false
+    }
+
     pub(crate) fn check_object_literal(&mut self, node: &ObjectLiteralExpression<'_>) -> TypeId {
         let error = self.intrinsics.error;
         // §105 slice 2a (`checker-notes-narrow.md`): a literal in a const
@@ -450,6 +480,13 @@ impl Checker<'_, '_> {
         // member VALUE, because the value-spelling carriage is unbuilt and a
         // wrong quote is worse than the gap.
         let const_context = node.node_id.is_some_and(|id| self.is_const_context(id));
+        // §365: whether this literal IS a destructuring-assignment target —
+        // upstream's `inDestructuringPattern := ast.IsAssignmentTarget(node)`
+        // (checker.go:13155). A defaulted member in that position is OPTIONAL
+        // (`inDestructuringPattern && hasDefaultValue`, checker.go:13248):
+        // `({name: nameA = "noName"} = robot)` prints `{ name?: string; }`.
+        let in_destructuring_pattern =
+            node.node_id.is_some_and(|id| self.is_assignment_pattern_target(id));
         let mut members = Vec::with_capacity(node.properties.len());
         // §206: the index-signature half §201 left as a gap. A computed name
         // whose type IS string-, number- or symbol-like contributes an INDEX
@@ -465,6 +502,10 @@ impl Checker<'_, '_> {
         let mut accessor_members: Vec<(String, usize)> = Vec::new();
         for property in node.properties {
             let mut pending_index_key: Option<&'static str> = None;
+            // §365: `hasDefaultValue(memberDecl)` (checker.go:13248) — a
+            // property assignment whose value is an `=` binary, or a
+            // shorthand carrying an object-assignment initializer.
+            let mut member_optional = false;
             // `checker.go:13223` dispatches over three member kinds. Only two are
             // reachable here: a method needs `checkObjectLiteralMethod` and a
             // signature member this port cannot print, and a spread or accessor
@@ -474,6 +515,12 @@ impl Checker<'_, '_> {
                 tsr_ast::ObjectLiteralElementLike::PropertyAssignment(assignment) => {
                     let Some(initializer) = assignment.initializer else { return error };
                     property_node_id = assignment.node_id;
+                    if in_destructuring_pattern
+                        && matches!(initializer, tsr_ast::Expression::BinaryExpression(binary)
+                            if binary.operator_token.is_some_and(|t| t.kind == tsr_ast::SyntaxKind::EqualsToken))
+                    {
+                        member_optional = true;
+                    }
                     (assignment.name, PropertyValue::Initializer(initializer))
                 }
                 // `{ a }`. `checkShorthandPropertyAssignment` (`checker.go:13689`)
@@ -500,7 +547,17 @@ impl Checker<'_, '_> {
                     // the obvious fixture passes whether or not this line
                     // exists, which would be a decoration.
                     if shorthand.object_assignment_initializer.is_some() {
-                        return error;
+                        // §365: the named edit arrived — destructuring
+                        // assignment is ported, so `{ nameA = "noName" } = x`
+                        // reaches this literal. In pattern position the
+                        // member types as the NAME expression (its declared
+                        // binding) and the default makes it optional
+                        // (checker.go:13248). Outside a pattern the form is
+                        // a grammar error and keeps the gap.
+                        if !in_destructuring_pattern {
+                            return error;
+                        }
+                        member_optional = true;
                     }
                     let tsr_ast::PropertyName::Identifier(identifier) = shorthand.name else {
                         // The grammar gives a shorthand an identifier name; any
@@ -985,7 +1042,12 @@ impl Checker<'_, '_> {
             // [Symbol.isConcatSpreadable]: 1 }` prints one member).
             upsert_member(
                 &mut members,
-                Member::Property { name, optional: false, readonly: const_context, printed },
+                Member::Property {
+                    name,
+                    optional: member_optional,
+                    readonly: const_context,
+                    printed,
+                },
             );
         }
         if !index_values.is_empty() {

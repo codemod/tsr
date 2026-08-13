@@ -65,7 +65,19 @@ impl Checker<'_, '_> {
                 Expression::ObjectLiteralExpression(_) | Expression::ArrayLiteralExpression(_)
             )
         {
-            return error;
+            // §365: the test became load-bearing exactly as predicted above —
+            // literals are checked now, so the fall-through would mistype the
+            // pattern. `checkDestructuringAssignment` (checker.go:12683)
+            // checks the pattern against the right type and ANSWERS THE RIGHT
+            // TYPE: `[a, b] = new FooIterator` is `FooIterator`
+            // (`iterableArrayPattern3`). The pattern's own line comes from
+            // the walker visiting the literal, which the array road answers
+            // as a tuple in this position.
+            let right_type = self.check_expression(right);
+            if right_type == error {
+                return error;
+            }
+            return right_type;
         }
 
         let left_type = self.check_expression(left);

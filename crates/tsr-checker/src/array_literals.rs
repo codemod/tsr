@@ -315,6 +315,33 @@ impl Checker<'_, '_> {
 
     pub(crate) fn check_array_literal(&mut self, node: &ArrayLiteralExpression<'_>) -> TypeId {
         let error = self.intrinsics.error;
+        // §365: the literal that IS the target of a destructuring assignment
+        // mints a TUPLE of its element targets' types — upstream's
+        // `inDestructuringPattern` exit of `checkArrayLiteral`
+        // (`checker.go:8084`, `createTupleTypeEx`): `[a, b] = new FooIterator`
+        // records `>[a, b] : [Bar, Bar]` (`iterableArrayPattern3`). Spreads
+        // and omissions need the rest/optional element flags this tuple mint
+        // does not carry, so they keep today's road.
+        if let Some(id) = node.node_id
+            && let Some(parent) = self.nodes.parent(id)
+            && let Some(tsr_ast::Node::BinaryExpression(binary)) = self.node_map.get(parent)
+            && binary.operator_token.is_some_and(|t| t.kind == tsr_ast::SyntaxKind::EqualsToken)
+            && binary.left.and_then(|l| l.node_id()) == Some(id)
+            && !node.elements.iter().any(|element| {
+                matches!(element, Expression::SpreadElement(_) | Expression::OmittedExpression(_))
+            })
+            && !node.elements.is_empty()
+        {
+            let mut elements = Vec::with_capacity(node.elements.len());
+            for element in node.elements {
+                let element_type = self.check_expression(*element);
+                if element_type == error {
+                    return error;
+                }
+                elements.push(element_type);
+            }
+            return self.create_tuple_type(elements, false);
+        }
         // §6.3 (`checker-notes-arrays.md`): a literal with a TUPLE spread
         // mints a tuple — plain elements widened in place, tuple spreads
         // spliced. Any non-tuple spread, omission, or gap declines whole.
