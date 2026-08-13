@@ -106,10 +106,16 @@ fn type_arguments_that_do_not_check_are_a_gap() {
         "error"
     );
     // Type arguments on a signature that takes none — `checkNoTypeArguments`.
-    // Answering `number` here would quietly drop what the caller wrote.
+    // FLIPPED at §375: the old line asserted `error` on the derivation that
+    // answering would "quietly drop what the caller wrote" — but upstream
+    // REPORTS TS2558 and still resolves the error call through the
+    // candidate; the type is the return. The corpus witness is
+    // `typeAssertions`' `fn2<string>(4) : void`. What the old pin got
+    // right: the construct IS an error — that half lives in the
+    // diagnostics lane, not in this type.
     assert_eq!(
         type_of_last("function g(x: number): number { return x; }\nconst a = g<string>(1);"),
-        "error"
+        "number"
     );
     // The stand-in came due (the twenty-seventh): §31 made a truly
     // unresolved NAME answer upstream's TS2304 `errorType`, printed `any` —

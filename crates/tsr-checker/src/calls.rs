@@ -633,11 +633,15 @@ impl Checker<'_, '_> {
             return answer;
         }
         // `checkNoTypeArguments` (`checker.go:23157`): type arguments on a
-        // signature that takes none is an error, and answering the return type
-        // would quietly drop them.
+        // signature that takes none is an ERROR — and the call still answers
+        // the signature's return. §375 corrects the old reading ("answering
+        // the return type would quietly drop them"): upstream reports TS2558
+        // and resolves the error call through the candidate anyway
+        // (`typeAssertions` records `fn2<string>(4) : void`). The report is
+        // the diagnostics lane's; the type is this one's.
         if !node.type_arguments.is_empty() {
             bump(&COUNTERS.single_candidate_type_arguments);
-            return error;
+            return signature.r#type;
         }
         // `resolveCallExpression` (`checker.go:8348`): *"treat any call to the
         // global `Symbol` function that is part of a const variable or readonly
