@@ -835,7 +835,14 @@ fn a_reference_to_a_generic_type_carries_its_arguments() {
         type_of_declaration("type A<T> = T;\ndeclare const x: A<number>;", "x"),
         "A<number>"
     );
-    assert_eq!(declared_type_of("type Tree<T> = T;", "Tree"), "Tree<T>");
+    // FLIPPED at §282: this asserted `Tree<T>` for a body that IS the bare
+    // parameter, which was the port's display shortcut and not upstream's
+    // rule — `type Bar1<T extends unknown[][]> = T` records `Bar1 : T` in
+    // `substitutionTypePassedToExtends.types`, because upstream attaches an
+    // alias symbol only to types CREATED during the resolution and a
+    // pre-existing type parameter keeps its own display. A NON-trivial body
+    // still prints the alias name (the `A<number>` reference above).
+    assert_eq!(declared_type_of("type Tree<T> = T;", "Tree"), "T");
 }
 
 #[test]

@@ -2636,6 +2636,25 @@ impl<'a> Checker<'a, '_> {
         // rather than needing the guard below.
         let parameters = self.local_type_parameter_names_of(symbol);
         if !parameters.is_empty() {
+            // §282: a generic alias whose body IS one of its own type
+            // parameters answers that parameter — upstream attaches an alias
+            // symbol only to types CREATED during the resolution, and a
+            // pre-existing type parameter keeps its own display:
+            // `type Bar1<T extends unknown[][]> = T` records `Bar1 : T`
+            // (`substitutionTypePassedToExtends`,
+            // `substituteReturnTypeSatisfiesConstraint`,
+            // `homomorphicMappedTypeNesting`). Everything else keeps the
+            // name-with-parameters mint below.
+            if let Some(declaration) =
+                self.binder.symbols().get(symbol).declarations.first().copied()
+                && let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
+                && let Some(body @ TypeNode::TypeReferenceNode(reference)) = alias.r#type
+                && reference.type_arguments.is_empty()
+                && matches!(reference.type_name, Some(tsr_ast::EntityName::Identifier(name))
+                    if parameters.iter().any(|parameter| parameter == name.text))
+            {
+                return self.get_type_from_type_node(body);
+            }
             let name = self.binder.symbols().get(symbol).name.to_string();
             return self.store.new_named(
                 TypeFlags::OBJECT,
