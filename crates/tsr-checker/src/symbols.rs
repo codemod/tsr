@@ -2107,7 +2107,21 @@ impl<'a> Checker<'a, '_> {
         if flags.intersects(SymbolFlags::MODULE) && self.is_shorthand_ambient_module(symbol) {
             return self.intrinsics.any;
         }
+        // §305: `getNameOfSymbolAsWritten`'s nameless fallbacks
+        // (`nodebuilderimpl.go:1005`) — a nameless CLASS EXPRESSION spells as
+        // the variable it initializes (`var V = class {}` prints `typeof V`)
+        // or, with no such parent, as the literal `(Anonymous class)`. This is
+        // the naming §168 refused to guess at; upstream's rule turned out to
+        // be a two-line declaration walk, not per-site context. Gated to class
+        // expressions: a nameless default-export CLASS DECLARATION spells
+        // `default` through a different leg of the same function, unported.
         if self.has_a_name_no_type_query_can_spell(symbol) {
+            if flags.intersects(SymbolFlags::CLASS)
+                && let Some(written) = self.anonymous_class_written_name(symbol)
+            {
+                let printed = format!("typeof {written}");
+                return self.store.new_anonymous(TypeFlags::OBJECT, printed, symbol, false);
+            }
             return self.intrinsics.error;
         }
         let name = self.binder.symbols().get(symbol).name;
@@ -2245,7 +2259,120 @@ impl<'a> Checker<'a, '_> {
     /// every line *through* an ambient module at `errorType` even after the
     /// module resolved.
     fn has_a_name_no_type_query_can_spell(&self, symbol: SymbolId) -> bool {
-        self.binder.symbols().get(symbol).name.is_empty()
+        let name = self.binder.symbols().get(symbol).name;
+        // `__class` is `InternalSymbolNameClass` — the binder's placeholder
+        // for an anonymous class expression, never a spellable name. §305's
+        // first draft missed it and printed `typeof __class` raw across
+        // `classExpression3/4` — the exact wrong answer §168 recorded.
+        name.is_empty() || name == "__class"
+    }
+
+    /// §305: the nameless-declaration arm of `getNameOfSymbolAsWritten`
+    /// (`nodebuilderimpl.go:1005`). "Declaration may be nameless, but we'll
+    /// try anyway": `GetAssignedName` (`utilities.go:1486`) walks one parent —
+    /// property assignment, binding element, assignment right-hand side,
+    /// variable declaration — and a walk that names nothing prints the
+    /// literal `(Anonymous class)`. Only for class expressions — the function
+    /// forms print structurally in the `.types` baseline and never reach the
+    /// `typeof` leg.
+    ///
+    /// A name the walk *finds* but this port cannot spell (a string-literal
+    /// property name, a computed one) answers `None` — upstream prints the
+    /// written text of that name node, and `(Anonymous class)` there would be
+    /// a wrong answer where a gap belongs.
+    pub(crate) fn anonymous_class_written_name(&self, symbol: SymbolId) -> Option<String> {
+        // `symbol.Declarations[0]`, as upstream reads it — an anonymous
+        // declaration carries no `value_declaration` in this binder.
+        let declaration = *self.binder.symbols().get(symbol).declarations.first()?;
+        let Some(Node::ClassExpression(class)) = self.node_map.get(declaration) else {
+            return None;
+        };
+        // A decorated class EXPRESSION is the parser's error recovery, not a
+        // class the source wrote (decorators attach to class declarations
+        // only) — `var F = @dec () => {}` recovers as one, and upstream's
+        // answer for that line is `any`, never a name
+        // (`conformance/decoratorOnArrowFunction`).
+        if class
+            .modifiers
+            .iter()
+            .any(|modifier| matches!(modifier, tsr_ast::ModifierLike::Decorator(_)))
+        {
+            return None;
+        }
+        // A class expression extending a PARAMETER — the mixin pattern,
+        // `return class extends Base {}` — is an INTERSECTION upstream
+        // (`getBaseTypeVariableOfClass`, `checker.go:16936`), never a bare
+        // `typeof (Anonymous class)`: its static side prints structurally as
+        // `{ new (...): (Anonymous class); ... } & TBase`
+        // (`compiler/anonClassDeclarationEmitIsAnon`). The worker's doc
+        // already accepts this limit for NAMED classes; the anonymous ones
+        // decline here, on the syntactic proxy for "base is a type variable".
+        for clause in class.heritage_clauses {
+            if clause.token.kind != SyntaxKind::ExtendsKeyword {
+                continue;
+            }
+            for base in clause.types {
+                if let Some(tsr_ast::Expression::Identifier(base_name)) = base.expression
+                    && let Some(base_id) = base_name.node_id
+                    && let Some(base_symbol) = self.binder.resolve_name(
+                        self.nodes,
+                        self.node_map,
+                        base_id,
+                        base_name.text,
+                        SymbolFlags::VALUE,
+                    )
+                    && let Some(&base_declaration) =
+                        self.binder.symbols().get(base_symbol).declarations.first()
+                    && self.nodes.kind(base_declaration) == SyntaxKind::Parameter
+                {
+                    return None;
+                }
+            }
+        }
+        let Some(parent) = self.nodes.parent(declaration) else {
+            return Some("(Anonymous class)".to_string());
+        };
+        match self.node_map.get(parent) {
+            Some(Node::PropertyAssignment(property)) => {
+                if let tsr_ast::PropertyName::Identifier(name) = property.name {
+                    return Some(name.text.to_string());
+                }
+                return None;
+            }
+            Some(Node::BindingElement(element)) => {
+                if let Some(tsr_ast::BindingName::Identifier(name)) = element.name {
+                    return Some(name.text.to_string());
+                }
+                return None;
+            }
+            Some(Node::BinaryExpression(binary)) => {
+                if binary.right.and_then(|right| right.node_id()) == Some(declaration) {
+                    match binary.left {
+                        Some(tsr_ast::Expression::Identifier(left)) => {
+                            return Some(left.text.to_string());
+                        }
+                        Some(tsr_ast::Expression::PropertyAccessExpression(access)) => {
+                            if let Some(tsr_ast::MemberName::Identifier(name)) = access.name {
+                                return Some(name.text.to_string());
+                            }
+                            return None;
+                        }
+                        // The element-access arm wants the literal argument's
+                        // WRITTEN text (`utilities.go:1503`) — quotes and all —
+                        // which this port does not carry. Refuse, not guess.
+                        Some(tsr_ast::Expression::ElementAccessExpression(_)) => return None,
+                        _ => {}
+                    }
+                }
+            }
+            Some(Node::VariableDeclaration(variable)) => {
+                if let Some(tsr_ast::BindingName::Identifier(name)) = variable.name {
+                    return Some(name.text.to_string());
+                }
+            }
+            _ => {}
+        }
+        Some("(Anonymous class)".to_string())
     }
 
     /// Ported from `isShorthandAmbientModule` (`utilities.go:202`): *"the only

@@ -776,7 +776,15 @@ impl Checker<'_, '_> {
             // §168, and `functionsInClassExpressions` and
             // `implementsInClassExpression` are still gaps because of it.
             // `docs/conventions.md` corollary 11. §207.
-            Expression::ClassExpression(node) if node.name.is_some() => {
+            //
+            // §305 reopened the anonymous case: what §168 read as per-site
+            // contextual naming is, upstream, a declaration walk baked into
+            // `getNameOfSymbolAsWritten` (`nodebuilderimpl.go:1005`) — parent
+            // `VariableDeclaration`'s name, else `(Anonymous class)` — so the
+            // guard on `name` came off and the naming lives with the other
+            // spellings in `symbols.rs`. A symbol the walk cannot name still
+            // refuses there, exactly as this guard refused here.
+            Expression::ClassExpression(node) => {
                 let Some(id) = node.node_id else { return self.intrinsics.error };
                 let Some(symbol) = self.binder.symbol_of(id) else {
                     return self.intrinsics.error;

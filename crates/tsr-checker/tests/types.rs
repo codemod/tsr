@@ -2456,15 +2456,18 @@ fn a_named_class_expression_is_typeof_its_own_name() {
     assert_eq!(type_of_initialiser("const V = class Foo { m() {} };"), "typeof Foo");
 }
 
-/// The control that keeps §168's refusal in force where it was measured: an
-/// ANONYMOUS class expression is still a gap, because naming it needs the
-/// contextual naming that refused §145, §156, §158 and §168 — the variable's
-/// name, not the binder's `__class`. Without this, dropping the `name.is_some()`
-/// guard also passes the test above and prints `typeof __class` across the
-/// corpus.
+/// FLIPPED at §305: what §168 read as per-site contextual naming is, upstream,
+/// a one-parent declaration walk baked into `getNameOfSymbolAsWritten` →
+/// `GetAssignedName` (`nodebuilderimpl.go:1005`, `utilities.go:1486`) — the
+/// initialized variable's name, else the literal `(Anonymous class)`. The
+/// baseline for `let C = class {}` records `>C : typeof C`
+/// (`conformance/classExpression4`); a class expression no walk can name
+/// prints `typeof (Anonymous class)` (`compiler/anonymousClassExpression1`).
+/// The `typeof __class` failure §168 measured is pinned out by the internal
+/// name test in `has_a_name_no_type_query_can_spell`.
 #[test]
-fn an_anonymous_class_expression_is_still_a_gap() {
-    assert_eq!(type_of_initialiser("const V = class {};"), "error");
+fn an_anonymous_class_expression_spells_by_the_assigned_name_walk() {
+    assert_eq!(type_of_initialiser("const V = class {};"), "typeof V");
 }
 
 /// §213. A non-static property initializer cannot see a name the constructor

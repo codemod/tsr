@@ -2870,7 +2870,15 @@ impl<'a> Checker<'a, '_> {
                 tsr_ast::Node::Identifier(identifier) => Some(identifier.text.to_string()),
                 _ => None,
             });
-        let name = declared_name.unwrap_or_else(|| symbols.get(symbol).name.to_string());
+        // §305: an anonymous class expression's INSTANCE type takes the same
+        // `getNameOfSymbolAsWritten` walk as its `typeof` — `let C = class
+        // { foo() { return new C(); } }` records `>new C() : C`
+        // (`conformance/classExpression4`). The helper answers `None` for
+        // every non-class-expression declaration, so the other kinds keep
+        // the fallback they had.
+        let name = declared_name
+            .or_else(|| self.anonymous_class_written_name(symbol))
+            .unwrap_or_else(|| self.binder.symbols().get(symbol).name.to_string());
         let printed = if with_type_parameters {
             let parameters = self.local_type_parameter_names_of(symbol);
             if parameters.is_empty() { name } else { format!("{name}<{}>", parameters.join(", ")) }
