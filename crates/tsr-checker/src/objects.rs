@@ -751,20 +751,57 @@ impl Checker<'_, '_> {
                         if member_type == error {
                             return error;
                         }
-                        let has_setter_sibling = node.properties.iter().any(|sibling| {
-                            matches!(sibling,
-                                tsr_ast::ObjectLiteralElementLike::SetAccessorDeclaration(setter)
-                                    if matches!(setter.name,
-                                        tsr_ast::PropertyName::Identifier(other)
-                                            if other.text == name.text))
-                        });
+                        let setter_sibling =
+                            node.properties.iter().find_map(|sibling| match sibling {
+                                tsr_ast::ObjectLiteralElementLike::SetAccessorDeclaration(
+                                    setter,
+                                ) if matches!(setter.name,
+                                    tsr_ast::PropertyName::Identifier(other)
+                                        if other.text == name.text) =>
+                                {
+                                    Some(setter)
+                                }
+                                _ => None,
+                            });
+                        // §417: a pair whose getter and setter types DIFFER
+                        // prints the accessor forms —
+                        // `{ get x(): string; set x(a: number); }`
+                        // (declarationEmitObjectLiteralAccessors1), §415's
+                        // recorded rung.
+                        let setter_annotation = setter_sibling
+                            .and_then(|setter| setter.node_id)
+                            .and_then(|setter_id| match self.node_map.get(setter_id) {
+                                Some(tsr_ast::Node::SetAccessorDeclaration(fetched)) => {
+                                    fetched.parameters.first().and_then(|p| p.r#type)
+                                }
+                                _ => None,
+                            });
+                        if let Some(annotation) = setter_annotation {
+                            let setter_type = self.get_type_from_type_node(annotation);
+                            if setter_type != error
+                                && self.type_to_string(setter_type)
+                                    != self.type_to_string(member_type)
+                            {
+                                let Some(signature) = self.get_signature_from_declaration(id)
+                                else {
+                                    return error;
+                                };
+                                let printed = format!(
+                                    "get {}(): {}",
+                                    name.text,
+                                    self.type_to_string(signature.r#type)
+                                );
+                                members.push(Member::Signature { printed });
+                                continue;
+                            }
+                        }
                         let printed = self.type_to_string(member_type);
                         upsert_member(
                             &mut members,
                             Member::Property {
                                 name: name.text.to_string(),
                                 optional: false,
-                                readonly: const_context || !has_setter_sibling,
+                                readonly: const_context || setter_sibling.is_none(),
                                 printed,
                             },
                         );
@@ -849,6 +886,43 @@ impl Checker<'_, '_> {
                         let member_type = self.get_type_of_symbol(symbol);
                         if member_type == error {
                             return error;
+                        }
+                        // §417: the setter half of the divergent pair —
+                        // `set x(a: number)` prints whole when its annotated
+                        // parameter differs from the pair's type (which the
+                        // getter arm's road computed as the getter's).
+                        let fetched_parameter = match self.node_map.get(id) {
+                            Some(tsr_ast::Node::SetAccessorDeclaration(fetched)) => {
+                                fetched.parameters.first().copied()
+                            }
+                            _ => None,
+                        };
+                        if let Some(parameter) = fetched_parameter
+                            && let Some(annotation) = parameter.r#type
+                        {
+                            let setter_type = self.get_type_from_type_node(annotation);
+                            // Compared by PRINTED form: an anonymous mint
+                            // (a function-type annotation) is not interned,
+                            // so TypeId inequality alone would split
+                            // setter-only pairs whose types agree
+                            // (`setParamType1`, the draft's 4 R->GAP).
+                            if setter_type != error
+                                && self.type_to_string(setter_type)
+                                    != self.type_to_string(member_type)
+                            {
+                                let parameter_name = match parameter.name {
+                                    Some(tsr_ast::BindingName::Identifier(p)) => p.text,
+                                    _ => return error,
+                                };
+                                let printed = format!(
+                                    "set {}({}: {})",
+                                    name.text,
+                                    parameter_name,
+                                    self.type_to_string(setter_type)
+                                );
+                                members.push(Member::Signature { printed });
+                                continue;
+                            }
                         }
                         let printed = self.type_to_string(member_type);
                         upsert_member(
