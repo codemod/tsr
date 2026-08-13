@@ -622,7 +622,6 @@ fn typeof_object_keeps_null_and_drops_the_primitives() {
     );
 }
 
-
 /// §231. `typeof x === "function"` narrows — the arm existed and had never run.
 ///
 /// `narrowTypeByTypeName`'s function arm reads `c.globalFunctionType`, and this

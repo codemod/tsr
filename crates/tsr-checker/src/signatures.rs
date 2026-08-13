@@ -1074,10 +1074,40 @@ impl<'a> Checker<'a, '_> {
             let mut operand_types: Vec<TypeId> = Vec::new();
             for (delegates, id, operand) in yields {
                 // `yield*` reads the delegated iterable's element type through
-                // the iteration protocol (`getYieldedTypeOfYieldExpression`) —
-                // unported, and the whole signature declines rather than
-                // mistyping the yield slot.
+                // the iteration protocol (`getYieldedTypeOfYieldExpression`).
+                // §351 ports the ARRAY slice: the element feeds the yield slot
+                // directly (`generatorTypeCheck22/23/24` record
+                // `Generator<Bar | Baz | undefined, void, unknown>` from
+                // `yield* [new Bar, new Baz]` beside a bare `yield`). Every
+                // other delegated shape still declines the whole signature
+                // rather than mistyping the slot.
                 if delegates {
+                    let operand = operand?;
+                    let operand_type = self.check_expression(operand);
+                    if operand_type == self.intrinsics.error {
+                        return None;
+                    }
+                    if let Some((target, arguments)) =
+                        self.type_reference_targets.get(&operand_type).cloned()
+                        && arguments.len() == 1
+                        // The DEGENERATE element (`yield * []`) declines, as
+                        // §349's expression half does — upstream's slot for it
+                        // is `any` (`YieldStarExpression4_es6`).
+                        && !self
+                            .store
+                            .get(arguments[0])
+                            .flags
+                            .intersects(crate::flags::TypeFlags::UNDEFINED | crate::flags::TypeFlags::NEVER)
+                        && self.global_type_symbol("Array").is_some_and(|array| {
+                            self.binder.merged_symbol(target) == self.binder.merged_symbol(array)
+                        })
+                    {
+                        let element = arguments[0];
+                        if !operand_types.contains(&element) {
+                            operand_types.push(element);
+                        }
+                        continue;
+                    }
                     return None;
                 }
                 // The first measurement fired the §15 bar's leg 2 at 41 and
@@ -1148,7 +1178,14 @@ impl<'a> Checker<'a, '_> {
                                 | SyntaxKind::BindingElement
                                 | SyntaxKind::ArrowFunction
                                 | SyntaxKind::ReturnStatement
-                                | SyntaxKind::YieldExpression
+                                // §353 removed `YieldExpression` from this
+                                // list: the OUTER yield's contextual iteration
+                                // type is what would feed the inner one, and
+                                // in the DECLARATION-only arm this loop
+                                // already guards, that chain provably
+                                // dead-ends — `yield yield 0` aggregates
+                                // `{any, 0}` to `Generator<any, void,
+                                // unknown>` (`generatorTypeCheck36/50`).
                                 | SyntaxKind::AwaitExpression
                                 | SyntaxKind::CallExpression
                                 | SyntaxKind::NewExpression
@@ -1349,6 +1386,27 @@ impl<'a> Checker<'a, '_> {
                 continue;
             };
             let id = self.check_expression(expression);
+            // §272, MEASURED AND REFUSED. Upstream keeps an errorType return
+            // aggregate and builds the signature regardless — `() => any` for
+            // a body whose return errored (`super1`, the `() => any` census
+            // row, ~11 deficit-1 cases). Letting error through here and in
+            // `inferred_return_type` measured, on the dc1b4afb tree:
+            //
+            //     GAP->WRONG 405   (promiseType 22, promiseTypeStrictNull 22,
+            //                       asyncMethodWithSuper_es6 12, …)
+            //     RIGHT->WRONG 2   against GAP->RIGHT 14 / WRONG->RIGHT 25
+            //
+            // §257's shape at 7x the size: in this port errorType also means
+            // UNPORTED, so every function whose body merely contains an
+            // unported form started answering a confident `() => error`-shaped
+            // type where upstream computes a real one. The arithmetic arm's
+            // §271 retirement went the other way because ITS error-operand
+            // population measured empty; this one is 405 strong.
+            //
+            // REOPENING CONDITION: when the big unported return-expression
+            // forms land (await/async valued returns above all — promiseType
+            // alone is 44 of the 405), re-run the same two-line probe; the
+            // rule is right the day that population is small.
             if id == self.intrinsics.error {
                 return None;
             }
@@ -1514,6 +1572,8 @@ impl<'a> Checker<'a, '_> {
     /// Everything between — a call argument, an object-literal property, a
     /// `return` expression — widens, which is what upstream does there.
     fn inferred_return_type(&mut self, declaration: NodeId, id: TypeId) -> Option<TypeId> {
+        // §272's second half — measured and refused with the aggregate site;
+        // the numbers and the reopening condition are there.
         if id == self.intrinsics.error {
             return None;
         }
@@ -1583,6 +1643,14 @@ impl<'a> Checker<'a, '_> {
         while let Some(node) = stack.pop() {
             let id = node.node_id();
             if id.is_some_and(|id| id != owner && self.signature_parts_of(id).is_some()) {
+                continue;
+            }
+            // §283: a class STATIC BLOCK is its own return boundary —
+            // `function f3() { class C { static { return 1; } } }` is
+            // `() => void`, not `() => number` (`classStaticBlock7`).
+            // `signature_parts_of` covers the function-like boundaries; the
+            // static block is the one return-owning container it does not.
+            if matches!(node, Node::ClassStaticBlockDeclaration(_)) {
                 continue;
             }
             if let Node::ReturnStatement(statement) = node {

@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; scanner, parser and binder only, with no checker (bd tsr-4sc)
-Passed         : 2522/5488 (45.95%)
-Failed         : 2966
+Passed         : 2536/5488 (46.21%)
+Failed         : 2952
 Skipped        : 6956 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -11,7 +11,7 @@ Skipped        : 6956 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 2966 failures:
+First 100 of 2952 failures:
 compiler/ClassDeclaration26
   2 unexpected (first TS1005 at ClassDeclaration26.ts(2,22)), 5 missing
 compiler/TransportStream
@@ -58,8 +58,6 @@ compiler/ambientPropertyDeclarationInJs
   2 missing (first TS2322 at /test.js(3,9))
 compiler/ambiguousGenericAssertion1
   4 unexpected (first TS2304 at ambiguousGenericAssertion1.ts(4,12)), 1 missing
-compiler/ambiguousOverload
-  2 missing (first TS2322 at ambiguousOverload.ts(5,5))
 compiler/anonymousModules
   3 unexpected (first TS1005 at anonymousModules.ts(1,8)), 3 missing
 compiler/anyIdenticalToItself
@@ -212,3 +210,5 @@ compiler/autoTypeAssignedUsingDestructuringFromNeverNoCrash
   1 missing (first TS2488 at autoTypeAssignedUsingDestructuringFromNeverNoCrash.ts(9,3))
 compiler/avoidListingPropertiesForTypesWithOnlyCallOrConstructSignatures
   1 missing (first TS2322 at avoidListingPropertiesForTypesWithOnlyCallOrConstructSignatures.ts(7,20))
+compiler/awaitCallExpressionInSyncFunction
+  1 unexpected (first TS2304 at awaitCallExpressionInSyncFunction.ts(2,16)), 1 missing

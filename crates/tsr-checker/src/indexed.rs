@@ -215,66 +215,46 @@ impl Checker<'_, '_> {
         {
             return self.intrinsics.any;
         }
-        // §263, MEASURED AND REVERTED — incomplete rather than wrong, and the
-        // damage names the missing half.
+        // §263+§264, landed together (the halves are not independently
+        // measurable — either alone reads +0). `noUncheckedIndexedAccess`
+        // includes `undefined` in an index-signature result, in EXPRESSION
+        // position only.
         //
-        // `noUncheckedIndexedAccess` adds `undefined` to an index-signature
-        // result. `members.rs:551` already does this on the PROPERTY road and
-        // this element-access road does not, so one program answers the
-        // narrowed type through one road and the bare type through the other.
-        // Surfaced by §262's two adverse lines.
+        // **§264's recorded predicate was BACKWARDS, and upstream's own text
+        // settles it.** The record here said: exclude when the parent is a
+        // compound assignment ("the LHS of a compound assignment reads the
+        // DECLARED type"). Upstream says the opposite
+        // (`checker.go:8164-8172`): `getAssignmentTargetKind` DEFINITE — `=`,
+        // the logical assignments, a for-in/of target — gets `AccessFlagsWriting`
+        // with NO `ExpressionPosition`; COMPOUND gets `Writing |
+        // ExpressionPosition`; and `IncludeUndefined` is derived from
+        // `ExpressionPosition` alone (`checker.go:26947`). A compound LHS is a
+        // read-modify-write, so it DOES include `undefined`; only a definite
+        // write is excluded. §263's four damaged lines were definite-write
+        // lines present in both fixtures, not compound ones — the misread came
+        // from attributing the damage to the fixture's NAME.
         //
-        // Applying it at all three `get_applicable_index_info` sites here:
-        //
-        //     +0 cases
-        //     WRONG->RIGHT 19   (noUncheckedIndexedAccess 9,
-        //                        noUncheckedIndexedAccessCompoundAssignments 8,
-        //                        noUncheckedIndexAccess 2)
-        //     RIGHT->WRONG  4   (noUncheckedIndexedAccessCompoundAssignments 2,
-        //                        noUncheckedIndexedAccess 2)
-        //
-        // 19:4 favourable, but it damages four lines that were RIGHT and buys
-        // no case at all — which is the test §248 passed and §249 failed, and
-        // this fails it too. Not landed on a favourable ratio alone.
-        //
-        // The damaged lines are in the same two fixtures that gain, which is
-        // the tell: the flag is being applied where upstream does AND where it
-        // does not. Upstream narrows a READ; the LHS of a compound assignment
-        // reads the DECLARED type (`checkAssignmentOperator`), and
-        // `noUncheckedIndexedAccessCompoundAssignments` is named for exactly
-        // that distinction. So the missing half is a write-position exclusion,
-        // and it is decidable from the parent — an element access whose parent
-        // is a compound-assignment LHS.
-        //
-        // §264 WROTE THE EXCLUSION AND IT MUST LAND WITH §263, NOT AFTER IT.
-        // The predicate is small and decidable — an element access whose parent
-        // is a BinaryExpression, is that expression's `left`, and whose operator
-        // is an assignment operator other than `=`:
-        //
-        //     node.node_id -> parent is BinaryExpression
-        //         && binary.left == this node
-        //         && operator.is_assignment_operator() && operator != EqualsToken
-        //
-        // Applied ALONE, on top of the reverted §263, it measured `+0` and "no
-        // transitions" — correctly, and for a reason worth recording: with
-        // §263's call sites reverted there are no narrowings for an exclusion to
-        // exclude, so the helper was dead code. **A conditional half of a
-        // two-part change is not independently measurable**, and reading its
-        // zero as a verdict on the predicate would have been wrong.
-        //
-        // That also means the +0 here is NOT corollary 27's unconfirmed zero:
-        // the arm provably cannot fire, by construction rather than by
-        // accident, so no probe is owed. The two halves want one commit,
-        // measured together, against the 19:4 §263 recorded above.
-        //
-        // Left unbuilt rather than landed as dead code, which would also fail
-        // the workspace clippy gate.
+        // The union site is `getPropertyTypeForIndexType` (`checker.go:27107`),
+        // with one carve-out (`checker.go:27117`): indexing an enum's object
+        // type with one of its OWN member literals — `E[E.A]` — stays exact,
+        // no `undefined`. `enum_member_owners` is precisely that back-edge.
+        let include_undefined = self.no_unchecked_indexed_access
+            && node.node_id.is_none_or(|id| {
+                self.assignment_target_kind(id)
+                    != crate::expressions::AssignmentTargetKind::Definite
+            });
         let Some(name) = self.property_name_from_index(index_type) else {
             // Not a literal, so it names no property. `getIndexedAccessType`
             // falls to the index signatures (`checker.go:21902`).
-            return self
-                .get_applicable_index_info(object_type, index_type)
-                .map_or(error, |info| info.value);
+            if let Some(info) = self.get_applicable_index_info(object_type, index_type) {
+                return self.include_unchecked_undefined(
+                    info.value,
+                    include_undefined,
+                    object_type,
+                    index_type,
+                );
+            }
+            return error;
         };
         // Through [`Checker::get_type_of_property_of_type`] rather than
         // `get_property_of_type` + `get_type_of_symbol`, because the symbol
@@ -287,7 +267,12 @@ impl Checker<'_, '_> {
         // A named lookup that misses still reaches the index signatures, which is
         // what makes `{ [k: string]: number }["anything"]` answer `number`.
         if let Some(info) = self.get_applicable_index_info(object_type, index_type) {
-            return info.value;
+            return self.include_unchecked_undefined(
+                info.value,
+                include_undefined,
+                object_type,
+                index_type,
+            );
         }
         // §177 (`checker-notes-narrow.md`): the index signatures of the
         // APPARENT type. `getIndexedAccessType` reads them off
@@ -300,9 +285,16 @@ impl Checker<'_, '_> {
         if apparent != object_type
             && let Some(info) = self.get_applicable_index_info(apparent, index_type)
         {
-            return info.value;
+            return self.include_unchecked_undefined(
+                info.value,
+                include_undefined,
+                object_type,
+                index_type,
+            );
         }
-        if let Some(found) = self.array_or_tuple_element_access(object_type, index_type) {
+        if let Some(found) =
+            self.array_or_tuple_element_access(object_type, index_type, include_undefined)
+        {
             return found;
         }
         // SS185: `isJSLiteralType` (`utilities.go:1753`) — the failure path
@@ -325,6 +317,7 @@ impl Checker<'_, '_> {
         &mut self,
         object_type: TypeId,
         index_type: TypeId,
+        include_undefined: bool,
     ) -> Option<TypeId> {
         // Plain `number` only: a literal index already answered through the
         // property-name road (in-range) or wants `undefined` (out of range —
@@ -350,11 +343,44 @@ impl Checker<'_, '_> {
             }
             arguments[0]
         };
-        if self.no_unchecked_indexed_access {
+        // §264: the caller's write-position classification, not the raw flag —
+        // `arr[0] = x` keeps the exact element type where `arr[0]` reads
+        // `T | undefined` (`checker.go:26947`).
+        if include_undefined {
             let undefined = self.intrinsics.undefined;
             return Some(self.get_union_type(&[element, undefined]));
         }
         Some(element)
+    }
+
+    /// The `IncludeUndefined` union of `getPropertyTypeForIndexType`
+    /// (`checker.go:27107`): an index-signature result in expression read
+    /// position under `noUncheckedIndexedAccess` carries `undefined`, EXCEPT
+    /// when an enum's object type is indexed with one of its own member
+    /// literals (`checker.go:27117`) — `E[E.A]` cannot miss, so it stays
+    /// exact. Upstream tests `indexType.symbol`'s parent against
+    /// `objectType.symbol`; this port's equivalent back-edge is
+    /// `enum_member_owners`, written at the one place a member type is minted.
+    fn include_unchecked_undefined(
+        &mut self,
+        value: TypeId,
+        include_undefined: bool,
+        object_type: TypeId,
+        index_type: TypeId,
+    ) -> TypeId {
+        if !include_undefined {
+            return value;
+        }
+        if let TypeData::Anonymous { symbol, .. } = self.store.get(object_type).data
+            && self.binder.symbols().get(symbol).flags.intersects(
+                tsr_binder::SymbolFlags::REGULAR_ENUM | tsr_binder::SymbolFlags::CONST_ENUM,
+            )
+            && self.enum_member_owners.get(&index_type) == Some(&symbol)
+        {
+            return value;
+        }
+        let undefined = self.intrinsics.undefined;
+        self.get_union_type(&[value, undefined])
     }
 
     /// The property name an index type names, if it names one.

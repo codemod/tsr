@@ -51,7 +51,8 @@ pub use pragma::{
 };
 pub use references::{
     CollectOptions, ExternalModuleReferences, ModuleSpecifier, SpecifierContext,
-    collect_external_module_references, contains_jsx_tag, is_file_probably_external_module,
+    collect_external_module_references, collect_jsdoc_import_references, contains_jsx_tag,
+    is_file_probably_external_module,
 };
 
 use tsr_ast::SourceFile;

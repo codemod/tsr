@@ -14,7 +14,6 @@ use tsr_binder::{SymbolFlags, SymbolId};
 use crate::{checker::Checker, flags::TypeFlags, resolution::PropertyName, types::TypeId};
 
 impl<'a> Checker<'a, '_> {
-
     /// The instantiated base type an `extends` heritage entry names — the
     /// checker half of the `React.Component<Prop, {}>` row. §226.
     ///
@@ -74,14 +73,11 @@ impl<'a> Checker<'a, '_> {
         base: SymbolId,
         type_arguments: &[TypeNode<'a>],
     ) -> Option<TypeId> {
-
         if type_arguments.is_empty() {
             return None;
         }
-        let arguments: Vec<TypeId> = type_arguments
-            .iter()
-            .map(|&argument| self.get_type_from_type_node(argument))
-            .collect();
+        let arguments: Vec<TypeId> =
+            type_arguments.iter().map(|&argument| self.get_type_from_type_node(argument)).collect();
         // **No guard on unresolvable arguments, and the first draft had one.**
         // It declined when any argument came back as the error type, on the
         // reasoning that `Base<error>` is a wrong line rather than a gap. The
@@ -114,7 +110,10 @@ impl<'a> Checker<'a, '_> {
     /// `interface MyGen<T, R, N> { … }` has its next type in the same slot for
     /// the same reason. Gating on the name would be fitting the witness
     /// (corollary 20) and would also be *narrower than the reason given*.
-    pub(crate) fn next_type_of_annotated_generator(&mut self, annotation: TypeNode<'a>) -> Option<TypeId> {
+    pub(crate) fn next_type_of_annotated_generator(
+        &mut self,
+        annotation: TypeNode<'a>,
+    ) -> Option<TypeId> {
         let TypeNode::TypeReferenceNode(reference) = annotation else { return None };
         // A written third argument wins; nothing else is consulted.
         if let Some(&written) = reference.type_arguments.get(2) {
@@ -183,6 +182,7 @@ impl<'a> Checker<'a, '_> {
                 .r#type
                 .map_or(self.intrinsics.error, |inner| self.get_type_from_type_node(inner)),
             TypeNode::TypeReferenceNode(node) => self.get_type_from_type_reference(node),
+            TypeNode::ImportTypeNode(node) => self.get_type_from_import_type_node(node),
             TypeNode::TypeLiteralNode(node) => self.get_type_from_type_literal(node),
             TypeNode::UnionTypeNode(node) => self.get_type_from_union_type_node(node),
             TypeNode::IntersectionTypeNode(node) => self.get_type_from_intersection_type_node(node),
@@ -666,6 +666,30 @@ impl<'a> Checker<'a, '_> {
             }
             return error;
         }
+        // §269: a JSDoc `@import` alias — `@import { Foo } from "./m"` then
+        // `@param {Foo} x`. This is NOT §158's refused population: §158
+        // refused MINTING the written alias name for ES imports because
+        // minted texts travel across units; here nothing is minted — the
+        // alias resolves and the TARGET's own declared type answers, so the
+        // printed name is the target's. That is only sound where the local
+        // name and the target name agree, so a RENAMED specifier
+        // (`{ Foo as F }`) declines: its printed form is the local name,
+        // which this road cannot spell (the §158 wall, unchanged).
+        if self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::ALIAS)
+            && node.type_arguments.is_empty()
+            && self
+                .declaration_of_alias_symbol(symbol)
+                .is_some_and(|declaration| self.is_unrenamed_jsdoc_import_alias(declaration))
+        {
+            if let Some(target) = self.resolve_alias(symbol) {
+                let merged = self.binder.merged_symbol(target);
+                if self.binder.symbols().get(merged).flags.intersects(SymbolFlags::TYPE) {
+                    let declared = self.get_declared_type_of_symbol(merged);
+                    return self.get_regular_type_of_literal_type(declared);
+                }
+            }
+            return error;
+        }
         let parameters = self.local_type_parameters_of(symbol).len();
         if parameters == 0 {
             // `checkNoTypeArguments` (`checker.go:23157`): arguments on a type
@@ -783,6 +807,13 @@ impl<'a> Checker<'a, '_> {
         let mut signatures = Vec::new();
         let mut indexes = Vec::new();
         let mut properties = Vec::with_capacity(node.members.len());
+        // SS333: computed property signatures whose name cannot late-bind
+        // contribute an INDEX (`var v: { [e]: number }` with unresolved `e`
+        // records `{ [x: number]: number; }`, `parserComputedPropertyName13`),
+        // DROPPED whole when the literal declares a real index signature
+        // (`{ [e: number]: string; [e]: number }` prints only the declared
+        // one, `parserComputedPropertyName15`).
+        let mut computed_indexes: Vec<(&'static str, TypeId)> = Vec::new();
         for member in node.members {
             // A method, call or construct signature prints whole and has no
             // `name: type` shape at all — see `crate::objects::Member`. Its
@@ -809,6 +840,19 @@ impl<'a> Checker<'a, '_> {
                             }) =>
                         {
                             "[Symbol.hasInstance]".to_string()
+                        }
+                        // SS327: the general late-bound arm - any computed
+                        // name whose type is a unique symbol spelled as an
+                        // identifier chain prints bracketed, the same rule
+                        // the object-literal road took at SS323
+                        // (`symbolProperty11/12`'s type-literal halves). The
+                        // hasInstance arm above stays: it answers
+                        // SYNTACTICALLY, before any type is computed.
+                        tsr_ast::PropertyName::ComputedPropertyName(computed) => {
+                            match self.late_bound_symbol_member_name(computed) {
+                                Some((name, _)) => name,
+                                None => return error,
+                            }
                         }
                         _ => return error,
                     };
@@ -852,8 +896,54 @@ impl<'a> Checker<'a, '_> {
             let tsr_ast::TypeElement::PropertySignatureDeclaration(property) = member else {
                 return error;
             };
-            let tsr_ast::PropertyName::Identifier(name) = property.name else {
-                return error;
+            let name = match property.name {
+                tsr_ast::PropertyName::Identifier(name) => name.text.to_string(),
+                // SS327: the property-signature half of the late-bound arm -
+                // `{ [Symbol.iterator]: { x } }` in type position prints the
+                // written chain in brackets. SS333: a name that cannot
+                // late-bind takes the same key dispatch the object-literal
+                // road uses, into `computed_indexes`.
+                tsr_ast::PropertyName::ComputedPropertyName(computed) => {
+                    match self.late_bound_symbol_member_name(computed) {
+                        Some((name, _)) => name,
+                        None => {
+                            // KNOWN DEVIATION, measured both ways: an
+                            // ENUM-typed name late-binds upstream to the
+                            // member's own name (`[Test.a]: 0` is `{ a: 0; }`,
+                            // `declarationEmitComputedPropertyNameEnum1`) and
+                            // this arm prints `{ [x: number]: 0; }` for it —
+                            // one wrong line in a case failing on others.
+                            // GATING enum names out costs
+                            // `isolatedModulesConstEnum` (a full case) for
+                            // that one line; the ungated form is kept on that
+                            // measurement.
+                            match self.computed_member_index_key(computed) {
+                                crate::objects::ComputedNameKey::LateBound => return error,
+                                crate::objects::ComputedNameKey::Nothing => continue,
+                                crate::objects::ComputedNameKey::Index(key) => {
+                                    let Some(annotation) = property.r#type else { return error };
+                                    let mut member_type = self.get_type_from_type_node(annotation);
+                                    if member_type == error {
+                                        return error;
+                                    }
+                                    // `?` on the member adds `undefined` to
+                                    // the index's value
+                                    // (`parserComputedPropertyName18`).
+                                    if property.postfix_token.is_some_and(|token| {
+                                        token.kind == SyntaxKind::QuestionToken
+                                    }) {
+                                        let undefined = self.intrinsics.undefined;
+                                        member_type =
+                                            self.get_union_type(&[member_type, undefined]);
+                                    }
+                                    computed_indexes.push((key, member_type));
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+                }
+                _ => return error,
             };
             let Some(annotation) = property.r#type else { return error };
             let member_type = self.get_type_from_type_node(annotation);
@@ -878,11 +968,34 @@ impl<'a> Checker<'a, '_> {
                     .unwrap_or_else(|| self.type_to_string(member_type)),
                 _ => self.type_to_string(member_type),
             };
-            properties.push(crate::objects::Member::Property {
-                name: name.text.to_string(),
-                optional,
-                readonly,
-                printed,
+            properties.push(crate::objects::Member::Property { name, optional, readonly, printed });
+        }
+        if !computed_indexes.is_empty() && indexes.is_empty() {
+            let key = computed_indexes[0].0;
+            if computed_indexes.iter().any(|(k, _)| *k != key) {
+                return error;
+            }
+            let mut distinct: Vec<TypeId> = Vec::new();
+            for (_, value) in &computed_indexes {
+                if !distinct.contains(value) {
+                    distinct.push(*value);
+                }
+            }
+            let value = match distinct.as_slice() {
+                [single] => *single,
+                many => {
+                    let candidates = many.to_vec();
+                    let Some(reduced) = self.union_with_subtype_reduction(&candidates) else {
+                        return error;
+                    };
+                    reduced
+                }
+            };
+            indexes.push(crate::objects::Member::Index {
+                readonly: false,
+                name: "x".to_string(),
+                key: key.to_string(),
+                value: self.type_to_string(value),
             });
         }
         signatures.append(&mut indexes);
@@ -1052,6 +1165,26 @@ impl<'a> Checker<'a, '_> {
         if let [single] = types[..] {
             return single;
         }
+        // §290, MEASURED AND REFUSED on the 08febc71 tree. The
+        // never-reduction of a discriminant-conflicting intersection
+        // (`getReducedType`'s intersection arm, `checker.go:21831`) was built
+        // as a two-test approximation — disjoint unit literals, or unit
+        // against a different primitive kind — and measured:
+        //
+        //     WRONG->RIGHT ~38   intersectionReduction 16, ...Strict 14
+        //     RIGHT->WRONG 15    the SAME two fixtures 6+6, genericRestTypes,
+        //                        and neverTypeErrors1/2 one line EACH
+        //     RIGHT->GAP 1
+        //
+        // Two independent blockers, both named: (1) upstream reduces only a
+        // DISCRIMINANT property (`CheckFlags` non-uniform + literal), and the
+        // approximation over-fires on the branded/unique-symbol shapes those
+        // fixtures also hold; (2) the reduction makes the ALIAS itself
+        // `never`, and a WRITTEN annotation mentioning it (`value: Union[]`)
+        // must still print the alias name — one type, two renders, which is
+        // ADR-0043's exact wall, and it broke a line INSIDE the winning
+        // witness. REOPENING: upstream's discriminant CheckFlags port plus
+        // the written-type-node carriage; neither half lands alone.
         // §91, env-gated: an intersection of literal-key unions reduces by
         // set intersection — upstream's `intersectUnionsOfPrimitiveTypes` +
         // the two-unit-types-are-never rule, applied only where the
@@ -1467,11 +1600,38 @@ impl<'a> Checker<'a, '_> {
             }
             host = self.nodes.parent(host)?;
         }
-        if self.nodes.kind(host) == SyntaxKind::TypeAliasDeclaration {
-            self.binder.symbol_of(host)
-        } else {
-            None
+        if self.nodes.kind(host) != SyntaxKind::TypeAliasDeclaration {
+            return None;
         }
+        // §281: the alias's name is usable only when the DECLARATION is
+        // accessible by a symbol chain from the print site — checker-2's §229
+        // probe, five positions in one upstream fixture: top-level `A` and
+        // namespace-nested `E` print their names; a FUNCTION-LOCAL alias and
+        // a LABELLED one render structurally (`{}`), whether or not the
+        // function is generic (`function g()` behaves as `f<U>()` does).
+        // The predicate is a parent walk from the declaration: any
+        // function-like or labelled-statement ancestor before the source file
+        // makes the name unreachable. No name is minted for the inaccessible
+        // arm — the STRUCTURAL answer needs no qualifier, which is what keeps
+        // this outside `bd tsr-e2u`'s wall
+        // (`labeledStatementWithLabel{,_es2015,_strict}`,
+        // `nonGenericTypeReferenceWithTypeArguments`).
+        let mut current = host;
+        while let Some(parent) = self.nodes.parent(current) {
+            match self.nodes.kind(parent) {
+                SyntaxKind::LabeledStatement
+                | SyntaxKind::FunctionDeclaration
+                | SyntaxKind::FunctionExpression
+                | SyntaxKind::ArrowFunction
+                | SyntaxKind::MethodDeclaration
+                | SyntaxKind::Constructor
+                | SyntaxKind::GetAccessor
+                | SyntaxKind::SetAccessor => return None,
+                SyntaxKind::SourceFile => break,
+                _ => current = parent,
+            }
+        }
+        self.binder.symbol_of(host)
     }
 
     /// A reference to a generic type: `C<number>`, `Tree<T>`.
@@ -1823,6 +1983,66 @@ impl<'a> Checker<'a, '_> {
         minted
     }
 
+    /// §289: `import("./m").Foo` in type position — `getTypeFromImportTypeNode`
+    /// reduced to the arm the corpus records: a QUALIFIED, non-`typeof`
+    /// reference resolves the module, walks the qualifier through its exports,
+    /// and prints the WRITTEN text with the member's table behind it (the §41
+    /// mint shape; `>k : import("./mod1").Con` is the baseline form).
+    ///
+    /// Declined, each a gap and not a guess: `typeof import(...)` and the
+    /// unqualified module object (both are the `bd tsr-e2u` naming wall), and
+    /// written type arguments (the instantiated print is its own row).
+    fn get_type_from_import_type_node(&mut self, node: &tsr_ast::ImportTypeNode<'a>) -> TypeId {
+        let error = self.intrinsics.error;
+        if node.is_type_of || !node.type_arguments.is_empty() {
+            return error;
+        }
+        let Some(qualifier) = node.qualifier else { return error };
+        let Some(site) = node.node_id else { return error };
+        let Some(TypeNode::LiteralTypeNode(literal)) = node.argument else { return error };
+        let Some(specifier) = literal.literal.and_then(|l| l.node_id()) else { return error };
+        let Some(module) = self.resolve_external_module_name(site, specifier) else {
+            return error;
+        };
+        // The qualifier's segments, leftmost first, walked through exports —
+        // `resolveEntityName` rooted at the module symbol.
+        let mut segments: Vec<&str> = Vec::new();
+        let mut current = qualifier;
+        let root = loop {
+            match current {
+                tsr_ast::EntityName::Identifier(name) => break name.text,
+                tsr_ast::EntityName::QualifiedName(inner) => {
+                    let Some(right) = inner.right else { return error };
+                    segments.push(right.text);
+                    let Some(left) = inner.left else { return error };
+                    current = left;
+                }
+            }
+        };
+        segments.push(root);
+        segments.reverse();
+        let mut symbol = self.binder.merged_symbol(module);
+        for segment in &segments {
+            let Some(&found) = self.binder.symbols().get(symbol).exports.get(*segment) else {
+                return error;
+            };
+            symbol = self.binder.merged_symbol(found);
+        }
+        if !self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::TYPE) {
+            return error;
+        }
+        // The written text, rebuilt: `import("<specifier>").<qualifier>`.
+        let Some(Node::StringLiteral(spec)) = self.node_map.get(specifier) else { return error };
+        let text = format!("import(\"{}\").{}", spec.text, segments.join("."));
+        let key = (text.clone(), symbol);
+        if let Some(&existing) = self.qualified_reference_types.get(&key) {
+            return existing;
+        }
+        let minted = self.store.new_named(TypeFlags::OBJECT, text, Some(symbol));
+        self.qualified_reference_types.insert(key, minted);
+        minted
+    }
+
     fn qualified_type_reference(
         &mut self,
         node: &tsr_ast::TypeReferenceNode<'a>,
@@ -1845,6 +2065,57 @@ impl<'a> Checker<'a, '_> {
         // qualified print with the real lookup table. Generic references
         // stay print-only mints.
         if node.type_arguments.is_empty() {
+            // §280's annotation half: a qualified name resolving to an ENUM
+            // MEMBER answers the member's declared type in REGULAR form, not
+            // a mint of the written text — upstream's `getTypeFromTypeNode`
+            // regularises, so `const x1: E.static` reads `E` when the enum's
+            // values collapse to one (`strictModeEnumMemberNameReserved`)
+            // and `E.A` otherwise, which is the same text the mint produced.
+            // Two-segment names ONLY (`E.A`): the member's own spelling and
+            // the written path coincide there, so the declared road loses no
+            // qualification. A deeper path (`Z.Foo.A`) must keep the mint —
+            // the first draft answered `Foo.A` for it, 5 R→W across
+            // `enumLiteralAssignableToEnumInsideUnion` and
+            // `discriminatedUnionTypes4`, the tsr-e2u qualification wall from
+            // yet another door.
+            let two_segments = matches!(
+                name,
+                tsr_ast::EntityName::QualifiedName(qualified)
+                    if matches!(qualified.left, Some(tsr_ast::EntityName::Identifier(_)))
+            );
+            if two_segments
+                && self.binder.symbols().get(resolved).flags.intersects(SymbolFlags::ENUM_MEMBER)
+            {
+                let declared = self.get_declared_type_of_symbol(resolved);
+                let regular = self.get_regular_type_of_literal_type(declared);
+                // STRING-enum members keep the mint: the second draft handed
+                // their literal types to interface discriminants and
+                // `discriminatedUnionTypes4` went 3 R→W / 7 R→G — the union
+                // and narrowing roads consume these where the numeric shapes
+                // only print. Numeric members measured +104/0. The test is on
+                // the initializer's SYNTAX because the fold mints every
+                // member `TypeFlags::ENUM` regardless of value kind — a flags
+                // test here was dead code, caught by an identical rescore.
+                let string_valued = self
+                    .binder
+                    .symbols()
+                    .get(resolved)
+                    .declarations
+                    .first()
+                    .and_then(|&declaration| match self.node_map.get(declaration) {
+                        Some(Node::EnumMember(member)) => member.initializer,
+                        _ => None,
+                    })
+                    .is_some_and(|initializer| {
+                        matches!(initializer, tsr_ast::Expression::StringLiteral(_))
+                    });
+                if !string_valued {
+                    if let Some(&spelled) = self.enum_access_spelling.get(&regular) {
+                        return spelled;
+                    }
+                    return regular;
+                }
+            }
             let Some(text) = Self::entity_name_text(node.type_name) else { return error };
             let key = (text.clone(), resolved);
             if let Some(&existing) = self.qualified_reference_types.get(&key) {
@@ -1926,6 +2197,32 @@ impl<'a> Checker<'a, '_> {
                 (flags.intersects(meaning) || flags.intersects(SymbolFlags::ALIAS)).then_some(found)
             }
         }
+    }
+
+    /// §269's gate: an alias declared by a JSDoc `@import` tag's clause, with
+    /// no rename — the one population whose printed name provably equals the
+    /// target's own (see the arm in
+    /// [`Checker::get_type_from_type_reference`]).
+    fn is_unrenamed_jsdoc_import_alias(&self, declaration: NodeId) -> bool {
+        let unrenamed = match self.node_map.get(declaration) {
+            Some(Node::ImportSpecifier(specifier)) => specifier.property_name.is_none(),
+            Some(Node::ImportClause(_)) => true,
+            _ => false,
+        };
+        if !unrenamed {
+            return false;
+        }
+        // specifier → NamedImports → ImportClause → JSDocImportTag, or the
+        // clause's one hop.
+        let mut current = declaration;
+        for _ in 0..3 {
+            let Some(parent) = self.nodes.parent(current) else { return false };
+            if matches!(self.node_map.get(parent), Some(Node::JSDocImportTag(_))) {
+                return true;
+            }
+            current = parent;
+        }
+        false
     }
 
     /// Whether the reference site sits inside the namespace it is qualifying —
@@ -2315,6 +2612,30 @@ impl<'a> Checker<'a, '_> {
                     continue;
                 };
                 let member_name = self.binder.symbols().get(member_symbol).name.to_string();
+                // §309: a COMPUTED-NAME member — `enum E { [e] = 1 }`, a parse
+                // recovery the corpus tests deliberately — has no bindable
+                // name, and its declared type is the ENUM'S OWN: the baseline
+                // records `[e] : E`, never a per-name literal
+                // (`parserComputedPropertyName16/30/34`). Minting `E.__computed`
+                // from the binder's placeholder was the §55 fold applied one
+                // member too wide. It contributes nothing to the union — an
+                // enum of only computed-name members takes the
+                // `createComputedEnumType` fallback below and still prints `E`.
+                // Gated to names the BINDER could not spell: a LITERAL
+                // computed name (`[1]`, `["3"]`) is late-bound upstream
+                // (`hasBindableName` true) and the binder already named its
+                // symbol, so those keep the fold —
+                // `compiler/literalsInComputedProperties1` records
+                // `(typeof X)["2"]` and `X.bar` for them, and the first draft
+                // of this arm flattened all four to `X` (4 R→W).
+                if matches!(member.name, tsr_ast::PropertyName::ComputedPropertyName(_))
+                    && member_name == "__computed"
+                {
+                    let member_type = self.store.new_named(TypeFlags::ENUM, name.clone(), None);
+                    self.enum_member_owners.insert(member_type, symbol);
+                    self.declared_types.insert(member_symbol, member_type);
+                    continue;
+                }
                 // `symbol: None` is LOAD-BEARING, measured (§10.16 of
                 // `checker-notes-modobj.md`): carrying the member symbol here
                 // let `qualified_name_at` rename the baked `{enum}.` prefix —
@@ -2455,7 +2776,24 @@ impl<'a> Checker<'a, '_> {
         }
         // `checker.go:23904`: a union enum type carries `ENUM_LITERAL` and the
         // enum's symbol, which is what it prints as.
-        self.get_named_union_type(&members, TypeFlags::ENUM_LITERAL, symbol)
+        let enum_type = self.get_named_union_type(&members, TypeFlags::ENUM_LITERAL, symbol);
+        // §280: §55.1's single-DISTINCT-VALUE generalisation. `members` holds
+        // one entry per distinct value (duplicates reused and `continue`d
+        // above), so `enum E { a, b = a }` lands here with ONE member type
+        // across TWO members — upstream's union-of-one IS the enum's declared
+        // type, and its node builder prints the bare enum name for a literal
+        // that equals it (`E.A : E`, `a : E` inside `b = a` —
+        // `mergedEnumDeclarationCodeGen`, `preserveConstEnums`,
+        // `noUnusedLocals_selfReference`). Declaration lines keep the fresh
+        // per-name spelling, exactly as §55.1's twins do; only the ACCESS
+        // spelling swaps.
+        if members.len() == 1 && total_members != 1 {
+            let single = members[0];
+            let fresh = self.get_fresh_type_of_literal_type(single);
+            self.enum_access_spelling.insert(single, enum_type);
+            self.enum_access_spelling.insert(fresh, enum_type);
+        }
+        enum_type
     }
 
     /// Ported from `Checker.getDeclaredTypeOfClassOrInterface`
@@ -2492,6 +2830,25 @@ impl<'a> Checker<'a, '_> {
         // rather than needing the guard below.
         let parameters = self.local_type_parameter_names_of(symbol);
         if !parameters.is_empty() {
+            // §282: a generic alias whose body IS one of its own type
+            // parameters answers that parameter — upstream attaches an alias
+            // symbol only to types CREATED during the resolution, and a
+            // pre-existing type parameter keeps its own display:
+            // `type Bar1<T extends unknown[][]> = T` records `Bar1 : T`
+            // (`substitutionTypePassedToExtends`,
+            // `substituteReturnTypeSatisfiesConstraint`,
+            // `homomorphicMappedTypeNesting`). Everything else keeps the
+            // name-with-parameters mint below.
+            if let Some(declaration) =
+                self.binder.symbols().get(symbol).declarations.first().copied()
+                && let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
+                && let Some(body @ TypeNode::TypeReferenceNode(reference)) = alias.r#type
+                && reference.type_arguments.is_empty()
+                && matches!(reference.type_name, Some(tsr_ast::EntityName::Identifier(name))
+                    if parameters.iter().any(|parameter| parameter == name.text))
+            {
+                return self.get_type_from_type_node(body);
+            }
             let name = self.binder.symbols().get(symbol).name.to_string();
             return self.store.new_named(
                 TypeFlags::OBJECT,
@@ -2626,7 +2983,15 @@ impl<'a> Checker<'a, '_> {
                 tsr_ast::Node::Identifier(identifier) => Some(identifier.text.to_string()),
                 _ => None,
             });
-        let name = declared_name.unwrap_or_else(|| symbols.get(symbol).name.to_string());
+        // §305: an anonymous class expression's INSTANCE type takes the same
+        // `getNameOfSymbolAsWritten` walk as its `typeof` — `let C = class
+        // { foo() { return new C(); } }` records `>new C() : C`
+        // (`conformance/classExpression4`). The helper answers `None` for
+        // every non-class-expression declaration, so the other kinds keep
+        // the fallback they had.
+        let name = declared_name
+            .or_else(|| self.anonymous_class_written_name(symbol))
+            .unwrap_or_else(|| self.binder.symbols().get(symbol).name.to_string());
         let printed = if with_type_parameters {
             let parameters = self.local_type_parameter_names_of(symbol);
             if parameters.is_empty() { name } else { format!("{name}<{}>", parameters.join(", ")) }

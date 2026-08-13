@@ -414,6 +414,31 @@ impl<'a> Checker<'a, '_> {
             self.symbol_types.insert(symbol, any);
             return any;
         }
+        // §300: EVERY import binding from a SHORTHAND ambient module —
+        // `declare module "abcdefgh";`, no body — is `any` upstream
+        // (`isShorthandAmbientModuleSymbol`, `utilities.go:198`: the module
+        // resolves to its own symbol and every member read is `any`).
+        // `declarationEmitAnyComputedPropertyInClass` records
+        // `import Test from "abcdefgh"` with `Test.someKey : any` throughout.
+        if let Some(declaration) = self.declaration_of_alias_symbol(symbol)
+            && matches!(
+                self.nodes.kind(declaration),
+                SyntaxKind::ImportClause
+                    | SyntaxKind::ImportSpecifier
+                    | SyntaxKind::NamespaceImport
+            )
+            && let Some(specifier) = self.import_declaration_specifier(declaration)
+            && let Some(module) = self.resolve_external_module_name(declaration, specifier)
+            && self.binder.symbols().get(module).declarations.iter().any(|&d| {
+                matches!(self.node_map.get(d),
+                    Some(Node::ModuleDeclaration(m)) if m.body.is_none())
+            })
+        {
+            let any = self.intrinsics.any;
+            let any = if self.resolutions.pop() { any } else { self.intrinsics.error };
+            self.symbol_types.insert(symbol, any);
+            return any;
+        }
         // §144 (`checker-notes-narrow.md`): an ImportEquals ENTITY form
         // whose ROOT name resolves to NOTHING reads upstream's TS2503-family
         // error-any at every use — the §31/§119 boundary argument, entity
@@ -992,10 +1017,20 @@ impl<'a> Checker<'a, '_> {
     /// when `export default x` names a local.
     fn import_clause_default_target(&mut self, declaration: NodeId) -> Option<SymbolId> {
         let parent = self.nodes.parent(declaration)?;
-        let Node::ImportDeclaration(import) = self.node_map.get(parent)? else {
-            return None;
+        // §269: the clause's owner is a JSDoc `@import` tag in a JS file —
+        // same shape, the specifier just lives on the tag.
+        let specifier = match self.node_map.get(parent)? {
+            // §292's narrowing: an import carrying ATTRIBUTES declines — the
+            // attribute validity rules are unported, and upstream errors the
+            // whole import where this road would type through it
+            // (`importAttributes7/8`, the pair's 2 R→W).
+            Node::ImportDeclaration(import) if import.attributes.is_none() => {
+                import.module_specifier
+            }
+            Node::JSDocImportTag(import) => import.module_specifier,
+            _ => return None,
         };
-        let specifier = import.module_specifier?.node_id()?;
+        let specifier = specifier?.node_id()?;
         let module = self.resolve_external_module_name(declaration, specifier)?;
         let default = self.binder.symbols().get(module).exports.get("default").copied();
         let Some(default) = default else {
@@ -1900,6 +1935,11 @@ impl<'a> Checker<'a, '_> {
         let specifier = match self.node_map.get(node)? {
             Node::ImportDeclaration(node) => node.module_specifier,
             Node::ExportDeclaration(node) => node.module_specifier,
+            // §269: a JSDoc `@import` tag carries the specifier itself —
+            // upstream never meets this because the reparser has already
+            // rewritten the tag as a `JSImportDeclaration`; this port binds
+            // the tag directly, so the tag IS the declaration here.
+            Node::JSDocImportTag(node) => node.module_specifier,
             _ => return None,
         }?;
         specifier.node_id()
@@ -1919,7 +1959,14 @@ impl<'a> Checker<'a, '_> {
             if self.nodes.kind(current) == SyntaxKind::SourceFile {
                 return Some(current);
             }
-            current = self.nodes.parent(current)?;
+            match self.nodes.parent(current) {
+                Some(parent) => current = parent,
+                // §269: a walk that dead-ends inside a JSDoc comment crosses
+                // to the comment's host — the one edge the tree deliberately
+                // omits (see the parser's `attach_jsdoc`). An `@import` tag's
+                // module specifier resolving against its file is the client.
+                None => current = *self.jsdoc_hosts.get(&current)?,
+            }
         }
     }
 
@@ -2060,7 +2107,21 @@ impl<'a> Checker<'a, '_> {
         if flags.intersects(SymbolFlags::MODULE) && self.is_shorthand_ambient_module(symbol) {
             return self.intrinsics.any;
         }
+        // §305: `getNameOfSymbolAsWritten`'s nameless fallbacks
+        // (`nodebuilderimpl.go:1005`) — a nameless CLASS EXPRESSION spells as
+        // the variable it initializes (`var V = class {}` prints `typeof V`)
+        // or, with no such parent, as the literal `(Anonymous class)`. This is
+        // the naming §168 refused to guess at; upstream's rule turned out to
+        // be a two-line declaration walk, not per-site context. Gated to class
+        // expressions: a nameless default-export CLASS DECLARATION spells
+        // `default` through a different leg of the same function, unported.
         if self.has_a_name_no_type_query_can_spell(symbol) {
+            if flags.intersects(SymbolFlags::CLASS)
+                && let Some(written) = self.anonymous_class_written_name(symbol)
+            {
+                let printed = format!("typeof {written}");
+                return self.store.new_anonymous(TypeFlags::OBJECT, printed, symbol, false);
+            }
             return self.intrinsics.error;
         }
         let name = self.binder.symbols().get(symbol).name;
@@ -2198,7 +2259,120 @@ impl<'a> Checker<'a, '_> {
     /// every line *through* an ambient module at `errorType` even after the
     /// module resolved.
     fn has_a_name_no_type_query_can_spell(&self, symbol: SymbolId) -> bool {
-        self.binder.symbols().get(symbol).name.is_empty()
+        let name = self.binder.symbols().get(symbol).name;
+        // `__class` is `InternalSymbolNameClass` — the binder's placeholder
+        // for an anonymous class expression, never a spellable name. §305's
+        // first draft missed it and printed `typeof __class` raw across
+        // `classExpression3/4` — the exact wrong answer §168 recorded.
+        name.is_empty() || name == "__class"
+    }
+
+    /// §305: the nameless-declaration arm of `getNameOfSymbolAsWritten`
+    /// (`nodebuilderimpl.go:1005`). "Declaration may be nameless, but we'll
+    /// try anyway": `GetAssignedName` (`utilities.go:1486`) walks one parent —
+    /// property assignment, binding element, assignment right-hand side,
+    /// variable declaration — and a walk that names nothing prints the
+    /// literal `(Anonymous class)`. Only for class expressions — the function
+    /// forms print structurally in the `.types` baseline and never reach the
+    /// `typeof` leg.
+    ///
+    /// A name the walk *finds* but this port cannot spell (a string-literal
+    /// property name, a computed one) answers `None` — upstream prints the
+    /// written text of that name node, and `(Anonymous class)` there would be
+    /// a wrong answer where a gap belongs.
+    pub(crate) fn anonymous_class_written_name(&self, symbol: SymbolId) -> Option<String> {
+        // `symbol.Declarations[0]`, as upstream reads it — an anonymous
+        // declaration carries no `value_declaration` in this binder.
+        let declaration = *self.binder.symbols().get(symbol).declarations.first()?;
+        let Some(Node::ClassExpression(class)) = self.node_map.get(declaration) else {
+            return None;
+        };
+        // A decorated class EXPRESSION is the parser's error recovery, not a
+        // class the source wrote (decorators attach to class declarations
+        // only) — `var F = @dec () => {}` recovers as one, and upstream's
+        // answer for that line is `any`, never a name
+        // (`conformance/decoratorOnArrowFunction`).
+        if class
+            .modifiers
+            .iter()
+            .any(|modifier| matches!(modifier, tsr_ast::ModifierLike::Decorator(_)))
+        {
+            return None;
+        }
+        // A class expression extending a PARAMETER — the mixin pattern,
+        // `return class extends Base {}` — is an INTERSECTION upstream
+        // (`getBaseTypeVariableOfClass`, `checker.go:16936`), never a bare
+        // `typeof (Anonymous class)`: its static side prints structurally as
+        // `{ new (...): (Anonymous class); ... } & TBase`
+        // (`compiler/anonClassDeclarationEmitIsAnon`). The worker's doc
+        // already accepts this limit for NAMED classes; the anonymous ones
+        // decline here, on the syntactic proxy for "base is a type variable".
+        for clause in class.heritage_clauses {
+            if clause.token.kind != SyntaxKind::ExtendsKeyword {
+                continue;
+            }
+            for base in clause.types {
+                if let Some(tsr_ast::Expression::Identifier(base_name)) = base.expression
+                    && let Some(base_id) = base_name.node_id
+                    && let Some(base_symbol) = self.binder.resolve_name(
+                        self.nodes,
+                        self.node_map,
+                        base_id,
+                        base_name.text,
+                        SymbolFlags::VALUE,
+                    )
+                    && let Some(&base_declaration) =
+                        self.binder.symbols().get(base_symbol).declarations.first()
+                    && self.nodes.kind(base_declaration) == SyntaxKind::Parameter
+                {
+                    return None;
+                }
+            }
+        }
+        let Some(parent) = self.nodes.parent(declaration) else {
+            return Some("(Anonymous class)".to_string());
+        };
+        match self.node_map.get(parent) {
+            Some(Node::PropertyAssignment(property)) => {
+                if let tsr_ast::PropertyName::Identifier(name) = property.name {
+                    return Some(name.text.to_string());
+                }
+                return None;
+            }
+            Some(Node::BindingElement(element)) => {
+                if let Some(tsr_ast::BindingName::Identifier(name)) = element.name {
+                    return Some(name.text.to_string());
+                }
+                return None;
+            }
+            Some(Node::BinaryExpression(binary)) => {
+                if binary.right.and_then(|right| right.node_id()) == Some(declaration) {
+                    match binary.left {
+                        Some(tsr_ast::Expression::Identifier(left)) => {
+                            return Some(left.text.to_string());
+                        }
+                        Some(tsr_ast::Expression::PropertyAccessExpression(access)) => {
+                            if let Some(tsr_ast::MemberName::Identifier(name)) = access.name {
+                                return Some(name.text.to_string());
+                            }
+                            return None;
+                        }
+                        // The element-access arm wants the literal argument's
+                        // WRITTEN text (`utilities.go:1503`) — quotes and all —
+                        // which this port does not carry. Refuse, not guess.
+                        Some(tsr_ast::Expression::ElementAccessExpression(_)) => return None,
+                        _ => {}
+                    }
+                }
+            }
+            Some(Node::VariableDeclaration(variable)) => {
+                if let Some(tsr_ast::BindingName::Identifier(name)) = variable.name {
+                    return Some(name.text.to_string());
+                }
+            }
+            _ => {}
+        }
+        Some("(Anonymous class)".to_string())
     }
 
     /// Ported from `isShorthandAmbientModule` (`utilities.go:202`): *"the only
@@ -2801,6 +2975,48 @@ impl<'a> Checker<'a, '_> {
             | SyntaxKind::PropertySignature => {
                 self.get_widened_type_for_variable_like_declaration(declaration)
             }
+            // §292 (relocated — the first draft sat in
+            // get_type_for_variable_like_declaration, which this match never
+            // reaches for the kind): `export default <expr>` — the `default`
+            // symbol binds as PROPERTY and types as the assignment
+            // expression's REGULAR form, unwidened (`importBindingDefer`
+            // wants `defer : 2`).
+            SyntaxKind::ExportAssignment => {
+                // A `@type` tag on the assignment KEEPS THE GAP: upstream
+                // types the tag, and the importing site re-spells its aliases
+                // per module (`import("./a").NumberLike[]`,
+                // `exportDefaultWithJSDoc1/2`) — the §158 per-site re-render
+                // wall. The first draft typed the raw expression under the
+                // tag (`never[]`, 5 G->W); the second typed the tag and
+                // printed the local spelling, wrong the other way.
+                if self.jsdoc_cast_annotation(declaration).is_some() {
+                    self.intrinsics.error
+                } else {
+                    match self.node_map.get(declaration) {
+                        // `export =` keeps its own roads (§219's territory);
+                        // only the DEFAULT form types here — and a JSDoc CAST
+                        // on the expression itself is the same §158 wall as a
+                        // tag on the statement (`export default
+                        // /** @type {..} */([])`, exportDefaultWithJSDoc2).
+                        Some(Node::ExportAssignment(assignment))
+                            if !assignment.is_export_equals =>
+                        {
+                            match assignment.expression {
+                                Some(expression)
+                                    if expression.node_id().is_none_or(|id| {
+                                        self.jsdoc_cast_annotation(id).is_none()
+                                    }) =>
+                                {
+                                    let checked = self.check_expression(expression);
+                                    self.get_regular_type_of_literal_type(checked)
+                                }
+                                _ => self.intrinsics.error,
+                            }
+                        }
+                        _ => self.intrinsics.error,
+                    }
+                }
+            }
             // `checkPropertyAssignment` (`checker.go:16611`), which is
             // `checkExpressionForMutableLocation` on the initialiser.
             //
@@ -3050,7 +3266,7 @@ impl<'a> Checker<'a, '_> {
     /// §38's element slice: `Array`/`ReadonlyArray` references answer the
     /// argument, tuples the union of their elements, strings `string`.
     /// `None` declines to the implicit-any road.
-    fn for_of_element_type(&mut self, iterated: TypeId) -> Option<TypeId> {
+    pub(crate) fn for_of_element_type(&mut self, iterated: TypeId) -> Option<TypeId> {
         if iterated == self.intrinsics.error {
             return None;
         }
@@ -3069,13 +3285,17 @@ impl<'a> Checker<'a, '_> {
                 == Some(target)
                 || self.global_type_symbol("ReadonlyArray").map(|s| self.binder.merged_symbol(s))
                     == Some(target);
-            // A `never` element is `[]`'s signature — `undefined` its
-            // non-strict spelling (`array_literals.rs:122`) — upstream's
-            // binding there reads `any` (the §38 second fired leg); decline.
-            if is_array
-                && arguments[0] != self.intrinsics.never
-                && arguments[0] != self.intrinsics.undefined
-            {
+            // §267: the `never` decline is removed — upstream's OWN baselines
+            // answer `never` for `for (let v of [])` (for-of51 through
+            // for-of54, all four: `>v : never` beside `>[] : never[]`). The
+            // decline cited "upstream's binding there reads `any` (the §38
+            // second fired leg)"; whatever witness that leg fired on, it was
+            // not this shape, and four committed baselines outrank a recalled
+            // measurement. The `undefined` spelling (non-strict
+            // `array_literals.rs:122`) stays declined: no baseline was found
+            // answering `undefined` through this road, so it keeps the gap
+            // until one is.
+            if is_array && arguments[0] != self.intrinsics.undefined {
                 return Some(arguments[0]);
             }
         }
@@ -3146,12 +3366,92 @@ impl<'a> Checker<'a, '_> {
         // (`member_completeness.rs:38`). There is no name to look
         // `[Symbol.iterator]` up by.
         //
-        // Measured population, `nearmiss --max 2`: about ten cases, of which
-        // `for-of19` through `for-of23` and `for-of30`/`31` are the clean
-        // witnesses. They will convert when late binding lands and not before;
-        // nothing narrower reaches them, because the protocol's first hop is
-        // the one that is missing. §212.
+        // ~~Measured population, `nearmiss --max 2`: about ten cases … They
+        // will convert when late binding lands and not before; nothing
+        // narrower reaches them, because the protocol's first hop is the one
+        // that is missing. §212.~~ **§284 CORRECTS THE REFUSAL'S SCOPE**: the
+        // first hop needs late binding only to LOOK UP the member; verifying
+        // its PRESENCE is a syntax question on the class declaration, which
+        // is exactly how §145 already recognises `[Symbol.hasInstance]`
+        // computed names. With presence verified, the remaining three hops —
+        // `next` (a regular member), its call return, its `value` — were
+        // ported all along, by §212's own admission.
+        // The `next` read is SYNTACTIC too — through the method declaration
+        // rather than `get_type_of_property_of_type`, because the first draft
+        // routed through the member seam mid-check and the memo it left
+        // changed `next`'s own declaration line in `for-of34` from
+        // `() => any` to `any` (1 R→W): a resolution-order side effect, the
+        // §244 shape. `get_signature_from_declaration` computes the same
+        // signature without touching the member symbol's memo.
+        if self.declares_symbol_iterator(iterated)
+            && let Some(next_id) = self.class_method_declaration(iterated, "next")
+            && let Some(signature) = self.get_signature_from_declaration(next_id)
+            && signature.r#type != self.intrinsics.error
+            && let Some(value) = self.get_type_of_property_of_type(signature.r#type, "value")
+            && value != self.intrinsics.error
+        {
+            return Some(value);
+        }
         None
+    }
+
+    /// §284: the class method declaration of the given name, found on the
+    /// type's class declaration — the syntactic sibling of
+    /// [`Checker::declares_symbol_iterator`].
+    fn class_method_declaration(&self, iterated: TypeId, wanted: &str) -> Option<NodeId> {
+        let crate::types::TypeData::Named { members: Some(symbol), .. } =
+            self.store.get(iterated).data
+        else {
+            return None;
+        };
+        self.binder.symbols().get(symbol).declarations.iter().find_map(|&declaration| {
+            let members = match self.node_map.get(declaration) {
+                Some(Node::ClassDeclaration(class)) => class.members,
+                Some(Node::ClassExpression(class)) => class.members,
+                _ => return None,
+            };
+            members.iter().find_map(|member| match member {
+                tsr_ast::ClassElement::MethodDeclaration(method)
+                    if matches!(method.name, tsr_ast::PropertyName::Identifier(name)
+                        if name.text == wanted) =>
+                {
+                    method.node_id
+                }
+                _ => None,
+            })
+        })
+    }
+
+    /// §284: whether the type's class declaration carries a computed
+    /// `[Symbol.iterator]` member — a SYNTACTIC presence test, the §145
+    /// `[Symbol.hasInstance]` precedent, which is what makes the iterator
+    /// protocol reachable without late binding.
+    pub(crate) fn declares_symbol_iterator(&self, iterated: TypeId) -> bool {
+        let crate::types::TypeData::Named { members: Some(symbol), .. } =
+            self.store.get(iterated).data
+        else {
+            return false;
+        };
+        self.binder.symbols().get(symbol).declarations.iter().any(|&declaration| {
+            let members = match self.node_map.get(declaration) {
+                Some(Node::ClassDeclaration(class)) => class.members,
+                Some(Node::ClassExpression(class)) => class.members,
+                _ => return false,
+            };
+            members.iter().any(|member| {
+                let name = match member {
+                    tsr_ast::ClassElement::MethodDeclaration(method) => &method.name,
+                    _ => return false,
+                };
+                matches!(name, tsr_ast::PropertyName::ComputedPropertyName(computed)
+                    if computed.expression.is_some_and(|e| matches!(e,
+                        tsr_ast::Expression::PropertyAccessExpression(access)
+                            if matches!(access.name,
+                                Some(tsr_ast::MemberName::Identifier(n)) if n.text == "iterator")
+                            && matches!(access.expression,
+                                Some(tsr_ast::Expression::Identifier(r)) if r.text == "Symbol"))))
+            })
+        })
     }
 
     fn get_type_for_variable_like_declaration(&mut self, declaration: NodeId) -> Option<TypeId> {
@@ -3162,6 +3462,31 @@ impl<'a> Checker<'a, '_> {
             // (`checker.go:16695`): `p?: string` declares `string | undefined`.
             // See `crate::optionality`.
             return Some(self.add_optionality_for_declaration(declared, declaration));
+        }
+        // §273's exposure repair: a JS variable's `@type` tag IS its
+        // annotation (`getEffectiveTypeAnnotationNode`'s JSDoc arm). A tag
+        // type that does not compute keeps the road below, as the `@param`
+        // twin does.
+        if let Some(annotation) = self.jsdoc_type_annotation(declaration) {
+            let declared = self.get_type_from_type_node(annotation);
+            if declared != self.intrinsics.error {
+                return Some(self.add_optionality_for_declaration(declared, declaration));
+            }
+        }
+        // §269: an unannotated JS parameter reads its `@param` type — the
+        // SYMBOL-line half of §110 slice 2, which had only ever fed the
+        // signature: `function f(foo) {}` under `@param {Foo} foo` printed
+        // `f : (foo: Foo) => void` beside `foo : any` on the very next line.
+        // Upstream has no second road — `getEffectiveTypeAnnotationNode`
+        // answers the reparsed JSDoc type for BOTH consumers. A doc type that
+        // does not compute keeps the implicit any, as the signature half does.
+        if self.nodes.kind(declaration) == SyntaxKind::Parameter
+            && let Some(annotation) = self.jsdoc_parameter_annotation(declaration)
+        {
+            let declared = self.get_type_from_type_node(annotation);
+            if declared != self.intrinsics.error {
+                return Some(self.add_optionality_for_declaration(declared, declaration));
+            }
         }
         // "Use contextual parameter type if one is available" (`checker.go:16735`),
         // which upstream places inside the `isParameter` block **before** the
@@ -3401,6 +3726,134 @@ impl<'a> Checker<'a, '_> {
             }
             _ => None,
         })
+    }
+
+    /// §269: the `@param` type expression an unannotated JS parameter reads —
+    /// the doc-host walk `crate::signatures` makes for the signature half,
+    /// repeated here for the parameter's own symbol (upstream needs only one
+    /// road because `getEffectiveTypeAnnotationNode` answers the reparsed
+    /// JSDoc type to every consumer).
+    fn jsdoc_parameter_annotation(&self, parameter: NodeId) -> Option<TypeNode<'a>> {
+        if !self.in_js_file(parameter) {
+            return None;
+        }
+        let Some(Node::ParameterDeclaration(node)) = self.node_map.get(parameter) else {
+            return None;
+        };
+        let Some(tsr_ast::BindingName::Identifier(identifier)) = node.name else { return None };
+        let name = identifier.text;
+        let function = self.nodes.parent(parameter)?;
+        let mut hosts = vec![function];
+        let mut current = self.nodes.parent(function);
+        for _ in 0..4 {
+            let Some(id) = current else { break };
+            match self.nodes.kind(id) {
+                SyntaxKind::VariableDeclaration
+                | SyntaxKind::VariableDeclarationList
+                | SyntaxKind::VariableStatement
+                | SyntaxKind::PropertyAssignment
+                | SyntaxKind::PropertyDeclaration
+                | SyntaxKind::ExpressionStatement
+                | SyntaxKind::ParenthesizedExpression
+                | SyntaxKind::ExportAssignment
+                | SyntaxKind::BinaryExpression => {
+                    hosts.push(id);
+                    current = self.nodes.parent(id);
+                }
+                _ => break,
+            }
+        }
+        // An `@overload`-documented implementation is a different regime: its
+        // parameters aggregate the UNION of the overload signatures' types
+        // (`overloadTag1` wants `a : string | number`), which the existing
+        // signature machinery already answers. A first-match read here
+        // overrode it with the first overload's slot — 11 lines RIGHT→WRONG
+        // on the first draft's pair, so the whole road declines when any doc
+        // in scope carries an `@overload`.
+        for host in &hosts {
+            if let Some(docs) = self.jsdoc_entries.get(host)
+                && docs.iter().any(|doc| {
+                    doc.tags.iter().any(|tag| matches!(tag, tsr_ast::JSDocTag::JSDocOverloadTag(_)))
+                })
+            {
+                return None;
+            }
+        }
+        for host in hosts {
+            let Some(docs) = self.jsdoc_entries.get(&host) else { continue };
+            for doc in *docs {
+                for tag in doc.tags {
+                    if let tsr_ast::JSDocTag::JSDocParameterOrPropertyTag(tag) = tag
+                        && matches!(tag.tag_name.text, "param" | "parameter" | "arg" | "argument")
+                        && matches!(tag.name, Some(tsr_ast::EntityName::Identifier(n)) if n.text == name)
+                    {
+                        return tag.type_expression;
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// §273's exposure, repaired: the `@type` tag an unannotated JS variable
+    /// reads — `/** @type {Map<string, V>} */ const cache = new Map()` takes
+    /// the tag's type, not the initialiser's. Upstream is
+    /// `getEffectiveTypeAnnotationNode`'s JSDoc arm again, the same door the
+    /// `@param` road above went through. The docs hang off the enclosing
+    /// `VariableStatement`, two parents up.
+    fn jsdoc_type_annotation(&self, declaration: NodeId) -> Option<TypeNode<'a>> {
+        if !self.in_js_file(declaration) {
+            return None;
+        }
+        if self.nodes.kind(declaration) != SyntaxKind::VariableDeclaration {
+            return None;
+        }
+        let mut current = declaration;
+        for _ in 0..2 {
+            current = self.nodes.parent(current)?;
+        }
+        if self.nodes.kind(current) != SyntaxKind::VariableStatement {
+            return None;
+        }
+        let docs = self.jsdoc_entries.get(&current)?;
+        for doc in *docs {
+            // A `@type` inside a `@typedef`/`@callback` block belongs to that
+            // construct, not to the variable the block precedes —
+            // `typedefTagNested`'s `var intercessor = 1` under a typedef
+            // carrying a stray `@type {string}` stays `number`.
+            if doc.tags.iter().any(|tag| {
+                matches!(
+                    tag,
+                    tsr_ast::JSDocTag::JSDocTypedefTag(_) | tsr_ast::JSDocTag::JSDocCallbackTag(_)
+                )
+            }) {
+                continue;
+            }
+            for tag in doc.tags {
+                if let tsr_ast::JSDocTag::JSDocTypeTag(tag) = tag
+                    && let Some(Node::JSDocTypeExpression(expression)) = tag.type_expression
+                {
+                    return expression.r#type;
+                }
+            }
+        }
+        None
+    }
+
+    /// §275: the `@type` tag hanging directly off a node — the JSDoc CAST's
+    /// read, `isJSDocTypeAssertion`'s tag half.
+    pub(crate) fn jsdoc_cast_annotation(&self, id: NodeId) -> Option<TypeNode<'a>> {
+        let docs = self.jsdoc_entries.get(&id)?;
+        for doc in *docs {
+            for tag in doc.tags {
+                if let tsr_ast::JSDocTag::JSDocTypeTag(tag) = tag
+                    && let Some(Node::JSDocTypeExpression(expression)) = tag.type_expression
+                {
+                    return expression.r#type;
+                }
+            }
+        }
+        None
     }
 
     /// The type annotation of a declaration, if it has one.

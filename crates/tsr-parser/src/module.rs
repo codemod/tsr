@@ -89,7 +89,7 @@ impl<'a> Parser<'a> {
     }
 
     /// `* as ns` or `{ a, b as c }`.
-    fn parse_named_import_bindings(&mut self) -> Option<NamedImportBindings<'a>> {
+    pub(crate) fn parse_named_import_bindings(&mut self) -> Option<NamedImportBindings<'a>> {
         let start = self.pos();
         if self.at(SyntaxKind::AsteriskToken) {
             self.next_token();
@@ -489,7 +489,7 @@ impl<'a> Parser<'a> {
     /// `with { type: "json" }` — import attributes, if present.
     ///
     /// Also accepts the older `assert` spelling, which TypeScript still parses.
-    fn parse_import_attributes(&mut self) -> Option<&'a ImportAttributes<'a>> {
+    pub(crate) fn parse_import_attributes(&mut self) -> Option<&'a ImportAttributes<'a>> {
         if !self.at(SyntaxKind::WithKeyword) && !self.at(SyntaxKind::AssertKeyword) {
             return None;
         }
@@ -584,7 +584,7 @@ impl<'a> Parser<'a> {
     }
 
     /// The `"module"` in `from "module"`.
-    fn parse_module_specifier(&mut self) -> Expression<'a> {
+    pub(crate) fn parse_module_specifier(&mut self) -> Expression<'a> {
         let start = self.pos();
         if !self.at(SyntaxKind::StringLiteral) {
             // `parseModuleSpecifier` (`parser.go`) **parses an arbitrary
@@ -602,6 +602,19 @@ impl<'a> Parser<'a> {
             // The report stays in the parser rather than moving to a grammar
             // pass: it lands at upstream's own position, and moving it would
             // trade a bounded fix for an unported check. §217.
+            //
+            // §279: but ONLY when an expression can actually start here.
+            // `import` on its own line before another import statement made
+            // this arm call `parse_expression` on the SECOND `import`, which
+            // swallowed that whole declaration into the first one's specifier
+            // (`importCallExpressionIncorrect1/2`). Upstream's expression
+            // parse mints a missing identifier — one TS1109 at the token,
+            // NOTHING consumed — and the next statement parses intact, which
+            // is exactly what its baseline records.
+            if !self.is_start_of_expression() {
+                self.error_at_current(&messages::EXPRESSION_EXPECTED);
+                return Expression::Identifier(self.missing_identifier());
+            }
             self.error_at_current(&messages::STRING_LITERAL_EXPECTED);
             return self.parse_expression();
         }
@@ -654,7 +667,7 @@ impl<'a> Parser<'a> {
     /// Whether the cursor is on a name usable as a binding.
     ///
     /// Contextual keywords qualify; reserved words do not.
-    fn at_binding_identifier(&self) -> bool {
+    pub(crate) fn at_binding_identifier(&self) -> bool {
         self.at(SyntaxKind::Identifier) || crate::statement::is_contextual_keyword(self.token.kind)
     }
 

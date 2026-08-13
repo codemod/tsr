@@ -702,7 +702,7 @@ impl<'host, 'a> FileLoader<'host, 'a> {
         // two is unchanged.
         let metadata = self.tasks[index].metadata.clone();
         let is_external_module = self.is_external_module(file.source_file(), &file_name, &metadata);
-        let references = tsr_parser::collect_external_module_references(
+        let mut references = tsr_parser::collect_external_module_references(
             file.source_file(),
             &self.nodes,
             CollectOptions {
@@ -711,6 +711,14 @@ impl<'host, 'a> FileLoader<'host, 'a> {
                 is_external_module,
             },
         );
+        // §269: a JS file's JSDoc `@import` specifiers resolve like written
+        // imports. Upstream's collector sees them as reparsed statements;
+        // this port reads them off the JSDoc side table.
+        if is_javascript_file(&file_name) {
+            references
+                .imports
+                .extend(tsr_parser::collect_jsdoc_import_references(file.jsdoc(), &self.nodes));
+        }
         self.resolve_imports_and_module_augmentations(index, references);
         self.tasks[index].file = Some(file);
     }

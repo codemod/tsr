@@ -1254,13 +1254,9 @@ impl Checker<'_, '_> {
                 //
                 // Found by a systematic sweep rather than by a failing case:
                 // upstream's predicate has three disjuncts and this had two.
-                self.binder
-                    .symbols()
-                    .get(symbol)
-                    .value_declaration
-                    .is_some_and(|declaration| {
-                        self.nodes.kind(declaration) == SyntaxKind::FunctionExpression
-                    })
+                self.binder.symbols().get(symbol).value_declaration.is_some_and(|declaration| {
+                    self.nodes.kind(declaration) == SyntaxKind::FunctionExpression
+                })
             }
             Some(Node::PropertyAccessExpression(access)) => {
                 let Some(tsr_ast::MemberName::Identifier(_)) = access.name else {
@@ -1701,6 +1697,48 @@ impl Checker<'_, '_> {
         if !matches!(node.name, Some(tsr_ast::BindingName::Identifier(_))) {
             return false;
         }
+        // §345: a for-in/for-of BINDING is never auto — upstream's
+        // `isNeverInitialized` excludes `IsForInOrOfStatement(
+        // declaration.Parent.Parent)` by name (`checker.go:11147`), and its
+        // declared type is computed from the head, not `autoType`, so the
+        // top-of-graph substitution must not inject `undefined`:
+        // `v; for (var v of [0]) { }` records `>v : number` at the USE
+        // (`conformance/for-of8/22`).
+        if let Some(statement) =
+            self.nodes.parent(declaration).and_then(|list| self.nodes.parent(list)).filter(
+                |&statement| {
+                    matches!(
+                        self.nodes.kind(statement),
+                        tsr_ast::SyntaxKind::ForInStatement | tsr_ast::SyntaxKind::ForOfStatement
+                    )
+                },
+            )
+        {
+            // ...except the SELF-REFERENTIAL for-IN recovery shape
+            // `for (var of in of) { }`, where the head expression IS the
+            // bound name: upstream records `any` there
+            // (`parserForOfStatement19`, the both-statements draft's one
+            // R->W), and the auto road is what produces it. The for-OF
+            // twin (`for (var v of v)`) goes the OTHER way: non-auto, the
+            // §38 arm cycles to the implicit-any road, and `any` is the
+            // declared answer (`for-of32/55`).
+            let self_referential = self.nodes.kind(statement)
+                == tsr_ast::SyntaxKind::ForInStatement
+                && matches!(
+                    (self.node_map.get(statement), node.name),
+                    (
+                        Some(Node::ForInOrOfStatement(head)),
+                        Some(tsr_ast::BindingName::Identifier(bound)),
+                    ) if matches!(
+                        head.expression,
+                        Some(tsr_ast::Expression::Identifier(iterated))
+                            if iterated.text == bound.text
+                    )
+                );
+            if !self_referential {
+                return false;
+            }
+        }
         node.r#type.is_none()
             && node.initializer.is_none()
             && !self.combined_node_flags(declaration).intersects(tsr_ast::NodeFlags::CONSTANT)
@@ -1992,7 +2030,11 @@ impl Checker<'_, '_> {
         if callee_type == self.intrinsics.error {
             return None;
         }
-        let signature = self.resolve_call_signature(callee_type, Some(call.arguments))?;
+        let signature = self.resolve_call_signature_with_type_arguments(
+            callee_type,
+            Some(call.arguments),
+            !call.type_arguments.is_empty(),
+        )?;
         // §128 second attempt: a never-returning call truncates flow, and
         // the OBSERVABLE at an unreachable read is the DECLARED type —
         // upstream's `unreachableNeverType` is a sentinel converted at the
@@ -4156,7 +4198,11 @@ impl Checker<'_, '_> {
         if callee_type == self.intrinsics.error {
             return t;
         }
-        let Some(signature) = self.resolve_call_signature(callee_type, Some(call.arguments)) else {
+        let Some(signature) = self.resolve_call_signature_with_type_arguments(
+            callee_type,
+            Some(call.arguments),
+            !call.type_arguments.is_empty(),
+        ) else {
             return t;
         };
         let Some(predicate) = &signature.predicate else { return t };

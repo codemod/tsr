@@ -156,14 +156,33 @@ fn an_annotated_default_strips_undefined() {
 /// the leg has been built and its pair here must move to the ported side.
 #[test]
 fn the_refused_legs_stay_gaps() {
-    // A default: needs `UnionReductionSubtype` (`checker.go:17789`).
+    // The default leg CAME DUE at §315 — `UnionReductionSubtype` exists
+    // (`union_with_subtype_reduction`) and the annotation-less union runs
+    // (`checker.go:17789`): the fresh `1` survives reduction against the
+    // widened `number` and the mutable-root wrap widens the result —
+    // `>x : number` for `var [x = 20] = [1, 2]`
+    // (`sourceMapValidation…ArrayBindingPattern6`). Moved to the ported side,
+    // as this test's own doc demands.
     let default = "var { d = 1, x } = { d: 5, x: 2 };";
-    assert_eq!(type_of_binding(default, "d"), "error");
+    assert_eq!(type_of_binding(default, "d"), "number");
     assert_eq!(type_of_binding(default, "x"), "number");
-    // A rest element: needs `getRestType` (`checker.go:17792`).
+    // The OBJECT rest leg CAME DUE at §319 — `getRestType`'s member
+    // subtraction runs over `spread_members_of`
+    // (`>rest : { b: string; }`, `conformance/objectRest`). The ARRAY rest
+    // (`sliceTupleType`) is the half still refused.
     let rest = r#"var { a, ...rest } = { a: 1, b: "x" };"#;
-    assert_eq!(type_of_binding(rest, "rest"), "error");
+    assert_eq!(type_of_binding(rest, "rest"), "{ b: string; }");
     assert_eq!(type_of_binding(rest, "a"), "number");
+    // The ARRAY rest's PLAIN-tuple slice landed at §321 (`sliceTupleType`,
+    // `checker.go:17797`) — probe-confirmed and corpus-zero at landing: no
+    // deficit line has this shape reachable today, so the arm is the
+    // session's one fidelity-only admission. Optional-masked and readonly
+    // tuples, and non-tuple parents (`T[]` from the iterated type), still
+    // refuse.
+    let array_rest = r#"var [x, ...tail]: [number, string, string] = [1, "a", "b"];"#;
+    assert_eq!(type_of_binding(array_rest, "tail"), "[string, string]");
+    let optional_rest = "var [y, ...opt]: [number, string?] = [1];";
+    assert_eq!(type_of_binding(optional_rest, "opt"), "error");
     // An array literal destructured by an array pattern **is now ported**
     // (`bd tsr-84iz`): upstream infers the *tuple* `[number, string]` through
     // the pattern's implied contextual type

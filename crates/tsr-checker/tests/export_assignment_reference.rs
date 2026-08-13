@@ -49,9 +49,7 @@ fn type_of_identifier_under(source: &str, name: &str, parent_kind: SyntaxKind) -
     let found = (0..u32::try_from(parsed.nodes.len()).expect("fits"))
         .map(NodeId::new)
         .filter(|&id| parsed.nodes.kind(id) == SyntaxKind::Identifier)
-        .filter(|&id| {
-            parsed.nodes.parent(id).is_some_and(|p| parsed.nodes.kind(p) == parent_kind)
-        })
+        .filter(|&id| parsed.nodes.parent(id).is_some_and(|p| parsed.nodes.kind(p) == parent_kind))
         .find(|&id| matches!(parsed.node_map.get(id), Some(Node::Identifier(i)) if i.text == name))
         .unwrap_or_else(|| panic!("no `{name}` under {parent_kind:?}"));
     let Some(Node::Identifier(identifier)) = parsed.node_map.get(found) else {
@@ -74,11 +72,7 @@ fn the_expression_of_an_export_assignment_is_not_flow_narrowed() {
 #[test]
 fn an_ordinary_reference_to_the_same_symbol_still_narrows() {
     assert_eq!(
-        type_of_identifier_under(
-            "var x;\nx;\nexport = x;",
-            "x",
-            SyntaxKind::ExpressionStatement
-        ),
+        type_of_identifier_under("var x;\nx;\nexport = x;", "x", SyntaxKind::ExpressionStatement),
         "undefined"
     );
 }

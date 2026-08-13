@@ -85,10 +85,7 @@ fn the_heritage_entry_declines_where_it_would_have_to_guess() {
     // No written arguments: upstream answers `B`, but that population is
     // unmeasured and the caller's fallback is today's answer, so it gaps
     // rather than riding along on a measured change.
-    assert_eq!(
-        base_type_of_first_extends("interface Base {}\ninterface C extends Base {}"),
-        None
-    );
+    assert_eq!(base_type_of_first_extends("interface Base {}\ninterface C extends Base {}"), None);
 }
 
 /// An unresolvable type argument flows through, and this pins that rather than

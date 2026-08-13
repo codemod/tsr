@@ -330,8 +330,6 @@ fn the_bare_yield_contribution_is_the_only_thing_strictness_changes() {
     );
 }
 
-
-
 /// §223. The no-contextual-type gate is `getContextualType`'s complement, not
 /// a list of two positions.
 ///
@@ -367,11 +365,19 @@ fn the_contextual_gate_still_declines_where_upstream_has_an_arm() {
         generator_declaration_type("function* g() { var v = yield 1; }", "g", false),
         "error"
     );
-    // `KindYieldExpression` (`:29360`) is in the switch, which is why
-    // `generatorTypeCheck36`'s `yield yield 0` is untouched by §223. Without
-    // this, "everything not in a statement contributes" also passes the test
-    // above.
-    assert_eq!(generator_declaration_type("function* g() { yield yield 0; }", "g", false), "error");
+    // FLIPPED at §353. `KindYieldExpression` (`:29360`) IS in the switch —
+    // §223's derivation was right about that — but its arm resolves through
+    // the OUTER yield's contextual iteration type, and in the
+    // declaration-only arm this loop guards, that chain provably dead-ends:
+    // upstream's own baseline records `Generator<any, void, unknown>` for
+    // `yield yield 0` (`generatorTypeCheck36/50`, both landed). "In the
+    // switch" was the right test for kinds whose arm reads a DECLARATION
+    // (the `var v = yield 1` control above stands); a kind whose arm reads
+    // another CONTEXTUAL CHAIN needs the chain's own resolvability asked.
+    assert_eq!(
+        generator_declaration_type("function* g() { yield yield 0; }", "g", false),
+        "() => Generator<any, void, unknown>"
+    );
     // The parenthesis walk (`:29392` delegates to its own parent). **This
     // assertion is the one that catches it, and the obvious one does not.**
     // `(yield 1);` in statement position passes with the walk deleted, because

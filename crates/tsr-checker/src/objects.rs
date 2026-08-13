@@ -260,6 +260,19 @@ enum PropertyValue<'a> {
     Shorthand(&'a tsr_ast::Identifier<'a>),
 }
 
+/// SS307: what a computed member name contributes to an object literal.
+pub(crate) enum ComputedNameKey {
+    /// The name is LATE-BOUND (a string/number literal, a unique symbol, or a
+    /// union of them names a real member, unported) or unreadable - the
+    /// caller gaps the literal.
+    LateBound,
+    /// The name keys nothing (SS201) - the member contributes nothing, and
+    /// the caller skips it.
+    Nothing,
+    /// The member contributes an index signature of this key kind.
+    Index(&'static str),
+}
+
 impl Checker<'_, '_> {
     /// Ported from `Checker.checkObjectLiteral` (`checker.go:13144`).
     ///
@@ -307,6 +320,128 @@ impl Checker<'_, '_> {
     /// other two are *not written* rather than written and left dead. They become
     /// live with contextual typing, and `isConstContext` is what will need
     /// porting first because it recurses through enclosing literals.
+    /// SS323: the printed NAME of a late-bound member whose computed name is
+    /// a UNIQUE SYMBOL reference - `{ [s]: 0 }` prints `{ [s]: number; }` and
+    /// `{ [Symbol.isConcatSpreadable]: 0 }` prints the dotted chain in
+    /// brackets (`conformance/symbolProperty1`, `symbolDeclarationEmit7-9`).
+    /// Upstream renders the entity name the source wrote
+    /// (the node builder's late-bound leg); an expression that is not an
+    /// identifier chain, or whose type is any other late-bound kind (a
+    /// string/number literal spells WITHOUT brackets - `{ [1]: 1 }` is
+    /// `{ 1: number; }`), answers `None` and the caller keeps its gap.
+    /// The `(name, unique)` pair: a UNIQUE-symbol name is a real late-bound
+    /// member (method spelling, readonly getters, get/set merge - SS323/325);
+    /// a PLAIN-symbol entity name is an index-info COMPONENT row, displayed
+    /// as a property whatever the declaration kind - `{ [s]: () => void }`
+    /// for a method, no readonly, no merge (`symbolProperty1/2` vs
+    /// `symbolProperty5`/`symbolDeclarationEmit10`).
+    pub(crate) fn late_bound_symbol_member_name(
+        &mut self,
+        computed: &tsr_ast::ComputedPropertyName<'_>,
+    ) -> Option<(String, bool)> {
+        fn chain_text(expression: &tsr_ast::Expression<'_>) -> Option<String> {
+            match expression {
+                tsr_ast::Expression::Identifier(identifier) => Some(identifier.text.to_string()),
+                tsr_ast::Expression::PropertyAccessExpression(access) => {
+                    let base = chain_text(access.expression.as_ref()?)?;
+                    let Some(tsr_ast::MemberName::Identifier(name)) = access.name else {
+                        return None;
+                    };
+                    Some(format!("{base}.{}", name.text))
+                }
+                _ => None,
+            }
+        }
+        let expression = computed.expression?;
+        let name_type = self.check_expression(expression);
+        // SS331 widened UNIQUE to SYMBOL-LIKE: the discriminator between the
+        // per-member display and the `[x: symbol]` index form is whether the
+        // name is an ENTITY REFERENCE, not whether its symbol is unique -
+        // `var s = Symbol()` types PLAIN `symbol` and still displays
+        // `{ [s]: number; ... }` (`symbolProperty2`), while the inline
+        // `[Symbol()]` of `symbolProperty4` is no entity and takes the index
+        // route.
+        let flags = self.type_of(name_type).flags;
+        if !flags.intersects(TypeFlags::ES_SYMBOL_LIKE) {
+            return None;
+        }
+        let text = chain_text(&expression)?;
+        Some((format!("[{text}]"), flags.intersects(TypeFlags::UNIQUE_ES_SYMBOL)))
+    }
+
+    /// SS307: the computed-name key dispatch of `checker.go:13317-13324`,
+    /// See [`ComputedNameKey`] for the three answers.
+    /// shared by the property (SS206), method, and accessor arms so the three
+    /// cannot drift.
+    ///
+    /// Upstream's order, and it is not the obvious one:
+    /// `isTypeAssignableTo(nameType, numberType)` is asked FIRST, then
+    /// `esSymbolType`, then string (`checker.go:13319-13324`). So an `any`
+    /// name yields a **number** index - which is why `{ [await]: foo }` with
+    /// an un-typeable `await` records `{ [x: number]: any; }` and not a
+    /// string index.
+    pub(crate) fn computed_member_index_key(
+        &mut self,
+        computed: &tsr_ast::ComputedPropertyName<'_>,
+    ) -> ComputedNameKey {
+        let Some(expression) = computed.expression else {
+            return ComputedNameKey::LateBound;
+        };
+        let name_type = self.check_expression(expression);
+        let flags = self.type_of(name_type).flags;
+        // **`StringOrNumberLiteralOrUnique` first** - upstream's own guard
+        // (`checker.go:13317`), and the arms below are its `else`. SS206's
+        // first draft tested `NUMBER_LIKE`, which contains `NUMBER_LITERAL`,
+        // and turned `{ [1]: 1 }` into `{ [x: number]: number; }` - SS201's
+        // own control caught it.
+        if flags.intersects(
+            TypeFlags::STRING_LITERAL | TypeFlags::NUMBER_LITERAL | TypeFlags::UNIQUE_ES_SYMBOL,
+        ) {
+            return ComputedNameKey::LateBound;
+        }
+        // SS331: a symbol-typed ENTITY name late-binds even when the symbol
+        // is not unique - see `late_bound_symbol_member_name`'s note on
+        // `symbolProperty2` vs `symbolProperty4`. The chain test keeps the
+        // inline `[Symbol()]` on the index route below.
+        if flags.intersects(TypeFlags::ES_SYMBOL_LIKE)
+            && matches!(
+                expression,
+                tsr_ast::Expression::Identifier(_)
+                    | tsr_ast::Expression::PropertyAccessExpression(_)
+            )
+        {
+            return ComputedNameKey::LateBound;
+        }
+        // A UNION whose constituents are usable as property names is
+        // late-bound too - `Math.random() > 0.5 ? "f1" : "f2"` names a member
+        // upstream prints as the WRITTEN `[fieldName]`
+        // (`compiler/declarationEmitSimpleComputedNames1`), unported. A
+        // boolean name is also a union - of `true | false`, which name
+        // nothing - and keeps contributing nothing (SS201's
+        // `{ [0 in []]: true }` control).
+        if flags.intersects(TypeFlags::UNION)
+            && let crate::types::TypeData::Union { types, .. } = &self.store.get(name_type).data
+            && types.iter().any(|&member| {
+                self.store.get(member).flags.intersects(
+                    TypeFlags::STRING_LITERAL
+                        | TypeFlags::NUMBER_LITERAL
+                        | TypeFlags::UNIQUE_ES_SYMBOL,
+                )
+            })
+        {
+            return ComputedNameKey::LateBound;
+        }
+        if flags.intersects(TypeFlags::NUMBER_LIKE | TypeFlags::ANY) {
+            ComputedNameKey::Index("number")
+        } else if flags.intersects(TypeFlags::ES_SYMBOL_LIKE) {
+            ComputedNameKey::Index("symbol")
+        } else if flags.intersects(TypeFlags::STRING_LIKE) {
+            ComputedNameKey::Index("string")
+        } else {
+            ComputedNameKey::Nothing
+        }
+    }
+
     pub(crate) fn check_object_literal(&mut self, node: &ObjectLiteralExpression<'_>) -> TypeId {
         let error = self.intrinsics.error;
         // §105 slice 2a (`checker-notes-narrow.md`): a literal in a const
@@ -322,6 +457,12 @@ impl Checker<'_, '_> {
         // value type is the union of the contributing members' types
         // (`getObjectLiteralIndexInfo`, `:19721`).
         let mut index_values: Vec<(&'static str, TypeId)> = Vec::new();
+        // SS325: late-bound ACCESSOR members merge by name - a get/set pair
+        // is one property (the getter's type wins the display), a getter
+        // without a setter is `readonly` (`symbolDeclarationEmit10`,
+        // `symbolProperty5`). Non-accessor members of the same name stay
+        // separate rows (`symbolProperty1`'s triple).
+        let mut accessor_members: Vec<(String, usize)> = Vec::new();
         for property in node.properties {
             let mut pending_index_key: Option<&'static str> = None;
             // `checker.go:13223` dispatches over three member kinds. Only two are
@@ -423,6 +564,55 @@ impl Checker<'_, '_> {
                     if matches!(method.name, tsr_ast::PropertyName::PrivateIdentifier(_)) {
                         continue;
                     }
+                    // SS307: a computed-name METHOD takes the same index route
+                    // the property arm built at SS206 - `{ [e]() { } }` with an
+                    // untypeable `e` is `{ [x: number]: () => void; }`
+                    // (`conformance/parserComputedPropertyName3`). The value is
+                    // the method's own function type - the same road that
+                    // already prints the member's `.types` line.
+                    if let tsr_ast::PropertyName::ComputedPropertyName(computed) = method.name {
+                        let key = match self.computed_member_index_key(computed) {
+                            ComputedNameKey::LateBound => {
+                                // SS323: a UNIQUE late-bound METHOD keeps the
+                                // method spelling - `{ [Symbol.hasInstance]
+                                // (value: any): boolean; }`
+                                // (`modularizeLibrary_*`; the arrow-form
+                                // draft was 19 G->W). A PLAIN-symbol
+                                // component row is a PROPERTY of the arrow
+                                // form (`symbolProperty1/2`).
+                                let Some((name, unique)) =
+                                    self.late_bound_symbol_member_name(computed)
+                                else {
+                                    return error;
+                                };
+                                if unique {
+                                    let printed = format!(
+                                        "{name}{}",
+                                        signature_member_text(self, &signature)
+                                    );
+                                    members.push(Member::Signature { printed });
+                                } else {
+                                    let printed = self.signature_to_string(&signature);
+                                    members.push(Member::Property {
+                                        name,
+                                        optional: false,
+                                        readonly: const_context,
+                                        printed,
+                                    });
+                                }
+                                continue;
+                            }
+                            ComputedNameKey::Nothing => continue,
+                            ComputedNameKey::Index(key) => key,
+                        };
+                        let Some(symbol) = self.binder.symbol_of(id) else { return error };
+                        let member_type = self.get_type_of_symbol(symbol);
+                        if member_type == error {
+                            return error;
+                        }
+                        index_values.push((key, member_type));
+                        continue;
+                    }
                     let tsr_ast::PropertyName::Identifier(name) = method.name else {
                         // A computed or string-literal method name needs the
                         // same quoting rules the property path has and is not
@@ -467,7 +657,136 @@ impl Checker<'_, '_> {
                     upsert_member(&mut members, Member::Signature { printed });
                     continue;
                 }
-                _ => return error,
+                // SS307: computed-name ACCESSORS join the index route. A
+                // getter contributes its RETURN type (`{ get [e]() { } }` is
+                // `{ [x: number]: void; }`, `parserComputedPropertyName4`); a
+                // setter its first PARAMETER's type, `any` when unannotated
+                // (`parserComputedPropertyName17`). Identifier-named accessors
+                // keep gapping - their printed form (`readonly x`, getter/
+                // setter merging) is `assignmentCompatBug3`'s own question.
+                tsr_ast::ObjectLiteralElementLike::GetAccessorDeclaration(accessor) => {
+                    let tsr_ast::PropertyName::ComputedPropertyName(computed) = accessor.name
+                    else {
+                        return error;
+                    };
+                    let Some(id) = accessor.node_id else { return error };
+                    let key = match self.computed_member_index_key(computed) {
+                        // SS325: a late-bound GETTER prints as a property of
+                        // its return type - the third `[s]: number` row of
+                        // `symbolProperty1`'s literal.
+                        ComputedNameKey::LateBound => {
+                            let Some((name, unique)) = self.late_bound_symbol_member_name(computed)
+                            else {
+                                return error;
+                            };
+                            let Some(signature) = self.get_signature_from_declaration(id) else {
+                                return error;
+                            };
+                            let printed = self.type_to_string(signature.r#type);
+                            if !unique {
+                                // A component-row getter: plain property, no
+                                // readonly, no merge (`symbolProperty1/2`).
+                                members.push(Member::Property {
+                                    name,
+                                    optional: false,
+                                    readonly: const_context,
+                                    printed,
+                                });
+                                continue;
+                            }
+                            let mut has_setter_sibling = false;
+                            for sibling in node.properties {
+                                if let tsr_ast::ObjectLiteralElementLike::SetAccessorDeclaration(
+                                    setter,
+                                ) = sibling
+                                    && let tsr_ast::PropertyName::ComputedPropertyName(sibling_name) =
+                                        setter.name
+                                    && self
+                                        .late_bound_symbol_member_name(sibling_name)
+                                        .is_some_and(|(sibling, _)| sibling == name)
+                                {
+                                    has_setter_sibling = true;
+                                }
+                            }
+                            let member = Member::Property {
+                                name: name.clone(),
+                                optional: false,
+                                readonly: const_context || !has_setter_sibling,
+                                printed,
+                            };
+                            if let Some(&(_, index)) =
+                                accessor_members.iter().find(|(existing, _)| existing == &name)
+                            {
+                                members[index] = member;
+                            } else {
+                                accessor_members.push((name, members.len()));
+                                members.push(member);
+                            }
+                            continue;
+                        }
+                        ComputedNameKey::Nothing => continue,
+                        ComputedNameKey::Index(key) => key,
+                    };
+                    let Some(signature) = self.get_signature_from_declaration(id) else {
+                        return error;
+                    };
+                    index_values.push((key, signature.r#type));
+                    continue;
+                }
+                tsr_ast::ObjectLiteralElementLike::SetAccessorDeclaration(accessor) => {
+                    let tsr_ast::PropertyName::ComputedPropertyName(computed) = accessor.name
+                    else {
+                        return error;
+                    };
+                    let Some(id) = accessor.node_id else { return error };
+                    let key = match self.computed_member_index_key(computed) {
+                        // SS325: the setter half - a property of its first
+                        // parameter's type, `any` when unannotated, the same
+                        // value rule the index route uses.
+                        ComputedNameKey::LateBound => {
+                            let Some((name, unique)) = self.late_bound_symbol_member_name(computed)
+                            else {
+                                return error;
+                            };
+                            if unique
+                                && accessor_members.iter().any(|(existing, _)| existing == &name)
+                            {
+                                // The getter already owns the display; a
+                                // getter appearing LATER replaces in place.
+                                continue;
+                            }
+                            let Some(signature) = self.get_signature_from_declaration(id) else {
+                                return error;
+                            };
+                            let member_type = signature
+                                .parameters
+                                .first()
+                                .map_or(self.intrinsics.any, |parameter| parameter.r#type);
+                            let printed = self.type_to_string(member_type);
+                            if unique {
+                                accessor_members.push((name.clone(), members.len()));
+                            }
+                            members.push(Member::Property {
+                                name,
+                                optional: false,
+                                readonly: const_context,
+                                printed,
+                            });
+                            continue;
+                        }
+                        ComputedNameKey::Nothing => continue,
+                        ComputedNameKey::Index(key) => key,
+                    };
+                    let Some(signature) = self.get_signature_from_declaration(id) else {
+                        return error;
+                    };
+                    let member_type = signature
+                        .parameters
+                        .first()
+                        .map_or(self.intrinsics.any, |parameter| parameter.r#type);
+                    index_values.push((key, member_type));
+                    continue;
+                }
             };
             let name = match name_node {
                 tsr_ast::PropertyName::Identifier(name) => name.text.to_string(),
@@ -538,49 +857,25 @@ impl Checker<'_, '_> {
                 //   port cannot see as string-like keeps gapping instead of
                 //   silently losing an index signature.
                 tsr_ast::PropertyName::ComputedPropertyName(computed) => {
-                    let Some(expression) = computed.expression else { return error };
-                    let name_type = self.check_expression(expression);
-                    let flags = self.type_of(name_type).flags;
-                    // **`StringOrNumberLiteralOrUnique` first** — upstream's
-                    // own guard (`checker.go:13317`), and the arm below is its
-                    // `else`. A name whose type is a string or number LITERAL,
-                    // or a unique symbol, is **late-bound**: it names a real
-                    // member and goes in `propertiesTable`, so `{ [1]: 1 }` is
-                    // `{ 1: number; }` and not an index signature. Printing
-                    // that name is unported, so it stays a gap.
-                    //
-                    // §206's first draft tested `NUMBER_LIKE`, which contains
-                    // `NUMBER_LITERAL`, and turned `{ [1]: 1 }` into
-                    // `{ [x: number]: number; }`. **§201's own control caught
-                    // it** — the fixture written one commit earlier to pin that
-                    // a computed member must not silently vanish also pinned
-                    // which of the two things it becomes.
-                    if flags.intersects(
-                        TypeFlags::STRING_LITERAL
-                            | TypeFlags::NUMBER_LITERAL
-                            | TypeFlags::UNIQUE_ES_SYMBOL,
-                    ) {
-                        return error;
+                    // The dispatch lives in `computed_member_index_key`,
+                    // shared with the SS307 method/accessor arms.
+                    match self.computed_member_index_key(computed) {
+                        // SS323: a unique-symbol name is the one late-bound
+                        // kind whose printed member this port can spell.
+                        ComputedNameKey::LateBound => {
+                            match self.late_bound_symbol_member_name(computed) {
+                                Some((name, _)) => name,
+                                None => return error,
+                            }
+                        }
+                        // SS201: a name that cannot key anything contributes
+                        // nothing at all - not a member and not a signature.
+                        ComputedNameKey::Nothing => continue,
+                        ComputedNameKey::Index(key) => {
+                            pending_index_key = Some(key);
+                            String::new()
+                        }
                     }
-                    // Upstream's order, and it is not the obvious one:
-                    // `isTypeAssignableTo(nameType, numberType)` is asked
-                    // FIRST, then `esSymbolType`, then string
-                    // (`checker.go:13319-13324`). So an `any` name yields a
-                    // **number** index — which is why
-                    // `{ [await]: foo }` with an un-typeable `await` records
-                    // `{ [x: number]: any; }` and not a string index.
-                    if flags.intersects(TypeFlags::NUMBER_LIKE | TypeFlags::ANY) {
-                        pending_index_key = Some("number");
-                    } else if flags.intersects(TypeFlags::ES_SYMBOL_LIKE) {
-                        pending_index_key = Some("symbol");
-                    } else if flags.intersects(TypeFlags::STRING_LIKE) {
-                        pending_index_key = Some("string");
-                    } else {
-                        // §201: a name that cannot key anything contributes
-                        // nothing at all — not a member and not a signature.
-                        continue;
-                    }
-                    String::new()
                 }
                 // A **private name** cannot be an object-literal member. The
                 // grammar refuses it, the parser has already reported, and the
@@ -681,6 +976,13 @@ impl Checker<'_, '_> {
                 index_values.push((key, member_type));
                 continue;
             }
+            // SS329 corrects SS323's push rule: `symbolProperty1`'s three
+            // `[s]` rows come from three DIFFERENT ARMS (property, method,
+            // getter), so the plain-property flow upserts for bracketed
+            // names exactly as for written ones - duplicate late-bound
+            // PROPERTY assignments collapse to one row
+            // (`symbolProperty36`'s `{ [Symbol.isConcatSpreadable]: 0,
+            // [Symbol.isConcatSpreadable]: 1 }` prints one member).
             upsert_member(
                 &mut members,
                 Member::Property { name, optional: false, readonly: const_context, printed },
@@ -715,11 +1017,30 @@ impl Checker<'_, '_> {
             let value = match distinct.as_slice() {
                 [single] => *single,
                 many => {
-                    let candidates = many.to_vec();
-                    let Some(reduced) = self.union_with_subtype_reduction(&candidates) else {
-                        return error;
+                    // SS331: the relation answers UNKNOWN for any pair
+                    // involving a signature-shaped type, and one Unknown
+                    // declines the whole reduction - which gapped
+                    // `{ [Symbol()]: 0, [Symbol()]() { }, get ... }`
+                    // (`symbolProperty4`, want
+                    // `number | (() => void)`). A callable is never a strict
+                    // subtype of a non-callable, so the callables pass
+                    // through and only the plain constituents reduce.
+                    let (callable, plain): (Vec<TypeId>, Vec<TypeId>) = many
+                        .iter()
+                        .partition(|candidate| self.signature_types.contains_key(candidate));
+                    let mut kept = if plain.len() > 1 {
+                        let Some(reduced) = self.union_with_subtype_reduction(&plain) else {
+                            return error;
+                        };
+                        match &self.store.get(reduced).data {
+                            crate::types::TypeData::Union { types, .. } => types.clone(),
+                            _ => vec![reduced],
+                        }
+                    } else {
+                        plain
                     };
-                    reduced
+                    kept.extend(callable);
+                    self.get_union_type(&kept)
                 }
             };
             // The parameter name is upstream's synthesized `x` — a real index
@@ -781,7 +1102,7 @@ impl Checker<'_, '_> {
     /// that would show up as a flapping baseline and be blamed on anything but
     /// the map. Members are therefore sorted by their declaration's source
     /// position, which is the order upstream prints.
-    fn spread_members_of(&mut self, source: TypeId) -> Option<Vec<Member>> {
+    pub(crate) fn spread_members_of(&mut self, source: TypeId) -> Option<Vec<Member>> {
         let error = self.intrinsics.error;
         if source == error {
             return None;

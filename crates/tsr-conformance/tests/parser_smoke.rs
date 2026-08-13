@@ -97,7 +97,10 @@ fn a_sample_of_error_free_corpus_files_parses_with_no_diagnostics() {
                     case.name,
                     unit.name,
                     parsed.diagnostics.len(),
-                    parsed.diagnostics.first().map_or_else(String::new, tsr_diagnostics::Diagnostic::text),
+                    parsed
+                        .diagnostics
+                        .first()
+                        .map_or_else(String::new, tsr_diagnostics::Diagnostic::text),
                 ));
             }
         }

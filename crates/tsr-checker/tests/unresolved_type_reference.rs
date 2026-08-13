@@ -91,16 +91,20 @@ fn a_gapped_type_argument_gaps_the_whole_reference() {
     assert_eq!(type_of_annotation("let x: Foo<Bar[]>;"), "error");
 }
 
-/// **The design constraint.** The minted type still answers `is_error`, so
-/// every consumer keeps treating it as a gap and keeps propagating. Without
-/// that, `check_arithmetic_operation` would see `TypeFlags::ANY` and answer
-/// `number` for an operand nobody could resolve — and `check_addition` would
-/// answer `any`, which ADR-0038 and ADR-0039 both forbid.
+/// **FLIPPED at §271, and the half that stays is the `+` half.** This pinned
+/// `error` for `a * 2` on the argument that answering `number` for an
+/// unresolvable operand is ADR-0038's forbidden rendering. §271 measured the
+/// blanket claim: upstream computes `number` for ANY-like operands including
+/// `errorType` (`checker.go:12358`), and the corpus population where that
+/// converts a gap into a WRONG number measured EMPTY (31 right, 0 adverse).
+/// So the multiplicative arm now answers `number` — upstream's own answer
+/// for exactly this program — while `check_addition` keeps propagating (its
+/// upstream answers errorType there, `checker.go:12452`, and §272 measured
+/// the signature-level analogue at 405 GAP→WRONG; the question is per-site).
 ///
-/// Deleting the `unresolved_types` clause in `Checker::is_error` turns this
-/// red: the answer becomes `number`.
+/// The minted type still answers `is_error` for every OTHER consumer.
 #[test]
-fn an_unresolved_operand_still_propagates_as_a_gap() {
+fn an_unresolved_arithmetic_operand_answers_number_and_addition_keeps_the_gap() {
     let source = "let a: NodeType; let x = a * 2;";
     let arena = Arena::new();
     let parsed = tsr_parser::parse(&arena, source);
@@ -120,5 +124,5 @@ fn an_unresolved_operand_still_propagates_as_a_gap() {
         .and_then(|d| d.initializer)
         .expect("an initialiser");
     let id = checker.check_expression(initialiser);
-    assert_eq!(checker.type_to_string(id), "error");
+    assert_eq!(checker.type_to_string(id), "number");
 }

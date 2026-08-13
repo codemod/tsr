@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 5170/9538 (54.20%)
-Assertion lines: 424129/478954 (88.55%)  — a gradient, not a pass rate
-Failed         : 4368
+Passed         : 5453/9538 (57.17%)
+Assertion lines: 428297/478855 (89.44%)  — a gradient, not a pass rate
+Failed         : 4085
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 4368 failures:
+First 100 of 4085 failures:
 compiler/2dArrays
   2dArrays.ts: >function (val) { return val.isSunk; } : error — expected >function (val) { return val.isSunk; } : (val: Ship) => boolean
 compiler/ClassDeclaration26
@@ -87,8 +87,6 @@ compiler/ambientModuleWithTemplateLiterals
   ambientModuleWithTemplateLiterals.ts: >Foo.c : Bar.a — expected >Foo.c : Foo.Bar.a
 compiler/ambientPropertyDeclarationInJs
   /test.js: >this.prop : any — expected >this.prop : string
-compiler/ambiguousOverload
-  ambiguousOverload.ts: >foof("s", null) : any — expected >foof("s", null) : number
 compiler/ambiguousOverloadResolution
   ambiguousOverloadResolution.ts: >f(x, x) : error — expected >f(x, x) : number
 compiler/amdLikeInputDeclarationEmit
@@ -97,14 +95,8 @@ compiler/anonClassDeclarationEmitIsAnon
   wrapClass.ts: >Timestamped : error — expected >Timestamped : <TBase extends Constructor>(Base: TBase) => { new (...args: any[]): (Anonymous class); prototype: Timestamped.(Anonymous class); } & TBase
 compiler/anonterface
   anonterface.ts: >fn(n2) : error — expected >fn(n2) : string
-compiler/anonymousClassDeclarationDoesntPrintWithReadonly
-  anonymousClassDeclarationDoesntPrintWithReadonly.ts: >y : error — expected >y : () => typeof (Anonymous class)
-compiler/anonymousClassExpression1
-  anonymousClassExpression1.ts: >class {} : error — expected >class {} : typeof (Anonymous class)
 compiler/anyAndUnknownHaveFalsyComponents
   anyAndUnknownHaveFalsyComponents.ts: >foo1 : error — expected >foo1 : () => any
-compiler/anyAsReturnTypeForNewOnCall
-  anyAsReturnTypeForNewOnCall.ts: >o : error — expected >o : any
 compiler/anyInferenceAnonymousFunctions
   anyInferenceAnonymousFunctions.ts: >function (a1, a2) {    return a1.concat({});} : any — expected >function (a1, a2) {    return a1.concat({});} : (a1: any, a2: any) => any
 compiler/anyMappedTypesError
@@ -115,8 +107,6 @@ compiler/argumentsAsPropertyName
   argumentsAsPropertyName.ts: >function(j) { use(x); } : error — expected >function(j) { use(x); } : (j: number) => void
 compiler/argumentsAsPropertyName2
   argumentsAsPropertyName2.ts: >[].forEach : (callbackfn: (value: undefined, index: number, array: undefined[]) => void, thisArg?: any) => void — expected >[].forEach : (callbackfn: (value: any, index: number, array: any[]) => void, thisArg?: any) => void
-compiler/argumentsObjectCreatesRestForJs
-  main.js: >x : any — expected >x : number
 compiler/argumentsObjectIterator02_ES6
   argumentsObjectIterator02_ES6.ts: >blah : error — expected >blah : () => ArrayIterator<any>
 compiler/argumentsObjectIterator03_ES6
@@ -124,15 +114,15 @@ compiler/argumentsObjectIterator03_ES6
 compiler/argumentsPropertyNameInJsMode1
   a.js: >foo : any — expected >foo : { f1: (params: any) => void; }
 compiler/argumentsReferenceInConstructor1_Js
-  /a.js: >foo : {} — expected >foo : object | undefined
+  /a.js: >foo : object — expected >foo : object | undefined
 compiler/argumentsReferenceInConstructor2_Js
-  /a.js: >foo : {} — expected >foo : object | undefined
+  /a.js: >foo : object — expected >foo : object | undefined
 compiler/argumentsReferenceInConstructor3_Js
-  /a.js: >foo : {} — expected >foo : object | undefined
+  /a.js: >foo : object — expected >foo : object | undefined
 compiler/argumentsReferenceInConstructor4_Js
-  /a.js: >foo : {} — expected >foo : object | undefined
+  /a.js: >foo : object — expected >foo : object | undefined
 compiler/argumentsReferenceInConstructor5_Js
-  /a.js: >foo : {} — expected >foo : object | undefined
+  /a.js: >foo : object — expected >foo : object | undefined
 compiler/argumentsReferenceInConstructor6_Js
   /a.js: >this.foo : error — expected >this.foo : object
 compiler/argumentsReferenceInConstructor7_Js
@@ -140,23 +130,21 @@ compiler/argumentsReferenceInConstructor7_Js
 compiler/argumentsReferenceInFunction1_Js
   index.js: >debuglog : any — expected >debuglog : () => string
 compiler/argumentsReferenceInMethod1_Js
-  /a.js: >foo : {} — expected >foo : object | undefined
+  /a.js: >foo : object — expected >foo : object | undefined
 compiler/argumentsReferenceInMethod2_Js
-  /a.js: >foo : {} — expected >foo : object | undefined
+  /a.js: >foo : object — expected >foo : object | undefined
 compiler/argumentsReferenceInMethod3_Js
-  /a.js: >foo : {} — expected >foo : object | undefined
+  /a.js: >foo : object — expected >foo : object | undefined
 compiler/argumentsReferenceInMethod4_Js
-  /a.js: >foo : {} — expected >foo : object | undefined
+  /a.js: >foo : object — expected >foo : object | undefined
 compiler/argumentsReferenceInMethod5_Js
-  /a.js: >foo : {} — expected >foo : object | undefined
+  /a.js: >foo : object — expected >foo : object | undefined
 compiler/argumentsReferenceInMethod6_Js
   /a.js: >this.foo : error — expected >this.foo : object
 compiler/argumentsReferenceInMethod7_Js
   /a.js: >this.callee : error — expected >this.callee : Function
 compiler/argumentsUsedInClassFieldInitializerOrStaticInitializationBlock
   argumentsUsedInClassFieldInitializerOrStaticInitializationBlock.ts: >a : any — expected >a : () => any
-compiler/arithAssignTyping
-  arithAssignTyping.ts: >f : typeof f — expected >f : any
 compiler/arityErrorRelatedSpanBindingPattern
   arityErrorRelatedSpanBindingPattern.ts: >foo : any — expected >foo : (a: any, b: any, { c }: { c: any; }) => void
 compiler/arrayBestCommonTypes
@@ -174,7 +162,7 @@ compiler/arrayConcat3
 compiler/arrayConcatMap
   arrayConcatMap.ts: >x : any — expected >x : any[]
 compiler/arrayConstructors1
-  arrayConstructors1.ts: >x = new Array(1) : error — expected >x = new Array(1) : any[]
+  arrayConstructors1.ts: >x = new Array('hi', 'bye') : error — expected >x = new Array('hi', 'bye') : string[]
 compiler/arrayDestructuringInSwitch1
   arrayDestructuringInSwitch1.ts: >Expression : error — expected >Expression : Expression
 compiler/arrayDestructuringInSwitch2
@@ -196,7 +184,7 @@ compiler/arrayFlatNoCrashInferenceDeclarations
 compiler/arrayFrom
   arrayFrom.ts: >inputARand : any — expected >inputARand : ArrayLike<A> | Iterable<A>
 compiler/arrayLiteralAndArrayConstructorEquivalence1
-  arrayLiteralAndArrayConstructorEquivalence1.ts: >myCars : any — expected >myCars : any[]
+  arrayLiteralAndArrayConstructorEquivalence1.ts: >myCars3 : any — expected >myCars3 : {}[]
 compiler/arrayLiteralComments
   arrayLiteralComments.ts: >testArrayWithFunc : error — expected >testArrayWithFunc : (string | number | number[] | (() => void) | { a: number; })[]
 compiler/arrayLiteralContextualType
@@ -213,3 +201,15 @@ compiler/arrayToLocaleStringES2015
   arrayToLocaleStringES2015.ts: >{ style: 'currency', currency: 'EUR' } : { style: string; currency: string; } — expected >{ style: 'currency', currency: 'EUR' } : { style: "currency"; currency: string; }
 compiler/arrayToLocaleStringES2020
   arrayToLocaleStringES2020.ts: >{ style: 'currency', currency: 'EUR' } : { style: string; currency: string; } — expected >{ style: 'currency', currency: 'EUR' } : { style: "currency"; currency: string; }
+compiler/arrayconcat
+  arrayconcat.ts: >this.options.sort : (compareFn?: (a: IOptions, b: IOptions) => number) => this — expected >this.options.sort : (compareFn?: ((a: IOptions, b: IOptions) => number) | undefined) => IOptions[]
+compiler/arrowExpressionBodyJSDoc
+  mytest.js: >{ ...value } : any — expected >{ ...value } : {}
+compiler/arrowExpressionJs
+  mytest.js: >{ ...value } : error — expected >{ ...value } : {}
+compiler/arrowFunctionJSDocAnnotation
+  index.js: >param => param : (param: any) => any — expected >param => param : (param: number) => number | undefined
+compiler/arrowFunctionsMissingTokens
+  arrowFunctionsMissingTokens.ts: 133 assertion(s), expected 107
+compiler/assertionFunctionWildcardImport1
+  src/core/foo.ts: >Debug : any — expected >Debug : typeof Debug

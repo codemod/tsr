@@ -79,10 +79,11 @@ fn an_unported_expression_form_is_error_not_any() {
     // and conflating them is how a gap becomes an assertion. Everything unported
     // must land on `error`.
     let arena = Arena::new();
-    // `f()` stopped being the stand-in at §24 (an unresolved callee is an
-    // untyped call answering `any`, upstream's own rule); `satisfies` is
-    // the current genuinely-unported form.
-    let source = "const x = 1 satisfies number;";
+    // `f()` stopped being the stand-in at §24; `satisfies` stopped at §287
+    // (transparent, upstream's checkSatisfiesExpression). The current
+    // genuinely-unported expression form is a destructuring ASSIGNMENT —
+    // `[a] = b` — whose pattern half is bd tsr-4sc.13.
+    let source = "declare var a: number, b: number[];\nconst x = ([a] = b);";
     let parsed = tsr_parser::parse(&arena, source);
     let bound = tsr_binder::bind(
         &arena,
@@ -91,7 +92,7 @@ fn an_unported_expression_form_is_error_not_any() {
         tsr_binder::FileInfo { name: "test.ts", text: source },
     );
     let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
-    let Statement::VariableStatement(statement) = parsed.source_file.statements[0] else {
+    let Statement::VariableStatement(statement) = parsed.source_file.statements[1] else {
         panic!("variable statement");
     };
     let initialiser = statement
@@ -571,14 +572,15 @@ fn every_comparison_is_boolean_even_when_an_operand_is_a_gap() {
 }
 
 #[test]
-fn an_unported_operand_propagates_rather_than_becoming_number() {
-    // The deliberate deviation, stated as a test. `errorType` carries
-    // `TypeFlagsAny`, so upstream's rule would answer `number` here — sound for
-    // upstream, where `errorType` means an error was reported, and a claim in
-    // this port, where it also means an unported form. (`f()` stopped being
-    // the stand-in at §24; `satisfies` carries the gap now.)
-    assert_eq!(type_of_initialiser("const x = (1 satisfies number) * 2;"), "error");
-    assert_eq!(type_of_initialiser("const x = (1 satisfies number) + 2;"), "error");
+fn an_unported_arithmetic_operand_answers_number_as_upstream_does() {
+    // §271 flipped this pin (the `*` half: upstream's any-like → number rule,
+    // measured 31:0). §287 then made `satisfies` transparent, so BOTH lines
+    // now compute the real arithmetic — which is upstream's own answer for
+    // these programs. The `+` arm's error-propagation is still pinned, by
+    // `an_unresolved_arithmetic_operand_answers_number_and_addition_keeps_the_gap`
+    // in unresolved_type_reference.rs, on a genuinely unresolved operand.
+    assert_eq!(type_of_initialiser("const x = (1 satisfies number) * 2;"), "number");
+    assert_eq!(type_of_initialiser("const x = (1 satisfies number) + 2;"), "number");
 }
 
 #[test]
@@ -833,7 +835,14 @@ fn a_reference_to_a_generic_type_carries_its_arguments() {
         type_of_declaration("type A<T> = T;\ndeclare const x: A<number>;", "x"),
         "A<number>"
     );
-    assert_eq!(declared_type_of("type Tree<T> = T;", "Tree"), "Tree<T>");
+    // FLIPPED at §282: this asserted `Tree<T>` for a body that IS the bare
+    // parameter, which was the port's display shortcut and not upstream's
+    // rule — `type Bar1<T extends unknown[][]> = T` records `Bar1 : T` in
+    // `substitutionTypePassedToExtends.types`, because upstream attaches an
+    // alias symbol only to types CREATED during the resolution and a
+    // pre-existing type parameter keeps its own display. A NON-trivial body
+    // still prints the alias name (the `A<number>` reference above).
+    assert_eq!(declared_type_of("type Tree<T> = T;", "Tree"), "T");
 }
 
 #[test]
@@ -2447,15 +2456,18 @@ fn a_named_class_expression_is_typeof_its_own_name() {
     assert_eq!(type_of_initialiser("const V = class Foo { m() {} };"), "typeof Foo");
 }
 
-/// The control that keeps §168's refusal in force where it was measured: an
-/// ANONYMOUS class expression is still a gap, because naming it needs the
-/// contextual naming that refused §145, §156, §158 and §168 — the variable's
-/// name, not the binder's `__class`. Without this, dropping the `name.is_some()`
-/// guard also passes the test above and prints `typeof __class` across the
-/// corpus.
+/// FLIPPED at §305: what §168 read as per-site contextual naming is, upstream,
+/// a one-parent declaration walk baked into `getNameOfSymbolAsWritten` →
+/// `GetAssignedName` (`nodebuilderimpl.go:1005`, `utilities.go:1486`) — the
+/// initialized variable's name, else the literal `(Anonymous class)`. The
+/// baseline for `let C = class {}` records `>C : typeof C`
+/// (`conformance/classExpression4`); a class expression no walk can name
+/// prints `typeof (Anonymous class)` (`compiler/anonymousClassExpression1`).
+/// The `typeof __class` failure §168 measured is pinned out by the internal
+/// name test in `has_a_name_no_type_query_can_spell`.
 #[test]
-fn an_anonymous_class_expression_is_still_a_gap() {
-    assert_eq!(type_of_initialiser("const V = class {};"), "error");
+fn an_anonymous_class_expression_spells_by_the_assigned_name_walk() {
+    assert_eq!(type_of_initialiser("const V = class {};"), "typeof V");
 }
 
 /// §213. A non-static property initializer cannot see a name the constructor

@@ -947,6 +947,11 @@ impl<'a> Parser<'a> {
                 ))
             }
             SyntaxKind::OpenParenToken => {
+                // §275: a `/** @type {T} */ (expr)` JSDoc CAST hangs its doc
+                // off the parenthesized expression — upstream's
+                // `parseParenthesizedExpression` is `withJSDoc`-wrapped, and
+                // `isJSDocTypeAssertion` reads the tag back off this node.
+                let docs = self.parse_leading_jsdoc();
                 self.next_token();
                 let saved_no_in = std::mem::take(&mut self.no_in);
                 let expression = self.parse_expression();
@@ -957,6 +962,7 @@ impl<'a> Parser<'a> {
                     SyntaxKind::ParenthesizedExpression,
                     start,
                 );
+                self.attach_jsdoc(tsr_ast::Node::ParenthesizedExpression(node), docs);
                 Expression::ParenthesizedExpression(node)
             }
             SyntaxKind::OpenBracketToken => self.parse_array_literal(),
@@ -1089,6 +1095,16 @@ impl<'a> Parser<'a> {
         self.expect(SyntaxKind::OpenBraceToken);
         let mut properties = Vec::new();
         while !self.at(SyntaxKind::CloseBraceToken) && !self.at(SyntaxKind::EndOfFile) {
+            // §277's object-literal twin: a bare `,` cannot start a member and
+            // mints NOTHING — upstream reports "Property assignment expected"
+            // and skips it. `{ x: 0,, }` synthesized an empty property here
+            // that printed ` : any` AND leaked into the object's own type as
+            // `{ x: number; : any; }` (`parseErrorDoubleCommaInCall`).
+            if self.at(SyntaxKind::CommaToken) {
+                self.error_at_current(&messages::PROPERTY_ASSIGNMENT_EXPECTED);
+                self.next_token();
+                continue;
+            }
             let before = self.pos();
             properties.push(self.parse_object_literal_element());
             if self.eat(SyntaxKind::CommaToken) {
@@ -2369,6 +2385,22 @@ impl<'a> Parser<'a> {
         }
         let mut parameters = Vec::new();
         while !self.at(SyntaxKind::CloseParenToken) && !self.at(SyntaxKind::EndOfFile) {
+            // §277: a bare `,` cannot start a parameter and mints NO element —
+            // upstream's `parseDelimitedList` falls to its abort-or-skip arm,
+            // reports TS1138 at the token, and moves on. This loop instead
+            // called `parse_parameter`, which synthesized a zero-width
+            // identifier the baseline walker then printed: `get x(,)`
+            // (`trailingCommasInGetter`) rendered one assertion more than
+            // upstream and shifted every later position. Only the comma is
+            // rejected here — `starts_parameter` is a deliberate SUBSET
+            // (contextual keywords scan as keyword kinds), so a head-guard on
+            // its complement would skip valid parameters like `type` or
+            // `async`; the §200 discipline, third application.
+            if self.at(SyntaxKind::CommaToken) {
+                self.error_at_current(&messages::PARAMETER_DECLARATION_EXPECTED);
+                self.next_token();
+                continue;
+            }
             let before = self.pos();
             parameters.push(self.parse_parameter());
             if self.eat(SyntaxKind::CommaToken) {

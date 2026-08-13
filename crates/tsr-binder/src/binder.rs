@@ -2898,6 +2898,44 @@ impl<'a, 'n> Binder<'a, 'n> {
                                 self.bind(expression);
                             }
                         }
+                        // §269: `@import { Foo } from "./m"` declares each
+                        // binding as an alias in FILE locals — the same
+                        // (ALIAS, Locals) classification the written form's
+                        // nodes get, filed through `declare_jsdoc_symbol`
+                        // because this loop runs outside the container walk.
+                        // Upstream reaches the identical state by reparsing
+                        // the tag into a `JSImportDeclaration` and binding
+                        // that; this port binds JSDoc directly (the
+                        // `@typedef` arm above is the precedent).
+                        JSDocTag::JSDocImportTag(import) => {
+                            let Some(clause) = import.import_clause else { continue };
+                            if let (Some(name), Some(id)) = (clause.name, clause.node_id) {
+                                self.declare_jsdoc_symbol(root, name.text, SymbolFlags::ALIAS, id);
+                            }
+                            match clause.named_bindings {
+                                Some(tsr_ast::NamedImportBindings::NamedImports(named)) => {
+                                    for specifier in named.elements {
+                                        if let (Some(name), Some(id)) =
+                                            (specifier.name, specifier.node_id)
+                                        {
+                                            self.declare_jsdoc_symbol(
+                                                root,
+                                                name.text,
+                                                SymbolFlags::ALIAS,
+                                                id,
+                                            );
+                                        }
+                                    }
+                                }
+                                // `@import * as ns` deliberately does NOT
+                                // bind: a namespace alias makes `ns.Foo`
+                                // resolvable, and resolvable-but-unnameable is
+                                // the §219 qualification hazard — the first
+                                // draft turned `importTag2`'s gap into a wrong
+                                // line exactly that way. `bd tsr-e2u`'s fence.
+                                Some(tsr_ast::NamedImportBindings::NamespaceImport(_)) | None => {}
+                            }
+                        }
                         JSDocTag::JSDocCallbackTag(callback) => {
                             let name = match callback.name {
                                 Some(tsr_ast::JSDocFullName::Identifier(identifier)) => {

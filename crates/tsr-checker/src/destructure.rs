@@ -25,12 +25,15 @@
 //!
 //! # What refuses, each with its number (`checker-notes-destructure.md` §3)
 //!
-//! - **rest elements** (172 lines): `getRestType` (`checker.go:17792`) needs
-//!   spreadability and `Omit`; array rest needs `sliceTupleType`;
-//! - **defaults** (224): the annotation-less path is
-//!   `getUnionTypeEx(..., UnionReductionSubtype, ...)` (`checker.go:17789`),
-//!   the reduction STATUS.md §5 refused for `||`/`??`; the whole element
-//!   refuses, not just the default's contribution;
+//! - **array rest elements**: `sliceTupleType` (`checker.go:17797`). The
+//!   OBJECT half of the original rest refusal (172 lines) LANDED at §319 —
+//!   `getRestType`'s member subtraction over `spread_members_of`; what that
+//!   enumerator refuses (methods, nullables, instantiated references) still
+//!   gaps the rest element;
+//! - **pattern-named defaults**: `padObjectLiteralType`/`padTupleType`
+//!   (`checker.go:16808`). The identifier-named half of the original default
+//!   refusal (224 lines) LANDED at §315, both legs of `checker.go:17781` —
+//!   the reduction the refusal named as missing was built at §206;
 //! - **computed property names** (86): late-bound names (`bd tsr-y4u.11`);
 //! - **contextual pattern parameters** (604, 57% want-any): upstream
 //!   consults `getContextuallyTypedParameterType` (`checker.go:16735`) and
@@ -96,19 +99,21 @@ impl Checker<'_, '_> {
         // outside the annotated-root leg. The whole element refuses, because
         // `[Unported, string]` is not `[any, string]` (the tuple arm's rule,
         // applied to a name's slice of its parent).
-        if element.dot_dot_dot_token.is_some() {
-            return error;
-        }
-        // A default is admitted only on the leg `checker.go:17781` separates:
-        // the root declaration carries an annotation — so the default never
-        // unions into the element (that is the refused `UnionReductionSubtype`
-        // path, which runs annotation-less) — and the element's name is an
-        // identifier, because a pattern-named default takes upstream through
-        // `padObjectLiteralType`/`padTupleType` (`checker.go:16808`),
-        // unported. `checker-notes-destructure.md` §6.
+        // A REST element branches by pattern kind below (§319): the object
+        // form is `getRestType` (`checker.go:17792`), whose member subtraction
+        // the spread machinery already knows how to enumerate; the array form
+        // still needs `sliceTupleType` and stays refused in its arm.
+        // A default is admitted on the two legs `checker.go:17781` separates —
+        // annotated root (the strip below) and, since §315, the
+        // annotation-less union (`getUnionTypeEx(strip(t) ∪ init,
+        // UnionReductionSubtype)`, `checker.go:17789`) — the reduction the
+        // original refusal named as its missing piece exists now
+        // (`union_with_subtype_reduction`, §206's other client). The element's
+        // name must still be an identifier: a pattern-named default takes
+        // upstream through `padObjectLiteralType`/`padTupleType`
+        // (`checker.go:16808`), unported. `checker-notes-destructure.md` §6.
         if element.initializer.is_some()
-            && (!self.binding_root_has_annotation(declaration)
-                || !matches!(element.name, Some(tsr_ast::BindingName::Identifier(_))))
+            && !matches!(element.name, Some(tsr_ast::BindingName::Identifier(_)))
         {
             return error;
         }
@@ -141,6 +146,9 @@ impl Checker<'_, '_> {
                 // into an indexed access. `getFlowTypeOfDestructuring`
                 // (`checker.go:17743`) is unported — the module doc's named
                 // risk — so the declared slice is the answer.
+                if element.dot_dot_dot_token.is_some() {
+                    return self.object_rest_type(parent_type, pattern_id, declaration);
+                }
                 let Some((name, numeric)) = Self::binding_element_property_name(element) else {
                     return error;
                 };
@@ -158,7 +166,49 @@ impl Checker<'_, '_> {
                 else {
                     return error;
                 };
-                self.destructuring_property_lookup(parent_type, &index.to_string(), true)
+                if element.dot_dot_dot_token.is_some() {
+                    // §321: `sliceTupleType` (`checker.go:17797`), the PLAIN
+                    // slice — `var [x, ...tail]: [number, string, string]`
+                    // reads `[string, string]`. A tuple with an OPTIONAL or
+                    // readonly shape declines: the sliced mask and the
+                    // mutability of the destructured copy are their own
+                    // questions, and a wrong spelling is worse than the gap
+                    // this element always had. A non-tuple parent declines
+                    // too (upstream builds `T[]` from the iterated type).
+                    if let Some((elements, readonly)) =
+                        self.tuple_element_lists.get(&parent_type).cloned()
+                        && !readonly
+                        && index <= elements.len()
+                        && !self
+                            .tuple_optional_masks
+                            .get(&parent_type)
+                            .is_some_and(|mask| mask.iter().any(|&optional| optional))
+                    {
+                        return self.create_tuple_type(elements[index..].to_vec(), false);
+                    }
+                    return error;
+                }
+                let positional =
+                    self.destructuring_property_lookup(parent_type, &index.to_string(), true);
+                if positional == error {
+                    // Upstream's else-arm (`checker.go:17771`): a receiver
+                    // that is not array-like takes
+                    // `checkIteratedTypeOrElementType`. §317 wires the slice
+                    // of it that exists — §284's `for_of_element_type`, gated
+                    // to receivers with a SYNTACTIC `[Symbol.iterator]` —
+                    // `var [a, b] = new SymbolIterator` reads `symbol` from
+                    // `next()`'s return (`iterableArrayPattern1/2`). A
+                    // receiver neither road answers stays the gap it was.
+                    if self.declares_symbol_iterator(parent_type)
+                        && let Some(element) = self.for_of_element_type(parent_type)
+                    {
+                        element
+                    } else {
+                        error
+                    }
+                } else {
+                    positional
+                }
             }
             _ => error,
         };
@@ -174,14 +224,71 @@ impl Checker<'_, '_> {
         // through `get_type_with_facts` untouched where upstream may consult
         // its constraint, stated rather than verified).
         let element_type = if let Some(default_expression) = element.initializer {
-            let default_type = self.check_expression(default_expression);
-            if default_type == error {
-                return error;
-            }
-            if self.get_type_facts(default_type).contains(TypeFacts::IS_UNDEFINED) {
-                element_type
+            if self.binding_root_has_annotation(declaration) {
+                let default_type = self.check_expression(default_expression);
+                if default_type == error {
+                    return error;
+                }
+                if self.get_type_facts(default_type).contains(TypeFacts::IS_UNDEFINED) {
+                    element_type
+                } else {
+                    self.get_type_with_facts(element_type, TypeFacts::NE_UNDEFINED)
+                }
             } else {
-                self.get_type_with_facts(element_type, TypeFacts::NE_UNDEFINED)
+                // §315: the annotation-less leg (`checker.go:17789`) —
+                // `getUnionTypeEx([strip(t), checkDeclarationInitializer],
+                // UnionReductionSubtype)`: `var [x = 20] = [1, 2]` records
+                // `>x : number`, the default folding INTO the element
+                // (`sourceMapValidation…ArrayBindingPattern6/7`).
+                // `check_expression_for_mutable_location` is the port's
+                // `checkDeclarationInitializer`: same widening boundary, same
+                // caller polarity. A reduction this port cannot run answers
+                // `None` and the element stays a gap.
+                // The default enters the union UNWIDENED — the fresh literal
+                // is what the subtype reduction absorbs into the element's
+                // annotated constituents (`let { a: a2 = 0 } = x` with
+                // `a: 0 | 1 | undefined` records `>a2 : 0 | 1`,
+                // `literalTypesAndDestructuring`). Widening is the TAIL's job
+                // (`widenTypeInferredFromInitializer` wraps the union,
+                // `checker.go:17789`; this function's tail is that wrap) —
+                // the first draft widened the default BEFORE the union and
+                // flattened those elements to `number`/`string` (7 G→W).
+                let default_type = self.check_expression(default_expression);
+                if default_type == error {
+                    return error;
+                }
+                let stripped = self.get_type_with_facts(element_type, TypeFacts::NE_UNDEFINED);
+                let Some(reduced) = self.union_with_subtype_reduction(&[stripped, default_type])
+                else {
+                    return error;
+                };
+                // `widenTypeInferredFromInitializer`'s union half: a FRESH
+                // literal SURVIVING the reduction widens the whole inference
+                // (`a3 = 2` against `0 | 1 | undefined` is `number`); one the
+                // reduction absorbed does not (`a2 = 0` is `0 | 1`). Both
+                // recorded in `literalTypesAndDestructuring`. A single
+                // surviving fresh literal is the tail's job already. CONST
+                // roots never widen — `const { c2 = 0 } = { c2: 1 }` records
+                // `>c2 : 0 | 1` (`literalTypes2`), upstream's
+                // `isConstVariable` gate on the same wrap.
+                let root_is_const =
+                    self.combined_node_flags(declaration).intersects(tsr_ast::NodeFlags::CONSTANT);
+                match &self.store.get(reduced).data {
+                    crate::types::TypeData::Union { types, .. }
+                        if !root_is_const && types.iter().any(|&c| self.store.get(c).fresh) =>
+                    {
+                        let constituents = types.clone();
+                        let widened: Vec<_> = constituents
+                            .iter()
+                            .map(|&c| self.get_widened_literal_type(c))
+                            .collect();
+                        let Some(rewidened) = self.union_with_subtype_reduction(&widened) else {
+                            return error;
+                        };
+                        rewidened
+                    }
+                    _ => reduced,
+                }
             }
         } else {
             element_type
@@ -420,6 +527,51 @@ impl Checker<'_, '_> {
     /// `getLiteralTypeFromPropertyName` (`checker.go:21762`)'s literal arms,
     /// as a name string plus whether it is numeric. A `PropertyName` form
     /// outside them — bigint, private, template — refuses.
+    /// §319: `getRestType` (`checker.go:17792`), the object-pattern slice —
+    /// the parent's spreadable members minus the names the pattern's OTHER
+    /// elements bound: `var { a, ...rest } = { a: 1, b: "x" }` records
+    /// `>rest : { b: string; }`. Everything `spread_members_of` refuses
+    /// (methods, nullable members, instantiated references) keeps the gap
+    /// this element always had — a partial rest object is a wrong answer
+    /// that looks right. A sibling this port cannot name (a computed
+    /// property) refuses too: subtracting an unknown name leaves a member
+    /// upstream removed.
+    fn object_rest_type(
+        &mut self,
+        parent_type: TypeId,
+        pattern_id: NodeId,
+        declaration: NodeId,
+    ) -> TypeId {
+        let error = self.intrinsics.error;
+        let Some(Node::BindingPattern(pattern)) = self.node_map.get(pattern_id) else {
+            return error;
+        };
+        let mut bound: Vec<String> = Vec::new();
+        for sibling in pattern.elements {
+            if sibling.node_id == Some(declaration) {
+                continue;
+            }
+            let Some((name, _)) = Self::binding_element_property_name(sibling) else {
+                return error;
+            };
+            bound.push(name);
+        }
+        let Some(members) = self.spread_members_of(parent_type) else {
+            return error;
+        };
+        let remaining: Vec<crate::objects::Member> = members
+            .into_iter()
+            .filter(|member| match member {
+                crate::objects::Member::Property { name, .. } => {
+                    !bound.iter().any(|bound_name| bound_name == name)
+                }
+                _ => true,
+            })
+            .collect();
+        let printed = crate::objects::render_object_type(&remaining);
+        self.store.new_named(TypeFlags::OBJECT, printed, None)
+    }
+
     fn binding_element_property_name(
         element: &tsr_ast::BindingElement<'_>,
     ) -> Option<(String, bool)> {
@@ -456,6 +608,29 @@ impl Checker<'_, '_> {
         numeric: bool,
     ) -> TypeId {
         if let Some(property_type) = self.get_type_of_property_of_type(parent_type, name) {
+            return property_type;
+        }
+        // §303: the APPARENT-type hop the plain member road already takes —
+        // `var { toExponential } = 0` reads `Number`'s member exactly as
+        // `(0).toExponential` does (`destructuringWithNumberLiteral`). A
+        // primitive carries no members of its own; its interface does.
+        // A type parameter whose constraint is a UNION is excluded: those
+        // destructured members belong to the NARROWING road
+        // (`f<T extends A | B>` narrows by discriminant), and reading the raw
+        // union here turned two of `narrowingDestructuring`'s gaps into
+        // confident `any`s. A NON-union constraint has nothing to narrow and
+        // reads straight (`genericObjectRest`,
+        // `dependentDestructuredVariables` — 12 lines the blanket exclusion
+        // of the second draft forfeited).
+        let apparent = self.apparent_type(parent_type);
+        if self.store.get(parent_type).flags.intersects(TypeFlags::TYPE_PARAMETER)
+            && matches!(self.store.get(apparent).data, TypeData::Union { .. })
+        {
+            return self.intrinsics.error;
+        }
+        if apparent != parent_type
+            && let Some(property_type) = self.get_type_of_property_of_type(apparent, name)
+        {
             return property_type;
         }
         let key = if numeric {

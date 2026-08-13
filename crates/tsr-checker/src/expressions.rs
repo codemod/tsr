@@ -487,14 +487,9 @@ impl Checker<'_, '_> {
                                     // rules out every symbol-level disjunct of
                                     // `assumeInitialized` (`:11150-11158`) —
                                     // those cannot vary by reference site.
-                                    if self
-                                        .nodes
-                                        .parent(node_id)
-                                        .is_some_and(|parent| {
-                                            self.nodes.kind(parent)
-                                                == SyntaxKind::ExportAssignment
-                                        })
-                                    {
+                                    if self.nodes.parent(node_id).is_some_and(|parent| {
+                                        self.nodes.kind(parent) == SyntaxKind::ExportAssignment
+                                    }) {
                                         return declared;
                                     }
                                     // §50 (`checker-notes-narrow.md`): a
@@ -510,6 +505,35 @@ impl Checker<'_, '_> {
                                     self.get_flow_type_of_reference(node_id, Some(symbol), start)
                                 }
                             }
+                        } else if self.assignment_target_kind(id) != AssignmentTargetKind::None
+                            && self.binder.symbols().get(symbol).flags.intersects(
+                                SymbolFlags::FUNCTION
+                                    | SymbolFlags::CLASS
+                                    | SymbolFlags::ENUM
+                                    | SymbolFlags::VALUE_MODULE,
+                            )
+                        {
+                            // §313: ASSIGNING to a function, class, enum or
+                            // namespace name is upstream's TS2629/2630/2631/2632
+                            // family — `checkReferenceExpression` reports and
+                            // the target reads `errorType`, whose observable is
+                            // `any` (every such case carries an errors
+                            // baseline): `eval = 1` records `>eval : any`
+                            // (`parserStrictMode3` — and its `-negative` twin
+                            // proves strict mode is not the trigger),
+                            // `fn = () => {}` records `>fn : any`
+                            // (`assignmentToFunction`, `assignToEnum`,
+                            // `assignToExistingClass`).
+                            self.intrinsics.error
+                        } else if let Some(&spelled) = self.enum_access_spelling.get(&declared) {
+                            // §280: a bare enum-member REFERENCE takes the
+                            // access spelling, exactly as the property-access
+                            // road does — `a` inside `b = a` prints `E` when
+                            // the enum's values collapse to one
+                            // (`mergedEnumDeclarationCodeGen`,
+                            // `preserveConstEnums`). An enum member is not a
+                            // narrowable symbol, so this is that branch alone.
+                            spelled
                         } else {
                             declared
                         }
@@ -602,7 +626,51 @@ impl Checker<'_, '_> {
                     }
                 }
             }
+            Expression::SatisfiesExpression(node) => {
+                // §287: `expr satisfies T` is TRANSPARENT — upstream's
+                // `checkSatisfiesExpression` reports on assignability and
+                // answers `checkExpression(expression)` unchanged
+                // (`checker.go`); the type is never the annotation's.
+                // This arm was missing entirely, which is why `satisfies`
+                // served as the §257-era stand-in for an unported operand;
+                // that job now needs a genuinely unported form (the
+                // unresolved-reference pins already carry it).
+                node.expression.map_or(self.intrinsics.error, |inner| self.check_expression(inner))
+            }
+            Expression::SpreadElement(node) => {
+                // §286: a spread EXPRESSION's own line is the element type it
+                // contributes — `...new SymbolIterator : symbol`
+                // (`iteratorSpreadInCall*`, upstream's `checkSpreadExpression`
+                // through `getSpreadElementType`). The element read is the
+                // §284/§285 seam; a shape that seam declines keeps the gap,
+                // which is what preserves the array-literal guard's behaviour
+                // (`a_spread_or_an_omitted_element_makes_the_literal_a_gap`
+                // tests the LITERAL road, which checks its elements before
+                // ever asking this arm).
+                let Some(operand) = node.expression else { return self.intrinsics.error };
+                let operand_type = self.check_expression(operand);
+                self.array_spread_element_type(operand_type).unwrap_or(self.intrinsics.error)
+            }
             Expression::ParenthesizedExpression(node) => {
+                // §275: the JSDoc CAST — `/** @type {T} */ (expr)` asserts T,
+                // upstream's `checkParenthesizedExpression` through
+                // `isJSDocTypeAssertion` into the assertion worker. The inner
+                // expression still checks (its lines print); the paren's own
+                // type is the tag's, in regular form as an assertion answers.
+                // A tag type that does not compute falls through to the
+                // transparent-paren road, keeping the gap.
+                if let Some(id) = node.node_id
+                    && self.in_js_file(id)
+                    && let Some(annotation) = self.jsdoc_cast_annotation(id)
+                {
+                    let asserted = self.get_type_from_type_node(annotation);
+                    if asserted != self.intrinsics.error {
+                        if let Some(inner) = node.expression {
+                            self.check_expression(inner);
+                        }
+                        return self.get_regular_type_of_literal_type(asserted);
+                    }
+                }
                 node.expression.map_or(self.intrinsics.error, |inner| self.check_expression(inner))
             }
             // `checkTemplateExpression` (`checker.go:7976`): spans check;
@@ -653,21 +721,23 @@ impl Checker<'_, '_> {
             // `checkVoidExpression` (`checker.go:10633`): the operand checks
             // for its own lines; the expression is `undefined`.
             Expression::VoidExpression(node) => {
+                // §293: the answer does not consult the operand — upstream
+                // returns `undefinedType` whatever it is, exactly as the
+                // comparison arms return `boolean`. The error-propagation
+                // this arm carried was the per-site deviation §271/§291
+                // retired at their sites; `void e.toUpperCase()` on an
+                // `unknown` catch variable is `undefined`
+                // (`useUnknownInCatchVariables01`).
                 let Some(operand) = node.expression else { return self.intrinsics.error };
-                let checked = self.check_expression(operand);
-                if checked == self.intrinsics.error {
-                    return self.intrinsics.error;
-                }
+                self.check_expression(operand);
                 self.intrinsics.undefined
             }
             // `checkDeleteExpression` (`checker.go:10570`): the operand
-            // checks; the expression is `boolean`.
+            // checks; the expression is `boolean` — unconditionally, the
+            // same §293 rule as `void`.
             Expression::DeleteExpression(node) => {
                 let Some(operand) = node.expression else { return self.intrinsics.error };
-                let checked = self.check_expression(operand);
-                if checked == self.intrinsics.error {
-                    return self.intrinsics.error;
-                }
+                self.check_expression(operand);
                 self.intrinsics.boolean
             }
             // `checkPrefixUnaryExpression` (`checker.go:10855`).
@@ -726,7 +796,15 @@ impl Checker<'_, '_> {
             // §168, and `functionsInClassExpressions` and
             // `implementsInClassExpression` are still gaps because of it.
             // `docs/conventions.md` corollary 11. §207.
-            Expression::ClassExpression(node) if node.name.is_some() => {
+            //
+            // §305 reopened the anonymous case: what §168 read as per-site
+            // contextual naming is, upstream, a declaration walk baked into
+            // `getNameOfSymbolAsWritten` (`nodebuilderimpl.go:1005`) — parent
+            // `VariableDeclaration`'s name, else `(Anonymous class)` — so the
+            // guard on `name` came off and the naming lives with the other
+            // spellings in `symbols.rs`. A symbol the walk cannot name still
+            // refuses there, exactly as this guard refused here.
+            Expression::ClassExpression(node) => {
                 let Some(id) = node.node_id else { return self.intrinsics.error };
                 let Some(symbol) = self.binder.symbol_of(id) else {
                     return self.intrinsics.error;
@@ -1014,6 +1092,35 @@ impl Checker<'_, '_> {
             // The normalised text, so `0`, `0.0` and `0x0` all arrive as `"0"`,
             // and `0n` likewise for the bigint half.
             TypeData::NumberLiteral(text) | TypeData::BigIntLiteral(text) => text == "0",
+            // §291: a UNION folds its constituents' truthiness — all-truthy
+            // is `false`, all-falsy `true`, a mix `boolean`, and any
+            // undecidable constituent keeps the gap
+            // (`!abcOrXyzOrNumber : boolean`,
+            // `stringLiteralTypesWithVariousOperators01`).
+            TypeData::Union { types: constituents, .. } => {
+                let mut saw_true = false;
+                let mut saw_false = false;
+                let mut saw_boolean = false;
+                for constituent in constituents {
+                    let negated = self.negated_truthiness_type(constituent);
+                    if negated == self.intrinsics.error {
+                        return self.intrinsics.error;
+                    } else if negated == self.intrinsics.true_type {
+                        saw_true = true;
+                    } else if negated == self.intrinsics.false_type {
+                        saw_false = true;
+                    } else {
+                        saw_boolean = true;
+                    }
+                }
+                return if saw_boolean || (saw_true && saw_false) {
+                    self.intrinsics.boolean
+                } else if saw_true {
+                    self.intrinsics.true_type
+                } else {
+                    self.intrinsics.false_type
+                };
+            }
             _ => {
                 // Both truthiness values are possible for the unit-less
                 // primitives, which is upstream's `Truthy|Falsy` and prints
@@ -1026,6 +1133,11 @@ impl Checker<'_, '_> {
                         | TypeFlags::ANY_OR_UNKNOWN,
                 ) {
                     self.intrinsics.boolean
+                } else if flags.intersects(TypeFlags::OBJECT | TypeFlags::ES_SYMBOL_LIKE) {
+                    // §291: an object or symbol operand is ALWAYS truthy
+                    // (upstream's TypeFacts), so its negation is the `false`
+                    // literal.
+                    self.intrinsics.false_type
                 } else {
                     self.intrinsics.error
                 };
@@ -1882,6 +1994,29 @@ impl Checker<'_, '_> {
                     bump(&COUNTERS.new_resolved);
                     return signature.r#type;
                 }
+                // §273 at the `new` road: upstream's subtype pass over the
+                // clean candidate PREFIX, before the §74 agree-loop below.
+                // `new Array(3)` is the witness — ArrayConstructor's FIRST
+                // construct signature is the non-generic
+                // `new (arrayLength?: number): any[]`, `3` is a subtype of
+                // `number`, and upstream never consults the generic
+                // overloads behind it. A pick here is sound whether or not
+                // a tail exists (pass one runs in candidate order); no pick
+                // falls through to the agree-loop unchanged.
+                if let Some(candidates) = self.signature_candidates_of_named_type(
+                    callee_type,
+                    crate::signatures::SignatureKind::Construct,
+                ) && !candidates.is_empty()
+                {
+                    let clean = Self::clean_candidate_prefix_len(&candidates);
+                    if clean > 0
+                        && let Some(signature) =
+                            self.subtype_pass_prefix_pick(&candidates, clean, node.arguments)
+                    {
+                        bump(&COUNTERS.new_resolved);
+                        return signature.r#type;
+                    }
+                }
                 // §74 (`checker-notes-narrow.md`): GENERIC construct
                 // candidates infer from the arguments — `new Set([1, 2, 3])`
                 // is `Set<number>`, not §44's default-map `Set<any>`. Each
@@ -2005,6 +2140,25 @@ impl Checker<'_, '_> {
             return error;
         };
         if !self.binder.symbols().get(symbol).flags.contains(SymbolFlags::CLASS) {
+            // §298: `new f()` on a PLAIN FUNCTION — upstream reports TS7009
+            // ("'new' expression, whose target lacks a construct signature,
+            // implicitly has an 'any' type") and answers ANY: the deliberate
+            // error-any, not a gap wearing one (`avoid.ts` records
+            // `new f() : any` beside the error). Scoped to FUNCTION symbols
+            // whose type genuinely lacks construct signatures — everything
+            // else keeps the honest gap.
+            if self.binder.symbols().get(symbol).flags.contains(SymbolFlags::FUNCTION)
+                && self
+                    .binder
+                    .symbols()
+                    .get(symbol)
+                    .declarations
+                    .first()
+                    .is_some_and(|&declaration| !self.in_js_file(declaration))
+            {
+                bump(&COUNTERS.new_callee_not_class);
+                return self.intrinsics.any;
+            }
             bump(&COUNTERS.new_callee_not_class);
             return error;
         }
@@ -2349,7 +2503,8 @@ impl Checker<'_, '_> {
         // there it asks whether a YIELD has a contextual type, here whether its
         // CONTAINER does. Both are `getContextualType`'s parent switch, and
         // both are written as declines so a mistake costs a gap.
-        let contextualised = contextualisable && !self.container_is_provably_uncontextualised(container);
+        let contextualised =
+            contextualisable && !self.container_is_provably_uncontextualised(container);
         // §225: an ANNOTATED generator's yield type is the annotation's NEXT
         // type, and for the shape the corpus actually writes that is readable
         // without `getIterationTypesOfGeneratorFunctionReturnType`. The
@@ -2362,7 +2517,54 @@ impl Checker<'_, '_> {
         if let Some(annotation) = annotation {
             return self.next_type_of_annotated_generator(annotation).unwrap_or(error);
         }
-        if node.asterisk_token.is_some() || contextualised {
+        // §349: in the ONE slot the old flow gapped — unannotated,
+        // uncontextualised, non-async `yield*` — an ARRAY operand answers the
+        // DELEGATED iterable's RETURN type
+        // (`getIterationTypeOfIterable(IterationTypeKindReturn, ...)`,
+        // `checker.go:10993`): `undefined`, the lib's `ArrayIterator` TReturn
+        // (`generatorTypeCheck22/23/24`). The first draft ran this BEFORE the
+        // annotation branch and ahead of the async question — 9 R→W across
+        // the asyncGenerators families — so it is strictly additive now:
+        // every previously-answered shape keeps its road.
+        if node.asterisk_token.is_some() {
+            let is_async = self.node_map.get(container).is_some_and(|function| {
+                let modifiers = match function {
+                    Node::FunctionDeclaration(f) => f.modifiers,
+                    Node::MethodDeclaration(f) => f.modifiers,
+                    Node::FunctionExpression(f) => f.modifiers,
+                    _ => return false,
+                };
+                modifiers.iter().any(|modifier| {
+                    matches!(modifier, tsr_ast::ModifierLike::Token(token)
+                        if token.kind == SyntaxKind::AsyncKeyword)
+                })
+            });
+            if !is_async
+                && !contextualised
+                && let Some(operand) = node.expression
+            {
+                let operand_type = self.check_expression(operand);
+                if let Some((target, arguments)) = self.type_reference_targets.get(&operand_type)
+                    && arguments.len() == 1
+                    // A DEGENERATE element — `yield * []`, whose element is
+                    // `undefined`/`never` — answers `any` upstream
+                    // (`YieldStarExpression4_es6`); only real elements take
+                    // the `undefined` return.
+                    && !self
+                        .store
+                        .get(arguments[0])
+                        .flags
+                        .intersects(TypeFlags::UNDEFINED | TypeFlags::NEVER)
+                    && self.global_type_symbol("Array").is_some_and(|array| {
+                        self.binder.merged_symbol(*target) == self.binder.merged_symbol(array)
+                    })
+                {
+                    return self.intrinsics.undefined;
+                }
+            }
+            return error;
+        }
+        if contextualised {
             return error;
         }
         any

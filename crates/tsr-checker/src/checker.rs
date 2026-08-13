@@ -492,6 +492,11 @@ pub struct Checker<'a, 'n> {
     /// §110: JSDoc per host node, handed by whoever built the tree (the
     /// conformance producer or a driver); consulted before the module host.
     pub(crate) jsdoc_entries: FxHashMap<NodeId, &'a [&'a tsr_ast::JSDoc<'a>]>,
+    /// §269: JSDoc root → host node, the one parent hop the tree deliberately
+    /// does not record (see `attach_jsdoc`). Consulted only when a parent walk
+    /// dead-ends inside a comment — an `@import` tag's specifier resolving
+    /// against its FILE is the sole client.
+    pub(crate) jsdoc_hosts: FxHashMap<NodeId, NodeId>,
     /// §107: the RENDER scope — (name, symbol) of each signature's own type
     /// parameters, pushed for the duration of its slot rendering.
     pub(crate) render_type_parameter_scope: Vec<(String, tsr_binder::SymbolId)>,
@@ -722,7 +727,14 @@ impl<'a, 'n> Checker<'a, 'n> {
         &mut self,
         entries: impl IntoIterator<Item = (NodeId, &'a [&'a tsr_ast::JSDoc<'a>])>,
     ) {
-        self.jsdoc_entries.extend(entries);
+        for (host, docs) in entries {
+            for doc in docs {
+                if let Some(doc_id) = doc.node_id {
+                    self.jsdoc_hosts.insert(doc_id, host);
+                }
+            }
+            self.jsdoc_entries.insert(host, docs);
+        }
     }
 
     /// Create a checker that can reach another file through `module_host`.
@@ -845,6 +857,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             non_null_mint_bases: FxHashMap::default(),
             pre_optional_marker: FxHashMap::default(),
             jsdoc_entries: FxHashMap::default(),
+            jsdoc_hosts: FxHashMap::default(),
             identity_unmapped_type_parameters: false,
             render_type_parameter_scope: Vec::new(),
             alias_body_evaluations: FxHashMap::default(),

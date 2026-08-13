@@ -141,6 +141,39 @@ pub fn collect_external_module_references(
     result
 }
 
+/// §269: the specifiers JSDoc `@import` tags name, so the loader resolves
+/// them like written imports. Upstream never needs this collector — its
+/// reparser has already rewritten each tag as a `JSImportDeclaration`
+/// statement by the time `collectExternalModuleReferences` walks, so the
+/// statement walk above sees it. This port keeps JSDoc in a side table, and
+/// the side table is where the specifier must be read from.
+#[must_use]
+pub fn collect_jsdoc_import_references(
+    jsdoc: &crate::JSDocTable<'_>,
+    nodes: &NodeTable,
+) -> Vec<ModuleSpecifier> {
+    let mut result = Vec::new();
+    for (_, docs) in jsdoc.iter() {
+        for doc in docs {
+            for tag in doc.tags {
+                let tsr_ast::JSDocTag::JSDocImportTag(tag) = tag else { continue };
+                let Some(specifier) = tag.module_specifier else { continue };
+                let Node::StringLiteral(literal) = Node::from(specifier) else { continue };
+                if literal.text.is_empty() {
+                    continue;
+                }
+                result.push(ModuleSpecifier {
+                    text: literal.text.to_string(),
+                    pos: node_pos(nodes, Node::from(specifier)),
+                    context: SpecifierContext::ImportDeclaration,
+                    resolution_mode_override: ResolutionMode::None,
+                });
+            }
+        }
+    }
+    result
+}
+
 /// `collectModuleReferences`.
 fn collect_module_references(
     statement: Statement<'_>,

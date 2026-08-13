@@ -297,9 +297,7 @@ fn is_ewta_in_class_extends_clause(id: NodeId, nodes: &NodeTable, map: &NodeMap<
         return false;
     }
     let extends = match map.get(clause) {
-        Some(Node::HeritageClause(heritage)) => {
-            heritage.token.kind == SyntaxKind::ExtendsKeyword
-        }
+        Some(Node::HeritageClause(heritage)) => heritage.token.kind == SyntaxKind::ExtendsKeyword,
         _ => false,
     };
     extends
@@ -502,6 +500,36 @@ pub fn type_id_at_location<'a>(
         return computed;
     }
 
+    // §296: the PROPERTY NAME of an import/export specifier — the `default`
+    // of `export { default as A } from "./a"` — types as the specifier's own
+    // aliased target, exactly as its NAME does; upstream records both lines
+    // identically (`plainJSGrammarErrors2` wants `default : 1` beside
+    // `A : 1`). Without this the token fell to the free-identifier path and
+    // resolved nothing.
+    if let Some(parent) = nodes.parent(id)
+        && let Some(specifier_symbol) = binder.symbol_of(parent)
+    {
+        let is_property_name = match map.get(parent) {
+            Some(Node::ImportSpecifier(specifier)) => {
+                specifier.property_name.and_then(|name| name.node_id()) == Some(id)
+            }
+            Some(Node::ExportSpecifier(specifier)) => {
+                specifier.property_name.and_then(|name| name.node_id()) == Some(id)
+            }
+            _ => false,
+        };
+        if is_property_name {
+            let computed = checker.get_type_of_symbol(specifier_symbol);
+            // An any/error target falls through to the older roads — the
+            // globalThis re-export printed `typeof globalThis` there and this
+            // branch overrode it with the alias road's `any`
+            // (`globalThisGlobalExportAsGlobal`, the draft's one R→W).
+            if computed != error && computed != checker.intrinsics().any {
+                return computed;
+            }
+        }
+    }
+
     // §247, both lanes. `type_symbol_baseline.go:370-374`:
     //
     // ```go
@@ -601,9 +629,9 @@ pub fn type_id_at_location<'a>(
             // An import clause spells type-only with its PHASE MODIFIER token,
             // not a bool — `import defer` is a different phase and must not
             // qualify.
-            Some(Node::ImportClause(clause)) => clause
-                .phase_modifier
-                .is_some_and(|token| token.kind == SyntaxKind::TypeKeyword),
+            Some(Node::ImportClause(clause)) => {
+                clause.phase_modifier.is_some_and(|token| token.kind == SyntaxKind::TypeKeyword)
+            }
             Some(Node::ExportDeclaration(declaration)) => declaration.is_type_only,
             _ => false,
         }
@@ -981,8 +1009,7 @@ pub fn type_id_at_location<'a>(
             == Some(SyntaxKind::ImportEqualsDeclaration)
             && let Some(left) = qualified.left.and_then(|left| left.node_id())
             && let Some(container) = entity_name_symbol(left, nodes, map, binder)
-            && let Some(&member) =
-                binder.symbols().get(container).exports.get(name.text)
+            && let Some(&member) = binder.symbols().get(container).exports.get(name.text)
         {
             let declared = checker.get_declared_type_of_symbol(member);
             if declared != checker.intrinsics().error {

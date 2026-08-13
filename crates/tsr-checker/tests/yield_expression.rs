@@ -171,9 +171,7 @@ fn the_next_slot_is_read_and_not_assumed() {
     // And a third parameter with NO default is a slot this port cannot fill,
     // which is a gap rather than `any`.
     assert_eq!(
-        type_of_first_yield(
-            "interface G<T, R, N> {}\nfunction* g(): G<number> { yield 1; }"
-        ),
+        type_of_first_yield("interface G<T, R, N> {}\nfunction* g(): G<number> { yield 1; }"),
         "error"
     );
 }
@@ -223,7 +221,6 @@ fn a_yield_inside_an_arrow_inside_a_generator_is_not_the_generators_yield() {
         "any"
     );
 }
-
 
 /// The controls, and the first is the whole point of the arm being narrow.
 #[test]

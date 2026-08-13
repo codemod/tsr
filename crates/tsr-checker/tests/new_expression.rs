@@ -99,11 +99,15 @@ fn an_abstract_class_is_a_gap_which_is_also_upstreams_answer() {
 
 #[test]
 fn new_on_a_non_class_callee_is_a_gap() {
-    // A function callee has a construct signature upstream and this port does
-    // not build one for a function symbol, so it must not guess. `new f()`
-    // upstream is the function's instance type, which is emphatically not `f`'s
-    // return type.
-    assert_eq!(type_of_last("function f() {}\nconst x = new f();"), "error");
+    // FLIPPED at §298 for the TS half: `new f()` on a plain TS function is
+    // upstream's TS7009 — "'new' expression, whose target lacks a construct
+    // signature, implicitly has an 'any' type" — and the answer is ANY, the
+    // deliberate error-any (`avoid.ts` records `new f() : any` beside the
+    // error; `anyAsReturnTypeForNewOnCall` likewise). The old rationale
+    // ("upstream is the function's instance type") describes the JS
+    // constructor-function pattern, which the arm therefore EXCLUDES: a JS
+    // function's `new` keeps the gap until instance types land.
+    assert_eq!(type_of_last("function f() {}\nconst x = new f();"), "any");
     // **A twelfth-and-then-some stand-in fixture came due.** The second half of
     // this test used to assert that `interface Ctor { new (): string; }` was a
     // gap "because it needs real construct signatures". It has them now
