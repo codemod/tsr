@@ -192,17 +192,35 @@ impl<'a> Parser<'a> {
     ///
     /// The name may itself be a contextual keyword: `namespace require { … }` is
     /// legal, and rejecting it leaves the whole namespace body unparsed.
+    ///
+    /// §361: **on the same line** —
+    /// `nextTokenIsIdentifierOrStringLiteralOnSameLine` (parser.go:6103).
+    /// These keywords are legal identifiers, and an identifier cannot be
+    /// followed by another identifier across a line break: ASI makes
+    /// `module⏎"my external module"⏎x = 1;` an expression statement naming
+    /// `module` followed by a string statement
+    /// (`asiPreventsParsingAsAmbientExternalModule01`).
     fn next_starts_module_name(&mut self) -> bool {
-        self.peek_kind(|kind| {
-            kind == SyntaxKind::Identifier
-                || kind == SyntaxKind::StringLiteral
-                || is_contextual_keyword(kind)
+        self.peek_token(|p| {
+            !p.token.has_preceding_line_break()
+                && (p.token.kind == SyntaxKind::Identifier
+                    || p.token.kind == SyntaxKind::StringLiteral
+                    || is_contextual_keyword(p.token.kind))
         })
     }
 
-    /// Whether the next token is an identifier, for contextual keywords.
+    /// Whether the next token is an identifier **on the same line**, for the
+    /// contextual keywords `interface` and `type`.
+    ///
+    /// §361: upstream's `nextTokenIsIdentifierOnSameLine` (parser.go:6101),
+    /// the arm scanStartOfDeclaration documents with `namespace⏎n`: a line
+    /// break after the keyword makes it a plain identifier expression
+    /// (`asiPreventsParsingAsInterface01`).
     fn next_is_identifier(&mut self) -> bool {
-        self.peek_kind(|kind| kind == SyntaxKind::Identifier || is_contextual_keyword(kind))
+        self.peek_token(|p| {
+            !p.token.has_preceding_line_break()
+                && (p.token.kind == SyntaxKind::Identifier || is_contextual_keyword(p.token.kind))
+        })
     }
 
     /// Whether `await` here begins an `await using` declaration.
