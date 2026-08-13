@@ -1207,6 +1207,21 @@ impl Checker<'_, '_> {
             }
             return pick;
         }
+        // SS339: the untruncated set runs upstream's pass ORDER too - the
+        // subtype pass first (`checker.go:8924`), and only then
+        // assignability. A pass that DECIDABLY rejected every candidate
+        // licenses pass three's first-wins walk (`ambiguousOverloadResolution`:
+        // `f(x, x)` with `x: any` fails both subtype tests and picks the
+        // FIRST assignable candidate, `number` - upstream never asks whether
+        // the returns agree); anything undecidable keeps the ambiguity guard.
+        let first_wins = match self.subtype_pass_outcome(candidates, candidates.len(), arguments) {
+            SubtypePassOutcome::Picked(signature) => {
+                bump(&COUNTERS.selected);
+                return Some(signature);
+            }
+            SubtypePassOutcome::AllRejected => true,
+            SubtypePassOutcome::Undecidable => false,
+        };
         let mut argument_types = Vec::with_capacity(arguments.len());
         for &argument in arguments {
             if matches!(argument, Expression::SpreadElement(_)) {
@@ -1272,8 +1287,12 @@ impl Checker<'_, '_> {
                 Ternary::Related => {}
             }
             match chosen {
+                Some(_) if first_wins => break,
                 // Upstream's subtype pass would decide this; see the doc
                 // comment. Same return type either way means it could not have.
+                // (When the pass RAN and rejected all - `first_wins` - the
+                // first assignable candidate is upstream's own answer and the
+                // guard retires for this call.)
                 Some(first) if first.r#type != candidate.r#type => {
                     bump(&COUNTERS.ambiguous_return);
                     return None;
@@ -1557,6 +1576,22 @@ impl Checker<'_, '_> {
         clean_len: usize,
         arguments: &[Expression<'_>],
     ) -> Option<Signature> {
+        match self.subtype_pass_outcome(candidates, clean_len, arguments) {
+            SubtypePassOutcome::Picked(signature) => Some(signature),
+            _ => None,
+        }
+    }
+
+    /// SS339: the tri-state the untruncated road needs - a pass that
+    /// DECIDABLY rejected every candidate licenses upstream's pass-three
+    /// first-wins walk; anything undecidable keeps the conservative
+    /// ambiguity guard.
+    fn subtype_pass_outcome(
+        &mut self,
+        candidates: &[Signature],
+        clean_len: usize,
+        arguments: &[Expression<'_>],
+    ) -> SubtypePassOutcome {
         // Upstream REORDERS candidates before any pass — `reorderCandidates`
         // (`checker.go:8957`) splices every specialized signature (one with a
         // literal-typed parameter, GH#1133) ahead of the non-specialized
@@ -1577,13 +1612,13 @@ impl Checker<'_, '_> {
             .iter()
             .any(|candidate| candidate.parameters.iter().any(|p| specialized(self, p.r#type)))
         {
-            return None;
+            return SubtypePassOutcome::Undecidable;
         }
         let prefix = &candidates[..clean_len];
         let mut argument_types = Vec::with_capacity(arguments.len());
         for &argument in arguments {
             if matches!(argument, Expression::SpreadElement(_)) {
-                return None;
+                return SubtypePassOutcome::Undecidable;
             }
             argument_types.push(self.check_expression(argument));
         }
@@ -1605,6 +1640,7 @@ impl Checker<'_, '_> {
                 .flags
                 .intersects(TypeFlags::OBJECT | TypeFlags::UNION | TypeFlags::TYPE_PARAMETER)
         };
+        let all_decidable = clean_len == candidates.len();
         for candidate in prefix {
             if !has_correct_arity(candidate, argument_types.len()) {
                 continue;
@@ -1631,14 +1667,18 @@ impl Checker<'_, '_> {
                 }
             }
             match verdict {
-                Ternary::Unknown => return None,
+                Ternary::Unknown => return SubtypePassOutcome::Undecidable,
                 Ternary::NotRelated => {}
                 // Upstream's pass one picks the FIRST subtype-related
                 // candidate; the tail never gets a turn.
-                Ternary::Related => return Some(candidate.clone()),
+                Ternary::Related => return SubtypePassOutcome::Picked(candidate.clone()),
             }
         }
-        None
+        if all_decidable {
+            SubtypePassOutcome::AllRejected
+        } else {
+            SubtypePassOutcome::Undecidable
+        }
     }
 
     /// §273's admission test, shared with the `new`-expression road: the
@@ -1661,6 +1701,18 @@ impl Checker<'_, '_> {
             })
             .unwrap_or(candidates.len())
     }
+}
+
+/// SS339: what the subtype pass concluded about a candidate set.
+enum SubtypePassOutcome {
+    /// A candidate matched pass one; upstream's certain answer.
+    Picked(Signature),
+    /// Every arity-matching candidate was DECIDABLY rejected - pass three's
+    /// first-wins walk is licensed.
+    AllRejected,
+    /// A pair was undecidable, a candidate shape was outside the domain, or
+    /// the set held a specialized signature - nothing below may trust it.
+    Undecidable,
 }
 
 /// Whether a signature accepts exactly this many arguments.
