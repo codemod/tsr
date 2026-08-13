@@ -1648,36 +1648,34 @@ impl Checker<'_, '_> {
                 _ => continue,
             };
             for member in member_ids {
-                let computed = match self.node_map.get(member) {
-                    Some(
-                        Node::PropertyDeclaration(&tsr_ast::PropertyDeclaration {
-                            name: tsr_ast::PropertyName::ComputedPropertyName(computed),
-                            ..
-                        })
-                        | Node::PropertySignatureDeclaration(
-                            &tsr_ast::PropertySignatureDeclaration {
-                                name: tsr_ast::PropertyName::ComputedPropertyName(computed),
-                                ..
-                            },
-                        )
-                        | Node::MethodDeclaration(&tsr_ast::MethodDeclaration {
-                            name: tsr_ast::PropertyName::ComputedPropertyName(computed),
-                            ..
-                        })
-                        | Node::MethodSignatureDeclaration(&tsr_ast::MethodSignatureDeclaration {
-                            name: tsr_ast::PropertyName::ComputedPropertyName(computed),
-                            ..
-                        })
-                        | Node::GetAccessorDeclaration(&tsr_ast::GetAccessorDeclaration {
-                            name: tsr_ast::PropertyName::ComputedPropertyName(computed),
-                            ..
-                        })
-                        | Node::SetAccessorDeclaration(&tsr_ast::SetAccessorDeclaration {
-                            name: tsr_ast::PropertyName::ComputedPropertyName(computed),
-                            ..
-                        }),
-                    ) => computed,
-                    _ => continue,
+                let Some(
+                    Node::PropertyDeclaration(&tsr_ast::PropertyDeclaration {
+                        name: tsr_ast::PropertyName::ComputedPropertyName(computed),
+                        ..
+                    })
+                    | Node::PropertySignatureDeclaration(&tsr_ast::PropertySignatureDeclaration {
+                        name: tsr_ast::PropertyName::ComputedPropertyName(computed),
+                        ..
+                    })
+                    | Node::MethodDeclaration(&tsr_ast::MethodDeclaration {
+                        name: tsr_ast::PropertyName::ComputedPropertyName(computed),
+                        ..
+                    })
+                    | Node::MethodSignatureDeclaration(&tsr_ast::MethodSignatureDeclaration {
+                        name: tsr_ast::PropertyName::ComputedPropertyName(computed),
+                        ..
+                    })
+                    | Node::GetAccessorDeclaration(&tsr_ast::GetAccessorDeclaration {
+                        name: tsr_ast::PropertyName::ComputedPropertyName(computed),
+                        ..
+                    })
+                    | Node::SetAccessorDeclaration(&tsr_ast::SetAccessorDeclaration {
+                        name: tsr_ast::PropertyName::ComputedPropertyName(computed),
+                        ..
+                    }),
+                ) = self.node_map.get(member)
+                else {
+                    continue;
                 };
                 if let Some((spelled, _)) = self.late_bound_symbol_member_name(computed) {
                     out.push((spelled, member));

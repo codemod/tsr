@@ -343,6 +343,23 @@ impl Checker<'_, '_> {
                     if let Some(contextual) = self.get_contextually_typed_parameter_type(holder) {
                         return contextual;
                     }
+                    // §429: an UNCONTEXTUAL unannotated pattern parameter's
+                    // elements read the pattern's IMPLIED type (the [any, any]
+                    // tuple / { a: any } object the declaration road now
+                    // mints), not a gap — `function fun([a, b]) {}` types
+                    // both elements `any` (`iterableArrayPattern10/13`).
+                    // FUNCTION DECLARATIONS only: expression/arrow parameters
+                    // may be contextually typed upstream, and the implied
+                    // `any` there measured 90 G->W
+                    // (`coAndContraVariantInferences3`).
+                    if self.nodes.parent(holder).is_some_and(|f| {
+                        matches!(
+                            self.nodes.kind(f),
+                            SyntaxKind::FunctionDeclaration | SyntaxKind::MethodDeclaration
+                        )
+                    }) {
+                        return self.get_widened_type_for_variable_like_declaration(holder);
+                    }
                     return error;
                 }
                 // §399: a FOR-OF head's pattern destructures the ITERATED

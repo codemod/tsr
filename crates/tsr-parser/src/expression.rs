@@ -1264,10 +1264,11 @@ impl<'a> Parser<'a> {
         let postfix = if self.at(SyntaxKind::QuestionToken) {
             let token_start = self.pos();
             self.next_token();
-            Some(&*self.alloc_token(
+            let token = self.alloc_token(
                 SyntaxKind::QuestionToken,
                 tsr_core::Span::new(token_start, self.pos()),
-            ))
+            );
+            Some(token)
         } else {
             None
         };

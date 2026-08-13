@@ -2202,14 +2202,13 @@ impl<'a> Checker<'a, '_> {
             }
             Some(merged)
         };
-        let signatures = match late_bound_overloads {
-            Some(merged) => merged,
-            None => {
-                let Some(signatures) = self.get_signatures_of_symbol(symbol) else {
-                    return self.intrinsics.error;
-                };
-                signatures
-            }
+        let signatures = if let Some(merged) = late_bound_overloads {
+            merged
+        } else {
+            let Some(signatures) = self.get_signatures_of_symbol(symbol) else {
+                return self.intrinsics.error;
+            };
+            signatures
         };
         // `createTypeNodeFromObjectType` emits a bare `FunctionTypeNode` only
         // when the resolved type has **no properties and no index signatures**
@@ -3310,6 +3309,64 @@ impl<'a> Checker<'a, '_> {
             // parameter's implicit any is `anyArrayType`
             // (`checker-notes-narrow.md` §19).
             {
+                // §429: an UNANNOTATED pattern parameter takes the PATTERN's
+                // implied type (`getTypeFromBindingPattern`,
+                // checker.go:17904) — `function fun([a, b]) {}` prints
+                // `([a, b]: [any, any]) => void` (`iterableArrayPattern10`).
+                // Plain identifier elements only; defaults, rests and nested
+                // patterns keep the implicit any.
+                if let Some(Node::ParameterDeclaration(parameter)) =
+                    self.node_map.get(declaration)
+                    && parameter.r#type.is_none()
+                    && parameter.dot_dot_dot_token.is_none()
+                    // A FUNCTION DECLARATION's parameter is provably
+                    // uncontextual; expression/arrow parameters may be
+                    // contextually typed upstream and the implied `any`
+                    // there was 78 G->W (`coAndContraVariantInferences3`).
+                    && self.nodes.parent(declaration).is_some_and(|f| {
+                        matches!(
+                            self.nodes.kind(f),
+                            SyntaxKind::FunctionDeclaration | SyntaxKind::MethodDeclaration
+                        )
+                    })
+                    && let Some(tsr_ast::BindingName::BindingPattern(pattern)) = parameter.name
+                    && pattern.elements.iter().all(|element| {
+                        element.dot_dot_dot_token.is_none()
+                            && element.initializer.is_none()
+                            && element.property_name.is_none()
+                            && matches!(
+                                element.name,
+                                Some(tsr_ast::BindingName::Identifier(_))
+                            )
+                    })
+                    && !pattern.elements.is_empty()
+                {
+                    let any = self.intrinsics.any;
+                    let is_array = pattern
+                        .node_id
+                        .is_some_and(|p| self.nodes.kind(p) == SyntaxKind::ArrayBindingPattern);
+                    if is_array {
+                        let elements = vec![any; pattern.elements.len()];
+                        return self.create_tuple_type(elements, false);
+                    }
+                    let members: Vec<crate::objects::Member> = pattern
+                        .elements
+                        .iter()
+                        .filter_map(|element| match element.name {
+                            Some(tsr_ast::BindingName::Identifier(name)) => {
+                                Some(crate::objects::Member::Property {
+                                    name: name.text.to_string(),
+                                    optional: false,
+                                    readonly: false,
+                                    printed: "any".to_string(),
+                                })
+                            }
+                            _ => None,
+                        })
+                        .collect();
+                    let printed = crate::objects::render_object_type(&members);
+                    return self.store.new_named(TypeFlags::OBJECT, printed, None);
+                }
                 if let Some(Node::ParameterDeclaration(parameter)) =
                     self.node_map.get(declaration)
                     && parameter.dot_dot_dot_token.is_some()

@@ -1882,7 +1882,12 @@ impl<'a> Checker<'a, '_> {
             | SyntaxKind::EnumDeclaration
             | SyntaxKind::ModuleDeclaration
             | SyntaxKind::ImportDeclaration
-            | SyntaxKind::ImportEqualsDeclaration => Some(true),
+            | SyntaxKind::ImportEqualsDeclaration
+            // §379: a loop that can run ZERO times leaves the block end
+            // reachable whatever its body does — `for…of`/`for…in` over a
+            // possibly-empty source (`capturedLetConstInLoop10`).
+            | SyntaxKind::ForOfStatement
+            | SyntaxKind::ForInStatement => Some(true),
             // `Some(true)` when nothing in it can fail to return; `None` when a
             // call is in the way, because a `never`-returning call ends the block.
             // **A call only ends the block if it returns `never`, and that is
@@ -1925,14 +1930,9 @@ impl<'a> Checker<'a, '_> {
                 }
                 Some(!self.store.get(checked).flags.contains(TypeFlags::NEVER))
             }
-            // §379: a loop that can run ZERO times leaves the block end
-            // reachable whatever its body does — `for…of`/`for…in` over a
-            // possibly-empty source, and `for`/`while` with a written
-            // condition (only a condition-less `for(;;)` or a literal-true
-            // condition loops unconditionally, and those keep the None).
-            // `capturedLetConstInLoop10`'s `() => { for (let x of [0]) {…} }`
-            // is `() => void`.
-            SyntaxKind::ForOfStatement | SyntaxKind::ForInStatement => Some(true),
+            // §379's second half: `for`/`while` with a written condition
+            // (only a condition-less `for(;;)` or a literal-true condition
+            // loops unconditionally, and those keep the None).
             SyntaxKind::ForStatement => {
                 let Some(Node::ForStatement(node)) = self.node_map.get(id) else { return None };
                 match node.condition {
@@ -2155,6 +2155,28 @@ impl<'a> Checker<'a, '_> {
             None => return None,
         };
         let id = node.node_id?;
+        // §429: a PATTERN-named parameter has no symbol of its own — the
+        // binder binds the element names — so its type comes from the
+        // declaration directly (the annotation, or the pattern's implied
+        // type: `function fun([a, b]) {}` prints
+        // `([a, b]: [any, any]) => void`, `iterableArrayPattern10`).
+        if self.binder.symbol_of(id).is_none()
+            && matches!(node.name, Some(tsr_ast::BindingName::BindingPattern(_)))
+        {
+            let r#type = self.get_widened_type_for_variable_like_declaration(id);
+            if r#type == self.intrinsics.error {
+                return None;
+            }
+            let written_text =
+                node.r#type.and_then(|annotation| self.written_annotation_text(annotation));
+            return Some(Parameter {
+                name: name_text,
+                optional: false,
+                rest: node.dot_dot_dot_token.is_some(),
+                r#type,
+                written_text,
+            });
+        }
         let symbol = self.binder.symbol_of(id)?;
         // `symbolToParameterDeclaration` (`nodebuilderimpl.go:1654`) takes
         // `getTypeOfSymbol` and hands it to `serializeTypeForDeclaration`

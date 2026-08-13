@@ -1640,14 +1640,14 @@ impl<'a> Checker<'a, '_> {
                 | SyntaxKind::MethodDeclaration
                 | SyntaxKind::Constructor
                 | SyntaxKind::GetAccessor
-                | SyntaxKind::SetAccessor => return None,
+                | SyntaxKind::SetAccessor
                 // §363: a bare BLOCK hides the alias the same way a function
                 // body does — `{ type Data = string | boolean; }` prints the
                 // expanded union on the alias's own name line and at every
                 // use (`declarationEmitInferredTypeAlias1`). A namespace body
                 // is a ModuleBlock, not a Block, so namespace-nested aliases
                 // keep their names (§281's `E`).
-                SyntaxKind::Block => return None,
+                | SyntaxKind::Block => return None,
                 SyntaxKind::SourceFile => break,
                 _ => current = parent,
             }
