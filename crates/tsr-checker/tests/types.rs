@@ -79,10 +79,11 @@ fn an_unported_expression_form_is_error_not_any() {
     // and conflating them is how a gap becomes an assertion. Everything unported
     // must land on `error`.
     let arena = Arena::new();
-    // `f()` stopped being the stand-in at §24 (an unresolved callee is an
-    // untyped call answering `any`, upstream's own rule); `satisfies` is
-    // the current genuinely-unported form.
-    let source = "const x = 1 satisfies number;";
+    // `f()` stopped being the stand-in at §24; `satisfies` stopped at §287
+    // (transparent, upstream's checkSatisfiesExpression). The current
+    // genuinely-unported expression form is a destructuring ASSIGNMENT —
+    // `[a] = b` — whose pattern half is bd tsr-4sc.13.
+    let source = "declare var a: number, b: number[];\nconst x = ([a] = b);";
     let parsed = tsr_parser::parse(&arena, source);
     let bound = tsr_binder::bind(
         &arena,
@@ -91,7 +92,7 @@ fn an_unported_expression_form_is_error_not_any() {
         tsr_binder::FileInfo { name: "test.ts", text: source },
     );
     let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
-    let Statement::VariableStatement(statement) = parsed.source_file.statements[0] else {
+    let Statement::VariableStatement(statement) = parsed.source_file.statements[1] else {
         panic!("variable statement");
     };
     let initialiser = statement
@@ -572,15 +573,14 @@ fn every_comparison_is_boolean_even_when_an_operand_is_a_gap() {
 
 #[test]
 fn an_unported_arithmetic_operand_answers_number_as_upstream_does() {
-    // §271 flipped this pin. It asserted `error` for the `*` line as the
-    // gap-in-gap-out deviation's own test; the deviation's falsifier fired
-    // (§269's typed receivers routed real error-operand lines here) and the
-    // §271 measurement read 31 lines right / zero adverse, so the arm now
-    // takes upstream's any-like → `number` rule (`checker.go:12358`).
-    // The `+` arm is DIFFERENT: upstream itself answers errorType there
-    // (`checker.go:12452`), so its propagation stays pinned.
+    // §271 flipped this pin (the `*` half: upstream's any-like → number rule,
+    // measured 31:0). §287 then made `satisfies` transparent, so BOTH lines
+    // now compute the real arithmetic — which is upstream's own answer for
+    // these programs. The `+` arm's error-propagation is still pinned, by
+    // `an_unresolved_arithmetic_operand_answers_number_and_addition_keeps_the_gap`
+    // in unresolved_type_reference.rs, on a genuinely unresolved operand.
     assert_eq!(type_of_initialiser("const x = (1 satisfies number) * 2;"), "number");
-    assert_eq!(type_of_initialiser("const x = (1 satisfies number) + 2;"), "error");
+    assert_eq!(type_of_initialiser("const x = (1 satisfies number) + 2;"), "number");
 }
 
 #[test]

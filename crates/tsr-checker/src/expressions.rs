@@ -606,6 +606,17 @@ impl Checker<'_, '_> {
                     }
                 }
             }
+            Expression::SatisfiesExpression(node) => {
+                // §287: `expr satisfies T` is TRANSPARENT — upstream's
+                // `checkSatisfiesExpression` reports on assignability and
+                // answers `checkExpression(expression)` unchanged
+                // (`checker.go`); the type is never the annotation's.
+                // This arm was missing entirely, which is why `satisfies`
+                // served as the §257-era stand-in for an unported operand;
+                // that job now needs a genuinely unported form (the
+                // unresolved-reference pins already carry it).
+                node.expression.map_or(self.intrinsics.error, |inner| self.check_expression(inner))
+            }
             Expression::SpreadElement(node) => {
                 // §286: a spread EXPRESSION's own line is the element type it
                 // contributes — `...new SymbolIterator : symbol`
