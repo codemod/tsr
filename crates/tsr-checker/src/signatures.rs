@@ -1608,6 +1608,14 @@ impl<'a> Checker<'a, '_> {
             if id.is_some_and(|id| id != owner && self.signature_parts_of(id).is_some()) {
                 continue;
             }
+            // §283: a class STATIC BLOCK is its own return boundary —
+            // `function f3() { class C { static { return 1; } } }` is
+            // `() => void`, not `() => number` (`classStaticBlock7`).
+            // `signature_parts_of` covers the function-like boundaries; the
+            // static block is the one return-owning container it does not.
+            if matches!(node, Node::ClassStaticBlockDeclaration(_)) {
+                continue;
+            }
             if let Node::ReturnStatement(statement) = node {
                 found.push(statement.expression);
                 // A `return` has no statements under it, but it does have an
