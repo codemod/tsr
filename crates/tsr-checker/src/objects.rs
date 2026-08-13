@@ -320,6 +320,41 @@ impl Checker<'_, '_> {
     /// other two are *not written* rather than written and left dead. They become
     /// live with contextual typing, and `isConstContext` is what will need
     /// porting first because it recurses through enclosing literals.
+    /// SS323: the printed NAME of a late-bound member whose computed name is
+    /// a UNIQUE SYMBOL reference - `{ [s]: 0 }` prints `{ [s]: number; }` and
+    /// `{ [Symbol.isConcatSpreadable]: 0 }` prints the dotted chain in
+    /// brackets (`conformance/symbolProperty1`, `symbolDeclarationEmit7-9`).
+    /// Upstream renders the entity name the source wrote
+    /// (the node builder's late-bound leg); an expression that is not an
+    /// identifier chain, or whose type is any other late-bound kind (a
+    /// string/number literal spells WITHOUT brackets - `{ [1]: 1 }` is
+    /// `{ 1: number; }`), answers `None` and the caller keeps its gap.
+    fn late_bound_symbol_member_name(
+        &mut self,
+        computed: &tsr_ast::ComputedPropertyName<'_>,
+    ) -> Option<String> {
+        fn chain_text(expression: &tsr_ast::Expression<'_>) -> Option<String> {
+            match expression {
+                tsr_ast::Expression::Identifier(identifier) => Some(identifier.text.to_string()),
+                tsr_ast::Expression::PropertyAccessExpression(access) => {
+                    let base = chain_text(access.expression.as_ref()?)?;
+                    let Some(tsr_ast::MemberName::Identifier(name)) = access.name else {
+                        return None;
+                    };
+                    Some(format!("{base}.{}", name.text))
+                }
+                _ => None,
+            }
+        }
+        let expression = computed.expression?;
+        let name_type = self.check_expression(expression);
+        if !self.type_of(name_type).flags.intersects(TypeFlags::UNIQUE_ES_SYMBOL) {
+            return None;
+        }
+        let text = chain_text(&expression)?;
+        Some(format!("[{text}]"))
+    }
+
     /// SS307: the computed-name key dispatch of `checker.go:13317-13324`,
     /// See [`ComputedNameKey`] for the three answers.
     /// shared by the property (SS206), method, and accessor arms so the three
@@ -504,7 +539,21 @@ impl Checker<'_, '_> {
                     // already prints the member's `.types` line.
                     if let tsr_ast::PropertyName::ComputedPropertyName(computed) = method.name {
                         let key = match self.computed_member_index_key(computed) {
-                            ComputedNameKey::LateBound => return error,
+                            ComputedNameKey::LateBound => {
+                                // SS323: a late-bound METHOD keeps the method
+                                // spelling - `{ [Symbol.hasInstance](value:
+                                // any): boolean; }` (`modularizeLibrary_*`,
+                                // `symbolDeclarationEmit9`; the first draft's
+                                // arrow form was 19 G->W).
+                                let Some(name) = self.late_bound_symbol_member_name(computed)
+                                else {
+                                    return error;
+                                };
+                                let printed =
+                                    format!("{name}{}", signature_member_text(self, &signature));
+                                members.push(Member::Signature { printed });
+                                continue;
+                            }
                             ComputedNameKey::Nothing => continue,
                             ComputedNameKey::Index(key) => key,
                         };
@@ -677,15 +726,23 @@ impl Checker<'_, '_> {
                 tsr_ast::PropertyName::ComputedPropertyName(computed) => {
                     // The dispatch lives in `computed_member_index_key`,
                     // shared with the SS307 method/accessor arms.
-                    let key = match self.computed_member_index_key(computed) {
-                        ComputedNameKey::LateBound => return error,
+                    match self.computed_member_index_key(computed) {
+                        // SS323: a unique-symbol name is the one late-bound
+                        // kind whose printed member this port can spell.
+                        ComputedNameKey::LateBound => {
+                            match self.late_bound_symbol_member_name(computed) {
+                                Some(name) => name,
+                                None => return error,
+                            }
+                        }
                         // SS201: a name that cannot key anything contributes
                         // nothing at all - not a member and not a signature.
                         ComputedNameKey::Nothing => continue,
-                        ComputedNameKey::Index(key) => key,
-                    };
-                    pending_index_key = Some(key);
-                    String::new()
+                        ComputedNameKey::Index(key) => {
+                            pending_index_key = Some(key);
+                            String::new()
+                        }
+                    }
                 }
                 // A **private name** cannot be an object-literal member. The
                 // grammar refuses it, the parser has already reported, and the
@@ -784,6 +841,19 @@ impl Checker<'_, '_> {
             };
             if let Some(key) = pending_index_key {
                 index_values.push((key, member_type));
+                continue;
+            }
+            // SS323: a late-bound `[...]` member PUSHES - upstream's fresh
+            // literal display keeps every such entry, three `[s]` rows side
+            // by side in `symbolProperty1` - where a written name upserts
+            // (the spread-ordering rule above).
+            if name.starts_with('[') {
+                members.push(Member::Property {
+                    name,
+                    optional: false,
+                    readonly: const_context,
+                    printed,
+                });
                 continue;
             }
             upsert_member(
