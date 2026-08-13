@@ -194,7 +194,20 @@ pub fn normalise_number(text: &str) -> String {
         // A non-octal digit (`08`, `09`) or a `.` falls through to decimal.
         u128::from_str_radix(&cleaned[1..], 8).ok().map(|v| v as f64)
     } else {
-        cleaned.parse::<f64>().ok()
+        // §295, §276's exponent sibling: a DANGLING exponent — `1e`, `1e+`,
+        // `1.0e_` (the separator strips to `1.0e`) — is upstream's scanner
+        // recovery keeping the mantissa: "Digit expected" reports and the
+        // value is the mantissa's (`scannerES3NumericLiteral4/6`,
+        // `parser.numericSeparators.decmialNegative` 49/50 all record `1`).
+        let trimmed = cleaned
+            .strip_suffix(['+', '-'])
+            .unwrap_or(&cleaned)
+            .strip_suffix(['e', 'E'])
+            .map(str::to_string);
+        match trimmed {
+            Some(mantissa) if !mantissa.is_empty() => mantissa.parse::<f64>().ok(),
+            _ => cleaned.parse::<f64>().ok(),
+        }
     };
 
     // An unparseable literal keeps its source text: the scanner already reported
