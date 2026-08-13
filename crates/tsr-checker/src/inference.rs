@@ -751,12 +751,21 @@ impl Checker<'_, '_> {
                     let name = names[position];
                     let structural_source_supplied =
                         signature.parameters.iter().enumerate().any(|(index, parameter)| {
-                            argument_types.get(index).is_some()
-                                && self.mentions_type_parameter(
-                                    parameter.r#type,
-                                    &[type_parameter],
-                                    &[name],
-                                )
+                            // §401: a NULL/UNDEFINED argument yields no
+                            // structural candidate upstream either — the
+                            // fixture family is `utils.fold(null)` reading
+                            // `unknown` (`genericFunctionsWithOptionalParameters1/2`),
+                            // so such a position must not veto the fallback.
+                            argument_types.get(index).is_some_and(|&argument| {
+                                !self
+                                    .type_of(argument)
+                                    .flags
+                                    .intersects(crate::flags::TypeFlags::NULLABLE)
+                            }) && self.mentions_type_parameter(
+                                parameter.r#type,
+                                &[type_parameter],
+                                &[name],
+                            )
                         });
                     if structural_source_supplied {
                         return decline;
