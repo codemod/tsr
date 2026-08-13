@@ -1062,6 +1062,35 @@ impl Checker<'_, '_> {
             // The normalised text, so `0`, `0.0` and `0x0` all arrive as `"0"`,
             // and `0n` likewise for the bigint half.
             TypeData::NumberLiteral(text) | TypeData::BigIntLiteral(text) => text == "0",
+            // §291: a UNION folds its constituents' truthiness — all-truthy
+            // is `false`, all-falsy `true`, a mix `boolean`, and any
+            // undecidable constituent keeps the gap
+            // (`!abcOrXyzOrNumber : boolean`,
+            // `stringLiteralTypesWithVariousOperators01`).
+            TypeData::Union { types: constituents, .. } => {
+                let mut saw_true = false;
+                let mut saw_false = false;
+                let mut saw_boolean = false;
+                for constituent in constituents {
+                    let negated = self.negated_truthiness_type(constituent);
+                    if negated == self.intrinsics.error {
+                        return self.intrinsics.error;
+                    } else if negated == self.intrinsics.true_type {
+                        saw_true = true;
+                    } else if negated == self.intrinsics.false_type {
+                        saw_false = true;
+                    } else {
+                        saw_boolean = true;
+                    }
+                }
+                return if saw_boolean || (saw_true && saw_false) {
+                    self.intrinsics.boolean
+                } else if saw_true {
+                    self.intrinsics.true_type
+                } else {
+                    self.intrinsics.false_type
+                };
+            }
             _ => {
                 // Both truthiness values are possible for the unit-less
                 // primitives, which is upstream's `Truthy|Falsy` and prints
@@ -1074,6 +1103,11 @@ impl Checker<'_, '_> {
                         | TypeFlags::ANY_OR_UNKNOWN,
                 ) {
                     self.intrinsics.boolean
+                } else if flags.intersects(TypeFlags::OBJECT | TypeFlags::ES_SYMBOL_LIKE) {
+                    // §291: an object or symbol operand is ALWAYS truthy
+                    // (upstream's TypeFacts), so its negation is the `false`
+                    // literal.
+                    self.intrinsics.false_type
                 } else {
                     self.intrinsics.error
                 };
