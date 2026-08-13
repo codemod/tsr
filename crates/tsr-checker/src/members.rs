@@ -932,7 +932,82 @@ impl Checker<'_, '_> {
             }
             return Some(instantiated);
         }
+        // §393: a member inherited through a GENERIC heritage entry reads
+        // through the INSTANTIATED base — `class T6 extends T5<number>`
+        // answers `this.foo : number` for `foo: T` on `T5<T>`
+        // (`superCallArgsMustMatch`). The symbol road above cannot see it:
+        // `base_symbols_of` refuses type-argument heritage for exactly this
+        // reason (§202 — a member table cannot be instantiated), and the
+        // instantiation goes through §226's `base_type_of_heritage_entry`
+        // plus the reference road's own member typing instead. Cycles are
+        // guarded by the walk's visited set.
+        if let Some(member) = self.generic_heritage_member(id, name, &mut Vec::new()) {
+            return Some(member);
+        }
         self.property_type_via_shape(id, name)
+    }
+
+    /// §393's walk: the instantiated-base member road, cycle-guarded.
+    fn generic_heritage_member(
+        &mut self,
+        id: TypeId,
+        name: &str,
+        visiting: &mut Vec<SymbolId>,
+    ) -> Option<TypeId> {
+        let TypeData::Named { members: Some(owner), .. } = self.store.get(id).data else {
+            return None;
+        };
+        if visiting.contains(&owner) {
+            return None;
+        }
+        visiting.push(owner);
+        let declarations: Vec<tsr_ast::NodeId> =
+            self.binder.symbols().get(owner).declarations.iter().copied().collect();
+        for declaration in declarations {
+            let clauses = match self.node_map.get(declaration) {
+                Some(Node::ClassDeclaration(node)) => node.heritage_clauses,
+                Some(Node::ClassExpression(node)) => node.heritage_clauses,
+                Some(Node::InterfaceDeclaration(node)) => node.heritage_clauses,
+                _ => continue,
+            };
+            for clause in clauses {
+                if clause.token.kind != tsr_ast::SyntaxKind::ExtendsKeyword {
+                    continue;
+                }
+                for entry in clause.types {
+                    if entry.type_arguments.is_empty() {
+                        continue;
+                    }
+                    let Some(base) = self.base_symbol_of_heritage_entry(entry, false) else {
+                        continue;
+                    };
+                    if visiting.contains(&base) {
+                        continue;
+                    }
+                    let Some(base_type) =
+                        self.base_type_of_heritage_entry(base, entry.type_arguments)
+                    else {
+                        continue;
+                    };
+                    // The ordinary found-path pair (symbol, then the
+                    // reference's instantiation), with the DEEPER generic
+                    // heritage recursing through THIS walk so the visited
+                    // set holds across levels — a fresh set would spin on
+                    // mutually-generic bases.
+                    if let Some(property) = self.get_property_of_type(base_type, name) {
+                        let declared = self.get_type_of_symbol(property);
+                        let instantiated = self.instantiate_for_reference(base_type, declared);
+                        if instantiated != self.intrinsics.error {
+                            return Some(instantiated);
+                        }
+                    }
+                    if let Some(member) = self.generic_heritage_member(base_type, name, visiting) {
+                        return Some(member);
+                    }
+                }
+            }
+        }
+        None
     }
 
     /// §92 (`checker-notes-narrow.md`): the property roads the symbol table
