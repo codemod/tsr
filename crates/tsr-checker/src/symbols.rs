@@ -3527,6 +3527,19 @@ impl<'a> Checker<'a, '_> {
     }
 
     fn get_type_for_variable_like_declaration(&mut self, declaration: NodeId) -> Option<TypeId> {
+        // §38.1, MOVED FIRST at §409: a for-IN binding is `string`
+        // UNCONDITIONALLY — upstream's ForIn arm opens
+        // `getTypeForVariableLikeDeclaration` (checker.go:16652), before the
+        // annotation, so `for (var a: number in X)` still reads `a : string`
+        // (`parserForInStatement5`; the annotation is the reported error,
+        // not the type).
+        if self.nodes.kind(declaration) == SyntaxKind::VariableDeclaration
+            && let Some(list) = self.nodes.parent(declaration)
+            && let Some(statement) = self.nodes.parent(list)
+            && self.nodes.kind(statement) == SyntaxKind::ForInStatement
+        {
+            return Some(self.intrinsics.string);
+        }
         // An annotation wins over an initialiser, always.
         if let Some(annotation) = self.type_annotation_of(declaration) {
             let declared = self.get_type_from_type_node(annotation);
@@ -3570,16 +3583,6 @@ impl<'a> Checker<'a, '_> {
             && let Some(contextual) = self.get_contextually_typed_parameter_type(declaration)
         {
             return Some(self.add_optionality_for_declaration(contextual, declaration));
-        }
-        // §38.1: a for-IN binding is `string`, unconditionally
-        // (`getTypeForVariableLikeDeclaration`'s ForIn arm,
-        // `checker.go:16698` region — upstream returns `stringType`).
-        if self.nodes.kind(declaration) == SyntaxKind::VariableDeclaration
-            && let Some(list) = self.nodes.parent(declaration)
-            && let Some(statement) = self.nodes.parent(list)
-            && self.nodes.kind(statement) == SyntaxKind::ForInStatement
-        {
-            return Some(self.intrinsics.string);
         }
         // §38 (`checker-notes-callres.md`): a for-of binding takes the
         // iterated element — array references, tuples, and strings; every
