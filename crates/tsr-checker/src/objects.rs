@@ -916,19 +916,13 @@ impl Checker<'_, '_> {
                 index_values.push((key, member_type));
                 continue;
             }
-            // SS323: a late-bound `[...]` member PUSHES - upstream's fresh
-            // literal display keeps every such entry, three `[s]` rows side
-            // by side in `symbolProperty1` - where a written name upserts
-            // (the spread-ordering rule above).
-            if name.starts_with('[') {
-                members.push(Member::Property {
-                    name,
-                    optional: false,
-                    readonly: const_context,
-                    printed,
-                });
-                continue;
-            }
+            // SS329 corrects SS323's push rule: `symbolProperty1`'s three
+            // `[s]` rows come from three DIFFERENT ARMS (property, method,
+            // getter), so the plain-property flow upserts for bracketed
+            // names exactly as for written ones - duplicate late-bound
+            // PROPERTY assignments collapse to one row
+            // (`symbolProperty36`'s `{ [Symbol.isConcatSpreadable]: 0,
+            // [Symbol.isConcatSpreadable]: 1 }` prints one member).
             upsert_member(
                 &mut members,
                 Member::Property { name, optional: false, readonly: const_context, printed },
