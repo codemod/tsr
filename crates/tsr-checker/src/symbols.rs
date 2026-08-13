@@ -414,6 +414,31 @@ impl<'a> Checker<'a, '_> {
             self.symbol_types.insert(symbol, any);
             return any;
         }
+        // §300: EVERY import binding from a SHORTHAND ambient module —
+        // `declare module "abcdefgh";`, no body — is `any` upstream
+        // (`isShorthandAmbientModuleSymbol`, `utilities.go:198`: the module
+        // resolves to its own symbol and every member read is `any`).
+        // `declarationEmitAnyComputedPropertyInClass` records
+        // `import Test from "abcdefgh"` with `Test.someKey : any` throughout.
+        if let Some(declaration) = self.declaration_of_alias_symbol(symbol)
+            && matches!(
+                self.nodes.kind(declaration),
+                SyntaxKind::ImportClause
+                    | SyntaxKind::ImportSpecifier
+                    | SyntaxKind::NamespaceImport
+            )
+            && let Some(specifier) = self.import_declaration_specifier(declaration)
+            && let Some(module) = self.resolve_external_module_name(declaration, specifier)
+            && self.binder.symbols().get(module).declarations.iter().any(|&d| {
+                matches!(self.node_map.get(d),
+                    Some(Node::ModuleDeclaration(m)) if m.body.is_none())
+            })
+        {
+            let any = self.intrinsics.any;
+            let any = if self.resolutions.pop() { any } else { self.intrinsics.error };
+            self.symbol_types.insert(symbol, any);
+            return any;
+        }
         // §144 (`checker-notes-narrow.md`): an ImportEquals ENTITY form
         // whose ROOT name resolves to NOTHING reads upstream's TS2503-family
         // error-any at every use — the §31/§119 boundary argument, entity
