@@ -2038,6 +2038,22 @@ version of bare `any`.
 | **`new C<T>()`** — "needs `inferTypeArguments`, same mechanism as a generic call" | **`a9a33f97`** | Written type arguments need **substitution, not inference**, and both roads have had them since §161. Only the inference half (`new C(args)`, no written list) remains. |
 
 
+### New, 2026-08-13, §373 `typeof globalThis.m` for script namespaces — refused by 37:2,849
+
+- **The `globalThis.` qualification is a PER-SITE decision, not a property of
+  the symbol.** ~12 near-miss cases want `typeof globalThis.m1` at a script
+  namespace's own name (`collisionCodeGenModuleWithMemberVariable`,
+  `importAndVariableDeclarationConflict1-4`), and qualifying every
+  script-top-level VALUE_MODULE at the mint measured **37 won : 2,849
+  RIGHT→WRONG** — most of the corpus is scripts and most references print the
+  bare `typeof m`. The fixtures' own names say the condition: the qualified
+  spelling appears where the plain name is SHADOWED at the reference site
+  (`nameCollision`), which is upstream's per-reference node-builder naming —
+  the exact "name computed once at creation vs per reference site" divergence
+  `get_type_of_func_class_enum_module`'s doc comment already records.
+  **Reopening condition: per-site type printing** (the same wall as
+  `TypeData::Named`, ADR-0043). Measured at the §371 tree, reverted whole. §373
+
 ### New, 2026-08-13, §311 `declare global`'s name line — refused by 5:42
 
 - **The name line's spelling is a writer-side decision this port cannot yet
