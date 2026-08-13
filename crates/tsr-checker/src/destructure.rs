@@ -155,11 +155,6 @@ impl Checker<'_, '_> {
                 self.destructuring_property_lookup(parent_type, &name, numeric)
             }
             SyntaxKind::ArrayBindingPattern => {
-                // An ARRAY rest needs `sliceTupleType` (`checker.go:17797`) —
-                // still refused, exactly as the module doc records.
-                if element.dot_dot_dot_token.is_some() {
-                    return error;
-                }
                 // The element's position is the property name
                 // (`checker.go:17769`), which is why the parser records holes
                 // as empty elements — upstream's `slices.Index` counts them.
@@ -171,6 +166,28 @@ impl Checker<'_, '_> {
                 else {
                     return error;
                 };
+                if element.dot_dot_dot_token.is_some() {
+                    // §321: `sliceTupleType` (`checker.go:17797`), the PLAIN
+                    // slice — `var [x, ...tail]: [number, string, string]`
+                    // reads `[string, string]`. A tuple with an OPTIONAL or
+                    // readonly shape declines: the sliced mask and the
+                    // mutability of the destructured copy are their own
+                    // questions, and a wrong spelling is worse than the gap
+                    // this element always had. A non-tuple parent declines
+                    // too (upstream builds `T[]` from the iterated type).
+                    if let Some((elements, readonly)) =
+                        self.tuple_element_lists.get(&parent_type).cloned()
+                        && !readonly
+                        && index <= elements.len()
+                        && !self
+                            .tuple_optional_masks
+                            .get(&parent_type)
+                            .is_some_and(|mask| mask.iter().any(|&optional| optional))
+                    {
+                        return self.create_tuple_type(elements[index..].to_vec(), false);
+                    }
+                    return error;
+                }
                 let positional =
                     self.destructuring_property_lookup(parent_type, &index.to_string(), true);
                 if positional == error {
