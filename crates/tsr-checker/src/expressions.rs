@@ -2537,6 +2537,43 @@ impl Checker<'_, '_> {
         // `IterableIterator<T, TReturn = any, TNext = any>` disagree, so the
         // answer has to come from the declaration.
         if let Some(annotation) = annotation {
+            // §425: a `yield*` in an ANNOTATED generator still answers the
+            // DELEGATED iterable's return, not the container's next slot —
+            // `function* g(): IterableIterator<Foo> { yield * [new Bar]; }`
+            // records `undefined` (`generatorTypeCheck19/20`). Scoped to the
+            // same array shape §349 decided, so the asyncGenerators families
+            // that priced §349's placement keep their roads.
+            let is_async = self.node_map.get(container).is_some_and(|function| {
+                let modifiers = match function {
+                    Node::FunctionDeclaration(f) => f.modifiers,
+                    Node::MethodDeclaration(f) => f.modifiers,
+                    Node::FunctionExpression(f) => f.modifiers,
+                    _ => return false,
+                };
+                modifiers.iter().any(|modifier| {
+                    matches!(modifier, tsr_ast::ModifierLike::Token(token)
+                        if token.kind == SyntaxKind::AsyncKeyword)
+                })
+            });
+            if !is_async
+                && node.asterisk_token.is_some()
+                && let Some(operand) = node.expression
+            {
+                let operand_type = self.check_expression(operand);
+                if let Some((target, arguments)) = self.type_reference_targets.get(&operand_type)
+                    && arguments.len() == 1
+                    && !self
+                        .store
+                        .get(arguments[0])
+                        .flags
+                        .intersects(TypeFlags::UNDEFINED | TypeFlags::NEVER)
+                    && self.global_type_symbol("Array").is_some_and(|array| {
+                        self.binder.merged_symbol(*target) == self.binder.merged_symbol(array)
+                    })
+                {
+                    return self.intrinsics.undefined;
+                }
+            }
             return self.next_type_of_annotated_generator(annotation).unwrap_or(error);
         }
         // §349: in the ONE slot the old flow gapped — unannotated,
