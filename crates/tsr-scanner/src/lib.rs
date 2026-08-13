@@ -752,12 +752,18 @@ impl<'a> Scanner<'a> {
 
         let text = &self.source[start as usize..self.pos as usize];
 
-        // An identifier written with escapes is never a keyword: `if` is an
-        // identifier named `if`, not the `if` keyword.
-        if decoded.is_none() {
-            if let Some(kind) = keyword_kind(text) {
-                return kind;
-            }
+        // §302: the keyword table keys the DECODED text — upstream's
+        // `getIdentifierToken` runs on `tokenValue` whatever spelled it, so
+        // `default` IS the `default` keyword, carrying
+        // `TokenFlagsUnicodeEscape` for the parser's "keyword must not
+        // contain escaped characters" report
+        // (`switchStatementsWithMultipleDefaults` parses it as the clause).
+        // The rule this replaces ("an identifier written with escapes is
+        // never a keyword") was exactly backwards.
+        let lookup = decoded.as_deref().unwrap_or(text);
+        if let Some(kind) = keyword_kind(lookup) {
+            self.value = decoded;
+            return kind;
         }
         self.value = decoded;
         SyntaxKind::Identifier

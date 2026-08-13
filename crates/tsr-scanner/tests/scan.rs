@@ -33,12 +33,18 @@ fn identifiers_and_keywords_are_distinguished() {
 }
 
 #[test]
-fn keywords_written_with_escapes_are_identifiers() {
-    // `\u0069f` spells "if", but an identifier written with an escape is never a
-    // keyword — it is an ordinary identifier that happens to be named `if`.
+fn keywords_written_with_escapes_are_keywords_carrying_the_escape_flag() {
+    // FLIPPED at §302. `\u0069f` spells "if" and IS the `if` keyword:
+    // upstream's `case '\\'` arm runs `GetIdentifierToken(s.tokenValue)` on
+    // the DECODED text (scanner.go:889-894), and the parser uses the
+    // UNICODE_ESCAPE flag to report "keyword must not contain escaped
+    // characters" while still parsing the keyword —
+    // switchStatementsWithMultipleDefaults parses `def\u0061ult:` as the
+    // default clause. The old assertion ("never a keyword") was this port's
+    // invention, contradicted by the anchor it never cited.
     let source = r"\u0069f";
     let (tokens, _) = tokenize(source);
-    assert_eq!(tokens[0].kind, Identifier);
+    assert_eq!(tokens[0].kind, IfKeyword);
     assert!(tokens[0].flags.contains(TokenFlags::UNICODE_ESCAPE));
 
     let mut scanner = Scanner::new(source);
