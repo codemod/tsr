@@ -159,7 +159,27 @@ impl Checker<'_, '_> {
                 else {
                     return error;
                 };
-                self.destructuring_property_lookup(parent_type, &index.to_string(), true)
+                let positional =
+                    self.destructuring_property_lookup(parent_type, &index.to_string(), true);
+                if positional == error {
+                    // Upstream's else-arm (`checker.go:17771`): a receiver
+                    // that is not array-like takes
+                    // `checkIteratedTypeOrElementType`. §317 wires the slice
+                    // of it that exists — §284's `for_of_element_type`, gated
+                    // to receivers with a SYNTACTIC `[Symbol.iterator]` —
+                    // `var [a, b] = new SymbolIterator` reads `symbol` from
+                    // `next()`'s return (`iterableArrayPattern1/2`). A
+                    // receiver neither road answers stays the gap it was.
+                    if self.declares_symbol_iterator(parent_type)
+                        && let Some(element) = self.for_of_element_type(parent_type)
+                    {
+                        element
+                    } else {
+                        error
+                    }
+                } else {
+                    positional
+                }
             }
             _ => error,
         };
