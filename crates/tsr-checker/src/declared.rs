@@ -182,6 +182,7 @@ impl<'a> Checker<'a, '_> {
                 .r#type
                 .map_or(self.intrinsics.error, |inner| self.get_type_from_type_node(inner)),
             TypeNode::TypeReferenceNode(node) => self.get_type_from_type_reference(node),
+            TypeNode::ImportTypeNode(node) => self.get_type_from_import_type_node(node),
             TypeNode::TypeLiteralNode(node) => self.get_type_from_type_literal(node),
             TypeNode::UnionTypeNode(node) => self.get_type_from_union_type_node(node),
             TypeNode::IntersectionTypeNode(node) => self.get_type_from_intersection_type_node(node),
@@ -1870,6 +1871,66 @@ impl<'a> Checker<'a, '_> {
         if !arguments.is_empty() {
             self.type_reference_targets.insert(minted, (symbol, arguments));
         }
+        minted
+    }
+
+    /// §289: `import("./m").Foo` in type position — `getTypeFromImportTypeNode`
+    /// reduced to the arm the corpus records: a QUALIFIED, non-`typeof`
+    /// reference resolves the module, walks the qualifier through its exports,
+    /// and prints the WRITTEN text with the member's table behind it (the §41
+    /// mint shape; `>k : import("./mod1").Con` is the baseline form).
+    ///
+    /// Declined, each a gap and not a guess: `typeof import(...)` and the
+    /// unqualified module object (both are the `bd tsr-e2u` naming wall), and
+    /// written type arguments (the instantiated print is its own row).
+    fn get_type_from_import_type_node(&mut self, node: &tsr_ast::ImportTypeNode<'a>) -> TypeId {
+        let error = self.intrinsics.error;
+        if node.is_type_of || !node.type_arguments.is_empty() {
+            return error;
+        }
+        let Some(qualifier) = node.qualifier else { return error };
+        let Some(site) = node.node_id else { return error };
+        let Some(TypeNode::LiteralTypeNode(literal)) = node.argument else { return error };
+        let Some(specifier) = literal.literal.and_then(|l| l.node_id()) else { return error };
+        let Some(module) = self.resolve_external_module_name(site, specifier) else {
+            return error;
+        };
+        // The qualifier's segments, leftmost first, walked through exports —
+        // `resolveEntityName` rooted at the module symbol.
+        let mut segments: Vec<&str> = Vec::new();
+        let mut current = qualifier;
+        let root = loop {
+            match current {
+                tsr_ast::EntityName::Identifier(name) => break name.text,
+                tsr_ast::EntityName::QualifiedName(inner) => {
+                    let Some(right) = inner.right else { return error };
+                    segments.push(right.text);
+                    let Some(left) = inner.left else { return error };
+                    current = left;
+                }
+            }
+        };
+        segments.push(root);
+        segments.reverse();
+        let mut symbol = self.binder.merged_symbol(module);
+        for segment in &segments {
+            let Some(&found) = self.binder.symbols().get(symbol).exports.get(*segment) else {
+                return error;
+            };
+            symbol = self.binder.merged_symbol(found);
+        }
+        if !self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::TYPE) {
+            return error;
+        }
+        // The written text, rebuilt: `import("<specifier>").<qualifier>`.
+        let Some(Node::StringLiteral(spec)) = self.node_map.get(specifier) else { return error };
+        let text = format!("import(\"{}\").{}", spec.text, segments.join("."));
+        let key = (text.clone(), symbol);
+        if let Some(&existing) = self.qualified_reference_types.get(&key) {
+            return existing;
+        }
+        let minted = self.store.new_named(TypeFlags::OBJECT, text, Some(symbol));
+        self.qualified_reference_types.insert(key, minted);
         minted
     }
 
