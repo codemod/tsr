@@ -1078,7 +1078,7 @@ impl Checker<'_, '_> {
         }
     }
 
-    fn check_this_expression(&mut self, node: NodeId) -> TypeId {
+    pub(crate) fn check_this_expression(&mut self, node: NodeId) -> TypeId {
         let mut current = self.nodes.parent(node);
         while let Some(id) = current {
             // **Arm 1 shadows arm 2, and the order is upstream's.**
