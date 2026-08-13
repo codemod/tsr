@@ -1205,6 +1205,23 @@ impl Checker<'_, '_> {
                 return Some(survivor);
             }
         }
+        // §391: WRITTEN type arguments skip every candidate that cannot take
+        // them (`hasCorrectTypeArgumentArity`), so a set with exactly ONE
+        // generic candidate has its survivor decided by the write alone —
+        // `foo<string>("hi")` on a non-generic + generic pair answers the
+        // generic's instantiated return, `number`
+        // (`typeArgumentsShouldDisallowNonGenericOverloads`). The §288
+        // instantiation downstream does the rest; two or more generics keep
+        // the existing roads.
+        if has_type_arguments {
+            let generics: Vec<&Signature> = candidates
+                .iter()
+                .filter(|candidate| !candidate.type_parameters.is_empty())
+                .collect();
+            if let [single] = generics.as_slice() {
+                return Some((*single).clone());
+            }
+        }
         // §273: these rejections used to judge the SET; upstream judges
         // candidates in ORDER — `chooseOverload` (`checker.go:9425`) walks and
         // the first success wins — so a CLEAN PREFIX, every candidate before
