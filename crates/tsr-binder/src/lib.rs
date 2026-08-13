@@ -425,7 +425,38 @@ impl<'a> BindResult<'a> {
         name: &str,
         meaning: SymbolFlags,
     ) -> Option<SymbolId> {
-        self.resolve_name_excluding(nodes, node_map, start, name, meaning, None)
+        let resolved = self.resolve_name_excluding(nodes, node_map, start, name, meaning, None)?;
+        // §265. `declare global { … }` does NOT declare a binding called
+        // `global` — the keyword is syntax, not a name. Upstream reports
+        // `TS2304: Cannot find name 'global'` for `global.x` (checker-1's
+        // probe, twice in one file, while `globalThis` resolves normally in
+        // the same file), so upstream's `>global : any` is a rendered
+        // errorType and every step after the resolution is already right here.
+        //
+        // The parser gives the block a SYNTHETIC `global` identifier for a
+        // name — see `is_merged_global_augmentation` — and that name is
+        // load-bearing: this binder merges augmentations across files by
+        // matching it, which is why checker-1's §234 renaming it to
+        // `__global` measured **0 won / 5 lost**. So the declaration keeps its
+        // name and the REFERENCE is refused instead.
+        //
+        // Refused only when EVERY declaration of the resolved symbol is a
+        // global-scope augmentation. A real `namespace global { … }` is a
+        // different construct with the same name and must keep resolving; the
+        // keyword is what separates them, exactly as it does in
+        // `is_merged_global_augmentation`.
+        if name == "global" {
+            let declarations = &self.symbols().get(resolved).declarations;
+            let all_global_augmentations = !declarations.is_empty()
+                && declarations.iter().all(|&declaration| {
+                    matches!(node_map.get(declaration), Some(tsr_ast::Node::ModuleDeclaration(module))
+                        if module.keyword.kind == tsr_ast::SyntaxKind::GlobalKeyword)
+                });
+            if all_global_augmentations {
+                return None;
+            }
+        }
+        Some(resolved)
     }
 
     /// `useResult`'s type arm (`binder/nameresolver.go:61`): *"local types are
