@@ -505,6 +505,15 @@ impl Checker<'_, '_> {
                                     self.get_flow_type_of_reference(node_id, Some(symbol), start)
                                 }
                             }
+                        } else if let Some(&spelled) = self.enum_access_spelling.get(&declared) {
+                            // §280: a bare enum-member REFERENCE takes the
+                            // access spelling, exactly as the property-access
+                            // road does — `a` inside `b = a` prints `E` when
+                            // the enum's values collapse to one
+                            // (`mergedEnumDeclarationCodeGen`,
+                            // `preserveConstEnums`). An enum member is not a
+                            // narrowable symbol, so this is that branch alone.
+                            spelled
                         } else {
                             declared
                         }

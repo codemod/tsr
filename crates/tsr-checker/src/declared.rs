@@ -1868,6 +1868,57 @@ impl<'a> Checker<'a, '_> {
         // qualified print with the real lookup table. Generic references
         // stay print-only mints.
         if node.type_arguments.is_empty() {
+            // §280's annotation half: a qualified name resolving to an ENUM
+            // MEMBER answers the member's declared type in REGULAR form, not
+            // a mint of the written text — upstream's `getTypeFromTypeNode`
+            // regularises, so `const x1: E.static` reads `E` when the enum's
+            // values collapse to one (`strictModeEnumMemberNameReserved`)
+            // and `E.A` otherwise, which is the same text the mint produced.
+            // Two-segment names ONLY (`E.A`): the member's own spelling and
+            // the written path coincide there, so the declared road loses no
+            // qualification. A deeper path (`Z.Foo.A`) must keep the mint —
+            // the first draft answered `Foo.A` for it, 5 R→W across
+            // `enumLiteralAssignableToEnumInsideUnion` and
+            // `discriminatedUnionTypes4`, the tsr-e2u qualification wall from
+            // yet another door.
+            let two_segments = matches!(
+                name,
+                tsr_ast::EntityName::QualifiedName(qualified)
+                    if matches!(qualified.left, Some(tsr_ast::EntityName::Identifier(_)))
+            );
+            if two_segments
+                && self.binder.symbols().get(resolved).flags.intersects(SymbolFlags::ENUM_MEMBER)
+            {
+                let declared = self.get_declared_type_of_symbol(resolved);
+                let regular = self.get_regular_type_of_literal_type(declared);
+                // STRING-enum members keep the mint: the second draft handed
+                // their literal types to interface discriminants and
+                // `discriminatedUnionTypes4` went 3 R→W / 7 R→G — the union
+                // and narrowing roads consume these where the numeric shapes
+                // only print. Numeric members measured +104/0. The test is on
+                // the initializer's SYNTAX because the fold mints every
+                // member `TypeFlags::ENUM` regardless of value kind — a flags
+                // test here was dead code, caught by an identical rescore.
+                let string_valued = self
+                    .binder
+                    .symbols()
+                    .get(resolved)
+                    .declarations
+                    .first()
+                    .and_then(|&declaration| match self.node_map.get(declaration) {
+                        Some(Node::EnumMember(member)) => member.initializer,
+                        _ => None,
+                    })
+                    .is_some_and(|initializer| {
+                        matches!(initializer, tsr_ast::Expression::StringLiteral(_))
+                    });
+                if !string_valued {
+                    if let Some(&spelled) = self.enum_access_spelling.get(&regular) {
+                        return spelled;
+                    }
+                    return regular;
+                }
+            }
             let Some(text) = Self::entity_name_text(node.type_name) else { return error };
             let key = (text.clone(), resolved);
             if let Some(&existing) = self.qualified_reference_types.get(&key) {
@@ -2504,7 +2555,24 @@ impl<'a> Checker<'a, '_> {
         }
         // `checker.go:23904`: a union enum type carries `ENUM_LITERAL` and the
         // enum's symbol, which is what it prints as.
-        self.get_named_union_type(&members, TypeFlags::ENUM_LITERAL, symbol)
+        let enum_type = self.get_named_union_type(&members, TypeFlags::ENUM_LITERAL, symbol);
+        // §280: §55.1's single-DISTINCT-VALUE generalisation. `members` holds
+        // one entry per distinct value (duplicates reused and `continue`d
+        // above), so `enum E { a, b = a }` lands here with ONE member type
+        // across TWO members — upstream's union-of-one IS the enum's declared
+        // type, and its node builder prints the bare enum name for a literal
+        // that equals it (`E.A : E`, `a : E` inside `b = a` —
+        // `mergedEnumDeclarationCodeGen`, `preserveConstEnums`,
+        // `noUnusedLocals_selfReference`). Declaration lines keep the fresh
+        // per-name spelling, exactly as §55.1's twins do; only the ACCESS
+        // spelling swaps.
+        if members.len() == 1 && total_members != 1 {
+            let single = members[0];
+            let fresh = self.get_fresh_type_of_literal_type(single);
+            self.enum_access_spelling.insert(single, enum_type);
+            self.enum_access_spelling.insert(fresh, enum_type);
+        }
+        enum_type
     }
 
     /// Ported from `Checker.getDeclaredTypeOfClassOrInterface`
