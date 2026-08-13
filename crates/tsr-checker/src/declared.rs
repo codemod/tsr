@@ -1076,6 +1076,26 @@ impl<'a> Checker<'a, '_> {
         if let [single] = types[..] {
             return single;
         }
+        // §290, MEASURED AND REFUSED on the 08febc71 tree. The
+        // never-reduction of a discriminant-conflicting intersection
+        // (`getReducedType`'s intersection arm, `checker.go:21831`) was built
+        // as a two-test approximation — disjoint unit literals, or unit
+        // against a different primitive kind — and measured:
+        //
+        //     WRONG->RIGHT ~38   intersectionReduction 16, ...Strict 14
+        //     RIGHT->WRONG 15    the SAME two fixtures 6+6, genericRestTypes,
+        //                        and neverTypeErrors1/2 one line EACH
+        //     RIGHT->GAP 1
+        //
+        // Two independent blockers, both named: (1) upstream reduces only a
+        // DISCRIMINANT property (`CheckFlags` non-uniform + literal), and the
+        // approximation over-fires on the branded/unique-symbol shapes those
+        // fixtures also hold; (2) the reduction makes the ALIAS itself
+        // `never`, and a WRITTEN annotation mentioning it (`value: Union[]`)
+        // must still print the alias name — one type, two renders, which is
+        // ADR-0043's exact wall, and it broke a line INSIDE the winning
+        // witness. REOPENING: upstream's discriminant CheckFlags port plus
+        // the written-type-node carriage; neither half lands alone.
         // §91, env-gated: an intersection of literal-key unions reduces by
         // set intersection — upstream's `intersectUnionsOfPrimitiveTypes` +
         // the two-unit-types-are-never rule, applied only where the
