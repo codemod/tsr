@@ -1973,6 +1973,31 @@ type-query change is exactly the kind that reads `+0` for reasons unrelated to t
 rule. Recorded with the elimination so the next attempt does not start by re-reading
 the `this` arm, which is correct.
 
+### The deficit-2 `() => any` row — censused, NOT a family
+
+Twenty-eight lines. Opened, and the members do not share a cause:
+
+- `emitArrowFunctionWhenUsingArguments02_ES6` — `var a = () => arguments;` at TOP
+  LEVEL. `arguments` is typed `IArguments` only inside a qualifying container
+  (`expressions.rs:585`); an arrow at file scope has none, so the reference is the
+  error type and the arrow's inferred return follows it. Upstream prints `any`, and
+  **whether that is upstream's computed `any` or its errorType rendered through the
+  node builder is the question that decides the repair** — checker-1's §254
+  established that the discriminator is which arm of `writeTypeOrSymbol` upstream
+  took, not what it printed. Unchecked here.
+- `parserArrowFunctionExpression13` — `a ? () => a() : (): any => null;` in a
+  conditional, one `.js` unit and one `.ts`. A parse/context question, not the
+  `arguments` one.
+- `tsxExternalModuleEmit1`, `tsxDynamicTagName7` — JSX, different again.
+- `super1`, `superCallWithMissingBaseClass` — `super` in a class with no base.
+
+**Four causes minimum across six cases.** Recorded as a censused non-family so the
+row is not re-opened as one: the shared `() => any` want is the *printed shape of an
+arrow whose body failed to type*, which every one of these produces for its own
+reason. That is the GOT-axis lesson (conventions corollary 21) appearing on the WANT
+axis — a want can be as over-determined as a got, and `() => any` is the arrow's
+version of bare `any`.
+
 ## 5. Refused, with the number that refused it
 
 > **§5 IS DANGEROUS WHEN STALE.** Its whole purpose is "do not re-derive
