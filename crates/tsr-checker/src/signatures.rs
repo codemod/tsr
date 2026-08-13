@@ -1074,10 +1074,40 @@ impl<'a> Checker<'a, '_> {
             let mut operand_types: Vec<TypeId> = Vec::new();
             for (delegates, id, operand) in yields {
                 // `yield*` reads the delegated iterable's element type through
-                // the iteration protocol (`getYieldedTypeOfYieldExpression`) —
-                // unported, and the whole signature declines rather than
-                // mistyping the yield slot.
+                // the iteration protocol (`getYieldedTypeOfYieldExpression`).
+                // §351 ports the ARRAY slice: the element feeds the yield slot
+                // directly (`generatorTypeCheck22/23/24` record
+                // `Generator<Bar | Baz | undefined, void, unknown>` from
+                // `yield* [new Bar, new Baz]` beside a bare `yield`). Every
+                // other delegated shape still declines the whole signature
+                // rather than mistyping the slot.
                 if delegates {
+                    let Some(operand) = operand else { return None };
+                    let operand_type = self.check_expression(operand);
+                    if operand_type == self.intrinsics.error {
+                        return None;
+                    }
+                    if let Some((target, arguments)) =
+                        self.type_reference_targets.get(&operand_type).cloned()
+                        && arguments.len() == 1
+                        // The DEGENERATE element (`yield * []`) declines, as
+                        // §349's expression half does — upstream's slot for it
+                        // is `any` (`YieldStarExpression4_es6`).
+                        && !self
+                            .store
+                            .get(arguments[0])
+                            .flags
+                            .intersects(crate::flags::TypeFlags::UNDEFINED | crate::flags::TypeFlags::NEVER)
+                        && self.global_type_symbol("Array").is_some_and(|array| {
+                            self.binder.merged_symbol(target) == self.binder.merged_symbol(array)
+                        })
+                    {
+                        let element = arguments[0];
+                        if !operand_types.contains(&element) {
+                            operand_types.push(element);
+                        }
+                        continue;
+                    }
                     return None;
                 }
                 // The first measurement fired the §15 bar's leg 2 at 41 and
