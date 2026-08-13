@@ -108,9 +108,13 @@ fn an_overload_set_that_agrees_needs_no_selection() {
 }
 
 #[test]
-fn an_overload_set_that_disagrees_is_still_a_gap() {
-    // The pair of the test above. Choosing between these is `resolveCall`'s
-    // assignability, which this port has over primitives only.
+fn an_overload_set_that_disagrees_selects_by_the_subtype_pass() {
+    // FLIPPED at §273: this asserted `error` with the reason "choosing
+    // between these is `resolveCall`'s assignability, which this port has
+    // over primitives only" — and `"a"` against `string` IS primitives, so
+    // the reason named its own repair. The §273 pick runs upstream's subtype
+    // pass over the clean prefix: `new ()` fails arity, `"a"` is a subtype
+    // of `string`, `B` is upstream's answer (`checker.go:8924`'s first run).
     assert_eq!(
         type_of_last(
             "interface A { a: string; }\n\
@@ -119,7 +123,7 @@ fn an_overload_set_that_disagrees_is_still_a_gap() {
              declare const C: MadeConstructor;\n\
              const made = new C(\"a\");"
         ),
-        "error"
+        "B"
     );
 }
 
@@ -237,15 +241,19 @@ fn an_interface_inherits_its_bases_call_signature() {
 /// `number` rather than a decline. So this pins that the base really is being
 /// folded in, by the decline it causes.
 ///
-/// The day overload selection reaches here, this fixture fails and asks to be
-/// rewritten — which is the right time to pin the order.
+/// ~~The day overload selection reaches here, this fixture fails and asks to
+/// be rewritten — which is the right time to pin the order.~~ **That day was
+/// §273**, and this now pins the ORDER as the comment asked: the derived
+/// interface's own signature folds BEFORE its base's, so upstream's subtype
+/// pass answers `number` for the zero-argument call — a fixture that could
+/// only gap while selection was absent.
 #[test]
-fn differing_returns_across_the_heritage_boundary_still_decline() {
+fn differing_returns_across_the_heritage_boundary_pick_the_derived_first() {
     assert_eq!(
         type_of_last(
             "interface A { (): string }\ninterface B extends A { (): number }\ndeclare var b: B;\nconst x = b();"
         ),
-        "error"
+        "number"
     );
 }
 

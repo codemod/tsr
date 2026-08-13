@@ -134,15 +134,19 @@ const x = m(value);
 ";
     assert_eq!(type_of_last(source), "error");
 
-    // A generic candidate anywhere in the set is a gap too — selecting it needs
-    // inference, and its return type would print `T`.
+    // FLIPPED at §273: this asserted `error` on "a generic candidate anywhere
+    // in the set is a gap". Upstream's subtype pass walks in candidate order
+    // and `1` is a subtype of `number`, so the FIRST candidate wins before
+    // the generic one gets a turn (`checker.go:8924`) — the clean-prefix pick
+    // answers exactly that. The generic candidate only decides calls the
+    // prefix rejects, and those still gap (the object-typed pair above).
     let generic = "\
 function n(x: number): number;
 function n<T>(x: T): T;
 function n(x: any): any { return x; }
 const x = n(1);
 ";
-    assert_eq!(type_of_last(generic), "error");
+    assert_eq!(type_of_last(generic), "number");
 }
 
 #[test]

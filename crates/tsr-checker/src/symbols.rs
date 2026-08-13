@@ -3560,6 +3560,22 @@ impl<'a> Checker<'a, '_> {
         None
     }
 
+    /// §275: the `@type` tag hanging directly off a node — the JSDoc CAST's
+    /// read, `isJSDocTypeAssertion`'s tag half.
+    pub(crate) fn jsdoc_cast_annotation(&self, id: NodeId) -> Option<TypeNode<'a>> {
+        let docs = self.jsdoc_entries.get(&id)?;
+        for doc in *docs {
+            for tag in doc.tags {
+                if let tsr_ast::JSDocTag::JSDocTypeTag(tag) = tag
+                    && let Some(Node::JSDocTypeExpression(expression)) = tag.type_expression
+                {
+                    return expression.r#type;
+                }
+            }
+        }
+        None
+    }
+
     /// The type annotation of a declaration, if it has one.
     pub(crate) fn type_annotation_of(&self, declaration: NodeId) -> Option<TypeNode<'a>> {
         match self.node_map.get(declaration)? {

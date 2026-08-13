@@ -947,6 +947,11 @@ impl<'a> Parser<'a> {
                 ))
             }
             SyntaxKind::OpenParenToken => {
+                // §275: a `/** @type {T} */ (expr)` JSDoc CAST hangs its doc
+                // off the parenthesized expression — upstream's
+                // `parseParenthesizedExpression` is `withJSDoc`-wrapped, and
+                // `isJSDocTypeAssertion` reads the tag back off this node.
+                let docs = self.parse_leading_jsdoc();
                 self.next_token();
                 let saved_no_in = std::mem::take(&mut self.no_in);
                 let expression = self.parse_expression();
@@ -957,6 +962,7 @@ impl<'a> Parser<'a> {
                     SyntaxKind::ParenthesizedExpression,
                     start,
                 );
+                self.attach_jsdoc(tsr_ast::Node::ParenthesizedExpression(node), docs);
                 Expression::ParenthesizedExpression(node)
             }
             SyntaxKind::OpenBracketToken => self.parse_array_literal(),

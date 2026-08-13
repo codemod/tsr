@@ -598,6 +598,25 @@ impl Checker<'_, '_> {
                 }
             }
             Expression::ParenthesizedExpression(node) => {
+                // §275: the JSDoc CAST — `/** @type {T} */ (expr)` asserts T,
+                // upstream's `checkParenthesizedExpression` through
+                // `isJSDocTypeAssertion` into the assertion worker. The inner
+                // expression still checks (its lines print); the paren's own
+                // type is the tag's, in regular form as an assertion answers.
+                // A tag type that does not compute falls through to the
+                // transparent-paren road, keeping the gap.
+                if let Some(id) = node.node_id
+                    && self.in_js_file(id)
+                    && let Some(annotation) = self.jsdoc_cast_annotation(id)
+                {
+                    let asserted = self.get_type_from_type_node(annotation);
+                    if asserted != self.intrinsics.error {
+                        if let Some(inner) = node.expression {
+                            self.check_expression(inner);
+                        }
+                        return self.get_regular_type_of_literal_type(asserted);
+                    }
+                }
                 node.expression.map_or(self.intrinsics.error, |inner| self.check_expression(inner))
             }
             // `checkTemplateExpression` (`checker.go:7976`): spans check;
