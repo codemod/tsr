@@ -1146,7 +1146,59 @@ impl Checker<'_, '_> {
             let survivors: Vec<&Signature> =
                 candidates.iter().filter(|c| has_correct_arity(c, arguments.len())).collect();
             if let [survivor] = survivors.as_slice() {
-                return Some((*survivor).clone());
+                let survivor = (*survivor).clone();
+                // §359: a single ARITY survivor of an OVERLOADED set is not
+                // yet the answer — upstream still argument-checks it, and a
+                // rejected survivor is an overload FAILURE, which answers
+                // §199's intersection of every candidate's return
+                // (`foo(): string; foo(bar: string): number;` called
+                // `foo(5)` is `string & number = never`,
+                // `compiler/functionOverloads`). A born-single candidate
+                // keeps the unguarded return; an UNDECIDABLE pair keeps the
+                // survivor, which is this path's pre-§359 behaviour.
+                if candidates.len() > 1 {
+                    let mut verdict = Ternary::Related;
+                    for (index, &argument) in arguments.iter().enumerate() {
+                        let Some(parameter) = survivor.parameters.get(index) else { break };
+                        let argument_type = self.check_expression(argument);
+                        if !self.strict_null_checks
+                            && self
+                                .type_of(argument_type)
+                                .flags
+                                .intersects(TypeFlags::UNDEFINED | TypeFlags::NULL)
+                            && !self
+                                .type_of(argument_type)
+                                .flags
+                                .intersects(!(TypeFlags::UNDEFINED | TypeFlags::NULL))
+                        {
+                            continue;
+                        }
+                        match self.relate_ternary(
+                            argument_type,
+                            parameter.r#type,
+                            Relation::Assignable,
+                        ) {
+                            Ternary::NotRelated => {
+                                verdict = Ternary::NotRelated;
+                                break;
+                            }
+                            Ternary::Unknown => {
+                                if verdict == Ternary::Related {
+                                    verdict = Ternary::Unknown;
+                                }
+                            }
+                            Ternary::Related => {}
+                        }
+                    }
+                    if verdict == Ternary::NotRelated {
+                        let returns: Vec<TypeId> =
+                            candidates.iter().map(|candidate| candidate.r#type).collect();
+                        let mut failure = candidates[0].clone();
+                        failure.r#type = self.get_intersection_type(&returns, None);
+                        return Some(failure);
+                    }
+                }
+                return Some(survivor);
             }
         }
         // §273: these rejections used to judge the SET; upstream judges
