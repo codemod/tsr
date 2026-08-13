@@ -3597,6 +3597,30 @@ impl<'a> Checker<'a, '_> {
         {
             return Some(self.intrinsics.string);
         }
+        // §441: an UNANNOTATED setter parameter reads the accessor PAIR's
+        // type — the getter's return, through the same getTypeOfAccessors
+        // road the member display uses ('set x(val)' beside
+        // 'get x() { return 1 }' types 'val : number',
+        // `gettersAndSettersTypesAgree`). Annotated parameters never reach
+        // this (the annotation arm below wins); a pair whose type does not
+        // compute keeps the gap.
+        if self.nodes.kind(declaration) == SyntaxKind::Parameter
+            && self.type_annotation_of(declaration).is_none()
+            // NOT in JS: a JS setter's parameter reads JSDoc/contextual
+            // machinery this arm does not model, and the ungated draft broke
+            // a PASSING case (`declarationEmitClassAccessorsJs1`, 4 R->W all
+            // in .js files) — the revert rule, honoured by the gate.
+            && !self.in_js_file(declaration)
+            && let Some(setter) = self.nodes.parent(declaration)
+            && self.nodes.kind(setter) == SyntaxKind::SetAccessor
+            && let Some(symbol) = self.binder.symbol_of(setter)
+        {
+            let paired = self.get_type_of_symbol(symbol);
+            if paired != self.intrinsics.error {
+                return Some(paired);
+            }
+            return None;
+        }
         // §38, MOVED FIRST at §419 beside its for-in twin: the for-OF arm
         // also precedes the annotation upstream — the annotation is TS2483's
         // error, never the type, so `for (var a: number of X)` with an
