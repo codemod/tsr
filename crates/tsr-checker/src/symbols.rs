@@ -3166,12 +3166,92 @@ impl<'a> Checker<'a, '_> {
         // (`member_completeness.rs:38`). There is no name to look
         // `[Symbol.iterator]` up by.
         //
-        // Measured population, `nearmiss --max 2`: about ten cases, of which
-        // `for-of19` through `for-of23` and `for-of30`/`31` are the clean
-        // witnesses. They will convert when late binding lands and not before;
-        // nothing narrower reaches them, because the protocol's first hop is
-        // the one that is missing. §212.
+        // ~~Measured population, `nearmiss --max 2`: about ten cases … They
+        // will convert when late binding lands and not before; nothing
+        // narrower reaches them, because the protocol's first hop is the one
+        // that is missing. §212.~~ **§284 CORRECTS THE REFUSAL'S SCOPE**: the
+        // first hop needs late binding only to LOOK UP the member; verifying
+        // its PRESENCE is a syntax question on the class declaration, which
+        // is exactly how §145 already recognises `[Symbol.hasInstance]`
+        // computed names. With presence verified, the remaining three hops —
+        // `next` (a regular member), its call return, its `value` — were
+        // ported all along, by §212's own admission.
+        // The `next` read is SYNTACTIC too — through the method declaration
+        // rather than `get_type_of_property_of_type`, because the first draft
+        // routed through the member seam mid-check and the memo it left
+        // changed `next`'s own declaration line in `for-of34` from
+        // `() => any` to `any` (1 R→W): a resolution-order side effect, the
+        // §244 shape. `get_signature_from_declaration` computes the same
+        // signature without touching the member symbol's memo.
+        if self.declares_symbol_iterator(iterated)
+            && let Some(next_id) = self.class_method_declaration(iterated, "next")
+            && let Some(signature) = self.get_signature_from_declaration(next_id)
+            && signature.r#type != self.intrinsics.error
+            && let Some(value) = self.get_type_of_property_of_type(signature.r#type, "value")
+            && value != self.intrinsics.error
+        {
+            return Some(value);
+        }
         None
+    }
+
+    /// §284: the class method declaration of the given name, found on the
+    /// type's class declaration — the syntactic sibling of
+    /// [`Checker::declares_symbol_iterator`].
+    fn class_method_declaration(&self, iterated: TypeId, wanted: &str) -> Option<NodeId> {
+        let crate::types::TypeData::Named { members: Some(symbol), .. } =
+            self.store.get(iterated).data
+        else {
+            return None;
+        };
+        self.binder.symbols().get(symbol).declarations.iter().find_map(|&declaration| {
+            let members = match self.node_map.get(declaration) {
+                Some(Node::ClassDeclaration(class)) => class.members,
+                Some(Node::ClassExpression(class)) => class.members,
+                _ => return None,
+            };
+            members.iter().find_map(|member| match member {
+                tsr_ast::ClassElement::MethodDeclaration(method)
+                    if matches!(method.name, tsr_ast::PropertyName::Identifier(name)
+                        if name.text == wanted) =>
+                {
+                    method.node_id
+                }
+                _ => None,
+            })
+        })
+    }
+
+    /// §284: whether the type's class declaration carries a computed
+    /// `[Symbol.iterator]` member — a SYNTACTIC presence test, the §145
+    /// `[Symbol.hasInstance]` precedent, which is what makes the iterator
+    /// protocol reachable without late binding.
+    fn declares_symbol_iterator(&self, iterated: TypeId) -> bool {
+        let crate::types::TypeData::Named { members: Some(symbol), .. } =
+            self.store.get(iterated).data
+        else {
+            return false;
+        };
+        self.binder.symbols().get(symbol).declarations.iter().any(|&declaration| {
+            let members = match self.node_map.get(declaration) {
+                Some(Node::ClassDeclaration(class)) => class.members,
+                Some(Node::ClassExpression(class)) => class.members,
+                _ => return false,
+            };
+            members.iter().any(|member| {
+                let name = match member {
+                    tsr_ast::ClassElement::MethodDeclaration(method) => &method.name,
+                    _ => return false,
+                };
+                matches!(name, tsr_ast::PropertyName::ComputedPropertyName(computed)
+                    if computed.expression.is_some_and(|e| matches!(e,
+                        tsr_ast::Expression::PropertyAccessExpression(access)
+                            if matches!(access.name,
+                                Some(tsr_ast::MemberName::Identifier(n)) if n.text == "iterator")
+                            && matches!(access.expression,
+                                Some(tsr_ast::Expression::Identifier(r)) if r.text == "Symbol"))))
+            })
+        })
     }
 
     fn get_type_for_variable_like_declaration(&mut self, declaration: NodeId) -> Option<TypeId> {
