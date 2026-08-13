@@ -261,7 +261,7 @@ enum PropertyValue<'a> {
 }
 
 /// SS307: what a computed member name contributes to an object literal.
-enum ComputedNameKey {
+pub(crate) enum ComputedNameKey {
     /// The name is LATE-BOUND (a string/number literal, a unique symbol, or a
     /// union of them names a real member, unported) or unreadable - the
     /// caller gaps the literal.
@@ -380,7 +380,7 @@ impl Checker<'_, '_> {
     /// name yields a **number** index - which is why `{ [await]: foo }` with
     /// an un-typeable `await` records `{ [x: number]: any; }` and not a
     /// string index.
-    fn computed_member_index_key(
+    pub(crate) fn computed_member_index_key(
         &mut self,
         computed: &tsr_ast::ComputedPropertyName<'_>,
     ) -> ComputedNameKey {

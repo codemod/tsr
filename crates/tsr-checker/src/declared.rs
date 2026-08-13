@@ -807,6 +807,13 @@ impl<'a> Checker<'a, '_> {
         let mut signatures = Vec::new();
         let mut indexes = Vec::new();
         let mut properties = Vec::with_capacity(node.members.len());
+        // SS333: computed property signatures whose name cannot late-bind
+        // contribute an INDEX (`var v: { [e]: number }` with unresolved `e`
+        // records `{ [x: number]: number; }`, `parserComputedPropertyName13`),
+        // DROPPED whole when the literal declares a real index signature
+        // (`{ [e: number]: string; [e]: number }` prints only the declared
+        // one, `parserComputedPropertyName15`).
+        let mut computed_indexes: Vec<(&'static str, TypeId)> = Vec::new();
         for member in node.members {
             // A method, call or construct signature prints whole and has no
             // `name: type` shape at all — see `crate::objects::Member`. Its
@@ -893,11 +900,47 @@ impl<'a> Checker<'a, '_> {
                 tsr_ast::PropertyName::Identifier(name) => name.text.to_string(),
                 // SS327: the property-signature half of the late-bound arm -
                 // `{ [Symbol.iterator]: { x } }` in type position prints the
-                // written chain in brackets.
+                // written chain in brackets. SS333: a name that cannot
+                // late-bind takes the same key dispatch the object-literal
+                // road uses, into `computed_indexes`.
                 tsr_ast::PropertyName::ComputedPropertyName(computed) => {
                     match self.late_bound_symbol_member_name(computed) {
                         Some((name, _)) => name,
-                        None => return error,
+                        None => {
+                            // KNOWN DEVIATION, measured both ways: an
+                            // ENUM-typed name late-binds upstream to the
+                            // member's own name (`[Test.a]: 0` is `{ a: 0; }`,
+                            // `declarationEmitComputedPropertyNameEnum1`) and
+                            // this arm prints `{ [x: number]: 0; }` for it —
+                            // one wrong line in a case failing on others.
+                            // GATING enum names out costs
+                            // `isolatedModulesConstEnum` (a full case) for
+                            // that one line; the ungated form is kept on that
+                            // measurement.
+                            match self.computed_member_index_key(computed) {
+                                crate::objects::ComputedNameKey::LateBound => return error,
+                                crate::objects::ComputedNameKey::Nothing => continue,
+                                crate::objects::ComputedNameKey::Index(key) => {
+                                    let Some(annotation) = property.r#type else { return error };
+                                    let mut member_type = self.get_type_from_type_node(annotation);
+                                    if member_type == error {
+                                        return error;
+                                    }
+                                    // `?` on the member adds `undefined` to
+                                    // the index's value
+                                    // (`parserComputedPropertyName18`).
+                                    if property.postfix_token.is_some_and(|token| {
+                                        token.kind == SyntaxKind::QuestionToken
+                                    }) {
+                                        let undefined = self.intrinsics.undefined;
+                                        member_type =
+                                            self.get_union_type(&[member_type, undefined]);
+                                    }
+                                    computed_indexes.push((key, member_type));
+                                    continue;
+                                }
+                            }
+                        }
                     }
                 }
                 _ => return error,
@@ -926,6 +969,34 @@ impl<'a> Checker<'a, '_> {
                 _ => self.type_to_string(member_type),
             };
             properties.push(crate::objects::Member::Property { name, optional, readonly, printed });
+        }
+        if !computed_indexes.is_empty() && indexes.is_empty() {
+            let key = computed_indexes[0].0;
+            if computed_indexes.iter().any(|(k, _)| *k != key) {
+                return error;
+            }
+            let mut distinct: Vec<TypeId> = Vec::new();
+            for (_, value) in &computed_indexes {
+                if !distinct.contains(value) {
+                    distinct.push(*value);
+                }
+            }
+            let value = match distinct.as_slice() {
+                [single] => *single,
+                many => {
+                    let candidates = many.to_vec();
+                    let Some(reduced) = self.union_with_subtype_reduction(&candidates) else {
+                        return error;
+                    };
+                    reduced
+                }
+            };
+            indexes.push(crate::objects::Member::Index {
+                readonly: false,
+                name: "x".to_string(),
+                key: key.to_string(),
+                value: self.type_to_string(value),
+            });
         }
         signatures.append(&mut indexes);
         signatures.append(&mut properties);
