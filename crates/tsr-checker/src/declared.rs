@@ -1490,11 +1490,38 @@ impl<'a> Checker<'a, '_> {
             }
             host = self.nodes.parent(host)?;
         }
-        if self.nodes.kind(host) == SyntaxKind::TypeAliasDeclaration {
-            self.binder.symbol_of(host)
-        } else {
-            None
+        if self.nodes.kind(host) != SyntaxKind::TypeAliasDeclaration {
+            return None;
         }
+        // §281: the alias's name is usable only when the DECLARATION is
+        // accessible by a symbol chain from the print site — checker-2's §229
+        // probe, five positions in one upstream fixture: top-level `A` and
+        // namespace-nested `E` print their names; a FUNCTION-LOCAL alias and
+        // a LABELLED one render structurally (`{}`), whether or not the
+        // function is generic (`function g()` behaves as `f<U>()` does).
+        // The predicate is a parent walk from the declaration: any
+        // function-like or labelled-statement ancestor before the source file
+        // makes the name unreachable. No name is minted for the inaccessible
+        // arm — the STRUCTURAL answer needs no qualifier, which is what keeps
+        // this outside `bd tsr-e2u`'s wall
+        // (`labeledStatementWithLabel{,_es2015,_strict}`,
+        // `nonGenericTypeReferenceWithTypeArguments`).
+        let mut current = host;
+        while let Some(parent) = self.nodes.parent(current) {
+            match self.nodes.kind(parent) {
+                SyntaxKind::LabeledStatement
+                | SyntaxKind::FunctionDeclaration
+                | SyntaxKind::FunctionExpression
+                | SyntaxKind::ArrowFunction
+                | SyntaxKind::MethodDeclaration
+                | SyntaxKind::Constructor
+                | SyntaxKind::GetAccessor
+                | SyntaxKind::SetAccessor => return None,
+                SyntaxKind::SourceFile => break,
+                _ => current = parent,
+            }
+        }
+        self.binder.symbol_of(host)
     }
 
     /// A reference to a generic type: `C<number>`, `Tree<T>`.
