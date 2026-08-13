@@ -225,6 +225,16 @@ impl Checker<'_, '_> {
             // `unknown` fallback) cover the tail; a list longer than the
             // parameters is still the arity error.
             if written.len() > parameters.len() || written.contains(&error) {
+                // §439: the ARITY error still resolves the call — upstream
+                // reports TS2558 and answers through the error signature, so
+                // a return that mentions no type parameter is its own answer
+                // ('f<number, string, number>() : void',
+                // `callWithWrongNumberOfTypeArguments`).
+                if !written.contains(&error)
+                    && !self.mentions_type_parameter(returned, &parameters, &names)
+                {
+                    return returned;
+                }
                 return error;
             }
             if !self.mentions_type_parameter(returned, &parameters, &names) {

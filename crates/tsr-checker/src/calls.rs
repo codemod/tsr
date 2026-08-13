@@ -993,6 +993,55 @@ impl Checker<'_, '_> {
         } else {
             callee
         };
+        // §439: a UNION callee whose every constituent resolves a single
+        // call signature with ONE agreed return answers that return —
+        // upstream builds union signatures; the agreeing-return slice needs
+        // no selection ('fUnion(\"\") : void', `unionTypeCallSignatures3/5`).
+        if let TypeData::Union { types, .. } = &self.store.get(callee).data {
+            let constituents = types.clone();
+            let mut agreed: Option<TypeId> = None;
+            let mut ok = !constituents.is_empty();
+            for constituent in constituents {
+                let Some(signature) = self.resolve_call_signature(constituent, None) else {
+                    ok = false;
+                    break;
+                };
+                if !signature.type_parameters.is_empty() {
+                    ok = false;
+                    break;
+                }
+                match agreed {
+                    None => agreed = Some(signature.r#type),
+                    Some(t) if t == signature.r#type => {}
+                    Some(_) => {
+                        ok = false;
+                        break;
+                    }
+                }
+            }
+            if ok
+                && let Some(answer) = agreed
+                && answer != self.intrinsics.error
+            {
+                if counted {
+                    bump(&COUNTERS.single_candidate);
+                }
+                // The synthetic union signature: the first constituent's
+                // shape with the agreed return — only the return is consumed
+                // downstream.
+                if let Some(first) = {
+                    let TypeData::Union { types, .. } = &self.store.get(callee).data else {
+                        unreachable!()
+                    };
+                    types.first().copied()
+                } && let Some(mut signature) = self.resolve_call_signature(first, None)
+                {
+                    signature.r#type = answer;
+                    return Some(signature);
+                }
+            }
+            return None;
+        }
         let TypeData::Anonymous { symbol, .. } = self.store.get(callee).data else {
             // A callee that prints as a **name** — an interface with a call
             // signature member, which is where every lib constructor lives.
