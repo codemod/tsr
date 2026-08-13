@@ -156,9 +156,15 @@ fn an_annotated_default_strips_undefined() {
 /// the leg has been built and its pair here must move to the ported side.
 #[test]
 fn the_refused_legs_stay_gaps() {
-    // A default: needs `UnionReductionSubtype` (`checker.go:17789`).
+    // The default leg CAME DUE at §315 — `UnionReductionSubtype` exists
+    // (`union_with_subtype_reduction`) and the annotation-less union runs
+    // (`checker.go:17789`): the fresh `1` survives reduction against the
+    // widened `number` and the mutable-root wrap widens the result —
+    // `>x : number` for `var [x = 20] = [1, 2]`
+    // (`sourceMapValidation…ArrayBindingPattern6`). Moved to the ported side,
+    // as this test's own doc demands.
     let default = "var { d = 1, x } = { d: 5, x: 2 };";
-    assert_eq!(type_of_binding(default, "d"), "error");
+    assert_eq!(type_of_binding(default, "d"), "number");
     assert_eq!(type_of_binding(default, "x"), "number");
     // A rest element: needs `getRestType` (`checker.go:17792`).
     let rest = r#"var { a, ...rest } = { a: 1, b: "x" };"#;

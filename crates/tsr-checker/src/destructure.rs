@@ -99,16 +99,17 @@ impl Checker<'_, '_> {
         if element.dot_dot_dot_token.is_some() {
             return error;
         }
-        // A default is admitted only on the leg `checker.go:17781` separates:
-        // the root declaration carries an annotation — so the default never
-        // unions into the element (that is the refused `UnionReductionSubtype`
-        // path, which runs annotation-less) — and the element's name is an
-        // identifier, because a pattern-named default takes upstream through
-        // `padObjectLiteralType`/`padTupleType` (`checker.go:16808`),
-        // unported. `checker-notes-destructure.md` §6.
+        // A default is admitted on the two legs `checker.go:17781` separates —
+        // annotated root (the strip below) and, since §315, the
+        // annotation-less union (`getUnionTypeEx(strip(t) ∪ init,
+        // UnionReductionSubtype)`, `checker.go:17789`) — the reduction the
+        // original refusal named as its missing piece exists now
+        // (`union_with_subtype_reduction`, §206's other client). The element's
+        // name must still be an identifier: a pattern-named default takes
+        // upstream through `padObjectLiteralType`/`padTupleType`
+        // (`checker.go:16808`), unported. `checker-notes-destructure.md` §6.
         if element.initializer.is_some()
-            && (!self.binding_root_has_annotation(declaration)
-                || !matches!(element.name, Some(tsr_ast::BindingName::Identifier(_))))
+            && !matches!(element.name, Some(tsr_ast::BindingName::Identifier(_)))
         {
             return error;
         }
@@ -174,14 +175,71 @@ impl Checker<'_, '_> {
         // through `get_type_with_facts` untouched where upstream may consult
         // its constraint, stated rather than verified).
         let element_type = if let Some(default_expression) = element.initializer {
-            let default_type = self.check_expression(default_expression);
-            if default_type == error {
-                return error;
-            }
-            if self.get_type_facts(default_type).contains(TypeFacts::IS_UNDEFINED) {
-                element_type
+            if self.binding_root_has_annotation(declaration) {
+                let default_type = self.check_expression(default_expression);
+                if default_type == error {
+                    return error;
+                }
+                if self.get_type_facts(default_type).contains(TypeFacts::IS_UNDEFINED) {
+                    element_type
+                } else {
+                    self.get_type_with_facts(element_type, TypeFacts::NE_UNDEFINED)
+                }
             } else {
-                self.get_type_with_facts(element_type, TypeFacts::NE_UNDEFINED)
+                // §315: the annotation-less leg (`checker.go:17789`) —
+                // `getUnionTypeEx([strip(t), checkDeclarationInitializer],
+                // UnionReductionSubtype)`: `var [x = 20] = [1, 2]` records
+                // `>x : number`, the default folding INTO the element
+                // (`sourceMapValidation…ArrayBindingPattern6/7`).
+                // `check_expression_for_mutable_location` is the port's
+                // `checkDeclarationInitializer`: same widening boundary, same
+                // caller polarity. A reduction this port cannot run answers
+                // `None` and the element stays a gap.
+                // The default enters the union UNWIDENED — the fresh literal
+                // is what the subtype reduction absorbs into the element's
+                // annotated constituents (`let { a: a2 = 0 } = x` with
+                // `a: 0 | 1 | undefined` records `>a2 : 0 | 1`,
+                // `literalTypesAndDestructuring`). Widening is the TAIL's job
+                // (`widenTypeInferredFromInitializer` wraps the union,
+                // `checker.go:17789`; this function's tail is that wrap) —
+                // the first draft widened the default BEFORE the union and
+                // flattened those elements to `number`/`string` (7 G→W).
+                let default_type = self.check_expression(default_expression);
+                if default_type == error {
+                    return error;
+                }
+                let stripped = self.get_type_with_facts(element_type, TypeFacts::NE_UNDEFINED);
+                let Some(reduced) = self.union_with_subtype_reduction(&[stripped, default_type])
+                else {
+                    return error;
+                };
+                // `widenTypeInferredFromInitializer`'s union half: a FRESH
+                // literal SURVIVING the reduction widens the whole inference
+                // (`a3 = 2` against `0 | 1 | undefined` is `number`); one the
+                // reduction absorbed does not (`a2 = 0` is `0 | 1`). Both
+                // recorded in `literalTypesAndDestructuring`. A single
+                // surviving fresh literal is the tail's job already. CONST
+                // roots never widen — `const { c2 = 0 } = { c2: 1 }` records
+                // `>c2 : 0 | 1` (`literalTypes2`), upstream's
+                // `isConstVariable` gate on the same wrap.
+                let root_is_const =
+                    self.combined_node_flags(declaration).intersects(tsr_ast::NodeFlags::CONSTANT);
+                match &self.store.get(reduced).data {
+                    crate::types::TypeData::Union { types, .. }
+                        if !root_is_const && types.iter().any(|&c| self.store.get(c).fresh) =>
+                    {
+                        let constituents = types.clone();
+                        let widened: Vec<_> = constituents
+                            .iter()
+                            .map(|&c| self.get_widened_literal_type(c))
+                            .collect();
+                        let Some(rewidened) = self.union_with_subtype_reduction(&widened) else {
+                            return error;
+                        };
+                        rewidened
+                    }
+                    _ => reduced,
+                }
             }
         } else {
             element_type
