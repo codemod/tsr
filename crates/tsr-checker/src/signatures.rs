@@ -2160,10 +2160,42 @@ impl<'a> Checker<'a, '_> {
         // declaration directly (the annotation, or the pattern's implied
         // type: `function fun([a, b]) {}` prints
         // `([a, b]: [any, any]) => void`, `iterableArrayPattern10`).
-        if self.binder.symbol_of(id).is_none()
-            && matches!(node.name, Some(tsr_ast::BindingName::BindingPattern(_)))
-        {
-            let r#type = self.get_widened_type_for_variable_like_declaration(id);
+        if matches!(node.name, Some(tsr_ast::BindingName::BindingPattern(_))) {
+            // The annotation reads RAW, exactly as the identifier road below
+            // does — the signature never prints a `?`'s added `| undefined`
+            // (`optionalBindingParameters1`, the broadening's 36 R->W).
+            let r#type = if let Some(annotation) = node.r#type {
+                self.get_type_from_type_node(annotation)
+            } else {
+                {
+                    // DECLARATION containers only (§429's gate), and a
+                    // DEFAULT whose tuple arity disagrees with the pattern's
+                    // declines — upstream pads optional elements from the
+                    // pattern (`padTupleType`, unported):
+                    // `function g4([x, y] = [1])` prints
+                    // `[number, number?]`, not `[number]`
+                    // (`destructuringWithLiteralInitializers`).
+                    if !self.nodes.parent(id).is_some_and(|f| {
+                        matches!(
+                            self.nodes.kind(f),
+                            SyntaxKind::FunctionDeclaration | SyntaxKind::MethodDeclaration
+                        )
+                    }) {
+                        return None;
+                    }
+                    let computed = self.get_widened_type_for_variable_like_declaration(id);
+                    if node.initializer.is_some()
+                        && let Some(tsr_ast::BindingName::BindingPattern(pattern)) = node.name
+                        && self
+                            .tuple_element_lists
+                            .get(&computed)
+                            .is_some_and(|(elements, _)| elements.len() != pattern.elements.len())
+                    {
+                        return None;
+                    }
+                    computed
+                }
+            };
             if r#type == self.intrinsics.error {
                 return None;
             }
