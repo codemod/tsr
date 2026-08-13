@@ -2204,7 +2204,7 @@ impl<'a> Checker<'a, '_> {
                         let mut padded: Vec<(crate::types::TypeId, bool)> =
                             tuple_elements.iter().map(|&t| (t, false)).collect();
                         for element in &pattern.elements[tuple_elements.len()..] {
-                            let Some(default) = element.initializer else { return None };
+                            let default = element.initializer?;
                             let checked = self.check_expression(default);
                             if checked == self.intrinsics.error {
                                 return None;
