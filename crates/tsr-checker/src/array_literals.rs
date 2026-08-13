@@ -625,19 +625,31 @@ impl Checker<'_, '_> {
         self.create_type_reference(target, vec![element_type])
     }
 
-    /// The element type an array spread contributes — `Array<T>` only
-    /// (`checker-notes-arrays.md` §6); `None` declines.
+    /// The element type an array spread contributes — `Array<T>`, or a
+    /// custom iterator through §284's seam.
+    ///
+    /// §285's first draft delegated to [`Checker::for_of_element_type`]
+    /// whole; five `arrayLiteralSpread` lines went RIGHT→GAP through the
+    /// helper's other arms, so the Array half is kept verbatim and only the
+    /// iterator tail is appended — strictly additive by construction.
     fn array_spread_element_type(&mut self, operand: TypeId) -> Option<TypeId> {
         if operand == self.intrinsics.error {
             return None;
         }
-        let (target, arguments) = self.type_reference_targets.get(&operand)?.clone();
-        if arguments.len() != 1 {
-            return None;
+        if let Some((target, arguments)) = self.type_reference_targets.get(&operand).cloned()
+            && arguments.len() == 1
+            && let Some(array) = self.global_type_symbol("Array")
+            && self.binder.merged_symbol(target) == self.binder.merged_symbol(array)
+        {
+            return Some(arguments[0]);
         }
-        let array = self.global_type_symbol("Array")?;
-        (self.binder.merged_symbol(target) == self.binder.merged_symbol(array))
-            .then(|| arguments[0])
+        // §285: `[...new SymbolIterator]` reads the same custom-iterator seam
+        // the for-of road does (§284), gated by the same syntactic presence
+        // test (`iteratorSpreadInArray5`, `iteratorSpreadInCall*`).
+        if self.declares_symbol_iterator(operand) {
+            return self.for_of_element_type(operand);
+        }
+        None
     }
 
     /// How many of a type's union constituents are object types — or 1 for a

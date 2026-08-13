@@ -3066,7 +3066,7 @@ impl<'a> Checker<'a, '_> {
     /// §38's element slice: `Array`/`ReadonlyArray` references answer the
     /// argument, tuples the union of their elements, strings `string`.
     /// `None` declines to the implicit-any road.
-    fn for_of_element_type(&mut self, iterated: TypeId) -> Option<TypeId> {
+    pub(crate) fn for_of_element_type(&mut self, iterated: TypeId) -> Option<TypeId> {
         if iterated == self.intrinsics.error {
             return None;
         }
@@ -3226,7 +3226,7 @@ impl<'a> Checker<'a, '_> {
     /// `[Symbol.iterator]` member — a SYNTACTIC presence test, the §145
     /// `[Symbol.hasInstance]` precedent, which is what makes the iterator
     /// protocol reachable without late binding.
-    fn declares_symbol_iterator(&self, iterated: TypeId) -> bool {
+    pub(crate) fn declares_symbol_iterator(&self, iterated: TypeId) -> bool {
         let crate::types::TypeData::Named { members: Some(symbol), .. } =
             self.store.get(iterated).data
         else {
