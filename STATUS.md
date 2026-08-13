@@ -1952,6 +1952,22 @@ So this is the same shape as §244/§262 — **a correct arm the road never reac
 and the repair is in the type-query road, not in `check_this_expression`. Two lines,
 one case.
 
+**SHARPENED, and the obvious arm is a red herring.** `get_type_from_type_query_node`
+(`declared.rs:507`) *does* have a `this` arm: upstream's `isThisIdentifier` dispatch
+(`checker.go:10651`), which returns the error type and is correct. **It is not the
+one that fires here.** `typeof this.no` is a `EntityName::QualifiedName`, not an
+`Identifier`, so it routes to `check_qualified_name` — whose head `this` resolves to
+nothing, giving the error type for a different reason.
+
+The repair is therefore in `check_qualified_name`'s handling of a `this`-headed
+name, which should evaluate `this` as an expression (where the port already answers
+`any` correctly) rather than resolving it as a name. Upstream reaches `any` the same
+way: `this` is `any` in a plain function, and `.no` on `any` is `any`.
+
+Anyone starting at the `this` arm in the type-query road will find it correct and
+conclude the diagnosis was wrong. It is not — that arm is for bare `typeof this`,
+and this case never touches it.
+
 Not built: my remaining budget would not cover measuring it, and an unmeasured
 type-query change is exactly the kind that reads `+0` for reasons unrelated to the
 rule. Recorded with the elimination so the next attempt does not start by re-reading
