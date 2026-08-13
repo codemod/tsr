@@ -89,7 +89,7 @@ impl<'a> Parser<'a> {
     }
 
     /// `* as ns` or `{ a, b as c }`.
-    fn parse_named_import_bindings(&mut self) -> Option<NamedImportBindings<'a>> {
+    pub(crate) fn parse_named_import_bindings(&mut self) -> Option<NamedImportBindings<'a>> {
         let start = self.pos();
         if self.at(SyntaxKind::AsteriskToken) {
             self.next_token();
@@ -489,7 +489,7 @@ impl<'a> Parser<'a> {
     /// `with { type: "json" }` — import attributes, if present.
     ///
     /// Also accepts the older `assert` spelling, which TypeScript still parses.
-    fn parse_import_attributes(&mut self) -> Option<&'a ImportAttributes<'a>> {
+    pub(crate) fn parse_import_attributes(&mut self) -> Option<&'a ImportAttributes<'a>> {
         if !self.at(SyntaxKind::WithKeyword) && !self.at(SyntaxKind::AssertKeyword) {
             return None;
         }
@@ -584,7 +584,7 @@ impl<'a> Parser<'a> {
     }
 
     /// The `"module"` in `from "module"`.
-    fn parse_module_specifier(&mut self) -> Expression<'a> {
+    pub(crate) fn parse_module_specifier(&mut self) -> Expression<'a> {
         let start = self.pos();
         if !self.at(SyntaxKind::StringLiteral) {
             // `parseModuleSpecifier` (`parser.go`) **parses an arbitrary
@@ -654,7 +654,7 @@ impl<'a> Parser<'a> {
     /// Whether the cursor is on a name usable as a binding.
     ///
     /// Contextual keywords qualify; reserved words do not.
-    fn at_binding_identifier(&self) -> bool {
+    pub(crate) fn at_binding_identifier(&self) -> bool {
         self.at(SyntaxKind::Identifier) || crate::statement::is_contextual_keyword(self.token.kind)
     }
 

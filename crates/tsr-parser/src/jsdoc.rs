@@ -86,6 +86,14 @@ impl<'a> Parser<'a> {
             return;
         }
         if let Some(id) = node.node_id() {
+            // §269 note: the JSDoc root deliberately keeps NO parent edge to
+            // its host. The first draft set one so `source_file_of` could
+            // climb out of an `@import` tag — and every `resolve_name` from
+            // inside a comment started climbing a scope chain it had never
+            // seen, moving lines in `expandoFunctionContextualTypesJs`,
+            // `returnTagTypeGuard` and the commonJS-require fixtures. The
+            // checker bridges the one hop it needs with its own doc→host map
+            // instead (`Checker::jsdoc_hosts`).
             self.jsdoc.push((id, docs));
         }
     }
@@ -423,12 +431,16 @@ impl<'a> Parser<'a> {
                     start,
                 ))
             }
-            // No `"import"` arm, and that is deliberate rather than an omission
-            // waiting to be filled: `parseImportTag`'s pieces already exist in
-            // `module.rs`, but the tag is inert until the reparser turns it into
-            // a `JSImportDeclaration`, so parsing it alone converts nothing and
-            // costs a node the binder ignores. §218, and the arithmetic is in
-            // docs/architecture/jsdoc.md's "Not built".
+            // §269 — supersedes §218, whose "reparser first" arithmetic was
+            // upstream's and not this port's. Upstream binds nothing until
+            // `reparser.go` rewrites the tag as a synthetic
+            // `JSImportDeclaration`; THIS port has no reparser at all and binds
+            // JSDoc declarations directly (`bind_jsdoc_declarations`), so the
+            // parse's consumer already exists — the same clause node kinds
+            // classify (ALIAS, Locals) in the binder untouched. §218's real
+            // finding stands: the parse ALONE converts nothing. It lands in one
+            // commit with its binder and checker halves.
+            "import" => self.parse_import_tag(start, tag_name, margin, indent_text),
             "typedef" => self.parse_typedef_tag(start, tag_name, margin, indent_text),
             "overload" => {
                 let type_expression = self.try_parse_type_expression();
@@ -577,6 +589,66 @@ impl<'a> Parser<'a> {
         tsr_ast::JSDocTag::JSDocTemplateTag(self.finish_jsdoc_node(
             JSDocTemplateTag::new(tag_name, constraint, type_parameters, comment),
             SyntaxKind::JSDocTemplateTag,
+            start,
+        ))
+    }
+
+    /// `@import { Foo } from "./types"` — `parseImportTag`
+    /// (`parser/jsdoc.go:940`). §269.
+    ///
+    /// The clause and specifier are ordinary import grammar, so this hands over
+    /// to `module.rs`'s pieces the same way [`Parser::parse_jsdoc_type_expression`]
+    /// hands over to the type grammar: rewind to the current JSDoc token's
+    /// start, rescan under main rules with leading `*` suppressed (the clause
+    /// may span continuation lines — `importTag18`–`20`), and rescan back to
+    /// JSDoc tokens afterwards. Upstream reaches the same effect with
+    /// `skipJSDocLeadingAsterisks = true` on `tryParseImportClause`.
+    ///
+    /// The phase modifier is `None` rather than a synthesised `type` token:
+    /// upstream's reparser stamps `KindTypeKeyword` on the cloned clause so the
+    /// EMITTER elides it, and this port neither reparses nor emits JS from
+    /// JSDoc. Nothing downstream here reads type-onlyness off the clause.
+    fn parse_import_tag(
+        &mut self,
+        start: u32,
+        tag_name: &'a Identifier<'a>,
+        margin: u32,
+        indent_text: &'a str,
+    ) -> tsr_ast::JSDocTag<'a> {
+        let resume = self.token.span.start;
+        let limit = self.scanner.limit();
+        self.scanner.set_range(resume, limit);
+        self.scanner.set_skip_jsdoc_leading_asterisks(true);
+        self.next_token();
+
+        let clause_start = self.pos();
+        let default_name =
+            if self.at_binding_identifier() { Some(self.parse_identifier()) } else { None };
+        let named_bindings = if default_name.is_none() || self.eat(SyntaxKind::CommaToken) {
+            self.parse_named_import_bindings()
+        } else {
+            None
+        };
+        // A bare `@import "./m"` carries no clause, as upstream's
+        // `tryParseImportClause` answers nil there.
+        let clause = (default_name.is_some() || named_bindings.is_some()).then(|| {
+            self.finish_node(
+                tsr_ast::ImportClause::new(None, default_name, named_bindings),
+                SyntaxKind::ImportClause,
+                clause_start,
+            )
+        });
+        self.expect(SyntaxKind::FromKeyword);
+        let specifier = self.parse_module_specifier();
+        let attributes = self.parse_import_attributes();
+
+        self.scanner.set_skip_jsdoc_leading_asterisks(false);
+        self.scanner_reset_to_token_start();
+        self.next_jsdoc_token();
+        let comment = self.parse_trailing_tag_comments(start, margin, indent_text);
+        tsr_ast::JSDocTag::JSDocImportTag(self.finish_jsdoc_node(
+            tsr_ast::JSDocImportTag::new(tag_name, clause, Some(specifier), attributes, comment),
+            SyntaxKind::JSDocImportTag,
             start,
         ))
     }

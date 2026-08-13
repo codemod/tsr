@@ -145,32 +145,25 @@ be asserting documentation rather than behaviour. The test says so explicitly.
   not a substitute. Filed as a `bd` issue under the parser epic.
 - **`@typedef` with nested `@property` tags**, where following tags synthesise a
   type literal. Needs the reparser's machinery for the same reason.
-- **`@import { Foo } from "./types"`** — the tag is not parsed at all; there is no
-  `"import"` arm in `parse_tag`'s dispatch. **§218.** Worth ~7 `checker_types`
-  cases, all shaped `want Foo, got any` on a `@param { Foo } foo` that the tag was
-  supposed to bring into scope (`conformance/importTag1` and `importTag3` opened;
-  the first names the type, the second imports a default).
-
-  The measurement that matters is **which half is missing**, because the parse
-  half looks like the job and is not. `parseImportTag` (`parser/jsdoc.go:940`)
-  needs four things, and `module.rs` already has three of them:
-  `parse_module_specifier` (`module.rs:587`), `parse_import_attributes`
-  (`module.rs:492`), and the `ImportClause` construction inlined at
-  `module.rs:61-76` — which is `tryParseImportClause` under another name and
-  wants extracting rather than writing. So the parse is an afternoon.
-
-  The cost is entirely downstream: the tag does nothing until the **reparser**
-  turns it into a synthetic `JSImportDeclaration` and appends that to the
-  statement list (`reparser.go:119-133` — deep-clone the clause, force
-  `PhaseModifier = KindTypeKeyword`, push to `reparseList`), which is the
-  first entry in this list. Neither `binder.go` nor `checker.go` mentions
-  `KindJSDocImportTag`; they only ever see the reparsed declaration. Both
-  witnesses are additionally **two-file** fixtures, so cross-file resolution is
-  a second prerequisite.
-
-  Building the parse alone therefore converts **zero** cases while adding a node
-  the binder ignores and the printer must now emit — a strictly negative trade.
-  Do the reparse list first.
+- ~~**`@import { Foo } from "./types"`** — the tag is not parsed at all …
+  Do the reparse list first.~~ **BUILT — §269 (superseding §218), 2026-08-13,
+  +22 cases / 228 W→R.** §218's finding that the parse alone converts zero
+  cases was correct and is honoured: §269 landed the parse, the binder arm,
+  the loader collection, and the checker arms as ONE commit. What §218 got
+  wrong was transplanting upstream's *sequencing* — "do the reparse list
+  first" priced the consumer as a 748-line reparser, but this port never had
+  a reparser: `bind_jsdoc_declarations` binds JSDoc tags directly (`@typedef`
+  was the precedent), so the consumer was three small arms, not a subsystem.
+  Five pieces, each named in the commit: the `parse_tag` arm bridging to
+  `module.rs`'s clause grammar; the scanner's `skipJSDocLeadingAsterisks`
+  counter, which had been WRITE-ONLY since §110 (multi-line clauses and types
+  never actually skipped the decoration `*`); the binder's alias
+  declarations (namespace imports excluded — the §219 fence); the loader
+  collecting the tag's specifier for module resolution; and the checker's
+  `jsdoc_hosts` doc→host bridge, after a draft that parented JSDoc into the
+  tree moved unrelated lines in three fixtures. `@import { Foo as F }`
+  (renames) and `@import * as ns` remain declined — both are the alias-name
+  printing wall (`bd tsr-e2u`).
 - **`@callback` and `@overload` signatures** — the tags parse, but
   `JSDocSignature` is not built.
 - **JSDoc-only type syntax**: `*` (`JSDocAllType`), `?T`, `!T`, `T=`, `...T`. These

@@ -665,6 +665,30 @@ impl<'a> Checker<'a, '_> {
             }
             return error;
         }
+        // §269: a JSDoc `@import` alias — `@import { Foo } from "./m"` then
+        // `@param {Foo} x`. This is NOT §158's refused population: §158
+        // refused MINTING the written alias name for ES imports because
+        // minted texts travel across units; here nothing is minted — the
+        // alias resolves and the TARGET's own declared type answers, so the
+        // printed name is the target's. That is only sound where the local
+        // name and the target name agree, so a RENAMED specifier
+        // (`{ Foo as F }`) declines: its printed form is the local name,
+        // which this road cannot spell (the §158 wall, unchanged).
+        if self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::ALIAS)
+            && node.type_arguments.is_empty()
+            && self
+                .declaration_of_alias_symbol(symbol)
+                .is_some_and(|declaration| self.is_unrenamed_jsdoc_import_alias(declaration))
+        {
+            if let Some(target) = self.resolve_alias(symbol) {
+                let merged = self.binder.merged_symbol(target);
+                if self.binder.symbols().get(merged).flags.intersects(SymbolFlags::TYPE) {
+                    let declared = self.get_declared_type_of_symbol(merged);
+                    return self.get_regular_type_of_literal_type(declared);
+                }
+            }
+            return error;
+        }
         let parameters = self.local_type_parameters_of(symbol).len();
         if parameters == 0 {
             // `checkNoTypeArguments` (`checker.go:23157`): arguments on a type
@@ -1925,6 +1949,32 @@ impl<'a> Checker<'a, '_> {
                 (flags.intersects(meaning) || flags.intersects(SymbolFlags::ALIAS)).then_some(found)
             }
         }
+    }
+
+    /// §269's gate: an alias declared by a JSDoc `@import` tag's clause, with
+    /// no rename — the one population whose printed name provably equals the
+    /// target's own (see the arm in
+    /// [`Checker::get_type_from_type_reference`]).
+    fn is_unrenamed_jsdoc_import_alias(&self, declaration: NodeId) -> bool {
+        let unrenamed = match self.node_map.get(declaration) {
+            Some(Node::ImportSpecifier(specifier)) => specifier.property_name.is_none(),
+            Some(Node::ImportClause(_)) => true,
+            _ => false,
+        };
+        if !unrenamed {
+            return false;
+        }
+        // specifier → NamedImports → ImportClause → JSDocImportTag, or the
+        // clause's one hop.
+        let mut current = declaration;
+        for _ in 0..3 {
+            let Some(parent) = self.nodes.parent(current) else { return false };
+            if matches!(self.node_map.get(parent), Some(Node::JSDocImportTag(_))) {
+                return true;
+            }
+            current = parent;
+        }
+        false
     }
 
     /// Whether the reference site sits inside the namespace it is qualifying —

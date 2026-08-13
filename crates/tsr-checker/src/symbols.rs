@@ -992,10 +992,14 @@ impl<'a> Checker<'a, '_> {
     /// when `export default x` names a local.
     fn import_clause_default_target(&mut self, declaration: NodeId) -> Option<SymbolId> {
         let parent = self.nodes.parent(declaration)?;
-        let Node::ImportDeclaration(import) = self.node_map.get(parent)? else {
-            return None;
+        // §269: the clause's owner is a JSDoc `@import` tag in a JS file —
+        // same shape, the specifier just lives on the tag.
+        let specifier = match self.node_map.get(parent)? {
+            Node::ImportDeclaration(import) => import.module_specifier,
+            Node::JSDocImportTag(import) => import.module_specifier,
+            _ => return None,
         };
-        let specifier = import.module_specifier?.node_id()?;
+        let specifier = specifier?.node_id()?;
         let module = self.resolve_external_module_name(declaration, specifier)?;
         let default = self.binder.symbols().get(module).exports.get("default").copied();
         let Some(default) = default else {
@@ -1900,6 +1904,11 @@ impl<'a> Checker<'a, '_> {
         let specifier = match self.node_map.get(node)? {
             Node::ImportDeclaration(node) => node.module_specifier,
             Node::ExportDeclaration(node) => node.module_specifier,
+            // §269: a JSDoc `@import` tag carries the specifier itself —
+            // upstream never meets this because the reparser has already
+            // rewritten the tag as a `JSImportDeclaration`; this port binds
+            // the tag directly, so the tag IS the declaration here.
+            Node::JSDocImportTag(node) => node.module_specifier,
             _ => return None,
         }?;
         specifier.node_id()
@@ -1919,7 +1928,14 @@ impl<'a> Checker<'a, '_> {
             if self.nodes.kind(current) == SyntaxKind::SourceFile {
                 return Some(current);
             }
-            current = self.nodes.parent(current)?;
+            match self.nodes.parent(current) {
+                Some(parent) => current = parent,
+                // §269: a walk that dead-ends inside a JSDoc comment crosses
+                // to the comment's host — the one edge the tree deliberately
+                // omits (see the parser's `attach_jsdoc`). An `@import` tag's
+                // module specifier resolving against its file is the client.
+                None => current = *self.jsdoc_hosts.get(&current)?,
+            }
         }
     }
 
@@ -3167,6 +3183,21 @@ impl<'a> Checker<'a, '_> {
             // See `crate::optionality`.
             return Some(self.add_optionality_for_declaration(declared, declaration));
         }
+        // §269: an unannotated JS parameter reads its `@param` type — the
+        // SYMBOL-line half of §110 slice 2, which had only ever fed the
+        // signature: `function f(foo) {}` under `@param {Foo} foo` printed
+        // `f : (foo: Foo) => void` beside `foo : any` on the very next line.
+        // Upstream has no second road — `getEffectiveTypeAnnotationNode`
+        // answers the reparsed JSDoc type for BOTH consumers. A doc type that
+        // does not compute keeps the implicit any, as the signature half does.
+        if self.nodes.kind(declaration) == SyntaxKind::Parameter
+            && let Some(annotation) = self.jsdoc_parameter_annotation(declaration)
+        {
+            let declared = self.get_type_from_type_node(annotation);
+            if declared != self.intrinsics.error {
+                return Some(self.add_optionality_for_declaration(declared, declaration));
+            }
+        }
         // "Use contextual parameter type if one is available" (`checker.go:16735`),
         // which upstream places inside the `isParameter` block **before** the
         // initialiser path below — a contextually typed parameter takes its type
@@ -3405,6 +3436,73 @@ impl<'a> Checker<'a, '_> {
             }
             _ => None,
         })
+    }
+
+    /// §269: the `@param` type expression an unannotated JS parameter reads —
+    /// the doc-host walk `crate::signatures` makes for the signature half,
+    /// repeated here for the parameter's own symbol (upstream needs only one
+    /// road because `getEffectiveTypeAnnotationNode` answers the reparsed
+    /// JSDoc type to every consumer).
+    fn jsdoc_parameter_annotation(&self, parameter: NodeId) -> Option<TypeNode<'a>> {
+        if !self.in_js_file(parameter) {
+            return None;
+        }
+        let Some(Node::ParameterDeclaration(node)) = self.node_map.get(parameter) else {
+            return None;
+        };
+        let Some(tsr_ast::BindingName::Identifier(identifier)) = node.name else { return None };
+        let name = identifier.text;
+        let function = self.nodes.parent(parameter)?;
+        let mut hosts = vec![function];
+        let mut current = self.nodes.parent(function);
+        for _ in 0..4 {
+            let Some(id) = current else { break };
+            match self.nodes.kind(id) {
+                SyntaxKind::VariableDeclaration
+                | SyntaxKind::VariableDeclarationList
+                | SyntaxKind::VariableStatement
+                | SyntaxKind::PropertyAssignment
+                | SyntaxKind::PropertyDeclaration
+                | SyntaxKind::ExpressionStatement
+                | SyntaxKind::ParenthesizedExpression
+                | SyntaxKind::ExportAssignment
+                | SyntaxKind::BinaryExpression => {
+                    hosts.push(id);
+                    current = self.nodes.parent(id);
+                }
+                _ => break,
+            }
+        }
+        // An `@overload`-documented implementation is a different regime: its
+        // parameters aggregate the UNION of the overload signatures' types
+        // (`overloadTag1` wants `a : string | number`), which the existing
+        // signature machinery already answers. A first-match read here
+        // overrode it with the first overload's slot — 11 lines RIGHT→WRONG
+        // on the first draft's pair, so the whole road declines when any doc
+        // in scope carries an `@overload`.
+        for host in &hosts {
+            if let Some(docs) = self.jsdoc_entries.get(host)
+                && docs.iter().any(|doc| {
+                    doc.tags.iter().any(|tag| matches!(tag, tsr_ast::JSDocTag::JSDocOverloadTag(_)))
+                })
+            {
+                return None;
+            }
+        }
+        for host in hosts {
+            let Some(docs) = self.jsdoc_entries.get(&host) else { continue };
+            for doc in *docs {
+                for tag in doc.tags {
+                    if let tsr_ast::JSDocTag::JSDocParameterOrPropertyTag(tag) = tag
+                        && matches!(tag.tag_name.text, "param" | "parameter" | "arg" | "argument")
+                        && matches!(tag.name, Some(tsr_ast::EntityName::Identifier(n)) if n.text == name)
+                    {
+                        return tag.type_expression;
+                    }
+                }
+            }
+        }
+        None
     }
 
     /// The type annotation of a declaration, if it has one.

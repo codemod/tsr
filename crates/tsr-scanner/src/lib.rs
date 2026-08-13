@@ -446,6 +446,25 @@ impl<'a> Scanner<'a> {
                         }
                     }
                     b'/' if i + 1 < limit && bytes[i + 1] == b'*' => break,
+                    // §269: a line-leading `*` inside a JSDoc bridge is the
+                    // comment's decoration, not a token — upstream's
+                    // `skipJSDocLeadingAsterisks` arm (`scanner.go:569`). One
+                    // per token, exactly as upstream's
+                    // `PrecedingJSDocLeadingAsterisks` guard enforces, and
+                    // never when it would split `**` or `*=` (upstream tests
+                    // those first because the arm lives in its punctuation
+                    // scanner). This counter was WRITE-ONLY until now: the
+                    // parser has set it around every bridged type expression
+                    // since §110, and multi-line `{...}` types worked only
+                    // when they avoided a continuation `*`.
+                    b'*' if self.skip_jsdoc_leading_asterisks > 0
+                        && flags.contains(TokenFlags::PRECEDING_LINE_BREAK)
+                        && !flags.contains(TokenFlags::PRECEDING_JSDOC_LEADING_ASTERISKS)
+                        && (i + 1 >= limit || !matches!(bytes[i + 1], b'*' | b'=')) =>
+                    {
+                        flags |= TokenFlags::PRECEDING_JSDOC_LEADING_ASTERISKS;
+                        i += 1;
+                    }
                     // Anything else ASCII starts a token.
                     b if b < 0x80 => break 'trivia,
                     // Non-ASCII: might be trivia, might be an identifier.
