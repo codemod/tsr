@@ -1068,8 +1068,20 @@ impl<'a> Checker<'a, '_> {
             // `checker-notes-callres.md` §15 carries the bar and the declined
             // shapes: `yield*`, ≥2 distinct operands, valued returns, async
             // generators, non-declarations.
+            // §427: a CONTEXTUALLY-TYPED generator expression still infers
+            // its own Generator type — the contextual signature checks
+            // assignability, it does not seed the yield aggregate
+            // (`var g3: () => Iterable<Foo> = function* () {…}` records the
+            // full inferred `Generator<Bar | Baz | undefined, void, unknown>`,
+            // `generatorTypeCheck25/28`). The async arm keeps the gate: its
+            // contextual return really can turn `void` into `undefined`.
+            let generator_expression = matches!(
+                self.nodes.kind(declaration),
+                SyntaxKind::FunctionExpression | SyntaxKind::ArrowFunction
+            );
             if is_async
-                || !self.declaration_takes_no_contextual_return(declaration, may_return_never)
+                || (!generator_expression
+                    && !self.declaration_takes_no_contextual_return(declaration, may_return_never))
             {
                 return None;
             }
