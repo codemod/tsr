@@ -2517,7 +2517,54 @@ impl Checker<'_, '_> {
         if let Some(annotation) = annotation {
             return self.next_type_of_annotated_generator(annotation).unwrap_or(error);
         }
-        if node.asterisk_token.is_some() || contextualised {
+        // §349: in the ONE slot the old flow gapped — unannotated,
+        // uncontextualised, non-async `yield*` — an ARRAY operand answers the
+        // DELEGATED iterable's RETURN type
+        // (`getIterationTypeOfIterable(IterationTypeKindReturn, ...)`,
+        // `checker.go:10993`): `undefined`, the lib's `ArrayIterator` TReturn
+        // (`generatorTypeCheck22/23/24`). The first draft ran this BEFORE the
+        // annotation branch and ahead of the async question — 9 R→W across
+        // the asyncGenerators families — so it is strictly additive now:
+        // every previously-answered shape keeps its road.
+        if node.asterisk_token.is_some() {
+            let is_async = self.node_map.get(container).is_some_and(|function| {
+                let modifiers = match function {
+                    Node::FunctionDeclaration(f) => f.modifiers,
+                    Node::MethodDeclaration(f) => f.modifiers,
+                    Node::FunctionExpression(f) => f.modifiers,
+                    _ => return false,
+                };
+                modifiers.iter().any(|modifier| {
+                    matches!(modifier, tsr_ast::ModifierLike::Token(token)
+                        if token.kind == SyntaxKind::AsyncKeyword)
+                })
+            });
+            if !is_async
+                && !contextualised
+                && let Some(operand) = node.expression
+            {
+                let operand_type = self.check_expression(operand);
+                if let Some((target, arguments)) = self.type_reference_targets.get(&operand_type)
+                    && arguments.len() == 1
+                    // A DEGENERATE element — `yield * []`, whose element is
+                    // `undefined`/`never` — answers `any` upstream
+                    // (`YieldStarExpression4_es6`); only real elements take
+                    // the `undefined` return.
+                    && !self
+                        .store
+                        .get(arguments[0])
+                        .flags
+                        .intersects(TypeFlags::UNDEFINED | TypeFlags::NEVER)
+                    && self.global_type_symbol("Array").is_some_and(|array| {
+                        self.binder.merged_symbol(*target) == self.binder.merged_symbol(array)
+                    })
+                {
+                    return self.intrinsics.undefined;
+                }
+            }
+            return error;
+        }
+        if contextualised {
             return error;
         }
         any
