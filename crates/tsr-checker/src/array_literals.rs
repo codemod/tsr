@@ -354,20 +354,49 @@ impl Checker<'_, '_> {
             && let Some(tsr_ast::Node::BinaryExpression(binary)) = self.node_map.get(parent)
             && binary.operator_token.is_some_and(|t| t.kind == tsr_ast::SyntaxKind::EqualsToken)
             && binary.left.and_then(|l| l.node_id()) == Some(id)
-            && !node.elements.iter().any(|element| {
-                matches!(element, Expression::SpreadElement(_) | Expression::OmittedExpression(_))
+            && !node.elements.iter().enumerate().any(|(index, element)| {
+                // §431: ONE TRAILING spread WITH leading elements is the rest
+                // element and prints; a rest-only target prints `T[]` through
+                // the ordinary road (`[...obj?.a] = x` is `any[]`,
+                // `elementAccessChain.3` — the draft's 9 R->W), and anything
+                // else keeps today's road too.
+                matches!(element, Expression::SpreadElement(_))
+                    && (index + 1 != node.elements.len() || node.elements.len() == 1)
+                    || matches!(element, Expression::OmittedExpression(_))
             })
         {
             // §371: the EMPTY target included — `[] = iterable` records
             // `>[] : []` (`emptyAssignmentPatterns01_ES6`); §365's draft
             // excluded it for no upstream reason.
             let mut elements = Vec::with_capacity(node.elements.len());
+            let mut rest: Option<String> = None;
             for element in node.elements {
+                // §431: the trailing REST target spells `...T` in the tuple —
+                // `[a, ...b] = new FooIterator` records `[Bar, ...Bar[]]`
+                // (`iterableArrayPattern4/6/8`). Display-only mint: the
+                // pattern line is the only consumer, the assignment's own
+                // type is the RHS.
+                if let Expression::SpreadElement(spread) = element {
+                    let Some(operand) = spread.expression else { return error };
+                    let operand_type = self.check_expression(operand);
+                    if operand_type == error {
+                        return error;
+                    }
+                    rest = Some(format!("...{}", self.type_to_string(operand_type)));
+                    continue;
+                }
                 let element_type = self.check_expression(*element);
                 if element_type == error {
                     return error;
                 }
                 elements.push(element_type);
+            }
+            if let Some(rest) = rest {
+                let mut parts: Vec<String> =
+                    elements.iter().map(|&element| self.type_to_string(element)).collect();
+                parts.push(rest);
+                let printed = format!("[{}]", parts.join(", "));
+                return self.store.new_named(TypeFlags::OBJECT, printed, None);
             }
             return self.create_tuple_type(elements, false);
         }
