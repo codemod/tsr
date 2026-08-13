@@ -3069,13 +3069,17 @@ impl<'a> Checker<'a, '_> {
                 == Some(target)
                 || self.global_type_symbol("ReadonlyArray").map(|s| self.binder.merged_symbol(s))
                     == Some(target);
-            // A `never` element is `[]`'s signature — `undefined` its
-            // non-strict spelling (`array_literals.rs:122`) — upstream's
-            // binding there reads `any` (the §38 second fired leg); decline.
-            if is_array
-                && arguments[0] != self.intrinsics.never
-                && arguments[0] != self.intrinsics.undefined
-            {
+            // §267: the `never` decline is removed — upstream's OWN baselines
+            // answer `never` for `for (let v of [])` (for-of51 through
+            // for-of54, all four: `>v : never` beside `>[] : never[]`). The
+            // decline cited "upstream's binding there reads `any` (the §38
+            // second fired leg)"; whatever witness that leg fired on, it was
+            // not this shape, and four committed baselines outrank a recalled
+            // measurement. The `undefined` spelling (non-strict
+            // `array_literals.rs:122`) stays declined: no baseline was found
+            // answering `undefined` through this road, so it keeps the gap
+            // until one is.
+            if is_array && arguments[0] != self.intrinsics.undefined {
                 return Some(arguments[0]);
             }
         }
