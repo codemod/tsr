@@ -1349,6 +1349,27 @@ impl<'a> Checker<'a, '_> {
                 continue;
             };
             let id = self.check_expression(expression);
+            // §272, MEASURED AND REFUSED. Upstream keeps an errorType return
+            // aggregate and builds the signature regardless — `() => any` for
+            // a body whose return errored (`super1`, the `() => any` census
+            // row, ~11 deficit-1 cases). Letting error through here and in
+            // `inferred_return_type` measured, on the dc1b4afb tree:
+            //
+            //     GAP->WRONG 405   (promiseType 22, promiseTypeStrictNull 22,
+            //                       asyncMethodWithSuper_es6 12, …)
+            //     RIGHT->WRONG 2   against GAP->RIGHT 14 / WRONG->RIGHT 25
+            //
+            // §257's shape at 7x the size: in this port errorType also means
+            // UNPORTED, so every function whose body merely contains an
+            // unported form started answering a confident `() => error`-shaped
+            // type where upstream computes a real one. The arithmetic arm's
+            // §271 retirement went the other way because ITS error-operand
+            // population measured empty; this one is 405 strong.
+            //
+            // REOPENING CONDITION: when the big unported return-expression
+            // forms land (await/async valued returns above all — promiseType
+            // alone is 44 of the 405), re-run the same two-line probe; the
+            // rule is right the day that population is small.
             if id == self.intrinsics.error {
                 return None;
             }
@@ -1514,6 +1535,8 @@ impl<'a> Checker<'a, '_> {
     /// Everything between — a call argument, an object-literal property, a
     /// `return` expression — widens, which is what upstream does there.
     fn inferred_return_type(&mut self, declaration: NodeId, id: TypeId) -> Option<TypeId> {
+        // §272's second half — measured and refused with the aggregate site;
+        // the numbers and the reopening condition are there.
         if id == self.intrinsics.error {
             return None;
         }
