@@ -1764,8 +1764,27 @@ suspect the rule reads only the first. It does not; the answer is `string`.
 So the remaining failures are something else, and **whoever takes this should not
 start from the for-in arm**.
 
-**Located, in the same case's own output:** the failing lines are *references* to
-`x`, not its declaration, and the file contains both kinds three lines apart:
+**LOCATED FURTHER: the failing references are inside the for-in's OWN iterated
+expression.** Source line: `for (var x in 42 ? d[x] : c[x]) { }` — the `x` in
+`d[x]` and `c[x]` are uses of the very variable the statement declares, evaluated
+in the expression position, and upstream types them `string` (the declared for-in
+type). This port answers `any`.
+
+That is why the declaration road probes clean and the case still fails: the
+declaration answers `string` correctly, and the *reference* in the initialiser
+position resolves through flow to the pre-declaration `var x` type. Upstream does
+not consult flow there — a for-in variable's type is `string` unconditionally
+(`getTypeForVariableLikeDeclaration`'s ForIn arm), and a reference to it takes the
+declared type rather than a flow type that predates the declaration.
+
+So the repair is in the FLOW road, not the declaration road, and it is specific:
+a reference to a for-in binding inside its own statement must not narrow below
+`string`. Not built — the flow walk's treatment of a use-before-declaration
+position is its own question and this is one case.
+
+**Original location, kept because the elimination is the reusable part:** the
+failing lines are *references* to `x`, not its declaration, and the file contains
+both kinds three lines apart:
 
 ```text
 *53   WANT x : string   GOT x : any      <- a reference
