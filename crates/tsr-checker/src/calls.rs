@@ -1010,7 +1010,7 @@ impl Checker<'_, '_> {
                     self.signature_candidates_of_named_type(callee, SignatureKind::Call)
                 && !candidates.is_empty()
             {
-                let clean = self.clean_candidate_prefix_len(&candidates);
+                let clean = Self::clean_candidate_prefix_len(&candidates);
                 if clean > 0
                     && let Some(signature) =
                         self.subtype_pass_prefix_pick(&candidates, clean, arguments)
@@ -1160,7 +1160,7 @@ impl Checker<'_, '_> {
         // the call. Witness `new Array(3)`: ArrayConstructor's FIRST construct
         // signature is the non-generic `new (arrayLength?: number): any[]`,
         // and upstream never reaches the generic overloads behind it.
-        let clean_len = self.clean_candidate_prefix_len(candidates);
+        let clean_len = Self::clean_candidate_prefix_len(candidates);
         if clean_len == 0 {
             // Nothing decidable before the first problematic candidate: the
             // old whole-set gap, counted by the first candidate's own reason.
@@ -1638,17 +1638,20 @@ impl Checker<'_, '_> {
     /// §273's admission test, shared with the `new`-expression road: the
     /// candidates before the first one whose selection would need machinery
     /// this port does not trust here.
-    pub(crate) fn clean_candidate_prefix_len(&self, candidates: &[Signature]) -> usize {
+    pub(crate) fn clean_candidate_prefix_len(candidates: &[Signature]) -> usize {
         candidates
             .iter()
             .position(|candidate| {
+                // §335 removed the fourth disjunct — an `any`-PARAMETER
+                // candidate: the SUBTYPE pass decides it (everything is a
+                // subtype of `any`), which is exactly how upstream's pass one
+                // picks `(bar: any): number` for `foo(5)` behind a failing
+                // `(bar: string)` (`functionOverloads33`). The exclusion
+                // dated from §273's FIRST draft, whose damage came from
+                // running the assignable pass first, not from the candidate.
                 !candidate.type_parameters.is_empty()
                     || candidate.this_parameter.is_some()
                     || candidate.parameters.iter().any(|parameter| parameter.rest)
-                    || candidate
-                        .parameters
-                        .iter()
-                        .any(|p| self.type_of(p.r#type).flags.intersects(TypeFlags::ANY))
             })
             .unwrap_or(candidates.len())
     }

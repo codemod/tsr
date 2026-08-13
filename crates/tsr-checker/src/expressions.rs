@@ -2008,7 +2008,7 @@ impl Checker<'_, '_> {
                     crate::signatures::SignatureKind::Construct,
                 ) && !candidates.is_empty()
                 {
-                    let clean = self.clean_candidate_prefix_len(&candidates);
+                    let clean = Self::clean_candidate_prefix_len(&candidates);
                     if clean > 0
                         && let Some(signature) =
                             self.subtype_pass_prefix_pick(&candidates, clean, node.arguments)
