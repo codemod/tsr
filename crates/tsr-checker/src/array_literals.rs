@@ -692,6 +692,15 @@ impl Checker<'_, '_> {
         if operand == self.intrinsics.error {
             return None;
         }
+        // §397: spreading an `any` contributes `any` — upstream's
+        // `checkIteratedTypeOrElementType` answers the anyType straight off
+        // (`[...obj?.a]` is `any[]`, `propertyAccessChain.3`,
+        // `trailingCommasInBindingPatterns`). Identity against the intrinsic,
+        // not a flag test: `errorType` carries ANY and must stay the gap
+        // above.
+        if operand == self.intrinsics.any {
+            return Some(self.intrinsics.any);
+        }
         if let Some((target, arguments)) = self.type_reference_targets.get(&operand).cloned()
             && arguments.len() == 1
             && let Some(array) = self.global_type_symbol("Array")
