@@ -582,6 +582,42 @@ impl Checker<'_, '_> {
             if signature.type_parameters.iter().any(|parameter| parameter.is_const) {
                 return error;
             }
+            // §288: WRITTEN type arguments need no inference at all — the
+            // SS161 recipe at the CALL road. `fn2<string>(4)` instantiates
+            // the return with the written list when the arity matches
+            // (`typeAssertions`, `thisInInvalidContexts`); a mismatch or an
+            // unresolvable argument keeps the inference road below.
+            if !node.type_arguments.is_empty()
+                && node.type_arguments.len() == signature.type_parameters.len()
+                && let Some(written_nodes) =
+                    node.node_id.and_then(|id| match self.node_map.get(id) {
+                        Some(tsr_ast::Node::CallExpression(fetched)) => {
+                            Some(fetched.type_arguments)
+                        }
+                        _ => None,
+                    })
+            {
+                let written: Vec<TypeId> = written_nodes
+                    .iter()
+                    .map(|&argument| self.get_type_from_type_node(argument))
+                    .collect();
+                if !written.contains(&error)
+                    && let Some(parameters) = self.type_parameter_types(&signature)
+                {
+                    let names: Vec<&str> = signature
+                        .type_parameters
+                        .iter()
+                        .map(|parameter| parameter.name.as_str())
+                        .collect();
+                    let map: Vec<(TypeId, TypeId)> =
+                        parameters.iter().copied().zip(written.iter().copied()).collect();
+                    let answer = self.instantiate_type(signature.r#type, &map, &parameters, &names);
+                    if answer != error {
+                        bump(&COUNTERS.new_instantiated);
+                        return answer;
+                    }
+                }
+            }
             // A generic signature's return type depends on the arguments, so it
             // needs inference (`inferTypeArguments`, `checker.go:9390`). Answering
             // the uninstantiated return type would print `T` where upstream prints
