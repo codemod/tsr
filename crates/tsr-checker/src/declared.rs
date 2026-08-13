@@ -945,11 +945,22 @@ impl<'a> Checker<'a, '_> {
                 }
                 _ => return error,
             };
-            let Some(annotation) = property.r#type else { return error };
-            let member_type = self.get_type_from_type_node(annotation);
-            if member_type == error {
-                return error;
-            }
+            // SS355: a property signature with NO annotation is the implicit
+            // `any`, not a gap — upstream's member resolution reaches
+            // `getTypeForVariableLikeDeclaration` (checker.go:16652), every
+            // arm declines for a bare `{ x }`, and the widening fallback
+            // answers `anyType` (checker.go:16648). `{ x; y }` renders
+            // `{ x: any; y: any; }` (`symbolProperty9`).
+            let member_type = match property.r#type {
+                Some(annotation) => {
+                    let member_type = self.get_type_from_type_node(annotation);
+                    if member_type == error {
+                        return error;
+                    }
+                    member_type
+                }
+                None => self.intrinsics.any,
+            };
             // `?` on a property signature; `!` cannot appear on one, so the
             // token\'s presence is enough to distinguish it.
             let optional =
@@ -962,8 +973,11 @@ impl<'a> Checker<'a, '_> {
             // `bd tsr-d4li`; the second measurement's 55 residual losses were
             // exactly this slot. Restricted to the literal shape so nothing
             // else changes spelling here.
-            let printed = match annotation {
-                tsr_ast::TypeNode::TypeLiteralNode(_) | tsr_ast::TypeNode::ArrayTypeNode(_) => self
+            let printed = match property.r#type {
+                Some(
+                    annotation @ (tsr_ast::TypeNode::TypeLiteralNode(_)
+                    | tsr_ast::TypeNode::ArrayTypeNode(_)),
+                ) => self
                     .written_annotation_text(annotation)
                     .unwrap_or_else(|| self.type_to_string(member_type)),
                 _ => self.type_to_string(member_type),
