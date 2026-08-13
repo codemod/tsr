@@ -1178,7 +1178,14 @@ impl<'a> Checker<'a, '_> {
                                 | SyntaxKind::BindingElement
                                 | SyntaxKind::ArrowFunction
                                 | SyntaxKind::ReturnStatement
-                                | SyntaxKind::YieldExpression
+                                // §353 removed `YieldExpression` from this
+                                // list: the OUTER yield's contextual iteration
+                                // type is what would feed the inner one, and
+                                // in the DECLARATION-only arm this loop
+                                // already guards, that chain provably
+                                // dead-ends — `yield yield 0` aggregates
+                                // `{any, 0}` to `Generator<any, void,
+                                // unknown>` (`generatorTypeCheck36/50`).
                                 | SyntaxKind::AwaitExpression
                                 | SyntaxKind::CallExpression
                                 | SyntaxKind::NewExpression
