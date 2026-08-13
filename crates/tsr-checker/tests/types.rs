@@ -571,13 +571,15 @@ fn every_comparison_is_boolean_even_when_an_operand_is_a_gap() {
 }
 
 #[test]
-fn an_unported_operand_propagates_rather_than_becoming_number() {
-    // The deliberate deviation, stated as a test. `errorType` carries
-    // `TypeFlagsAny`, so upstream's rule would answer `number` here — sound for
-    // upstream, where `errorType` means an error was reported, and a claim in
-    // this port, where it also means an unported form. (`f()` stopped being
-    // the stand-in at §24; `satisfies` carries the gap now.)
-    assert_eq!(type_of_initialiser("const x = (1 satisfies number) * 2;"), "error");
+fn an_unported_arithmetic_operand_answers_number_as_upstream_does() {
+    // §271 flipped this pin. It asserted `error` for the `*` line as the
+    // gap-in-gap-out deviation's own test; the deviation's falsifier fired
+    // (§269's typed receivers routed real error-operand lines here) and the
+    // §271 measurement read 31 lines right / zero adverse, so the arm now
+    // takes upstream's any-like → `number` rule (`checker.go:12358`).
+    // The `+` arm is DIFFERENT: upstream itself answers errorType there
+    // (`checker.go:12452`), so its propagation stays pinned.
+    assert_eq!(type_of_initialiser("const x = (1 satisfies number) * 2;"), "number");
     assert_eq!(type_of_initialiser("const x = (1 satisfies number) + 2;"), "error");
 }
 

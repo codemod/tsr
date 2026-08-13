@@ -158,31 +158,25 @@ impl Checker<'_, '_> {
     /// bigint-like, `bigint` when both are bigint-like, and `errorType`
     /// otherwise.
     ///
-    /// # A deliberate deviation: a gap in is a gap out
+    /// # ~~A deliberate deviation: a gap in is a gap out~~ RETIRED — §271
     ///
-    /// `errorType` carries `TypeFlagsAny`, so upstream's first test — *"if both
-    /// are any or unknown, assume the operation resolves to `number`"* — accepts
-    /// it and answers `number`. In upstream that is sound: `errorType` appears
-    /// only where a real error was already reported, and the operand genuinely
-    /// could be anything.
+    /// This arm used to propagate an `errorType` operand instead of taking
+    /// upstream's any-like → `number` rule, on the argument that this port's
+    /// `errorType` also means "unported form" and `number` would be a claim.
+    /// The deviation carried its own falsifier: *"if a measurable population
+    /// of lines still reaches here with an `errorType` operand, this should
+    /// return `number` as upstream does."*
     ///
-    /// In this port `errorType` also means **an unported form**, and there the
-    /// same rule would convert a gap into a claim: `someUnportedThing * 2` would
-    /// read `number` whether or not the operand is a `bigint`, and the
-    /// `checker_types` histogram could no longer tell the two apart. So an
-    /// `errorType` operand propagates. Upstream itself does exactly this in the
-    /// `+` arm (`checker.go:12452`), which is the precedent.
-    ///
-    /// **How this would be shown wrong:** when the unported expression forms
-    /// land, the operands stop being `errorType` and the deviation stops
-    /// applying to anything. If a measurable population of lines still reaches
-    /// here with an `errorType` operand at that point, this should return
-    /// `number` as upstream does — the honest reading of that would be that the
-    /// gap is not the operand's form but something else.
+    /// §269 fired it — `@param`-typed receivers made `u.a - u.b.length`
+    /// reach here with error operands where upstream computes `number`
+    /// (`jsdocTemplateTag3`) — and the §271 measurement settled it: **31
+    /// lines right (12 GAP→RIGHT, 19 WRONG→RIGHT), zero adverse in any
+    /// direction.** The feared population — a gap turning into a wrong
+    /// confident `number` — measured EMPTY: every line the corpus routes
+    /// here with an error operand is one upstream also answers `number` on.
+    /// The `+` arm is different (upstream itself yields errorType there,
+    /// `checker.go:12452`) and keeps its propagation.
     fn check_arithmetic_operation(&mut self, left: TypeId, right: TypeId) -> TypeId {
-        if self.is_error(left) || self.is_error(right) {
-            return self.intrinsics.error;
-        }
         let left_flags = self.store.get(left).flags;
         let right_flags = self.store.get(right).flags;
         if left_flags.intersects(TypeFlags::BIG_INT_LIKE)
