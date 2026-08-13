@@ -3255,6 +3255,27 @@ impl<'a> Checker<'a, '_> {
     }
 
     fn get_type_for_variable_like_declaration(&mut self, declaration: NodeId) -> Option<TypeId> {
+        // §292: `export default <expr>` — the `default` symbol binds as
+        // PROPERTY (the classifier's non-alias ExportAssignment arm) and its
+        // declaration kind matched nothing here. MEASURED ZERO AND THE ZERO
+        // IS CONFIRMED (a probe print showed the arm never firing): the
+        // importBindingDefer witnesses die one step EARLIER, at module
+        // resolution of their `./a.js`-suffixed specifiers — the §119
+        // unfindable arm answers `any` before this symbol is ever typed.
+        // Kept because it is the faithful second half (upstream types the
+        // symbol from the assignment's expression, the REGULAR literal —
+        // `defer : 2`) and it costs nothing; the reopening trigger is the
+        // resolver's js-to-ts substitution reaching the conformance
+        // pipeline, at which point these four cases score it.
+        if let Some(Node::ExportAssignment(assignment)) = self.node_map.get(declaration)
+            && let Some(expression) = assignment.expression
+        {
+            let checked = self.check_expression(expression);
+            if checked == self.intrinsics.error {
+                return None;
+            }
+            return Some(self.get_regular_type_of_literal_type(checked));
+        }
         // An annotation wins over an initialiser, always.
         if let Some(annotation) = self.type_annotation_of(declaration) {
             let declared = self.get_type_from_type_node(annotation);
