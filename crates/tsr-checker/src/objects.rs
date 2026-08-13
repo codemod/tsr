@@ -430,6 +430,12 @@ impl Checker<'_, '_> {
         // value type is the union of the contributing members' types
         // (`getObjectLiteralIndexInfo`, `:19721`).
         let mut index_values: Vec<(&'static str, TypeId)> = Vec::new();
+        // SS325: late-bound ACCESSOR members merge by name - a get/set pair
+        // is one property (the getter's type wins the display), a getter
+        // without a setter is `readonly` (`symbolDeclarationEmit10`,
+        // `symbolProperty5`). Non-accessor members of the same name stay
+        // separate rows (`symbolProperty1`'s triple).
+        let mut accessor_members: Vec<(String, usize)> = Vec::new();
         for property in node.properties {
             let mut pending_index_key: Option<&'static str> = None;
             // `checker.go:13223` dispatches over three member kinds. Only two are
@@ -623,7 +629,46 @@ impl Checker<'_, '_> {
                     };
                     let Some(id) = accessor.node_id else { return error };
                     let key = match self.computed_member_index_key(computed) {
-                        ComputedNameKey::LateBound => return error,
+                        // SS325: a late-bound GETTER prints as a property of
+                        // its return type - the third `[s]: number` row of
+                        // `symbolProperty1`'s literal.
+                        ComputedNameKey::LateBound => {
+                            let Some(name) = self.late_bound_symbol_member_name(computed) else {
+                                return error;
+                            };
+                            let Some(signature) = self.get_signature_from_declaration(id) else {
+                                return error;
+                            };
+                            let printed = self.type_to_string(signature.r#type);
+                            let mut has_setter_sibling = false;
+                            for sibling in node.properties {
+                                if let tsr_ast::ObjectLiteralElementLike::SetAccessorDeclaration(
+                                    setter,
+                                ) = sibling
+                                    && let tsr_ast::PropertyName::ComputedPropertyName(sibling_name) =
+                                        setter.name
+                                    && self.late_bound_symbol_member_name(sibling_name)
+                                        == Some(name.clone())
+                                {
+                                    has_setter_sibling = true;
+                                }
+                            }
+                            let member = Member::Property {
+                                name: name.clone(),
+                                optional: false,
+                                readonly: const_context || !has_setter_sibling,
+                                printed,
+                            };
+                            if let Some(&(_, index)) =
+                                accessor_members.iter().find(|(existing, _)| existing == &name)
+                            {
+                                members[index] = member;
+                            } else {
+                                accessor_members.push((name, members.len()));
+                                members.push(member);
+                            }
+                            continue;
+                        }
                         ComputedNameKey::Nothing => continue,
                         ComputedNameKey::Index(key) => key,
                     };
@@ -640,7 +685,35 @@ impl Checker<'_, '_> {
                     };
                     let Some(id) = accessor.node_id else { return error };
                     let key = match self.computed_member_index_key(computed) {
-                        ComputedNameKey::LateBound => return error,
+                        // SS325: the setter half - a property of its first
+                        // parameter's type, `any` when unannotated, the same
+                        // value rule the index route uses.
+                        ComputedNameKey::LateBound => {
+                            let Some(name) = self.late_bound_symbol_member_name(computed) else {
+                                return error;
+                            };
+                            if accessor_members.iter().any(|(existing, _)| existing == &name) {
+                                // The getter already owns the display; a
+                                // getter appearing LATER replaces in place.
+                                continue;
+                            }
+                            let Some(signature) = self.get_signature_from_declaration(id) else {
+                                return error;
+                            };
+                            let member_type = signature
+                                .parameters
+                                .first()
+                                .map_or(self.intrinsics.any, |parameter| parameter.r#type);
+                            let printed = self.type_to_string(member_type);
+                            accessor_members.push((name.clone(), members.len()));
+                            members.push(Member::Property {
+                                name,
+                                optional: false,
+                                readonly: const_context,
+                                printed,
+                            });
+                            continue;
+                        }
                         ComputedNameKey::Nothing => continue,
                         ComputedNameKey::Index(key) => key,
                     };
