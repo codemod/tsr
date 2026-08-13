@@ -158,6 +158,33 @@ impl Checker<'_, '_> {
                     let _ = self.check_expression(argument);
                 }
             }
+            // §341: the one spread shape this inference can decide — a SINGLE
+            // spread argument against a single bare `...s: T[]` rest
+            // parameter. The spread expression's own check already answers
+            // the ELEMENT type (§286), and `getSpreadArgumentType`'s tuple
+            // problem collapses to `T := element`:
+            // `foo(...new SymbolIterator)` is `symbol`
+            // (`iteratorSpreadInCall11`). Every other spread shape keeps the
+            // gap this arm always was.
+            if let [Expression::SpreadElement(_)] = arguments
+                && let [parameter] = signature.parameters.as_slice()
+                && parameter.rest
+                && let Some(parameters) = self.type_parameter_types(signature)
+                && let [type_parameter] = parameters.as_slice()
+                && let Some((target, type_args)) =
+                    self.type_reference_targets.get(&parameter.r#type).cloned()
+                && type_args.as_slice() == [*type_parameter]
+                && self.global_type_symbol("Array").is_some_and(|array| {
+                    self.binder.merged_symbol(target) == self.binder.merged_symbol(array)
+                })
+                && argument_types.first().is_some_and(|&element| element != error)
+            {
+                let element = argument_types[0];
+                let names =
+                    signature.type_parameters.iter().map(|p| p.name.as_str()).collect::<Vec<_>>();
+                let map = vec![(*type_parameter, element)];
+                return self.instantiate_type(signature.r#type, &map, &parameters, &names);
+            }
             return error;
         }
 
