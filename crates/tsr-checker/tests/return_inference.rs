@@ -187,11 +187,13 @@ fn an_async_declaration_with_no_valued_return_is_promise_void() {
         type_of_declaration_with_promise("async function f() { return 1; }", "f"),
         "() => Promise<number>"
     );
-    // A returned OBJECT could be a thenable and needs the awaited machinery —
-    // `error` is the gap sentinel, not an answer.
+    // A returned OBJECT with no `then` member is its own awaited type —
+    // `getAwaitedTypeNoAlias`'s tail (`checker.go:31417`). Before the §443
+    // widening this was the gap sentinel; the `then`-carrying shape still is,
+    // because the promised-type signature walk is unported.
     assert_eq!(
         type_of_declaration_with_promise("async function f() { return { a: 1 }; }", "f"),
-        "error"
+        "() => Promise<{ a: number; }>"
     );
 }
 

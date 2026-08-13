@@ -2432,15 +2432,9 @@ impl Checker<'_, '_> {
     /// `any`, since `Generator<number>`'s next type is `unknown`), and any
     /// contextualisable container.
     /// Ported from `Checker.checkAwaitExpression` (`checker.go:10845`) —
-    /// `checkAwaitedType` of the operand, reduced to the shapes decidable
-    /// without the `then`-signature walk (`checker-notes-callres.md` §18):
-    /// `any`/`unknown` pass through, a primitive is its own awaited type
-    /// (nothing to carry a `then` member), and a reference to the **global**
-    /// `Promise` unwraps to its argument, recursively. Everything else —
-    /// unions, object types, type parameters, `PromiseLike`, user thenables —
-    /// stays a gap with `getAwaitedTypeNoAlias` (`checker.go`) as the named
-    /// owner. The grammar check and the "no effect" suggestion are
-    /// diagnostics and out of scope here.
+    /// `checkAwaitedType` of the operand, over the
+    /// [`Checker::awaited_type_no_alias`] slice. The grammar check and the
+    /// "no effect" suggestion are diagnostics and out of scope here.
     fn check_await_expression(&mut self, node: &tsr_ast::AwaitExpression<'_>) -> TypeId {
         let error = self.intrinsics.error;
         let Some(operand) = node.expression else { return error };
@@ -2448,27 +2442,76 @@ impl Checker<'_, '_> {
         if operand_type == error {
             return error;
         }
-        self.awaited_type_minimal(operand_type).unwrap_or(error)
+        self.awaited_type_no_alias(operand_type).unwrap_or(error)
     }
 
-    /// The §18 slice of `getAwaitedTypeNoAlias`. `None` is a gap, never `any`.
-    fn awaited_type_minimal(&mut self, id: TypeId) -> Option<TypeId> {
+    /// `getAwaitedTypeNoAlias` (`checker.go:31270`), widened from the §18
+    /// slice (`checker-notes-callres.md`) to every shape decidable without
+    /// the `Awaited<T>` alias mint. `None` is a gap, never `any`.
+    ///
+    /// The arms, in upstream's order:
+    ///
+    /// - `IsTypeAny(t)` passes through (`:31271`) — and this port's
+    ///   `errorType` never reaches here (both callers screen it first).
+    /// - A **union** awaits per constituent (`:31285`); one undecidable
+    ///   constituent gaps the whole.
+    /// - A **generic** type wraps in `Awaited<T>` (`isAwaitedTypeNeeded`,
+    ///   `:31395`) — this port mints no conditional alias instantiations, so
+    ///   every type-variable-flavored shape declines.
+    /// - A reference to the **global `Promise`** unwraps to its argument
+    ///   (`getPromisedTypeOfPromiseEx`'s short-circuit, `checker.go:28941`),
+    ///   recursively. `PromiseLike<T>` reaches the same `T` upstream through
+    ///   the `then`-signature walk — its `onfulfilled` first parameter is
+    ///   declared `value: T` — so the reference form answers directly.
+    /// - Everything else is its own awaited type **unless it carries a
+    ///   `then` member** (`:31417`): a primitive cannot (`isThenableType`'s
+    ///   first test, `:31450`), and an object type is probed through
+    ///   [`Checker::get_type_of_property_of_type`]. A `then`-carrying type
+    ///   needs the promised-type signature walk — unported, gap.
+    pub(crate) fn awaited_type_no_alias(&mut self, id: TypeId) -> Option<TypeId> {
         let flags = self.store.get(id).flags;
         if flags.intersects(TypeFlags::ANY | TypeFlags::UNKNOWN) {
             return Some(id);
         }
-        if flags.intersects(TypeFlags::PRIMITIVE) {
+        if let crate::types::TypeData::Union { types, .. } = &self.store.get(id).data {
+            let constituents = types.clone();
+            let mut mapped = Vec::with_capacity(constituents.len());
+            for constituent in constituents {
+                mapped.push(self.awaited_type_no_alias(constituent)?);
+            }
+            return Some(self.get_union_type(&mapped));
+        }
+        if flags.intersects(TypeFlags::PRIMITIVE | TypeFlags::NEVER) {
             return Some(id);
         }
-        if let Some((target, arguments)) = self.type_reference_targets.get(&id)
-            && arguments.len() == 1
-            && Some(self.binder.merged_symbol(*target))
-                == self.global_type_symbol("Promise").map(|s| self.binder.merged_symbol(s))
-        {
-            let argument = arguments[0];
-            return self.awaited_type_minimal(argument);
+        // `isAwaitedTypeNeeded`'s domain plus the deferred kinds whose
+        // members this port cannot probe: all decline rather than guess.
+        if flags.intersects(
+            TypeFlags::TYPE_PARAMETER
+                .union(TypeFlags::CONDITIONAL)
+                .union(TypeFlags::INDEX)
+                .union(TypeFlags::INDEXED_ACCESS)
+                .union(TypeFlags::SUBSTITUTION)
+                .union(TypeFlags::INTERSECTION),
+        ) {
+            return None;
         }
-        None
+        if let Some((target, arguments)) = self.type_reference_targets.get(&id).cloned()
+            && arguments.len() == 1
+        {
+            let target = self.binder.merged_symbol(target);
+            let is_promise = ["Promise", "PromiseLike"].iter().any(|name| {
+                self.global_type_symbol(name)
+                    .is_some_and(|symbol| self.binder.merged_symbol(symbol) == target)
+            });
+            if is_promise {
+                return self.awaited_type_no_alias(arguments[0]);
+            }
+        }
+        match self.get_type_of_property_of_type(id, "then") {
+            None => Some(id),
+            Some(_) => None,
+        }
     }
 
     fn check_yield_expression(&mut self, node: &tsr_ast::YieldExpression<'_>) -> TypeId {

@@ -1362,54 +1362,124 @@ impl<'a> Checker<'a, '_> {
             let returns = self.return_expressions_of(block, declaration);
             let mut valued: Vec<TypeId> = Vec::new();
             let mut has_bare_return = false;
+            let mut has_return_of_type_never = false;
             for expression in &returns {
                 let Some(expression) = expression else {
                     has_bare_return = true;
                     continue;
                 };
-                let id = self.check_expression(*expression);
-                if id == self.intrinsics.error {
-                    return None;
+                // `checkAndAggregateReturnExpressionTypes` skips parentheses
+                // and unwraps `return await x` before checking
+                // (`checker.go:20271`–`:20275`). Taking the operand road
+                // matters here beyond fidelity: `check_await_expression`
+                // collapses an undecidable awaited type to `errorType`, and
+                // through the aggregate that would read as upstream's
+                // confident error-`any` where the truth is a gap.
+                let mut node = *expression;
+                loop {
+                    match node {
+                        tsr_ast::Expression::ParenthesizedExpression(paren) => {
+                            let Some(inner) = paren.expression else { break };
+                            node = inner;
+                        }
+                        tsr_ast::Expression::AwaitExpression(awaited) => {
+                            let Some(inner) = awaited.expression else { break };
+                            node = inner;
+                        }
+                        _ => break,
+                    }
                 }
-                let widened = self.get_widened_literal_type(id);
-                if !valued.contains(&widened) {
-                    valued.push(widened);
+                // `return rec()` inside `rec` contributes no type
+                // (`checker.go:20277`) — and skipping it BEFORE checking is
+                // what keeps the self-reference from cycling this very
+                // signature computation into `errorType`
+                // (`simpleRecursionWithBaseCase2`).
+                if self.return_is_a_bare_self_call(declaration, node) {
+                    has_return_of_type_never = true;
+                    continue;
+                }
+                let id = self.check_expression(node);
+                // §437 at the async arm: upstream's `errorType` carries
+                // `TypeFlagsAny`, so `getAwaitedTypeNoAlias` passes it
+                // through (`:31271`) and it joins the aggregate exactly as
+                // the plain path's flip records.
+                let awaited = if id == self.intrinsics.error {
+                    id
+                } else {
+                    // From within an async function you can return either a
+                    // non-promise value or a promise —
+                    // `unwrapAwaitedType(checkAwaitedType(t, …))`
+                    // (`checker.go:20282`); the unwrap is an identity here
+                    // because this port mints no `Awaited<T>`.
+                    self.awaited_type_no_alias(id)?
+                };
+                if !valued.contains(&awaited) {
+                    valued.push(awaited);
+                }
+            }
+            // `isNeverReturning` (`checker.go:20299`/`:20168`): every return
+            // was a self-call, nothing else aggregates, and the body end is
+            // unreachable — `createPromiseReturnType(fn, neverType)` answers
+            // `Promise<never>` (`simpleRecursionWithBaseCase2`'s rec3). A
+            // reachable end instead reads as an implicit return and falls
+            // into the empty-aggregate `Promise<void>` arm below; an
+            // undecidable end gaps.
+            if valued.is_empty() && !has_bare_return && has_return_of_type_never {
+                match self.block_completes_normally(block, declaration) {
+                    Some(false) => {
+                        let never = self.intrinsics.never;
+                        let promise = self.global_type_symbol("Promise")?;
+                        return Some(self.create_type_reference(promise, vec![never]));
+                    }
+                    Some(true) => {}
+                    None => return None,
+                }
+            }
+            // Under strict, an implicit return appends `undefined` to a
+            // non-empty aggregate (`checker.go:20302`), and
+            // `hasReturnWithNoExpression` covers BOTH a literal bare
+            // `return;` and a reachable body end
+            // (`functionHasImplicitReturn`, `:20261`/`:20308`) —
+            // `promiseTypeStrictNull` wants `Promise<1 | undefined>` from
+            // `try { return 1 } catch {}`. Under non-strict the bare return
+            // is simply ignored. The reachability stand-in refuses where it
+            // cannot decide, and under strict the appended `undefined` turns
+            // on exactly that answer — gap.
+            if !valued.is_empty() && self.strict_null_checks {
+                let implicit = if has_bare_return {
+                    true
+                } else {
+                    self.block_completes_normally(block, declaration)?
+                };
+                if implicit {
+                    let undefined = self.intrinsics.undefined;
+                    if !valued.contains(&undefined) {
+                        valued.push(undefined);
+                    }
                 }
             }
             let promised = match valued.as_slice() {
-                // The empty aggregate — `Promise<void>` (`checker.go:20184`).
+                // The empty aggregate — `Promise<void>` (`checker.go:20184`);
+                // a bare-return-only body takes the same arm.
                 [] => self.intrinsics.void,
-                // §16: one distinct valued return whose type **cannot carry a
-                // `then` member** — a primitive — is its own awaited type, so
-                // `unwrapAwaitedType`/`checkAwaitedType` (`checker.go:20149`)
-                // are identities on it. A bare `return;` beside it is the
-                // strictness-dependent `T | undefined` the plain path also
-                // declines. Everything with members — objects, references
-                // including `Promise` itself, unions, type parameters —
-                // declines with the awaited machinery as the named owner.
-                [single]
-                    if !has_bare_return
-                        && self.store.get(*single).flags.intersects(TypeFlags::PRIMITIVE)
-                        // Not every primitive survives: under NON-strict
-                        // options `undefined` and `null` widen to `any`
-                        // (`asyncFunctionDeclaration15_es6` wants
-                        // `Promise<any>`), so the nullable domains decline
-                        // rather than model the option.
-                        && !self
-                            .store
-                            .get(*single)
-                            .flags
-                            .intersects(TypeFlags::VOID_LIKE.union(TypeFlags::NULL))
-                        // A reachable body end appends `undefined` to the
-                        // aggregate under strict (`functionHasImplicitReturn`,
-                        // `checker.go:20298` — `promiseTypeStrictNull` wants
-                        // `Promise<1 | undefined>`), so the valued slice
-                        // requires the end provably unreachable.
-                        && self.block_completes_normally(block, declaration) == Some(false) =>
-                {
-                    *single
+                // One distinct awaited type runs the same tail as the plain
+                // path (`getWidenedType` at `:20231`, and §64's non-strict
+                // nullable widening — `asyncFunctionDeclaration15_es6` wants
+                // `Promise<any>` from `return null`).
+                [single] => self.inferred_return_type(declaration, *single)?,
+                // Two or more reduce under `UnionReductionSubtype`
+                // (`checker.go:20191`) with the plain path's JS decline —
+                // and run the same widening tail, because the reduction can
+                // collapse to a lone fresh literal (`{1, error-never}` in
+                // `promiseType`'s F is `1`, and the want is `number`).
+                many => {
+                    if self.in_js_file(declaration) {
+                        return None;
+                    }
+                    let candidates = many.to_vec();
+                    let reduced = self.union_with_subtype_reduction(&candidates)?;
+                    self.inferred_return_type(declaration, reduced)?
                 }
-                _ => return None,
             };
             let promise = self.global_type_symbol("Promise")?;
             return Some(self.create_type_reference(promise, vec![promised]));
@@ -1431,12 +1501,25 @@ impl<'a> Checker<'a, '_> {
         // makes this a test of distinct types rather than of return statements.
         let mut types: Vec<TypeId> = Vec::new();
         let mut has_bare_return = false;
+        let mut has_return_of_type_never = false;
         for expression in returns {
             let Some(expression) = expression else {
                 // `if expr == nil { hasReturnWithNoExpression = true }` (`:20266`).
                 has_bare_return = true;
                 continue;
             };
+            // `expr = ast.SkipParentheses(expr)` (`:20271`), then the
+            // self-call skip (`:20277`) — see the async arm's copy for why
+            // the skip must run before the check.
+            let mut node = expression;
+            while let tsr_ast::Expression::ParenthesizedExpression(paren) = node {
+                let Some(inner) = paren.expression else { break };
+                node = inner;
+            }
+            if self.return_is_a_bare_self_call(declaration, node) {
+                has_return_of_type_never = true;
+                continue;
+            }
             let id = self.check_expression(expression);
             // §272 FLIPPED at §437, its reopening condition partially come
             // due (§401 landed promiseType's inference population). Upstream
@@ -1462,6 +1545,17 @@ impl<'a> Checker<'a, '_> {
             // 462.
             if !types.contains(&id) {
                 types.push(id);
+            }
+        }
+        // `isNeverReturning` (`checker.go:20299`) at the plain arm: an
+        // aggregate emptied by the self-call skip with an unreachable body
+        // end answers `neverType` (`:20173`). A reachable end falls through
+        // to the implicit-return arms below; undecidable gaps.
+        if types.is_empty() && !has_bare_return && has_return_of_type_never {
+            match self.block_completes_normally(block, declaration) {
+                Some(false) => return Some(self.intrinsics.never),
+                Some(true) => {}
+                None => return None,
             }
         }
         match types.as_slice() {
@@ -1716,6 +1810,48 @@ impl<'a> Checker<'a, '_> {
             stack.extend(children.iter().copied());
         }
         found
+    }
+
+    /// Whether a return expression (parens and `await` already skipped) is a
+    /// bare call to the enclosing function itself — upstream's
+    /// self-call skip in `checkAndAggregateReturnExpressionTypes`
+    /// (`checker.go:20277`): such a return contributes nothing to the
+    /// aggregate and flags the function never-returning.
+    ///
+    /// Upstream compares the callee's checked type's symbol against
+    /// `getMergedSymbol(fn.Symbol())`; this resolves the identifier by name
+    /// instead, which is the same symbol wherever the name is not shadowed —
+    /// and a shadowing binding resolves to a *different* symbol, failing the
+    /// equality exactly as upstream's does. The second conjunct —
+    /// a function *expression* needs `isConstantReference` on top — is
+    /// unported, so expression/arrow containers decline the skip and keep
+    /// checking the call (worst case the §437 error-joins road, which is
+    /// where they already were).
+    fn return_is_a_bare_self_call(
+        &mut self,
+        declaration: NodeId,
+        expression: tsr_ast::Expression<'a>,
+    ) -> bool {
+        if !matches!(
+            self.nodes.kind(declaration),
+            SyntaxKind::FunctionDeclaration | SyntaxKind::MethodDeclaration
+        ) {
+            return false;
+        }
+        let tsr_ast::Expression::CallExpression(call) = expression else { return false };
+        let Some(tsr_ast::Expression::Identifier(callee)) = call.expression else { return false };
+        let Some(callee_id) = callee.node_id else { return false };
+        let Some(own) = self.binder.symbol_of(declaration) else { return false };
+        let resolved = self.binder.resolve_name(
+            self.nodes,
+            self.node_map,
+            callee_id,
+            callee.text,
+            tsr_binder::SymbolFlags::VALUE,
+        );
+        resolved.is_some_and(|symbol| {
+            self.binder.merged_symbol(symbol) == self.binder.merged_symbol(own)
+        })
     }
 
     /// Whether this function-like declaration can never take a **contextual
