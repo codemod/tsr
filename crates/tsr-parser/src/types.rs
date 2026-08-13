@@ -1194,8 +1194,29 @@ impl<'a> Parser<'a> {
         }
         let before = self.diagnostics.len();
         let mut arguments = Vec::new();
+        let mut missing_slots: Vec<u32> = Vec::new();
         loop {
-            arguments.push(self.parse_type());
+            // §421: an ELIDED slot — `Foo<a,,b>()` — is a missing type with a
+            // deferred "Type expected", not a disambiguation failure:
+            // upstream's parseDelimitedList reports and the list still
+            // succeeds (`callExpressionWithMissingTypeArgument1`). The
+            // diagnostic is emitted only once the `>` confirms the list, so
+            // the complaint gate below keeps rejecting real less-than chains.
+            if self.at(SyntaxKind::CommaToken) {
+                missing_slots.push(self.pos());
+                let missing = self.missing_identifier();
+                let reference = self.finish_node(
+                    tsr_ast::TypeReferenceNode::new(
+                        Some(tsr_ast::EntityName::Identifier(missing)),
+                        &[],
+                    ),
+                    SyntaxKind::TypeReference,
+                    self.pos(),
+                );
+                arguments.push(TypeNode::TypeReferenceNode(reference));
+            } else {
+                arguments.push(self.parse_type());
+            }
             if !self.eat(SyntaxKind::CommaToken) {
                 break;
             }
@@ -1206,6 +1227,9 @@ impl<'a> Parser<'a> {
         // Any complaint means this was not a type-argument list.
         if !self.at(SyntaxKind::GreaterThanToken) || self.diagnostics.len() != before {
             return None;
+        }
+        for slot in missing_slots {
+            self.error_at(&messages::TYPE_EXPECTED, tsr_core::Span::at(slot));
         }
         self.next_token();
         Some(arguments)
