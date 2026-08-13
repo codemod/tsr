@@ -1217,6 +1217,24 @@ impl Checker<'_, '_> {
         };
         if !withheld && self.store.get(id).flags.contains(TypeFlags::OBJECT) {
             let mut fallbacks: Vec<&str> = Vec::new();
+            // §395: a CLASS's static side is a constructor function — its
+            // misses fall through the Function interface before Object
+            // (`Foo.name : string`, `deleteReadonlyInStrictNullChecks`).
+            // The signature-carrying test below cannot see it because a
+            // class's anonymous static type registers no entry in
+            // `signature_types`.
+            let class_static = match owner {
+                Owner::Anonymous(symbol) => self
+                    .binder
+                    .symbols()
+                    .get(self.binder.merged_symbol(symbol))
+                    .flags
+                    .contains(SymbolFlags::CLASS),
+                Owner::Declared(_) => false,
+            };
+            if class_static {
+                fallbacks.push("Function");
+            }
             if let Some(signatures) = self.signature_types.get(&id)
                 && !signatures.is_empty()
             {
