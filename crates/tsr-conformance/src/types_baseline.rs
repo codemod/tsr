@@ -96,7 +96,16 @@ pub fn parse(text: &str) -> Vec<FileTypes> {
             continue;
         }
         // The header line is `//// [path] ////` and is not a section.
+        //
+        // §294: an assertion is `>{text} : {type}` — the separator is part of
+        // the writer's format and every genuine assertion carries it. A
+        // SOURCE-ECHO line that happens to start with `>` does not:
+        // `>> // after` in `parserGreaterThanTokenAmbiguity5`'s echo was
+        // counted as a phantom baseline assertion for four cases, un-matchable
+        // by construction. Requiring the separator is what upstream's own
+        // reader does structurally by emitting and consuming the same format.
         if let Some(rest) = line.strip_prefix('>')
+            && rest.contains(" : ")
             && let Some(current) = files.last_mut()
         {
             current.assertions.push(TypeAssertion { text: rest.to_string() });
