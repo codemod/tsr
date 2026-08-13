@@ -1793,10 +1793,12 @@ fn an_unannotated_parameter_is_any_only_where_no_contextual_type_can_supply_one(
     );
     // The same test guards a literal return. `const f = () => 1` widens to
     // `() => number` because nothing supplied a contextual return type;
-    // `const f: () => 1 = () => 1` does not, because something did — so the
-    // annotated form is a gap rather than the widened guess.
+    // `const f: () => 1 = () => 1` does not, because something did — §445
+    // reads the annotation's signature through `isLiteralOfContextualType`
+    // (`checker.go:25522`) and keeps the literal, where this line once
+    // pinned `error` as the honest gap.
     assert_eq!(type_of_initialiser("const f = () => 1;"), "() => number");
-    assert_eq!(type_of_initialiser("const f: () => 1 = () => 1;"), "error");
+    assert_eq!(type_of_initialiser("const f: () => 1 = () => 1;"), "() => 1");
 }
 
 // ---------------------------------------------------------------------------

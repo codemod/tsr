@@ -1723,7 +1723,36 @@ impl<'a> Checker<'a, '_> {
         }
         let widened = self.get_widened_literal_type(id);
         if widened != id && self.has_a_written_contextual_type(declaration) {
-            return None;
+            // §445 — the position this doc's older half calls "the one
+            // position that still refuses" now answers where the annotation's
+            // signature materializes: `getContextualSignatureForFunctionLikeDeclaration`
+            // (`checker.go:29711`) reaches the written annotation through
+            // `getContextualSignature`, and the tail's
+            // `isLiteralOfContextualType(t, contextualType)` (`:25522`)
+            // decides whether the literal keeps or widens — `const f: () => 1
+            // = () => 1` prints `() => 1`, `const f: () => number = () => 1`
+            // prints `() => number`. A signature that does not materialize
+            // (a non-function annotation, a union, an overload set) keeps
+            // the gap: upstream would widen on a nil signature, but this
+            // port cannot tell nil-because-none from nil-because-unported.
+            //
+            // WRITTEN-ANNOTATION POSITIONS ONLY, and that is a measured
+            // wall, not caution: generalising this to every position where
+            // `contextual_signature` materializes (the call-argument road)
+            // OVERFLOWED THE STACK on the full corpus — a call argument's
+            // contextual signature resolves the callee, whose own type can
+            // reach this very return inference again, and upstream breaks
+            // that cycle with `resolvingSignature` links this port does not
+            // have (`checker.go:29785`; the contextual module's own header
+            // records the same hazard from the parameter side). The
+            // annotation road cannot cycle: a type NODE never re-enters a
+            // body's return inference.
+            let signature = self.contextual_signature(declaration)?;
+            return if self.is_literal_of_contextual_type(id, signature.r#type)? {
+                Some(self.get_regular_type_of_literal_type(id))
+            } else {
+                Some(widened)
+            };
         }
         // §64 (`checker-notes-narrow.md`): the non-strict nullable widening
         // at RETURN inference — `function f() { return null; }` infers
@@ -1738,6 +1767,91 @@ impl<'a> Checker<'a, '_> {
             }
         }
         Some(widened)
+    }
+
+    /// `isLiteralOfContextualType` (`checker.go:25522`), tri-state: `None`
+    /// where upstream's answer needs machinery this port lacks.
+    ///
+    /// Upstream's arms, in order:
+    /// - a union or intersection contextual type asks per constituent, any
+    ///   `true` wins;
+    /// - an instantiable non-primitive (type parameter, indexed access,
+    ///   conditional, substitution) consults its base constraint — unported,
+    ///   so those answer `None` and the caller keeps its gap rather than
+    ///   widening a literal upstream might keep;
+    /// - a literal-flavored contextual type keeps candidates of the same
+    ///   flavor, with `keyof`/template-literal/string-mapping counting as
+    ///   string-literal contexts.
+    ///
+    /// `maybeTypeOfKind` on the candidate is the recursive any-constituent
+    /// test, inlined here as [`Checker::maybe_type_of_kind`].
+    fn is_literal_of_contextual_type(
+        &mut self,
+        candidate: TypeId,
+        contextual: TypeId,
+    ) -> Option<bool> {
+        use crate::flags::TypeFlags as TF;
+        let flags = self.store.get(contextual).flags;
+        if flags.intersects(TF::UNION.union(TF::INTERSECTION)) {
+            let constituents = match &self.store.get(contextual).data {
+                crate::types::TypeData::Union { types, .. }
+                | crate::types::TypeData::Intersection { types, .. } => types.clone(),
+                _ => return None,
+            };
+            // Upstream is `core.Some`: any decided `true` answers `true`
+            // even beside a constituent this port cannot decide; a `None`
+            // beside only `false`s stays `None`.
+            let mut undecidable = false;
+            for constituent in constituents {
+                match self.is_literal_of_contextual_type(candidate, constituent) {
+                    Some(true) => return Some(true),
+                    Some(false) => {}
+                    None => undecidable = true,
+                }
+            }
+            return if undecidable { None } else { Some(false) };
+        }
+        // `TypeFlagsInstantiableNonPrimitive` — the base-constraint arm.
+        if flags.intersects(
+            TF::TYPE_PARAMETER
+                .union(TF::INDEXED_ACCESS)
+                .union(TF::CONDITIONAL)
+                .union(TF::SUBSTITUTION),
+        ) {
+            return None;
+        }
+        Some(
+            flags.intersects(
+                TF::STRING_LITERAL
+                    .union(TF::INDEX)
+                    .union(TF::TEMPLATE_LITERAL)
+                    .union(TF::STRING_MAPPING),
+            ) && self.maybe_type_of_kind(candidate, TF::STRING_LITERAL)
+                || flags.intersects(TF::NUMBER_LITERAL)
+                    && self.maybe_type_of_kind(candidate, TF::NUMBER_LITERAL)
+                || flags.intersects(TF::BIG_INT_LITERAL)
+                    && self.maybe_type_of_kind(candidate, TF::BIG_INT_LITERAL)
+                || flags.intersects(TF::BOOLEAN_LITERAL)
+                    && self.maybe_type_of_kind(candidate, TF::BOOLEAN_LITERAL)
+                || flags.intersects(TF::UNIQUE_ES_SYMBOL)
+                    && self.maybe_type_of_kind(candidate, TF::UNIQUE_ES_SYMBOL),
+        )
+    }
+
+    /// `maybeTypeOfKind` (`checker.go`): the type or any constituent of a
+    /// union/intersection carries one of `kind`'s flags.
+    fn maybe_type_of_kind(&self, id: TypeId, kind: crate::flags::TypeFlags) -> bool {
+        let ty = self.store.get(id);
+        if ty.flags.intersects(kind) {
+            return true;
+        }
+        match &ty.data {
+            crate::types::TypeData::Union { types, .. }
+            | crate::types::TypeData::Intersection { types, .. } => {
+                types.iter().any(|constituent| self.maybe_type_of_kind(*constituent, kind))
+            }
+            _ => false,
+        }
     }
 
     /// Whether a contextual type for this function is **written down** at its
@@ -2461,13 +2575,34 @@ impl<'a> Checker<'a, '_> {
                     let resolved = self.get_type_from_type_node(annotation);
                     if resolved != self.intrinsics.error {
                         let fresh = self.type_to_string(resolved);
-                        let written: Vec<&str> = text.split(" | ").collect();
-                        let rendered: Vec<&str> = fresh.split(" | ").collect();
-                        let mut written_sorted = written.clone();
-                        let mut rendered_sorted = rendered.clone();
-                        written_sorted.sort_unstable();
-                        rendered_sorted.sort_unstable();
-                        if written != rendered && written_sorted == rendered_sorted {
+                        if Self::same_union_set_different_order(&text, &fresh) {
+                            return Some(text);
+                        }
+                    }
+                }
+                // §449: the SAME admission one array head deeper — the
+                // written `(symbol | string)[]` keeps its order when the
+                // fresh render holds the same constituent set the other way
+                // (`iteratorSpreadInCall5/6`; upstream's node builder reuses
+                // the written node, so the sorted spelling never appears).
+                // Same-set-different-order only, exactly as above.
+                if let TypeNode::ArrayTypeNode(array) = annotation
+                    && let Some(TypeNode::ParenthesizedTypeNode(paren)) = array.element_type
+                    && matches!(paren.r#type, Some(TypeNode::UnionTypeNode(_)))
+                {
+                    let resolved = self.get_type_from_type_node(annotation);
+                    if resolved != self.intrinsics.error {
+                        let fresh = self.type_to_string(resolved);
+                        let strip = |s: &str| -> Option<String> {
+                            s.strip_suffix("[]")?
+                                .strip_prefix('(')?
+                                .strip_suffix(')')
+                                .map(str::to_string)
+                        };
+                        if let (Some(written_inner), Some(fresh_inner)) =
+                            (strip(&text), strip(&fresh))
+                            && Self::same_union_set_different_order(&written_inner, &fresh_inner)
+                        {
                             return Some(text);
                         }
                     }
@@ -2570,6 +2705,11 @@ impl<'a> Checker<'a, '_> {
                 SyntaxKind::NeverKeyword => Some("never".to_string()),
                 SyntaxKind::VoidKeyword => Some("void".to_string()),
                 SyntaxKind::ObjectKeyword => Some("object".to_string()),
+                // §449: `symbol`/`bigint` were simply missing from this
+                // enumeration — `(symbol | string)[]` walked to None and the
+                // union-order admission never saw it (`iteratorSpreadInCall5`).
+                SyntaxKind::SymbolKeyword => Some("symbol".to_string()),
+                SyntaxKind::BigIntKeyword => Some("bigint".to_string()),
                 _ => None,
             },
             TypeNode::LiteralTypeNode(literal) => match literal.literal? {
@@ -2624,7 +2764,27 @@ impl<'a> Checker<'a, '_> {
                 if matches!(element, TypeNode::UnionTypeNode(_)) {
                     Some(format!("({inner})[]"))
                 } else {
+                    // A parenthesised union element arrives already wrapped —
+                    // see the `ParenthesizedTypeNode` arm.
                     Some(format!("{inner}[]"))
+                }
+            }
+            // §449: the written form `(symbol | string)[]` parses the element
+            // as a `ParenthesizedTypeNode` wrapping the union, and this walk
+            // had no arm for it at all. Only the union-wrapping form is
+            // reused — a redundant paren around anything else is a spelling
+            // the node builder's reuse has not been measured on.
+            TypeNode::ParenthesizedTypeNode(paren) => {
+                let element = paren.r#type?;
+                let inner = Self::written_type_text_flags(
+                    element,
+                    single_quoted,
+                    array_headed,
+                    void_union,
+                )?;
+                match element {
+                    TypeNode::UnionTypeNode(_) => Some(format!("({inner})")),
+                    _ => None,
                 }
             }
             TypeNode::UnionTypeNode(union) => {
@@ -2687,6 +2847,20 @@ impl<'a> Checker<'a, '_> {
             }
             _ => None,
         }
+    }
+
+    /// §137's admission test, factored for its §449 second caller: two union
+    /// spellings holding the SAME constituent set in a DIFFERENT order. A
+    /// differing set means the resolved type diverges from the written
+    /// spelling — the promiseTypeStrictNull class the blanket reuse lost.
+    fn same_union_set_different_order(written_text: &str, fresh_text: &str) -> bool {
+        let written: Vec<&str> = written_text.split(" | ").collect();
+        let rendered: Vec<&str> = fresh_text.split(" | ").collect();
+        let mut written_sorted = written.clone();
+        let mut rendered_sorted = rendered.clone();
+        written_sorted.sort_unstable();
+        rendered_sorted.sort_unstable();
+        written != rendered && written_sorted == rendered_sorted
     }
 
     /// The written text of a `typeof x` annotation, for the node-reuse rule on

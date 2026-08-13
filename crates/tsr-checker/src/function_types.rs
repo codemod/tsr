@@ -152,7 +152,15 @@ impl<'a> Checker<'a, '_> {
         // has none is a gap rather than a type with a synthetic identity — see
         // the note above.
         let Some(symbol) = self.binder.symbol_of(id) else { return error };
-        let built = self.store.new_anonymous(TypeFlags::OBJECT, text, symbol, true);
+        // §447: the `signature` flag records which NODE KIND the node builder
+        // would emit (`TypeData::Anonymous::signature`'s own contract), and an
+        // alias-NAMED bake emits a `TypeReferenceNode` — highest precedence,
+        // never parenthesised — not a bare `FunctionTypeNode`. Passing `true`
+        // for it printed `(F1) | (F2)` where `unionTypeCallSignatures4`
+        // records `F1 | F2`. The flag's other consumer (`crate::flow`'s
+        // typeof facts) is unaffected: it falls through to the
+        // `signature_types` table this same function populates below.
+        let built = self.store.new_anonymous(TypeFlags::OBJECT, text, symbol, !alias_named);
         // §89 (`checker-notes-narrow.md`): the site renderer's composite
         // re-render (§10.13) rebuilds a single-signature type from its
         // STRUCTURE — which is right for qualifier/rename sites and WRONG
