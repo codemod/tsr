@@ -345,6 +345,27 @@ impl Checker<'_, '_> {
                     }
                     return error;
                 }
+                // §399: a FOR-OF head's pattern destructures the ITERATED
+                // element — `for (var {x: a, y: b} of array)` reads `a` and
+                // `b` from the element's members (`for-of41/42/43`), the same
+                // `for_of_element_type` the plain-name arm has had since §38.
+                // `for await` and undecidable iterables keep the gap.
+                if let Some(list) = self.nodes.parent(holder)
+                    && let Some(statement) = self.nodes.parent(list)
+                    && self.nodes.kind(statement) == SyntaxKind::ForOfStatement
+                    && let Some(Node::ForInOrOfStatement(for_of)) = self.node_map.get(statement)
+                    && for_of.await_modifier.is_none()
+                    && let Some(expression) = for_of.expression
+                {
+                    let iterated = self.check_expression(expression);
+                    if iterated == error {
+                        return error;
+                    }
+                    if let Some(element) = self.for_of_element_type(iterated) {
+                        return element;
+                    }
+                    return error;
+                }
                 if let Some(initializer) = self.initializer_of(holder) {
                     // **The pattern-implied contextual type** (`bd tsr-84iz`,
                     // `checker-notes-patctx.md`). Upstream threads
