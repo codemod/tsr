@@ -109,6 +109,13 @@ impl<'a> Parser<'a> {
         self.next_token();
         let mut elements = Vec::new();
         while !self.at(SyntaxKind::CloseBraceToken) && !self.at(SyntaxKind::EndOfFile) {
+            // §407: the import half of the unclosed-clause recovery — the
+            // list ends at `from "…"`.
+            if self.at(SyntaxKind::FromKeyword)
+                && self.peek_kind(|kind| kind == SyntaxKind::StringLiteral)
+            {
+                break;
+            }
             let before = self.pos();
             let element_start = self.pos();
             let type_only = self.at(SyntaxKind::TypeKeyword) && self.type_is_modifier_here();
@@ -306,6 +313,16 @@ impl<'a> Parser<'a> {
             self.next_token();
             let mut elements = Vec::new();
             while !self.at(SyntaxKind::CloseBraceToken) && !self.at(SyntaxKind::EndOfFile) {
+                // §407: an UNCLOSED clause ends at `from "…"` — upstream's
+                // recovery hands the pair to the from-clause rather than
+                // minting a specifier named `from`
+                // (`unclosedExportClause01/02`'s baselines record no line
+                // for it and the module resolves).
+                if self.at(SyntaxKind::FromKeyword)
+                    && self.peek_kind(|kind| kind == SyntaxKind::StringLiteral)
+                {
+                    break;
+                }
                 let before = self.pos();
                 let element_start = self.pos();
                 let type_only = self.at(SyntaxKind::TypeKeyword) && self.type_is_modifier_here();
