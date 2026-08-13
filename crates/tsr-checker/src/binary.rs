@@ -208,6 +208,26 @@ impl Checker<'_, '_> {
     /// upstream's order so that it is already right when they arrive.
     fn check_addition(&mut self, left: TypeId, right: TypeId) -> TypeId {
         if self.is_error(left) || self.is_error(right) {
+            // §313's tail — upstream's ORDER, not a deviation: the string
+            // test precedes the any/error fallthrough
+            // (`checker.go:12430-12437`), so an error-typed operand beside a
+            // string-like one is STRING — `f += ''` on a class-named target
+            // records `>f += '' : string` beside `>f : any`
+            // (`concatClassAndString`, `arithAssignTyping`). Only a
+            // string-free pair keeps the error.
+            let other = if self.is_error(left) { right } else { left };
+            let other_is_string_like = !self.is_error(other)
+                && (self.store.get(other).flags.intersects(TypeFlags::STRING_LIKE)
+                    || matches!(
+                        &self.store.get(other).data,
+                        crate::types::TypeData::Union { types, .. }
+                            if !types.is_empty() && types.iter().all(|&c| {
+                                self.store.get(c).flags.intersects(TypeFlags::STRING_LIKE)
+                            })
+                    ));
+            if other_is_string_like {
+                return self.intrinsics.string;
+            }
             return self.intrinsics.error;
         }
         // §179 (`checker-notes-narrow.md`): upstream's `+` arm asks

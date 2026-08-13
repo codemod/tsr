@@ -505,6 +505,26 @@ impl Checker<'_, '_> {
                                     self.get_flow_type_of_reference(node_id, Some(symbol), start)
                                 }
                             }
+                        } else if self.assignment_target_kind(id) != AssignmentTargetKind::None
+                            && self.binder.symbols().get(symbol).flags.intersects(
+                                SymbolFlags::FUNCTION
+                                    | SymbolFlags::CLASS
+                                    | SymbolFlags::ENUM
+                                    | SymbolFlags::VALUE_MODULE,
+                            )
+                        {
+                            // §313: ASSIGNING to a function, class, enum or
+                            // namespace name is upstream's TS2629/2630/2631/2632
+                            // family — `checkReferenceExpression` reports and
+                            // the target reads `errorType`, whose observable is
+                            // `any` (every such case carries an errors
+                            // baseline): `eval = 1` records `>eval : any`
+                            // (`parserStrictMode3` — and its `-negative` twin
+                            // proves strict mode is not the trigger),
+                            // `fn = () => {}` records `>fn : any`
+                            // (`assignmentToFunction`, `assignToEnum`,
+                            // `assignToExistingClass`).
+                            self.intrinsics.error
                         } else if let Some(&spelled) = self.enum_access_spelling.get(&declared) {
                             // §280: a bare enum-member REFERENCE takes the
                             // access spelling, exactly as the property-access
