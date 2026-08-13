@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 5569/9538 (58.39%)
-Assertion lines: 429634/478855 (89.72%)  — a gradient, not a pass rate
-Failed         : 3969
+Passed         : 5579/9538 (58.49%)
+Assertion lines: 429767/478855 (89.75%)  — a gradient, not a pass rate
+Failed         : 3959
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 3969 failures:
+First 100 of 3959 failures:
 compiler/2dArrays
   2dArrays.ts: >function (val) { return val.isSunk; } : error — expected >function (val) { return val.isSunk; } : (val: Ship) => boolean
 compiler/ClassDeclaration26
@@ -148,7 +148,7 @@ compiler/arrayBindingPatternOmittedExpressions
 compiler/arrayBufferIsViewNarrowsType
   arrayBufferIsViewNarrowsType.ts: >ArrayBuffer.isView(obj) : any — expected >ArrayBuffer.isView(obj) : boolean
 compiler/arrayCast
-  arrayCast.ts: >[{ foo: "s" }, {}] : any — expected >[{ foo: "s" }, {}] : ({ foo: string; } | {})[]
+  arrayCast.ts: >[{ foo: "s" }, {}] : {}[] — expected >[{ foo: "s" }, {}] : ({ foo: string; } | {})[]
 compiler/arrayConcat2
   arrayConcat2.ts: >a.concat("hello", 'world') : error — expected >a.concat("hello", 'world') : string[]
 compiler/arrayConcat3
@@ -182,7 +182,7 @@ compiler/arrayLiteralAndArrayConstructorEquivalence1
 compiler/arrayLiteralComments
   arrayLiteralComments.ts: >testArrayWithFunc : error — expected >testArrayWithFunc : (string | number | number[] | (() => void) | { a: number; })[]
 compiler/arrayLiteralTypeInference
-  arrayLiteralTypeInference.ts: >[    { id: 2, trueness: false },    { id: 3, name: "three" }] : any — expected >[    { id: 2, trueness: false },    { id: 3, name: "three" }] : ({ id: number; trueness: boolean; } | { id: number; name: string; })[]
+  arrayLiteralTypeInference.ts: >[    { id: 2, trueness: false },    { id: 3, name: "three" }] : ({ id: number; name: string; } | { id: number; trueness: boolean; })[] — expected >[    { id: 2, trueness: false },    { id: 3, name: "three" }] : ({ id: number; trueness: boolean; } | { id: number; name: string; })[]
 compiler/arrayReferenceWithoutTypeArgs
   arrayReferenceWithoutTypeArgs.ts: >f : any — expected >f : (a: Array) => void
 compiler/arraySigChecking

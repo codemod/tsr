@@ -121,10 +121,16 @@ const x = k(\"b\");
 
 #[test]
 fn an_undecidable_argument_is_error_and_never_a_plausible_first_candidate() {
-    // Object-typed parameters are outside what a `false` from this port's
-    // relater can be trusted about, so the whole call is a gap. This is the
-    // test that fails FIRST if someone relaxes the guard to "just try it": a
-    // first-candidate answer here would be `string`.
+    // FLIPPED at §387. The old line asserted `error` on "object-typed
+    // parameters are outside what a `false` from this port's relater can be
+    // trusted about" — and the test's own design proves the flip is not a
+    // relaxation: a first-candidate guess would answer `string`, and the
+    // answer below is `number`, the SECOND candidate, which is upstream's
+    // own pick. What changed: §387 made a missing required member on a
+    // completely-enumerated source a decidable `false`, so `{ b: number }`
+    // REJECTS `(x: { a: number })` and the walk reaches the candidate that
+    // matches. What the old pin got right: an INCOMPLETE enumeration still
+    // answers Unknown and still gaps the call.
     let source = "\
 function m(x: { a: number }): string;
 function m(x: { b: number }): number;
@@ -132,7 +138,7 @@ function m(x: any): any { return x; }
 const value = { b: 1 };
 const x = m(value);
 ";
-    assert_eq!(type_of_last(source), "error");
+    assert_eq!(type_of_last(source), "number");
 
     // FLIPPED at §273: this asserted `error` on "a generic candidate anywhere
     // in the set is a gap". Upstream's subtype pass walks in candidate order

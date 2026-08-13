@@ -938,6 +938,21 @@ impl Relater<'_, '_, '_> {
                     parts.push(Ternary::Related);
                     continue;
                 }
+                // §387 narrows row 2: when the SOURCE's own member
+                // enumeration is COMPLETE — its names walk succeeds, and a
+                // signature-bearing source never reached this function — a
+                // missing required target member is upstream's plain `false`,
+                // not an absence of knowledge. `bar(i)` with `i: I` against
+                // `(i: C)` where `C` requires a member `I` lacks now REJECTS
+                // the candidate and the any-overload answers
+                // (`symbolProperty13`). An unfollowable source keeps the
+                // Unknown.
+                if self.checker.get_type_of_property_of_type(source, &name).is_none()
+                    && self.property_names_of(source).is_some()
+                {
+                    parts.push(Ternary::NotRelated);
+                    continue;
+                }
                 reasons::note(reasons::Site::AbsentProperty);
                 parts.push(Ternary::Unknown);
                 continue;
