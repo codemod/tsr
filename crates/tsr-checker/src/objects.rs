@@ -738,6 +738,38 @@ impl Checker<'_, '_> {
                 // keep gapping - their printed form (`readonly x`, getter/
                 // setter merging) is `assignmentCompatBug3`'s own question.
                 tsr_ast::ObjectLiteralElementLike::GetAccessorDeclaration(accessor) => {
+                    // §415: an IDENTIFIER-named getter is a property of the
+                    // accessor pair's type — `{ get x() { return 1 } }` is
+                    // `{ x: number; }`, readonly only when no setter sibling
+                    // names it (§325's merge, keyed on written names). The
+                    // pair's type goes through get_type_of_accessors, the
+                    // same road class accessors take.
+                    if let tsr_ast::PropertyName::Identifier(name) = accessor.name {
+                        let Some(id) = accessor.node_id else { return error };
+                        let Some(symbol) = self.binder.symbol_of(id) else { return error };
+                        let member_type = self.get_type_of_symbol(symbol);
+                        if member_type == error {
+                            return error;
+                        }
+                        let has_setter_sibling = node.properties.iter().any(|sibling| {
+                            matches!(sibling,
+                                tsr_ast::ObjectLiteralElementLike::SetAccessorDeclaration(setter)
+                                    if matches!(setter.name,
+                                        tsr_ast::PropertyName::Identifier(other)
+                                            if other.text == name.text))
+                        });
+                        let printed = self.type_to_string(member_type);
+                        upsert_member(
+                            &mut members,
+                            Member::Property {
+                                name: name.text.to_string(),
+                                optional: false,
+                                readonly: const_context || !has_setter_sibling,
+                                printed,
+                            },
+                        );
+                        continue;
+                    }
                     let tsr_ast::PropertyName::ComputedPropertyName(computed) = accessor.name
                     else {
                         return error;
@@ -807,6 +839,29 @@ impl Checker<'_, '_> {
                     continue;
                 }
                 tsr_ast::ObjectLiteralElementLike::SetAccessorDeclaration(accessor) => {
+                    // §415: the setter half of the identifier-named pair —
+                    // the binder merges same-named accessors into one symbol,
+                    // so both arms compute the SAME get_type_of_accessors
+                    // answer and the upsert keeps one row.
+                    if let tsr_ast::PropertyName::Identifier(name) = accessor.name {
+                        let Some(id) = accessor.node_id else { return error };
+                        let Some(symbol) = self.binder.symbol_of(id) else { return error };
+                        let member_type = self.get_type_of_symbol(symbol);
+                        if member_type == error {
+                            return error;
+                        }
+                        let printed = self.type_to_string(member_type);
+                        upsert_member(
+                            &mut members,
+                            Member::Property {
+                                name: name.text.to_string(),
+                                optional: false,
+                                readonly: const_context,
+                                printed,
+                            },
+                        );
+                        continue;
+                    }
                     let tsr_ast::PropertyName::ComputedPropertyName(computed) = accessor.name
                     else {
                         return error;
