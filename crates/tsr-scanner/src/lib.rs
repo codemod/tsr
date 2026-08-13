@@ -465,6 +465,44 @@ impl<'a> Scanner<'a> {
                         flags |= TokenFlags::PRECEDING_JSDOC_LEADING_ASTERISKS;
                         i += 1;
                     }
+                    // §301: a MERGE CONFLICT MARKER at line start is trivia
+                    // with an error — `isConflictMarkerTrivia` /
+                    // `scanConflictMarkerTrivia` (`scanner.go:2409/2444`).
+                    // Seven identical `<`/`>`/`=`/`|` at a line start (for
+                    // `=` unconditionally, for the others followed by a
+                    // space): `<`/`>` skip their line; `=`/`|` skip until the
+                    // start of the next `=======` or `>>>>>>>` marker.
+                    // Without this, `<<<<<<< HEAD` lexed as shift operators
+                    // and the fixtures printed the marker as expressions
+                    // (`conflictMarkerTrivia1/3`, `conflictMarkerDiff3Trivia1`).
+                    b @ (b'<' | b'=' | b'>' | b'|')
+                        if (flags.contains(TokenFlags::PRECEDING_LINE_BREAK) || i == 0)
+                            && Self::is_conflict_marker(bytes, i, limit) =>
+                    {
+                        #[allow(clippy::cast_possible_truncation)]
+                        self.error(
+                            &messages::MERGE_CONFLICT_MARKER_ENCOUNTERED,
+                            Span::new(i as u32, i as u32 + 7),
+                        );
+                        if b == b'<' || b == b'>' {
+                            while i < limit && bytes[i] != b'\n' && bytes[i] != b'\r' {
+                                i += 1;
+                            }
+                        } else {
+                            i += 7;
+                            while i < limit {
+                                let current = bytes[i];
+                                if (current == b'=' || current == b'>')
+                                    && current != b
+                                    && (i == 0 || bytes[i - 1] == b'\n' || bytes[i - 1] == b'\r')
+                                    && Self::is_conflict_marker(bytes, i, limit)
+                                {
+                                    break;
+                                }
+                                i += 1;
+                            }
+                        }
+                    }
                     // Anything else ASCII starts a token.
                     b if b < 0x80 => break 'trivia,
                     // Non-ASCII: might be trivia, might be an identifier.
@@ -1581,6 +1619,21 @@ impl<'a> Scanner<'a> {
             );
         }
         self.token
+    }
+
+    /// §301: `isConflictMarkerTrivia` (`scanner.go:2409`) — seven identical
+    /// marker bytes; `=` needs nothing after, the others a following space.
+    /// Line-start is the CALLER's test (the trivia loop knows it crossed a
+    /// newline).
+    fn is_conflict_marker(bytes: &[u8], pos: usize, limit: usize) -> bool {
+        if pos + 7 > limit {
+            return false;
+        }
+        let ch = bytes[pos];
+        if bytes[pos..pos + 7].iter().any(|&b| b != ch) {
+            return false;
+        }
+        ch == b'=' || (pos + 7 < limit && bytes[pos + 7] == b' ')
     }
 
     // ---- punctuation ----------------------------------------------------
