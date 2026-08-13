@@ -2283,6 +2283,28 @@ impl Checker<'_, '_> {
             // own declines rather than answer the uninstantiated `C<T>`
             // (the §343 two-endings rule: the implicit zero-argument
             // constructor can infer nothing).
+            // §389: NO written arguments and NO call arguments is inference
+            // with zero sources — every parameter takes upstream's failed-
+            // inference fallback, `unknownType` (`new M` on `class M<T>` is
+            // `M<unknown>`, `recursiveBaseCheck4/5/6`). Gated away from
+            // defaults, which fill instead and belong to the arm above.
+            if written.is_empty()
+                && node.arguments.is_empty()
+                && type_parameters.iter().all(|parameter| parameter.default_type.is_none())
+            {
+                // A JS CALL SITE's failed inference is `any`, not `unknown`
+                // (`genericDefaultsJs` wants `f0_v0 : any` for a `.d.ts`
+                // class newed from `main.js` — the site's file decides, not
+                // the declaration's).
+                let fallback = if node.node_id.is_some_and(|id| self.in_js_file(id)) {
+                    self.intrinsics.any
+                } else {
+                    self.intrinsics.unknown
+                };
+                let arguments = vec![fallback; type_parameters.len()];
+                bump(&COUNTERS.new_instantiated);
+                return self.create_type_reference(symbol, arguments);
+            }
             if written.is_empty() && !node.arguments.is_empty() {
                 let constructors: Vec<NodeId> = match self.node_map.get(declaration) {
                     Some(Node::ClassDeclaration(class)) => class

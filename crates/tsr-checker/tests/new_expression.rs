@@ -71,9 +71,11 @@ fn arguments_do_not_reach_the_answer() {
 
 #[test]
 fn a_generic_class_is_a_gap_rather_than_the_uninstantiated_type() {
-    // `>new C<number>() : C<number>` upstream. Without inference this would
-    // print `C<T>` or bare `C`, both wrong lines, so it gaps.
-    assert_eq!(type_of_last("class C<T> {}\nconst x = new C();"), "error");
+    // FLIPPED at §389. The old line asserted the gap; zero-source inference
+    // has upstream's own fallback — every parameter is `unknown`
+    // (`recursiveBaseCheck4/5/6` record `M<unknown>`). What the old pin got
+    // right: `C<T>` and bare `C` really are wrong; the fallback is neither.
+    assert_eq!(type_of_last("class C<T> {}\nconst x = new C();"), "C<unknown>");
 }
 
 #[test]
@@ -86,7 +88,10 @@ fn explicit_type_arguments_instantiate_the_class() {
     // `conformance/genericSetterInClassType.types` records
     // `>new C<number>() : C<number>`. The wider suite is `tests/new_generic.rs`.
     assert_eq!(type_of_last("class C<T> {}\nconst x = new C<number>();"), "C<number>");
-    assert_eq!(type_of_last("class C<T> {}\nconst x = new C();"), "error");
+    // §389: the inferred form's zero-source case answers the `unknown`
+    // fallback now — the pair still discriminates, on the VALUE rather than
+    // on answer-vs-gap.
+    assert_eq!(type_of_last("class C<T> {}\nconst x = new C();"), "C<unknown>");
 }
 
 #[test]
