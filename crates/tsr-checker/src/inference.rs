@@ -778,9 +778,16 @@ impl Checker<'_, '_> {
                         // `getInferredType`'s final fallback
                         // (`inference.go:1406`): no candidates, no default,
                         // no possible source — `unknownType`
-                        // (`checker-notes-narrow.md` §36).
-                        let unknown = self.intrinsics.unknown;
-                        map.push((type_parameter, unknown));
+                        // (`checker-notes-narrow.md` §36). §403: `anyType`
+                        // at a JS call site, the same site-file split §389
+                        // measured (`plainJSGrammarErrors3`'s
+                        // `new Promise(undefined) : any`).
+                        let fallback = if call.is_some_and(|id| self.in_js_file(id)) {
+                            self.intrinsics.any
+                        } else {
+                            self.intrinsics.unknown
+                        };
+                        map.push((type_parameter, fallback));
                         continue;
                     };
                     // A default may reference an earlier parameter
