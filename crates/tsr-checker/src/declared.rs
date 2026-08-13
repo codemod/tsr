@@ -2523,6 +2523,30 @@ impl<'a> Checker<'a, '_> {
                     continue;
                 };
                 let member_name = self.binder.symbols().get(member_symbol).name.to_string();
+                // §309: a COMPUTED-NAME member — `enum E { [e] = 1 }`, a parse
+                // recovery the corpus tests deliberately — has no bindable
+                // name, and its declared type is the ENUM'S OWN: the baseline
+                // records `[e] : E`, never a per-name literal
+                // (`parserComputedPropertyName16/30/34`). Minting `E.__computed`
+                // from the binder's placeholder was the §55 fold applied one
+                // member too wide. It contributes nothing to the union — an
+                // enum of only computed-name members takes the
+                // `createComputedEnumType` fallback below and still prints `E`.
+                // Gated to names the BINDER could not spell: a LITERAL
+                // computed name (`[1]`, `["3"]`) is late-bound upstream
+                // (`hasBindableName` true) and the binder already named its
+                // symbol, so those keep the fold —
+                // `compiler/literalsInComputedProperties1` records
+                // `(typeof X)["2"]` and `X.bar` for them, and the first draft
+                // of this arm flattened all four to `X` (4 R→W).
+                if matches!(member.name, tsr_ast::PropertyName::ComputedPropertyName(_))
+                    && member_name == "__computed"
+                {
+                    let member_type = self.store.new_named(TypeFlags::ENUM, name.clone(), None);
+                    self.enum_member_owners.insert(member_type, symbol);
+                    self.declared_types.insert(member_symbol, member_type);
+                    continue;
+                }
                 // `symbol: None` is LOAD-BEARING, measured (§10.16 of
                 // `checker-notes-modobj.md`): carrying the member symbol here
                 // let `qualified_name_at` rename the baked `{enum}.` prefix —
