@@ -3183,6 +3183,16 @@ impl<'a> Checker<'a, '_> {
             // See `crate::optionality`.
             return Some(self.add_optionality_for_declaration(declared, declaration));
         }
+        // §273's exposure repair: a JS variable's `@type` tag IS its
+        // annotation (`getEffectiveTypeAnnotationNode`'s JSDoc arm). A tag
+        // type that does not compute keeps the road below, as the `@param`
+        // twin does.
+        if let Some(annotation) = self.jsdoc_type_annotation(declaration) {
+            let declared = self.get_type_from_type_node(annotation);
+            if declared != self.intrinsics.error {
+                return Some(self.add_optionality_for_declaration(declared, declaration));
+            }
+        }
         // §269: an unannotated JS parameter reads its `@param` type — the
         // SYMBOL-line half of §110 slice 2, which had only ever fed the
         // signature: `function f(foo) {}` under `@param {Foo} foo` printed
@@ -3499,6 +3509,51 @@ impl<'a> Checker<'a, '_> {
                     {
                         return tag.type_expression;
                     }
+                }
+            }
+        }
+        None
+    }
+
+    /// §273's exposure, repaired: the `@type` tag an unannotated JS variable
+    /// reads — `/** @type {Map<string, V>} */ const cache = new Map()` takes
+    /// the tag's type, not the initialiser's. Upstream is
+    /// `getEffectiveTypeAnnotationNode`'s JSDoc arm again, the same door the
+    /// `@param` road above went through. The docs hang off the enclosing
+    /// `VariableStatement`, two parents up.
+    fn jsdoc_type_annotation(&self, declaration: NodeId) -> Option<TypeNode<'a>> {
+        if !self.in_js_file(declaration) {
+            return None;
+        }
+        if self.nodes.kind(declaration) != SyntaxKind::VariableDeclaration {
+            return None;
+        }
+        let mut current = declaration;
+        for _ in 0..2 {
+            current = self.nodes.parent(current)?;
+        }
+        if self.nodes.kind(current) != SyntaxKind::VariableStatement {
+            return None;
+        }
+        let docs = self.jsdoc_entries.get(&current)?;
+        for doc in *docs {
+            // A `@type` inside a `@typedef`/`@callback` block belongs to that
+            // construct, not to the variable the block precedes —
+            // `typedefTagNested`'s `var intercessor = 1` under a typedef
+            // carrying a stray `@type {string}` stays `number`.
+            if doc.tags.iter().any(|tag| {
+                matches!(
+                    tag,
+                    tsr_ast::JSDocTag::JSDocTypedefTag(_) | tsr_ast::JSDocTag::JSDocCallbackTag(_)
+                )
+            }) {
+                continue;
+            }
+            for tag in doc.tags {
+                if let tsr_ast::JSDocTag::JSDocTypeTag(tag) = tag
+                    && let Some(Node::JSDocTypeExpression(expression)) = tag.type_expression
+                {
+                    return expression.r#type;
                 }
             }
         }

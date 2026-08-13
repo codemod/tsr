@@ -529,7 +529,11 @@ impl Checker<'_, '_> {
             bump(&COUNTERS.untyped_call);
             return self.intrinsics.any;
         }
-        let resolved = self.resolve_call_signature(callee_type, Some(node.arguments));
+        let resolved = self.resolve_call_signature_with_type_arguments(
+            callee_type,
+            Some(node.arguments),
+            !node.type_arguments.is_empty(),
+        );
         let Some(signature) = resolved else {
             // §250. Overload resolution FAILING does not make the call's type
             // unknown. Upstream reports on the arguments and then takes a
@@ -917,6 +921,20 @@ impl Checker<'_, '_> {
         callee: TypeId,
         arguments: Option<&[Expression<'_>]>,
     ) -> Option<Signature> {
+        self.resolve_call_signature_with_type_arguments(callee, arguments, false)
+    }
+
+    /// [`Checker::resolve_call_signature`], carrying whether the CALL writes
+    /// type arguments — §273's truncated prefix must not pick a non-generic
+    /// candidate for `f<string>(…)`, since upstream's
+    /// `hasCorrectTypeArgumentArity` skips every candidate that cannot take
+    /// them and only the (undecidable) generic tail remains.
+    pub fn resolve_call_signature_with_type_arguments(
+        &mut self,
+        callee: TypeId,
+        arguments: Option<&[Expression<'_>]>,
+        has_type_arguments: bool,
+    ) -> Option<Signature> {
         // Counting is restricted to the call-expression path: a tagged template
         // passes no argument list, and folding its callees into the same buckets
         // would leave the funnel's denominator counting two different questions.
@@ -944,10 +962,30 @@ impl Checker<'_, '_> {
             // so this needs its own route (`bd tsr-4sa`,
             // `docs/architecture/checker-notes-namedcallee.md`).
             let named = self.get_signature_of_named_type(callee, SignatureKind::Call);
-            if named.is_none() && counted {
+            if named.is_some() {
+                return named;
+            }
+            // §273 at the named-callee road: the subtype pass over the clean
+            // candidate prefix — `Array(3)` through ArrayConstructor's call
+            // signatures, the same shape as the `new` road's hook.
+            if !has_type_arguments
+                && let Some(arguments) = arguments
+                && let Some(candidates) =
+                    self.signature_candidates_of_named_type(callee, SignatureKind::Call)
+                && !candidates.is_empty()
+            {
+                let clean = self.clean_candidate_prefix_len(&candidates);
+                if clean > 0
+                    && let Some(signature) =
+                        self.subtype_pass_prefix_pick(&candidates, clean, arguments)
+                {
+                    return Some(signature);
+                }
+            }
+            if counted {
                 bump(&COUNTERS.callee_not_anonymous);
             }
-            return named;
+            return None;
         };
         // An **instantiated** signature type carries the *uninstantiated*
         // symbol (`Checker::instantiate_signature_type`, `bd tsr-0hc`), so
@@ -1013,7 +1051,7 @@ impl Checker<'_, '_> {
                 if counted {
                     bump(&COUNTERS.overload_sets);
                 }
-                self.choose_overload(candidates, arguments)
+                self.choose_overload(candidates, arguments, has_type_arguments)
             }
         }
     }
@@ -1052,6 +1090,7 @@ impl Checker<'_, '_> {
         &mut self,
         candidates: &[Signature],
         arguments: &[Expression<'_>],
+        has_type_arguments: bool,
     ) -> Option<Signature> {
         // callres2 slice 1: `hasCorrectArity` is upstream's FIRST pass
         // (checker.go:9107, inside chooseOverload's loop) and it runs here
@@ -1074,30 +1113,63 @@ impl Checker<'_, '_> {
                 return Some((*survivor).clone());
             }
         }
-        // The three rejections below were one short-circuiting `any` over the
-        // candidates. They are separated so each can be counted, and tested in
-        // the order the doc comment lists them - first match wins, which is why
-        // a set that is both generic and object-typed reads as generic. The
-        // *answer* is unchanged: any one of them still gaps the whole call.
-        if candidates.iter().any(|candidate| !candidate.type_parameters.is_empty()) {
+        // §273: these rejections used to judge the SET; upstream judges
+        // candidates in ORDER — `chooseOverload` (`checker.go:9425`) walks and
+        // the first success wins — so a CLEAN PREFIX, every candidate before
+        // the first generic / this-parameter / rest / any-parameter one, is
+        // decidable exactly as an all-clean set was. If a prefix candidate
+        // matches, upstream picks it (or an earlier one, which rejected the
+        // same way here) without ever consulting the problematic tail; only
+        // when the whole prefix rejects does the tail's undecidability gap
+        // the call. Witness `new Array(3)`: ArrayConstructor's FIRST construct
+        // signature is the non-generic `new (arrayLength?: number): any[]`,
+        // and upstream never reaches the generic overloads behind it.
+        let clean_len = self.clean_candidate_prefix_len(candidates);
+        if clean_len == 0 {
+            // Nothing decidable before the first problematic candidate: the
+            // old whole-set gap, counted by the first candidate's own reason.
+            let first = &candidates[0];
+            if !first.type_parameters.is_empty() {
+                bump(&COUNTERS.generic_candidate);
+            } else if first.this_parameter.is_some()
+                || first.parameters.iter().any(|parameter| parameter.rest)
+            {
+                bump(&COUNTERS.this_or_rest_parameter);
+            } else {
+                bump(&COUNTERS.parameter_any);
+            }
+            return None;
+        }
+        let truncated = clean_len < candidates.len();
+        let full_set = candidates;
+        let candidates = &candidates[..clean_len];
+        if truncated && has_type_arguments {
+            // Written type arguments skip every non-generic candidate
+            // upstream (`hasCorrectTypeArgumentArity`); only the generic tail
+            // could answer, and it is undecidable here
+            // (`overloadsAndTypeArgumentArity`, the third draft's R→W pair).
             bump(&COUNTERS.generic_candidate);
             return None;
         }
-        if candidates.iter().any(|candidate| {
-            candidate.this_parameter.is_some()
-                || candidate.parameters.iter().any(|parameter| parameter.rest)
-        }) {
-            bump(&COUNTERS.this_or_rest_parameter);
-            return None;
-        }
-        if candidates.iter().any(|candidate| {
-            candidate
-                .parameters
-                .iter()
-                .any(|p| self.type_of(p.r#type).flags.intersects(TypeFlags::ANY))
-        }) {
-            bump(&COUNTERS.parameter_any);
-            return None;
+        // §273's second draft — the first ran the ASSIGNABLE pass over the
+        // prefix and turned 34 gaps in `anyAssignabilityInInheritance` into
+        // wrong answers, because upstream runs a SUBTYPE pass over ALL
+        // candidates before assignability consults any (`checker.go:8924`):
+        // `foo3(a)` with `a: any` against `(x: string)` + `(x: any)` picks
+        // the `any` overload in pass one — `any` is not a subtype of
+        // `string` — so an assignable-pass prefix winner is unsound whenever
+        // a tail exists. With a tail, ONLY a subtype-pass winner inside the
+        // prefix is upstream's certain answer; everything else gaps.
+        if truncated {
+            let pick = self.subtype_pass_prefix_pick(full_set, clean_len, arguments);
+            match &pick {
+                Some(_) => bump(&COUNTERS.selected),
+                // The whole prefix rejected pass one (or a pair was
+                // undecidable); upstream now consults the generic/rest tail,
+                // and its outcome is undecidable here.
+                None => bump(&COUNTERS.generic_candidate),
+            }
+            return pick;
         }
         let mut argument_types = Vec::with_capacity(arguments.len());
         for &argument in arguments {
@@ -1368,6 +1440,126 @@ impl Checker<'_, '_> {
         };
         matches!(annotation, Some(tsr_ast::TypeNode::KeywordTypeNode(k))
             if k.kind == tsr_ast::SyntaxKind::AnyKeyword)
+    }
+}
+
+impl Checker<'_, '_> {
+    /// §273: upstream's SUBTYPE pass (`chooseOverload`'s first run,
+    /// `checker.go:8924`) over a CLEAN candidate prefix — the candidates
+    /// before the first generic / this-parameter / rest / any-parameter one.
+    /// A winner here is upstream's certain answer whatever follows: pass one
+    /// walks candidates in order and never reaches the tail once a prefix
+    /// candidate relates, and every earlier candidate rejected the same way.
+    ///
+    /// The subtype WALK was never hardened the way the assignable one was
+    /// when `SELECTABLE` retired: its structural half is shared with
+    /// `Assignable` and answers a confident Related for object pairs whose
+    /// members it cannot see — the third draft picked `(i: C): C` for an `I`
+    /// argument that way (`symbolProperty13`; upstream says I is NOT a
+    /// subtype of C and takes the `any` overload). So this pass trusts only
+    /// the domains where the simple arms decide: pairs whose two sides are
+    /// both primitive-like, literal, nullish or any-like. Anything wider is
+    /// Unknown by fiat and the pick declines.
+    pub(crate) fn subtype_pass_prefix_pick(
+        &mut self,
+        candidates: &[Signature],
+        clean_len: usize,
+        arguments: &[Expression<'_>],
+    ) -> Option<Signature> {
+        // Upstream REORDERS candidates before any pass — `reorderCandidates`
+        // (`checker.go:8957`) splices every specialized signature (one with a
+        // literal-typed parameter, GH#1133) ahead of the non-specialized
+        // ones. This port keeps declaration order, so a first-match walk is
+        // only sound when the set — the WHOLE set, tail included, since the
+        // splice hoists from anywhere — holds no specialized candidate:
+        // `inheritedOverloadedSpecializedSignatures` lost a passing
+        // diagnostics case to exactly this before the guard (the pick took a
+        // general overload upstream had spliced behind `(x: 'B1')`).
+        let specialized = |checker: &Self, id: TypeId| {
+            let literal = TypeFlags::STRING_LITERAL
+                | TypeFlags::NUMBER_LITERAL
+                | TypeFlags::BIG_INT_LITERAL
+                | TypeFlags::BOOLEAN_LITERAL;
+            checker.type_of(id).flags.intersects(literal)
+        };
+        if candidates
+            .iter()
+            .any(|candidate| candidate.parameters.iter().any(|p| specialized(self, p.r#type)))
+        {
+            return None;
+        }
+        let prefix = &candidates[..clean_len];
+        let mut argument_types = Vec::with_capacity(arguments.len());
+        for &argument in arguments {
+            if matches!(argument, Expression::SpreadElement(_)) {
+                return None;
+            }
+            argument_types.push(self.check_expression(argument));
+        }
+        let simple = |checker: &Self, id: TypeId| {
+            checker.type_of(id).flags.intersects(
+                TypeFlags::ANY
+                    | TypeFlags::UNKNOWN
+                    | TypeFlags::NEVER
+                    | TypeFlags::VOID
+                    | TypeFlags::UNDEFINED
+                    | TypeFlags::NULL
+                    | TypeFlags::STRING_LIKE
+                    | TypeFlags::NUMBER_LIKE
+                    | TypeFlags::BIG_INT_LIKE
+                    | TypeFlags::BOOLEAN_LIKE
+                    | TypeFlags::ES_SYMBOL_LIKE,
+            ) && !checker
+                .type_of(id)
+                .flags
+                .intersects(TypeFlags::OBJECT | TypeFlags::UNION | TypeFlags::TYPE_PARAMETER)
+        };
+        for candidate in prefix {
+            if !has_correct_arity(candidate, argument_types.len()) {
+                continue;
+            }
+            let mut verdict = Ternary::Related;
+            for (&argument, parameter) in argument_types.iter().zip(&candidate.parameters) {
+                if !simple(self, argument) || !simple(self, parameter.r#type) {
+                    verdict = Ternary::Unknown;
+                    continue;
+                }
+                match self.relate_ternary(argument, parameter.r#type, Relation::Subtype) {
+                    Ternary::NotRelated => {
+                        verdict = Ternary::NotRelated;
+                        break;
+                    }
+                    Ternary::Unknown => verdict = Ternary::Unknown,
+                    Ternary::Related => {}
+                }
+            }
+            match verdict {
+                Ternary::Unknown => return None,
+                Ternary::NotRelated => {}
+                // Upstream's pass one picks the FIRST subtype-related
+                // candidate; the tail never gets a turn.
+                Ternary::Related => return Some(candidate.clone()),
+            }
+        }
+        None
+    }
+
+    /// §273's admission test, shared with the `new`-expression road: the
+    /// candidates before the first one whose selection would need machinery
+    /// this port does not trust here.
+    pub(crate) fn clean_candidate_prefix_len(&self, candidates: &[Signature]) -> usize {
+        candidates
+            .iter()
+            .position(|candidate| {
+                !candidate.type_parameters.is_empty()
+                    || candidate.this_parameter.is_some()
+                    || candidate.parameters.iter().any(|parameter| parameter.rest)
+                    || candidate
+                        .parameters
+                        .iter()
+                        .any(|p| self.type_of(p.r#type).flags.intersects(TypeFlags::ANY))
+            })
+            .unwrap_or(candidates.len())
     }
 }
 

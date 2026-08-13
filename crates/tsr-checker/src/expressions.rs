@@ -1877,6 +1877,29 @@ impl Checker<'_, '_> {
                     bump(&COUNTERS.new_resolved);
                     return signature.r#type;
                 }
+                // §273 at the `new` road: upstream's subtype pass over the
+                // clean candidate PREFIX, before the §74 agree-loop below.
+                // `new Array(3)` is the witness — ArrayConstructor's FIRST
+                // construct signature is the non-generic
+                // `new (arrayLength?: number): any[]`, `3` is a subtype of
+                // `number`, and upstream never consults the generic
+                // overloads behind it. A pick here is sound whether or not
+                // a tail exists (pass one runs in candidate order); no pick
+                // falls through to the agree-loop unchanged.
+                if let Some(candidates) = self.signature_candidates_of_named_type(
+                    callee_type,
+                    crate::signatures::SignatureKind::Construct,
+                ) && !candidates.is_empty()
+                {
+                    let clean = self.clean_candidate_prefix_len(&candidates);
+                    if clean > 0
+                        && let Some(signature) =
+                            self.subtype_pass_prefix_pick(&candidates, clean, node.arguments)
+                    {
+                        bump(&COUNTERS.new_resolved);
+                        return signature.r#type;
+                    }
+                }
                 // §74 (`checker-notes-narrow.md`): GENERIC construct
                 // candidates infer from the arguments — `new Set([1, 2, 3])`
                 // is `Set<number>`, not §44's default-map `Set<any>`. Each

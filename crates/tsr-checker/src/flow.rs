@@ -1988,7 +1988,11 @@ impl Checker<'_, '_> {
         if callee_type == self.intrinsics.error {
             return None;
         }
-        let signature = self.resolve_call_signature(callee_type, Some(call.arguments))?;
+        let signature = self.resolve_call_signature_with_type_arguments(
+            callee_type,
+            Some(call.arguments),
+            !call.type_arguments.is_empty(),
+        )?;
         // §128 second attempt: a never-returning call truncates flow, and
         // the OBSERVABLE at an unreachable read is the DECLARED type —
         // upstream's `unreachableNeverType` is a sentinel converted at the
@@ -4152,7 +4156,11 @@ impl Checker<'_, '_> {
         if callee_type == self.intrinsics.error {
             return t;
         }
-        let Some(signature) = self.resolve_call_signature(callee_type, Some(call.arguments)) else {
+        let Some(signature) = self.resolve_call_signature_with_type_arguments(
+            callee_type,
+            Some(call.arguments),
+            !call.type_arguments.is_empty(),
+        ) else {
             return t;
         };
         let Some(predicate) = &signature.predicate else { return t };
