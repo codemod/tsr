@@ -1660,16 +1660,18 @@ fn a_call_this_slice_cannot_resolve_is_a_gap_and_not_the_first_candidate() {
         ),
         "number"
     );
-    // What is still a gap is a candidate set this port cannot judge a
-    // *non-match* against: object parameter types, where the relater's `false`
-    // is a limitation rather than a fact. Taking the first candidate would
-    // answer `number` here.
+    // FLIPPED at §387, by the same refinement as its overload_resolution.rs
+    // sibling: a missing required member on a COMPLETELY-enumerated source is
+    // now a decidable non-match, so `{ v: number }` rejects `(a: { u: number })`
+    // and the second candidate answers — `string`, upstream's pick, where a
+    // first-candidate guess would say `number`. The design of the assertion
+    // is what proves the flip sound.
     assert_eq!(
         type_of_declaration(
             "declare function q(a: { u: number }): number;\ndeclare function q(a: { v: number }): string;\nconst r = { v: 1 };\nconst x = q(r);",
             "x"
         ),
-        "error"
+        "string"
     );
     // A generic signature's return type depends on inference — and for the
     // shape where the type parameter is written *bare* as a parameter's type,
