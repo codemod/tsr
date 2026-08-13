@@ -1438,30 +1438,28 @@ impl<'a> Checker<'a, '_> {
                 continue;
             };
             let id = self.check_expression(expression);
-            // §272, MEASURED AND REFUSED. Upstream keeps an errorType return
-            // aggregate and builds the signature regardless — `() => any` for
-            // a body whose return errored (`super1`, the `() => any` census
-            // row, ~11 deficit-1 cases). Letting error through here and in
-            // `inferred_return_type` measured, on the dc1b4afb tree:
+            // §272 FLIPPED at §437, its reopening condition partially come
+            // due (§401 landed promiseType's inference population). Upstream
+            // keeps an errorType return aggregate and builds the signature
+            // regardless — `() => any` for a body whose return errored. Both
+            // measurements, per the §333 template:
             //
-            //     GAP->WRONG 405   (promiseType 22, promiseTypeStrictNull 22,
-            //                       asyncMethodWithSuper_es6 12, …)
-            //     RIGHT->WRONG 2   against GAP->RIGHT 14 / WRONG->RIGHT 25
+            //   §272 (dc1b4afb): GAP->WRONG 405 / RIGHT->WRONG 2 against
+            //     GAP->RIGHT 14 / WRONG->RIGHT 25, and ~11 deficit-1 cases.
+            //     REFUSED on the line calculus.
+            //   §437 (this tree): GAP->WRONG 462 / RIGHT->WRONG 2 against
+            //     GAP->RIGHT 56 / WRONG->RIGHT 111 — and **+29 CASES**
+            //     (5,665 -> 5,694), every adverse row in a case failing on
+            //     other lines in both worlds (promiseType,
+            //     promiseTypeStrictNull, intraExpressionInferences 492/626).
             //
-            // §257's shape at 7x the size: in this port errorType also means
-            // UNPORTED, so every function whose body merely contains an
-            // unported form started answering a confident `() => error`-shaped
-            // type where upstream computes a real one. The arithmetic arm's
-            // §271 retirement went the other way because ITS error-operand
-            // population measured empty; this one is 405 strong.
-            //
-            // REOPENING CONDITION: when the big unported return-expression
-            // forms land (await/async valued returns above all — promiseType
-            // alone is 44 of the 405), re-run the same two-line probe; the
-            // rule is right the day that population is small.
-            if id == self.intrinsics.error {
-                return None;
-            }
+            // The line damage is real and RECORDED: in this port errorType
+            // also means UNPORTED, so a body containing an unported form
+            // answers a confident any-shaped signature where upstream
+            // computes a real type. The flip is the §333 precedent — when a
+            // gate saves lines but costs cases, measure both ways and keep
+            // the CASE. Re-price when the unported return forms shrink the
+            // 462.
             if !types.contains(&id) {
                 types.push(id);
             }
@@ -1624,10 +1622,10 @@ impl<'a> Checker<'a, '_> {
     /// Everything between — a call argument, an object-literal property, a
     /// `return` expression — widens, which is what upstream does there.
     fn inferred_return_type(&mut self, declaration: NodeId, id: TypeId) -> Option<TypeId> {
-        // §272's second half — measured and refused with the aggregate site;
-        // the numbers and the reopening condition are there.
+        // §437: an errored single return IS upstream's errorType aggregate,
+        // printed `any` — see the flip note at the aggregate site.
         if id == self.intrinsics.error {
-            return None;
+            return Some(self.intrinsics.any);
         }
         let widened = self.get_widened_literal_type(id);
         if widened != id && self.has_a_written_contextual_type(declaration) {
