@@ -995,7 +995,13 @@ impl<'a> Checker<'a, '_> {
         // §269: the clause's owner is a JSDoc `@import` tag in a JS file —
         // same shape, the specifier just lives on the tag.
         let specifier = match self.node_map.get(parent)? {
-            Node::ImportDeclaration(import) => import.module_specifier,
+            // §292's narrowing: an import carrying ATTRIBUTES declines — the
+            // attribute validity rules are unported, and upstream errors the
+            // whole import where this road would type through it
+            // (`importAttributes7/8`, the pair's 2 R→W).
+            Node::ImportDeclaration(import) if import.attributes.is_none() => {
+                import.module_specifier
+            }
             Node::JSDocImportTag(import) => import.module_specifier,
             _ => return None,
         };
@@ -2817,6 +2823,48 @@ impl<'a> Checker<'a, '_> {
             | SyntaxKind::PropertySignature => {
                 self.get_widened_type_for_variable_like_declaration(declaration)
             }
+            // §292 (relocated — the first draft sat in
+            // get_type_for_variable_like_declaration, which this match never
+            // reaches for the kind): `export default <expr>` — the `default`
+            // symbol binds as PROPERTY and types as the assignment
+            // expression's REGULAR form, unwidened (`importBindingDefer`
+            // wants `defer : 2`).
+            SyntaxKind::ExportAssignment => {
+                // A `@type` tag on the assignment KEEPS THE GAP: upstream
+                // types the tag, and the importing site re-spells its aliases
+                // per module (`import("./a").NumberLike[]`,
+                // `exportDefaultWithJSDoc1/2`) — the §158 per-site re-render
+                // wall. The first draft typed the raw expression under the
+                // tag (`never[]`, 5 G->W); the second typed the tag and
+                // printed the local spelling, wrong the other way.
+                if self.jsdoc_cast_annotation(declaration).is_some() {
+                    self.intrinsics.error
+                } else {
+                    match self.node_map.get(declaration) {
+                        // `export =` keeps its own roads (§219's territory);
+                        // only the DEFAULT form types here — and a JSDoc CAST
+                        // on the expression itself is the same §158 wall as a
+                        // tag on the statement (`export default
+                        // /** @type {..} */([])`, exportDefaultWithJSDoc2).
+                        Some(Node::ExportAssignment(assignment))
+                            if !assignment.is_export_equals =>
+                        {
+                            match assignment.expression {
+                                Some(expression)
+                                    if expression.node_id().is_none_or(|id| {
+                                        self.jsdoc_cast_annotation(id).is_none()
+                                    }) =>
+                                {
+                                    let checked = self.check_expression(expression);
+                                    self.get_regular_type_of_literal_type(checked)
+                                }
+                                _ => self.intrinsics.error,
+                            }
+                        }
+                        _ => self.intrinsics.error,
+                    }
+                }
+            }
             // `checkPropertyAssignment` (`checker.go:16611`), which is
             // `checkExpressionForMutableLocation` on the initialiser.
             //
@@ -3255,27 +3303,6 @@ impl<'a> Checker<'a, '_> {
     }
 
     fn get_type_for_variable_like_declaration(&mut self, declaration: NodeId) -> Option<TypeId> {
-        // §292: `export default <expr>` — the `default` symbol binds as
-        // PROPERTY (the classifier's non-alias ExportAssignment arm) and its
-        // declaration kind matched nothing here. MEASURED ZERO AND THE ZERO
-        // IS CONFIRMED (a probe print showed the arm never firing): the
-        // importBindingDefer witnesses die one step EARLIER, at module
-        // resolution of their `./a.js`-suffixed specifiers — the §119
-        // unfindable arm answers `any` before this symbol is ever typed.
-        // Kept because it is the faithful second half (upstream types the
-        // symbol from the assignment's expression, the REGULAR literal —
-        // `defer : 2`) and it costs nothing; the reopening trigger is the
-        // resolver's js-to-ts substitution reaching the conformance
-        // pipeline, at which point these four cases score it.
-        if let Some(Node::ExportAssignment(assignment)) = self.node_map.get(declaration)
-            && let Some(expression) = assignment.expression
-        {
-            let checked = self.check_expression(expression);
-            if checked == self.intrinsics.error {
-                return None;
-            }
-            return Some(self.get_regular_type_of_literal_type(checked));
-        }
         // An annotation wins over an initialiser, always.
         if let Some(annotation) = self.type_annotation_of(declaration) {
             let declared = self.get_type_from_type_node(annotation);
