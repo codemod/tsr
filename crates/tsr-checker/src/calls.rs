@@ -1453,6 +1453,22 @@ impl Checker<'_, '_> {
     /// `any` manufactures a wrong line. Only an `any` the programmer wrote is a
     /// claim both compilers make.
     fn any_is_written_in_an_annotation(&mut self, callee: Expression<'_>) -> bool {
+        // §297: an `as any` CAST is as written as an annotation — explicit in
+        // both compilers, so the untyped-call rationale (an inferred any that
+        // upstream would contextually type) cannot apply to it. The callee is
+        // read through parentheses, exactly the shape `(a2 as any)()` and
+        // `castFunctionExpressionShouldBeParenthesized` write; a variable
+        // whose UNANNOTATED declaration is initialised by such a cast carries
+        // the same written any one hop later (`var u = (a2 as any); u()`).
+        let mut stripped = callee;
+        while let Expression::ParenthesizedExpression(paren) = stripped {
+            let Some(inner) = paren.expression else { return false };
+            stripped = inner;
+        }
+        if Self::is_written_any_cast(stripped) {
+            return true;
+        }
+        let callee = stripped;
         let Expression::Identifier(identifier) = callee else { return false };
         let Some(id) = identifier.node_id else { return false };
         let Some(symbol) = self.binder.resolve_name(
@@ -1474,7 +1490,34 @@ impl Checker<'_, '_> {
             Some(tsr_ast::Node::PropertySignatureDeclaration(node)) => node.r#type,
             _ => None,
         };
-        matches!(annotation, Some(tsr_ast::TypeNode::KeywordTypeNode(k))
+        if matches!(annotation, Some(tsr_ast::TypeNode::KeywordTypeNode(k))
+            if k.kind == tsr_ast::SyntaxKind::AnyKeyword)
+        {
+            return true;
+        }
+        // §297's one-hop half: `var u = (a2 as any);` — unannotated, the
+        // initialiser IS the written cast.
+        if annotation.is_none()
+            && let Some(tsr_ast::Node::VariableDeclaration(node)) = self.node_map.get(declaration)
+            && let Some(mut initializer) = node.initializer
+        {
+            while let Expression::ParenthesizedExpression(paren) = initializer {
+                let Some(inner) = paren.expression else { return false };
+                initializer = inner;
+            }
+            return Self::is_written_any_cast(initializer);
+        }
+        false
+    }
+
+    /// §297: `expr as any` or `<any>expr`, the two written-cast spellings.
+    fn is_written_any_cast(expression: Expression<'_>) -> bool {
+        let cast_type = match expression {
+            Expression::AsExpression(node) => node.r#type,
+            Expression::TypeAssertion(node) => node.r#type,
+            _ => return false,
+        };
+        matches!(cast_type, Some(tsr_ast::TypeNode::KeywordTypeNode(k))
             if k.kind == tsr_ast::SyntaxKind::AnyKeyword)
     }
 }
