@@ -401,8 +401,30 @@ impl Checker<'_, '_> {
             return error;
         };
         let left_type = match left {
+            // §268. A `this`-headed qualified name checks `this` as an
+            // EXPRESSION rather than resolving it as a name.
+            //
+            //     // @noImplicitThis: false
+            //     function Test1() { let x: typeof this.no = 1 }
+            //     >this.no : any
+            //     >x : any
+            //
+            // Witness `conformance/typeofThisWithImplicitThis`. `this` is not a
+            // name, so `resolve_name` finds nothing and this arm answered the
+            // error type; `check_this_expression` already answers `any` for a
+            // plain function in every mode (`tryGetThisTypeAtEx`'s
+            // fallthrough), and `.no` on `any` is `any` — upstream's route.
+            //
+            // The sibling arm in `get_type_from_type_query_node`
+            // (`declared.rs`) stays as it is and is NOT this bug: that one is
+            // upstream's `isThisIdentifier` dispatch for a BARE `typeof this`,
+            // it is correct, and it is the arm anyone reading this diagnosis
+            // would go to first.
             tsr_ast::EntityName::Identifier(identifier) if identifier.text == "this" => {
-                return error;
+                match identifier.node_id {
+                    Some(id) => self.check_this_expression(id),
+                    None => return error,
+                }
             }
             tsr_ast::EntityName::Identifier(identifier) => {
                 self.check_expression(tsr_ast::Expression::Identifier(identifier))

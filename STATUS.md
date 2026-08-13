@@ -61,7 +61,8 @@ fixes ride into the checker rows.
 
 | **`checker_types`** (superseded by the row below) | **4,979/9,538** | **52.20%** | measured at **`a4874675`** by `cargo run -p tsr-conformance --bin coverage`, one release run on the merged tree, 2026-08-11. Gradient **88.20%**. **The rows above are kept for their attributions and are NO LONGER the totals.** This window: 3,955 → 4,979, **+1,024 cases**, two lanes composing without a single collision. The `.types` lane's arms are §178–§192 (the baseline-writer guard chain, private-name lexical scope, nullable widening, the JS-literal element access); the parser/binder/scanner lane's are §190–§208. **The largest single arm was §180 (+299)** — `hadErrorBaseline`, the first condition of `writeTypeOrSymbol`'s guard chain, which revealed that the `want any, got error` cluster was a PRINTING split and not checker gaps at all |
 | **`checker_types`** (CURRENT — supersedes every row above AND the 5,156 row below) | **5,450/9,538** | **57.14%** | CORRECTED IN PLACE a thirty-first time (…5,445 → 5,450, measured at c283b3f2): §347 — the for-OF self-referential head goes the non-auto way (+2); §349 — unannotated `yield*` over an array answers the delegated return, +14 lines case-neutral; §351 — the array slice of getYieldedTypeOfYieldExpression (+1); §353 — the inner yield of `yield yield` contributes, the §223-era pin flipped with its refinement recorded (+2). **THE SESSION TARGET — 5,450 (57%) — IS REACHED.** Previously: a thirtieth time (…5,438 → 5,445, diagnostics 2,531 → 2,533): §345 — a for-in/for-of binding is never auto (upstream's isNeverInitialized names the exclusion); the self-referential recovery shape keeps the auto road, measured. Previously: a twenty-ninth time (…5,436 → 5,438): §341 — single-spread-against-bare-rest generic inference; T := the spread's element type. The board crosses 57%. Previously: a twenty-eighth time (…5,434 → 5,436, diagnostics 2,530 → 2,531): §339 — the untruncated overload set runs upstream's pass order; the subtype pass carries a tri-state and a decidable all-reject licenses pass three's first-wins walk. §337 (object-pair subtype domain) measured 3:6 and reverted in place. Previously: a twenty-seventh time (…5,433 → 5,434, and diagnostics 2,529 → 2,530): §335 — the clean overload prefix admits any-parameter candidates; the subtype pass decides them, and §273's exclusion was about pass order, not candidate shape. Previously: a twenty-sixth time (…5,429 → 5,433): §333 — computed property signatures take the shared key dispatch in type position; declared index signatures shadow computed contributions; one recorded deviation (enum-typed names print the index form, one wrong line, measured cheaper than the gate). Previously: a twenty-fifth time (…5,426 → 5,429): §331 — plain-symbol entity names display as index-info component rows (arrow methods, no readonly, no merge) while unique names keep the real-member forms; the index union passes callables through instead of dying on the relation's Unknown. Previously: a twenty-fourth time (…5,425 → 5,426): §329 — duplicate late-bound properties upsert; §323's push rule was three-arms-wide, not per-arm. Previously: a twenty-third time (…5,419 → 5,425): §327 — the type-literal road spells late-bound unique-symbol members with §323's helper; the lib's RegExpMatchArray family came with it. Previously: a twenty-second time (…5,418 → 5,419): §325 — late-bound accessors join the display: get/set pairs merge with the getter's type winning, getter-only members print readonly. Previously: a twenty-first time (…5,414 → 5,418): §323 — late-bound unique-symbol members print their written entity name in brackets; methods keep the method spelling (the arrow-form draft was 19 G→W); bracketed members push where written names upsert. §321 (array rest's plain-tuple slice) landed +0, probe-confirmed, the session's fidelity admission. Previously: a twentieth time (…5,410 → 5,414): §319 — the object REST element lands (getRestType's member subtraction over spread_members_of); array rest (sliceTupleType) still refused and now pinned as such. Previously: a nineteenth time (…5,409 → 5,410): §317 — the array-pattern destructure road falls through to §284's for_of_element_type for syntactic-[Symbol.iterator] receivers, upstream's checker.go:17771 else-arm. Previously: an eighteenth time (…5,403 → 5,409): §315 — the annotation-less destructuring default lands; its refusal's missing piece (`UnionReductionSubtype`) was built at §206. Unwidened default into the reduction, widen only what survives fresh, const roots never widen. The destructure refused-legs pin's default row came due and moved to the ported side. Previously: a seventeenth time (…5,382 → 5,403): §313 — assignment to a function/class/enum/namespace name reads errorType (upstream's TS2629–2632 family), plus upstream's operand order in the `+` arm: the string test precedes the any/error fallthrough, so `f += ''` on an error target is string. Previously: a sixteenth time (…5,379 → 5,382): §309 — a computed-name enum member declares the enum's own type, gated to names the binder could not spell (literal computed names stay late-bound; the ungated draft cost literalsInComputedProperties1 4 R→W). Previously: a fifteenth time (…5,368 → 5,379): §307 — computed-name methods and accessors join §206's object-literal index route through one shared key dispatch; literal-bearing UNIONS late-bind and gap, boolean names keep contributing nothing. Previously: a fourteenth time (…5,339 → 5,368): §305 — the anonymous class expression spells by the assigned-name walk (`getNameOfSymbolAsWritten` → `GetAssignedName`), on both the `typeof` and the instance road; §168's refusal reopened and settled by transcription, five measured drafts set the gates (internal `__class` unspellable, decorated declines, mixin-parameter extends declines). Previously: a thirteenth time (…5,336 → 5,339): §303 — the destructure lookup gains the apparent-type hop the plain member road has had since §177 (`var { toExponential } = 0` reads Number's member); two measured drafts set the gate at exactly union-constrained type parameters, whose members belong to the narrowing road — the blanket exclusion of draft two forfeited 12 correct lines before it was narrowed. Previously: a twelfth time (…5,333 → 5,336): §302 — a keyword spelled with unicode escapes IS the keyword (upstream's `case '\\'` arm runs GetIdentifierToken on the DECODED text, scanner.go:889); the port's opposite rule was an invention whose pin cited no anchor, flipped with the citation it lacked. `def\u0061ult:` now parses as the default clause. Previously: an eleventh time (…5,328 → 5,333): §301 — merge conflict markers scan as trivia-with-an-error (`isConflictMarkerTrivia`, scanner.go:2409); `<<<<<<< HEAD` had lexed as shift operators and printed as expressions. +5 checker cases AND +4 diagnostics (the marker error itself lands); the transition matrix saw almost nothing because the fixtures' assertion COUNTS changed — §236's casedelta-blind class, measured by absolute coverage instead. Previously: a tenth time (…5,325 → 5,328): the error-any mining continues at singleton pace — §299 (+2): an unannotated, uninitialised variable (`declare var x;`) is the implicit any in BOTH compilers, so the untyped-call gate admits it (contextual typing never reaches a bare declaration; the gate's 248-G→W narrowing population was parameters); §300 (+1): every import binding from a SHORTHAND ambient module (`declare module "x";`, no body) is any — `isShorthandAmbientModuleSymbol`, a shape a stale doc comment had recorded as unreachable. ~48 error-any singletons remain, each its own calibration. Previously: a ninth time (…5,317 → 5,325): the error-any boundary is yielding to per-member calibration — §297 (+2): an `as any` CAST is a written any, so the untyped-call gate admits it through parentheses and one variable hop (the gate's original 248-G→W narrowing was aimed at INFERRED anys, which a cast is not); §298 (+6): `new f()` on a plain TS function is TS7009's deliberate error-any (`avoid.ts` prints it beside the error), scoped away from JS constructor-functions whose instance types the old pin correctly protected — that pin flipped for the TS half and carries both citations. Previously: an eighth time (…5,303 → 5,317): §296 (+14, 68 lines, 0 adverse) — a specifier's PROPERTY NAME (`export { default as A }`'s `default`) fell to the free-identifier path; it types as the specifier's aliased target exactly as the NAME does, with one guard bought by the draft's single R→W (an any/error target falls through to the older roads — the globalThis re-export). The post-§296 pool census: the `any` row's 84 deficit-1 members split 56 GOT-error (the ADR-0038 upstream-error-any boundary, each needing its own §31-style calibration) and 23 text-divergence quirks (conflict markers, recovery spans) — per-case territory in both halves. Previously: a seventh time (…5,288 → 5,303): §294 (+12) fixed the INSTRUMENT — types_baseline::parse counted every `>`-prefixed line as an assertion, so a source-echo line like `>> // after` became a phantom baseline assertion, un-matchable and mis-aligning every real line after it; requiring the `" : "` separator removed 99 phantom lines from the denominator (478,954 → 478,855, stated per the denominator-honesty rule) and realigned +1,442 lines (gradient 88.86 → 89.18 — REALIGNMENT PLUS RE-BASING, not new checker capability). §295 (+3): a dangling exponent keeps its mantissa (`1e : 1`), §276's sibling in normalise_number. Previously: a sixth time (…5,277 → 5,288): §292's second half (+10) — the export-default expression road was unreachable NOT for the reason the confirmed-zero record blamed (specifier resolution was fine all along) but because the arm sat in a function the variable worker's kind match never consults; relocated, gated four ways by four adverse drafts (@type tags and JSDoc casts keep the gap — the §158 re-render wall; export= keeps its roads; attribute-carrying imports decline). §293 (+1, 34 lines, 0 adverse): void and delete answer their constants whatever the operand — the per-site deviation retired at its fourth and fifth sites (§271 arithmetic, §291 `!`, §293 void+delete retire; §272 return-aggregates refuse; §192 unary had already retired). Previously: a fifth time (…5,264 → 5,277): §289 (+3) ran the sweep over TypeNode and found ImportTypeNode unmatched — `import("./m").Foo` annotations now mint the written text (typeof-import and the bare module object stay tsr-e2u gaps); §290 MEASURED AND REFUSED the never-intersection reduction (~38 W→R against 15 R→W + 1 R→G, two named blockers: upstream's discriminant CheckFlags, and the written-annotation carriage — the reduced alias must print `Union[]` at one site and `never` at another, ADR-0043's exact wall, and it broke a line INSIDE the winning witness); §291 (+10, ~100 lines, 0 adverse) gave `!` upstream's truthiness FACTS for unions and objects; §292 recorded at a CONFIRMED zero — the export-default expression arm is faithful and unreachable until the resolver's js→ts substitution reaches the conformance pipeline. Previously: a fourth time (…5,242 → 5,264): the missing-arm SWEEP that §286 opened — diffing Expression's variants against check_expression's matched arms found the dispatch silently eating whole expression kinds. §286 (+16, ~276 lines, the largest single-arm line movement since §180 from the smallest diff of the session): check_expression had NO SpreadElement arm, so every `...xs` line in every call and literal corpus-wide printed as a gap; one arm through the §284/§285 iterator seam. §287 (+6, ~140 lines, 9 disclosed knock-on G→W): no SatisfiesExpression arm either — `satisfies` had served since §257 as the canonical "genuinely unported form" and it was never a hard form, just a missing match arm; two pins re-vehicled. §288 (+0, 4 lines): written type arguments instantiate a single generic candidate directly, the SS161 recipe at the call road. diagnostics 2,525. Previously: a third time (5,215 → 5,217 → 5,236 → 5,242; each correction says so): the goal window kept running after its close-out row and landed §276–§285 — §284 (+6) corrected §212's refusal (the custom-iterator element needs only a SYNTACTIC presence test for `[Symbol.iterator]`, the §145 precedent — the late-binding blocker gates the LOOKUP, not the existence check) and §285 (+16 lines) wired the same seam to array spreads after a whole-helper delegation measured 5 R→G and was narrowed to strictly-additive; before them, §276–§283 — the radix-prefix zero (+2), the parameter/object-literal bare-comma recovery pair and the module-specifier missing-expression arm (§277–§279: +1 case, +1 diagnostics, then +1 more diagnostics), the single-distinct-value enum spelling with the numeric E.A annotation road (§280, +8, four measured drafts), the inaccessible-alias structural render (§281, +5 — checker-2's §229 probe as a gate, outside tsr-e2u by construction), the bare-parameter alias body (§282, +4), and the static-block return boundary (§283, +1). diagnostics 2,524. Previously: CORRECTED IN PLACE from 5,215/54.68% (the row was written one landing early; §276 — the radix-prefix-without-digits zero, `0x : 0`, +2 cases 5 W→R 0 adverse — was measured after the close-out row and this number is the tree the session actually hands off). Measured at the §276 landing by one release coverage run, 2026-08-13, on the checker-1 worktree (checker-2's concurrent +3 is not in this number; ~5,218 once merged). Gradient **88.67%**, right 424,712. The window's seven landings and one 405-line refusal are §7's newest row; the two loudest facts: **§269 (+22)** superseded §218's refusal because that refusal priced UPSTREAM's architecture (a reparser this port never had), and **§271+§272 are a matched pair** — the same errorType-deviation question measured RETIRE at one site (31:0) and REFUSE at another (405 GAP→WRONG), so the question is per-site and only measurement answers it. `diagnostics` 2,522 — §273's draft four cost it one case and the specialized-signature guard restored it; **cross-suite scoring is now part of this lane's gate** |
-| **`checker_types`** (CURRENT — supersedes every row above) | **5,156/9,538** | **54.06%** | measured on the merged tree, one release coverage run, 2026-08-12. Gradient **88.54%**. checker-2's **§258 (+2)** and **§260 (+3)**: `isTypeAssignableToKind` descends a UNION — every constituent must match — where a raw flags test sees only the union's own flags, which carry none, so `a + b` on two enum-typed operands gapped. **§260 is §258's other two call sites**, half a predicate committed one commit after corollary 30 was written against exactly that. **§258 is also §257's reopening condition arriving one commit later**: §257 refused porting upstream's `any` for an invalid `+` after measuring **GAP→WRONG 57**, named *"when literal arithmetic lands"* as its condition, and the eleven `numericLiteralTypes1` lines it would have answered wrongly are now answered correctly. A refusal that points at its own repair, where the repair is smaller than the thing refused. Also **§259**: the meta-property writer guard re-tested once checker-1's §233 created its nodes — **still zero**, but DORMANT became REDUNDANT, which changes its re-test trigger. Running tally for corollary 31's habit: **four re-tests, two verdict changes** |
+| **`checker_types`** (superseded by the row above — checker-2’s concurrent window, merged 2026-08-13; its §265/§268 compose with the row above: the MERGED tree measures **5,453/9,538 (57.17%), diagnostics 2,536**, one release coverage run at the merge commit — +3/+3 over the pre-merge 5,450/2,533, no collision) | **5,173/9,538** | **54.24%** | measured on the merged tree, one release coverage run, 2026-08-13. Gradient **88.56%**. This window, checker-2: **§265 (+3)** — a `global` REFERENCE is refused while the declaration keeps its name, which is checker-1's §234 (0 won / 5 lost renaming it) approached from the CONSUMER side; **§268 (+21 lines)** — a `this`-headed qualified name checks `this` as an expression. **Both are the same shape: a representation carrying two jobs, split at the consumer rather than at the representation.** That is now the third such case after `TypeData::Named` (renders *and* identifies) and checker-1's §226 signature (instantiates *and* declines) — and the finding is that **two of the three had a cheap consumer-side answer, visible only after someone paid for the expensive measurement showing the representation-side one fails.** Also §270, a census returning a NON-family: `() => any` is 'an arrow whose body failed to type', so a WANT can be as over-determined as a GOT (corollary 21 on the other axis) |
+| **`checker_types`** (superseded by the row below) | **5,156/9,538** | **54.06%** | measured on the merged tree, one release coverage run, 2026-08-12. Gradient **88.54%**. checker-2's **§258 (+2)** and **§260 (+3)**: `isTypeAssignableToKind` descends a UNION — every constituent must match — where a raw flags test sees only the union's own flags, which carry none, so `a + b` on two enum-typed operands gapped. **§260 is §258's other two call sites**, half a predicate committed one commit after corollary 30 was written against exactly that. **§258 is also §257's reopening condition arriving one commit later**: §257 refused porting upstream's `any` for an invalid `+` after measuring **GAP→WRONG 57**, named *"when literal arithmetic lands"* as its condition, and the eleven `numericLiteralTypes1` lines it would have answered wrongly are now answered correctly. A refusal that points at its own repair, where the repair is smaller than the thing refused. Also **§259**: the meta-property writer guard re-tested once checker-1's §233 created its nodes — **still zero**, but DORMANT became REDUNDANT, which changes its re-test trigger. Running tally for corollary 31's habit: **four re-tests, two verdict changes** |
 | **`checker_types`** (superseded by the row below) | **5,151/9,538** | **54.01%** | measured on the merged tree, one release coverage run, 2026-08-12. Gradient **88.53%**. checker-2's **§254 (+5)**, **§255**, **§256** and **§252 (+6)**; mine **§233** (`new.target` builds a `MetaProperty` — +46 lines, 0 adverse, and it revives a writer guard recorded as *dead* because the parser built no such node). **Two arms measured and reverted: §234** (naming a global augmentation `__global`, as upstream does — **0 won, 5 lost**, because this binder merges augmentations by matching the declaration name and upstream merges them by a path that does not) and checker-2's **§257** (+4 cases hiding **57 gaps turned into confident wrong answers**). **The through-line of this window is one shape seen three times**: a representation carrying two jobs, where fixing one breaks the other — §226's signature could not express upstream's decline, `TypeData::Named` cannot render a type two ways, and a global augmentation's name is simultaneously its identity and its merge key |
 | **`checker_types`** (superseded by the row above, same session) | **5,140/9,538** | **53.89%** | measured on the merged tree, one release coverage run, 2026-08-12. Gradient **88.42%**. **§232 (+4, and at line level 18 wrong→right against 0 right→wrong)** is a correction to my own §219: that refusal was **wider than its own reason**. The reason is about naming a *module object* — following `export =` prints `typeof __React` — and the refusal covered the whole construct, including `export = a` over `var a = 10`, which answers `number` and prints no name at all. Conventions corollary 16 asks whether a refusal's reason is real; this is the next question, **is its scope the same as its reason's scope**, and it applies to refusals that pass 16 cleanly. Found by checker-2 re-reading my refusal against its own witnesses. **`bd tsr-e2u` re-sized ~11 → ~7** at the site: the +4 was never part of it, and the over-count came from measuring the wide refusal's removal and attributing all of it to the one cause the refusal named. **§231 (+0 cases, 18 lines wrong→right against 1 right→wrong)**: `typeof x === "function"` narrowing had *never executed in any program* — `global_type_symbol` hard-codes arity 1 and `interface Function` has none. Shipped with the adverse disclosed; its cause is a separate members gap (a type with call signatures does not inherit `Function`'s members) and is pinned by a test that will fail when that gap closes |
 | **`checker_types`** (superseded by the row above, same session) | **5,129/9,538** | **53.77%** | measured on the merged tree, one release coverage run, 2026-08-12. Gradient **88.40%**. **§230 (+4)** mine, **§250 (+4, and +348 lines with nothing lost in any direction)** checker-2's. **The session's most reusable product is §230's method, not its arm**: upstream can be *executed*, not only read — drop a probe fixture into `vendor/typescript-go/testdata/tests/cases/`, run `go test ./internal/testrunner -run TestLocal`, read the generated baseline, then delete both. The first question put to it **reversed two careful static readings of mine**, recorded twice as an open question, in about five minutes. It also supplies controls the corpus cannot: no fixture holds both positions of §230's discriminating pair on one symbol, and a probe does. **§250 is corollary 24's instrument failing the other way** — 348 lines moved for 4 cases, so the case tally can badly *understate* a change as well as hide damage inside it |
@@ -1765,8 +1766,27 @@ suspect the rule reads only the first. It does not; the answer is `string`.
 So the remaining failures are something else, and **whoever takes this should not
 start from the for-in arm**.
 
-**Located, in the same case's own output:** the failing lines are *references* to
-`x`, not its declaration, and the file contains both kinds three lines apart:
+**LOCATED FURTHER: the failing references are inside the for-in's OWN iterated
+expression.** Source line: `for (var x in 42 ? d[x] : c[x]) { }` — the `x` in
+`d[x]` and `c[x]` are uses of the very variable the statement declares, evaluated
+in the expression position, and upstream types them `string` (the declared for-in
+type). This port answers `any`.
+
+That is why the declaration road probes clean and the case still fails: the
+declaration answers `string` correctly, and the *reference* in the initialiser
+position resolves through flow to the pre-declaration `var x` type. Upstream does
+not consult flow there — a for-in variable's type is `string` unconditionally
+(`getTypeForVariableLikeDeclaration`'s ForIn arm), and a reference to it takes the
+declared type rather than a flow type that predates the declaration.
+
+So the repair is in the FLOW road, not the declaration road, and it is specific:
+a reference to a for-in binding inside its own statement must not narrow below
+`string`. Not built — the flow walk's treatment of a use-before-declaration
+position is its own question and this is one case.
+
+**Original location, kept because the elimination is the reusable part:** the
+failing lines are *references* to `x`, not its declaration, and the file contains
+both kinds three lines apart:
 
 ```text
 *53   WANT x : string   GOT x : any      <- a reference
@@ -1910,6 +1930,93 @@ Not spent, and this is the honest reason rather than a principled one: the sessi
 budget ran out at the probe. The build is small and the diagnosis is now one command
 from being settled either way; **that command is the next session's first move**, and
 it should precede rebuilding the arm rather than follow it.
+
+### `typeofThisWithImplicitThis` — the expression road is right, the TYPE QUERY road is the gap
+
+```ts
+// @noImplicitThis: false
+function Test1() { let x: typeof this.no = 1 }
+>x : any            // upstream
+>this.no : any      // upstream; this port answers `error` for both
+```
+
+**Not the `this` rule.** `check_this_expression` already returns `any` for a plain
+function in every mode (`expressions.rs:1138`, `tryGetThisTypeAtEx`'s fallthrough —
+TS2683 is a diagnostic under `noImplicitThis`, not a type change). Verified by
+reading, not assumed: the arm is there and unconditional.
+
+The divergence is that `typeof this.no` is a **TypeQuery**, and the type-query road
+resolves an *entity name*. `this` is not an identifier and not an entity-name head,
+so the query fails before the expression road is ever consulted. Upstream's
+`getTypeFromTypeQueryNode` handles a `this`-headed query by checking the expression.
+
+So this is the same shape as §244/§262 — **a correct arm the road never reaches** —
+and the repair is in the type-query road, not in `check_this_expression`. Two lines,
+one case.
+
+**SHARPENED, and the obvious arm is a red herring.** `get_type_from_type_query_node`
+(`declared.rs:507`) *does* have a `this` arm: upstream's `isThisIdentifier` dispatch
+(`checker.go:10651`), which returns the error type and is correct. **It is not the
+one that fires here.** `typeof this.no` is a `EntityName::QualifiedName`, not an
+`Identifier`, so it routes to `check_qualified_name` — whose head `this` resolves to
+nothing, giving the error type for a different reason.
+
+The repair is therefore in `check_qualified_name`'s handling of a `this`-headed
+name, which should evaluate `this` as an expression (where the port already answers
+`any` correctly) rather than resolving it as a name. Upstream reaches `any` the same
+way: `this` is `any` in a plain function, and `.no` on `any` is `any`.
+
+Anyone starting at the `this` arm in the type-query road will find it correct and
+conclude the diagnosis was wrong. It is not — that arm is for bare `typeof this`,
+and this case never touches it.
+
+Not built: my remaining budget would not cover measuring it, and an unmeasured
+type-query change is exactly the kind that reads `+0` for reasons unrelated to the
+rule. Recorded with the elimination so the next attempt does not start by re-reading
+the `this` arm, which is correct.
+
+### The deficit-2 `() => any` row — censused, NOT a family
+
+Twenty-eight lines. Opened, and the members do not share a cause:
+
+- `emitArrowFunctionWhenUsingArguments02_ES6` — `var a = () => arguments;` at TOP
+  LEVEL. `arguments` is typed `IArguments` only inside a qualifying container
+  (`expressions.rs:585`); an arrow at file scope has none, so the reference is the
+  error type and the arrow's inferred return follows it. Upstream prints `any`, and
+  **whether that is upstream's computed `any` or its errorType rendered through the
+  node builder is the question that decides the repair** — checker-1's §254
+  established that the discriminator is which arm of `writeTypeOrSymbol` upstream
+  took, not what it printed. **CHECKED: all three of
+  `emitArrowFunctionWhenUsingArguments02_ES6`, `super1` and
+  `superCallWithMissingBaseClass` carry an `.errors.txt`**, so upstream's `any` is
+  its errorType rendered — §180's `hadErrorBaseline` arm already spells ours the
+  same way.
+
+  **So the mismatch is not the leaf, it is the ARROW.** Both sides hold an
+  any-flagged type for the body; upstream still builds the signature and prints
+  `() => any`, while this port declines the whole signature and prints a bare `any`.
+  The unannotated-parameter gate is not what declines it — these arrows have no
+  parameters. `return_type_from_body` answers the error type and the signature build
+  declines on that.
+
+  The faithful rule is that `getReturnTypeFromBody` returns its aggregate even when
+  the aggregate is the error type; the signature is still constructed. **Not built,
+  and deliberately not on a session's last budget**: it would convert a large
+  population of declines into `() => <whatever the body answered>`, which is exactly
+  the shape §257 measured at 57 GAP→WRONG when the answer was wrong. It wants a full
+  line-movement score, not a case tally.
+- `parserArrowFunctionExpression13` — `a ? () => a() : (): any => null;` in a
+  conditional, one `.js` unit and one `.ts`. A parse/context question, not the
+  `arguments` one.
+- `tsxExternalModuleEmit1`, `tsxDynamicTagName7` — JSX, different again.
+- `super1`, `superCallWithMissingBaseClass` — `super` in a class with no base.
+
+**Four causes minimum across six cases.** Recorded as a censused non-family so the
+row is not re-opened as one: the shared `() => any` want is the *printed shape of an
+arrow whose body failed to type*, which every one of these produces for its own
+reason. That is the GOT-axis lesson (conventions corollary 21) appearing on the WANT
+axis — a want can be as over-determined as a got, and `() => any` is the arrow's
+version of bare `any`.
 
 ## 5. Refused, with the number that refused it
 
@@ -3054,6 +3161,25 @@ it means the item returns to §4 needing a fresh bar, not that it is now good.
 | "the `export =` case answers `None` on purpose … shipping it here would be adding unmeasured surface" | `symbols.rs`, `module_object_of` | **§219 — partly.** "Unmeasured" expires when someone measures, and the measurement is **+4 cases / −0 / +40 lines, every movement positive**. The refusal was **upheld anyway**, on a reason the original author had also written down and the tally cannot see: following `export =` prints `typeof __React` for `typeof React` and bypasses the two-alias gap. **The claim was right; its stated reason was the weaker of the two it had.** A refusal resting on "not yet measured" invites exactly one experiment, and the experiment says ship |
 | "a bare `yield;` under no-strict — decline rather than model it this slice" | `signatures.rs`, §135 | **§220 (+5).** The deferral named its own answer (`any`) and was right about it. The mechanism is upstream's two undefined types: `undefinedWideningType` through `getWidenedType` (`checker.go:20224`) |
 | "the `<none>` extra-assertion cases are one cluster with one cause" — checker-2's handoff to checker-1 | session message, not committed | **§214.** Three distinct causes among the members; the fix for `parserForOfStatement21` was an eleven-line named `of`-lookahead in `parseVariableDeclarationList`, not a general recovery arm. **A cluster defined by what the OUTPUT looks like is a list of leads, not a family** — the inverse of corollary 9, where expression-shape revealed a family the type histogram had scattered. Written up by checker-1 as **corollary 21** |
+
+### An instrument this project lacks: internal `§N` citations are unverified
+
+`cargo run -p xtask -- anchors` verifies every upstream anchor still resolves.
+`cargo run -p xtask -- issue-ids` verifies every `bd <id>` cited in `docs/` exists.
+**Nothing verifies a `§N` citation**, and checker-1's §267 found one pointing at a
+witness that exists in no notes file — a dangling pointer that had read as
+authoritative for months and was the stated reason for a decline.
+
+That is the one class of citation with no checker, and it is the class this project
+relies on most: every refusal, every reopening condition and every elimination in §5
+above is addressed by number. A drifted upstream anchor fails loudly; a drifted
+internal citation fails silently and keeps its authority.
+
+Wanted: an `xtask` arm that extracts `§N` references from `docs/`, `STATUS.md` and
+source comments, and reports any that resolve to no defining occurrence. Not filed
+in `bd` — the local database is not initialised in this checkout (`bd create`
+reports "Run 'bd init'"), so recording it here is the durable form until someone
+with the database can file it.
 
 ## 6. Instruments
 
