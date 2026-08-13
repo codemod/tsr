@@ -1929,6 +1929,34 @@ budget ran out at the probe. The build is small and the diagnosis is now one com
 from being settled either way; **that command is the next session's first move**, and
 it should precede rebuilding the arm rather than follow it.
 
+### `typeofThisWithImplicitThis` — the expression road is right, the TYPE QUERY road is the gap
+
+```ts
+// @noImplicitThis: false
+function Test1() { let x: typeof this.no = 1 }
+>x : any            // upstream
+>this.no : any      // upstream; this port answers `error` for both
+```
+
+**Not the `this` rule.** `check_this_expression` already returns `any` for a plain
+function in every mode (`expressions.rs:1138`, `tryGetThisTypeAtEx`'s fallthrough —
+TS2683 is a diagnostic under `noImplicitThis`, not a type change). Verified by
+reading, not assumed: the arm is there and unconditional.
+
+The divergence is that `typeof this.no` is a **TypeQuery**, and the type-query road
+resolves an *entity name*. `this` is not an identifier and not an entity-name head,
+so the query fails before the expression road is ever consulted. Upstream's
+`getTypeFromTypeQueryNode` handles a `this`-headed query by checking the expression.
+
+So this is the same shape as §244/§262 — **a correct arm the road never reaches** —
+and the repair is in the type-query road, not in `check_this_expression`. Two lines,
+one case.
+
+Not built: my remaining budget would not cover measuring it, and an unmeasured
+type-query change is exactly the kind that reads `+0` for reasons unrelated to the
+rule. Recorded with the elimination so the next attempt does not start by re-reading
+the `this` arm, which is correct.
+
 ## 5. Refused, with the number that refused it
 
 > **§5 IS DANGEROUS WHEN STALE.** Its whole purpose is "do not re-derive
