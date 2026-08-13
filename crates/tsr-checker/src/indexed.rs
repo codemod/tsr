@@ -243,6 +243,42 @@ impl Checker<'_, '_> {
                 self.assignment_target_kind(id)
                     != crate::expressions::AssignmentTargetKind::Definite
             });
+        // §381: a symbol-typed ENTITY index names a late-bound member — the
+        // same chain-and-flags test as `late_bound_symbol_member_name`, so
+        // the lookup key and the member's printed spelling cannot drift.
+        // `i[Symbol.iterator]` reads the `[Symbol.iterator]` member before
+        // any symbol index signature (`symbolProperty17`; and the baseline
+        // answers by NAME even for a shadowed `Symbol`, `symbolProperty55` —
+        // ADR-0006, the generated Go wins). A miss falls through to the
+        // index-signature road unchanged.
+        if self.type_of(index_type).flags.intersects(crate::flags::TypeFlags::ES_SYMBOL_LIKE) {
+            fn chain_text(expression: &tsr_ast::Expression<'_>) -> Option<String> {
+                match expression {
+                    tsr_ast::Expression::Identifier(identifier) => {
+                        Some(identifier.text.to_string())
+                    }
+                    tsr_ast::Expression::PropertyAccessExpression(access) => {
+                        let base = chain_text(access.expression.as_ref()?)?;
+                        let Some(tsr_ast::MemberName::Identifier(name)) = access.name else {
+                            return None;
+                        };
+                        Some(format!("{base}.{}", name.text))
+                    }
+                    _ => None,
+                }
+            }
+            if let Some(chain) = chain_text(&index) {
+                let name = format!("[{chain}]");
+                if let Some(member) = self.get_type_of_property_of_type(object_type, &name) {
+                    return self.include_unchecked_undefined(
+                        member,
+                        include_undefined,
+                        object_type,
+                        index_type,
+                    );
+                }
+            }
+        }
         let Some(name) = self.property_name_from_index(index_type) else {
             // Not a literal, so it names no property. `getIndexedAccessType`
             // falls to the index signatures (`checker.go:21902`).

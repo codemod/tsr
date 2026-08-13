@@ -1525,6 +1525,75 @@ impl Checker<'_, '_> {
     ///
     /// A cycle answers `None` — a miss — rather than a diagnostic, because the
     /// checker has none (`bd tsr-5e7.6`).
+    /// §381: every LATE-BOUND member an owner's declarations spell, as
+    /// `(bracketed name, member node)` pairs — the binder files these under
+    /// `__computed` in no table, and the checker resolves the names late.
+    /// The spelling is §323's `late_bound_symbol_member_name`, which is what
+    /// keeps the lookup key and the printed member form identical.
+    pub(crate) fn late_bound_members_of(
+        &mut self,
+        owner: SymbolId,
+    ) -> Vec<(String, tsr_ast::NodeId)> {
+        let declarations: Vec<tsr_ast::NodeId> =
+            self.binder.symbols().get(owner).declarations.iter().copied().collect();
+        let mut out = Vec::new();
+        for declaration in declarations {
+            let member_ids: Vec<tsr_ast::NodeId> = match self.node_map.get(declaration) {
+                Some(Node::ClassDeclaration(class)) => {
+                    class.members.iter().filter_map(|m| tsr_ast::Node::from(*m).node_id()).collect()
+                }
+                Some(Node::InterfaceDeclaration(interface)) => interface
+                    .members
+                    .iter()
+                    .filter_map(|m| tsr_ast::Node::from(*m).node_id())
+                    .collect(),
+                Some(Node::TypeLiteralNode(literal)) => literal
+                    .members
+                    .iter()
+                    .filter_map(|m| tsr_ast::Node::from(*m).node_id())
+                    .collect(),
+                _ => continue,
+            };
+            for member in member_ids {
+                let computed = match self.node_map.get(member) {
+                    Some(
+                        Node::PropertyDeclaration(&tsr_ast::PropertyDeclaration {
+                            name: tsr_ast::PropertyName::ComputedPropertyName(computed),
+                            ..
+                        })
+                        | Node::PropertySignatureDeclaration(
+                            &tsr_ast::PropertySignatureDeclaration {
+                                name: tsr_ast::PropertyName::ComputedPropertyName(computed),
+                                ..
+                            },
+                        )
+                        | Node::MethodDeclaration(&tsr_ast::MethodDeclaration {
+                            name: tsr_ast::PropertyName::ComputedPropertyName(computed),
+                            ..
+                        })
+                        | Node::MethodSignatureDeclaration(&tsr_ast::MethodSignatureDeclaration {
+                            name: tsr_ast::PropertyName::ComputedPropertyName(computed),
+                            ..
+                        })
+                        | Node::GetAccessorDeclaration(&tsr_ast::GetAccessorDeclaration {
+                            name: tsr_ast::PropertyName::ComputedPropertyName(computed),
+                            ..
+                        })
+                        | Node::SetAccessorDeclaration(&tsr_ast::SetAccessorDeclaration {
+                            name: tsr_ast::PropertyName::ComputedPropertyName(computed),
+                            ..
+                        }),
+                    ) => computed,
+                    _ => continue,
+                };
+                if let Some((spelled, _)) = self.late_bound_symbol_member_name(computed) {
+                    out.push((spelled, member));
+                }
+            }
+        }
+        out
+    }
+
     fn get_property_of_declared_symbol(
         &mut self,
         owner: SymbolId,
@@ -1539,6 +1608,24 @@ impl Checker<'_, '_> {
             && self.symbol_is_value(found)
         {
             return Some(found);
+        }
+        // §381: a LATE-BOUND member — the binder files `[Symbol.iterator]`
+        // under no name (`__computed`, in no table), and the checker resolves
+        // the name late. The bracketed spelling §323 established IS the key
+        // here: walk the owner's declarations' members, spell each computed
+        // name with `late_bound_symbol_member_name`, and a match answers the
+        // member's own symbol — whose `get_type_of_symbol` arms (property,
+        // method, accessor) already type it. This is what lets the relation
+        // see `C -> I` over `[Symbol.iterator]` members (`symbolProperty13`)
+        // and element access find them (`symbolProperty17`).
+        if name.starts_with('[') {
+            for (spelled, member) in self.late_bound_members_of(owner) {
+                if spelled == name
+                    && let Some(symbol) = self.binder.symbol_of(member)
+                {
+                    return Some(symbol);
+                }
+            }
         }
         for base in self.base_symbols_of(owner)? {
             if let Some(found) = self.get_property_of_declared_symbol(base, name, visiting) {

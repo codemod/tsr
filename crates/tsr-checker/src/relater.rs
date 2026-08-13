@@ -1084,6 +1084,14 @@ impl Relater<'_, '_, '_> {
                 names.push(name);
             }
         }
+        // §381: late-bound members are in NO table; their bracketed
+        // spellings join the walk so a target's `[Symbol.iterator]` is
+        // REQUIRED of the source (`symbolProperty13`'s `C -> I`).
+        for (name, _) in self.checker.late_bound_members_of(owner) {
+            if !names.contains(&name) {
+                names.push(name);
+            }
+        }
         let Some(bases) = self.checker.base_symbols_of(owner) else {
             return false;
         };
