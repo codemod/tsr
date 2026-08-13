@@ -1745,17 +1745,29 @@ fn an_arrow_that_cannot_complete_is_never_and_one_that_can_is_void() {
         type_of_declaration("declare function fail(): never;\nconst f = () => { fail(); };", "f"),
         "() => never"
     );
-    // And a call this port cannot type at all is still undecidable, so the
-    // refusal survives where it was actually earned.
+    // FLIPPED at §379: the old line asserted that a call this port cannot
+    // type keeps the block undecidable. What it got right: the port cannot
+    // tell whether that call is `never`. What replaces it: upstream's flow
+    // graph stops only on a `never`-TYPED expression, and an errored
+    // expression is `errorType`, not `never` — so the block completes and
+    // the arrow is `() => void` (`varArgParamTypeCheck`'s `() => { this(); }`
+    // is the corpus witness). The accepted residue is recorded at the arm: a
+    // call that IS never upstream but errors here reads as completing.
     assert_eq!(
         type_of_declaration(
             "declare const o: { [k: string]: string };\nconst f = () => { o[Symbol.iterator](); };",
             "f"
         ),
-        "error"
+        "() => void"
     );
-    // A loop is decidable and needs the real analysis to be decided correctly.
+    // A literal-`true` loop still needs the real analysis (its end is
+    // unreachable without a `break`, and this port does not read breaks);
+    // §379 decided only the loops whose CONDITION can fail.
     assert_eq!(type_of_declaration("const f = () => { while (true) {} };", "f"), "error");
+    assert_eq!(
+        type_of_declaration("const f = () => { while (Math.random() < 0.5) {} };", "f"),
+        "() => void"
+    );
 }
 
 #[test]

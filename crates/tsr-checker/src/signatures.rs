@@ -1901,12 +1901,54 @@ impl<'a> Checker<'a, '_> {
                 let expression = node.expression?;
                 let checked = self.check_expression(expression);
                 if checked == self.intrinsics.error {
-                    return None;
+                    // §379 narrows the old blanket None: an ERRORED expression
+                    // completes normally in upstream's flow graph — only a
+                    // `never` type ends the block, and upstream types the
+                    // statement's error as `errorType`, not `never`
+                    // (`varArgParamTypeCheck`'s `() => { this(); }` is
+                    // `() => void`). The residue this accepts: a call this
+                    // port cannot type that IS never upstream reads as
+                    // completing — a wrong `void` where a gap stood.
+                    return Some(true);
                 }
                 Some(!self.store.get(checked).flags.contains(TypeFlags::NEVER))
             }
-            // Every remaining statement form — loops, `switch`, `try`, labels,
-            // `with`, `for…of` — can be decided and needs the real analysis to be
+            // §379: a loop that can run ZERO times leaves the block end
+            // reachable whatever its body does — `for…of`/`for…in` over a
+            // possibly-empty source, and `for`/`while` with a written
+            // condition (only a condition-less `for(;;)` or a literal-true
+            // condition loops unconditionally, and those keep the None).
+            // `capturedLetConstInLoop10`'s `() => { for (let x of [0]) {…} }`
+            // is `() => void`.
+            SyntaxKind::ForOfStatement | SyntaxKind::ForInStatement => Some(true),
+            SyntaxKind::ForStatement => {
+                let Some(Node::ForStatement(node)) = self.node_map.get(id) else { return None };
+                match node.condition {
+                    Some(condition)
+                        if condition
+                            .node_id()
+                            .is_none_or(|c| self.nodes.kind(c) != SyntaxKind::TrueKeyword) =>
+                    {
+                        Some(true)
+                    }
+                    _ => None,
+                }
+            }
+            SyntaxKind::WhileStatement => {
+                let Some(Node::WhileStatement(node)) = self.node_map.get(id) else { return None };
+                match node.expression {
+                    Some(condition)
+                        if condition
+                            .node_id()
+                            .is_none_or(|c| self.nodes.kind(c) != SyntaxKind::TrueKeyword) =>
+                    {
+                        Some(true)
+                    }
+                    _ => None,
+                }
+            }
+            // Every remaining statement form — `switch`, `try`, labels,
+            // `with`, `do` — can be decided and needs the real analysis to be
             // decided correctly.
             _ => None,
         }
