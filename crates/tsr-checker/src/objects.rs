@@ -260,6 +260,19 @@ enum PropertyValue<'a> {
     Shorthand(&'a tsr_ast::Identifier<'a>),
 }
 
+/// SS307: what a computed member name contributes to an object literal.
+enum ComputedNameKey {
+    /// The name is LATE-BOUND (a string/number literal, a unique symbol, or a
+    /// union of them names a real member, unported) or unreadable - the
+    /// caller gaps the literal.
+    LateBound,
+    /// The name keys nothing (SS201) - the member contributes nothing, and
+    /// the caller skips it.
+    Nothing,
+    /// The member contributes an index signature of this key kind.
+    Index(&'static str),
+}
+
 impl Checker<'_, '_> {
     /// Ported from `Checker.checkObjectLiteral` (`checker.go:13144`).
     ///
@@ -307,6 +320,66 @@ impl Checker<'_, '_> {
     /// other two are *not written* rather than written and left dead. They become
     /// live with contextual typing, and `isConstContext` is what will need
     /// porting first because it recurses through enclosing literals.
+    /// SS307: the computed-name key dispatch of `checker.go:13317-13324`,
+    /// See [`ComputedNameKey`] for the three answers.
+    /// shared by the property (SS206), method, and accessor arms so the three
+    /// cannot drift.
+    ///
+    /// Upstream's order, and it is not the obvious one:
+    /// `isTypeAssignableTo(nameType, numberType)` is asked FIRST, then
+    /// `esSymbolType`, then string (`checker.go:13319-13324`). So an `any`
+    /// name yields a **number** index - which is why `{ [await]: foo }` with
+    /// an un-typeable `await` records `{ [x: number]: any; }` and not a
+    /// string index.
+    fn computed_member_index_key(
+        &mut self,
+        computed: &tsr_ast::ComputedPropertyName<'_>,
+    ) -> ComputedNameKey {
+        let Some(expression) = computed.expression else {
+            return ComputedNameKey::LateBound;
+        };
+        let name_type = self.check_expression(expression);
+        let flags = self.type_of(name_type).flags;
+        // **`StringOrNumberLiteralOrUnique` first** - upstream's own guard
+        // (`checker.go:13317`), and the arms below are its `else`. SS206's
+        // first draft tested `NUMBER_LIKE`, which contains `NUMBER_LITERAL`,
+        // and turned `{ [1]: 1 }` into `{ [x: number]: number; }` - SS201's
+        // own control caught it.
+        if flags.intersects(
+            TypeFlags::STRING_LITERAL | TypeFlags::NUMBER_LITERAL | TypeFlags::UNIQUE_ES_SYMBOL,
+        ) {
+            return ComputedNameKey::LateBound;
+        }
+        // A UNION whose constituents are usable as property names is
+        // late-bound too - `Math.random() > 0.5 ? "f1" : "f2"` names a member
+        // upstream prints as the WRITTEN `[fieldName]`
+        // (`compiler/declarationEmitSimpleComputedNames1`), unported. A
+        // boolean name is also a union - of `true | false`, which name
+        // nothing - and keeps contributing nothing (SS201's
+        // `{ [0 in []]: true }` control).
+        if flags.intersects(TypeFlags::UNION)
+            && let crate::types::TypeData::Union { types, .. } = &self.store.get(name_type).data
+            && types.iter().any(|&member| {
+                self.store.get(member).flags.intersects(
+                    TypeFlags::STRING_LITERAL
+                        | TypeFlags::NUMBER_LITERAL
+                        | TypeFlags::UNIQUE_ES_SYMBOL,
+                )
+            })
+        {
+            return ComputedNameKey::LateBound;
+        }
+        if flags.intersects(TypeFlags::NUMBER_LIKE | TypeFlags::ANY) {
+            ComputedNameKey::Index("number")
+        } else if flags.intersects(TypeFlags::ES_SYMBOL_LIKE) {
+            ComputedNameKey::Index("symbol")
+        } else if flags.intersects(TypeFlags::STRING_LIKE) {
+            ComputedNameKey::Index("string")
+        } else {
+            ComputedNameKey::Nothing
+        }
+    }
+
     pub(crate) fn check_object_literal(&mut self, node: &ObjectLiteralExpression<'_>) -> TypeId {
         let error = self.intrinsics.error;
         // §105 slice 2a (`checker-notes-narrow.md`): a literal in a const
@@ -423,6 +496,26 @@ impl Checker<'_, '_> {
                     if matches!(method.name, tsr_ast::PropertyName::PrivateIdentifier(_)) {
                         continue;
                     }
+                    // SS307: a computed-name METHOD takes the same index route
+                    // the property arm built at SS206 - `{ [e]() { } }` with an
+                    // untypeable `e` is `{ [x: number]: () => void; }`
+                    // (`conformance/parserComputedPropertyName3`). The value is
+                    // the method's own function type - the same road that
+                    // already prints the member's `.types` line.
+                    if let tsr_ast::PropertyName::ComputedPropertyName(computed) = method.name {
+                        let key = match self.computed_member_index_key(computed) {
+                            ComputedNameKey::LateBound => return error,
+                            ComputedNameKey::Nothing => continue,
+                            ComputedNameKey::Index(key) => key,
+                        };
+                        let Some(symbol) = self.binder.symbol_of(id) else { return error };
+                        let member_type = self.get_type_of_symbol(symbol);
+                        if member_type == error {
+                            return error;
+                        }
+                        index_values.push((key, member_type));
+                        continue;
+                    }
                     let tsr_ast::PropertyName::Identifier(name) = method.name else {
                         // A computed or string-literal method name needs the
                         // same quoting rules the property path has and is not
@@ -467,7 +560,51 @@ impl Checker<'_, '_> {
                     upsert_member(&mut members, Member::Signature { printed });
                     continue;
                 }
-                _ => return error,
+                // SS307: computed-name ACCESSORS join the index route. A
+                // getter contributes its RETURN type (`{ get [e]() { } }` is
+                // `{ [x: number]: void; }`, `parserComputedPropertyName4`); a
+                // setter its first PARAMETER's type, `any` when unannotated
+                // (`parserComputedPropertyName17`). Identifier-named accessors
+                // keep gapping - their printed form (`readonly x`, getter/
+                // setter merging) is `assignmentCompatBug3`'s own question.
+                tsr_ast::ObjectLiteralElementLike::GetAccessorDeclaration(accessor) => {
+                    let tsr_ast::PropertyName::ComputedPropertyName(computed) = accessor.name
+                    else {
+                        return error;
+                    };
+                    let Some(id) = accessor.node_id else { return error };
+                    let key = match self.computed_member_index_key(computed) {
+                        ComputedNameKey::LateBound => return error,
+                        ComputedNameKey::Nothing => continue,
+                        ComputedNameKey::Index(key) => key,
+                    };
+                    let Some(signature) = self.get_signature_from_declaration(id) else {
+                        return error;
+                    };
+                    index_values.push((key, signature.r#type));
+                    continue;
+                }
+                tsr_ast::ObjectLiteralElementLike::SetAccessorDeclaration(accessor) => {
+                    let tsr_ast::PropertyName::ComputedPropertyName(computed) = accessor.name
+                    else {
+                        return error;
+                    };
+                    let Some(id) = accessor.node_id else { return error };
+                    let key = match self.computed_member_index_key(computed) {
+                        ComputedNameKey::LateBound => return error,
+                        ComputedNameKey::Nothing => continue,
+                        ComputedNameKey::Index(key) => key,
+                    };
+                    let Some(signature) = self.get_signature_from_declaration(id) else {
+                        return error;
+                    };
+                    let member_type = signature
+                        .parameters
+                        .first()
+                        .map_or(self.intrinsics.any, |parameter| parameter.r#type);
+                    index_values.push((key, member_type));
+                    continue;
+                }
             };
             let name = match name_node {
                 tsr_ast::PropertyName::Identifier(name) => name.text.to_string(),
@@ -538,48 +675,16 @@ impl Checker<'_, '_> {
                 //   port cannot see as string-like keeps gapping instead of
                 //   silently losing an index signature.
                 tsr_ast::PropertyName::ComputedPropertyName(computed) => {
-                    let Some(expression) = computed.expression else { return error };
-                    let name_type = self.check_expression(expression);
-                    let flags = self.type_of(name_type).flags;
-                    // **`StringOrNumberLiteralOrUnique` first** — upstream's
-                    // own guard (`checker.go:13317`), and the arm below is its
-                    // `else`. A name whose type is a string or number LITERAL,
-                    // or a unique symbol, is **late-bound**: it names a real
-                    // member and goes in `propertiesTable`, so `{ [1]: 1 }` is
-                    // `{ 1: number; }` and not an index signature. Printing
-                    // that name is unported, so it stays a gap.
-                    //
-                    // §206's first draft tested `NUMBER_LIKE`, which contains
-                    // `NUMBER_LITERAL`, and turned `{ [1]: 1 }` into
-                    // `{ [x: number]: number; }`. **§201's own control caught
-                    // it** — the fixture written one commit earlier to pin that
-                    // a computed member must not silently vanish also pinned
-                    // which of the two things it becomes.
-                    if flags.intersects(
-                        TypeFlags::STRING_LITERAL
-                            | TypeFlags::NUMBER_LITERAL
-                            | TypeFlags::UNIQUE_ES_SYMBOL,
-                    ) {
-                        return error;
-                    }
-                    // Upstream's order, and it is not the obvious one:
-                    // `isTypeAssignableTo(nameType, numberType)` is asked
-                    // FIRST, then `esSymbolType`, then string
-                    // (`checker.go:13319-13324`). So an `any` name yields a
-                    // **number** index — which is why
-                    // `{ [await]: foo }` with an un-typeable `await` records
-                    // `{ [x: number]: any; }` and not a string index.
-                    if flags.intersects(TypeFlags::NUMBER_LIKE | TypeFlags::ANY) {
-                        pending_index_key = Some("number");
-                    } else if flags.intersects(TypeFlags::ES_SYMBOL_LIKE) {
-                        pending_index_key = Some("symbol");
-                    } else if flags.intersects(TypeFlags::STRING_LIKE) {
-                        pending_index_key = Some("string");
-                    } else {
-                        // §201: a name that cannot key anything contributes
-                        // nothing at all — not a member and not a signature.
-                        continue;
-                    }
+                    // The dispatch lives in `computed_member_index_key`,
+                    // shared with the SS307 method/accessor arms.
+                    let key = match self.computed_member_index_key(computed) {
+                        ComputedNameKey::LateBound => return error,
+                        // SS201: a name that cannot key anything contributes
+                        // nothing at all - not a member and not a signature.
+                        ComputedNameKey::Nothing => continue,
+                        ComputedNameKey::Index(key) => key,
+                    };
+                    pending_index_key = Some(key);
                     String::new()
                 }
                 // A **private name** cannot be an object-literal member. The
