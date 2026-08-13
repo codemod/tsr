@@ -2112,6 +2112,25 @@ impl Checker<'_, '_> {
             return error;
         };
         if !self.binder.symbols().get(symbol).flags.contains(SymbolFlags::CLASS) {
+            // §298: `new f()` on a PLAIN FUNCTION — upstream reports TS7009
+            // ("'new' expression, whose target lacks a construct signature,
+            // implicitly has an 'any' type") and answers ANY: the deliberate
+            // error-any, not a gap wearing one (`avoid.ts` records
+            // `new f() : any` beside the error). Scoped to FUNCTION symbols
+            // whose type genuinely lacks construct signatures — everything
+            // else keeps the honest gap.
+            if self.binder.symbols().get(symbol).flags.contains(SymbolFlags::FUNCTION)
+                && self
+                    .binder
+                    .symbols()
+                    .get(symbol)
+                    .declarations
+                    .first()
+                    .is_some_and(|&declaration| !self.in_js_file(declaration))
+            {
+                bump(&COUNTERS.new_callee_not_class);
+                return self.intrinsics.any;
+            }
             bump(&COUNTERS.new_callee_not_class);
             return error;
         }
