@@ -822,3 +822,86 @@ honestly, and until it is, `needs_qualification`'s `None => true` is the only
 thing supplying 6,850 lines' worth of qualifiers. **The conflated predicate is
 not deprecated and must not be marked as such.** Its `None` arm is a correct
 proxy for a function this port does not have.
+
+---
+
+## 13. §531 — slice 1 REBUILT on the shadowing half: **+16 cases, 35 W→R, ZERO adverse**
+
+§7.1 refused this arm at **38 W→R against 25 R→W with two PASSING cases
+damaged**. Rebuilt against `is_shadowed_at` rather than the conflated
+predicate, the same arm measures:
+
+```
+TOTAL 474196  right 432856  gap 8701  wrong 32639
+WRONG->RIGHT: 35   (no adverse transition of any kind)
+checker_types 5,869 -> 5,885  (+16 cases), gradient 90.39%
+```
+
+**The wins are the same wins; the losses are gone.** `nameCollision` 5,
+`collisionCodeGenModuleWithModuleReopening` 4,
+`declarationEmitTypeParameterNameInOuterScope` 4 — §7.1 recorded exactly those
+three and said they "stay on the board". They did.
+
+### 13.1 `Checker::global_this_chain`, and its three gates
+
+At `symbol_chain`'s no-container exit, which is not the end of the road
+upstream but `trySymbolTable`'s **last** arm (`symbolaccessibility.go:588-591`):
+the two-element chain `[globalThis, target]`.
+
+1. `globals()[name]` merges to this symbol — reachable through the globals
+   table, as this symbol.
+2. `is_shadowed_at` at the site — §12's honest predicate. **This is the entire
+   difference from §7.1.**
+3. No in-scope alias names the symbol itself — upstream's alias loop would have
+   yielded that chain first and printed the alias; this port cannot spell it
+   here, so it declines rather than print a form upstream did not.
+
+### 13.2 The falsifier, checked against what §6 registered
+
+§6: *"if the arm fires on more than a handful of sites, the globals-reachability
+gate is not doing its job and it is SS197 (−66 cases) again"*. The arm moves
+**35 lines**, and §5 named the population in advance —
+`importAndVariableDeclarationConflict1-4` and `collisionCodeGenModuleWith*`.
+The filtered probe on the head family reads 4 W→R with **35/35 lines right**,
+i.e. all four cases now PASS, which is the `+4` §6 predicted to the case.
+Falsifier not triggered.
+
+### 13.3 §7.3's bug had a SECOND site, and this arm is what found it
+
+The first full pair read 35 W→R against **2 R→W in `conformance/noInfer`** —
+an already-failing case (25 wrong lines in the baseline), so recordable rather
+than a full stop. The rows, printed before being reasoned about (§11.3):
+
+```
+noInfer:0:143  want <Props>(Component: Component<Props>, …) => void
+               got  <Props>(Component: globalThis.Component<Props>, …) => void
+noInfer:0:144  want Component<Props>
+               got  globalThis.Component<Props>
+```
+
+The fixture writes `type Component<Props> = { props: Props; }` and then
+`declare function doWork<Props>(Component: Component<Props>, …)`. The
+**parameter** named `Component` shadows the type alias in `Value` only; the
+reference is a `Type`; upstream does not qualify.
+
+A trace in one filtered run named the cause in a single line: the meaning
+arriving at `symbol_chain` was the full `TYPE | VALUE` union. §7.3 fixed that
+at `qualified_name_at` and **`reference_text_at` had the identical bug** —
+`self.symbol_chain(target, reference, SymbolFlags::TYPE | SymbolFlags::VALUE, 0)`
+on a road that renders a generic TYPE reference, where `symbolToTypeNode`
+(`nodebuilderimpl.go:649`) passes one meaning. Corrected to `SymbolFlags::TYPE`,
+and the adverse pair went to **zero** with no other line moving — the +35 is
+identical before and after, so the correction's whole measured effect is the
+two `noInfer` lines it stopped damaging.
+
+> **The arm keeps earning its bar in the same way twice.** §7.1's refusal
+> caught the conflated predicate; §531's first pair caught the surviving union
+> meaning. Both were nine-month-old defects on the hottest naming road in the
+> checker, and neither was visible until something reached them.
+
+### 13.4 What this does not do
+
+`globalThis.` is now spelled where the globals arm reaches. The *shortest-chain*
+selection (slice 2) and the name render (slice 3) are untouched, and
+`symbol_chain`'s entry gate is still the conflated predicate — see §12.4 for
+why that must stay until `getAccessibleSymbolChain` is ported.

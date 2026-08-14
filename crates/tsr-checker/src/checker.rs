@@ -1581,7 +1581,19 @@ impl<'a, 'n> Checker<'a, 'n> {
         {
             better.to_string()
         } else if let Some(qualifier) =
-            self.symbol_chain(target, reference, SymbolFlags::TYPE | SymbolFlags::VALUE, 0)
+            // **`TYPE`, not `TYPE | VALUE`** — §7.3's correction, at the second
+            // site that had the same bug. This function renders a generic TYPE
+            // REFERENCE (`C<T>`), and `symbolToTypeNode`
+            // (`internal/checker/nodebuilderimpl.go:649`) passes ONE meaning,
+            // which `needsQualification` tests as `flags & meaning`
+            // (`symbolaccessibility.go:720`). The union let a Value-only shadow
+            // qualify a Type reference: `conformance/noInfer` writes
+            // `type Component<Props> = …` and then
+            // `declare function doWork<Props>(Component: Component<Props>, …)`,
+            // where the PARAMETER named `Component` shadows the type alias in
+            // `Value` only — upstream prints `Component<Props>` bare and the
+            // union spelled `globalThis.Component<Props>`.
+            self.symbol_chain(target, reference, SymbolFlags::TYPE, 0)
         {
             format!("{qualifier}{target_name}")
         } else {
@@ -1907,7 +1919,12 @@ impl<'a, 'n> Checker<'a, 'n> {
         if !self.needs_qualification(symbol, name, reference, meaning) {
             return None;
         }
-        let parent = self.binder.merged_symbol(self.binder.symbols().get(symbol).parent?);
+        let Some(container) = self.binder.symbols().get(symbol).parent else {
+            // No container — for a symbol that lives in `c.globals` this is not
+            // the end of the road upstream, it is `trySymbolTable`'s LAST arm.
+            return self.global_this_chain(symbol, name, reference, meaning);
+        };
+        let parent = self.binder.merged_symbol(container);
         if self.is_module_symbol(parent) || self.is_ambient_module(parent) {
             // `trySymbolTable`'s direct arm: the bare name is accessible
             // through an alias, so no qualifier may fire.
@@ -2098,6 +2115,72 @@ impl<'a, 'n> Checker<'a, 'n> {
             Some(found) => self.binder.merged_symbol(found) != self.binder.merged_symbol(symbol),
             None => true,
         }
+    }
+
+    /// `trySymbolTable`'s globals arm
+    /// (`internal/checker/symbolaccessibility.go:588-591`): the two-element
+    /// chain `[globalThis, target]`, rendered as the prefix `"globalThis."`.
+    ///
+    /// `globalThisSymbol` is an ordinary `Module` symbol whose `Exports` **is**
+    /// the globals table (`checker.go:962-964`) and there is no special case in
+    /// the printer; this arm is the only injection point in the compiler. It
+    /// sits at the very bottom of `trySymbolTable`, reached when the direct arm
+    /// failed, the alias loop produced no candidate chain, and the table being
+    /// tried is `c.globals`.
+    ///
+    /// In one sentence (`checker-notes-sitename.md` §4.5): **`globalThis.` is
+    /// prefixed exactly when the target is reachable through the globals table
+    /// but no in-scope table can name it**, because a different symbol of the
+    /// same meaning shadows the name and no alias offers a route.
+    ///
+    /// # The three gates, and why the middle one is the whole build
+    ///
+    /// 1. **Reachable through globals, as this symbol** — `globals()[name]`
+    ///    merges to `symbol`. Without it the prefix would be a claim about a
+    ///    table the name is not in.
+    /// 2. **Shadowed at the site** — [`Checker::is_shadowed_at`], the honest
+    ///    transcription, and **not** [`Checker::needs_qualification`]. This arm
+    ///    was built once before against the conflated predicate and measured
+    ///    **38 W→R against 25 R→W with two PASSING cases damaged**
+    ///    (`collisionCodeGenEnumWithEnumMemberConflict`,
+    ///    `strictModeReservedWord2`), and was reverted (§7.1). The witness is
+    ///    `enum Color { Color, Thing = Color }`: the enum MEMBER shadows in
+    ///    `Value`, the reference is a `Type`, upstream does not qualify — but
+    ///    `resolve_name` answers `None` at that position and the conflated
+    ///    predicate therefore said *qualify*, so the arm spelled
+    ///    `globalThis.Color`. §8 is the diagnosis and §12 is the split that
+    ///    makes gate 2 expressible at all.
+    /// 3. **No alias route** — an in-scope alias naming the symbol itself is a
+    ///    candidate chain upstream's alias loop would have yielded first, and
+    ///    it would print the alias, not `globalThis.`. This port cannot spell
+    ///    that chain here, so it declines rather than printing a form upstream
+    ///    did not.
+    ///
+    /// # The falsifier, registered before the measurement (§6)
+    ///
+    /// If the arm fires on more than a handful of sites, the globals gate is
+    /// not doing its job and this is SS197 under a new name — the probe that
+    /// asked the shadowing question at *every* site and measured **−66 cases**,
+    /// because a local, module or member scope shadow fires there while
+    /// upstream's rule cannot reach the globals arm at all.
+    fn global_this_chain(
+        &mut self,
+        symbol: SymbolId,
+        name: &str,
+        reference: NodeId,
+        meaning: SymbolFlags,
+    ) -> Option<String> {
+        let &global = self.binder.globals().get(name)?;
+        if self.binder.merged_symbol(global) != self.binder.merged_symbol(symbol) {
+            return None;
+        }
+        if !self.is_shadowed_at(symbol, name, reference, meaning) {
+            return None;
+        }
+        if self.alias_in_scope_for(symbol, reference) {
+            return None;
+        }
+        Some("globalThis.".to_string())
     }
 
     /// `needsQualification` (`internal/checker/symbolaccessibility.go:688-726`),
