@@ -1870,3 +1870,32 @@ classifier that promises three kinds and a speller that answers one, with the
 caller turning the mismatch into a gap. That is the third seam-shaped defect this
 session after §539 (printed but not consultable) and §549 (the contagious
 decline), and all three were found by probing shapes rather than by reading code.
+
+### 26.2 §553's own residue, named: a late-bound LITERAL method prints the arrow form
+
+The arm makes these members exist; one of them prints the wrong shape:
+
+```ts
+var d = { m() { return 1; } };        // { m(): number; }        correct
+var e = { ["m"]() { return 1; } };    // { m: () => number; }    upstream: { m(): number; }
+```
+
+§413 already settled the rule — *"numeric and string method names take the SAME
+spelling rules the property path has"*, `{ 0() { } }` is `{ 0(): void; }` — so a
+late-bound literal method should keep method syntax.
+
+**Attempted and NOT landed.** `late_bound_symbol_member_name`'s second return
+element is the method arm's "keep the method spelling" switch (SS323 named it
+for `UNIQUE_ES_SYMBOL`, which is what it happened to mean at the time). Flipping
+the literal arms to return `true` changed **nothing** — the probe still prints
+the arrow form and the corpus reads `no transitions vs baseline` — so the
+method arm's `LateBound` branch is not the code path a computed literal method
+takes. Reverted unmeasured, per the rule §20.1 and §21.1 established: check
+whether the code RAN before believing a zero.
+
+Where to start next: there are two `ComputedNameKey::LateBound` sites in the
+method/accessor arms (`objects.rs` ~753 and ~940) and two more in the property
+arms (~1069, ~1210); the one a computed *method* actually reaches has not been
+identified. Cheap to find with one `eprintln`, and this residue is worth about
+as much as it costs — it is a spelling difference on members that did not exist
+before §553.
