@@ -1572,13 +1572,34 @@ impl<'a, 'n> Checker<'a, 'n> {
                 if printed.len() > owner_name.len()
                     && printed.starts_with(owner_name)
                     && printed.as_bytes()[owner_name.len()] == b'.'
-                    && let Some(better) = self.best_name(owner, reference, false)
-                    && better != owner_name
                 {
-                    let mut out = String::with_capacity(printed.len() + better.len());
-                    out.push_str(better);
-                    out.push_str(&printed[owner_name.len()..]);
-                    return Some(out);
+                    if let Some(better) = self.best_name(owner, reference, false)
+                        && better != owner_name
+                    {
+                        let mut out = String::with_capacity(printed.len() + better.len());
+                        out.push_str(better);
+                        out.push_str(&printed[owner_name.len()..]);
+                        return Some(out);
+                    }
+                    // §457: the same baked `{enum}.` prefix, owed a
+                    // QUALIFIER rather than a rename — the owner segment
+                    // takes the chain the bare-name road already builds. An
+                    // enum inside a module prints its member `m1.e3.a` at a
+                    // site outside `m1` (`es6ModuleConstEnumDeclaration`,
+                    // whose neighbouring `x3 : m1.e3` line the enum-TYPE
+                    // road qualifies while the member's baked prefix never
+                    // passed through `symbol_chain`).
+                    if let Some(qualifier) = self.symbol_chain(
+                        owner,
+                        reference,
+                        SymbolFlags::TYPE | SymbolFlags::VALUE,
+                        0,
+                    ) {
+                        let mut out = String::with_capacity(printed.len() + qualifier.len());
+                        out.push_str(&qualifier);
+                        out.push_str(&printed);
+                        return Some(out);
+                    }
                 }
             }
             return Some(printed);

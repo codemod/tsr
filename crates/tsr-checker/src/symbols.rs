@@ -3339,7 +3339,13 @@ impl<'a> Checker<'a, '_> {
                                 Some(tsr_ast::BindingName::Identifier(_))
                             )
                     })
-                    && !pattern.elements.is_empty()
+                // §455: the EMPTY pattern is served too —
+                // `getTypeFromBindingPattern`'s implied type of `{}` is the
+                // empty object literal and of `[]` the empty tuple
+                // (`function f(a, {}) {}` prints `{}: {}`,
+                // `parserErrorRecovery_ParameterList1/2`). The earlier
+                // non-empty guard predates the empty-tuple mint (§371) and
+                // excluded them for no upstream reason.
                 {
                     let any = self.intrinsics.any;
                     let is_array = pattern
