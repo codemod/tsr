@@ -458,6 +458,17 @@ impl Checker<'_, '_> {
                         .is_some_and(|t| t.kind == tsr_ast::SyntaxKind::EqualsToken)
                         && binary.left.and_then(|l| l.node_id()) == Some(current);
                 }
+                // §451: `getAssignmentTargetKind`'s for-of/for-in head arm —
+                // `for ({x, y = E.x} of array)` is an assignment target too
+                // (`ast.IsAssignmentTarget` walks `KindForOfStatement`/
+                // `KindForInStatement` initializers), so its defaulted
+                // members print optional exactly as the `=` form's do
+                // (`for-of47` wants `{ x: string; y?: E; }`).
+                Some(tsr_ast::Node::ForInOrOfStatement(head)) => {
+                    return head.initializer.as_ref().is_some_and(|initializer| {
+                        tsr_ast::Node::from(*initializer).node_id() == Some(current)
+                    });
+                }
                 Some(
                     tsr_ast::Node::ArrayLiteralExpression(_)
                     | tsr_ast::Node::ObjectLiteralExpression(_)
@@ -1274,6 +1285,9 @@ impl Checker<'_, '_> {
         if node.node_id.is_some_and(|id| self.in_js_file(id)) {
             self.js_literal_types.insert(minted);
         }
+        // §453: `ObjectFlagsFreshLiteral` — see the side table's doc on
+        // `Checker::fresh_object_literal_types`.
+        self.fresh_object_literal_types.insert(minted);
         minted
     }
 

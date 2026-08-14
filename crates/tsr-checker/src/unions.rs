@@ -1187,6 +1187,22 @@ impl crate::checker::Checker<'_, '_> {
                         continue;
                     }
                 }
+                // §453: `hasExcessProperties` (relater.go:2667) runs BEFORE
+                // the property walk in every relation, and a FRESH
+                // object-literal source carrying a property the target lacks
+                // fails it — so `{id:1, name:"foo"}` is never removed
+                // against `{id:1}` and the array literal's element union
+                // keeps both (`contextualTyping9/12`'s
+                // `({ id: number; } | { id: number; name: string; })[]`).
+                // The target-side index-signature admission of
+                // `isKnownProperty` is not read here; a target with a string
+                // index would wrongly keep its literal sources, and no
+                // corpus case in the pool carries that shape.
+                if self.fresh_object_literal_types.contains(&source)
+                    && self.fresh_literal_has_excess_property(source, target)
+                {
+                    continue;
+                }
                 match self.relate_ternary(source, target, crate::relater::Relation::StrictSubtype) {
                     Ternary::Unknown => return None,
                     Ternary::Related => {
@@ -1201,6 +1217,31 @@ impl crate::checker::Checker<'_, '_> {
             }
         }
         Some(self.get_union_type(&kept))
+    }
+
+    /// §453's excess test: any member NAME of the fresh literal `source` that
+    /// `target` does not carry. Names come from the literal's own `__object`
+    /// members table; a source minted without one has nothing to test.
+    fn fresh_literal_has_excess_property(
+        &mut self,
+        source: crate::types::TypeId,
+        target: crate::types::TypeId,
+    ) -> bool {
+        let crate::types::TypeData::Named { members: Some(symbol), .. } =
+            &self.store.get(source).data
+        else {
+            return false;
+        };
+        let symbol = self.binder.merged_symbol(*symbol);
+        let names: Vec<String> = self
+            .binder
+            .symbols()
+            .get(symbol)
+            .members
+            .keys()
+            .map(|name| (*name).to_string())
+            .collect();
+        names.iter().any(|name| self.get_type_of_property_of_type(target, name).is_none())
     }
 
     /// The §17 nominal verdict (`checker-notes-assign.md`): `Some(false)`

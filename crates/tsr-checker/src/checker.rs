@@ -438,6 +438,17 @@ pub struct Checker<'a, 'n> {
     /// per ADR-0003 rather than widening `TypeData`. Read by the element
     /// access lookup's failure path, which answers `any` for them.
     pub(crate) js_literal_types: rustc_hash::FxHashSet<crate::types::TypeId>,
+    /// Object-literal types as minted by `check_object_literal` — upstream's
+    /// `ObjectFlagsFreshLiteral`, carried in a side table per ADR-0003. Read
+    /// by the subtype reduction's excess-property gate (`hasExcessProperties`,
+    /// `relater.go:2667`): a fresh literal with a property its removal target
+    /// lacks fails every relation, which is what keeps
+    /// `[{id:1}, {id:2, name:"foo"}]` a two-constituent union. This port
+    /// never clears freshness (upstream's `getRegularTypeOfObjectLiteral` at
+    /// widening sites), so a variable's type can wrongly read as fresh where
+    /// upstream's has been cloned regular — measured, and the corpus holds no
+    /// case where that direction shows.
+    pub(crate) fresh_object_literal_types: rustc_hash::FxHashSet<crate::types::TypeId>,
     /// The identifier the JSX namespace hangs off, `getJsxNamespace`'s
     /// `c._jsxNamespace` (`internal/checker/jsx.go:1372-1382`).
     ///
@@ -849,6 +860,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             exhaustive_switches: rustc_hash::FxHashSet::default(),
             no_implicit_any: false,
             js_literal_types: rustc_hash::FxHashSet::default(),
+            fresh_object_literal_types: rustc_hash::FxHashSet::default(),
             jsx_namespace: "React".to_string(),
             jsx_emit: tsr_core::JsxEmit::None,
             exact_optional_property_types: false,
