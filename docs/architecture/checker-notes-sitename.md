@@ -660,3 +660,81 @@ The transitions are computed from PRINTED text, so a case whose lines all read
 And a case with two transitions may still have one cause. Treat 1,259 as the
 count of cases with a *coherent* shape, and re-derive per family before
 building — exactly as §9's first loose pass had to be tightened.
+
+---
+
+## 11. The `function -> function` near-miss premise, OPENED and CORRECTED — there is no cheap large vein left
+
+§10.2 read `function -> function`'s **2.3 lines per case** as the signature
+being computed with one slot wrong, and called it "near-misses, not
+architecture". On that reading it was ranked the next build: 93 cases,
+unblocked, several independent causes.
+
+**Opened, and the ratio does not mean what it looked like.** Bucketing all
+218 lines by how the wanted and printed texts differ:
+
+| lines | cases | difference |
+|---:|---:|---|
+| **141** | — | **token COUNT differs — the two signatures are different SHAPES** |
+| 19 | 3 | `T_1` ← `T` (shadowed type-parameter renaming) |
+| 12 | 1 | `number` ← `T` (an uninstantiated parameter) |
+| 12 | 1 | `fn_1` ← `fn` (the same rename, on a value name) |
+| 8 | 2 | `C` ← `this` (§164's this-type substitution) |
+| 8 | 1 | `Date` ← `T` |
+| 7 | 2 | `any` ← `undefined` |
+| everything else | 1–2 each | a long tail of one-case substitutions |
+
+**65% of the bucket is a shape difference, not a slot difference.** The
+2.3-lines-per-case ratio measured how many ASSERTION LINES a case carries,
+not how close the answer was — a case with two `>f : …` lines scores 2.3
+whether the printed signature is one token wrong or unrecognisable. The
+metric was structurally incapable of distinguishing them, and nothing in §10
+noticed.
+
+The same check on `any -> primitive` (93 cases, the other candidate) shows
+the same diffuseness from the other side: 31 cases want `string`, 40 want
+`number`, spread across unrelated fixtures with no shared shape.
+
+### 11.1 What this actually establishes
+
+**There is no cheap large vein left in the corpus.** Three independent
+sizings this session — naming (§9), transitions (§10), and now sub-causes
+(§11) — all terminate in the same place: the remaining damage is many small
+mechanisms, and the largest coherent ones are the expensive subsystems the
+project has already priced and refused (contextual typing, the inference
+pipeline's quality residue, cross-file binding).
+
+That is a **planning** result, not a defeat, and it is the honest answer to
+"what is next": the next window's work is a *sequence of small transcriptions
+against a stale-resistant instrument*, not a lever. The per-window rate of
++20-45 cases observed across the last several sessions is the rate, and
+6,677 is 18-40 windows away at it.
+
+### 11.2 The one item that survives the sizing with a real population
+
+`T_1` ← `T` / `fn_1` ← `fn` — **shadowed name renaming**,
+`GenerateNamesForShadowedTypeParams` — is the only mechanism that appears in
+BOTH the naming sizing (§9.2, ~325 lines corpus-wide) and this one (31 of
+these 218 lines). The machinery exists
+(`rename_type_parameters_for_site`, §102) and is applied at exactly two
+sites: `checker.rs`'s multi-signature composite arm and
+`signature_to_string_at` (`signatures.rs:3523`). Everything printed through
+the BAKED text never reaches it — which is §1.1's `split_around_name` choke
+point again, wearing a third hat.
+
+So it is not independent of wall 2 after all; it is wall 2's reach problem
+applied to a different substitution. Recorded here so the next reader does
+not re-rank it as cheap.
+
+### 11.3 The methodological finding, which is the durable one
+
+Three ratios were quoted as evidence this session and **two were wrong in the
+same way**: the loose rename bucket (§9, said ~400 cases, actually 79) and
+this one (§10, said near-miss, actually 65% shape differences). Both were
+aggregate string statistics standing in for a mechanism, and both survived
+until someone printed the underlying rows.
+
+**A ratio computed over rendered text is a hypothesis, not a measurement.**
+The instruments in `scripts/` are for *finding candidates*; the row dump is
+what decides. This belongs in `docs/conventions.md` and is recorded here
+pending that edit.
