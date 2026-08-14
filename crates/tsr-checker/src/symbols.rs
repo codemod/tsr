@@ -744,7 +744,23 @@ impl<'a> Checker<'a, '_> {
             // arm are not ported — each such miss stays a gap
             // (`checker-notes-modobj.md` §10.11).
             SyntaxKind::ImportClause => return self.import_clause_default_target(declaration),
-            // **No `NamespaceExportDeclaration` arm, and it is not an omission.**
+            // §503 re-opens §222's refusal under its own recorded condition:
+            // "the qualification losses need the naming half of `bd tsr-e2u`,
+            // and nothing landed since touched it" — §501 landed it.
+            // `getTargetOfNamespaceExportDeclaration` (`checker.go:15011`):
+            // `resolveExternalModuleSymbol(node.Parent.Symbol(),
+            // dontResolveAlias=true)` — the containing file-module's symbol,
+            // through its `export =`.
+            SyntaxKind::NamespaceExportDeclaration => {
+                let file = self.source_file_of(declaration)?;
+                let module = self.binder.symbol_of(file)?;
+                return Some(self.resolve_external_module_symbol(module));
+            }
+            // **The `NamespaceExportDeclaration` arm now exists — §503.** The
+            // refusal below stood on a blocker (`bd tsr-e2u`'s naming half)
+            // that §501 landed, which is exactly the re-test condition the
+            // refusal's own record named. The history is kept because the
+            // wrong turns are the useful part:
             // `getTargetOfNamespaceExportDeclaration` (`checker.go:15011`) is
             // three lines — `resolveExternalModuleSymbol(node.Parent.Symbol(),
             // dontResolveAlias=true)`, which this port's

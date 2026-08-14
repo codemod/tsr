@@ -930,3 +930,22 @@ tsxElementResolution19…), es6ExportEqualsInterop +16 lines, importEquals1,
 umd-augmentation-3 +10. The 19 remaining R→W sit in five already-failing
 cases (es6ExportEqualsInterop's other rows want import("...")-qualified
 forms — the chain printer, wall 2's core, still unbuilt).
+
+## §503 — §222's NamespaceExportDeclaration arm, re-tested under its own condition and LANDED at the thinnest ratio this lane has accepted (+5 cases, 5,837 → 5,842, 61.25%; +52 W→R vs 50 adverse, net wrong −4, all adverse in failing cases)
+
+The §222 refusal's record named its re-test condition ("needs the naming
+half of `bd tsr-e2u`, and nothing landed since touched it"); §501 landed
+that half, so the three-line transcription
+(`getTargetOfNamespaceExportDeclaration`, `checker.go:15011` —
+`resolveExternalModuleSymbol` of the containing file-module) was re-run.
+Wins: `unusedImports13–16` (the four one-line React cases §174's era filed
+under cross-file binding), umd-augmentation-2/-4,
+umdNamespaceMergedWithGlobalAugmentationIsNotCircular. The ratio is ~1:1 at
+line level — far below this lane's precedents and recorded as such — but
+every steering aggregate improves and the +5 cases carry it. The recurring
+damage is EXACTLY §222's measured shape a third time: `umd-augmentation-1`
+loses 14 R→W (`typeof m` → error, `m.Vector` → `Vector`) — the owner is the
+CHAIN printer (a qualified `m.Vector` needs the symbol-chain walk, wall 2's
+core), and that family is now the single largest named debtor of that build:
+three independent arms (§222 twice, §503 once) each measure the same 14
+lines against it.
