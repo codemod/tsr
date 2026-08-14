@@ -705,3 +705,14 @@ before any code runs.
   37.2% is parked on `bd tsr-4qx`, and both gates over the remainder fired
   negative. The number is a **ceiling on a population**, never a conversion —
   the trap `docs/conventions.md` records two agents falling into in one session.
+
+## §523 — the late-bound accessor pair reconstructed (+4 cases, 5,862 → 5,866, 61.50%; +10 W→R, 0 adverse)
+
+The binder gives every computed name its own `__computed` symbol (the §383
+method precedent), so a `get [Symbol.toPrimitive]` / `set` pair splits and
+the setter's symbol never saw the getter upstream's late-bound merge reads —
+`set [Symbol.toPrimitive](x)` printed `any` where the getter's inferred
+`string` is the answer, and §441's unannotated-setter-parameter road starved
+the same way. `get_type_of_accessors_worker` now reconstructs the pair
+through §383's sibling walk (same spelled name, accessor kinds) before the
+getter/setter split. Wins: symbolProperty47, symbolDeclarationEmit4/10/11.

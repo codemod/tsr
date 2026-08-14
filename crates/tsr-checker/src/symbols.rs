@@ -229,8 +229,36 @@ impl<'a> Checker<'a, '_> {
     }
 
     fn get_type_of_accessors_worker(&mut self, symbol: SymbolId) -> TypeId {
-        let declarations =
+        let mut declarations =
             self.binder.symbols().get(symbol).declarations.iter().copied().collect::<Vec<_>>();
+        // §523: a LATE-BOUND accessor pair splits across two `__computed`
+        // symbols (the binder gives each computed name its own — the §383
+        // method precedent), so the setter's symbol alone never sees the
+        // getter upstream's merged symbol reads
+        // (`set [Symbol.toPrimitive](x)` wants the getter's `string`,
+        // `symbolDeclarationEmit4/10/11`). Reconstruct the pair through the
+        // same sibling walk §383 uses: same spelled name, accessor kinds.
+        if self.binder.symbols().get(symbol).name == "__computed"
+            && let Some(parent) = self.binder.symbols().get(symbol).parent
+            && let Some(own_declaration) = declarations.first().copied()
+        {
+            let members = self.late_bound_members_of(parent);
+            let own_name =
+                members.iter().find(|(_, id)| *id == own_declaration).map(|(name, _)| name.clone());
+            if let Some(own_name) = own_name {
+                for (name, member) in members {
+                    if name == own_name
+                        && !declarations.contains(&member)
+                        && matches!(
+                            self.node_map.get(member),
+                            Some(Node::GetAccessorDeclaration(_) | Node::SetAccessorDeclaration(_))
+                        )
+                    {
+                        declarations.push(member);
+                    }
+                }
+            }
+        }
         let mut getter = None;
         let mut setter = None;
         let mut other = false;
