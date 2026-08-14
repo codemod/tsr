@@ -274,3 +274,17 @@ from, verified to exist in the corpus: `conformance/declarationsAndAssignments`,
 patterns), `conformance/destructuringWithLiteralInitializers2`. Every
 refused leg gets a pinned pair — the refused form beside the ported one —
 so the frontier moving turns the test red instead of silently widening.
+
+## §497 — an object-shaped parent is never array-like (+1 case, 5,819 → 5,820, 61.02%; +4 W→R, 0 adverse)
+
+Upstream gates the array-pattern positional read on `isArrayLikeType`
+(`checker.go:17769`); this port consulted the numeric property on EVERY
+parent, so `var [a, b] = { 0: "", 1: true }` answered string/boolean where
+upstream reports not-iterable and `checkIteratedTypeOrElementType` answers
+error-any (`checker.go:6103`). The guard fires only where the failure is
+decidable: the parent's member symbol's declarations are ALL object or type
+literals (a class instance prints `Named` too and must not fire — probed:
+the widened literal is `Named`, not `Anonymous`, which the first draft
+missed and measured zero), and no `__computed` key in members/exports (an
+aliased `[Symbol.iterator]` spelling declines). Wins:
+`iterableArrayPattern21` (case), `declarationsAndAssignments` +2 lines.

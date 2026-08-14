@@ -188,6 +188,57 @@ impl Checker<'_, '_> {
                     }
                     return error;
                 }
+                // §497: upstream gates the positional read on
+                // `isArrayLikeType` (`checker.go:17769`); an ANONYMOUS parent
+                // — an object or type literal, a function — is never
+                // array-like, so the numeric property is NOT consulted even
+                // when it exists (`var [a, b] = { 0: "", 1: true }` reported
+                // string/boolean here where upstream reports not-iterable and
+                // answers error-any, `iterableArrayPattern21`). With no
+                // computed member that could spell `[Symbol.iterator]` the
+                // iteration road decidably fails →
+                // `checkIteratedTypeOrElementType`'s `anyType`
+                // (`checker.go:6103`); a computed member in either table is
+                // undecidable and keeps the gap.
+                // SS497: upstream gates the positional read on
+                // `isArrayLikeType` (`checker.go:17769`); an OBJECT-SHAPED
+                // parent - an object literal or a type literal, widened or
+                // not - is never array-like, so the numeric property is NOT
+                // consulted even when it exists
+                // (`var [a, b] = { 0: "", 1: true }` reported string/boolean
+                // here where upstream reports not-iterable and answers
+                // error-any, `iterableArrayPattern21`). With no computed
+                // member that could spell `[Symbol.iterator]` the iteration
+                // road decidably fails - `checkIteratedTypeOrElementType`'s
+                // `anyType` (`checker.go:6103`); a computed member is
+                // undecidable and keeps the gap. Decided by the member
+                // symbol's DECLARATIONS (a class instance prints Named too
+                // and must not fire - its protocol question is
+                // `iteration_decidably_fails`' separate arm).
+                let literal_shaped_symbol = match self.store.get(parent_type).data {
+                    TypeData::Anonymous { symbol, .. }
+                    | TypeData::Named { members: Some(symbol), .. } => Some(symbol),
+                    _ => None,
+                }
+                .filter(|&symbol| {
+                    let declarations = &self.binder.symbols().get(symbol).declarations;
+                    !declarations.is_empty()
+                        && declarations.iter().all(|&declaration| {
+                            matches!(
+                                self.node_map.get(declaration),
+                                Some(Node::ObjectLiteralExpression(_) | Node::TypeLiteralNode(_))
+                            )
+                        })
+                });
+                if let Some(symbol) = literal_shaped_symbol {
+                    let entry = self.binder.symbols().get(symbol);
+                    if entry.members.contains_key("__computed")
+                        || entry.exports.contains_key("__computed")
+                    {
+                        return error;
+                    }
+                    return self.intrinsics.any;
+                }
                 let positional =
                     self.destructuring_property_lookup(parent_type, &index.to_string(), true);
                 if positional == error {
