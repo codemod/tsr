@@ -745,6 +745,38 @@ impl<'a> Checker<'a, '_> {
             return Some(parameter.r#type);
         }
         let callee = call.expression?;
+        // §469 — the signature-links table's read, `checker.go:29785`: while
+        // this call's signature is already resolving, don't resolve again —
+        // upstream answers `resolvingSignature`, whose `getTypeAtPosition` is
+        // `anyType` at every index (`relater.go:1757`, parameterless and
+        // restless, so `tryGetTypeAtPosition` is nil and the wrapper fills
+        // `any`). This is the cycle-breaker §445's refusal named: everything
+        // below resolves the callee, and the callee's own type computation
+        // can reach this very call's contextual road again. The park spans
+        // exactly the resolving section — the memo consult above is upstream's
+        // completed-`resolvedSignature` read and must stay reachable on
+        // re-entry paths that arrive after pass-1 populated it.
+        let Some(call_id) = call.node_id else {
+            return self.contextual_type_for_argument_resolving(call, callee, index);
+        };
+        if !self.resolving_signature_calls.insert(call_id) {
+            return Some(self.intrinsics.any);
+        }
+        let contextual = self.contextual_type_for_argument_resolving(call, callee, index);
+        self.resolving_signature_calls.remove(&call_id);
+        contextual
+    }
+
+    /// The resolving section of [`Checker::contextual_type_for_argument`] —
+    /// everything that computes the callee's type, split out so the §469
+    /// sentinel can park around it with one insert/remove pair rather than
+    /// one per early return.
+    fn contextual_type_for_argument_resolving(
+        &mut self,
+        call: &'a CallExpression<'a>,
+        callee: Expression<'a>,
+        index: usize,
+    ) -> Option<TypeId> {
         let callee_type = self.check_expression(callee);
         if let Some(parameter) = self
             .single_call_signature(callee_type)

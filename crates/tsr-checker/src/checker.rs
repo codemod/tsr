@@ -275,6 +275,43 @@ pub struct Checker<'a, 'n> {
     /// types instead of erroring on the circularity.
     pub(crate) call_inference_signatures:
         rustc_hash::FxHashMap<tsr_ast::NodeId, crate::signatures::Signature>,
+    /// §469: the signature-links table, reduced to the ONE bit upstream reads
+    /// on the contextual road — whether a call's signature resolution is in
+    /// flight. Upstream parks `resolvingSignature` in `signatureLinks` before
+    /// resolving (`checker.go:8427`) and `getContextualTypeForArgumentAtIndex`
+    /// answers that sentinel instead of re-resolving (`checker.go:29785`);
+    /// `getTypeAtPosition` on the parameterless sentinel is `anyType` at every
+    /// index (`relater.go:1757`). This is the cycle-breaker §445's refusal
+    /// named as its reopening condition: a call argument's contextual
+    /// signature resolves the callee, and the callee's own type computation
+    /// can re-enter the same call's contextual road — which overflowed the
+    /// stack when return inference joined that road. A call node present here
+    /// answers `any` on re-entry rather than resolving again.
+    pub(crate) resolving_signature_calls: rustc_hash::FxHashSet<tsr_ast::NodeId>,
+    /// §469's other half of the signature-links table: DECLARATIONS whose
+    /// inferred return type is currently consulting the contextual road.
+    /// Upstream's `signatureLinks` is keyed per NODE and serves both the
+    /// call side (`resolvedSignature`, the set above) and the declaration
+    /// side (`getSignatureFromDeclaration`'s cache), so a function
+    /// expression's signature materializes once and a cyclic re-query hits
+    /// the links. This port rebuilds signatures per query, so the
+    /// intra-expression road — whose pass-1 memo hands back a parameter type
+    /// containing the argument literal's OWN members — could re-enter the
+    /// same declaration's return inference unboundedly (measured: one
+    /// declaration at every depth to the cap, `intraExpressionInferences`).
+    /// A declaration in flight declines the contextual consult and keeps the
+    /// pre-§469 answer, widening.
+    pub(crate) contextual_return_in_flight: rustc_hash::FxHashSet<tsr_ast::NodeId>,
+    /// §469's stack budget: how many contextual-return consults are nested
+    /// RIGHT NOW, cycles aside. The two parks above break true cycles; this
+    /// bounds genuine nesting, because each consult's subtree re-runs call
+    /// resolution unmemoized and ~20 distinct arrows nesting through it sat
+    /// AT the 8 MiB worker budget — `intraExpressionInferences` passed or
+    /// overflowed on environment jitter alone. Same policy as the binder's
+    /// and printer's `MAX_DEPTH`: the walk carries its own bound rather than
+    /// the harness growing a stack nobody else has. Productive depth measured
+    /// ≤ 9 corpus-wide (the §469 histogram); the bound is 16.
+    pub(crate) contextual_return_depth: u32,
     /// SS135: while a deferred OBJECT-LITERAL argument re-checks under the
     /// serve memo, its node id maps to the pass-1 substitution so the
     /// property road can serve MEMBER types instantiated - the object
@@ -831,6 +868,9 @@ impl<'a, 'n> Checker<'a, 'n> {
             shared_flows: Vec::new(),
             narrow_value_stack: std::collections::HashSet::new(),
             call_inference_signatures: rustc_hash::FxHashMap::default(),
+            resolving_signature_calls: rustc_hash::FxHashSet::default(),
+            contextual_return_in_flight: rustc_hash::FxHashSet::default(),
+            contextual_return_depth: 0,
             intra_expression_member_maps: rustc_hash::FxHashMap::default(),
             narrow_value_types: rustc_hash::FxHashMap::default(),
             union_origin: rustc_hash::FxHashMap::default(),

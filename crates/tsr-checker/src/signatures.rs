@@ -1754,6 +1754,42 @@ impl<'a> Checker<'a, '_> {
                 Some(widened)
             };
         }
+        // §469 — the §445 comment above recorded WRITTEN-ANNOTATION POSITIONS
+        // ONLY as a measured wall: generalising to every position where
+        // `contextual_signature` materializes overflowed the stack, because
+        // the call-argument road resolves the callee and the callee's type
+        // computation can re-enter this very inference. That refusal's named
+        // reopening condition — a signature-links table parking a sentinel
+        // while a call's signature resolves — now exists
+        // (`resolving_signature_calls`, the `checker.go:29785` read), so the
+        // road opens: `isLiteralOfContextualType(t, contextualType)`
+        // (`checker.go:25522`) keeps the literal wherever the context says
+        // yes. TWO parks guard the road, matching the two things upstream
+        // keys `signatureLinks` by: the CALL side (`resolving_signature_calls`)
+        // and the DECLARATION side (`contextual_return_in_flight`, this
+        // insert) — the second exists because the intra-expression memo
+        // consults before the call sentinel and its parameter type can carry
+        // the argument literal's own members back into this very inference
+        // (measured unbounded on `intraExpressionInferences`; see the field
+        // doc). The asymmetry with the written arm is deliberate: there a nil
+        // signature GAPS (cannot tell nil-because-none from
+        // nil-because-unported under a visible annotation), while here nil —
+        // and an undecidable tri-state `None` — keeps this port's standing
+        // answer, widening, which is also upstream's answer on a nil context.
+        if widened != id
+            && self.contextual_return_depth < 16
+            && self.contextual_return_in_flight.insert(declaration)
+        {
+            self.contextual_return_depth += 1;
+            let keeps_literal = self
+                .contextual_signature(declaration)
+                .map(|signature| self.is_literal_of_contextual_type(id, signature.r#type));
+            self.contextual_return_depth -= 1;
+            self.contextual_return_in_flight.remove(&declaration);
+            if keeps_literal == Some(Some(true)) {
+                return Some(self.get_regular_type_of_literal_type(id));
+            }
+        }
         // §64 (`checker-notes-narrow.md`): the non-strict nullable widening
         // at RETURN inference — `function f() { return null; }` infers
         // `() => any` with `strictNullChecks` off (`getWidenedType`'s

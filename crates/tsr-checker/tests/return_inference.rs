@@ -370,6 +370,37 @@ fn a_yield_in_a_heritage_clause_has_no_contextual_type() {
 
 /// The three controls, one per way the predicate could be wrong.
 #[test]
+fn the_intra_expression_road_cannot_reenter_a_return_inference() {
+    // §469's declaration park (`contextual_return_in_flight`). The shape is
+    // `intraExpressionInferences`' first repro distilled: a literal-returning
+    // member of an object literal that is the argument of a generic call.
+    // `produce`'s return inference asks its contextual signature; the
+    // call-argument road consults the pass-1 memo, whose parameter type
+    // carries the argument literal's OWN members; reading `produce` back out
+    // of it re-builds this very signature. Upstream cannot loop here because
+    // `signatureLinks` caches per DECLARATION as well as per call; this port
+    // rebuilds signatures per query, so without the park this recursed
+    // unboundedly — one declaration at every depth to the probe's cap,
+    // overflowing an 8 MiB worker.
+    //
+    // **Measured vacuity, recorded rather than papered over**: with the park
+    // deleted this fixture stays GREEN — the cycle needs lib machinery the
+    // unit harness does not load, and the same mutation makes the corpus
+    // case overflow (verified both ways, 2026-08-13). So the load-bearing
+    // gate for the park is `conformance/intraExpressionInferences` aborting
+    // the entire conformance run, which no one can miss; this test only PINS
+    // the distilled shape's answer so a change in the road is visible here.
+    assert_eq!(
+        type_of_declaration(
+            "declare function callIt<T>(obj: { produce: (n: number) => T, consume: (x: T) => void }): T;\n\
+             const r = callIt({ produce: () => 0, consume: n => n });",
+            "r",
+        ),
+        "number"
+    );
+}
+
+#[test]
 fn the_contextual_gate_still_declines_where_upstream_has_an_arm() {
     // A parent WITH an arm still declines — `KindVariableDeclaration`
     // (`:29356`). This is the case §135 was protecting and it must not move.
