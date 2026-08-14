@@ -1962,3 +1962,27 @@ worth stating as method: *after landing an arm that makes new members exist,
 probe the shapes it newly reaches and diff them against baselines* — the arm's
 own conversions are where its residues hide, because those are the only places
 the new code runs.
+
+### 27.2 One open spelling question in §553's arm, with the evidence both ways
+
+`{ ["1"]: 1 }` — a computed name whose type is the STRING literal `"1"` — prints
+`{ "1": number; }` here. Whether that is right is **not settled by the corpus**,
+and the two neighbouring facts point in opposite directions:
+
+```
+written string name        >{ "0": 1 } : { "0": number; }        QUOTED
+computed NUMBER-literal    >t1 : { 1: number; }                  BARE
+computed NEGATIVE number   >t6 : { [-1]: number; }               BRACKETED  (§557)
+```
+
+A late-bound member has no declaration name node, so the printer cannot be
+re-emitting the written form; yet a written `"0"` keeps its quotes and a
+computed `1` loses them. The three data points do not fit one rule, and **no
+corpus line exercises a computed name whose type is a NUMERIC-LOOKING STRING**,
+which is the case that would discriminate.
+
+Left as it is, deliberately. §557 changed the negative-number spelling only
+because two baselines demanded it and the pair measured `+6 W→R, 0 adverse`;
+this one has no such witness, and guessing it would be exactly the move
+`docs/conventions.md` warns about. **Falsifier if someone wants to settle it**:
+find or write a fixture with `{ ["1"]: 1 }` and read upstream's `.types`.
