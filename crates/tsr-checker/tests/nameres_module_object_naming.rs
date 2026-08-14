@@ -438,7 +438,11 @@ fn a_namespace_import_of_an_export_equals_module_declines() {
             ("core", "import * as X from \"m\";\n"),
         ],
     );
-    assert_eq!(rendered_at(&fixture, "X", SyntaxKind::NamespaceImport), "error");
+    // SS501: the day arrived - module_object_of follows `export =` and the
+    // namespace-object interception names the target through the importing
+    // alias via best_name's accessibility walk. The refusal's own text
+    // prescribed this exact flip.
+    assert_eq!(rendered_at(&fixture, "X", SyntaxKind::NamespaceImport), "typeof X");
 }
 
 /// §232. `export =` of something that is **not** a module object resolves.

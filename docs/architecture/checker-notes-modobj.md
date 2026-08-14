@@ -899,3 +899,34 @@ element name is `ObjectLiteralPatternWithComputedProperties` and declines
 whole. Wins: noImplicitAnyDestructuringVarDeclaration2,
 shadowingViaLocalValueOrBindingElement, the
 sourceMapValidationDestructuring* family, literalTypesAndTypeAssertions.
+
+## §501 — bd tsr-e2u LANDS WHOLE (+15 cases, 5,822 → 5,837, 61.20%; +142 right / −97 wrong / −45 gap at 5.1:1; gradient 90.32%)
+
+The two halves the §219 refusal said must land together, landed together:
+
+1. **Resolution**: `module_object_of` follows `export =`
+   (`resolveESModuleSymbol`'s first line, `checker.go:15569`) — the §219/§232
+   guard comes off whole, exactly under the refusal's own reopening
+   condition ("if `module_name_at` learns to name an `export =` target
+   through the importing alias, this guard is pure loss").
+2. **Naming**: `export_equals_alias_name_at`, deliberately NARROWER than the
+   accessibility walk — the first draft routed every namespace-object print
+   through `best_name` and measured **274 R→W** (temporal 46: qualified
+   baked texts flattened to leaf names), so the landed walk renames ONLY the
+   two-hop `import → export=` signature, answers `None` on a direct hit
+   (the baked text, with its qualification, wins everywhere it wins today),
+   keeps the §14 two-alias decline, and EXCLUDES default-import candidates —
+   `exportAssignmentOfExportNamespaceWithDefault`, a PASSING case, records
+   `typeof import("b").a` where the local name would print `typeof a`; the
+   full-stop rule measured that gate in.
+3. `module_alias_at` and `best_name` compare candidates through
+   `resolve_alias_fully` (a capped fixpoint over `resolve_alias`), so either
+   spelling of an `export =` module object finds its alias.
+
+The §219 falsifier pin (`a_namespace_import_of_an_export_equals_module_declines`)
+fired and was flipped to `typeof X` per its own instructions. Wins: the tsx
+`typeof React` row (multiline, correctlyMarkAliasAsReferences1-4,
+tsxElementResolution19…), es6ExportEqualsInterop +16 lines, importEquals1,
+umd-augmentation-3 +10. The 19 remaining R→W sit in five already-failing
+cases (es6ExportEqualsInterop's other rows want import("...")-qualified
+forms — the chain printer, wall 2's core, still unbuilt).

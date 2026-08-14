@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 5822/9538 (61.04%)
-Assertion lines: 432363/478855 (90.29%)  — a gradient, not a pass rate
-Failed         : 3716
+Passed         : 5837/9538 (61.20%)
+Assertion lines: 432507/478855 (90.32%)  — a gradient, not a pass rate
+Failed         : 3701
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 3716 failures:
+First 100 of 3701 failures:
 compiler/2dArrays
   2dArrays.ts: >function (val) { return val.isSunk; } : error — expected >function (val) { return val.isSunk; } : (val: Ship) => boolean
 compiler/ClassDeclaration26
@@ -197,8 +197,6 @@ compiler/arrowFunctionJSDocAnnotation
   index.js: >param => param : (param: any) => any — expected >param => param : (param: number) => number | undefined
 compiler/arrowFunctionsMissingTokens
   arrowFunctionsMissingTokens.ts: 133 assertion(s), expected 107
-compiler/assertionFunctionWildcardImport1
-  src/core/foo.ts: >Debug : any — expected >Debug : typeof Debug
 compiler/assertionFunctionWildcardImport2
   test.ts: >obj : string | null — expected >obj : string
 compiler/assertionFunctionsCanNarrowByDiscriminant
@@ -213,3 +211,5 @@ compiler/assignmentToConditionalBrandedStringTemplateOrMapping
   assignmentToConditionalBrandedStringTemplateOrMapping.ts: >a : error — expected >a : <T>() => T extends `${'a' & { a: 1; }}` ? 1 : 2
 compiler/assignmentToInstantiationExpression
   assignmentToInstantiationExpression.ts: 28 assertion(s), expected 22
+compiler/asyncFunctionContextuallyTypedReturns
+  asyncFunctionContextuallyTypedReturns.ts: >f : (cb: (v: boolean) => PromiseLike<[0]> | [0]) => void — expected >f : (cb: (v: boolean) => [0] | PromiseLike<[0]>) => void

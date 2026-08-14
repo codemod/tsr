@@ -1290,6 +1290,30 @@ impl<'a, 'n> Checker<'a, 'n> {
         let module = match &self.store.get(id).data {
             crate::types::TypeData::Anonymous { symbol, .. } => {
                 let symbol = *symbol;
+                // §501 — `bd tsr-e2u`'s naming half: a NAMESPACE object
+                // (`typeof __React` reached through
+                // `declare module "react" { export = __React }`) renders
+                // through the accessibility walk — `best_name`'s per-table
+                // direct-hit-then-alias priority is `trySymbolTable`'s own
+                // order, so a site importing the module prints the ALIAS
+                // (`typeof React`) while a site where the namespace's own
+                // name is innermost keeps it (`typeof N`, the case §219's
+                // record named as the widening's regression — protected by
+                // the direct hit, not by a gate). No name found falls back
+                // to the baked text, exactly what every such site printed
+                // before the interception existed.
+                if !self.is_module_symbol(symbol)
+                    && !self.is_ambient_module(symbol)
+                    && self
+                        .binder
+                        .symbols()
+                        .get(symbol)
+                        .flags
+                        .intersects(SymbolFlags::VALUE_MODULE | SymbolFlags::NAMESPACE_MODULE)
+                    && let Some(name) = self.export_equals_alias_name_at(symbol, reference)
+                {
+                    return Some(format!("typeof {name}"));
+                }
                 // Ambient modules (`declare module "x"`) resolve since the
                 // `tryFindAmbientModule` arm (`checker-notes-modobj.md` §10)
                 // and must take the same interception: their baked text is the
@@ -2022,6 +2046,87 @@ impl<'a, 'n> Checker<'a, 'n> {
     ///
     /// `None` when there is none, or when there is more than one — see
     /// [`Checker::type_to_string_at`] for why more-than-one is not a tie-break.
+    /// §501 — the naming half of `bd tsr-e2u`, cut to exactly the measured
+    /// population: a namespace object reached through
+    /// `declare module "m" { export = __X }` prints the IMPORTING alias
+    /// (`typeof React`), and nothing else moves. The first draft routed every
+    /// namespace print through the full accessibility walk and measured
+    /// **274 R→W** (temporal 46 — qualified baked texts flattened to leaf
+    /// names), so this walk is deliberately narrower than `best_name`:
+    ///
+    /// - innermost table first, and a DIRECT HIT on the symbol's own name
+    ///   answers `None` — the baked text (which carries qualification this
+    ///   single-name walk cannot rebuild) wins everywhere it wins today;
+    /// - only an alias whose immediate target is ITSELF an alias — the
+    ///   two-hop `import → export=` signature — renames; a one-hop alias to
+    ///   the namespace was already handled (or refused) by the existing
+    ///   roads and keeps its behavior;
+    /// - two distinct such names in one table answer `None`, the §14
+    ///   two-alias decline.
+    fn export_equals_alias_name_at(
+        &mut self,
+        namespace: SymbolId,
+        reference: NodeId,
+    ) -> Option<&'a str> {
+        let own = self.binder.symbols().get(namespace).name;
+        let target = self.binder.merged_symbol(namespace);
+        let mut tables: Vec<Vec<(&'a str, SymbolId)>> = Vec::new();
+        let mut current = Some(reference);
+        while let Some(node) = current {
+            if let Some(locals) = self.binder.locals(node) {
+                tables.push(locals.iter().map(|(&name, &id)| (name, id)).collect());
+            }
+            current = self.nodes.parent(node);
+        }
+        tables.push(self.binder.globals().iter().map(|(&name, &id)| (name, id)).collect());
+        for table in tables {
+            if let Some(&(_, hit)) = table.iter().find(|&&(name, _)| name == own)
+                && self.binder.merged_symbol(hit) == target
+            {
+                return None;
+            }
+            let mut found: Option<&'a str> = None;
+            for (name, candidate) in table {
+                if !self.binder.symbols().get(candidate).flags.intersects(SymbolFlags::ALIAS) {
+                    continue;
+                }
+                if name == "default" || name == "export=" {
+                    continue;
+                }
+                // A DEFAULT import is excluded: under esModuleInterop its
+                // chain runs through the synthetic default, and upstream
+                // prints the module-qualified form there —
+                // `exportAssignmentOfExportNamespaceWithDefault` (a PASSING
+                // case) records `typeof import("b").a` where this walk's
+                // local name would print `typeof a`; the full-stop rule
+                // measured it in.
+                if self.binder.symbols().get(candidate).declarations.iter().any(|&declaration| {
+                    matches!(self.node_map.get(declaration), Some(Node::ImportClause(_)))
+                }) {
+                    continue;
+                }
+                let Some(link) = self.resolve_alias(candidate) else { continue };
+                // The two-hop signature: the immediate target is the
+                // `export=` alias, and ITS target is the namespace.
+                if !self.binder.symbols().get(link).flags.intersects(SymbolFlags::ALIAS) {
+                    continue;
+                }
+                if self.binder.merged_symbol(self.resolve_alias_fully(link)) != target {
+                    continue;
+                }
+                match found {
+                    Some(existing) if existing == name => {}
+                    Some(_) => return None,
+                    None => found = Some(name),
+                }
+            }
+            if found.is_some() {
+                return found;
+            }
+        }
+        None
+    }
+
     fn module_name_at(&mut self, module: SymbolId, reference: NodeId) -> Option<&'a str> {
         self.module_alias_at(module, reference).ok()
     }
@@ -2043,6 +2148,13 @@ impl<'a, 'n> Checker<'a, 'n> {
         }
         candidates.extend(self.binder.globals().values().copied());
 
+        // §501: the module handed in may itself be an alias — following
+        // `export =` returns the `export=` symbol under upstream's
+        // `dontResolveAlias` contract — so both sides compare FULLY resolved:
+        // `import * as React from "react"` resolves to the `export=` symbol,
+        // whose target is the `__React` namespace, and either spelling of the
+        // module object must find the alias.
+        let module_target = self.resolve_alias_fully(module);
         let mut found: Option<&'a str> = None;
         for candidate in candidates {
             if !self
@@ -2054,7 +2166,10 @@ impl<'a, 'n> Checker<'a, 'n> {
             {
                 continue;
             }
-            if self.resolve_alias(candidate) != Some(module) {
+            let resolved = self.resolve_alias(candidate);
+            if resolved != Some(module)
+                && resolved.map(|r| self.resolve_alias_fully(r)) != Some(module_target)
+            {
                 continue;
             }
             let name = self.binder.symbols().get(candidate).name;
@@ -2155,9 +2270,20 @@ impl<'a, 'n> Checker<'a, 'n> {
                 if excluded {
                     continue;
                 }
-                if self.resolve_alias(candidate).map(|t| self.binder.merged_symbol(t))
-                    != Some(target)
-                {
+                // §501: the candidate may resolve to an `export=` link whose
+                // own target is the symbol — compare through the full chain
+                // too (`import * as React from "react"` over
+                // `export = __React`).
+                let resolved = self.resolve_alias(candidate);
+                let reaches = resolved.map(|t| self.binder.merged_symbol(t)) == Some(target)
+                    || resolved
+                        .map(|t| {
+                            let full = self.resolve_alias_fully(t);
+                            self.binder.merged_symbol(full)
+                        })
+                        .map(Some)
+                        == Some(Some(target));
+                if !reaches {
                     continue;
                 }
                 match found {

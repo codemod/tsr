@@ -1668,6 +1668,24 @@ impl<'a> Checker<'a, '_> {
         None
     }
 
+    /// §501: `resolve_alias` iterated to a fixpoint — the terminal non-alias
+    /// symbol a chain of aliases reaches, or the last resolvable link. The
+    /// cap is the same policy as every bounded walk here; alias chains in the
+    /// corpus are ≤3 deep.
+    pub(crate) fn resolve_alias_fully(&mut self, symbol: SymbolId) -> SymbolId {
+        let mut current = symbol;
+        for _ in 0..8 {
+            if !self.binder.symbols().get(current).flags.intersects(SymbolFlags::ALIAS) {
+                return current;
+            }
+            match self.resolve_alias(current) {
+                Some(next) if next != current => current = next,
+                _ => return current,
+            }
+        }
+        current
+    }
+
     /// Ported from `Checker.resolveExternalModuleSymbol`
     /// (`checker.go:15556`): a module that writes `export = X` is, for every
     /// purpose downstream, `X`.
@@ -1913,14 +1931,16 @@ impl<'a> Checker<'a, '_> {
         //
         // Only the flag test follows the alias; the symbol handed back is still
         // the unresolved one, which is upstream's `dontResolveAlias` contract.
-        let named = self.resolve_alias(target).unwrap_or(target);
-        let is_module_object = self
-            .binder
-            .symbols()
-            .get(named)
-            .flags
-            .intersects(SymbolFlags::VALUE_MODULE | SymbolFlags::NAMESPACE_MODULE);
-        if is_module_object { None } else { Some(target) }
+        //
+        // §501 — `bd tsr-e2u`'s resolution half, landed TOGETHER with the
+        // naming half this time (the §219 refusal's own stated reopening
+        // condition: "if `module_name_at` learns to name an `export =` target
+        // through the importing alias, then this guard is pure loss").
+        // `module_alias_at` now matches candidates by their FULLY-resolved
+        // target, so `import * as React from "react"` over
+        // `declare module "react" { export = __React }` names the module
+        // object `typeof React` — the exact test the refusal prescribed.
+        Some(target)
     }
 
     /// The module specifier of an `ImportDeclaration` or an `ExportDeclaration`.
