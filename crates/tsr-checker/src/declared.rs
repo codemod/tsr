@@ -1046,10 +1046,17 @@ impl<'a> Checker<'a, '_> {
             // `bd tsr-d4li`; the second measurement's 55 residual losses were
             // exactly this slot. Restricted to the literal shape so nothing
             // else changes spelling here.
+            // §517 adds the UNION spelling: a member annotation `number |
+            // string` whose union interned under the other order prints the
+            // WRITTEN order (`functionOverloads43-45`'s
+            // `{ a: number | string; }`); `written_annotation_text`'s §137
+            // gate admits ONLY same-set-different-order unions, so nothing
+            // else changes spelling.
             let printed = match property.r#type {
                 Some(
                     annotation @ (tsr_ast::TypeNode::TypeLiteralNode(_)
-                    | tsr_ast::TypeNode::ArrayTypeNode(_)),
+                    | tsr_ast::TypeNode::ArrayTypeNode(_)
+                    | tsr_ast::TypeNode::UnionTypeNode(_)),
                 ) => self
                     .written_annotation_text(annotation)
                     .unwrap_or_else(|| self.type_to_string(member_type)),

@@ -2377,3 +2377,15 @@ measurement in this order:
    block that is an ANCESTOR of the reference. Drafted between (1) and (2)
    and insufficient alone; kept as a conjunct because it errs toward the
    qualifier (the pre-§509 behavior) everywhere it declines.
+
+## §517 — the written UNION spelling at type-literal members (+3 cases, 5,855 → 5,858, 61.42%; +80 W→R, 0 adverse; gradient 90.37%)
+
+A member annotation `number | string` whose union interned under the other
+constituent order printed the baked interned text (`string | number`) — the
+first-mint-fixes-the-text consequence of ADR-0003's print-at-creation, at
+one more slot. One arm added to the type-literal member's written-carriage
+admission (`UnionTypeNode` beside the existing literal and array shapes);
+`written_annotation_text`'s §137 gate admits ONLY same-set-different-order
+unions, so nothing else can change spelling by construction. +80 lines over
+narrowCommaOperatorNestedWithinLHS 15, controlFlowDeleteOperator 14,
+localesObjectArgument 6, the functionOverloads43–45 trio, and a long tail.
