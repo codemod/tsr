@@ -269,7 +269,20 @@ fn heritage_base_symbol(
 ) -> Option<tsr_binder::SymbolId> {
     let symbol = match map.get(id)? {
         Node::Identifier(name) => {
-            binder.resolve_name(nodes, map, id, name.text, SymbolFlags::NAMESPACE)?
+            let namespace =
+                binder.resolve_name(nodes, map, id, name.text, SymbolFlags::NAMESPACE)?;
+            // §479: the heritage expression is an ordinary EXPRESSION, so a
+            // VALUE binding that shadows the namespace is what upstream
+            // binds — `var M1 = 0; class B extends M1.A<string>` records
+            // `>M1.A : any` (`typeValueConflict2`'s own comment). SS194's
+            // rule, at this second resolution site.
+            if matches!(
+                binder.resolve_name(nodes, map, id, name.text, SymbolFlags::VALUE),
+                Some(value) if value != namespace
+            ) {
+                return None;
+            }
+            namespace
         }
         Node::PropertyAccessExpression(access) => {
             let left = access.expression.and_then(|left| left.node_id())?;
@@ -767,6 +780,27 @@ pub fn type_id_at_location<'a>(
                     receiver.text,
                     tsr_binder::SymbolFlags::NAMESPACE,
                 )?;
+                // §479: the heritage expression is an ORDINARY EXPRESSION
+                // (SS194's rule, at the qualified receiver): a VALUE binding
+                // that SHADOWS the namespace is what upstream binds, so
+                // `var M1 = 0; class B extends M1.A` reads `A` off `number`,
+                // errors, and records `>M1.A : any`
+                // (`typeValueConflict1/2`'s own comment says "M1 should bind
+                // to the variable, not to the module"). A VALUE resolution
+                // reaching a DIFFERENT symbol declines the compensation and
+                // lets the expression road answer.
+                if matches!(
+                    binder.resolve_name(
+                        nodes,
+                        map,
+                        receiver_id,
+                        receiver.text,
+                        tsr_binder::SymbolFlags::VALUE,
+                    ),
+                    Some(value) if value != namespace
+                ) {
+                    return None;
+                }
                 let tsr_ast::MemberName::Identifier(member) = access.name? else { return None };
                 let exports = &binder.symbols().get(namespace).exports;
                 let found = exports.get(member.text).copied()?;
