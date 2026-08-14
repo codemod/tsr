@@ -380,20 +380,25 @@ impl Checker<'_, '_> {
         // makes `{ ["a" + ""]: 1 }` stay on the index route: its name type is
         // plain `string`, not a literal, so this arm does not fire.
         //
-        // `false` for the second element: that flag is
-        // `UNIQUE_ES_SYMBOL`-ness, which decides the symbol display, and a
-        // literal name is never a unique symbol.
+        // `true` for the second element. The flag's CALLER meaning is **"keep
+        // the method spelling"**, not "is a unique symbol" — SS323 named it for
+        // `UNIQUE_ES_SYMBOL` because that was the only thing reaching it, and
+        // the method arm branches on it to choose `m(): number` over
+        // `m: () => number`. §413 already settled that a literal-named method
+        // spells like the property path does — `{ 0() { } }` is
+        // `{ 0(): void; }`, `{ "foo"() { } }` is `{ foo(): void; }` — so
+        // `{ ["m"]() { } }` is `{ m(): number; }`.
         match &self.type_of(name_type).data {
             crate::types::TypeData::StringLiteral(text) => {
                 let text = text.clone();
                 return Some((
                     if is_identifier_text(&text) { text } else { printing::quote(&text) },
-                    false,
+                    true,
                 ));
             }
             crate::types::TypeData::NumberLiteral(text) => {
                 let text = text.clone();
-                return Some((printing::normalise_number(&text), false));
+                return Some((printing::normalise_number(&text), true));
             }
             _ => {}
         }

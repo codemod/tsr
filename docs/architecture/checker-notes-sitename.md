@@ -1884,18 +1884,33 @@ var e = { ["m"]() { return 1; } };    // { m: () => number; }    upstream: { m()
 spelling rules the property path has"*, `{ 0() { } }` is `{ 0(): void; }` — so a
 late-bound literal method should keep method syntax.
 
-**Attempted and NOT landed.** `late_bound_symbol_member_name`'s second return
-element is the method arm's "keep the method spelling" switch (SS323 named it
-for `UNIQUE_ES_SYMBOL`, which is what it happened to mean at the time). Flipping
-the literal arms to return `true` changed **nothing** — the probe still prints
-the arrow form and the corpus reads `no transitions vs baseline` — so the
-method arm's `LateBound` branch is not the code path a computed literal method
-takes. Reverted unmeasured, per the rule §20.1 and §21.1 established: check
-whether the code RAN before believing a zero.
+**§555 LANDS IT, and the first attempt's failure was MINE, not the code's.**
 
-Where to start next: there are two `ComputedNameKey::LateBound` sites in the
-method/accessor arms (`objects.rs` ~753 and ~940) and two more in the property
-arms (~1069, ~1210); the one a computed *method* actually reaches has not been
-identified. Cheap to find with one `eprintln`, and this residue is worth about
-as much as it costs — it is a spelling difference on members that did not exist
-before §553.
+`late_bound_symbol_member_name`'s second return element is the method arm's
+*"keep the method spelling"* switch — SS323 named it for `UNIQUE_ES_SYMBOL`
+because that was the only thing that reached it. Flipping the literal arms to
+`true` is the whole fix:
+
+```
+WRONG->RIGHT: 6   computedPropertyNames28_ES6, 30_ES6, SourceMap2_ES6, …
+no adverse transition of any kind
+checker_types 5,906 -> 5,909 (+3 cases)
+```
+
+**The first attempt reported `no transitions` and I read it as "the branch is
+not the code path".** It was not. `cargo fmt` had collapsed the arm's `if/else`
+onto one line between writing it and editing it, the multi-line search string
+therefore matched nothing, and **the edit silently did nothing** — a scripted
+replace with no assertion. The probe was unchanged because the binary was
+unchanged.
+
+> **A scripted edit without an assertion is not an edit, and a zero measured
+> over one is not a measurement.** This is §20.1's rule (`check whether the arm
+> FIRED`) meeting a new way to fail it: there, a lookup's precondition was
+> unmet; here, the code was never written. Both present as `no transitions vs
+> baseline`. Every `python - <<PY` edit in this file's history that lacks an
+> `assert` should be treated as unverified.
+
+§413's rule was right all along — numeric and string method names take the
+property path's spelling, so `{ ["m"]() { } }` is `{ m(): number; }` exactly as
+`{ "foo"() { } }` is `{ foo(): void; }`.
