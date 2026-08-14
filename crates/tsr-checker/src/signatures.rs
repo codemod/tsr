@@ -2207,8 +2207,42 @@ impl<'a> Checker<'a, '_> {
                     _ => None,
                 }
             }
-            // Every remaining statement form — `switch`, `try`, labels,
-            // `with`, `do` — can be decided and needs the real analysis to be
+            // §467: a `try` completes normally when the TRY block can (the
+            // catch is only entered on a throw, which by itself does not
+            // make the end reachable) OR the CATCH block can (a throw
+            // mid-try lands there); a `finally` that cannot complete ends
+            // the statement whatever the halves say. This is what upstream's
+            // flow graph concludes for `try { return 1 } catch { return 'e' }`
+            // (end unreachable — `promiseTypeStrictNull`'s C appends no
+            // `undefined`) and `try { return 1 } catch {}` (end reachable —
+            // D wants `Promise<1 | undefined>`).
+            SyntaxKind::TryStatement => {
+                let Some(Node::TryStatement(node)) = self.node_map.get(id) else { return None };
+                if let Some(finally) = node.finally_block {
+                    let finally_id = finally.node_id?;
+                    match self.block_completes_normally(finally_id, owner) {
+                        Some(false) => return Some(false),
+                        Some(true) => {}
+                        None => return None,
+                    }
+                }
+                let try_completes = match node.try_block {
+                    Some(block) => self.block_completes_normally(block.node_id?, owner)?,
+                    None => return None,
+                };
+                let catch_completes = match node.catch_clause {
+                    Some(clause) => match clause.block {
+                        Some(block) => self.block_completes_normally(block.node_id?, owner)?,
+                        None => return None,
+                    },
+                    // try/finally with no catch: an exception propagates, so
+                    // reachability is the try block's alone.
+                    None => false,
+                };
+                Some(try_completes || catch_completes)
+            }
+            // Every remaining statement form — `switch`, labels, `with`,
+            // `do` — can be decided and needs the real analysis to be
             // decided correctly.
             _ => None,
         }
