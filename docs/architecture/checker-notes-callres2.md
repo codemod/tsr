@@ -2000,3 +2000,26 @@ residue is the resolution ORDER itself (upstream re-infers per candidate
 inside chooseOverload; this port infers once), which is the chooseOverload
 transcription's territory, not this guard's. All 11 R→W sit in cases already
 failing in the §483 baseline (non-right counts 2–67).
+
+## §487 — chooseOverload's loop lands at the DECLINE sites (+28 right / −21 wrong / −7 gap at 29:8; +0 cases, gradient 90.24%)
+
+Upstream's per-candidate order (`checker.go:9040-9104`) transcribed for
+exactly the sets the ladder declines (a generic candidate in the set):
+arity → infer (`check_generic_call_with`, a new out-slot on the landed
+inference that yields the WHOLE instantiated signature,
+`getSignatureInstantiation`'s shape) → applicability (Kleene through
+`relate_ternary`) — first success wins, run as `resolveCall`'s two passes
+(subtype then assignable, `:8922-8928`); both passes rejecting everything
+DECIDABLY answers `pickLongestCandidateSignature` (`:9510`), the overload-
+failure road that still prints a return. Hooked at the two decline exits
+(`clean_len == 0`, the truncated-prefix fall-through); everything the walk
+cannot decide stays the gap it was. Preconditions that keep it honest, each
+one a recorded hazard: no context-sensitive arguments (a checked arrow under
+candidate A's context is CACHED and poisons candidate B — the summit-freeze
+class, sidestepped rather than re-fought), no spread, no written type
+arguments, no this/rest candidates, no error argument types, and Unknown
+anywhere → gap. Wins: objectFreeze 10, underscoreTest1 9, overloadResolution
+7 — the overload families the funnel priced at 196 declining calls. The
+adverse 8 sit in three already-failing cases (baseline non-right 3–29).
+Case count unmoved at 5,799: these families' cases carry more blockers; the
+walk is road-opening, priced by the line split it improves on every column.

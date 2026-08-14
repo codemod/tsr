@@ -1303,6 +1303,16 @@ impl Checker<'_, '_> {
         // and upstream never reaches the generic overloads behind it.
         let clean_len = Self::clean_candidate_prefix_len(candidates);
         if clean_len == 0 {
+            // §487: before conceding the whole-set gap, run upstream's own
+            // loop over the set — it decides exactly where inference and the
+            // relater can, and refuses everywhere else, so a former gap either
+            // converts or stays a gap.
+            if !has_type_arguments
+                && let Some(picked) = self.transcribed_generic_set_walk(candidates, arguments)
+            {
+                bump(&COUNTERS.selected);
+                return Some(picked);
+            }
             // Nothing decidable before the first problematic candidate: the
             // old whole-set gap, counted by the first candidate's own reason.
             let first = &candidates[0];
@@ -1339,14 +1349,19 @@ impl Checker<'_, '_> {
         // prefix is upstream's certain answer; everything else gaps.
         if truncated {
             let pick = self.subtype_pass_prefix_pick(full_set, clean_len, arguments);
-            match &pick {
-                Some(_) => bump(&COUNTERS.selected),
-                // The whole prefix rejected pass one (or a pair was
-                // undecidable); upstream now consults the generic/rest tail,
-                // and its outcome is undecidable here.
-                None => bump(&COUNTERS.generic_candidate),
+            if pick.is_some() {
+                bump(&COUNTERS.selected);
+                return pick;
             }
-            return pick;
+            // §487: the whole prefix rejected pass one (or a pair was
+            // undecidable); upstream now consults the generic/rest tail — run
+            // the transcribed loop over the FULL set before conceding.
+            if let Some(picked) = self.transcribed_generic_set_walk(full_set, arguments) {
+                bump(&COUNTERS.selected);
+                return Some(picked);
+            }
+            bump(&COUNTERS.generic_candidate);
+            return None;
         }
         // SS339: the untruncated set runs upstream's pass ORDER too - the
         // subtype pass first (`checker.go:8924`), and only then
@@ -1873,6 +1888,151 @@ enum SubtypePassOutcome {
 /// signature-help trailing comma are excluded by
 /// [`Checker::choose_overload`]: at least the required parameters, at most all
 /// of them.
+/// One pass of the §487 walk's verdict.
+enum OverloadPass {
+    Picked(Signature),
+    AllRejected,
+    Undecidable,
+}
+
+impl Checker<'_, '_> {
+    /// §487 — upstream's `chooseOverload` loop (`checker.go:9040-9104`)
+    /// transcribed for the candidate sets the ladder above DECLINES (a
+    /// generic candidate in the set): per candidate in order — arity, infer
+    /// type arguments, instantiate (`check_generic_call_with`'s out-slot),
+    /// applicability under the pass's relation — first success wins, run as
+    /// upstream's two `resolveCall` passes (subtype, then assignable,
+    /// `checker.go:8922-8928`). Both passes rejecting everything DECIDABLY is
+    /// upstream's overload failure, which still answers a candidate:
+    /// `pickLongestCandidateSignature` (`checker.go:9510`).
+    ///
+    /// Every non-answer here is a refusal, not an approximation: a spread, a
+    /// context-sensitive argument (its checked type under one candidate's
+    /// context would be cached and poison the next candidate's — the summit's
+    /// freeze class), written type arguments, a `this`/rest-bearing
+    /// candidate, an undecidable inference, and the relater's `Unknown` all
+    /// keep the call a gap exactly as the ladder left it.
+    fn transcribed_generic_set_walk(
+        &mut self,
+        candidates: &[Signature],
+        arguments: &[Expression<'_>],
+    ) -> Option<Signature> {
+        if arguments.iter().any(|a| matches!(a, Expression::SpreadElement(_))) {
+            return None;
+        }
+        if arguments.iter().any(|a| crate::inference::is_context_sensitive_argument(a)) {
+            return None;
+        }
+        if candidates
+            .iter()
+            .any(|c| c.this_parameter.is_some() || c.parameters.iter().any(|p| p.rest))
+        {
+            return None;
+        }
+        let argument_types: Vec<TypeId> =
+            arguments.iter().map(|&argument| self.check_expression(argument)).collect();
+        if argument_types.contains(&self.intrinsics.error) {
+            return None;
+        }
+        for relation in [Relation::Subtype, Relation::Assignable] {
+            match self.overload_pass(candidates, arguments, &argument_types, relation) {
+                OverloadPass::Picked(signature) => return Some(signature),
+                OverloadPass::AllRejected => {}
+                OverloadPass::Undecidable => return None,
+            }
+        }
+        // `getCandidateForOverloadFailure` (`checker.go:9498`) with a generic
+        // in the set → `pickLongestCandidateSignature` (`:9510`):
+        // `getLongestCandidateIndex` (`:9545`) is the first candidate whose
+        // parameter count covers the arguments (no rest here by the
+        // precondition), else the longest.
+        let best_index = candidates
+            .iter()
+            .position(|c| c.parameters.len() >= arguments.len())
+            .unwrap_or_else(|| {
+                let mut best = 0;
+                for (index, candidate) in candidates.iter().enumerate() {
+                    if candidate.parameters.len() > candidates[best].parameters.len() {
+                        best = index;
+                    }
+                }
+                best
+            });
+        let best = &candidates[best_index];
+        if best.type_parameters.is_empty() {
+            return Some(best.clone());
+        }
+        let mut instantiated = None;
+        let _ = self.check_generic_call_with(best, None, arguments, Some(&mut instantiated));
+        instantiated
+    }
+
+    /// One candidate walk under one relation — `chooseOverload`'s loop body
+    /// with `isSignatureApplicable` (`checker.go:9256`) reduced to the
+    /// argument relation this port can ask, Kleene-honest.
+    fn overload_pass(
+        &mut self,
+        candidates: &[Signature],
+        arguments: &[Expression<'_>],
+        argument_types: &[TypeId],
+        relation: Relation,
+    ) -> OverloadPass {
+        for candidate in candidates {
+            if !has_correct_arity(candidate, argument_types.len()) {
+                continue;
+            }
+            let concrete: Signature = if candidate.type_parameters.is_empty() {
+                candidate.clone()
+            } else {
+                let mut instantiated = None;
+                let _ = self.check_generic_call_with(
+                    candidate,
+                    None,
+                    arguments,
+                    Some(&mut instantiated),
+                );
+                match instantiated {
+                    Some(signature) => signature,
+                    // Inference could not decide this candidate, so no later
+                    // candidate may be trusted against it.
+                    None => return OverloadPass::Undecidable,
+                }
+            };
+            let mut verdict = Ternary::Related;
+            for (&argument, parameter) in argument_types.iter().zip(&concrete.parameters) {
+                // Non-strict `undefined`/`null` inhabit every domain — the
+                // same skip the ladder's loops carry.
+                if !self.strict_null_checks
+                    && self
+                        .type_of(argument)
+                        .flags
+                        .intersects(TypeFlags::UNDEFINED | TypeFlags::NULL)
+                    && !self
+                        .type_of(argument)
+                        .flags
+                        .intersects(!(TypeFlags::UNDEFINED | TypeFlags::NULL))
+                {
+                    continue;
+                }
+                match self.relate_ternary(argument, parameter.r#type, relation) {
+                    Ternary::NotRelated => {
+                        verdict = Ternary::NotRelated;
+                        break;
+                    }
+                    Ternary::Unknown => verdict = Ternary::Unknown,
+                    Ternary::Related => {}
+                }
+            }
+            match verdict {
+                Ternary::Unknown => return OverloadPass::Undecidable,
+                Ternary::NotRelated => {}
+                Ternary::Related => return OverloadPass::Picked(concrete),
+            }
+        }
+        OverloadPass::AllRejected
+    }
+}
+
 fn has_correct_arity(candidate: &Signature, argument_count: usize) -> bool {
     let required = candidate.parameters.iter().take_while(|p| !p.optional).count();
     argument_count >= required && argument_count <= candidate.parameters.len()

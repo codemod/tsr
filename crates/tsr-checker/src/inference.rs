@@ -132,6 +132,23 @@ impl Checker<'_, '_> {
         call: Option<NodeId>,
         arguments: &[Expression<'_>],
     ) -> TypeId {
+        self.check_generic_call_with(signature, call, arguments, None)
+    }
+
+    /// [`Checker::check_generic_call`] with an out-slot for the WHOLE
+    /// instantiated signature — `getSignatureInstantiation`
+    /// (`checker.go:19293`) as the §487 overload walk needs it: parameter
+    /// types instantiated with the same final map the return is, type
+    /// parameters cleared so the caller sees a concrete candidate. The slot
+    /// stays `None` on every decline path, which is the walk's "cannot decide
+    /// this candidate" signal.
+    pub(crate) fn check_generic_call_with(
+        &mut self,
+        signature: &Signature,
+        call: Option<NodeId>,
+        arguments: &[Expression<'_>],
+        instantiated: Option<&mut Option<Signature>>,
+    ) -> TypeId {
         let error = self.intrinsics.error;
         // Upstream checks every argument (`checkExpression` through
         // `getEffectiveCallArguments`) whatever it then does with them, and the
@@ -279,7 +296,8 @@ impl Checker<'_, '_> {
         // machinery is run for its side effects, never to change the call's
         // own type.
         let benign = !self.mentions_type_parameter(returned, &parameters, &names);
-        if benign && !arguments.iter().any(is_context_sensitive_argument) {
+        if benign && instantiated.is_none() && !arguments.iter().any(is_context_sensitive_argument)
+        {
             return returned;
         }
         let decline = if benign { returned } else { error };
@@ -811,6 +829,24 @@ impl Checker<'_, '_> {
                     map.push((type_parameter, image));
                 }
             }
+        }
+        if let Some(slot) = instantiated {
+            let mut instance = signature.clone();
+            for parameter in &mut instance.parameters {
+                let image = self.instantiate_type(parameter.r#type, &map, &parameters, &names);
+                if image == error {
+                    return decline;
+                }
+                parameter.r#type = image;
+            }
+            let returned_image = self.instantiate_type(returned, &map, &parameters, &names);
+            if returned_image == error {
+                return decline;
+            }
+            instance.r#type = returned_image;
+            instance.type_parameters = Vec::new();
+            *slot = Some(instance);
+            return returned_image;
         }
         self.instantiate_type(returned, &map, &parameters, &names)
     }
@@ -2424,7 +2460,7 @@ impl Checker<'_, '_> {
 
 /// A function-like argument with any unannotated parameter (upstream's
 /// isContextSensitive slice relevant to call inference).
-fn is_context_sensitive_argument(argument: &Expression<'_>) -> bool {
+pub(crate) fn is_context_sensitive_argument(argument: &Expression<'_>) -> bool {
     let parameters = match argument {
         Expression::ArrowFunction(node) => node.parameters,
         Expression::FunctionExpression(node) => node.parameters,
