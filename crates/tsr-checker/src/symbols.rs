@@ -3637,6 +3637,101 @@ impl<'a> Checker<'a, '_> {
         })
     }
 
+    /// §495: whether iterating this type DECIDABLY fails — upstream reports
+    /// the not-iterable error and `checkIteratedTypeOrElementType` answers
+    /// `anyType` (`checker.go:6103`), so the element is `any` and not a gap.
+    ///
+    /// Decidable means the failure is provable from the class declaration
+    /// alone, every gate below erring toward the gap:
+    /// - every declaration is a CLASS with **no heritage clause** (a base
+    ///   class could supply the protocol this walk cannot see);
+    /// - either the class has **no computed-name member at all** (so no
+    ///   spelling of `[Symbol.iterator]`, aliased or otherwise, can hide),
+    /// - or its `[Symbol.iterator]` method's every `return` is literally
+    ///   `this` (the §284 shape) and the class has **no `next` method** —
+    ///   an iterator method returning anything else may carry `next` on the
+    ///   returned object, which this port cannot read and must keep gapping.
+    pub(crate) fn iteration_decidably_fails(&self, iterated: TypeId) -> bool {
+        let crate::types::TypeData::Named { members: Some(symbol), .. } =
+            self.store.get(iterated).data
+        else {
+            return false;
+        };
+        let declarations = self.binder.symbols().get(symbol).declarations.to_vec();
+        if declarations.is_empty() {
+            return false;
+        }
+        declarations.iter().all(|&declaration| {
+            let (members, heritage) = match self.node_map.get(declaration) {
+                Some(Node::ClassDeclaration(class)) => (class.members, class.heritage_clauses),
+                Some(Node::ClassExpression(class)) => (class.members, class.heritage_clauses),
+                _ => return false,
+            };
+            if !heritage.is_empty() {
+                return false;
+            }
+            let computed_members = members
+                .iter()
+                .filter(|member| {
+                    matches!(member,
+                        tsr_ast::ClassElement::MethodDeclaration(method)
+                            if matches!(method.name, tsr_ast::PropertyName::ComputedPropertyName(_)))
+                        || matches!(member,
+                            tsr_ast::ClassElement::PropertyDeclaration(property)
+                                if matches!(property.name, tsr_ast::PropertyName::ComputedPropertyName(_)))
+                        || matches!(member,
+                            tsr_ast::ClassElement::GetAccessorDeclaration(accessor)
+                                if matches!(accessor.name, tsr_ast::PropertyName::ComputedPropertyName(_)))
+                })
+                .count();
+            if computed_members == 0 {
+                return true;
+            }
+            // The only computed members must be the `[Symbol.iterator]`
+            // method itself, its body all `return this;`, and `next` absent.
+            if !self.declares_symbol_iterator(iterated) {
+                return false;
+            }
+            let iterator_is_the_only_computed = computed_members == 1;
+            let next_missing = !members.iter().any(|member| {
+                matches!(member, tsr_ast::ClassElement::MethodDeclaration(method)
+                    if matches!(method.name, tsr_ast::PropertyName::Identifier(name)
+                        if name.text == "next"))
+            });
+            iterator_is_the_only_computed
+                && next_missing
+                && members.iter().all(|member| match member {
+                    tsr_ast::ClassElement::MethodDeclaration(method)
+                        if matches!(
+                            method.name,
+                            tsr_ast::PropertyName::ComputedPropertyName(_)
+                        ) =>
+                    {
+                        Self::method_returns_only_this(method)
+                    }
+                    _ => true,
+                })
+        })
+    }
+
+    /// §495: every `return` statement in the method's (non-nested) body is
+    /// literally `return this;`, and there is at least one.
+    fn method_returns_only_this(method: &tsr_ast::MethodDeclaration<'_>) -> bool {
+        let Some(tsr_ast::FunctionBody::Block(block)) = method.body else { return false };
+        let mut saw_return = false;
+        for statement in block.statements {
+            if let tsr_ast::Statement::ReturnStatement(ret) = statement {
+                saw_return = true;
+                if !matches!(ret.expression, Some(tsr_ast::Expression::KeywordExpression(keyword))
+                    if keyword.kind == SyntaxKind::ThisKeyword)
+                {
+                    return false;
+                }
+            }
+        }
+        saw_return
+    }
+
     fn get_type_for_variable_like_declaration(&mut self, declaration: NodeId) -> Option<TypeId> {
         // §38.1, MOVED FIRST at §409: a for-IN binding is `string`
         // UNCONDITIONALLY — upstream's ForIn arm opens

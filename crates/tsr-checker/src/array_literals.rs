@@ -741,7 +741,18 @@ impl Checker<'_, '_> {
         // the for-of road does (§284), gated by the same syntactic presence
         // test (`iteratorSpreadInArray5`, `iteratorSpreadInCall*`).
         if self.declares_symbol_iterator(operand) {
-            return self.for_of_element_type(operand);
+            if let Some(element) = self.for_of_element_type(operand) {
+                return Some(element);
+            }
+        }
+        // §495: a DECIDABLE protocol failure is upstream's reported
+        // not-iterable error, and `checkIteratedTypeOrElementType` answers
+        // `anyType` there (`checker.go:6103`) — a heritage-free class with no
+        // spelling of `[Symbol.iterator]` at all, or whose iterator returns
+        // only `this` while `next` is absent (`iteratorSpreadInArray8/10`).
+        // Everything short of provable stays the gap.
+        if self.iteration_decidably_fails(operand) {
+            return Some(self.intrinsics.any);
         }
         None
     }

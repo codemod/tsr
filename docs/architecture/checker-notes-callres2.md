@@ -2023,3 +2023,16 @@ anywhere → gap. Wins: objectFreeze 10, underscoreTest1 9, overloadResolution
 adverse 8 sit in three already-failing cases (baseline non-right 3–29).
 Case count unmoved at 5,799: these families' cases carry more blockers; the
 walk is road-opening, priced by the line split it improves on every column.
+
+## §495 — decidable iteration failure answers upstream's error-any (+2 cases, 5,817 → 5,819, 61.01%; +4 W→R, 0 adverse)
+
+`checkIteratedTypeOrElementType` answers `anyType` when the protocol fails
+(`checker.go:6103`, after reporting). The port's spread road gapped there.
+The decidable slice, every gate erring toward the gap: a HERITAGE-FREE class
+operand with either no computed-name member at all (no spelling of
+`[Symbol.iterator]` can hide — an aliased computed key declines), or a
+`[Symbol.iterator]` whose every return is literally `this` while `next` is
+absent (`iteratorSpreadInArray8/10` — an iterator returning anything else
+may carry `next` on the returned object, unreadable here, stays a gap).
+Spread road only; the destructuring-pattern siblings
+(`iterableArrayPattern21`'s non-iterable object literal) are another arm.
