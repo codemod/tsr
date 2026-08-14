@@ -738,3 +738,87 @@ until someone printed the underlying rows.
 The instruments in `scripts/` are for *finding candidates*; the row dump is
 what decides. This belongs in `docs/conventions.md` and is recorded here
 pending that edit.
+
+---
+
+## 12. §529 — the predicate is SPLIT, additively, and the split measures zero
+
+§8.4's reopening condition, built. `Checker::is_shadowed_at`
+(`crates/tsr-checker/src/checker.rs`) is upstream's `needsQualification`
+(`symbolaccessibility.go:688-726`) transcribed honestly — the
+`someSymbolTableInScope` walk (`:746-803`), not `resolve_name` — and it sits
+**beside** `needs_qualification` rather than replacing it. No call site moved.
+
+### 12.1 The measurement, which is the point of the step
+
+```
+TOTAL 474196  right 432821  gap 8701  wrong 32674
+no transitions vs baseline
+```
+
+Byte-identical, as §8.4 requires. A step-1 pair that moved a line would have
+changed the disjunction and been wrong by construction; this is the one build
+in the sequence whose *success criterion is zero*, and it is worth naming why
+that is not a wasted window: the −6,850 of §8.2 was the cost of finding out
+what the conflated predicate was for **after** changing it. This finds out
+first, and leaves the finding executable.
+
+### 12.2 What the walk ports, and the three things it does not
+
+Per table, upstream's callback exactly: name absent → continue; the entry IS
+this symbol → stop, **no** qualification (`:702`); otherwise resolve the alias
+unless it is an export specifier, take `getSymbolFlags`, and
+`flags & meaning != 0` → **qualify** (`:713-723`). A name in no table leaves
+`qualify` false — the arm the port never had.
+
+Three omissions, each a *miss* rather than a wrong answer, meaning each can
+only make this answer `false` where upstream answers `true`:
+
+1. **The script-source-file `locals` skip.** Upstream skips a global source
+   file's locals because those names are merged into `c.globals`. This port's
+   `globals` is populated only by `bind_into`, so a single-file program keeps
+   its top level in `locals` and skipping it would consult no table at all.
+   Both are visited; every hit goes through `merged_symbol`, so the two tables
+   cannot disagree about which symbol a name denotes.
+2. **`getClassExpressionNameTable`** (`:809`) — a class expression's own name
+   is in no table in this port either.
+3. **The external-module gate on the `exports` arm** — nothing is ever routed
+   to a *script* file's exports in this binder, so the table is empty and the
+   arm cannot fire. Same reasoning `BindResult::resolve_name` records for its
+   own unconditional exports arm.
+
+### 12.3 The divergence is now pinned by tests, not by a paragraph
+
+Four tests in `crates/tsr-checker/tests/symbol_chain.rs`. The load-bearing one
+is `an_unreachable_name_is_not_shadowed_though_it_still_needs_a_qualifier`:
+
+```ts
+namespace M { export class C { p: number; } }
+var x = 1;
+```
+
+At `x`, `M.C` is in no table in scope. `is_shadowed_at` answers **false**;
+`needs_qualification` answers **true**; and the site really does print `M.C`
+(pinned two tests up by `a_class_in_a_namespace_prints_qualified_from_outside`).
+The qualifier is therefore owed to the `chain == nil` disjunct, **not** to
+shadowing — which is §8.2's 6,850 R→W compressed into one fixture that runs in
+a millisecond.
+
+The other three fix the boundaries: the identity stop (`:702`), real shadowing
+by a different symbol of the same name, and the meaning filter (`:720`) — a
+`var C = 1` does not shadow a **type** question about `M.C`.
+
+### 12.4 What this unblocks, and what it does not
+
+Slice 1's globals arm (§7's refusal) may now be rebuilt against
+`is_shadowed_at`, which is the predicate `symbolaccessibility.go:588-591`
+actually sits behind — §8.3's `enum Color { Color }` misfire is exactly a
+consultation of the conflated predicate, and that consultation is now
+avoidable.
+
+It does **not** unblock re-pointing `symbol_chain` itself. That needs
+`getAccessibleSymbolChain` (`:373`) ported to answer the *first* disjunct
+honestly, and until it is, `needs_qualification`'s `None => true` is the only
+thing supplying 6,850 lines' worth of qualifiers. **The conflated predicate is
+not deprecated and must not be marked as such.** Its `None` arm is a correct
+proxy for a function this port does not have.

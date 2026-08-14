@@ -2100,6 +2100,168 @@ impl<'a, 'n> Checker<'a, 'n> {
         }
     }
 
+    /// `needsQualification` (`internal/checker/symbolaccessibility.go:688-726`),
+    /// transcribed **honestly** — the table walk, not `resolve_name`.
+    ///
+    /// # Why this exists next to [`Checker::needs_qualification`] rather than
+    /// replacing it
+    ///
+    /// `needs_qualification` is not upstream's predicate. It is upstream's
+    /// predicate **OR'd with a second condition**, and the OR is load-bearing:
+    /// its `None => true` arm answers *"the port could not resolve this name at
+    /// this site"*, which is the port's proxy for upstream's **first** disjunct
+    /// at `nodebuilderimpl.go:1093-1094` —
+    ///
+    /// > `chain == nil` **OR** `needsQualification(chain[0], …)`
+    ///
+    /// — *no accessible chain exists*, which upstream computes with
+    /// `getAccessibleSymbolChain` (`symbolaccessibility.go:373`), an entirely
+    /// different function. Transcribing `None => false` in place measures
+    /// **6,850 R→W** (`compiler/temporal` 3,318,
+    /// `resolvingClassDeclarationWhenInBaseTypeResolution` 1,022, the whole
+    /// `privacy*CannotName*` family): those are cross-file, namespace-member and
+    /// lib names the port's `resolve_name` cannot reach at the site, and every
+    /// one of them genuinely needs its qualifier. `checker-notes-sitename.md`
+    /// §8 carries the measurement.
+    ///
+    /// So the split is **additive**. This function answers the *shadowing*
+    /// question alone — the one `symbolaccessibility.go:588-591`'s globals arm
+    /// and `:535-593`'s direct arm actually sit behind. The conflated predicate
+    /// keeps every call site it has until each is re-pointed with its own
+    /// scorepair. `enum Color { Color }` is the witness for why that matters:
+    /// `Color` is accessible as itself (upstream prints it bare), but
+    /// `resolve_name` answers `None` at that position and the conflated
+    /// predicate therefore says *qualify*.
+    ///
+    /// # The walk
+    ///
+    /// `someSymbolTableInScope` (`symbolaccessibility.go:746-803`) from the
+    /// reference outward: a location's `locals`, then — by kind — a module's or
+    /// file's `exports`, or a class/interface's **type** members (type
+    /// parameters are bound into `members`, `symbolaccessibility.go:766`), and
+    /// `c.globals` at the end. Per table, upstream's callback exactly: the name
+    /// absent is a *continue*; the entry being this symbol stops the walk with
+    /// **no** qualification; otherwise the alias is resolved (unless it is an
+    /// export specifier), `getSymbolFlags` is taken, and a flags/meaning
+    /// intersection **qualifies**. A name in no table leaves `qualify` false.
+    ///
+    /// # What is not walked, and why each is a miss rather than a wrong answer
+    ///
+    /// - **The script-source-file `locals` skip.** Upstream skips a global
+    ///   source file's locals (`ast.IsGlobalSourceFile`) because those names are
+    ///   merged into `c.globals`. This port's `globals` is populated only when
+    ///   several files are bound into one result (`BindResult::globals`), so a
+    ///   single-file program keeps its top level in `locals` and skipping it
+    ///   would consult no table at all. Visiting both is safe because every hit
+    ///   is put through `merged_symbol`, so the two tables cannot disagree about
+    ///   *which* symbol a name denotes.
+    /// - **`getClassExpressionNameTable`** (`symbolaccessibility.go:809`) — a
+    ///   class expression's own name is in no table here either. Its absence can
+    ///   only make this answer `false` where upstream answers `true`.
+    /// - **The external-module gate on the `exports` arm.** Upstream visits a
+    ///   file's exports only for an external or `CommonJS` module. Nothing is ever
+    ///   routed to a *script* file's exports in this binder (`is_export_context`
+    ///   requires `self.is_module`), so the table is empty and the arm cannot
+    ///   fire — the same reasoning `BindResult::resolve_name` records for its
+    ///   own unconditional exports arm.
+    ///
+    /// # Not yet called from the qualifier road
+    ///
+    /// `checker-notes-sitename.md` §8.4 requires each re-pointing to carry its
+    /// own measurement, and a step that is not byte-identical on the untouched
+    /// sites has changed the disjunction. It is `pub` rather than `pub(crate)`
+    /// so that `tests/symbol_chain.rs` can pin the divergence from
+    /// [`Checker::needs_qualification`] directly — which is the whole point of
+    /// the split, and a thing no `.types` fixture can show while the conflated
+    /// predicate is still the one wired up.
+    pub fn is_shadowed_at(
+        &mut self,
+        symbol: SymbolId,
+        name: &str,
+        reference: NodeId,
+        meaning: SymbolFlags,
+    ) -> bool {
+        let target = self.binder.merged_symbol(symbol);
+        let mut current = Some(reference);
+        while let Some(location) = current {
+            if let Some(&found) = self.binder.locals(location).and_then(|table| table.get(name))
+                && let Some(answer) = self.qualifies_for(found, target, meaning)
+            {
+                return answer;
+            }
+            match self.nodes.kind(location) {
+                SyntaxKind::SourceFile | SyntaxKind::ModuleDeclaration => {
+                    if let Some(owner) = self.binder.symbol_of(location)
+                        && let Some(&found) = self.binder.symbols().get(owner).exports.get(name)
+                        && let Some(answer) = self.qualifies_for(found, target, meaning)
+                    {
+                        return answer;
+                    }
+                }
+                SyntaxKind::ClassDeclaration
+                | SyntaxKind::ClassExpression
+                | SyntaxKind::InterfaceDeclaration => {
+                    // Upstream builds a filtered copy holding only the members
+                    // carrying `SymbolFlagsType`; a single lookup with the same
+                    // filter is the same question without the allocation.
+                    if let Some(owner) = self.binder.symbol_of(location)
+                        && let Some(&found) = self.binder.symbols().get(owner).members.get(name)
+                        && self
+                            .binder
+                            .symbols()
+                            .get(self.binder.merged_symbol(found))
+                            .flags
+                            .intersects(SymbolFlags::TYPE)
+                        && let Some(answer) = self.qualifies_for(found, target, meaning)
+                    {
+                        return answer;
+                    }
+                }
+                _ => {}
+            }
+            current = self.nodes.parent(location);
+        }
+        if let Some(&found) = self.binder.globals().get(name)
+            && let Some(answer) = self.qualifies_for(found, target, meaning)
+        {
+            return answer;
+        }
+        false
+    }
+
+    /// One table hit of [`Checker::is_shadowed_at`]'s callback
+    /// (`symbolaccessibility.go:694-724`): `Some(false)` — the entry *is* the
+    /// symbol, stop with no qualification; `Some(true)` — a different symbol
+    /// with an overlapping meaning, stop and qualify; `None` — keep walking.
+    fn qualifies_for(
+        &mut self,
+        found: SymbolId,
+        target: SymbolId,
+        meaning: SymbolFlags,
+    ) -> Option<bool> {
+        let from_table = self.binder.merged_symbol(found);
+        if from_table == target {
+            return Some(false);
+        }
+        // `shouldResolveAlias` (`:713`): an alias qualifies on its *target's*
+        // flags, except where the alias is an export specifier — that one keeps
+        // its own.
+        let flags = self.binder.symbols().get(from_table).flags;
+        let is_export_specifier = self
+            .binder
+            .symbols()
+            .get(from_table)
+            .declarations
+            .iter()
+            .any(|&declaration| self.nodes.kind(declaration) == SyntaxKind::ExportSpecifier);
+        let flags = if flags.intersects(SymbolFlags::ALIAS) && !is_export_specifier {
+            self.get_symbol_flags(from_table)
+        } else {
+            flags
+        };
+        flags.intersects(meaning).then_some(true)
+    }
+
     /// Whether a symbol is an ambient external module — `declare module "x"`.
     ///
     /// The sibling refusal to [`Checker::is_module_symbol`]: upstream reaches

@@ -285,3 +285,102 @@ fn the_parent_is_looked_up_as_a_namespace() {
         "the fixture's premise: a VALUE named B shadows nothing in namespace position"
     );
 }
+
+// ---------------------------------------------------------------------------
+// The split: `Checker::is_shadowed_at` versus `Checker::needs_qualification`
+// ---------------------------------------------------------------------------
+//
+// `checker-notes-sitename.md` §8. The predicate wired into `symbol_chain` is
+// NOT upstream's `needsQualification`: it is that predicate OR'd with *no
+// accessible chain exists*, which upstream keeps as a separate disjunct at
+// `internal/checker/nodebuilderimpl.go:1093-1094`. `is_shadowed_at` is the
+// honest transcription of the second disjunct alone
+// (`internal/checker/symbolaccessibility.go:688-726`, the table walk).
+//
+// These three tests are the only place the difference is visible, because the
+// conflated predicate is still the one every printing path calls — by design,
+// until each call site is re-pointed with its own measurement. Delete them and
+// the next session re-derives §8 from the −6,850 the hard way.
+
+/// Bind `source` and ask [`Checker::is_shadowed_at`] about `symbol_path` —
+/// resolved from globals through `exports` — at the `site_index`-th occurrence
+/// of the identifier `site_name`.
+fn shadowed_at(
+    source: &str,
+    symbol_path: &[&str],
+    site_name: &str,
+    site_index: usize,
+    meaning: SymbolFlags,
+) -> bool {
+    let arena = Arena::new();
+    let parsed = tsr_parser::parse(&arena, source);
+    assert!(parsed.diagnostics.is_empty(), "fixture must parse");
+    let bound = tsr_binder::bind(
+        &arena,
+        parsed.source_file,
+        &parsed.nodes,
+        tsr_binder::FileInfo { name: "t.ts", text: source },
+    );
+    let mut symbol = bound.merged_symbol(*bound.globals().get(symbol_path[0]).expect("root name"));
+    for step in &symbol_path[1..] {
+        symbol = bound
+            .merged_symbol(*bound.symbols().get(symbol).exports.get(*step).expect("export step"));
+    }
+    let mut sites = Vec::new();
+    identifiers(&parsed.node_map, parsed.source_file.node_id.unwrap(), site_name, &mut sites);
+    let site = *sites.get(site_index).expect("the site identifier occurs that many times");
+    let name = bound.symbols().get(symbol).name;
+    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+    checker.is_shadowed_at(symbol, name, site, meaning)
+}
+
+/// A name that resolves to the symbol itself is **not** shadowed —
+/// `symbolaccessibility.go:702`, the identity stop.
+///
+/// Both predicates agree here, which is what makes the next two tests
+/// meaningful: the split is not a wholesale disagreement.
+#[test]
+fn a_name_that_resolves_to_the_symbol_is_not_shadowed() {
+    let source = "class C { p: number; }\nvar x = 1;\n";
+    assert!(!shadowed_at(source, &["C"], "x", 0, SymbolFlags::TYPE));
+}
+
+/// **The divergence, and the whole reason for the split.**
+///
+/// `M.C` is in no symbol table in scope at the site, so upstream's
+/// `needsQualification` never fires its callback and answers **false** — and
+/// `is_shadowed_at` answers false with it. `needs_qualification` answers
+/// **true**, because `resolve_name` returns `None` and its `None => true` arm
+/// is standing in for upstream's *other* disjunct, `chain == nil`.
+///
+/// The qualifier this site prints (`M.C`, pinned by
+/// `a_class_in_a_namespace_prints_qualified_from_outside` above) is therefore
+/// owed to the CHAIN disjunct, not to shadowing. Re-pointing `symbol_chain` at
+/// this function without also porting `getAccessibleSymbolChain` measures
+/// **6,850 R→W** (§8.2) — `compiler/temporal` 3,318 of them — and this test is
+/// the one-line version of that measurement.
+#[test]
+fn an_unreachable_name_is_not_shadowed_though_it_still_needs_a_qualifier() {
+    let source = "namespace M { export class C { p: number; } }\nvar x = 1;\n";
+    assert!(!shadowed_at(source, &["M", "C"], "x", 0, SymbolFlags::TYPE));
+}
+
+/// Real shadowing: a **different** symbol of the same name, carrying the
+/// meaning being asked about, is in scope at the site
+/// (`symbolaccessibility.go:721`). Here both predicates answer true, and only
+/// here is the conflated one answering for the right reason.
+#[test]
+fn a_different_symbol_of_the_same_name_in_scope_is_shadowing() {
+    let source =
+        "namespace M { export class C { p: number; } }\nclass C { q: string; }\nvar x = 1;\n";
+    assert!(shadowed_at(source, &["M", "C"], "x", 0, SymbolFlags::TYPE));
+}
+
+/// The meaning filter is upstream's (`symbolaccessibility.go:720`): a **value**
+/// of the same name does not shadow a **type** question. Without the filter
+/// this is the mechanism that would put qualifiers on names that read fine.
+#[test]
+fn a_value_of_the_same_name_does_not_shadow_a_type_question() {
+    let source = "namespace M { export class C { p: number; } }\nvar C = 1;\nvar x = 1;\n";
+    assert!(!shadowed_at(source, &["M", "C"], "x", 0, SymbolFlags::TYPE));
+}
