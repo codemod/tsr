@@ -961,3 +961,15 @@ alias's `value_declaration` is None for import clauses; the declarations
 list carries the node). `ambientShorthand` converts;
 `ambientShorthand_reExport`'s two lines run through an export-specifier
 chain this walk does not cover and stay gaps.
+
+## §507 — the cross-file function/namespace merge takes `typeof` (+3 cases, 5,843 → 5,846, 61.29%; +5 W→R, 0 adverse)
+
+`shouldEmitTypeOfSymbol` reads the MERGED symbol's flags; the worker read
+the raw symbol's, so a same-file `function Point() {} namespace Point {}`
+took `typeof Point` while the cross-file split
+(`ModuleAndFunctionWithSameNameAndCommonRoot` and both Ambient* siblings)
+printed the function signature. Only the VALUE_MODULE bit is imported from
+the merge: a cross-file `function D` + `enum D` is a DUPLICATE IDENTIFIER
+upstream never merges — `duplicateIdentifierEnum` (a passing case) wants
+`() => number` on the function's line, and the unfiltered read printed
+`typeof D` there; the full-stop rule measured the filter in.

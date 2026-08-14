@@ -2165,12 +2165,32 @@ impl<'a> Checker<'a, '_> {
         // as an `||`, so a merged `function f() {} namespace f {}` symbol takes
         // the `typeof` form. Ordering the class test first therefore changes
         // nothing; what matters is that the function case comes last.
-        if flags.intersects(SymbolFlags::ENUM | SymbolFlags::VALUE_MODULE | SymbolFlags::CLASS) {
+        //
+        // §507: the flags are read off the MERGED symbol too — a CROSS-FILE
+        // merge (`function Point()` in one file, `module Point` in another,
+        // `ModuleAndFunctionWithSameNameAndCommonRoot`) leaves the function
+        // half's own symbol without the module flag, and upstream's
+        // `getMergedSymbol` sees the union. Same-file merges already carried
+        // both flags on one symbol, which is why this only showed at file
+        // boundaries.
+        // Only the NAMESPACE half of the merged flags is imported: a
+        // function/class/enum merging with a namespace is LEGAL and takes
+        // `typeof`; a cross-file `function D` + `enum D` is a DUPLICATE
+        // IDENTIFIER upstream never merges — `duplicateIdentifierEnum`
+        // (a passing case) wants `() => number` on the function's line, and
+        // the unfiltered merge printed `typeof D` there (the full-stop rule's
+        // catch, measured in).
+        let merged = self.binder.merged_symbol(symbol);
+        let merged_flags =
+            flags | (self.binder.symbols().get(merged).flags & SymbolFlags::VALUE_MODULE);
+        if merged_flags
+            .intersects(SymbolFlags::ENUM | SymbolFlags::VALUE_MODULE | SymbolFlags::CLASS)
+        {
             let printed = format!("typeof {name}");
             // A `TypeQueryNode`. Upstream gives it `TypePrecedenceTypeOperator`
             // so that it parenthesises in *postfix* position — `(typeof C)[]` —
             // and not as a union constituent.
-            return self.store.new_anonymous(TypeFlags::OBJECT, printed, symbol, false);
+            return self.store.new_anonymous(TypeFlags::OBJECT, printed, merged, false);
         }
         // §383: a late-bound METHOD's overloads live on SIBLING declarations —
         // the binder deliberately gives each `[Symbol.iterator]` its own
