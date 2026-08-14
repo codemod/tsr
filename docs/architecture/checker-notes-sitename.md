@@ -1691,3 +1691,32 @@ type*.
 > can" and whose decline path returns `error` is a candidate for the same bug.
 > This one cost 86 lines across 8 cases and was invisible because the decline
 > was correct and the plumbing was not.
+
+### 24.2 §551's candidate, opened and NOT reproduced — read before re-ranking it
+
+`declarationEmitExpressionInExtends2/5/6`, 3 deficit-1 cases, all shaped as
+*"want the instance type, got the constructor type"*:
+
+```
+2  want C<string, number>  got typeof C
+5  want IFace              got new () => IFace
+6  want A.Foo              got typeof A.Foo
+```
+
+The obvious reading is that a class extending an EXPRESSION takes the base's
+construct-signature type instead of its return type. **The probe does not
+reproduce it:**
+
+```ts
+interface IFace { }
+declare function getClass<T>(): new() => T;
+class Derived extends getClass<IFace>() { }   // >Derived : Derived   already correct
+```
+
+So the base-type computation is not the defect, and this family needs its
+failing line read in place — the fixture wraps everything in a `namespace` and
+enables `--declaration`, and neither is in the probe above. Per §21's rule, a
+probe that PASSES has only cleared the shape you wrote.
+
+Unbuilt, no measurement claimed, and recorded specifically so the next session
+does not re-derive the same non-reproduction.
