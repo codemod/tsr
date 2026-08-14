@@ -701,14 +701,37 @@ impl<'a> Checker<'a, '_> {
         // local name exactly when no `as` intervenes — a renamed specifier
         // would print the wrong name on every line, the §158 per-site naming
         // wall, so it stays a gap.
-        if self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::ALIAS)
-            && self.declaration_of_alias_symbol(symbol).is_some_and(|declaration| {
-                matches!(self.node_map.get(declaration), Some(Node::ImportSpecifier(specifier))
-                    if specifier.property_name.is_none())
-            })
-        {
+        // §493 widens §491 to the DEFAULT-import clause (`import A from …`,
+        // probed the same way: `let _: A` gapped corpus-wide), with the gate
+        // §491's unrenamed-specifier test was a special case of — NAME
+        // AGREEMENT: the target declaration's own written name must equal the
+        // local name, because the declared type prints the declaration's name
+        // and upstream prints the LOCAL one (`import Foo from` naming a class
+        // `A` would print `A` on every line — the §158 wall).
+        let alias_road: Option<Option<&str>> =
+            if self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::ALIAS) {
+                match self.declaration_of_alias_symbol(symbol).and_then(|d| self.node_map.get(d)) {
+                    // §491's original form: no `as`, so the local and target
+                    // names agree by construction — no gate needed.
+                    Some(Node::ImportSpecifier(specifier)) if specifier.property_name.is_none() => {
+                        Some(None)
+                    }
+                    // §493: the default clause must carry the name-agreement
+                    // gate, checked against the target below.
+                    Some(Node::ImportClause(clause)) => clause.name.map(|local| Some(local.text)),
+                    _ => None,
+                }
+            } else {
+                None
+            };
+        if let Some(required_name) = alias_road {
             if let Some(target) = self.resolve_alias(symbol) {
                 let merged = self.binder.merged_symbol(target);
+                if let Some(required) = required_name
+                    && self.declaration_written_name(merged) != Some(required)
+                {
+                    return error;
+                }
                 // TYPE_ALIAS targets decline: a cross-file alias CYCLE
                 // (`circular2`'s `type A = B` / `type B = A` through
                 // `import type`) re-enters `get_declared_type_of_type_alias`,
@@ -2542,6 +2565,19 @@ impl<'a> Checker<'a, '_> {
         };
         self.declared_types.insert(symbol, computed);
         computed
+    }
+
+    /// §493: the name a TYPE-side declaration writes for itself — what the
+    /// declared type's minted text carries, and therefore what a local alias
+    /// must equal for the §491/§493 road to print truthfully.
+    fn declaration_written_name(&self, symbol: SymbolId) -> Option<&str> {
+        let declaration = self.binder.symbols().get(symbol).declarations.first().copied()?;
+        match self.node_map.get(declaration)? {
+            Node::ClassDeclaration(node) => node.name.map(|identifier| identifier.text),
+            Node::InterfaceDeclaration(node) => node.name.map(|identifier| identifier.text),
+            Node::EnumDeclaration(node) => node.name.map(|identifier| identifier.text),
+            _ => None,
+        }
     }
 
     /// Ported from `Checker.getDeclaredTypeOfEnum` (`checker.go:23874`).

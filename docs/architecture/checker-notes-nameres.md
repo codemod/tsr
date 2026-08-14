@@ -2323,3 +2323,13 @@ directed vein that found it — their annotations type while the value-use
 error stays the diagnostics lane's), and the biggest wins are elsewhere:
 `dynamicNames` 56, the jsxNamespace reexport family, moduleAugmentation*.
 The cross-file binding wall (bd tsr-9or.1) just lost its widest single road.
+
+## §493 — the default-import clause joins §491's road (+13 right / −5 wrong at 13:4; +0 cases)
+
+Probed first (`import A from "./a"; let _: A` gapped): the ImportClause arm,
+with the gate §491's unrenamed-specifier test was a special case of — NAME
+AGREEMENT, `declaration_written_name(target) == local`, because the declared
+type prints the target declaration's own name and upstream prints the LOCAL
+one. Wins: exportDefaultInterface 7. The 4 G→W sit in two already-failing
+cases (baseline non-right 5 and 6). Case count unmoved; the remaining
+cross-file type-position residue is renamed/mismatched names — wall 2.

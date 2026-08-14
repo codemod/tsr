@@ -3,7 +3,7 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
 Passed         : 5817/9538 (60.99%)
-Assertion lines: 432289/478855 (90.28%)  — a gradient, not a pass rate
+Assertion lines: 432302/478855 (90.28%)  — a gradient, not a pass rate
 Failed         : 3721
 Skipped        : 2906 (excluded from the denominator)
 
@@ -72,7 +72,7 @@ compiler/allowSyntheticDefaultImports4
 compiler/allowSyntheticDefaultImports9
   a.ts: >default : any — expected >default : typeof Foo
 compiler/allowSyntheticDefaultImportsCanPaintCrossModuleDeclaration
-  file1.ts: >styled : error — expected >styled : () => Color
+  file2.ts: >styled : () => Color — expected >styled : () => import("./color").default
 compiler/ambientClassDeclarationWithExtends
   ambientClassDeclarationExtends_singleFile.ts: >new D() : error — expected >new D() : D
 compiler/ambientExportDefaultErrors
