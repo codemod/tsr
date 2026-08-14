@@ -206,7 +206,7 @@ impl Checker<'_, '_> {
     /// It crosses function boundaries, which is deliberate upstream: a
     /// `function` nested in a method body is still *code contained in a class*
     /// and takes TS1210.
-    fn containing_class_of(&self, node: NodeId) -> Option<NodeId> {
+    pub(crate) fn containing_class_of(&self, node: NodeId) -> Option<NodeId> {
         self.nodes.ancestors(node).find(|ancestor| {
             matches!(
                 self.node_map.get(*ancestor),

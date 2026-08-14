@@ -83,7 +83,19 @@ impl Checker<'_, '_> {
     /// Declaration` walks containing classes; a name found on an ANCESTOR
     /// class is not accessible, which is what distinguishes this from a
     /// members lookup.
-    fn enclosing_class_declares_private(&self, node: tsr_ast::NodeId, name: &str) -> bool {
+    /// §471 sharpened SS186's bool into the INNERMOST declaring class,
+    /// because the shadow rule needs to know WHICH class's `#foo` the site
+    /// sees, not merely that one exists: upstream's
+    /// `lookupSymbolForPrivateIdentifierDeclaration` returns the first
+    /// class's member walking OUTWARD, and the type-side lookup then runs on
+    /// that symbol's per-class MANGLED name
+    /// (`binder.GetSymbolNameForPrivateIdentifier`), so a same-spelled
+    /// private on any other class can never match.
+    fn lexical_private_declaring_class(
+        &self,
+        node: tsr_ast::NodeId,
+        name: &str,
+    ) -> Option<tsr_ast::NodeId> {
         // SS190 (measured +0, reverted): the decorator exclusion —
         // `getContainingClassExcludingClassDecorators`
         // (utilities.go:994-1011) starts the walk ABOVE a class when the
@@ -113,12 +125,27 @@ impl Checker<'_, '_> {
                         if p.text == name)
                 });
                 if declares {
-                    return true;
+                    return Some(id);
                 }
             }
             current = self.nodes.parent(id);
         }
-        false
+        None
+    }
+
+    /// §471: whether a member declaration's NAME is a private identifier —
+    /// the test that separates a declared `#foo` from a computed `["#foo"]`,
+    /// which spell the same property text in this port's by-text member
+    /// tables and are different names upstream (mangled vs. plain).
+    pub(crate) fn declaration_names_a_private(&self, declaration: tsr_ast::NodeId) -> bool {
+        let member_name = match self.node_map.get(declaration) {
+            Some(Node::PropertyDeclaration(p)) => Some(p.name),
+            Some(Node::MethodDeclaration(m)) => Some(m.name),
+            Some(Node::GetAccessorDeclaration(a)) => Some(a.name),
+            Some(Node::SetAccessorDeclaration(a)) => Some(a.name),
+            _ => None,
+        };
+        matches!(member_name, Some(tsr_ast::PropertyName::PrivateIdentifier(_)))
     }
 
     fn check_property_access_expression_worker(
@@ -143,11 +170,14 @@ impl Checker<'_, '_> {
         // rejects. The oracle records the same `x.#prop` as `number` inside
         // `Base` and `any` (its errorType) inside `Derived`
         // (`privateNameFieldDerivedClasses`).
+        let mut lexical_private_class = None;
         if let tsr_ast::MemberName::PrivateIdentifier(_) = member
             && let Some(access_id) = node.node_id
-            && !self.enclosing_class_declares_private(access_id, name)
         {
-            return error;
+            lexical_private_class = self.lexical_private_declaring_class(access_id, name);
+            if lexical_private_class.is_none() {
+                return error;
+            }
         }
         let receiver_type = self.check_expression(receiver);
         if receiver_type == error {
@@ -183,6 +213,32 @@ impl Checker<'_, '_> {
             }
             return error;
         }
+        // §471 the shadow half of upstream's mangled-name lookup: the
+        // property the receiver's type serves under this spelling must be
+        // THE lexical class's member — `getPrivateIdentifierPropertyOfType`
+        // asks for `lexicallyScopedSymbol.Name`, the per-class mangled name
+        // (`checker.go:11296`), so B's `#foo` seen from inside A can never
+        // resolve A's-typed receiver's `#foo`, and
+        // `checkPrivateIdentifierPropertyAccess` reports shadowing and
+        // answers `errorType` (`:11300`), printed `any`
+        // (`privateNamesInNestedClasses-1/-2`,
+        // `privateNameNestedClassAccessorsShadowing`,
+        // `privateNamesAndStaticFields`). Inheritance survives by symbol
+        // identity: `Derived`'s type serves BASE's member symbol for a base
+        // private, and that symbol's declaration sits in the lexical class
+        // (`privateNameFieldDerivedClasses`).
+        if let Some(lexical) = lexical_private_class
+            && let Some(property) = self.get_property_of_type(stripped, name)
+        {
+            let record = self.binder.symbols().get(property);
+            let declared_in_lexical = record
+                .value_declaration
+                .and_then(|declaration| self.containing_class_of(declaration))
+                == Some(lexical);
+            if !declared_in_lexical {
+                return self.intrinsics.any;
+            }
+        }
         // `isAssignmentToReadonlyEntity` (`checker.go:11377`): a readonly
         // property as an assignment target answers upstream's `errorType`,
         // printed `any` (`checker-notes-narrow.md` §27).
@@ -196,7 +252,12 @@ impl Checker<'_, '_> {
             // constructor assigns a readonly property legally
             // (`isAssignmentToReadonlyEntity`'s same-class carve-out —
             // approximated as this-receiver-in-constructor, the §27 bar's
-            // fired leg).
+            // fired leg). §471: the carve-out is for readonly FIELDS only —
+            // upstream reaches it through the `CheckFlagsReadonly`/
+            // `readonly`-modifier arms, and a GET-ONLY ACCESSOR write is
+            // illegal even there (`isReadonlySymbol`'s accessor arm has no
+            // constructor escape; `privateNameAccessors` wants
+            // `this.#roProp : any` inside the constructor).
             && !(matches!(
                 receiver,
                 tsr_ast::Expression::KeywordExpression(keyword)
@@ -205,6 +266,10 @@ impl Checker<'_, '_> {
                 self.control_flow_container(id).is_some_and(|container| {
                     self.nodes.kind(container) == tsr_ast::SyntaxKind::Constructor
                 })
+            }) && !self.get_property_of_type(stripped, name).is_some_and(|property| {
+                let flags = self.binder.symbols().get(property).flags;
+                flags.intersects(tsr_binder::SymbolFlags::GET_ACCESSOR)
+                    && !flags.intersects(tsr_binder::SymbolFlags::SET_ACCESSOR)
             }))
             && self
                 .get_property_of_type(stripped, name)

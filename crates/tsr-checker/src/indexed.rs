@@ -297,7 +297,26 @@ impl Checker<'_, '_> {
         // carries the *uninstantiated* declaration: `c["a"]` on a `C<number>`
         // whose member is declared `a: T` must answer `number`, and only the
         // seam can know that. It answers identically today (`bd tsr-4qx`).
-        if let Some(property_type) = self.get_type_of_property_of_type(object_type, &name) {
+        // §471: a STRING key never reaches a PRIVATE-IDENTIFIER member —
+        // upstream files privates under a per-class mangled name
+        // (`binder.GetSymbolNameForPrivateIdentifier`), so `this["#foo"]`
+        // cannot collide with `#foo` and falls to the index signature
+        // (`privateNameAndIndexSignature` records `this["#foo"] : any` from
+        // `[k: string]: any` beside a declared `#foo`). A COMPUTED property
+        // written `["#bar"]` is an ordinary string-named member and still
+        // matches — the test is the declaration's name kind, not the
+        // spelling.
+        let names_a_private_member = name.starts_with('#')
+            && self.get_property_of_type(object_type, &name).is_some_and(|property| {
+                self.binder
+                    .symbols()
+                    .get(property)
+                    .value_declaration
+                    .is_some_and(|declaration| self.declaration_names_a_private(declaration))
+            });
+        if !names_a_private_member
+            && let Some(property_type) = self.get_type_of_property_of_type(object_type, &name)
+        {
             return property_type;
         }
         // A named lookup that misses still reaches the index signatures, which is
