@@ -1765,3 +1765,42 @@ nothing moved wrong, and it removes a shape (`{ x: 1, [computed]: 2 }`) that
 gapped whole where upstream answers. The case count does not move because the
 lines are spread across cases with other blockers, which §19.1 already
 quantified as the ordinary situation for a 3-line arm.
+
+### 25.1 §553's candidate — three more poisoned literal shapes, with their upstream answers
+
+§24.1's sweep continued past §551's slice. Every one of these gaps whole today:
+
+```ts
+declare var s: string;
+var a = { x: 1, [s]: 2 };          // error  -> { x: number; [x: string]: number; }
+var b = { m() {}, [1]: 2 };        // error  -> { m(): void; [x: number]: number; }
+var c = { get g() { return 1; }, [1]: 2 };   // error
+```
+
+Each is `getObjectLiteralIndexInfo`'s filter (`checker.go:19721`) again, and
+each is a *different* arm of it:
+
+- **`a` — the STRING-key half.** Upstream's filter keeps every property but the
+  symbol-named ones, so the named member's type joins the index VALUE union:
+  value is `number | number` = `number`. §551 deliberately left this out because
+  it is a different computation from the number-key slice, **and because the
+  named members are held as printed TEXT at that point in
+  `check_object_literal`, not as `TypeId`s** — the union cannot be formed
+  without threading the member types alongside. That plumbing is the work, not
+  the rule.
+- **`b`, `c` — a non-`Property` member beside a NUMBER key.** §551's
+  `numeric_named` predicate answers `true` for every member variant that is not
+  `Member::Property`, which is conservative rather than correct: a method or an
+  accessor is not numerically named either, so upstream's filter drops it from
+  the value union exactly as it drops `x`. Relaxing the predicate to inspect
+  those variants' names is a small change and was NOT made here, because at the
+  time of writing it could not be verified end-to-end.
+
+**Sized honestly: not sized.** No row dump has been taken for these three, so no
+case count is claimed. The shapes are recorded because the probe found them
+cheaply and re-finding them costs another sweep.
+
+> §24.1's sweep has now paid twice (§549's 86 lines, §551's 3) and is **still
+> only run over `destructure.rs` and `objects.rs`.** The pattern — a decline
+> that returns the gap sentinel, or a decline whose stated reason has gone
+> stale — is generic, and no other module has been checked.
