@@ -105,3 +105,69 @@ fn too_many_type_arguments_on_the_base_make_super_a_gap() {
         "error"
     );
 }
+
+/// §481: upstream skips arrows only for a NON-CALL `super`
+/// (`checker.go:7860`), so a `super()` whose container is an arrow fails
+/// `IsConstructorDeclaration` and errors — `errorType`, printed `any`
+/// (`derivedClassConstructorWithoutSuperCall` records `>super : any` for
+/// `() => super()` inside a constructor).
+#[test]
+fn a_super_call_through_an_arrow_is_the_deliberate_error_any() {
+    assert_eq!(
+        type_of_super(
+            "class Base { }\nclass D extends Base { constructor() { var r = () => super(); } }"
+        ),
+        "any"
+    );
+}
+
+/// The control §481 must not break: a super PROPERTY access through an
+/// arrow keeps the transparent-arrow behaviour and answers the instance
+/// side.
+#[test]
+fn a_super_property_access_through_an_arrow_still_answers() {
+    assert_eq!(
+        type_of_super(
+            "class Base { m() {} }\nclass D extends Base { m() { var r = () => super.m; } }"
+        ),
+        "Base"
+    );
+}
+
+/// §481's second arm: `super` inside a COMPUTED PROPERTY NAME
+/// (`checker.go:7893`'s FindAncestor check) — `computedPropertyNames27_ES6`
+/// records `>super : any` in `[super.toString()]`.
+#[test]
+fn a_super_in_a_computed_property_name_is_the_deliberate_error_any() {
+    assert_eq!(
+        type_of_super("class Base { }\nclass D extends Base { [super.toString()]() { } }"),
+        "any"
+    );
+}
+
+/// The skip is the rule, not the position: a computed name is not inside
+/// the member it names, so the search continues OUTSIDE it — through the
+/// object literal and even through a nested class — and a legal outer
+/// member answers. `computedPropertyNames25_ES6` records `>super : Base`
+/// for the object-literal shape;
+/// `superPropertyAccessInComputedPropertiesOfNestedType_ES6` for the
+/// nested-class one.
+#[test]
+fn a_computed_name_in_an_object_literal_inside_a_method_is_legal() {
+    assert_eq!(
+        type_of_super(
+            "class Base { bar() { return 0; } }\nclass D extends Base { foo() { var obj = { [super.bar()]() { } }; } }"
+        ),
+        "Base"
+    );
+}
+
+#[test]
+fn a_computed_name_on_a_nested_class_member_answers_the_outer_base() {
+    assert_eq!(
+        type_of_super(
+            "class A { foo() { return 1; } }\nclass B extends A { bar() { return class { [super.foo()]() { } }; } }"
+        ),
+        "A"
+    );
+}

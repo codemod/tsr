@@ -1525,36 +1525,90 @@ impl Checker<'_, '_> {
         let mut current = self.nodes.parent(node);
         let mut is_static = None;
         let mut class = None;
+        // §481: a COMPUTED PROPERTY NAME is not inside the member it names —
+        // upstream's `getSuperContainer` jumps from the name to the member
+        // and keeps walking, so the member is SKIPPED and the search
+        // continues outside it. `{ [super.bar()]() {} }` inside a class
+        // method therefore finds THAT method and is legal
+        // (`computedPropertyNames25_ES6` records `>super : Base`), while a
+        // CLASS member's computed name walks out of the class entirely and
+        // errors — "super cannot be referenced in a computed property name"
+        // (`checker.go:7893`), `errorType` printed `any`
+        // (`computedPropertyNames27_ES6`). The first §481 draft returned
+        // `any` at the name itself and measured 7 G→W in the object-literal
+        // fixtures; the skip is the rule, not the position.
+        let mut crossed_computed_name = false;
+        let mut skip_named_member = false;
         while let Some(id) = current {
             match self.nodes.kind(id) {
-                // Two different reasons, one answer. A plain function is where
-                // `getSuperContainer(node, stopOnFunctions: true)` stops, so an
-                // outer class is not reached; an object-literal container is
-                // upstream's `any` (`checker.go:7917`), which
-                // `checker-notes-rank.md` §6 forbids banking on. They are one arm
-                // because clippy will not keep two that return the same thing,
-                // and the distinction lives here rather than in the shape.
-                SyntaxKind::FunctionDeclaration
-                | SyntaxKind::FunctionExpression
-                | SyntaxKind::ObjectLiteralExpression => return error,
+                // A plain function is where `getSuperContainer(node,
+                // stopOnFunctions: true)` stops, so an outer class is not
+                // reached.
+                SyntaxKind::FunctionDeclaration | SyntaxKind::FunctionExpression => return error,
+                // An object-literal CONTAINER is upstream's `any`
+                // (`checker.go:7917`), which `checker-notes-rank.md` §6
+                // forbids banking on — but only when a member was actually
+                // found; a literal passed while skipping a computed-named
+                // member is just an expression on the way.
+                SyntaxKind::ObjectLiteralExpression => {
+                    if is_static.is_some() {
+                        return error;
+                    }
+                }
+                // §481: upstream skips arrows ONLY for a non-call `super`
+                // (`checker.go:7860`, the `if !isCallExpression` loop), so a
+                // `super()` whose container is an arrow fails
+                // `IsConstructorDeclaration(container)` and errors — "Super
+                // calls are not permitted outside constructors or in nested
+                // functions inside constructors" — `errorType`, printed
+                // `any` (`derivedClassConstructorWithoutSuperCall` records
+                // `>super : any` for `() => super()`). A property access
+                // keeps the transparent-arrow behaviour.
+                SyntaxKind::ArrowFunction if is_call => return self.intrinsics.any,
+                SyntaxKind::ComputedPropertyName => {
+                    crossed_computed_name = true;
+                    skip_named_member = true;
+                }
                 SyntaxKind::MethodDeclaration
                 | SyntaxKind::Constructor
                 | SyntaxKind::PropertyDeclaration
                 | SyntaxKind::GetAccessor
                 | SyntaxKind::SetAccessor => {
-                    if is_static.is_none() {
+                    if skip_named_member {
+                        skip_named_member = false;
+                    } else if is_static.is_none() {
                         is_static = Some(self.has_static_modifier(id));
                     }
                 }
                 SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression => {
-                    class = Some(id);
-                    break;
+                    // §481: a class node is never a super CONTAINER upstream
+                    // — `getSuperContainer` returns members and functions
+                    // only — so a search still looking for its member (a
+                    // computed-name skip in flight) passes THROUGH a nested
+                    // class: `class { [super.foo()]() {} }` inside an outer
+                    // method finds that method and answers the OUTER base
+                    // (`superPropertyAccessInComputedPropertiesOfNestedType_ES6`
+                    // records `>super : A`). With a member already found,
+                    // stopping here is the same answer upstream reaches by
+                    // returning the member.
+                    if is_static.is_some() || !crossed_computed_name {
+                        class = Some(id);
+                        break;
+                    }
                 }
                 _ => {}
             }
             current = self.nodes.parent(id);
         }
-        let (Some(class), Some(is_static)) = (class, is_static) else { return error };
+        let (Some(class), Some(is_static)) = (class, is_static) else {
+            // The walk found no member. Through a computed name that is
+            // upstream's specific error and the deliberate error-any; every
+            // other exit keeps the honest gap.
+            if crossed_computed_name {
+                return self.intrinsics.any;
+            }
+            return error;
+        };
         let Some(symbol) = self.binder.symbol_of(class) else { return error };
         // §202. The **static** side, which is what `super(...)` and a `super`
         // inside a static member want, differs from the instance side twice
