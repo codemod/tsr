@@ -3158,7 +3158,24 @@ impl<'a> Checker<'a, '_> {
             // `crate::destructure` directly, because its refusals are
             // `errorType` and must not take the widened path's None→`any`
             // mapping — an unported leg is a gap, not an implicit any.
-            SyntaxKind::BindingElement => self.get_type_for_binding_element(declaration),
+            SyntaxKind::BindingElement => {
+                let id = self.get_type_for_binding_element(declaration);
+                // §459: upstream's road for a binding element IS
+                // `getWidenedTypeForVariableLikeDeclaration` (checker.go:16603),
+                // and its `getWidenedType` maps a nullable-only inference to
+                // `any` under non-strict — `var [a, b] = [undefined, null]`
+                // records `a : any` (`wideningTuples5`). The direct dispatch
+                // above skipped exactly that tail; §187's arm, one road over.
+                if !self.strict_null_checks && id != self.intrinsics.error {
+                    let flags = self.store.get(id).flags;
+                    if flags.intersects(TypeFlags::NULLABLE)
+                        && !flags.intersects(!TypeFlags::NULLABLE)
+                    {
+                        return self.intrinsics.any;
+                    }
+                }
+                id
+            }
             // `checkJsxAttribute` (`jsx.go:871`), which is three lines:
             // `checkExpressionForMutableLocation` on the initialiser, or
             // `trueType` when there is none — `<Elem attr />` is sugar for
