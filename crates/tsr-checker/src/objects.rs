@@ -362,6 +362,41 @@ impl Checker<'_, '_> {
         // `[Symbol()]` of `symbolProperty4` is no entity and takes the index
         // route.
         let flags = self.type_of(name_type).flags;
+        // §553: the STRING- and NUMBER-LITERAL halves of
+        // `StringOrNumberLiteralOrUnique` (`checker.go:13317`).
+        // `computed_member_index_key` already routes them here — that guard is
+        // upstream's own and was ported with SS206 — but this function only
+        // ever answered the SYMBOL half, so `{ ["a"]: 1 }` and `{ [1]: 2 }`
+        // fell to the caller's `return error` and gapped the whole literal.
+        //
+        // A late-bound literal name IS the member's name, and it takes the
+        // same spelling rules a WRITTEN property name takes a few lines below:
+        // an identifier-valid string prints bare (`{ ["a"]: 1 }` is
+        // `{ a: number; }`), anything else is re-quoted through the shared
+        // `printing::quote`, and a number prints normalised
+        // (`{ [1]: 2 }` is `{ 1: number; }`, `{ [1.0]: 2 }` is `{ 1: number; }`).
+        //
+        // Reading the LITERAL TYPE rather than the written expression is what
+        // makes `{ ["a" + ""]: 1 }` stay on the index route: its name type is
+        // plain `string`, not a literal, so this arm does not fire.
+        //
+        // `false` for the second element: that flag is
+        // `UNIQUE_ES_SYMBOL`-ness, which decides the symbol display, and a
+        // literal name is never a unique symbol.
+        match &self.type_of(name_type).data {
+            crate::types::TypeData::StringLiteral(text) => {
+                let text = text.clone();
+                return Some((
+                    if is_identifier_text(&text) { text } else { printing::quote(&text) },
+                    false,
+                ));
+            }
+            crate::types::TypeData::NumberLiteral(text) => {
+                let text = text.clone();
+                return Some((printing::normalise_number(&text), false));
+            }
+            _ => {}
+        }
         if !flags.intersects(TypeFlags::ES_SYMBOL_LIKE) {
             return None;
         }

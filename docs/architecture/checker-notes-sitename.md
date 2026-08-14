@@ -1809,3 +1809,64 @@ cheaply and re-finding them costs another sweep.
 > only run over `destructure.rs` and `objects.rs`.** The pattern — a decline
 > that returns the gap sentinel, or a decline whose stated reason has gone
 > stale — is generic, and no other module has been checked.
+
+---
+
+## 26. §553 — the LITERAL halves of `StringOrNumberLiteralOrUnique` (+4 cases, 126 favorable : 20 adverse)
+
+§25.1's b/c lead, run down properly. The corrected diagnosis there said the
+decline happens before the index-info filter; it does, and this is where.
+
+`computed_member_index_key` implements upstream's guard
+(`checker.go:13317`) faithfully — a name type carrying
+`STRING_LITERAL | NUMBER_LITERAL | UNIQUE_ES_SYMBOL` is `LateBound`. But
+`late_bound_symbol_member_name` only ever answered the **symbol** half, so the
+two literal halves routed to a function that returned `None`, and the caller's
+`return error` gapped the whole literal:
+
+```ts
+var z = { [1]: 2 };        // error  ->  { 1: number; }
+var y = { ["a"]: 2 };      // error  ->  { a: number; }
+var x = { [1]: 2, [2]: 3 };// error  ->  { 1: number; 2: number; }
+```
+
+A late-bound literal name **is** the member's name, and it takes the same
+spelling rules a written property name takes a few lines below: an
+identifier-valid string prints bare, anything else re-quotes through the shared
+`printing::quote`, a number prints through `printing::normalise_number`.
+
+**Reading the literal TYPE rather than the written expression is what keeps
+`{ ["a" + ""]: 1 }` on the index route** — its name type is plain `string`, not
+a literal, so the arm does not fire.
+
+```
+WRONG->RIGHT: 77   literalsInComputedProperties1 22, dynamicNames 17,
+                   computedPropertiesNarrowed 12
+GAP->RIGHT:    49  controlFlowAssignmentPatternOrder 12, controlFlowForInStatement2 8,
+                   declarationEmitPropertyNumericStringKey 7
+GAP->WRONG:    20  controlFlowInOperator 6, controlFlowForInStatement2 3, …
+RIGHT->WRONG:   0
+checker_types 5,902 -> 5,906 (+4 cases), gradient 90.45% -> 90.48%
+```
+
+**126 favorable against 20 adverse, zero R→W.** The adverse are all GAP→WRONG —
+lines that rendered nothing now render something wrong — and they are spread
+across nine cases rather than concentrated, which says they are downstream
+consequences of newly-existing members rather than a second defect in this arm.
+`controlFlowForInStatement2` appears on both sides (8 G→R, 3 G→W), the same
+signature §549's `declarationEmitDestructuringArrayPattern4` showed.
+
+### 26.1 Why this was invisible for so long
+
+The guard and the speller were written in different sessions against the same
+upstream line, and **each was correct about its own half**. SS206 ported the
+guard including both literal flags — its comment even records catching a draft
+that turned `{ [1]: 1 }` into `{ [x: number]: number; }`. SS323 then built the
+speller for unique symbols and did not widen the guard, because the guard
+already covered it.
+
+Nothing was wrong with either change. The defect lived in the *seam*: a
+classifier that promises three kinds and a speller that answers one, with the
+caller turning the mismatch into a gap. That is the third seam-shaped defect this
+session after §539 (printed but not consultable) and §549 (the contagious
+decline), and all three were found by probing shapes rather than by reading code.
