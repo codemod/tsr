@@ -419,3 +419,78 @@ name render lands. Measured ALONE, after the globals arm was reverted:
 code**: the bug is nine months old, sits on the hottest naming road in the
 checker, and was invisible until the transcription named what the argument
 was supposed to be.
+
+---
+
+## 8. The floor, measured — `needs_qualification` CONFLATES two upstream conditions, and that is the whole diagnosis
+
+§7.2 named the reopening condition as *"verify `needs_qualification`
+line-by-line against `symbolaccessibility.go:688-726`"*. Done, and the answer
+is better than a line-by-line diff: **the port's predicate is not upstream's
+predicate at all — it is upstream's predicate OR'd with a second condition,
+and the OR is load-bearing.**
+
+### 8.1 The transcription
+
+Upstream (`symbolaccessibility.go:688-726`) starts `qualify := false`, walks
+the scope tables, and per table: name absent → continue; the entry IS this
+symbol → stop, **no qualification**; otherwise resolve the alias (unless it
+is an export specifier), take `getSymbolFlags`, and `flags & meaning != 0` →
+**qualify**, stop. A name present in NO table leaves the callback never
+firing: the function answers **false**.
+
+The port (`checker.rs:2097`) asks `binder.resolve_name` once and answers
+`Some(found) => found != symbol`, **`None => true`**.
+
+### 8.2 The counterfactual: `None => false` measures −6,850
+
+Applied and measured against the §527 baseline: **6,850 R→W** —
+`compiler/temporal` 3,318, `resolvingClassDeclarationWhenInBaseTypeResolution`
+1,022, the whole `privacy*CannotName*` family. Reverted immediately.
+
+That is not a bug in the change; it is the proof of what the `true` is for.
+Those 6,850 lines are names the port's `resolve_name` **cannot resolve at the
+site** — cross-file, namespace-member, lib — and every one of them genuinely
+needs its qualifier. `None => true` was supplying it.
+
+### 8.3 What the port actually collapsed
+
+Upstream's node builder asks TWO questions and this port asks one. At
+`nodebuilderimpl.go:1093-1094` the qualifier walk begins when:
+
+> `chain == nil` **OR** `needsQualification(chain[0], enclosingDeclaration, qualifierMeaning)`
+
+— *no accessible chain exists*, **or** *a chain exists but the leading name is
+shadowed*. `needs_qualification`'s `None => true` is the **first** disjunct
+wearing the second one's name: an unresolvable name is the port's proxy for
+"no accessible chain".
+
+So the predicate is doing correct work for the wrong stated reason, which is
+exactly the shape `docs/conventions.md` warns about — and it is why slice 1's
+globals arm misfired. That arm asked "was qualification needed?" and got back
+"either it was shadowed, or we could not resolve it", then treated both as
+shadowing. `enum Color { Color }` is the clean witness: `Color` is perfectly
+accessible as itself (chain ≠ nil, `needsQualification` false, upstream prints
+`Color`), but the port's `resolve_name` answers `None` at that position, the
+conflated predicate says "qualify", and the globals arm spelled
+`globalThis.Color`.
+
+### 8.4 The reopening condition, restated and now precise
+
+> **Split the predicate before rebuilding any arm on top of it.**
+> `accessible_chain_exists(symbol, site, meaning)` and
+> `needs_qualification(symbol, site, meaning)` are different questions with
+> different upstream sources (`getAccessibleSymbolChain`, SA:373, versus
+> `needsQualification`, SA:688). Today's function is their disjunction and
+> **must keep behaving as the disjunction at every existing call site** — the
+> −6,850 is the price of changing that blindly. The split is additive: give
+> the shadowing question its own honest transcription (the table walk, not
+> `resolve_name`), keep the existing conflated predicate for the qualifier
+> road until each call site is re-pointed with its own measurement, and let
+> slice 1's globals arm consult the SHADOWING half alone — which is what
+> `symbolaccessibility.go:588-591` actually sits behind.
+
+This is a bigger correction than §7.2 anticipated and it is the reason slices
+2 and 3 should not be attempted first: both call the same conflated
+predicate, and both would measure noise attributable to it rather than to
+themselves.
