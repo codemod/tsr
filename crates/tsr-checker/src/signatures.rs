@@ -1366,8 +1366,31 @@ impl<'a> Checker<'a, '_> {
             if !self.declaration_takes_no_contextual_return(declaration, may_return_never) {
                 return None;
             }
-            let Body::Block(block) = body else { return None };
-            let returns = self.return_expressions_of(block, declaration);
+            // §559: a CONCISE arrow body is the return expression itself —
+            // `getReturnTypeFromBody`'s first arm, `!ast.IsBlock(body)`
+            // (`checker.go:20135`), which the non-async road a few hundred
+            // lines below already takes through `concise_return_type`. The
+            // async road only ever accepted a BLOCK, so `async () => 1` and
+            // `{ async m() { … } }`'s concise siblings gapped while
+            // `async function f() { return 1; }` worked — the asymmetry was
+            // this line, not the async machinery.
+            //
+            // Modelled as a one-element `returns` list rather than by calling
+            // `concise_return_type`: everything below — the `await` unwrap,
+            // the never/bare-return handling, the `Promise<T>` wrap — is the
+            // aggregation this arm already does, and a concise body is exactly
+            // the case of *one valued return and no bare return*.
+            // `None` for a concise body: there is no block whose END could be
+            // reached, so the two reachability questions below answer "the end
+            // is not reachable" without consulting anything.
+            let block = match body {
+                Body::Expression(_) => None,
+                Body::Block(block) => Some(block),
+            };
+            let returns = match body {
+                Body::Expression(expression) => vec![Some(expression)],
+                Body::Block(block) => self.return_expressions_of(block, declaration),
+            };
             let mut valued: Vec<TypeId> = Vec::new();
             let mut has_bare_return = false;
             let mut has_return_of_type_never = false;
@@ -1433,7 +1456,11 @@ impl<'a> Checker<'a, '_> {
             // into the empty-aggregate `Promise<void>` arm below; an
             // undecidable end gaps.
             if valued.is_empty() && !has_bare_return && has_return_of_type_never {
-                match self.block_completes_normally(block, declaration) {
+                let completes = match block {
+                    Some(block) => self.block_completes_normally(block, declaration),
+                    None => Some(false),
+                };
+                match completes {
                     Some(false) => {
                         let never = self.intrinsics.never;
                         let promise = self.global_type_symbol("Promise")?;
@@ -1457,7 +1484,10 @@ impl<'a> Checker<'a, '_> {
                 let implicit = if has_bare_return {
                     true
                 } else {
-                    self.block_completes_normally(block, declaration)?
+                    match block {
+                        Some(block) => self.block_completes_normally(block, declaration)?,
+                        None => false,
+                    }
                 };
                 if implicit {
                     let undefined = self.intrinsics.undefined;

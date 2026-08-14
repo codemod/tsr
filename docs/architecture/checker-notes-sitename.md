@@ -1986,3 +1986,66 @@ because two baselines demanded it and the pair measured `+6 W→R, 0 adverse`;
 this one has no such witness, and guessing it would be exactly the move
 `docs/conventions.md` warns about. **Falsifier if someone wants to settle it**:
 find or write a fixture with `{ ["1"]: 1 }` and read upstream's `.types`.
+
+---
+
+## 28. §559 — the async road only ever accepted a BLOCK body (+3 cases, 47 favorable, 0 adverse)
+
+Found by a broad probe sweep rather than a row dump — nine unrelated shapes in
+one file, two of which gapped:
+
+```ts
+async function f() { return 1; }      // () => Promise<number>   works
+class K { async m() { return 1; } }   // Promise<number>         works
+var c = async () => 1;                // error
+var g = { async m() { return 1; } };  // error
+```
+
+`return_type_from_body`'s async arm opened with
+`let Body::Block(block) = body else { return None }`. **A concise arrow body is
+not a block**, so `async () => 1` gapped while the identical declaration
+worked — the asymmetry was that one line, not the async machinery.
+`getReturnTypeFromBody`'s first arm is `!ast.IsBlock(body)`
+(`checker.go:20135`), and the non-async road a few hundred lines below already
+takes it through `concise_return_type`.
+
+Modelled as a **one-element `returns` list** rather than by delegating to
+`concise_return_type`: everything after that line — the `await` unwrap, the
+never/bare-return handling, the `Promise<T>` wrap — is aggregation this arm
+already does, and a concise body is exactly *one valued return and no bare
+return*. The block became `Option`, and the two reachability questions
+(`block_completes_normally`) answer *"the end is not reachable"* for a concise
+body without consulting anything, which is true by construction.
+
+```
+GAP->RIGHT:    35   asyncMethodWithSuper_es6 20,
+                    asyncUnParenthesizedArrowFunction_es2017 4, _es6 4
+WRONG->RIGHT:  12   jsxElementType 7, asyncAwaitIsolatedModules_es2017 2, _es6 2
+no adverse transition of any kind
+checker_types 5,910 -> 5,913 (+3 cases), gradient 90.48% -> 90.49%
+```
+
+`jsxElementType`'s 7 lines were not aimed at and are the fifth unpredicted
+reach of the session — an async arrow appears anywhere a callback does.
+
+### 28.1 The residue, measured not guessed
+
+`var g = { async m() { return 1; } }` **still gaps.** That is a different gate:
+an object-literal method is not in `declaration_takes_no_contextual_return`'s
+allowed set the way a `FunctionDeclaration` and a `MethodDeclaration` are
+(`signatures.rs`), because upstream consults a contextual return type there
+(`checker.go:20179`) and §14 of `checker-notes-callres.md` sized and fenced
+exactly that slice. **Not touched**, and not to be confused with this one: this
+landing changed which BODY SHAPES the async arm accepts, not which
+DECLARATIONS it trusts.
+
+### 28.2 Method note — the broad sweep earns its place beside the row dump
+
+Every landing from §537 to §557 came from a deficit-1 row dump or from probing
+an arm's own conversions. This one came from writing nine unrelated one-liners
+and reading the output. It cost one probe and paid 47 lines, and the two gaps it
+found were in a subsystem no dump had pointed at, because the failing lines are
+spread thinly across cases with other blockers.
+
+**Both instruments are needed**: the dump ranks what is already visible; the
+sweep finds what nothing has pointed at yet.
