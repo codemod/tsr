@@ -905,3 +905,111 @@ two `noInfer` lines it stopped damaging.
 selection (slice 2) and the name render (slice 3) are untouched, and
 `symbol_chain`'s entry gate is still the conflated predicate — see §12.4 for
 why that must stay until `getAccessibleSymbolChain` is ported.
+
+---
+
+## 14. §533 — slice 2: the ambiguity DECLINE becomes `compareSymbolChains`' order (+120 W→R, +3 cases)
+
+§5's slice 2, and §14 of `checker-notes-nameres.md` retired.
+
+`module_alias_at` answered `Err(true)` — decline — whenever two distinct names
+in scope reached the same module, on the reasoning that upstream picked *some*
+alias and guessing wrong prints a name upstream did not. Upstream does not
+guess and does not decline (`symbolaccessibility.go:582-586`):
+
+```go
+// pick first, shortest
+slices.SortStableFunc(candidateChains, c.compareSymbolChains)
+return candidateChains[0]
+```
+
+`compareSymbolChainsWorker` (`:595-610`) is shorter-chain-first then
+`compareSymbols` elementwise; `compareSymbolsWorker` (`utilities.go:366-391`)
+is **first declaration's position** — file index, then offset (`compareNodes`,
+`:393-412`) — then name, then symbol id. A total order that always answers.
+
+### 14.1 The sizing, taken before the code, and the row that decided it
+
+A trace on the decline: **238 firings across the corpus, 16 distinct
+module/alias-pair shapes.** The largest is `compiler/importDecl` at 68 —
+`multiImport_m4` versus `m4` for `./importDecl_require`.
+
+The row that settles which one upstream picks, printed rather than reasoned
+about (§11.3):
+
+| | |
+|---|---|
+| `importDecl.ts:33` | `import m4 = require("./importDecl_require")` |
+| `importDecl.ts:79` | `import multiImport_m4 = require("./importDecl_require")` |
+| baseline | `>d : m4.d` |
+
+The **earlier declaration**, which is `compareNodes`' answer exactly. §14's
+"~96% coincidence" between candidate tie-breaks was measured when the tie-break
+was a guess; it is not a guess, it is a transcription.
+
+### 14.2 What was ported, and the one key deliberately not ported
+
+`Checker::compare_symbols` takes `compareSymbolsWorker`'s keys in order:
+first-declaration position, then name, then symbol id. `compareNodes`' file
+index is the enclosing `SourceFile`'s `NodeId`, which the parser allocates in
+program order — the two agree on ordering without agreeing on the numbers.
+
+**`compareSymbolChains`' length key is not ported, because every candidate here
+is a one-element chain**: an alias in scope naming the module directly.
+`len(a) - len(b)` is always zero and the order reduces to `compareSymbols`.
+Porting the length key would be porting a comparison over chains this function
+does not build.
+
+**The scope walk still dominates the sort.** Upstream sorts *within one table*
+— `trySymbolTable` runs per table, innermost first, and returns as soon as one
+yields candidates — so the tie-break only separates aliases in the SAME scope.
+This collects per table and stops at the first that yields anything. Flattening
+and sorting globally would let a file-scope alias at offset 10 beat a
+block-scope alias at offset 500 that upstream returns first; the previous code
+flattened, which was invisible while any second name meant decline.
+
+### 14.3 The measurement, and the two adverse rows
+
+```
+TOTAL 474196  right 432983  gap 8692  wrong 32521
+WRONG->RIGHT: 120   compiler/importDecl 54, umd-augmentation-1 14, importsImplicitlyReadonly 10
+GAP->RIGHT:     7
+GAP->WRONG:     2   conformance/exportsAndImports4-es6
+RIGHT->WRONG:   0
+checker_types 5,885 -> 5,888 (+3 cases), gradient 90.39% -> 90.42%
+```
+
+**127 favorable against 2 adverse, and zero R→W.** The two land in a case that
+was already failing (7 wrong, 2 gap in the baseline), so they are recordable at
+a favorable multiple rather than a full stop.
+
+### 14.4 The two adverse rows are SLICE 3's, and they are worth more than they cost
+
+```
+exportsAndImports4-es6:0:6   want typeof c    got typeof a
+exportsAndImports4-es6:0:14  want typeof e2   got typeof a
+```
+
+The fixture imports the same module six ways in one file:
+
+```ts
+import a = require("./t1");
+import * as c from "./t1";
+import e1, * as e2 from "./t1";
+```
+
+`a`, `c` and `e2` all reach `./t1`, so the tie-break picks `a` — the earliest —
+for all of them. **But this is not a container-qualifier question at all.** The
+type being printed at `:6` IS the alias binding `c`, and at `:14` it IS `e2`;
+each is its own symbol carrying its own name, and the right answer is available
+without any tie-break. That is precisely §1.2 / slice 3's rule — *a
+symbol-carrying type renders its NAME from the symbol at the site*.
+
+So the two rows are not a defect in this transcription; they are **slice 3's
+population, newly made visible**. They were `GAP` before (the decline rendered
+nothing) and are `WRONG` now, which is the honest direction: a wrong name is a
+thing slice 3 can find and fix, and a gap is not.
+
+**Falsifier for that claim**: if slice 3 lands and these two rows do not
+convert, the diagnosis here was wrong and the tie-break is reaching a road it
+should not.

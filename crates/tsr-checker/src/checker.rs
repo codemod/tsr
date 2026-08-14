@@ -1432,11 +1432,11 @@ impl<'a, 'n> Checker<'a, 'n> {
         // AMBIENT half: a module declared ONCE as `declare module "name"`
         // prints `typeof import("name")` verbatim (privacyImportParseErrors'
         // wants). The NONE case only — an ambiguous container means upstream
-        // picked some alias (`module_alias_at`'s tri-state); AUGMENTED
-        // ambients (2+ declarations, moduleAugmentationExtend*'s bare-name
-        // wants) gate out; FILE modules wait for the relative-specifier
-        // half.
-        if matches!(self.module_alias_at(module, reference), Err(false)) {
+        // picked some alias — since §533 this port picks the same one, so
+        // "no alias at all" is simply `None`; AUGMENTED ambients (2+
+        // declarations, moduleAugmentationExtend*'s bare-name wants) gate
+        // out; FILE modules wait for the relative-specifier half.
+        if self.module_alias_at(module, reference).is_none() {
             let declarations = &self.binder.symbols().get(module).declarations;
             if let [declaration] = declarations.as_slice()
                 && let Some(tsr_ast::Node::ModuleDeclaration(node)) =
@@ -1931,15 +1931,14 @@ impl<'a, 'n> Checker<'a, 'n> {
             if self.alias_in_scope_for(symbol, reference) {
                 return None;
             }
-            // `getAccessibleSymbolChain`'s alias arm for the *container*,
-            // including its ambiguity refusal (`checker-notes-nameres.md` §14):
-            // an ambiguous container declines outright — upstream picked some
-            // alias there, so the `import("…")` form would be a shape upstream
-            // did not print.
-            match self.module_alias_at(parent, reference) {
-                Ok(alias) => return Some(format!("{alias}.")),
-                Err(true) => return None,
-                Err(false) => {}
+            // `getAccessibleSymbolChain`'s alias arm for the *container*.
+            // §14's ambiguity refusal is GONE as of §533: upstream sorts the
+            // candidate chains and returns the first (`symbolaccessibility.go:
+            // 582-586`), and this port now computes the same order, so an
+            // ambiguous container yields a name rather than declining. Only a
+            // container no alias reaches falls through to `import("…")`.
+            if let Some(alias) = self.module_alias_at(parent, reference) {
+                return Some(format!("{alias}."));
             }
             // The ambient branch of `getSpecifierForModuleSymbol`
             // (`nodebuilderimpl.go:1260`): the specifier IS the module's name,
@@ -2463,25 +2462,72 @@ impl<'a, 'n> Checker<'a, 'n> {
     }
 
     fn module_name_at(&mut self, module: SymbolId, reference: NodeId) -> Option<&'a str> {
-        self.module_alias_at(module, reference).ok()
+        self.module_alias_at(module, reference)
     }
 
-    /// [`Checker::module_name_at`]'s tri-state worker: `Ok(name)` for the
-    /// unique in-scope alias, `Err(true)` for **ambiguity** (≥2 distinct
-    /// names), `Err(false)` for none at all. [`Checker::symbol_chain`] needs
-    /// the distinction — an ambiguous container means upstream picked *some*
-    /// alias, so falling through to the `import("…")` form would print a shape
-    /// upstream did not; only a container no alias reaches may take it.
-    fn module_alias_at(&mut self, module: SymbolId, reference: NodeId) -> Result<&'a str, bool> {
-        let mut candidates: Vec<SymbolId> = Vec::new();
+    /// The in-scope alias naming `module` at `reference`, **choosing** when
+    /// more than one reaches it.
+    ///
+    /// # §533: this used to DECLINE on ambiguity, and upstream never does
+    ///
+    /// `trySymbolTable` gathers every alias in a table that reaches the symbol
+    /// into `candidateChains` and then
+    /// (`internal/checker/symbolaccessibility.go:582-586`):
+    ///
+    /// > ```go
+    /// > // pick first, shortest
+    /// > slices.SortStableFunc(candidateChains, c.compareSymbolChains)
+    /// > return candidateChains[0]
+    /// > ```
+    ///
+    /// `compareSymbolChainsWorker` (`:595-610`) is *shorter chain wins*, then
+    /// `compareSymbols` element by element; `compareSymbolsWorker`
+    /// (`utilities.go:366-391`) is *first declaration's position* — by file
+    /// index, then by offset within the file (`compareNodes`, `:393-412`) —
+    /// then the name, then the symbol id. **It is a total order, and upstream
+    /// always gets an answer.**
+    ///
+    /// This port answered `Err(true)` — decline — whenever two distinct names
+    /// reached the module, on the reasoning (`checker-notes-nameres.md` §14)
+    /// that upstream picked *some* alias and guessing wrong prints a name
+    /// upstream did not. That was the right call while the tie-break was a
+    /// guess. It is not a guess: `compiler/importDecl` writes
+    /// `import m4 = require("./importDecl_require")` at line 33 and
+    /// `import multiImport_m4 = require("./importDecl_require")` at line 79,
+    /// and the baseline records **`m4.d`** — the earlier declaration, which is
+    /// exactly `compareNodes`' answer. The decline fired **238 times** across
+    /// the corpus (16 distinct module/alias-pair shapes) and every one of them
+    /// printed a bare name where upstream printed a qualified one.
+    ///
+    /// # Chain length is not a discriminator here, and that is why this is
+    /// `compareSymbols` rather than `compareSymbolChains`
+    ///
+    /// Every candidate this function considers is a **one-element** chain — an
+    /// alias in scope that names the module directly. `compareSymbolChains`'
+    /// first key (`len(a) - len(b)`) is therefore always zero and the order
+    /// reduces to `compareSymbols` on the alias symbols. Porting the length key
+    /// would be porting a comparison over chains this function does not build.
+    ///
+    /// # The scope walk still dominates the sort
+    ///
+    /// Upstream sorts *within one table* — `trySymbolTable` runs per table,
+    /// innermost first, and returns as soon as a table yields candidates. So
+    /// the tie-break only ever separates aliases declared in the SAME scope; an
+    /// inner scope's alias beats an outer one's regardless of position. This
+    /// collects per table and stops at the first table that yields anything,
+    /// which is the same shape. Flattening the tables and sorting globally
+    /// would let a file-scope alias at offset 10 beat a block-scope alias at
+    /// offset 500 that upstream would have returned first.
+    fn module_alias_at(&mut self, module: SymbolId, reference: NodeId) -> Option<&'a str> {
+        let mut tables: Vec<Vec<SymbolId>> = Vec::new();
         let mut current = Some(reference);
         while let Some(node) = current {
             if let Some(locals) = self.binder.locals(node) {
-                candidates.extend(locals.values().copied());
+                tables.push(locals.values().copied().collect());
             }
             current = self.nodes.parent(node);
         }
-        candidates.extend(self.binder.globals().values().copied());
+        tables.push(self.binder.globals().values().copied().collect());
 
         // §501: the module handed in may itself be an alias — following
         // `export =` returns the `export=` symbol under upstream's
@@ -2490,33 +2536,80 @@ impl<'a, 'n> Checker<'a, 'n> {
         // whose target is the `__React` namespace, and either spelling of the
         // module object must find the alias.
         let module_target = self.resolve_alias_fully(module);
-        let mut found: Option<&'a str> = None;
-        for candidate in candidates {
-            if !self
-                .binder
-                .symbols()
-                .get(candidate)
-                .flags
-                .intersects(tsr_binder::SymbolFlags::ALIAS)
-            {
-                continue;
+        for table in tables {
+            let mut candidates: Vec<SymbolId> = Vec::new();
+            for candidate in table {
+                if !self
+                    .binder
+                    .symbols()
+                    .get(candidate)
+                    .flags
+                    .intersects(tsr_binder::SymbolFlags::ALIAS)
+                {
+                    continue;
+                }
+                let resolved = self.resolve_alias(candidate);
+                if resolved != Some(module)
+                    && resolved.map(|r| self.resolve_alias_fully(r)) != Some(module_target)
+                {
+                    continue;
+                }
+                candidates.push(candidate);
             }
-            let resolved = self.resolve_alias(candidate);
-            if resolved != Some(module)
-                && resolved.map(|r| self.resolve_alias_fully(r)) != Some(module_target)
-            {
-                continue;
-            }
-            let name = self.binder.symbols().get(candidate).name;
-            match found {
-                // The same alias reached twice through two scopes is one alias,
-                // and a name colliding with itself is not ambiguity.
-                Some(existing) if existing == name => {}
-                Some(_) => return Err(true),
-                None => found = Some(name),
+            if let Some(&best) = candidates.iter().min_by(|&&a, &&b| self.compare_symbols(a, b)) {
+                return Some(self.binder.symbols().get(best).name);
             }
         }
-        found.ok_or(false)
+        None
+    }
+
+    /// `compareSymbolsWorker` (`internal/checker/utilities.go:366-391`) and the
+    /// `compareNodes` (`:393-412`) it delegates to, reduced to the keys this
+    /// port has: **first declaration's position**, then the name, then the
+    /// symbol id as a last resort.
+    ///
+    /// `compareNodes` orders by the declaration's file index in the program and
+    /// then by offset within the file. This port has no `fileIndexMap`; it uses
+    /// the enclosing `SourceFile`'s [`NodeId`], which the parser allocates in
+    /// program order, so the two agree on ordering without agreeing on the
+    /// numbers. A declaration with no enclosing file sorts last rather than
+    /// panicking.
+    ///
+    /// Upstream's nil arms (`:369-375`) have no counterpart — a [`SymbolId`] is
+    /// always a symbol here.
+    fn compare_symbols(&self, a: SymbolId, b: SymbolId) -> std::cmp::Ordering {
+        if a == b {
+            return std::cmp::Ordering::Equal;
+        }
+        let key = |symbol: SymbolId| {
+            self.binder.symbols().get(symbol).declarations.first().map(|&declaration| {
+                let mut file = declaration;
+                let mut current = Some(declaration);
+                while let Some(node) = current {
+                    if self.nodes.kind(node) == SyntaxKind::SourceFile {
+                        file = node;
+                        break;
+                    }
+                    current = self.nodes.parent(node);
+                }
+                (file, self.nodes.span(declaration).start)
+            })
+        };
+        // `len(s1.Declarations) != 0` before the comparison (`:376-383`): a
+        // symbol WITH declarations sorts before one without, which is what
+        // `Option`'s own ordering gives once `None` is mapped to the greater
+        // side.
+        match (key(a), key(b)) {
+            (Some(a_key), Some(b_key)) if a_key != b_key => return a_key.cmp(&b_key),
+            (Some(_), None) => return std::cmp::Ordering::Less,
+            (None, Some(_)) => return std::cmp::Ordering::Greater,
+            _ => {}
+        }
+        let names = self.binder.symbols().get(a).name.cmp(self.binder.symbols().get(b).name);
+        if names != std::cmp::Ordering::Equal {
+            return names;
+        }
+        a.cmp(&b)
     }
 
     /// The name upstream's `getAccessibleSymbolChain` scope walk prints for
