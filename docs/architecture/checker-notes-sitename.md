@@ -1171,3 +1171,98 @@ whose premise had never been checked against a row dump.
 blocker in three separate places — §12.4 (re-pointing `symbol_chain`), §15.4
 (slice 3), §16 (§11.2's reach) — which is the strongest signal on the page that
 it is one piece of work paying three debts.
+
+---
+
+## 18. §537 — the fallback's first pick, and the instrument finding that reprices the rest of it
+
+Wall 2's slice 3 measured negative and is recorded (§15), so the session moved
+to the registered fallback: the single-transition population, rows printed
+first, a shared **fixture** shape preferred over a shared type shape.
+
+### 18.1 The pick
+
+Re-dumping `target/verdict_baseline.tsv` after §533 (the old dumps were three
+landings stale): **563 failing cases carry exactly one non-right line.**
+Clustering those by their exact (want, got) pair surfaced one shape that is not
+a type-computation question at all:
+
+```
+4 cases | want: {}  | got: { : any; }
+   conformance/templateStringInPropertyName1, 2, ES6_1, ES6_2
+```
+
+`{ : any; }` is a shape no compiler emits — a colon with no name in front of it.
+`var x = { `a`: 321 }` is a syntax error; the parser reports it and hands the
+property assignment a **missing identifier**, an `Identifier` whose `text` is
+empty, and `check_object_literal` put that in the members list.
+`templateStringInPropertyName1.types` records `>{ : {}`.
+
+One arm, ahead of the general `Identifier` arm and gated on the empty text
+rather than on a node kind — the recovery placeholder is the only way an
+identifier reaches there with no text, and gating on the kind would need one arm
+per token the parser might have swallowed. It is the same treatment the
+private-name arm beside it already had, for the same stated reason: **a member
+with no spellable name is not a member.**
+
+```
+WRONG->RIGHT: 9   (bigintPropertyName 3, templateStringInPropertyName* 4,
+                   templateStringInObjectLiteral{,ES6} 2)
+no adverse transition of any kind
+```
+
+The three `bigintPropertyName` lines were not predicted — a bigint property name
+reaches the same recovery placeholder — which is the good kind of surprise: the
+arm is keyed on the defect, not on the fixture.
+
+### 18.2 The instrument finding, which matters more than the nine lines
+
+**`checker_types` cases: 5,888 → 5,888. The four cases did not convert.** The
+filtered pair reads `TOTAL 12 right 12 gap 0 wrong 0` for them — every line
+scorepair scores is right — and coverage still fails them.
+
+The reason is in the two totals:
+
+| instrument | assertion lines |
+|---|---|
+| `scorepair` / `verdict_baseline.tsv` | **474,196** |
+| `coverage` | **478,855** |
+
+**Coverage judges 4,659 lines that the verdict baseline does not carry**, and a
+case passes only if *every* line of it matches. So a case that is "one line from
+passing" in the baseline may be several lines from passing in coverage.
+
+> **The 563 deficit-1 cases are 563 cases one SCOREPAIR line from passing, and
+> that is not the same claim as one case from the gate.** The dump ranks
+> candidates by line-conversion, not by case-conversion, and the first family
+> drawn from it converted 9 lines and 0 cases.
+
+This is §11.3's **fourth** instance and the first to catch an instrument rather
+than a ratio: ~400-cases-actually-79 (§9), near-miss-actually-shapes (§11),
+a-symbol-means-a-name-actually-object-literals (§15), and now
+deficit-1-actually-line-deficit-1. The rule generalises past ratios:
+**a count computed over one instrument's population is a hypothesis about
+another's.**
+
+### 18.3 What the next session should do with this
+
+Do not plan case-count work off the deficit-1 dump without first checking a
+candidate family against `coverage`. The cheap check is the one used here: run
+the filtered pair, see 12/12 right, then run `coverage` and see whether the case
+count moved. It costs one coverage run per family and it is the difference
+between a plan and a hypothesis.
+
+The two other families this dump surfaced, both with a shared fixture shape and
+both **unverified against coverage**, recorded so the rows do not have to be
+re-dumped:
+
+- **generator return types — 16 deficit-1 cases.** `function*` wants
+  `() => Generator<Y, R, N>` and the port answers `any` or `error`
+  (`castOfYield`, `generatorTypeCheck37/57/58/61`, `templateStringInYieldKeyword`,
+  `YieldExpression5_es6`, …). The largest coherent family on the board.
+- **tuple wanted, array got — 12 deficit-1 cases.** `[T, U]` against
+  `(T | U)[]`, `[number, number]` against `number[]`
+  (`typeParameterFixingWithContextSensitiveArguments2/3/4`, `callWithSpread`,
+  `functionParameterArityMismatch`). Several of these are contextual-typing
+  residue, which is priced and refused; the family needs splitting before it is
+  ranked.

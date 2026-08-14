@@ -1075,6 +1075,28 @@ impl Checker<'_, '_> {
                 }
             };
             let name = match name_node {
+                // §537: a **parser-recovery placeholder** contributes nothing,
+                // for the same reason the private-name arm above does — a
+                // member with no spellable name is not a member.
+                //
+                // `var x = { `a`: 321 }` is a syntax error: a template literal
+                // cannot be a property name. The parser reports it and, to keep
+                // going, hands the property assignment a **missing identifier**
+                // — an `Identifier` whose `text` is empty. Nothing in
+                // `checkObjectLiteral` puts such a thing in `propertiesTable`,
+                // and `templateStringInPropertyName1.types` records the literal
+                // as `>{ : {}`.
+                //
+                // Without this the port printed **`{ : any; }`** — a shape no
+                // compiler emits, with a colon and no name in front of it — in
+                // the four `templateStringInPropertyName*` cases, each of which
+                // is one line from passing.
+                //
+                // Gated on the empty text rather than on the node kind: the
+                // recovery placeholder is the only way an identifier reaches
+                // here with no text, and gating on the kind would need one arm
+                // per token the parser might have swallowed.
+                tsr_ast::PropertyName::Identifier(name) if name.text.is_empty() => continue,
                 tsr_ast::PropertyName::Identifier(name) => name.text.to_string(),
                 // A string-named property prints its name **unquoted** when it
                 // is a valid identifier and **re-quoted** otherwise, which is
