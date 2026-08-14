@@ -1099,6 +1099,40 @@ impl crate::checker::Checker<'_, '_> {
         {
             return None;
         }
+        // §513: constituents with IDENTICAL PRINTED TEXT are one type to
+        // every consumer of this port — print-at-creation is the data model
+        // (ADR-0003) — where upstream reaches the same collapse through
+        // interning. Two per-expression mints of `() => number` reduced this
+        // way is what `contextualTyping32`'s `(() => number)[]` needs; the
+        // pairwise walk below never decided an anonymous pair.
+        let constituents: Vec<crate::types::TypeId> = {
+            let mut seen: Vec<String> = Vec::with_capacity(constituents.len());
+            let mut distinct = Vec::with_capacity(constituents.len());
+            for &constituent in &constituents {
+                // A `unique symbol` is distinct BY CONSTRUCTION under one
+                // spelling — `indirectUniqueSymbolDeclarationEmit` (a passing
+                // case) records `unique symbol | unique symbol`; the
+                // full-stop rule measured this exclusion in.
+                if self
+                    .store
+                    .get(constituent)
+                    .flags
+                    .contains(crate::flags::TypeFlags::UNIQUE_ES_SYMBOL)
+                {
+                    distinct.push(constituent);
+                    continue;
+                }
+                let text = self.type_to_string(constituent);
+                if !seen.contains(&text) {
+                    seen.push(text);
+                    distinct.push(constituent);
+                }
+            }
+            distinct
+        };
+        if let [single] = constituents.as_slice() {
+            return Some(*single);
+        }
         // The first measurement fired the §9 bar's leg 2 at 46 and its named
         // falsifier was exact: `properties_related_to`'s own doc says
         // `readonly`, optionality and the other modifiers are "not compared

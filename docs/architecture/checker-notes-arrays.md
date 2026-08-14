@@ -934,3 +934,16 @@ decline inside `contextual_type_for_argument` (spread-bearing calls,
 optional/rest parameters); those legs stay priced.
 
 **§76.2 score — LANDED.** right 403,237 → **403,242 (84.21%)**.
+## §513 — identical-text constituents collapse in the subtype reducer (+5 cases, 5,850 → 5,855, 61.39%; +69 right / −52 gap / −17 wrong at 69:2; gradient 90.35%)
+
+Print-at-creation is the data model (ADR-0003), so two per-expression mints
+with one printed text are one type to every consumer — upstream reaches the
+same collapse through interning. `union_with_subtype_reduction` now dedups
+constituents by printed text before the pairwise walk (the walk never
+decided an anonymous pair, so `[function(){return 1}, function(){return 4}]`
+gapped where `(() => number)[]` was wanted — `contextualTyping32`, and
+subtypingWithCall/ConstructSignatures4 +20 each). ONE exclusion, measured in
+by the full-stop rule: a `unique symbol` is distinct BY CONSTRUCTION under
+one spelling (`indirectUniqueSymbolDeclarationEmit`, a passing case, records
+`unique symbol | unique symbol` — 2 R→W before the exclusion, zero after).
+The 2 G→W sit in already-failing `enumAssignmentCompat4`.
