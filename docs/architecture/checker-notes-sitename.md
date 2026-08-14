@@ -1266,3 +1266,34 @@ re-dumped:
   `functionParameterArityMismatch`). Several of these are contextual-typing
   residue, which is priced and refused; the family needs splitting before it is
   ranked.
+
+### 18.4 The generator family, PROBED AND REFUTED before it was built
+
+§18.3 ranked *generator return types* as the largest coherent family (16
+deficit-1 cases). One `probefile` run retires it:
+
+```ts
+function* g() { yield 1; }
+var h = g;
+```
+```
+>g : () => Generator<number, void, unknown>
+>h : () => Generator<number, void, unknown>
+```
+
+**The machinery works.** `signatures.rs` computes generator return types
+(§§ around `:1072-1219` carry the aggregate model), so the 16 cases do not share
+a missing mechanism — they share a printed WANT TEXT. Reading their names says
+what they actually share: `castOfYield`, `FunctionDeclaration10_es6`,
+`templateStringWithEmbeddedYieldKeyword`, `YieldExpression5_es6` — **generators
+inside syntactically erroneous code**, where each case's cause is its own
+recovery path.
+
+That is §11.3 one more time, and the cheapest catch of the session: **a cluster
+keyed on the printed want-text is not a mechanism.** One probe, thirty seconds,
+against a transcription that would have been days.
+
+The rule for the next session's first move, stated so it does not have to be
+rediscovered: *before building for a family from any dump, write the two-line
+fixture the family claims is broken and run `probefile` on it.* If it already
+prints correctly, the family is a text cluster and needs re-deriving by cause.
