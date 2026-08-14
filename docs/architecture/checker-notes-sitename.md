@@ -1790,11 +1790,16 @@ each is a *different* arm of it:
   the rule.
 - **`b`, `c` — a non-`Property` member beside a NUMBER key.** §551's
   `numeric_named` predicate answers `true` for every member variant that is not
-  `Member::Property`, which is conservative rather than correct: a method or an
-  accessor is not numerically named either, so upstream's filter drops it from
-  the value union exactly as it drops `x`. Relaxing the predicate to inspect
-  those variants' names is a small change and was NOT made here, because at the
-  time of writing it could not be verified end-to-end.
+  `Member::Property`, which reads as conservative-rather-than-correct: a method
+  or an accessor is not numerically named either, so upstream's filter should
+  drop it from the value union exactly as it drops `x`.
+  **TRIED, AND IT IS NOT THE BLOCKER.** The predicate was relaxed to read a
+  `Member::Signature`'s name off its printed prefix (`m(): void` → `m`, numeric
+  exactly when that prefix is all digits) and **both shapes still gap** — so the
+  decline for a method or accessor beside a computed key happens BEFORE this
+  point, on the SS307 method/accessor arm rather than in the index-info filter.
+  The change was reverted unlanded: it measured nothing and its premise was
+  wrong. Whoever takes this next should start at the method arm, not here.
 
 **Sized honestly: not sized.** No row dump has been taken for these three, so no
 case count is claimed. The shapes are recorded because the probe found them
