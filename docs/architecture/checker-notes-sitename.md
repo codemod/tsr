@@ -494,3 +494,89 @@ This is a bigger correction than §7.2 anticipated and it is the reason slices
 2 and 3 should not be attempted first: both call the same conflated
 predicate, and both would measure noise attributable to it rather than to
 themselves.
+
+---
+
+## 9. Slice 3 SIZED — and the number retires the "wall 2 carries the campaign" premise
+
+Measured at `fbe9a10a` by bucketing every non-RIGHT line in
+`target/verdict_baseline.tsv` on the STRING relationship between the wanted
+and printed type (`scratchpad/sizew2b.py`; the dump is the whole input, no
+checker API needed). This is the counterfactual `docs/conventions.md` asks
+for — *size the conversion, not the population* — and it was run BEFORE
+slice 3 was built, which is the only reason it could change the plan.
+
+### 9.1 The buckets
+
+| bucket | lines | share |
+|---|---:|---:|
+| **structural** — a different type shape entirely | 22,095 | 53.4% |
+| **type-differs** — same shape, but a KEYWORD differs (`string` vs `number`) | 9,280 | 22.4% |
+| gap (we print `error`) | 8,701 | 21.0% |
+| **RENAME** — same shape, only non-keyword identifiers differ | **817** | **2.0%** |
+| **QUALIFIER** — identical after stripping dotted prefixes | **474** | **1.1%** |
+| whole-line diff with equal type text | 8 | 0.0% |
+| | 41,375 | |
+
+**Cases whose ONLY damage is name-shaped: 79** (282 lines). Not 1,770, and
+not the ~400 the first, looser pass reported — that pass counted `string` vs
+`number` as a rename because they share a punctuation shape, which is the
+same over-count STATUS.md §2 warns the near-miss board carries.
+
+### 9.2 And most of the RENAME bucket is not slice 3's either
+
+The top pairs (wanted ← printed), from the same run:
+
+```
+ 221  T_1  <-  T        54  U_1 <- U       38  S_1 <- S      12  fn_1 <- fn
+  45  Infinity <- inf
+  40  TestA <- Test     22  Yes <- No      16  ConcreteA <- AbstractA
+  14  SharedArrayBuffer <- ArrayBuffer     11  Error1 <- Correct
+```
+
+Three different mechanisms, and **only the third is wall 2**:
+
+1. **~325 lines are SHADOWED TYPE-PARAMETER renaming.** The baseline path
+   passes `GenerateNamesForShadowedTypeParams`
+   (`type_symbol_baseline.go:395`), so upstream spells an inner `T` that
+   shadows an outer one as `T_1`. The port has §102's
+   `rename_type_parameters_for_site` and it is evidently partial. **This is a
+   separate, cheaper, larger mechanism than slice 3** and it is now the
+   best-priced naming item on the board.
+2. **`Infinity` ← `inf` (45 lines)** is a NUMBER-PRINTING bug, not naming.
+3. **`TestA` ← `Test`, `Yes` ← `No`, `AbstractA` ← `AbstractB`,
+   `SharedArrayBuffer` ← `ArrayBuffer`** — the port resolved to the **wrong
+   symbol**, not the right symbol under a wrong name. No renderer fixes
+   those.
+
+So slice 3's honest population is the 474 QUALIFIER lines plus whatever
+minority of the 817 is genuine aliasing — call it well under 1,000 lines and
+bounded above by 79 cases, of which several belong to (1).
+
+### 9.3 What this retires, and what it opens
+
+**Retired: the premise that wall 2 carries the campaign to 70%.** It does
+not. Three quarters of the remaining damage (53.4% structural + 22.4%
+type-differs = **75.8%**) is the checker computing a DIFFERENT TYPE, not
+printing a name wrong. That work is inference, flow, members and relations —
+not the node builder. Design W's "1,770 converts / 99 wrong" was measured on
+a compiler many sessions older and should not be quoted again without this
+re-take beside it.
+
+**Opened, and cheap:** the shadowed-type-parameter rename (§9.2 item 1),
+~325 lines, one upstream flag whose rule is local to a signature's own scope
+and needs none of the accessibility machinery this page specifies.
+
+**Still worth building, at its true size:** slices 1–4 remain correct and
+remain blocked on §8's predicate split. They are worth ~79 cases, which is a
+good session, not a campaign.
+
+### 9.4 The falsifier for this sizing
+
+The buckets are STRING tests, so a line whose want and got differ
+structurally *because* a name resolved wrongly upstream of the printer counts
+as structural here and would convert if the name were fixed. That biases the
+name buckets DOWN. The check: take the 22,095 structural lines and re-bucket
+them by whether their two type texts share a symbol-derived skeleton. Not
+run. Until it is, treat 79 cases as a floor for wall 2 and 75.8% as a ceiling
+for "not wall 2".
