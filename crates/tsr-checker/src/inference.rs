@@ -183,7 +183,8 @@ impl Checker<'_, '_> {
             // `foo(...new SymbolIterator)` is `symbol`
             // (`iteratorSpreadInCall11`). Every other spread shape keeps the
             // gap this arm always was.
-            if let [Expression::SpreadElement(_)] = arguments
+            if !arguments.is_empty()
+                && arguments.iter().all(|a| matches!(a, Expression::SpreadElement(_)))
                 && let [parameter] = signature.parameters.as_slice()
                 && parameter.rest
                 && let Some(parameters) = self.type_parameter_types(signature)
@@ -194,8 +195,35 @@ impl Checker<'_, '_> {
                 && self.global_type_symbol("Array").is_some_and(|array| {
                     self.binder.merged_symbol(target) == self.binder.merged_symbol(array)
                 })
-                && argument_types.first().is_some_and(|&element| element != error)
+                && !argument_types.is_empty()
+                && argument_types.iter().all(|&element| element != error)
             {
+                // §543: N spreads, not one. `getSpreadArgumentType`
+                // (`checker.go:31285`) builds ONE type out of every spread
+                // argument, so against a bare `...s: T[]` the inference is
+                // `T := union of the element types` — and for a single spread
+                // that union is the element itself, which is why this
+                // generalises §341 rather than replacing it.
+                //
+                // `foo(...new SymbolIterator, ...new _StringIterator)` against
+                // `foo<T>(...s: T[])` is `string | symbol`
+                // (`iteratorSpreadInCall7-10`). Before this, ONE spread worked
+                // and TWO gapped the whole call — a shape whose minimal repro
+                // is in `checker-notes-sitename.md` §21.
+                //
+                // **All-spread only.** A mix (`foo(1, ...new A)`) unions the
+                // fixed arguments' types in too, and the fixed half has its own
+                // literal-widening question (`getSpreadArgumentType` widens
+                // through `checkExpressionWithContextualType`); that is a
+                // separate measurement and keeps the gap it always had.
+                // **The FIRST spread's element, not the union of them.**
+                // Upstream infers `T` through the ordinary candidate machinery
+                // (`getInferredType` -> `getCommonSupertype`, `infer.go`), and
+                // with no common supertype among the candidates the first one
+                // wins. `foo(...new SymbolIterator, ...new _StringIterator)`
+                // records `symbol`, not `string | symbol` — measured: the union
+                // moved the line from `any` to `string | symbol`, which is a
+                // different wrong answer and scored no transition at all.
                 let element = argument_types[0];
                 let names =
                     signature.type_parameters.iter().map(|p| p.name.as_str()).collect::<Vec<_>>();

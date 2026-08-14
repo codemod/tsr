@@ -1495,3 +1495,38 @@ want-text cluster (§18.4) when it is a real, narrow, reproducible defect.
 
 Expected population: the 4 deficit-1 cases plus whatever else combines spreads,
 which the row dump does not bound from above. Unbuilt; no measurement claimed.
+
+### 21.1 §543 BUILT — and the union was the wrong generalisation
+
+§21's repro built. `getSpreadArgumentType` (`checker.go:31285`) builds one type
+out of every spread argument, so §341's single-spread arm generalises to N
+spreads against a bare `...s: T[]`. Two drafts:
+
+**Draft 1 — `T := union of the element types`.** The repro reads
+`string | symbol`, which is what the shape suggests. Corpus: **`no transitions
+vs baseline`** — and that zero was *not* §515's revert case. Dumping the row
+showed the arm firing and the line moving from `any` to `string | symbol`
+against a baseline that wants **`symbol`**: a different wrong answer, which
+scores no transition because WRONG→WRONG is not one.
+
+**Draft 2 — `T := the FIRST spread's element.**` Upstream infers through the
+ordinary candidate machinery (`getInferredType` → `getCommonSupertype`), and
+with no common supertype among the candidates the first one wins. `symbol` and
+`string` have none, so upstream records `symbol`.
+
+```
+WRONG->RIGHT: 3   iteratorSpreadInCall7, 8, 9
+no adverse transition of any kind
+checker_types 5,894 -> 5,897 (+3 cases), gradient 90.43%
+```
+
+**All-spread only.** A mix (`foo(1, ...new A)`) unions the fixed arguments in
+too, and the fixed half carries its own literal-widening question
+(`getSpreadArgumentType` widens through `checkExpressionWithContextualType`).
+Separate measurement; it keeps the gap it always had.
+
+> **Two zeros in one session, neither of them §515's.** §541's arm never fired
+> because a global lookup asked the wrong arity; §543's fired and produced a
+> different wrong answer. `no transitions vs baseline` means *nothing scored
+> moved* — it does not tell you whether the code ran. **Dump a row from the
+> target family before concluding that a zero is a refusal.**
