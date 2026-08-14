@@ -1122,3 +1122,52 @@ What it did NOT catch is worth stating too: §529, §531 and §533 were all size
 by dumping rows first, and all three landed at or above their registered bars.
 The rule is not "distrust measurement", it is "distrust a ratio whose rows you
 have not seen".
+
+---
+
+## 16. §11.2's reach, resolved: blocked by §535, and not independently
+
+§5's build order ends with *the shadowed-name rename's reach* (§11.2) —
+`GenerateNamesForShadowedTypeParams`, `T_1` ← `T` and `fn_1` ← `fn`, ~325 lines
+corpus-wide. §11.2 recorded that `rename_type_parameters_for_site` fires at
+exactly two sites and that slice 3 is what would make it reachable.
+
+Both sites confirmed, unchanged: `checker.rs`'s multi-signature composite arm
+and `signature_to_string_at` (`signatures.rs:3523`). Both are **signature**
+roads. The single-signature composite arm reaches the rename too, because it
+renders through `signature_to_string_at` — so the whole signature surface is
+already covered, and the unreached population is exactly *what is printed
+through baked text*.
+
+That is slice 3's population, and slice 3 is refused (§15). **§11.2 therefore
+carries §15.4's reopening condition verbatim and has no independent path**: it
+is not a separate item on the board, and a future session should not rank it as
+one. It converts when a site-aware render can produce a name at least as
+complete as the baked text — which is `getAccessibleSymbolChain`, again.
+
+---
+
+## 17. Wall 2, closed out
+
+| step | §5 name | result |
+|---|---|---|
+| 1 | split the conflated predicate | **§529** — landed, `no transitions vs baseline`, which was its success criterion |
+| 2 | slice 1, the globals arm | **§531** — landed, +16 cases, 35 W→R, **zero adverse** |
+| 3 | slice 2, shortest-chain selection | **§533** — landed, +3 cases, 120 W→R + 7 G→R against 2 G→W, zero R→W |
+| 4 | slice 3, the name render becomes authoritative | **§535 — REFUSED**, §1.2's premise refuted at 43,423 rows, reopening condition recorded |
+| — | §11.2, the rename's reach | **blocked by §535**, not independent (§16) |
+
+`checker_types` 5,869 → **5,888** (61.53% → 61.73%), gradient 90.39% → 90.42%.
+
+**The wall's own sizing said 79 cases and the built half delivered 19.** The
+missing 60 are slice 3's, and they are not missing because the work was hard —
+they are missing because the mechanism §5 specified would have made those lines
+*worse*. That is the wall's real result: three of its four steps were
+transcriptions that landed at or above their bars, and the fourth was a design
+whose premise had never been checked against a row dump.
+
+**The single highest-value unbuilt item on this page is now
+`getAccessibleSymbolChain` (`symbolaccessibility.go:373`).** It is named as the
+blocker in three separate places — §12.4 (re-pointing `symbol_chain`), §15.4
+(slice 3), §16 (§11.2's reach) — which is the strongest signal on the page that
+it is one piece of work paying three debts.
