@@ -2389,3 +2389,17 @@ admission (`UnionTypeNode` beside the existing literal and array shapes);
 unions, so nothing else can change spelling by construction. +80 lines over
 narrowCommaOperatorNestedWithinLHS 15, controlFlowDeleteOperator 14,
 localesObjectArgument 6, the functionOverloads43–45 trio, and a long tail.
+
+## §519 — REFUSED at 356 R→W: the written-union carriage does NOT extend to declaration lines
+
+§517's slot (type-literal members) measured +80/0; the same carriage at
+DECLARATION lines (variable/property/parameter names, through
+`type_to_string_at`) measured **356 R→W** — the typeGuards families' wants
+are the CHECKER-CONSTRUCTED order (`number | boolean` for a written
+`boolean | number`), so upstream's node-reuse is per-position: the
+nodebuilder reuses written nodes at member slots and prints computed types
+at declaration names. This is the +323/−270 blanket the §137 record already
+reverted once, now measured from the other side. Reverted whole. Reopening
+condition: the nodebuilder's actual per-position reuse rule (wall 2's spec
+work) — 4 W→R in `unionTypeCallSignatures6` are the counter-population that
+proves some declaration positions DO reuse.
