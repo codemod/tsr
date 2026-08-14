@@ -915,6 +915,52 @@ impl Checker<'_, '_> {
             if matches!(self.store.get(source).data, TypeData::Union { .. }) {
                 return;
             }
+            // §465: a `Promise<X>` source against a `PromiseLike<T>`
+            // constituent (or the reverse) infers argument-wise — upstream
+            // reaches the match structurally through the `then` member, and
+            // its REGULAR priority beats the naked constituent's candidate
+            // (`InferencePriorityNakedTypeVariable`, inference.go), so the
+            // naked `TResult1` is NOT consulted: `p.then(() =>
+            // Promise.resolve(1))` infers `TResult1 := number`, not
+            // `Promise<number>`. Gated to the global Promise/PromiseLike
+            // pair, whose argument slots correspond by construction.
+            if let Some((source_symbol, source_args)) =
+                self.type_reference_targets.get(&source).cloned()
+                && source_args.len() == 1
+            {
+                let source_symbol = self.binder.merged_symbol(source_symbol);
+                let promise_like_pair = ["Promise", "PromiseLike"].iter().any(|name| {
+                    self.global_type_symbol(name)
+                        .is_some_and(|s| self.binder.merged_symbol(s) == source_symbol)
+                });
+                if promise_like_pair {
+                    for constituent in &constituents {
+                        let Some((constituent_symbol, constituent_args)) =
+                            self.type_reference_targets.get(constituent).cloned()
+                        else {
+                            continue;
+                        };
+                        if constituent_args.len() != 1 {
+                            continue;
+                        }
+                        let constituent_symbol = self.binder.merged_symbol(constituent_symbol);
+                        let matches = ["Promise", "PromiseLike"].iter().any(|name| {
+                            self.global_type_symbol(name)
+                                .is_some_and(|s| self.binder.merged_symbol(s) == constituent_symbol)
+                        });
+                        if matches {
+                            self.infer_from_types(
+                                source_args[0],
+                                constituent_args[0],
+                                parameters,
+                                out,
+                                depth + 1,
+                            );
+                            return;
+                        }
+                    }
+                }
+            }
             if let Some((source_symbol, _)) = self.type_reference_targets.get(&source).cloned()
                 && constituents.iter().any(|c| {
                     self.type_reference_targets.get(c).is_some_and(|(s, _)| *s != source_symbol)
