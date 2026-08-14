@@ -350,3 +350,72 @@ one `probefile` run.
 - **Falsifier named in advance**: if the arm fires on more than a handful of
   sites, the globals-reachability gate is not doing its job and the build is
   SS197 again under a new name.
+
+---
+
+## 7. Slice 1, measured: the arm is REFUSED, and its bar caught a real bug on the way
+
+### 7.1 The refusal
+
+The globals-table fallback was built exactly as §4.5 transcribes it — at
+`symbol_chain`'s no-parent exit, gated on the target being reachable through
+`binder.globals()`. It produces the wanted spelling on the head fixture
+(`namespace m { export var m = "" }` + `import x = m.m` prints
+`typeof globalThis.m`, matching `importAndVariableDeclarationConflict1`).
+
+**Corpus measurement: 38 W→R against 25 R→W, and two of the damaged cases
+were PASSING** (`collisionCodeGenEnumWithEnumMemberConflict`,
+`strictModeReservedWord2`). Slice 1's registered bar refuses on either
+condition — an R→W in a passing case, or the arm firing beyond a handful of
+sites. Both fired. **Reverted.**
+
+The wins are real and stay on the board: `nameCollision` 5,
+`collisionCodeGenModuleWithModuleReopening` 4,
+`declarationEmitTypeParameterNameInOuterScope` 4.
+
+### 7.2 What the refusal cost, and the reopening condition
+
+The damage is NOT in the globals gate. It is one level up, in
+`needs_qualification`'s inputs, and the arm merely made it observable — the
+same shape as §162's constructor arm, where a predicate that had never been
+exercised turned out to be wrong the moment something reached it.
+
+Worked case: `enum Color { Color, Thing = Color }` — upstream prints `Color`,
+the arm printed `globalThis.Color`. Upstream's `needsQualification`
+(`symbolaccessibility.go:716-719`) qualifies only when the shadowing symbol
+carries the meaning being printed, and `symbolToTypeNode`
+(`nodebuilderimpl.go:649`) passes ONE meaning. The enum MEMBER shadows in
+`Value`; the reference is a `Type`; upstream does not qualify. §7.3 fixes
+exactly that and the enum case still flipped under the arm — so a THIRD
+input is wrong, and naming it is the reopening condition:
+
+> **Reopen slice 1 when `needs_qualification` is verified against
+> `symbolaccessibility.go:688-726` line by line** — specifically its scope
+> walk (which tables, in which order, with which skip conditions at
+> `:692-695` and `:708-715`), rather than the port's single `resolve_name`
+> call. The port asks the BINDER for a name's resolution; upstream walks the
+> same tables the chain walk walks and applies `getSymbolFlags` to the
+> resolved alias. Those differ wherever `resolve_name`'s meaning handling and
+> upstream's `flags & meaning` test disagree — enum members are one such
+> place and there are certainly others.
+
+Do not rebuild the globals arm before that verification. It is three lines of
+code sitting on a predicate that has now been measured wrong twice.
+
+### 7.3 What DID land from slice 1: the meaning is one flag, not two (+2 cases, +3 W→R, 0 adverse)
+
+`qualified_name_at` passed `TYPE | VALUE` to `symbol_chain` at every site.
+Upstream passes `mask` — `Value` for a `typeof` position, `Type` otherwise —
+and `needsQualification` tests `flags & meaning`. The union let a Value-only
+shadow qualify a Type reference.
+
+Derived from the baked text (`typeof …` ⇒ `VALUE`, else `TYPE`), which is
+upstream's own discriminator read off the only signal available before the
+name render lands. Measured ALONE, after the globals arm was reverted:
+**+3 W→R, zero adverse** — `interMixingModulesInterfaces3/5` (completing
+§509's quartet) and `typeNamedUndefined2`. Two cases.
+
+**This is the session's evidence that the spec was worth writing before the
+code**: the bug is nine months old, sits on the hottest naming road in the
+checker, and was invisible until the transcription named what the argument
+was supposed to be.

@@ -1806,9 +1806,15 @@ impl<'a, 'n> Checker<'a, 'n> {
                 return Some(printed);
             }
         }
-        let Some(qualifier) =
-            self.symbol_chain(symbol, reference, SymbolFlags::TYPE | SymbolFlags::VALUE, 0)
-        else {
+        // §527 (ADR-0044): the MEANING is upstream's `mask` — ONE meaning,
+        // not the union. `symbolToTypeNode` (`nodebuilderimpl.go:649`) sets
+        // `isTypeOf := mask == SymbolFlagsValue`, and `needsQualification`
+        // (`symbolaccessibility.go:716-719`) qualifies only when the
+        // shadowing symbol carries THAT meaning. `TYPE | VALUE` let a
+        // Value-only shadow qualify a Type reference.
+        let meaning =
+            if printed.starts_with("typeof ") { SymbolFlags::VALUE } else { SymbolFlags::TYPE };
+        let Some(qualifier) = self.symbol_chain(symbol, reference, meaning, 0) else {
             return Some(printed);
         };
         let mut out = String::with_capacity(printed.len() + qualifier.len());
