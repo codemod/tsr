@@ -973,3 +973,17 @@ the merge: a cross-file `function D` + `enum D` is a DUPLICATE IDENTIFIER
 upstream never merges — `duplicateIdentifierEnum` (a passing case) wants
 `() => number` on the function's line, and the unfiltered read printed
 `typeof D` there; the full-stop rule measured the filter in.
+
+## §521 — the FILE-module half of the import(...) fallback (+4 cases, 5,858 → 5,862, 61.46%; +50 right / −44 gap at 4.9:1)
+
+§143's tail printed `typeof import("name")` for single-declaration AMBIENT
+modules and left file modules "waiting for the relative-specifier half".
+The half: a module whose one declaration is a SOURCE FILE at the mount root
+(`/foo`, no nested directory) prints `typeof import("./foo")` — the port's
+module-symbol name is the resolved path minus extension, so the dot prefix
+is the whole relative computation for the corpus's flat mounts; nested
+paths decline until a case wants them. Wins: the importCallExpression*
+families. The 11 adverse sit in four already-failing cases — three want the
+WRITTEN specifier's spelling kept (`import("./a.ts")` under
+allowImportingTsExtensions, `dynamicImportsDeclaration`'s quoted forms),
+the written-specifier carriage this fallback cannot know.

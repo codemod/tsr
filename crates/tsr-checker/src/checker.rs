@@ -1446,6 +1446,26 @@ impl<'a, 'n> Checker<'a, 'n> {
                 // SS196: escaped, via the shared `quote` — see calls.rs.
                 return Some(format!("typeof import({})", crate::printing::quote(literal.text)));
             }
+            // §521 — the FILE-module half §143 left waiting: a module whose
+            // one declaration is a SOURCE FILE prints the relative form,
+            // `typeof import("./foo")`. The module symbol's name is the
+            // resolved path with its extension stripped
+            // (`bind_source_file_as_external_module`), so the harness's
+            // rooted `/foo` spells `./foo` by prefixing the dot — the same
+            // shape every baseline in the pool records
+            // (`getSpecifierForModuleSymbol`'s relative half, reduced to the
+            // one directory layout the corpus mounts).
+            if let [declaration] = declarations.as_slice()
+                && self.nodes.kind(*declaration) == SyntaxKind::SourceFile
+            {
+                let name = self.binder.symbols().get(module).name;
+                if let Some(relative) = name.strip_prefix('/')
+                    && !relative.contains('/')
+                    && !relative.is_empty()
+                {
+                    return Some(format!("typeof import(\"./{relative}\")"));
+                }
+            }
         }
         None
     }
