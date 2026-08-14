@@ -878,3 +878,24 @@ default-import alias does not *resolve* through a re-export/default chain
 (`resolve_alias` depth, `bd tsr-wwum`'s family), admission was never the
 blocker; `importElisionEnum` 3 of 5 — same; esm interop 6 — string-named
 export= (`"module.exports"`), unmodelled.
+
+## §489 — contextualTypeHasPattern's BINDING half (+5 cases, 5,799 → 5,804; +18 W→R, 0 adverse)
+
+(Filed here for lane continuity; the mechanism is `objects.rs`.) §365 built
+the assignment-pattern half of `checker.go:13248-13253`; this is the other
+conjunct: a literal contextually typed by the IMPLIED TYPE of an object
+binding pattern copies each implied property's optionality
+(`impliedProp.Flags & Optional`), and the implied type is optional exactly
+where the element writes a default (`getTypeFromObjectBindingPattern`,
+`checker.go:17938`). `let {x1 = 10} = { x1: 1 }` prints `{ x1?: number; }`.
+The pattern is found syntactically (`contextual_binding_pattern`): the
+un-annotated variable declaration whose initializer the literal is, or the
+matching element of an enclosing literal's pattern (nested patterns
+recurse). Guards, each measured: an ANNOTATED declaration declines (the
+first pair measured 20 R→W in destructuringVariableDeclaration1ES5/ES6/2 —
+`{g: {g1 = …}}: { g: { g1: any[] } }` wants NO `?`, because the annotation
+IS the contextual type; the guard removed all 20); a pattern with a computed
+element name is `ObjectLiteralPatternWithComputedProperties` and declines
+whole. Wins: noImplicitAnyDestructuringVarDeclaration2,
+shadowingViaLocalValueOrBindingElement, the
+sourceMapValidationDestructuring* family, literalTypesAndTypeAssertions.

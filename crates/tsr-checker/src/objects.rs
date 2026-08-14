@@ -482,7 +482,57 @@ impl Checker<'_, '_> {
         }
         false
     }
+}
 
+impl<'a> Checker<'a, '_> {
+    /// §489: the OBJECT BINDING PATTERN whose implied type is this literal's
+    /// contextual type, found syntactically — either the literal is the
+    /// initializer of a variable declaration whose name is such a pattern
+    /// (`getContextualTypeForInitializerExpression` serving
+    /// `getTypeFromBindingPattern`'s implied type), or it is a property value
+    /// inside a literal that has one, through the matching element whose own
+    /// name is a nested pattern. Everything else is `None` and the members
+    /// print exactly as before.
+    fn contextual_binding_pattern(
+        &self,
+        literal: tsr_ast::NodeId,
+    ) -> Option<&'a tsr_ast::BindingPattern<'a>> {
+        let parent = self.nodes.parent(literal)?;
+        match self.node_map.get(parent)? {
+            tsr_ast::Node::VariableDeclaration(declaration) => {
+                if declaration.initializer.and_then(|i| i.node_id()) != Some(literal) {
+                    return None;
+                }
+                // An ANNOTATED declaration's contextual type is the annotation
+                // (`getContextualTypeForVariableLikeDeclaration` consults the
+                // type node first); the implied-pattern road only exists
+                // without one — `destructuringVariableDeclaration1ES5`'s
+                // `{g: {g1 = …}}: { g: { g1: any[] } }` wants NO `?`.
+                if declaration.r#type.is_some() {
+                    return None;
+                }
+                let Some(tsr_ast::BindingName::BindingPattern(pattern)) = declaration.name else {
+                    return None;
+                };
+                (self.nodes.kind(pattern.node_id?) == tsr_ast::SyntaxKind::ObjectBindingPattern)
+                    .then_some(pattern)
+            }
+            tsr_ast::Node::PropertyAssignment(assignment) => {
+                let object = self.nodes.parent(parent)?;
+                let outer = self.contextual_binding_pattern(object)?;
+                let element = matching_pattern_element(outer, &assignment.name)?;
+                let Some(tsr_ast::BindingName::BindingPattern(inner)) = element.name else {
+                    return None;
+                };
+                (self.nodes.kind(inner.node_id?) == tsr_ast::SyntaxKind::ObjectBindingPattern)
+                    .then_some(inner)
+            }
+            _ => None,
+        }
+    }
+}
+
+impl Checker<'_, '_> {
     pub(crate) fn check_object_literal(&mut self, node: &ObjectLiteralExpression<'_>) -> TypeId {
         let error = self.intrinsics.error;
         // §105 slice 2a (`checker-notes-narrow.md`): a literal in a const
@@ -498,6 +548,18 @@ impl Checker<'_, '_> {
         // `({name: nameA = "noName"} = robot)` prints `{ name?: string; }`.
         let in_destructuring_pattern =
             node.node_id.is_some_and(|id| self.is_assignment_pattern_target(id));
+        // §489: `contextualTypeHasPattern`'s BINDING half (`checker.go:13253`,
+        // §365 built the assignment half above): a literal contextually typed
+        // by the IMPLIED TYPE of an object binding pattern copies each implied
+        // property's optionality, and the implied type is optional exactly
+        // where the element writes a default
+        // (`getTypeFromObjectBindingPattern`, `checker.go:17938`).
+        // `let {x1 = 10} = { x1: 1 }` prints `{ x1?: number; }`. The pattern
+        // is found syntactically — the declaration whose initializer this
+        // literal is, or a matching element of an enclosing literal's pattern
+        // — which is exactly where `getContextualType`'s variable-declaration
+        // arm would have served the implied type.
+        let contextual_pattern = node.node_id.and_then(|id| self.contextual_binding_pattern(id));
         let mut members = Vec::with_capacity(node.properties.len());
         // §206: the index-signature half §201 left as a gap. A computed name
         // whose type IS string-, number- or symbol-like contributes an INDEX
@@ -530,6 +592,11 @@ impl Checker<'_, '_> {
                         && matches!(initializer, tsr_ast::Expression::BinaryExpression(binary)
                             if binary.operator_token.is_some_and(|t| t.kind == tsr_ast::SyntaxKind::EqualsToken))
                     {
+                        member_optional = true;
+                    } else if let Some(pattern) = contextual_pattern
+                        && implied_pattern_member_is_optional(pattern, &assignment.name)
+                    {
+                        // §489 — the `impliedProp.Flags & Optional` copy.
                         member_optional = true;
                     }
                     (assignment.name, PropertyValue::Initializer(initializer))
@@ -568,6 +635,12 @@ impl Checker<'_, '_> {
                         if !in_destructuring_pattern {
                             return error;
                         }
+                        member_optional = true;
+                    } else if let Some(pattern) = contextual_pattern
+                        && implied_pattern_member_is_optional(pattern, &shorthand.name)
+                    {
+                        // §489 — the shorthand member reads the same implied
+                        // optionality (`{x}` against `let {x = 1} = …`).
                         member_optional = true;
                     }
                     let tsr_ast::PropertyName::Identifier(identifier) = shorthand.name else {
@@ -1426,4 +1499,59 @@ fn is_identifier_text(text: &str) -> bool {
     let Some(first) = chars.next() else { return false };
     (first.is_ascii_alphabetic() || first == '_' || first == '$')
         && chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
+}
+
+/// §489: the pattern element a literal member's name matches — the syntactic
+/// half of upstream's `getPropertyOfType(contextualType, member.Name)` over an
+/// implied binding-pattern type. A pattern carrying a COMPUTED element name is
+/// upstream's `ObjectLiteralPatternWithComputedProperties`, which disables the
+/// optionality copy whole (`checker.go:13253`'s second conjunct), so it
+/// answers `None` for every member.
+fn matching_pattern_element<'a>(
+    pattern: &'a tsr_ast::BindingPattern<'a>,
+    name: &tsr_ast::PropertyName<'_>,
+) -> Option<&'a tsr_ast::BindingElement<'a>> {
+    let member_name = property_name_text(name)?;
+    if pattern.elements.iter().any(|element| {
+        matches!(element.property_name, Some(tsr_ast::PropertyName::ComputedPropertyName(_)))
+    }) {
+        return None;
+    }
+    pattern.elements.iter().copied().find(|element| {
+        element.dot_dot_dot_token.is_none()
+            && element_name_text(element).is_some_and(|text| text == member_name)
+    })
+}
+
+/// §489: whether the implied property a member matches is OPTIONAL — which
+/// `getTypeFromObjectBindingPattern` (`checker.go:17938`) answers exactly
+/// where the element writes a default.
+fn implied_pattern_member_is_optional(
+    pattern: &tsr_ast::BindingPattern<'_>,
+    name: &tsr_ast::PropertyName<'_>,
+) -> bool {
+    matching_pattern_element(pattern, name).is_some_and(|element| element.initializer.is_some())
+}
+
+/// The literal text a property name binds under, for the §489 match. Computed
+/// and template names answer `None` — the callers decline there.
+fn property_name_text<'a>(name: &tsr_ast::PropertyName<'a>) -> Option<&'a str> {
+    match name {
+        tsr_ast::PropertyName::Identifier(identifier) => Some(identifier.text),
+        tsr_ast::PropertyName::StringLiteral(literal) => Some(literal.text),
+        tsr_ast::PropertyName::NumericLiteral(literal) => Some(literal.text),
+        _ => None,
+    }
+}
+
+/// The name a binding element matches members under: its written property
+/// name, else its own binding identifier (`{x = 1}` binds and matches `x`).
+fn element_name_text<'a>(element: &tsr_ast::BindingElement<'a>) -> Option<&'a str> {
+    if let Some(property_name) = &element.property_name {
+        return property_name_text(property_name);
+    }
+    match element.name {
+        Some(tsr_ast::BindingName::Identifier(identifier)) => Some(identifier.text),
+        _ => None,
+    }
 }
