@@ -2435,9 +2435,6 @@ impl<'a> Checker<'a, '_> {
     fn render_binding_pattern(&self, pattern: &tsr_ast::BindingPattern<'_>) -> Option<String> {
         let mut names = Vec::with_capacity(pattern.elements.len());
         for element in pattern.elements {
-            if element.dot_dot_dot_token.is_some() {
-                return None;
-            }
             let bound = match element.name {
                 Some(tsr_ast::BindingName::Identifier(inner)) => inner.text.to_string(),
                 Some(tsr_ast::BindingName::BindingPattern(inner)) => {
@@ -2445,6 +2442,18 @@ impl<'a> Checker<'a, '_> {
                 }
                 None => return None,
             };
+            // §525: a REST element spells `...name` — upstream's
+            // `parameterToParameterDeclarationName` keeps the token
+            // (`fun : ([a, ...b]?: FooIterator) => void`,
+            // `iterableArrayPattern12/14`). A rest with a property name is
+            // not grammar.
+            if element.dot_dot_dot_token.is_some() {
+                if element.property_name.is_some() {
+                    return None;
+                }
+                names.push(format!("...{bound}"));
+                continue;
+            }
             match element.property_name {
                 None => names.push(bound),
                 Some(tsr_ast::PropertyName::Identifier(prop)) => {

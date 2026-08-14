@@ -288,3 +288,13 @@ the widened literal is `Named`, not `Anonymous`, which the first draft
 missed and measured zero), and no `__computed` key in members/exports (an
 aliased `[Symbol.iterator]` spelling declines). Wins:
 `iterableArrayPattern21` (case), `declarationsAndAssignments` +2 lines.
+
+## §525 — a rest element spells `...name` in pattern parameters (+1 case, 5,866 → 5,867, 61.51%; +36 right / −9 wrong at 4:1)
+
+`render_binding_pattern` declined any pattern carrying a rest element; the
+spelling is just the token kept (`fun : ([a, ...b]?: FooIterator) => void`,
+`iterableArrayPattern12/14`, `objectRestParameter` +9,
+`destructuringParameterDeclaration3ES5/6` +6 each). A rest with a property
+name is not grammar and stays the decline. The 9 adverse sit in four
+already-failing cases — mostly rest-TUPLE spellings the tuple printer gets
+wrong (`[Bar, ...string]` for `[Bar, ...string[]]`), now more visible.
