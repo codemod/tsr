@@ -2333,3 +2333,20 @@ type prints the target declaration's own name and upstream prints the LOCAL
 one. Wins: exportDefaultInterface 7. The 4 G→W sit in two already-failing
 cases (baseline non-right 5 and 6). Case count unmoved; the remaining
 cross-file type-position residue is renamed/mismatched names — wall 2.
+
+## §499 — §491's TYPE_ALIAS gate refined to a cycle test (+2 cases, 5,820 → 5,822, 61.04%; +53 right / −50 gap / −3 wrong at 53:22, 0 R→W)
+
+The blanket TYPE_ALIAS-target decline becomes
+`resolutions.on_stack(target, DeclaredType)`: a target whose own declared
+type is computing above this frame is the cross-file cycle, and `error`
+there is the pre-§491 answer (prints `any` through the same propagation —
+`circular2`'s four pinned lines hold). Acyclic alias targets resolve:
+`exportNamespace9`'s `export type A = number` through a type-only star,
+`importClause_namedImports`, the jsxNamespace reexport family's alias rows.
+An in-flight park keyed on the target was built FIRST and measured
+insufficient (the cycle re-enters through the target's own DeclaredType
+stack, one frame below the park — circular2's 4 R→W returned); the on_stack
+test is the precise instrument. The 22 G→W sit in eight already-failing
+cases (baseline non-right 3–25), the declarationEmit/jsxNamespace naming
+families — wall 2's population, where a resolved type now prints a name the
+per-site renderer cannot yet spell.

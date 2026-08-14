@@ -732,15 +732,24 @@ impl<'a> Checker<'a, '_> {
                 {
                     return error;
                 }
-                // TYPE_ALIAS targets decline: a cross-file alias CYCLE
-                // (`circular2`'s `type A = B` / `type B = A` through
-                // `import type`) re-enters `get_declared_type_of_type_alias`,
-                // whose §29 placeholder prints the alias's own NAME where
-                // upstream's circularity error prints `any` — measured as the
-                // arm's only R→W (4 lines, a passing case) before this gate.
-                if self.binder.symbols().get(merged).flags.intersects(SymbolFlags::TYPE)
-                    && !self.binder.symbols().get(merged).flags.contains(SymbolFlags::TYPE_ALIAS)
-                {
+                // §499 refines §491's TYPE_ALIAS gate from a blanket decline
+                // to an in-flight park: a cross-file alias CYCLE (`circular2`)
+                // re-enters this road for a target already resolving, and the
+                // park answers `error` — the pre-§491 answer, which prints
+                // `any` through the same propagation it always did — instead
+                // of reaching `get_declared_type_of_type_alias`'s §29
+                // placeholder, whose NAME was the arm's only measured R→W.
+                // Acyclic alias targets (`exportNamespace9`'s
+                // `export type A = number` through a type-only star) resolve.
+                if self.binder.symbols().get(merged).flags.intersects(SymbolFlags::TYPE) {
+                    // The cycle test: a target whose OWN declared type is
+                    // already computing above this frame would answer the §29
+                    // name placeholder; `error` here is the pre-§491 answer,
+                    // which prints `any` through the same propagation it
+                    // always did (`circular2`'s four pinned lines).
+                    if self.resolutions.on_stack(merged, PropertyName::DeclaredType) {
+                        return error;
+                    }
                     let parameters = self.local_type_parameters_of(merged).len();
                     if parameters == 0 {
                         if !node.type_arguments.is_empty() {
