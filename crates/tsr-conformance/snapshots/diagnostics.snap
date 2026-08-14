@@ -99,7 +99,7 @@ compiler/arrayDestructuringInSwitch2
 compiler/arrayFakeFlatNoCrashInferenceDeclarations
   1 missing (first TS5088 at arrayFakeFlatNoCrashInferenceDeclarations.ts(13,10))
 compiler/arrayFrom
-  2 missing (first TS2322 at arrayFrom.ts(20,7))
+  1 missing (first TS2322 at arrayFrom.ts(20,7))
 compiler/arrayIndexWithArrayFails
   1 missing (first TS2538 at arrayIndexWithArrayFails.ts(3,16))
 compiler/arrayLiteralTypeInference

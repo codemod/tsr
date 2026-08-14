@@ -1253,6 +1253,25 @@ impl Checker<'_, '_> {
                 }
                 return Some(survivor);
             }
+            // §463: two or more arity survivors, EVERY one generic, their
+            // return types spelled identically — the `Promise.resolve` shape
+            // (`(): Promise<void>` arity-rejected; `<T>(value: T)` and
+            // `<T>(value: T | PromiseLike<T>)` both return
+            // `Promise<Awaited<T>>`). Upstream's pass walk tries them in
+            // order and the first success wins; with agreeing return
+            // spellings the pick cannot change the printed answer, which is
+            // the §44 skip-with-agreement recipe at the call road. The first
+            // survivor flows to the caller's `check_generic_call` exactly as
+            // a single generic does — inference decides or gaps there.
+            if survivors.len() >= 2
+                && survivors.iter().all(|survivor| !survivor.type_parameters.is_empty())
+            {
+                let prints: Vec<String> =
+                    survivors.iter().map(|survivor| self.type_to_string(survivor.r#type)).collect();
+                if prints.windows(2).all(|pair| pair[0] == pair[1]) {
+                    return Some(survivors[0].clone());
+                }
+            }
         }
         // §391: WRITTEN type arguments skip every candidate that cannot take
         // them (`hasCorrectTypeArgumentArity`), so a set with exactly ONE

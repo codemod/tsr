@@ -1097,6 +1097,25 @@ impl Checker<'_, '_> {
             if let Some(evaluated) = self.evaluate_conditional_alias(symbol, &substituted) {
                 return evaluated;
             }
+            // §463: the GLOBAL `Awaited<T>` alias at a CONCRETE argument IS
+            // the awaited type — upstream evaluates the alias's conditional
+            // body, whose spec purpose is agreeing with `getAwaitedType` on
+            // every non-generic input, and `createAwaitedTypeIfNeeded`
+            // (`checker.go:31410`) only mints the alias form for type
+            // variables in the first place. `awaited_type_no_alias`'s domain
+            // is exactly the concrete types: a type-variable argument
+            // declines there and the reference keeps its written name, which
+            // is also upstream's spelling for it. This is what turns
+            // `resolve<T>(value: T): Promise<Awaited<T>>` instantiated at
+            // `string` into `Promise<string>`.
+            if let [argument] = substituted.as_slice()
+                && self.global_type_symbol("Awaited").is_some_and(|awaited| {
+                    self.binder.merged_symbol(awaited) == self.binder.merged_symbol(symbol)
+                })
+                && let Some(awaited) = self.awaited_type_no_alias(*argument)
+            {
+                return awaited;
+            }
             // §136: a rebuild keeps the source reference's written display
             // arity — the spelling survives instantiation.
             let display = self.reference_display_arity.get(&id).copied();
