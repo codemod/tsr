@@ -1985,3 +1985,18 @@ Also in the landing commit, two pre-existing clippy `-D warnings` failures at
 HEAD (`expressions.rs:1594` collapsible-if, `tests/super_expressions.rs:138`
 doc-markdown) — the §481 session's gate ran through rtk's masked exit code;
 the memory note about that hazard is now twice-paid.
+
+## §485 — the freeze's collection half (+1 case, 5,798 → 5,799; +7 right / −7 wrong; 18:11, all adverse in already-failing cases)
+
+`inferFromTypes` refuses candidates into a FIXED inference set
+(`inference.go:183`); the port's add site did not, so a deferred pass-2
+argument kept feeding parameters the memo had already consumed — the exact
+trade §483's pair measured in the fixing families. One guard at
+`add_candidate`. The movement is CONCENTRATED in those families and moves
+both ways (`fixingTypeParametersRepeatedly2` +3/−1, `3` +2/−2,
+`typeParameterFixingWithContextSensitiveArguments2` +2): the freeze is now
+upstream's rule applied to this port's single-shot resolution order, and the
+residue is the resolution ORDER itself (upstream re-infers per candidate
+inside chooseOverload; this port infers once), which is the chooseOverload
+transcription's territory, not this guard's. All 11 R→W sit in cases already
+failing in the §483 baseline (non-right counts 2–67).

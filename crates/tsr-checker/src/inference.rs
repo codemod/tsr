@@ -2173,6 +2173,13 @@ pub(crate) fn add_candidate(
     candidate: TypeId,
 ) {
     if let Some(info) = infos.iter_mut().find(|i| i.type_parameter == type_parameter) {
+        // `inference.go:183`: a FIXED inference set refuses new candidates —
+        // the consumption rule's other half, and the whole content of the
+        // `typeParameterFixing*` families. §483's pair measured its absence
+        // directly (the fixing families were 8 of the 25 G→W).
+        if info.is_fixed {
+            return;
+        }
         // Upstream dedups at the add site (`slices.Contains`,
         // `inference.go:202`); the resolver's union/supertype stages assume
         // the same.
