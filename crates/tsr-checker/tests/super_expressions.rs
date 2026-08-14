@@ -135,7 +135,7 @@ fn a_super_property_access_through_an_arrow_still_answers() {
 }
 
 /// §481's second arm: `super` inside a COMPUTED PROPERTY NAME
-/// (`checker.go:7893`'s FindAncestor check) — `computedPropertyNames27_ES6`
+/// (`checker.go:7893`'s `FindAncestor` check) — `computedPropertyNames27_ES6`
 /// records `>super : any` in `[super.toString()]`.
 #[test]
 fn a_super_in_a_computed_property_name_is_the_deliberate_error_any() {

@@ -489,9 +489,7 @@ impl Checker<'_, '_> {
             }
             for bucket in buckets.drain(..) {
                 for info in bucket {
-                    for candidate in info.candidates {
-                        add_candidate(&mut infos, info.type_parameter, candidate);
-                    }
+                    merge_info(&mut infos, &info);
                 }
             }
             let mut partial: Vec<(TypeId, TypeId)> = flatten_infos(&infos);
@@ -619,9 +617,7 @@ impl Checker<'_, '_> {
         } else {
             for bucket in buckets.drain(..) {
                 for info in bucket {
-                    for candidate in info.candidates {
-                        add_candidate(&mut infos, info.type_parameter, candidate);
-                    }
+                    merge_info(&mut infos, &info);
                 }
             }
             for &index in &deferred {
@@ -651,70 +647,74 @@ impl Checker<'_, '_> {
             let has_other = candidates
                 .iter()
                 .any(|&(from, inferred)| from == type_parameter && inferred != never);
-            // Pipeline-lite (checker-notes-callres2.md): same-base-literal
-            // candidate sets RESOLVE - union, then the stage-2 widening
-            // decision (primitive constraint keeps literals, no constraint
-            // widens; the two registered falsifier fixtures sit one on each
-            // branch). Everything else keeps the per-pair disagreement
-            // decline below.
-            {
-                let list: Vec<TypeId> = candidates
-                    .iter()
-                    .filter(|&&(from, inferred)| {
-                        from == type_parameter && !(has_other && inferred == never)
-                    })
-                    .map(|&(_, inferred)| inferred)
-                    .collect();
-                if list.len() > 1 {
-                    let distinct: Vec<TypeId> = {
-                        let mut seen = Vec::new();
-                        for &t in &list {
-                            if !seen.contains(&t) {
-                                seen.push(t);
-                            }
-                        }
-                        seen
-                    };
-                    if distinct.len() > 1
-                        && let Some(resolved) =
-                            self.same_base_literal_supertype(&distinct, position, signature)
+            // This parameter's candidates in add order, never-struck (see
+            // above), deduped — `getCovariantInference`'s input.
+            let list: Vec<TypeId> = {
+                let mut seen = Vec::new();
+                for &(from, inferred) in &candidates {
+                    if from == type_parameter
+                        && !(has_other && inferred == never)
+                        && !seen.contains(&inferred)
                     {
-                        map.push((type_parameter, resolved));
-                        continue;
+                        seen.push(inferred);
                     }
                 }
-            }
-            // §162 (`checker-notes-narrow.md`): `getCovariantInference`'s
-            // widening decision (`inference.go:1442`) —
+                seen
+            };
+            // §162 → the pipeline (`getCovariantInference`,
+            // `inference.go:1434`): the widening decision now reads the REAL
+            // `topLevel`/`isFixed` fields (the foundation's steps 2/4) —
             // `widenLiteralTypes := !primitiveConstraint && inference.topLevel
             // && (inference.isFixed || !isTypeParameterAtTopLevelInReturnType(..))`.
-            // This road never widened because every signature it served
-            // returned the parameter itself at top level (`<T>(x: T) => T`
-            // keeps `5`, which is upstream too). A CONSTRUCT signature
-            // returns `C<T>`, where the parameter is NOT at top level, and
-            // upstream widens: `new C(3)` is `C<number>`.
-            let widen_literals = !self.parameter_has_primitive_constraint(signature, position)
-                && !self.is_type_parameter_at_top_level_in_return_type(signature, type_parameter);
+            // `typeArgumentsWithStringLiteralTypes01` sits on the isFixed
+            // disjunct (a consumed context widens DESPITE a top-level return);
+            // `<T>(x: T) => T` on the unfixed one (keeps `5`, upstream too).
+            let top_level = infos
+                .iter()
+                .find(|info| info.type_parameter == type_parameter)
+                .is_none_or(|info| info.top_level);
+            let is_fixed = infos
+                .iter()
+                .find(|info| info.type_parameter == type_parameter)
+                .is_some_and(|info| info.is_fixed);
+            let primitive_constraint = self.parameter_has_primitive_constraint(signature, position);
+            let widen_literals = !primitive_constraint
+                && top_level
+                && (is_fixed
+                    || !self
+                        .is_type_parameter_at_top_level_in_return_type(signature, type_parameter));
             let mut candidate = None;
-            for &(from, inferred) in &candidates {
-                if from != type_parameter {
-                    continue;
-                }
-                let inferred =
-                    if widen_literals { self.get_widened_literal_type(inferred) } else { inferred };
-                if has_other && inferred == never {
-                    continue;
-                }
-                match candidate {
-                    // Two positions disagreeing about one type parameter:
-                    // upstream unions the candidates
-                    // (`getCovariantInference`), which needs a union this port
-                    // would have to build without knowing whether subtype
-                    // reduction applies (`removeSubtypes`, refused at
-                    // `bd tsr-eak`).
-                    Some(previous) if previous != inferred => return decline,
-                    _ => candidate = Some(inferred),
-                }
+            if !list.is_empty() {
+                // Stage 2 — base candidates under the widening decision
+                // (`inference.go:1444-1451`); a primitive-flavored constraint
+                // keeps literals regular, widening maps each to its base.
+                let base: Vec<TypeId> = {
+                    let mut out = Vec::with_capacity(list.len());
+                    for &t in &list {
+                        let mapped = if primitive_constraint {
+                            self.get_regular_type_of_literal_type(t)
+                        } else if widen_literals {
+                            self.get_widened_literal_type(t)
+                        } else {
+                            t
+                        };
+                        if !out.contains(&mapped) {
+                            out.push(mapped);
+                        }
+                    }
+                    out
+                };
+                // Stage 3 — combination (`getCommonSupertype`,
+                // `inference.go:1530`): same-base literal sets union;
+                // everything else takes the leftmost-supertype walk, with the
+                // relater's third verdict declining the call whole — a gap
+                // beats a wrong. Stage 4 (`getWidenedType`) is identity here:
+                // this port's candidates carry no freshness to erase, and
+                // object-literal widening is unported at this site (stated).
+                let resolved =
+                    if base.len() == 1 { Some(base[0]) } else { self.covariant_combination(&base) };
+                let Some(resolved) = resolved else { return decline };
+                candidate = Some(resolved);
             }
             // `getWidenedType` (`checker.go:16090`): with `strictNullChecks`
             // **off** upstream widens a `null` or `undefined` inference to
@@ -886,6 +886,22 @@ impl Checker<'_, '_> {
         out: &mut Vec<InferenceInfo>,
         depth: usize,
     ) {
+        // Every entry walk's ORIGINAL target is the target it starts from;
+        // the recursion below preserves it so the top-level test
+        // (`inference.go:207-208`) reads the whole parameter type, not the
+        // constituent the walk has descended to.
+        self.infer_from_types_within(source, target, target, parameters, out, depth);
+    }
+
+    fn infer_from_types_within(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+        original: TypeId,
+        parameters: &[TypeId],
+        out: &mut Vec<InferenceInfo>,
+        depth: usize,
+    ) {
         // Not a stack guard: a recursive generic type
         // (`interface List<T> { next: List<List<T>> }`) can nest a reference
         // arbitrarily, and `instantiate_type`'s own limit sits on the other
@@ -895,6 +911,14 @@ impl Checker<'_, '_> {
         }
         if parameters.contains(&target) {
             add_candidate(out, target, source);
+            // `inference.go:207-208`: a candidate arriving where the walk's
+            // original target does not carry the parameter at TOP LEVEL marks
+            // the inference nested, and the widening decision reads it.
+            if !self.is_type_parameter_at_top_level(original, target)
+                && let Some(info) = out.iter_mut().find(|i| i.type_parameter == target)
+            {
+                info.top_level = false;
+            }
             return;
         }
         let target_reference = self.type_reference_targets.get(&target).cloned();
@@ -902,7 +926,7 @@ impl Checker<'_, '_> {
         if let (Some((ts, ta)), Some((ss, sa))) = (target_reference, source_reference) {
             if ts == ss && ta.len() == sa.len() {
                 for (t, s) in ta.iter().zip(sa.iter()) {
-                    self.infer_from_types(*s, *t, parameters, out, depth + 1);
+                    self.infer_from_types_within(*s, *t, original, parameters, out, depth + 1);
                 }
             }
             return;
@@ -949,9 +973,10 @@ impl Checker<'_, '_> {
                                 .is_some_and(|s| self.binder.merged_symbol(s) == constituent_symbol)
                         });
                         if matches {
-                            self.infer_from_types(
+                            self.infer_from_types_within(
                                 source_args[0],
                                 constituent_args[0],
+                                original,
                                 parameters,
                                 out,
                                 depth + 1,
@@ -1002,7 +1027,14 @@ impl Checker<'_, '_> {
                 return;
             }
             for constituent in constituents {
-                self.infer_from_types(source, constituent, parameters, out, depth + 1);
+                self.infer_from_types_within(
+                    source,
+                    constituent,
+                    original,
+                    parameters,
+                    out,
+                    depth + 1,
+                );
             }
             return;
         }
@@ -1025,9 +1057,16 @@ impl Checker<'_, '_> {
         }
         let (t, s) = (t.clone(), s.clone());
         for (tp, sp) in t.parameters.iter().zip(s.parameters.iter()) {
-            self.infer_from_types(sp.r#type, tp.r#type, parameters, out, depth + 1);
+            self.infer_from_types_within(
+                sp.r#type,
+                tp.r#type,
+                original,
+                parameters,
+                out,
+                depth + 1,
+            );
         }
-        self.infer_from_types(s.r#type, t.r#type, parameters, out, depth + 1);
+        self.infer_from_types_within(s.r#type, t.r#type, original, parameters, out, depth + 1);
     }
 
     /// `Checker.instantiateType` (`checker.go:22100`) — substitution, over the
@@ -1831,20 +1870,20 @@ mod tests {
 
     #[test]
     fn two_candidates_for_one_type_parameter_are_a_gap() {
-        // `<T>(a: T, b: T) => T` applied to `(1, "s")` is `1 | "s"` upstream —
-        // `getCovariantInference` unions the candidates. This port has no
-        // subtype reduction to decide that union, so it gaps. The plausible
-        // wrong implementation is "first candidate wins", which prints `1`.
-        //
-        // A *semantic* gap, not an unported syntactic form: every part of the
-        // fixture is understood, which is what stops the test from quietly
-        // becoming a no-op if the forms in it get ported.
+        // `<T>(a: T, b: T) => T` applied to `(1, "s")`: the bases disagree, so
+        // `literalTypesWithSameBaseType` declines the union and
+        // `getSingleCommonSupertype` (`inference.go:1555`) resolves the
+        // conflict — the leftmost type no right neighbor supersedes, which is
+        // `1`. Upstream then reports TS2345 on `"s"`; the diagnostic is the
+        // other lane's, the call's type is this one's. Before the pipeline
+        // this was a decline, and this test pinned the gap; it now pins the
+        // conflict rule instead.
         assert_eq!(
             generic_call(
                 "function both<T>(a: T, b: T): T { return a; }\nconst a = both(1, \"s\");",
                 "both"
             ),
-            "error"
+            "1"
         );
         // The agreeing case still answers, so the guard is not "two parameters
         // are a gap".
@@ -2057,17 +2096,18 @@ mod tests {
     #[test]
     fn the_union_arm_still_refuses_what_needs_a_union_built() {
         // `conformance/unionTypeInference.types:13` — `>f1(1, 2) : 1 | 2`.
-        // Both positions yield a candidate and they disagree, so upstream
-        // unions them. This port cannot: the union would need the subtype
-        // reduction refused at `bd tsr-eak`. The paired form above answers and
-        // this one gaps, which is what stops the refusal from being read as
-        // "union parameters are unsupported".
+        // Both positions yield a candidate, the candidates disagree, and both
+        // are literals of ONE base — `literalTypesWithSameBaseType`
+        // (`inference.go:1601`) unions them, and `T` is top-level in the
+        // return with no consumption, so the union keeps its literals. This
+        // was the pipeline's registered conversion fixture while the port
+        // declined it; the name keeps the history.
         assert_eq!(
             generic_call(
                 "declare function f1<T>(x: T, y: string | T): T;\nconst a1 = f1(1, 2);",
                 "f1"
             ),
-            "error"
+            "1 | 2"
         );
     }
 
@@ -2119,6 +2159,12 @@ pub(crate) struct InferenceInfo {
     /// inferred type is served for contextual instantiation; read by the
     /// widening decision.
     pub(crate) is_fixed: bool,
+    /// Upstream InferenceInfo.topLevel (`inference.go:1626`, cleared at
+    /// `:208`): true until a candidate arrives from a position where the
+    /// walk's ORIGINAL target does not carry the parameter at top level.
+    /// Read by `getCovariantInference`'s widening decision
+    /// (`inference.go:1442`).
+    pub(crate) top_level: bool,
 }
 
 pub(crate) fn add_candidate(
@@ -2127,9 +2173,32 @@ pub(crate) fn add_candidate(
     candidate: TypeId,
 ) {
     if let Some(info) = infos.iter_mut().find(|i| i.type_parameter == type_parameter) {
-        info.candidates.push(candidate);
+        // Upstream dedups at the add site (`slices.Contains`,
+        // `inference.go:202`); the resolver's union/supertype stages assume
+        // the same.
+        if !info.candidates.contains(&candidate) {
+            info.candidates.push(candidate);
+        }
     } else {
-        infos.push(InferenceInfo { type_parameter, candidates: vec![candidate], is_fixed: false });
+        infos.push(InferenceInfo {
+            type_parameter,
+            candidates: vec![candidate],
+            is_fixed: false,
+            top_level: true,
+        });
+    }
+}
+
+/// Fold one collection's infos into another, preserving the two fields the
+/// flat pair merge used to drop: `top_level` ANDs (one nested source marks the
+/// parameter nested for good, `inference.go:208`) and `is_fixed` ORs.
+pub(crate) fn merge_info(infos: &mut Vec<InferenceInfo>, from: &InferenceInfo) {
+    for &candidate in &from.candidates {
+        add_candidate(infos, from.type_parameter, candidate);
+    }
+    if let Some(existing) = infos.iter_mut().find(|i| i.type_parameter == from.type_parameter) {
+        existing.top_level &= from.top_level;
+        existing.is_fixed |= from.is_fixed;
     }
 }
 
@@ -2144,13 +2213,6 @@ pub(crate) fn flatten_infos(infos: &[InferenceInfo]) -> Vec<(TypeId, TypeId)> {
 }
 
 impl Checker<'_, '_> {
-    /// Pipeline-lite's resolver (getCommonSupertype's relater-free branch,
-    /// inference.go:1530 + the stage-2 widening decision of
-    /// getCovariantInference, inference.go:1434): ALL candidates literals of
-    /// one base -> union them, then keep literals when the parameter's
-    /// constraint is primitive-flavored (hasPrimitiveConstraint) and WIDEN to
-    /// the base otherwise. Any non-literal or mixed-base set answers None and
-    /// the caller keeps the decline.
     /// `isTypeParameterAtTopLevel` (`inference.go:1493-1499`), verbatim over
     /// the shapes this port has: the type IS the parameter, or a union whose
     /// constituents contain it at top level. Intersections and conditionals
@@ -2209,54 +2271,129 @@ impl Checker<'_, '_> {
         )
     }
 
-    fn same_base_literal_supertype(
-        &mut self,
-        candidates: &[TypeId],
-        parameter_position: usize,
-        signature: &Signature,
-    ) -> Option<TypeId> {
+    /// `getCommonSupertype` (`inference.go:1530`) — the pipeline's stage-3
+    /// combination, with the relater's third verdict honored: any `Unknown`
+    /// pair answers `None` and the caller declines the call whole, because a
+    /// wrong pick here is a confident wrong line where upstream computed a
+    /// supertype this port could not verify.
+    ///
+    /// The nullable strip-and-restore is upstream's own first move under
+    /// `strictNullChecks`; its `filterType` over a UNION candidate's
+    /// constituents is unported, so a union carrying a nullable constituent
+    /// declines rather than mis-stripping.
+    fn covariant_combination(&mut self, types: &[TypeId]) -> Option<TypeId> {
         use crate::flags::TypeFlags;
-        let base_of = |checker: &Self, id: TypeId| -> Option<TypeId> {
-            let flags = checker.store.get(id).flags;
-            if flags.contains(TypeFlags::STRING_LITERAL) {
-                Some(checker.intrinsics.string)
-            } else if flags.contains(TypeFlags::NUMBER_LITERAL) {
-                Some(checker.intrinsics.number)
-            } else if flags.contains(TypeFlags::BIG_INT_LITERAL) {
-                Some(checker.intrinsics.bigint)
-            } else if flags.contains(TypeFlags::BOOLEAN_LITERAL) {
-                Some(checker.intrinsics.boolean)
-            } else {
-                None
+        let mut primary: Vec<TypeId> = Vec::with_capacity(types.len());
+        let mut restore: Vec<TypeId> = Vec::new();
+        if self.strict_null_checks {
+            for &t in types {
+                let flags = self.store.get(t).flags;
+                if flags.intersects(TypeFlags::NULLABLE) {
+                    if !restore.contains(&t) {
+                        restore.push(t);
+                    }
+                    continue;
+                }
+                if let TypeData::Union { types: constituents, .. } = &self.store.get(t).data
+                    && constituents
+                        .iter()
+                        .any(|&c| self.store.get(c).flags.intersects(TypeFlags::NULLABLE))
+                {
+                    return None;
+                }
+                primary.push(t);
             }
-        };
-        let first_base = base_of(self, *candidates.first()?)?;
-        for &candidate in candidates {
-            if base_of(self, candidate) != Some(first_base) {
+            if primary.is_empty() {
                 return None;
             }
-        }
-        // The widening decision: a primitive-flavored constraint keeps the
-        // literal union; no constraint (or a non-primitive one) widens to
-        // the base (getCovariantInference's widenLiteralTypes default - the
-        // topLevel/isFixed refinements join with the foundation's steps
-        // 2/4, and until then the base IS the widened union of same-base
-        // literals).
-        let has_primitive_constraint =
-            self.parameter_has_primitive_constraint(signature, parameter_position);
-        if has_primitive_constraint {
-            // The constraint branch: keep the literal union (+2/0 measured
-            // pure — literalTypes2). The widen branch measured 9:7 pure and
-            // DECLINES until steps 2/4 supply topLevel/isFixed (the
-            // branch-attribution pair trio is in the study).
-            let mut regular = Vec::with_capacity(candidates.len());
-            for &candidate in candidates {
-                regular.push(self.get_regular_type_of_literal_type(candidate));
-            }
-            Some(self.get_union_type_unprinted(&regular))
         } else {
-            None
+            primary.extend_from_slice(types);
         }
+        let supertype = if self.literal_types_with_same_base_type(&primary) {
+            self.get_union_type_unprinted(&primary)
+        } else {
+            self.single_common_supertype(&primary)?
+        };
+        if restore.is_empty() {
+            Some(supertype)
+        } else {
+            let mut all = vec![supertype];
+            all.extend(restore);
+            Some(self.get_union_type_unprinted(&all))
+        }
+    }
+
+    /// `literalTypesWithSameBaseType` (`inference.go:1601`), verbatim: every
+    /// non-`never` candidate is a literal (its base differs from itself) and
+    /// all bases agree.
+    fn literal_types_with_same_base_type(&mut self, types: &[TypeId]) -> bool {
+        use crate::flags::TypeFlags;
+        let mut common: Option<TypeId> = None;
+        for &t in types {
+            if self.store.get(t).flags.intersects(TypeFlags::NEVER) {
+                continue;
+            }
+            let base = self.get_base_type_of_literal_type(t);
+            if common.is_none() {
+                common = Some(base);
+            }
+            if base == t || common != Some(base) {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// `getSingleCommonSupertype` (`inference.go:1555`): the leftmost type no
+    /// right neighbor strictly supersedes, verified against every candidate;
+    /// failing the verification, the same walk under the regular subtype
+    /// relation, unverified — upstream returns that leftmost as-is. Every
+    /// relation question is asked through [`Checker::relate_ternary`], and an
+    /// `Unknown` anywhere answers `None`: this port must not pick a supertype
+    /// it cannot decide.
+    fn single_common_supertype(&mut self, types: &[TypeId]) -> Option<TypeId> {
+        use crate::relater::{Relation, Ternary};
+        let mut candidate: Option<TypeId> = None;
+        for &t in types {
+            match candidate {
+                None => candidate = Some(t),
+                Some(current) => match self.relate_ternary(current, t, Relation::StrictSubtype) {
+                    Ternary::Related => candidate = Some(t),
+                    Ternary::NotRelated => {}
+                    Ternary::Unknown => return None,
+                },
+            }
+        }
+        let strict = candidate?;
+        let mut all_strict = true;
+        for &t in types {
+            if t == strict {
+                continue;
+            }
+            match self.relate_ternary(t, strict, Relation::StrictSubtype) {
+                Ternary::Related => {}
+                Ternary::NotRelated => {
+                    all_strict = false;
+                    break;
+                }
+                Ternary::Unknown => return None,
+            }
+        }
+        if all_strict {
+            return Some(strict);
+        }
+        let mut leftmost: Option<TypeId> = None;
+        for &t in types {
+            match leftmost {
+                None => leftmost = Some(t),
+                Some(current) => match self.relate_ternary(current, t, Relation::Subtype) {
+                    Ternary::Related => leftmost = Some(t),
+                    Ternary::NotRelated => {}
+                    Ternary::Unknown => return None,
+                },
+            }
+        }
+        leftmost
     }
 
     /// SS135: forget every cached answer under `root` so a contextual

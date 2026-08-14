@@ -1931,3 +1931,57 @@ next window should confirm which road types the heritage expression
 before touching either — one print of the resolved symbol at that node
 decides it. Sized: 2 deficit-1 cases here, plus whatever share of the
 `Foo`/`typeof C` deficit-1 rows is the same defect.
+
+## §483 — THE FOUR-STAGE PIPELINE LANDS: getCovariantInference + getCommonSupertype over the collector (+6 cases, 5,792 → 5,798; +97 right / −55 wrong / −42 gap; 102:30)
+
+The build this study's arc named as the singular next, transcribed whole in
+one unit at the final-map resolution site (`inference.rs`), measured against
+the clean 3cafb858 scorepair baseline:
+
+- **Steps 2/4's fields are real**: `InferenceInfo.top_level` (written at the
+  add site from `isTypeParameterAtTopLevel(originalTarget, target)`,
+  `inference.go:207-208`, threaded as an `original` parameter through
+  `infer_from_types_within`; ANDed across bucket merges by the new
+  `merge_info`, which also ORs `is_fixed` — the flat pair merge silently
+  dropped both) and the already-landed `is_fixed` consumption rule, now READ:
+  `widenLiteralTypes := !primitiveConstraint && topLevel && (isFixed ||
+  !isTypeParameterAtTopLevelInReturnType)` (`inference.go:1442`), verbatim.
+  `typeArgumentsWithStringLiteralTypes01` (+8, the isFixed disjunct) and
+  `unionTypeInference` (+8, the kept-literal union) were the two registered
+  falsifier fixtures and both convert.
+- **Stage 3 is `getCommonSupertype` (`inference.go:1530`) with the relater's
+  third verdict honored**: nullable strip-and-restore under strict (a UNION
+  candidate carrying a nullable constituent declines — `filterType` unported);
+  `literalTypesWithSameBaseType` (`:1601`) verbatim → union;
+  `getSingleCommonSupertype` (`:1555`) as the two leftmost walks through
+  `relate_ternary` (StrictSubtype, then Subtype), any `Unknown` declining the
+  call whole. `genericCallWithNonSymmetricSubtypes` (+16) is the census's
+  object row converting exactly as the 3b refusal predicted it would once the
+  walk was the real one. Stage 1 (`unionObjectAndArrayLiteralCandidates`) is
+  identity here — no freshness marker exists to select object-literal
+  candidates, and such sets reach the supertype walk and decline on Unknown
+  (stated divergence). Stage 4 (`getWidenedType`) is identity for the same
+  representational reason.
+- **Pipeline-lite is subsumed**: `same_base_literal_supertype` deleted; its
+  constraint branch is stage 2's regular mapping + stage 3's same-base union,
+  and its priced-but-declined widen branch (9:7 pure) now ships gated by the
+  real fields.
+- **Two pins re-pinned, both toward upstream**: `both(1, "s")` is `1` (the
+  leftmost-conflict rule; the old pin asserted the decline and its comment
+  claimed upstream unions — it does not, TS2345 is the diagnostics lane's),
+  and `f1(1, 2)` is `1 | 2` (the old pin's own comment cited the baseline
+  wanting exactly that).
+- **Adverse, recorded at 102:30**: G→W 25 (promiseChaining 4,
+  strictFunctionTypes1 4, literalTypes2 4,
+  stringLiteralTypesAsTypeParameterConstraint02 4,
+  fixingTypeParametersRepeatedly* — the fixing families trade gaps for wrongs
+  where consumption-order inference resolves differently than this port's
+  single-shot resolution); R→W 5, all in parenthesizedContexualTyping1/2,
+  both already failing in the baseline (114 and 21 wrong lines) — recordable
+  under the window's rule at the 3.4:1 multiple. Wrongs NET −55: the split
+  the project steers by improves on every column.
+
+Also in the landing commit, two pre-existing clippy `-D warnings` failures at
+HEAD (`expressions.rs:1594` collapsible-if, `tests/super_expressions.rs:138`
+doc-markdown) — the §481 session's gate ran through rtk's masked exit code;
+the memory note about that hazard is now twice-paid.

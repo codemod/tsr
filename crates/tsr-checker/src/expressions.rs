@@ -1580,21 +1580,21 @@ impl Checker<'_, '_> {
                         is_static = Some(self.has_static_modifier(id));
                     }
                 }
-                SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression => {
-                    // §481: a class node is never a super CONTAINER upstream
-                    // — `getSuperContainer` returns members and functions
-                    // only — so a search still looking for its member (a
-                    // computed-name skip in flight) passes THROUGH a nested
-                    // class: `class { [super.foo()]() {} }` inside an outer
-                    // method finds that method and answers the OUTER base
-                    // (`superPropertyAccessInComputedPropertiesOfNestedType_ES6`
-                    // records `>super : A`). With a member already found,
-                    // stopping here is the same answer upstream reaches by
-                    // returning the member.
-                    if is_static.is_some() || !crossed_computed_name {
-                        class = Some(id);
-                        break;
-                    }
+                // §481: a class node is never a super CONTAINER upstream
+                // — `getSuperContainer` returns members and functions
+                // only — so a search still looking for its member (a
+                // computed-name skip in flight) passes THROUGH a nested
+                // class: `class { [super.foo()]() {} }` inside an outer
+                // method finds that method and answers the OUTER base
+                // (`superPropertyAccessInComputedPropertiesOfNestedType_ES6`
+                // records `>super : A`). With a member already found,
+                // stopping here is the same answer upstream reaches by
+                // returning the member.
+                SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
+                    if is_static.is_some() || !crossed_computed_name =>
+                {
+                    class = Some(id);
+                    break;
                 }
                 _ => {}
             }
