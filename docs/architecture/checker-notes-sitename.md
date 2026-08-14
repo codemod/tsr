@@ -1377,3 +1377,83 @@ the corrected §19.1 reading, confirmed on its first use. The reach beyond the
 prediction is `checkJsObjectLiteralIndexSignatures`, 8 lines the arm picked up
 without being aimed at them, which is the same good sign §537's
 `bigintPropertyName` was: the fix is keyed on the defect, not on the fixture.
+
+---
+
+## 20. §541 — an empty array binding pattern is `Iterable<any, void, undefined>`, not the empty tuple (+4 cases, 0 adverse)
+
+Third family off the corrected deficit-1 reading (§19.1), picked because all
+three fixtures are ordinary code: `emptyArrayBindingPatternParameter01/02/03`,
+one shape, `([]: [])` where the baselines record
+`([]: Iterable<any, void, undefined>)`.
+
+§18.4's probe first, before any code:
+
+```
+function f([]) { }     ours  >f : ([]: []) => void
+                   upstream  >f : ([]: Iterable<any, void, undefined>) => void
+```
+
+`getTypeFromArrayBindingPattern` (`checker.go:17964-17969`) short-circuits
+**before** it builds any tuple:
+
+```go
+if len(elements) == 0 || len(elements) == 1 && restElement != nil {
+    if c.languageVersion >= core.ScriptTargetES2015 {
+        return c.createIterableType(c.anyType)
+    }
+    return c.anyArrayType
+}
+```
+
+§455 added the empty pattern to this arm and read **both** halves off the
+OBJECT rule — `{}` really is the empty object literal — but the array half has
+its own upstream answer and never was the empty tuple.
+
+### 20.1 The arity, which is the whole reason the first attempt measured zero
+
+The arm's first version used `global_type_symbol("Iterable")` and measured
+`no transitions vs baseline`. That is §515's revert condition, and reverting
+would have been wrong: `global_type_symbol` is
+`global_type_symbol_with_arity(name, 1)`, and the modern lib declares
+
+```ts
+interface Iterable<T, TReturn = void, TNext = undefined>
+```
+
+— **arity 3**. `getGlobalType`'s arity check is what selects the right
+declaration, so the lookup answered `None` on every case and the arm never
+fired. At arity 3 the three predicted cases convert and the print matches the
+baseline's three arguments exactly.
+
+> **A zero-measuring arm is a revert *or* a lookup that never fired, and those
+> are not the same thing.** §515's rule is right for an arm that ran and paid
+> nothing; before applying it, check that the arm's preconditions were met at
+> all. One `grep` of `global_type_symbol`'s body was the difference here between
+> +4 cases and a recorded refusal of a correct transcription.
+
+### 20.2 The measurement
+
+```
+WRONG->RIGHT: 4   emptyArrayBindingPatternParameter01/02/03,
+                  compiler/declarationEmitDestructuring4
+no adverse transition of any kind
+checker_types 5,890 -> 5,894 (+4 cases), gradient 90.43%
+```
+
+Three predicted, one not (`declarationEmitDestructuring4`) — the same
+keyed-on-the-defect signal §537 and §539 each showed.
+
+Two halves deliberately not ported, each stated rather than dropped:
+
+- **The pre-ES2015 `anyArrayType` half.** This port does not track the language
+  version at this site, and answering `any[]` for a target it cannot check would
+  be a guess.
+- **The rest-only shape** (`len == 1 && restElement`), which takes the same exit
+  upstream. It cannot arrive here — the guard above requires every element to
+  have no `...` token — and it is named so that relaxing that guard does not
+  silently mint a one-element tuple for `function f([...r])`.
+
+A missing global `Iterable` keeps §455's empty tuple rather than gapping: the
+lib may simply not be mounted, upstream's own answer there is `anyArrayType`,
+and a decline must not be worse than what the arm already produced.

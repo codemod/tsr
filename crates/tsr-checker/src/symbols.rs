@@ -3484,6 +3484,64 @@ impl<'a> Checker<'a, '_> {
                         .node_id
                         .is_some_and(|p| self.nodes.kind(p) == SyntaxKind::ArrayBindingPattern);
                     if is_array {
+                        // §541: an **empty** array pattern is NOT the empty
+                        // tuple. `getTypeFromArrayBindingPattern`
+                        // (`checker.go:17964-17969`) short-circuits before it
+                        // builds any tuple:
+                        //
+                        // ```go
+                        // if len(elements) == 0 || len(elements) == 1 && restElement != nil {
+                        //     if c.languageVersion >= core.ScriptTargetES2015 {
+                        //         return c.createIterableType(c.anyType)
+                        //     }
+                        //     return c.anyArrayType
+                        // }
+                        // ```
+                        //
+                        // `createIterableType(anyType)` is the global
+                        // `Iterable` over `[any, void, undefined]`, which is
+                        // what `emptyArrayBindingPatternParameter01-03`
+                        // record: `function f([]) {}` prints
+                        // `([]: Iterable<any, void, undefined>) => void`.
+                        //
+                        // §455 added the empty pattern to this arm and read
+                        // BOTH halves off the OBJECT rule — `{}` really is the
+                        // empty object literal — but the array half has its own
+                        // upstream answer and never was the empty tuple.
+                        //
+                        // The rest-only shape (`len == 1 && restElement`) takes
+                        // the same exit upstream; it cannot arrive here,
+                        // because the guard above requires every element to
+                        // have no `...` token. Stated rather than handled, so
+                        // that relaxing the guard does not silently mint a
+                        // one-element tuple for `function f([...r])`.
+                        //
+                        // The pre-ES2015 `anyArrayType` half is NOT ported:
+                        // the corpus's cases are all ES2015+, and answering
+                        // `any[]` for a target this port does not track would
+                        // be a guess. A missing global `Iterable` keeps the
+                        // decline for the same reason.
+                        // A missing global `Iterable` keeps §455's empty tuple
+                        // rather than gapping: the lib may simply not be
+                        // mounted (pre-ES2015 target), and upstream's own
+                        // answer there is `anyArrayType`, so a decline must not
+                        // be WORSE than what this arm already produced.
+                        if pattern.elements.is_empty()
+                            // Arity **3**, not `global_type_symbol`'s default 1:
+                            // the modern lib declares
+                            // `Iterable<T, TReturn = void, TNext = undefined>`,
+                            // and `getGlobalType`'s arity check is what makes
+                            // the lookup answer the right declaration. At arity
+                            // 1 this returned `None` on every case and the arm
+                            // measured a clean zero.
+                            && let Some(iterable) =
+                                self.global_type_symbol_with_arity("Iterable", 3)
+                        {
+                            let (void, undefined) =
+                                (self.intrinsics.void, self.intrinsics.undefined);
+                            return self
+                                .create_type_reference(iterable, vec![any, void, undefined]);
+                        }
                         let elements = vec![any; pattern.elements.len()];
                         return self.create_tuple_type(elements, false);
                     }
