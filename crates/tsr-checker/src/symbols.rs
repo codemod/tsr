@@ -2484,7 +2484,7 @@ impl<'a> Checker<'a, '_> {
 
     /// Ported from `isShorthandAmbientModule` (`utilities.go:202`): *"the only
     /// kind of module that can be missing a body is a shorthand ambient module"*.
-    fn is_shorthand_ambient_module(&self, symbol: SymbolId) -> bool {
+    pub(crate) fn is_shorthand_ambient_module(&self, symbol: SymbolId) -> bool {
         let Some(declaration) = self.binder.symbols().get(symbol).value_declaration else {
             return false;
         };

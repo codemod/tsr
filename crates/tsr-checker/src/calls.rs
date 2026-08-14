@@ -1655,7 +1655,16 @@ impl Checker<'_, '_> {
         ) else {
             return false;
         };
-        let Some(declaration) = self.binder.symbols().get(symbol).value_declaration else {
+        // §505: an alias symbol may carry no value declaration; its
+        // declarations list still names the import node the shorthand test
+        // below needs.
+        let Some(declaration) = self
+            .binder
+            .symbols()
+            .get(symbol)
+            .value_declaration
+            .or_else(|| self.binder.symbols().get(symbol).declarations.first().copied())
+        else {
             return false;
         };
         let annotation = match self.node_map.get(declaration) {
@@ -1681,6 +1690,49 @@ impl Checker<'_, '_> {
             && node.initializer.is_none()
         {
             return true;
+        }
+        // §505: an import from a SHORTHAND ambient module
+        // (`declare module "jquery"` — no body) is `any` in BOTH compilers:
+        // `isShorthandAmbientModuleSymbol` (`internal/checker/utilities.go:198`)
+        // makes upstream answer the module symbol for every member, and each
+        // use reads `any`. This is upstream's own computed any, not the
+        // positional refusal's manufactured one, so a call through it is an
+        // untyped call (`conformance/ambientShorthand`'s
+        // `foo(bar, baz, boom) : any`).
+        {
+            let import = match self.node_map.get(declaration) {
+                Some(tsr_ast::Node::ImportSpecifier(_)) => self
+                    .nodes
+                    .parent(declaration)
+                    .and_then(|named| self.nodes.parent(named))
+                    .and_then(|clause| self.nodes.parent(clause)),
+                Some(tsr_ast::Node::ImportClause(_)) => self.nodes.parent(declaration),
+                Some(tsr_ast::Node::NamespaceImport(_)) => {
+                    self.nodes.parent(declaration).and_then(|clause| self.nodes.parent(clause))
+                }
+                Some(tsr_ast::Node::ImportEqualsDeclaration(_)) => Some(declaration),
+                _ => None,
+            };
+            let specifier = import.and_then(|node| match self.node_map.get(node) {
+                Some(tsr_ast::Node::ImportDeclaration(import)) => {
+                    import.module_specifier.and_then(|s| tsr_ast::Node::from(s).node_id())
+                }
+                Some(tsr_ast::Node::ImportEqualsDeclaration(import)) => {
+                    match import.module_reference {
+                        Some(tsr_ast::ModuleReference::ExternalModuleReference(external)) => {
+                            external.expression.and_then(|e| e.node_id())
+                        }
+                        _ => None,
+                    }
+                }
+                _ => None,
+            });
+            if let Some(specifier) = specifier
+                && let Some(module) = self.resolve_external_module_name(declaration, specifier)
+                && self.is_shorthand_ambient_module(module)
+            {
+                return true;
+            }
         }
         // §297's one-hop half: `var u = (a2 as any);` — unannotated, the
         // initialiser IS the written cast.

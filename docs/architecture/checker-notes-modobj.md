@@ -949,3 +949,15 @@ CHAIN printer (a qualified `m.Vector` needs the symbol-chain walk, wall 2's
 core), and that family is now the single largest named debtor of that build:
 three independent arms (§222 twice, §503 once) each measure the same 14
 lines against it.
+
+## §505 — a call through a shorthand-ambient-module import is an untyped call (+1 case, 5,842 → 5,843; +1 G→R, 0 adverse)
+
+`isShorthandAmbientModuleSymbol` (`utilities.go:198`): `declare module "x"`
+with no body makes every import from it `any` in BOTH compilers, so a call
+through one is upstream's own untyped call — not the positional refusal's
+manufactured any. `is_untyped_call_target` walks the callee's import
+declaration to its specifier and asks the existing shorthand test (the
+alias's `value_declaration` is None for import clauses; the declarations
+list carries the node). `ambientShorthand` converts;
+`ambientShorthand_reExport`'s two lines run through an export-specifier
+chain this walk does not cover and stay gaps.
