@@ -1035,6 +1035,43 @@ fresh run at `7cecc02` (fourth session; every row within noise). Two lists, beca
 project's ordering rule has two halves: **rank by the conversion, and where the
 conversion is unknown, rank by how cheap it is to find out.**
 
+### 4.-1 RETIRED GATE, 2026-08-14 — **the "wall 2 is worth 79 cases / +81" target is refuted; do not inherit it**
+
+A session goal was set at **5,950 (+81 from 5,869)** on the reasoning that wall 2's
+measured population is 79 cases and *"completing the wall completes the goal"*.
+**The arithmetic does not hold, and the failure is in the sizing, not in the
+execution.**
+
+| | |
+|---|---|
+| steps 1–3 (§529, §531, §533) | **+19**, all landed, all zero-adverse |
+| step 4 (slice 3) | **priced at ~60 cases — REFUSED at §535** |
+| gate | +19 + 60 = **+81** |
+
+§535 refuted slice 3's premise at **43,423 rows**: a symbol-carrying
+`TypeData::Named` is *not* thereby nameable (1,544 firings are object literals
+carrying the binder's synthetic `__object`), and in the gated remainder **the
+baked text is already qualified and correct** where the arm would fire —
+`Intl.NumberFormatOptions` → `NumberFormatOptions`, 136 lines; `JSX.Element` →
+`Element`, 227. Building it would have deleted correct qualifiers by the
+hundred.
+
+**So the 60 cases were never available.** The session delivered **+33** — the
++19 the sound steps were worth, plus +14 more from five fallback landings
+(§537, §539, §541, §543, §547, §549, §551) — and the remaining 48 are a
+sizing error, not unfinished work.
+
+> **Any future goal for this lane must be priced off `checker-notes-sitename.md`
+> §17's corrected table, not off the original 79.** The one item that would
+> actually unblock the refused work is `getAccessibleSymbolChain`
+> (`symbolaccessibility.go:373`), named as the blocker in §12.4, §15.4 and §16 —
+> one piece of work paying three debts. It is unsized; size it before it becomes
+> another number in a goal.
+
+This entry exists because a refuted gate left on the board is worse than no
+gate: it reads as outstanding work and sends the next session to re-derive a
+negative that cost this one a measured 43,423-row dump to establish.
+
 ### 4.-0.5 `bd tsr-e2u` — the module-object `export =` pair, sized at ~11 cases
 
 **Newly sized, 2026-08-12, and the sizing is the point.** Two changes that look
