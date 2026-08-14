@@ -81,6 +81,33 @@ impl Checker<'_, '_> {
             return computed;
         }
         let Some(id) = node.node_id else { return computed };
+        // §473: `isAssignmentToReadonlyEntity`'s element-access half — the
+        // §27 arm the property-access twin has had since that landing: a
+        // READONLY property as an assignment target answers upstream's
+        // `errorType` (`checker.go:11377` reports and returns it), printed
+        // `any` (`constDeclarations-access3/4/5` record `M["x"] : any` for
+        // every write spelling against an exported `const`). The same
+        // this-in-constructor carve-out as the twin, fields only.
+        if self.assignment_target_kind(id) != crate::expressions::AssignmentTargetKind::None
+            && let (Some(receiver), Some(index)) = (node.expression, node.argument_expression)
+        {
+            let object_type = self.check_expression(receiver);
+            let index_type = self.check_expression(index);
+            let readonly_target = self
+                .property_name_from_index(index_type)
+                .and_then(|name| self.get_property_of_type(object_type, &name))
+                .is_some_and(|property| self.is_readonly_symbol(property));
+            let constructor_field_write = matches!(
+                receiver,
+                tsr_ast::Expression::KeywordExpression(keyword)
+                    if keyword.kind == tsr_ast::SyntaxKind::ThisKeyword
+            ) && self.control_flow_container(id).is_some_and(
+                |container| self.nodes.kind(container) == tsr_ast::SyntaxKind::Constructor,
+            );
+            if readonly_target && !constructor_field_write {
+                return self.intrinsics.any;
+            }
+        }
         // §12.7's element-access half (the §52 scorecard's recorded residue):
         // a WRITE-position read takes the declared type — upstream's
         // assignment-target dispatch, which the identifier road has had
