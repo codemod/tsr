@@ -1325,7 +1325,15 @@ impl<'a> Checker<'a, '_> {
                     self.get_widened_literal_type(reduced)
                 }
             };
-            let generator = self.global_type_symbol_with_arity("Generator", 3)?;
+            // §511: `createGeneratorType`'s fallback (`checker.go:20440`) —
+            // with no global `Generator` (a pre-es2015.generator lib), the
+            // type mints from `IterableIterator` with the SAME three slots
+            // (`generatorReturnTypeFallback.1-4` want
+            // `IterableIterator<number, void, unknown>` under
+            // `@lib: es5,es2015.iterable`).
+            let generator = self
+                .global_type_symbol_with_arity("Generator", 3)
+                .or_else(|| self.global_type_symbol_with_arity("IterableIterator", 3))?;
             // §135 slice 1's R slot: the return aggregate, `void` when empty.
             let return_slot = match return_types.as_slice() {
                 [] => self.intrinsics.void,

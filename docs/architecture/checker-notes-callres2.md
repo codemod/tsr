@@ -2036,3 +2036,11 @@ absent (`iteratorSpreadInArray8/10` — an iterator returning anything else
 may carry `next` on the returned object, unreadable here, stays a gap).
 Spread road only; the destructuring-pattern siblings
 (`iterableArrayPattern21`'s non-iterable object literal) are another arm.
+
+## §511 — the IterableIterator generator fallback (+1 case, 5,849 → 5,850; +1 G→R, 0 adverse)
+
+`createGeneratorType`'s fallback (`checker.go:20440`): no global `Generator`
+(pre-es2015.generator lib) mints `IterableIterator` with the same three
+slots. `generatorReturnTypeFallback.1` converts; `.3/.4` still gap on the
+SENT-value slot (the yield expression's contextual next type, unported) and
+`.2` on the empty-object double fallback.
