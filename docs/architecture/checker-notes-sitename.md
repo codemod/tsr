@@ -110,14 +110,37 @@ qualified (`A.B`), renamed through an alias (`typeof React`), module-qualified
 (`import("./m").X`), or `globalThis.`-prefixed. Input: a symbol and an
 enclosing declaration. Owns the accessibility walk.
 
-**M2 — the NODE-REUSE rule.** Whether the printed form starts from the
-**written syntax node** or is built fresh from the computed type. Input: a
-position in the tree. Owns nothing about names.
+**M2 — CONSTRUCTION ORDER, not node reuse.** Which order a union's
+constituents print in. **This section was written as "the node-reuse rule" and
+the upstream read overturned it; the correction is left visible because the
+wrong framing is the one every prior session reached for.**
 
-§517 and §519 are the proof that M2 exists and is per-position: the *same*
-carriage (keep a written union's constituent order) measured **+80/0** at
-type-literal member slots and **356 R→W** at declaration names. No naming rule
-explains that split; a node-reuse rule does.
+The `.types` baseline writer calls `builder.TypeToTypeNode`
+(`internal/testutil/tsbaseline/type_symbol_baseline.go:395` →
+`nodebuilder.go:267`), **not** `SerializeTypeForDeclaration` /
+`SerializeReturnTypeForSignature`. The whole annotation-reuse machinery —
+`tryReuseExistingNodeHelper` (`nodecopy.go:222`), `serializeTypeForDeclaration`
+(`nodebuilderimpl.go:2228`), the pseudo-type node builder — is on the
+DECLARATION-EMIT path and is **bypassed for every line the conformance corpus
+compares against**. The only reuse a baseline line can reach is the
+instantiation-expression `typeof X<…>` case (`nodebuilderimpl.go:2837`) and
+type-parameter constraints (`:1615`).
+
+So §517's +80 and §519's 356 cannot both be node reuse, because on the
+baseline path there is none. What splits them is how each union was
+CONSTRUCTED: a type-literal member's union is built by reading its annotation
+(constituents in written order); a narrowed declaration's union is built by
+flow analysis (constituents in flow order). This port interns unions and the
+first construction fixes the text for every later identical set — which is
+also §513's collapse seen from the other side.
+
+**This is stated as the leading hypothesis, not as a finding.** The probe that
+settles it: build the same constituent set two ways in one file (an annotation
+and a narrowing) and read upstream's two printed orders. If they differ,
+construction order is the rule and the port needs per-construction union
+identity. If they agree, the rule is elsewhere and §519 needs a different
+diagnosis. **Nobody has run it**; it is §5's first non-blocking item and costs
+one `probefile` run.
 
 ---
 
@@ -152,17 +175,178 @@ transcription; M1 is everything else.
 
 ## 4. Upstream, transcribed
 
-*(§4.1–§4.3 are filled from the reads in progress; the port-side analysis
-above stands independent of them.)*
+Both reads are at the pinned submodule. `SA` =
+`internal/checker/symbolaccessibility.go`, `NB` =
+`internal/checker/nodebuilderimpl.go`.
+
+### 4.1 The walk — `getAccessibleSymbolChain` (SA:373)
+
+Scopes are yielded by `someSymbolTableInScope` (SA:746-804), walking
+`location = enclosingDeclaration` up through `.Parent`, and the FIRST table
+that yields a non-empty chain wins (SA:466-473):
+
+1. `location.Locals()` where `canHaveLocals && !IsGlobalSourceFile`
+   (SA:752-756) — `isLocalNameLookup = true`;
+2. a SourceFile that is an external module, or a ModuleDeclaration → that
+   symbol's `Exports` (SA:758-765) — `isLocalNameLookup = true`;
+3. Class/ClassExpression/Interface → `Members` **filtered to type parameters**
+   (`Flags & (Type &^ Assignment)`, SA:766-787) — `isLocalNameLookup = false`,
+   and raw `Members` rather than `getMembersOfSymbol` to avoid late-binding
+   recursion;
+4. always, last: `c.globals` (SA:803).
+
+Two guards frame it: members are never nameable by chain
+(`isPropertyOrMethodDeclarationSymbol`, SA:728-744 → nil), and a per-symbol
+visited set of table ids makes the walk re-entrant-safe (SA:481-499, inserted
+before `trySymbolTable` and **deleted on the way out** — a recursion guard,
+not a memo).
+
+### 4.2 `trySymbolTable` (SA:535-593) — three arms in order
+
+1. **DIRECT** (SA:544-547): `symbols[symbol.Name]` present and
+   `isAccessible` → return `[ctx.symbol]`. This is the arm that makes a bare
+   name win over any alias, and it is why §509's guard was right to answer
+   `None` on a direct hit.
+2. **ExportSymbol** (SA:554-558), a vendor-local compensation for arm 3
+   iterating only alias-flagged entries.
+3. **ALIAS** (SA:562-580), over alias-flagged entries only, with these
+   exclusions ANDed:
+   - name is not `export=` (SA:564) and not `default` (SA:565);
+   - not a UMD export symbol while the site is inside an external module
+     (SA:566);
+   - `!useOnlyExternalAliasing || IsExternalModuleImportEqualsDeclaration`
+     (SA:568) — **the baseline path passes `false`** (see §4.4), so every
+     alias kind is admitted;
+   - when `isLocalNameLookup`, exclude namespace re-exports
+     (`export * as ns from "m"`, SA:570/616-618) — kept when building a
+     DOTTED name, excluded for a bare one;
+   - `ignoreQualification || no ExportSpecifier declarations` (SA:573).
+
+**Candidates are then SORTED and the SHORTEST CHAIN WINS**
+(`compareSymbolChains`, SA:582-586 / SA:595-610; ties break element-wise by
+`compareSymbols`). The port's `module_alias_at` declines on ambiguity instead;
+that decline is a refusal where upstream has a total order, and it is the
+cheapest correctness gap on this page.
+
+`getCandidateListForSymbol` (SA:620-645) is the recursion: accessible → the
+one-element chain; otherwise descend into `getExportsOfSymbol(resolveAlias)`
+with `ignoreQualification = true, isLocalNameLookup = false` (SA:636-640),
+gated by `canQualifySymbol` (SA:641), and prepend
+(SA:644 — element 0 is the OUTERMOST name).
+
+`canQualifySymbol` (SA:677-686) = `!needsQualification` OR the PARENT has an
+accessible chain, **sharing the visited map into the recursion** (SA:685).
+`needsQualification` (SA:688-726) walks the same scopes and answers true when
+a DIFFERENT symbol of the same MEANING owns that name (SA:716-719). The port
+has this as `Checker::needs_qualification` (`checker.rs:2091`) — one
+`resolve_name` and a merged-symbol comparison, which is the same predicate
+reduced to the one scope walk the binder already offers.
+
+### 4.3 Chain → text (NB:644-748, `symbolToTypeNode`)
+
+- `isTypeOf := mask == SymbolFlagsValue` (NB:649).
+- **ImportTypeNode** iff `chain[0]` has a non-global-augmentation external
+  module declaration (NB:650-730): the module is dropped from the dotted name
+  (`stopper = 1`, NB:654), the specifier comes from
+  `getSpecifierForModuleSymbol`, and `import("m").X` is assembled at NB:721.
+- **TypeQueryNode / TypeReferenceNode** otherwise (NB:733-746): the dotted
+  name from `createAccessFromSymbolChain` (`stopper = 0`), wrapped in
+  `typeof …` when `isTypeOf`.
+- `createAccessFromSymbolChain` (NB:757-851) builds the dots; at index 0 the
+  name is `getNameOfSymbolAsWritten` under `InInitialEntityName`
+  (NB:769-773), and at index > 0 the symbol is re-looked-up **by name in the
+  parent's exports** so export aliases win (NB:776-798).
+
+**`getSpecifierForModuleSymbol` (NB:1249) does NOT reuse the written
+specifier.** The written one is consulted only to derive the resolution mode
+(NB:1275-1280); the printed text always comes from
+`modulespecifiers.GetModuleSpecifiers` with hardcoded
+`ImportModuleSpecifierPreferenceProjectRelative` (NB:998). **This retires
+§521's open question**: `allowsImportingTsExtension`'s `import("./a.ts")` is
+not written-specifier preservation — it is what the module-specifier
+generator computes under those options, and the port's §521 fallback needs
+that generator, not a carriage.
+
+### 4.4 The baseline path's flags (the fact that reframes M2)
+
+`type_symbol_baseline.go:395` calls `TypeToTypeNode` with
+`NoTruncation | AllowUniqueESSymbolType | GenerateNamesForShadowedTypeParams`
+plus `IgnoreErrors` and `AllowUnresolvedNames`. **`UseOnlyExternalAliasing` is
+not among them** (it is set only from `printer.go:268` and hover,
+`nodebuilder_hover.go:431`), so `NB:1088` always passes `false` — local
+aliases are eligible on every corpus line. And, per §2, the declaration-emit
+reuse machinery is not on this path at all.
+
+### 4.5 `globalThis` — the exact condition, and why SS197 measured −66
+
+`globalThisSymbol` is an ordinary `Module` symbol whose `Exports` IS the
+globals table (CH:962-964); there is no special case in the printer. The
+ONLY injection point is SA:588-591, at the very bottom of `trySymbolTable`:
+
+> when the DIRECT arm failed, the ExportSymbol arm produced nothing, the
+> alias loop produced zero candidate chains, **and the table is `c.globals`**,
+> return `getCandidateListForSymbol(globalThisSymbol, …)` — which recurses
+> into the globals table with `ignoreQualification = true` and yields the
+> two-element chain `[globalThis, target]`.
+
+In one sentence: **`globalThis.` is prefixed exactly when the target is
+reachable through the globals table but no in-scope table can name it,
+because a different symbol of the same meaning shadows the name and no alias
+offers a route.**
+
+SS197 measured **−66 cases** because it asked a *shadowing* question at every
+site — "does the bare name resolve to a different symbol?" — which fires in
+local scopes, module scopes and member scopes where upstream's rule cannot
+reach the globals arm at all. The rule is not "shadowed ⇒ qualify"; it is
+"shadowed AND global AND nothing else could name it ⇒ `globalThis.`". Those
+differ on exactly the ~78 sites SS197 damaged.
 
 ---
 
 ## 5. Build order
 
-*(Written after §4 lands.)*
+The ledger splits into work of very different sizes, and the read says the
+first slice is small and safe rather than architectural.
+
+**Slice 1 — `globalThis.` (M1), this session.** SA:588-591 transcribed onto
+the port's existing walk: `symbol_chain` already fails where upstream reaches
+the globals arm, so the arm is one fallback at that failure point, gated on
+(a) the symbol being reachable through globals, and (b)
+`needs_qualification` answering true at the site. Population: the
+`typeof globalThis.X` census row — `importAndVariableDeclarationConflict1-4`
+(4 deficit-1 cases), `collisionCodeGenModuleWith*` (12+). SS197's −66 is the
+falsifier: the narrow rule must not fire where the broad one did.
+
+**Slice 2 — shortest-chain selection (M1).** Replace `module_alias_at`'s
+ambiguity DECLINE with upstream's `compareSymbolChains` total order
+(shorter wins, then `compareSymbols`). Pays §14's two-alias refusal,
+`tsr-4jk`'s 692, and part of §501/§491's renamed residues.
+
+**Slice 3 — the name render becomes authoritative (M1).** §1.2's arm: a
+symbol-carrying `Named`/`Anonymous` renders its NAME from the symbol at the
+site (the `reference_text_at` road generalised), baked text as fallback for
+symbol-less mints. Pays design W's 1,770, §158, §168, §373, §311, §499,
+§503's 14. This is the big one and it needs slices 1-2 under it.
+
+**Slice 4 — module specifiers (M1/M2 boundary).** Port
+`modulespecifiers.GetModuleSpecifiers`' relative-path computation to replace
+§521's flat-mount approximation; retires §521's 11 adverse.
+
+**Non-blocking probe, before any M2 work:** §2's construction-order question,
+one `probefile` run.
 
 ---
 
-## 6. The bar, registered before the code
+## 6. The bar for slice 1, registered before the code
 
-*(Written after §5.)*
+- **Population**: rendered lines whose printed name would gain a
+  `globalThis.` prefix under the SA:588-591 rule.
+- **Predict**: the four `importAndVariableDeclarationConflict` cases convert
+  (+4), and the `collisionCodeGenModuleWith*` family moves.
+- **Refuse if**: any R→W lands in a PASSING case (the standing full-stop
+  rule), or the arm fires anywhere SS197's broad probe fired and upstream
+  does not want it — measured as: total wrongs must NET DOWN, and the
+  adverse must not exceed converts.
+- **Falsifier named in advance**: if the arm fires on more than a handful of
+  sites, the globals-reachability gate is not doing its job and the build is
+  SS197 again under a new name.
