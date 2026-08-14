@@ -1013,3 +1013,112 @@ thing slice 3 can find and fix, and a gap is not.
 **Falsifier for that claim**: if slice 3 lands and these two rows do not
 convert, the diagnosis here was wrong and the tie-break is reaching a road it
 should not.
+
+---
+
+## 15. §535 — slice 3 is REFUSED, and §1.2's premise is REFUTED by its own dump
+
+Slice 3 is ADR-0044's decision and §5's "big one": *a symbol-carrying
+`Named`/`Anonymous` renders its NAME from the symbol at the site, baked text as
+fallback for symbol-less mints*. §1.2 argued it was cheap — the render already
+exists in `reference_text_at` and only needs generalising ahead of
+`qualified_name_at`.
+
+**Opened, sized, and refused. Two measurements killed it, in this order.**
+
+### 15.1 The cheap half measures ZERO
+
+`reference_text_at` is gated to generic references (`!arguments.is_empty()`).
+Dropping that gate so every recorded reference takes the name road:
+
+```
+no transitions vs baseline
+```
+
+A zero-argument reference already reaches the identical text through
+`qualified_name_at`, because `split_around_name` fires exactly where the printed
+form IS the symbol's own name — which is every zero-argument reference.
+Reverted per §515, and the gate now carries a comment saying so, because the
+next reader's first instinct will be to re-run it.
+
+### 15.2 §1.2's premise, and what the dump says instead
+
+> *"Of 38 `new_named` call sites, the ones that mint a **nameable** type pass a
+> symbol; the ones passing `None` mint types that have no name to render."*
+
+That is the load-bearing claim under the whole slice, and it is **false**.
+Instrumenting the leaf road to print every `Named { members: Some(symbol) }`
+whose site-computed name differs from its baked text — **43,423 firings**, led
+by:
+
+| firings | baked | site name |
+|---:|---|---|
+| 1,544 | `{}` | `__object` |
+| 971 | `{}` | `__type` |
+| 372 | `{ x: number; }` | `__type` |
+| 357 | `{ p2: number; }` | `__object` |
+
+**Object and type literals carry a symbol** — the binder's synthetic `__object`
+/ `__type` — and they have no name. Rendering "the name from the symbol" there
+prints `__object` where the corpus wants `{ x: number; }`. Carrying a symbol is
+not the same property as being nameable, and §1.2 read one for the other.
+
+### 15.3 The gated population is worse, not better — the arm would DELETE correct qualifiers
+
+Excluding the synthetic `__`-prefixed symbols leaves a population that argues
+against the slice more strongly than the synthetic one did:
+
+| firings | baked | site name |
+|---:|---|---|
+| 517 | `this` | `C` |
+| 227 | `JSX.Element` | `Element` |
+| 209 | `C<T>` | `C` |
+| 168 | `quasiater.carolinensis` | `carolinensis` |
+| 136 | `Intl.NumberFormatOptions` | `NumberFormatOptions` |
+| 130 | `Underscore.Static` | `Static` |
+| 120 | `privateModule.publicClass` | `publicClass` |
+
+**In the dominant shape the baked text is already QUALIFIED and correct, and
+the site name is the BARE name.** `best_name` answers a symbol's own name or an
+alias's; it does not answer a qualified one — `qualified_name_at` adds the
+qualifier, and it already does, which is exactly why §15.1 measured zero. Making
+the name render authoritative would replace `Intl.NumberFormatOptions` with
+`NumberFormatOptions` several hundred times over.
+
+The rest of the population differs for reasons a name render cannot fix:
+`C<T>` → `C` drops the type arguments, and `this` → `C` is §164's this-type
+substitution, a separate mechanism with its own decision.
+
+### 15.4 The refusal, and its reopening condition
+
+> **Slice 3 as specified is refused.** The baked text is not an "inside view"
+> that a site-aware name render supersedes; for the symbol-carrying `Named`
+> population it is either already correct and *richer* than the symbol's name,
+> or it differs for a reason naming does not own. ADR-0044's decision rests on
+> §1.2's premise and that premise is refuted — **the ADR needs a superseding
+> record, not an edit.**
+>
+> **Reopen when** a render exists that produces a name at least as complete as
+> the baked text — i.e. `getAccessibleSymbolChain` ported so the site name
+> arrives already qualified, rather than bare with the qualifier bolted on
+> afterwards. That is the same missing function §12.4 names as the blocker for
+> re-pointing `symbol_chain`, which makes it the single highest-value unbuilt
+> item on this page. Until it exists, "render the name from the symbol" and
+> "render the qualified name from the symbol" are different functions, and only
+> the second one is the one ADR-0044 wanted.
+
+### 15.5 §11.3, a third time — and this one cost an ADR
+
+The loose rename bucket said ~400 cases and was 79 (§9). The `function ->
+function` near-miss ratio said one-slot and was 65% shape differences (§11).
+§1.2 said a symbol means a name, and 1,544 object literals say otherwise.
+
+All three were aggregate claims about a population that nobody had printed.
+**§11.3's rule is now carrying its third confirmed instance and should be
+promoted out of this page into `docs/conventions.md`** — it has caught more
+wrong work this campaign than any other single check.
+
+What it did NOT catch is worth stating too: §529, §531 and §533 were all sized
+by dumping rows first, and all three landed at or above their registered bars.
+The rule is not "distrust measurement", it is "distrust a ratio whose rows you
+have not seen".

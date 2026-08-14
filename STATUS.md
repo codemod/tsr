@@ -2028,6 +2028,40 @@ version of bare `any`.
 > exists to prevent, inverted. Overturned entries are struck here with the
 > section that overturned them, never deleted.
 
+### New, 2026-08-14, §535 — WALL 2's slice 3 (ADR-0044's decision) is REFUSED, and §1.2's premise is REFUTED by its own dump
+
+- **The number that refused it: 43,423.** That is how many times
+  `Named { members: Some(symbol) }` would take a site-computed name differing
+  from its baked text, and the population is led by **1,544 `{}` → `__object`**
+  and **971 `{}` → `__type`**. Object and type literals carry a symbol — the
+  binder's synthetic one — and have no name. §1.2's claim that *"the call sites
+  that mint a nameable type pass a symbol"* reads "carries a symbol" for
+  "is nameable"; they are different properties.
+- **The gated population argues harder against it than the synthetic one.**
+  Excluding `__`-prefixed symbols leaves `JSX.Element` → `Element` (227),
+  `quasiater.carolinensis` → `carolinensis` (168),
+  `Intl.NumberFormatOptions` → `NumberFormatOptions` (136),
+  `privateModule.publicClass` → `publicClass` (120): **the baked text is
+  already QUALIFIED and correct, and the site name is the BARE one.** Making
+  the name render authoritative would delete correct qualifiers by the hundred.
+  The remainder differs for reasons naming does not own — `C<T>` → `C` (209)
+  drops type arguments, `this` → `C` (517) is §164's this-type substitution.
+- **The cheap half measures ZERO.** Dropping `reference_text_at`'s
+  `!arguments.is_empty()` gate so every recorded reference takes the name road:
+  *no transitions vs baseline*. A zero-argument reference already reaches the
+  identical text through `qualified_name_at`. Reverted per §515; the gate now
+  carries a comment so it is not re-run.
+- **REOPENING CONDITION**: when a render exists that produces a name **at least
+  as complete as the baked text** — i.e. `getAccessibleSymbolChain`
+  (`symbolaccessibility.go:373`) ported, so the site name arrives already
+  qualified rather than bare with the qualifier bolted on afterwards. That is
+  the same missing function §12.4 names as the blocker for re-pointing
+  `symbol_chain`, which makes it **the highest-value unbuilt item on the wall-2
+  page**. "Render the name from the symbol" and "render the qualified name from
+  the symbol" are different functions; ADR-0044 wanted the second.
+- **ADR-0044 needs a SUPERSEDING record, not an edit** — its decision rests on
+  §1.2's premise. `checker-notes-sitename.md` §15.
+
 ### OVERTURNED this window (2026-08-11) — do NOT read the struck entries as live
 
 | refusal | struck by | what was actually wrong with it |

@@ -1398,6 +1398,14 @@ impl<'a, 'n> Checker<'a, 'n> {
             // (`Temporal.PartialTemporalLike<ZonedDateTimeLikeObject>` wanting
             // the argument qualified too). Any piece declining falls back to
             // the baked road below.
+            // **The zero-argument case is NOT worth widening this gate for**:
+            // dropping `!arguments.is_empty()` measures *no transitions vs
+            // baseline* over the whole corpus (§535). A non-generic reference
+            // already reaches the identical text through `qualified_name_at`
+            // below, because `split_around_name` fires exactly where the
+            // printed form IS the symbol's own name — which is every
+            // zero-argument reference. Reverted per §515; recorded so the next
+            // reader does not re-run it.
             if let Some((target, arguments)) = self.type_reference_targets.get(&id).cloned()
                 && !arguments.is_empty()
                 && !self.rendering_composites.contains(&id)
