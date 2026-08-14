@@ -1589,3 +1589,56 @@ The re-widen is doing real work that upstream does somewhere else, and the
 Recorded per §445's treatment: the refusal, its number, and what would make it
 revisitable. The `for-of` family is NOT available at this boundary and should
 not be re-ranked from a row dump without reading this section.
+
+---
+
+## 23. §547 — the rest element of a NON-TUPLE array pattern (+3 cases, 26 favorable : 1 adverse)
+
+The gap this arm left was named in its own comment and never closed:
+
+> *"A non-tuple parent declines too (upstream builds `T[]` from the iterated
+> type)."*
+
+`getTypeForBindingElement` (`checker.go:17797`) reaches
+`checkIteratedTypeOrElementType` when the parent is not a tuple and wraps the
+element in an array. §321 built the tuple half (`sliceTupleType`) and declined
+everything else.
+
+Probed first, and the probe found more than the row dump promised:
+
+```ts
+var [a, ...b] = new SymbolIterator;   // b : error   -> symbol[]
+var [d, ...e] = [1, 2, 3];            // still error, and so is `d`
+```
+
+The element comes from `for_of_element_type`, the same §284/§285 seam the
+array-spread road uses, so a custom iterator and a plain array take one path. A
+parent whose iterated type this port cannot decide keeps the gap — `None` here,
+never a guess. The arm is reached only when the parent is **not a tuple at all**,
+so it cannot silently answer the sliced-mask question §321 refused: a `readonly`
+or optional-masked tuple still declines above.
+
+```
+WRONG->RIGHT: 20   noUncheckedIndexedAccessDestructuring 10, generatorAssignability 2,
+                   restParameterWithBindingPattern3 1
+GAP->RIGHT:    6   objectRestAssignment 3, iterableArrayPattern12, 14
+GAP->WRONG:    1   compiler/declarationEmitDestructuring3 (already failing: 5 wrong, 1 gap)
+RIGHT->WRONG:  0
+checker_types 5,897 -> 5,900 (+3 cases), gradient 90.43%
+```
+
+**26 favorable against 1 adverse, zero R→W.** The reach is again far past the
+family that surfaced it — `noUncheckedIndexedAccessDestructuring` alone is 10
+lines and was not in the deficit-1 dump at all, which is the third time this
+session a defect-keyed arm paid more than its aimed-at rows (§537's
+`bigintPropertyName`, §539's `checkJsObjectLiteralIndexSignatures`, §541's
+`declarationEmitDestructuring4`).
+
+### 23.1 The residue, named
+
+`var [d, ...e] = [1, 2, 3]` still gaps, and **`d` gaps with it** — a *non-rest*
+element of the same pattern. That is a different blocker: the array-literal
+contextual road (`tuple_from_array_literal`) declines the whole pattern when it
+carries a rest, so the parent type never becomes a tuple and this arm's
+`for_of_element_type` is asked about a parent that already failed. Separate
+measurement, and it is the next thing to look at in this file.

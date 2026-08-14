@@ -186,6 +186,33 @@ impl Checker<'_, '_> {
                     {
                         return self.create_tuple_type(elements[index..].to_vec(), false);
                     }
+                    // §547: the NON-TUPLE parent, which the comment above
+                    // named and left as a gap — *"upstream builds `T[]` from
+                    // the iterated type"*. `getTypeForBindingElement`
+                    // (`checker.go:17797`) reaches
+                    // `checkIteratedTypeOrElementType` for a parent that is not
+                    // a tuple and wraps the element in an array, so
+                    // `var [a, ...b] = new SymbolIterator` reads
+                    // `b : symbol[]` (`iterableArrayPattern2`) and
+                    // `var [d, ...e] = [1, 2, 3]` reads `e : number[]`.
+                    //
+                    // The element comes from [`Checker::for_of_element_type`],
+                    // the same §284/§285 seam the array-spread road uses, so a
+                    // custom iterator and a plain array take one path. A parent
+                    // whose iterated type this port cannot decide keeps the
+                    // gap — `None` here, never a guess.
+                    //
+                    // A `readonly` or OPTIONAL-masked TUPLE still declines
+                    // above and must keep declining: this arm is reached only
+                    // when the parent is not a tuple at all, so it cannot
+                    // silently answer the sliced-mask question §321 refused.
+                    if self.tuple_element_lists.get(&parent_type).is_none()
+                        && let Some(element_type) = self.for_of_element_type(parent_type)
+                        && element_type != error
+                        && let Some(array) = self.global_type_symbol("Array")
+                    {
+                        return self.create_type_reference(array, vec![element_type]);
+                    }
                     return error;
                 }
                 // §497: upstream gates the positional read on
