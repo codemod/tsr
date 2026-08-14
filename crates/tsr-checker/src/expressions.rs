@@ -615,6 +615,26 @@ impl Checker<'_, '_> {
                                 return declared;
                             }
                         }
+                        // §475: a name that resolves ONLY to a TYPE
+                        // PARAMETER is upstream's TS2693 ("only refers to a
+                        // type") DETERMINISTICALLY — a type parameter can
+                        // never carry a value meaning in any file this port
+                        // has not loaded, so the §31 gate's "the port might
+                        // be the one failing to resolve it" argument does
+                        // not apply, and the answer is `errorType`, printed
+                        // `any` (`class C<T> extends T` records `>T : any`,
+                        // `typeParameterAsBaseClass`,
+                        // `inheritFromGenericTypeParameter`).
+                        if let Some(found) = anywhere
+                            && self
+                                .binder
+                                .symbols()
+                                .get(found)
+                                .flags
+                                .contains(SymbolFlags::TYPE_PARAMETER)
+                        {
+                            return self.intrinsics.any;
+                        }
                         if anywhere.is_some()
                             || node.text == "arguments"
                             || self.file_has_import_machinery(id)

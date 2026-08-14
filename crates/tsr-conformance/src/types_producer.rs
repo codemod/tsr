@@ -736,6 +736,20 @@ pub fn type_id_at_location<'a>(
                             tsr_binder::SymbolFlags::TYPE,
                         )
                     })
+                    // §475: `extends T` where T is a TYPE PARAMETER never
+                    // reaches this compensation — upstream's base-type
+                    // resolution fails, the writer falls back to
+                    // `GetTypeAtLocation(node)`, and the identifier road
+                    // answers TS2693's errorType, printed `any`
+                    // (`typeParameterAsBaseClass`). Declining here is what
+                    // lets the expression road answer.
+                    .filter(|&s| {
+                        !binder
+                            .symbols()
+                            .get(s)
+                            .flags
+                            .contains(tsr_binder::SymbolFlags::TYPE_PARAMETER)
+                    })
                     .map(|s| (s, None))
             }
             // §60: a QUALIFIED base (`extends N.C<...>`) resolves through
