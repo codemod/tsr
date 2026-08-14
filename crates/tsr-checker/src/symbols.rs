@@ -3317,6 +3317,37 @@ impl<'a> Checker<'a, '_> {
             {
                 return self.intrinsics.any;
             }
+            // §461: `getWidenedType` DESCENDS a tuple (`checker.go:16090`'s
+            // reference walk), so an inferred `[undefined, null]` widens
+            // per-element to `[any, any]` under non-strict
+            // (`wideningTuples3/4`). Unannotated declarations only — an
+            // annotation's written tuple never widens — and plain tuples
+            // only: an optional-masked tuple keeps its shape untouched.
+            if !self.strict_null_checks
+                && self.type_annotation_of(declaration).is_none()
+                && !self.tuple_optional_masks.contains_key(&id)
+                && let Some((elements, readonly)) = self.tuple_element_lists.get(&id).cloned()
+                && elements.iter().any(|&element| {
+                    let flags = self.store.get(element).flags;
+                    flags.intersects(TypeFlags::NULLABLE) && !flags.intersects(!TypeFlags::NULLABLE)
+                })
+            {
+                let any = self.intrinsics.any;
+                let widened: Vec<_> = elements
+                    .into_iter()
+                    .map(|element| {
+                        let flags = self.store.get(element).flags;
+                        if flags.intersects(TypeFlags::NULLABLE)
+                            && !flags.intersects(!TypeFlags::NULLABLE)
+                        {
+                            any
+                        } else {
+                            element
+                        }
+                    })
+                    .collect();
+                return self.create_tuple_type(widened, readonly);
+            }
             id
         } else {
             // Upstream returns `anyType` for a declaration with neither an
