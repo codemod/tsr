@@ -1722,6 +1722,70 @@ impl<'a, 'n> Checker<'a, 'n> {
         if name == "default" {
             return None;
         }
+        // §509: no qualifier where the bare name RESOLVES to this very
+        // symbol at the site - upstream's chain walk starts at the reference
+        // and stops at the first accessible spelling, so a member referenced
+        // from INSIDE its own namespace prints bare
+        // (`interMixingModulesInterfaces2-5` want `B` and `typeof B` inside
+        // `A`, `A.B` outside). `resolve_name` is the shadow-exact test: a
+        // shadowing `B` at the site resolves to the OTHER symbol and the
+        // qualifier proceeds.
+        if let Some(resolved) = self.binder.resolve_name(
+            self.nodes,
+            self.node_map,
+            reference,
+            name,
+            SymbolFlags::TYPE | SymbolFlags::VALUE,
+        ) {
+            let resolved = self.binder.merged_symbol(resolved);
+            let own = self.binder.merged_symbol(symbol);
+            // Identity, or the same written name in the same CONTAINER - the
+            // port carries an interface and its non-exported sibling
+            // namespace as two unmerged symbols where upstream merges them,
+            // and for NAMING purposes a same-name same-container hit is the
+            // symbol (the chain would spell identically).
+            // Identity, or a shared DECLARATION - the port can carry two
+            // symbol records for one written declaration (the locals-table
+            // entry and the exports/parented one), where upstream has one;
+            // for NAMING purposes a hit on the same declaration IS the
+            // symbol.
+            let same_spelling = resolved == own || {
+                let a = self.binder.symbols().get(resolved).declarations.first().copied();
+                let b = self.binder.symbols().get(own).declarations.first().copied();
+                // FIRST declarations must agree, not merely overlap: two
+                // same-named siblings whose visibility differs (the
+                // `duplicateSymbolsExportMatching` inst pair) share a merged
+                // name-table record, and the innermost bare hit is the one
+                // bound FIRST - the exported twin stays qualified.
+                a.is_some() && a == b
+            };
+            // ...and the hit must be LEXICAL: some shared declaration's own
+            // container block is an ancestor of the reference. Two sibling
+            // blocks of one merged `module M` are NOT each other's scope -
+            // upstream qualifies a first-block symbol referenced from the
+            // second (`duplicateSymbolsExportMatching`, a passing case, wants
+            // `typeof M.C`; the full-stop rule measured this gate in), while
+            // a member referenced from within its own block prints bare.
+            let lexically_contains_reference = |checker: &Self| {
+                let declarations = checker.binder.symbols().get(resolved).declarations.to_vec();
+                declarations.iter().any(|&declaration| {
+                    let Some(container) = checker.nodes.parent(declaration) else {
+                        return false;
+                    };
+                    let mut current = Some(reference);
+                    while let Some(node) = current {
+                        if node == container {
+                            return true;
+                        }
+                        current = checker.nodes.parent(node);
+                    }
+                    false
+                })
+            };
+            if same_spelling && lexically_contains_reference(self) {
+                return Some(printed);
+            }
+        }
         let Some(qualifier) =
             self.symbol_chain(symbol, reference, SymbolFlags::TYPE | SymbolFlags::VALUE, 0)
         else {

@@ -2350,3 +2350,30 @@ test is the precise instrument. The 22 G→W sit in eight already-failing
 cases (baseline non-right 3–25), the declarationEmit/jsxNamespace naming
 families — wall 2's population, where a resolved type now prints a name the
 per-site renderer cannot yet spell.
+
+## §509 — the bare-accessibility guard on the qualifier (+3 cases, 5,846 → 5,849, 61.32%; +5 W→R, 0 adverse; three gates each measured in)
+
+`qualified_name_at`'s tail qualified through `symbol_chain` even where the
+bare name RESOLVES to the symbol at the site — upstream's chain walk stops
+at the first accessible spelling, so a member referenced from INSIDE its own
+namespace prints bare (`interMixingModulesInterfaces2–5`: `B` and `typeof B`
+inside `A`, `A.B` outside). The guard's three components, each forced by a
+measurement in this order:
+
+1. **`resolve_name` identity** — the site's bare hit must BE the symbol (a
+   shadowing same-name resolves to the other symbol and the qualifier
+   proceeds). Alone it never fired: the port carries TWO symbol records for
+   one written declaration (the locals-table entry, parent None, and the
+   parented one the type mints with).
+2. **First-declaration equality**, not overlap — the shared-declaration
+   overlap draft converted the quartet and broke
+   `duplicateSymbolsExportMatching` (a PASSING case, 2 R→W): its two
+   same-named `inst` namespaces with DIFFERENT visibility share a merged
+   name-table record, and upstream keeps the EXPORTED twin qualified
+   (`typeof M.inst`) while the non-exported innermost prints bare. The
+   records' FIRST declarations distinguish them; the full-stop rule measured
+   the refinement in.
+3. **Lexical containment** — some declaration of the bare hit sits in a
+   block that is an ANCESTOR of the reference. Drafted between (1) and (2)
+   and insufficient alone; kept as a conjunct because it errs toward the
+   qualifier (the pre-§509 behavior) everywhere it declines.
