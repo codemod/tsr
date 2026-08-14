@@ -125,6 +125,14 @@ impl<'a> Checker<'a, '_> {
                 value: self.intrinsics.string,
             }]);
         }
+        // §539: an OBJECT LITERAL's index signature is minted at check time
+        // and lives in a side table, because the literal's `__object` symbol
+        // has no index-signature declaration for `index_infos_of_symbol` to
+        // find. Consulted before the symbol road and never after it: a literal
+        // that minted one has no declared signatures to merge with.
+        if let Some(infos) = self.object_literal_index_infos.get(&id) {
+            return Some(infos.clone());
+        }
         let TypeData::Named { members: Some(owner), .. } = self.store.get(id).data else {
             return Some(Vec::new());
         };

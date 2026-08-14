@@ -567,6 +567,8 @@ impl Checker<'_, '_> {
         // value type is the union of the contributing members' types
         // (`getObjectLiteralIndexInfo`, `:19721`).
         let mut index_values: Vec<(&'static str, TypeId)> = Vec::new();
+        // §539 — see the push below and `Checker::object_literal_index_infos`.
+        let mut minted_index_info: Option<crate::index_signatures::IndexInfo> = None;
         // SS325: late-bound ACCESSOR members merge by name - a get/set pair
         // is one property (the getter's type wins the display), a getter
         // without a setter is `readonly` (`symbolDeclarationEmit10`,
@@ -1365,6 +1367,27 @@ impl Checker<'_, '_> {
                 key: key.to_string(),
                 value: self.type_to_string(value),
             });
+            // §539: the same info, kept so the LOOKUP can consult it. Until
+            // now this signature existed only in the printed text — the type
+            // is a `Named` over the binder's `__object` symbol and
+            // `get_index_infos_of_type` recovers infos from a symbol's
+            // DECLARATIONS, which an object literal has none of. So
+            // `{ [this.bar()]: 1 }` printed `{ [x: number]: number; }` and
+            // `{ [this.bar()]: 1 }[0]` answered `errorType`.
+            //
+            // `symbol` keys are deliberately NOT recorded: `is_applicable_index_type`
+            // decides applicability for the `string`/`number` intrinsics and
+            // their literal types only, and a key it cannot judge must stay a
+            // gap rather than become a confident wrong value.
+            minted_index_info = match key {
+                "number" => {
+                    Some(crate::index_signatures::IndexInfo { key: self.intrinsics.number, value })
+                }
+                "string" => {
+                    Some(crate::index_signatures::IndexInfo { key: self.intrinsics.string, value })
+                }
+                _ => None,
+            };
         }
         let printed = render_object_type(&members);
         // The binder gives an object literal its own `__object` symbol, whose
@@ -1383,6 +1406,11 @@ impl Checker<'_, '_> {
         // §453: `ObjectFlagsFreshLiteral` — see the side table's doc on
         // `Checker::fresh_object_literal_types`.
         self.fresh_object_literal_types.insert(minted);
+        // §539: keyed by the minted type id, so the element-access lookup
+        // reaches the signature this literal prints.
+        if let Some(info) = minted_index_info {
+            self.object_literal_index_infos.insert(minted, vec![info]);
+        }
         minted
     }
 

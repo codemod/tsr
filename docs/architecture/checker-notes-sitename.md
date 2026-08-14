@@ -1297,3 +1297,83 @@ The rule for the next session's first move, stated so it does not have to be
 rediscovered: *before building for a family from any dump, write the two-line
 fixture the family claims is broken and run `probefile` on it.* If it already
 prints correctly, the family is a text cluster and needs re-deriving by cause.
+
+---
+
+## 19. §18.2 CORRECTED, and §539 — an object literal's index signature was printed but not consultable
+
+### 19.1 The correction first
+
+§18.2 read §537's `+9 lines / +0 cases` as *"the 563 deficit-1 cases are a
+hypothesis about cases"* and left the impression that the dump does not predict
+case conversion. **That was too strong, and the arithmetic that settles it is
+one line:**
+
+```
+cases in the baseline           9,518
+all-right in scorepair          6,015
+coverage passes                 5,888
+                                -----
+all-right but coverage fails      127   (2.1%)
+```
+
+So a case that becomes all-right in scorepair converts to a coverage pass
+**about 98% of the time**. The instruments *do* score different populations —
+474,196 lines against 478,855, and that part of §18.2 stands — but the practical
+consequence is a 2% miss rate, not an unusable dump.
+
+§537 drew a family that was **entirely inside that 2.1%**: all four
+`templateStringInPropertyName*` fixtures are syntax-error fixtures, which is
+exactly where coverage scores lines the verdict baseline does not carry. An
+unlucky first draw, read as a property of the instrument. Corrected here rather
+than silently edited, per the project's own rule.
+
+**The usable form of the rule**: deficit-1 is a good ranking, and the 2% it
+misses is concentrated in error-recovery fixtures. Prefer families whose
+fixtures are ordinary code, and keep §18.4's probe-first step, which is what
+actually catches a bad family.
+
+### 19.2 §539, drawn on the corrected reading, and it converts exactly as predicted
+
+The next pair off the dump — `conformance/computedPropertyNames23_ES6` and
+`26_ES6`, both wanting `number` and getting `any`, both ordinary fixtures.
+
+`§18.4`'s probe first:
+
+```ts
+var y = { [this.bar()]: 1 };      // >y : { [x: number]: number; }   correct
+var z = { [this.bar()]: 1 }[0];   // >z : error                      wrong
+```
+
+**The index signature is computed correctly and the lookup cannot see it.**
+`check_object_literal` builds it (§206, `getObjectLiteralIndexInfo`,
+`checker.go:19721`) and pushes it into the members list it *prints* from; the
+minted type is a `TypeData::Named` over the binder's `__object` symbol; and
+`get_index_infos_of_type` recovers index infos from a symbol's **declarations**,
+which an object literal has none of. So the type printed a signature it could
+not consult, and every `{ [computed]: v }[k]` answered `errorType`.
+
+The fix is a side table keyed by the minted type id —
+`Checker::object_literal_index_infos`, per ADR-0003 and matching the two tables
+already declared beside it (`js_literal_types`, `fresh_object_literal_types`),
+because the information exists only where the literal was checked. Consulted
+ahead of the symbol road and never after it: a literal that minted a signature
+has no declared ones to merge with.
+
+`symbol` keys are deliberately not recorded. `is_applicable_index_type` decides
+applicability for the `string`/`number` intrinsics and their literal types only,
+and a key it cannot judge must stay a gap rather than become a confident wrong
+value.
+
+```
+WRONG->RIGHT: 15   (includes §537's 9, whose baseline had not been re-accepted)
+GAP->RIGHT:    4    compiler/checkJsObjectLiteralIndexSignatures
+no adverse transition of any kind
+checker_types 5,888 -> 5,890 (+2 cases)
+```
+
+**+2 cases, which is exactly what the deficit-1 dump predicted for that pair** —
+the corrected §19.1 reading, confirmed on its first use. The reach beyond the
+prediction is `checkJsObjectLiteralIndexSignatures`, 8 lines the arm picked up
+without being aimed at them, which is the same good sign §537's
+`bigintPropertyName` was: the fix is keyed on the defect, not on the fixture.

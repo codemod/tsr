@@ -486,6 +486,25 @@ pub struct Checker<'a, 'n> {
     /// upstream's has been cloned regular — measured, and the corpus holds no
     /// case where that direction shows.
     pub(crate) fresh_object_literal_types: rustc_hash::FxHashSet<crate::types::TypeId>,
+    /// The index signature an **object literal** minted, keyed by the type id.
+    ///
+    /// §539. `check_object_literal` builds a computed-name literal's index
+    /// signature (`getObjectLiteralIndexInfo`, `checker.go:19721`) and pushes it
+    /// into the members list it *prints* from — so `{ [this.bar()]: 1 }` reads
+    /// `{ [x: number]: number; }` correctly. But the minted type is a
+    /// `TypeData::Named` over the binder's `__object` symbol, and
+    /// [`Checker::get_index_infos_of_type`] recovers index infos from a
+    /// symbol's **declarations**. An object literal has no index-signature
+    /// declaration, so the lookup found nothing and every
+    /// `{ [computed]: v }[k]` answered `errorType` while printing the signature
+    /// it could not consult.
+    ///
+    /// A side table rather than a `TypeData` field, per
+    /// [ADR-0003](../../../docs/adr/0003-tree-plus-side-tables.md) and matching
+    /// the two tables declared beside it — the information exists only where
+    /// the literal was checked, which is exactly the shape a side table is for.
+    pub(crate) object_literal_index_infos:
+        rustc_hash::FxHashMap<crate::types::TypeId, Vec<crate::index_signatures::IndexInfo>>,
     /// The identifier the JSX namespace hangs off, `getJsxNamespace`'s
     /// `c._jsxNamespace` (`internal/checker/jsx.go:1372-1382`).
     ///
@@ -901,6 +920,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             no_implicit_any: false,
             js_literal_types: rustc_hash::FxHashSet::default(),
             fresh_object_literal_types: rustc_hash::FxHashSet::default(),
+            object_literal_index_infos: rustc_hash::FxHashMap::default(),
             jsx_namespace: "React".to_string(),
             jsx_emit: tsr_core::JsxEmit::None,
             exact_optional_property_types: false,
