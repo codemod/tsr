@@ -690,6 +690,47 @@ impl<'a> Checker<'a, '_> {
             }
             return error;
         }
+        // §491: an ES named import in TYPE position resolves through the alias
+        // — `resolveTypeReferenceName` calls `resolveAlias` and
+        // `getDeclaredTypeOfSymbol` answers for the TARGET. Probed before
+        // building: `import { A } from "./a"; let _: A` printed `error`
+        // corpus-wide, including through `export type *` chains
+        // (`exportNamespace6/9`, whose annotations resolve while the VALUE use
+        // is the diagnostics lane's error). UNRENAMED specifiers only: the
+        // target's declared type prints the target's own name, which is the
+        // local name exactly when no `as` intervenes — a renamed specifier
+        // would print the wrong name on every line, the §158 per-site naming
+        // wall, so it stays a gap.
+        if self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::ALIAS)
+            && self.declaration_of_alias_symbol(symbol).is_some_and(|declaration| {
+                matches!(self.node_map.get(declaration), Some(Node::ImportSpecifier(specifier))
+                    if specifier.property_name.is_none())
+            })
+        {
+            if let Some(target) = self.resolve_alias(symbol) {
+                let merged = self.binder.merged_symbol(target);
+                // TYPE_ALIAS targets decline: a cross-file alias CYCLE
+                // (`circular2`'s `type A = B` / `type B = A` through
+                // `import type`) re-enters `get_declared_type_of_type_alias`,
+                // whose §29 placeholder prints the alias's own NAME where
+                // upstream's circularity error prints `any` — measured as the
+                // arm's only R→W (4 lines, a passing case) before this gate.
+                if self.binder.symbols().get(merged).flags.intersects(SymbolFlags::TYPE)
+                    && !self.binder.symbols().get(merged).flags.contains(SymbolFlags::TYPE_ALIAS)
+                {
+                    let parameters = self.local_type_parameters_of(merged).len();
+                    if parameters == 0 {
+                        if !node.type_arguments.is_empty() {
+                            return error;
+                        }
+                        let declared = self.get_declared_type_of_symbol(merged);
+                        return self.get_regular_type_of_literal_type(declared);
+                    }
+                    return self.get_instantiated_type_reference(node, merged, parameters);
+                }
+            }
+            return error;
+        }
         let parameters = self.local_type_parameters_of(symbol).len();
         if parameters == 0 {
             // `checkNoTypeArguments` (`checker.go:23157`): arguments on a type

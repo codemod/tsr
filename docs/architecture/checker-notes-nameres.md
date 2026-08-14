@@ -2296,3 +2296,30 @@ this page's own history is a list of ceilings that converted at a fraction.
 - **The 272 "prints something else" lines are mostly not `T`.** The head is read
   from the top 12 pairs, which is 122 of 272; the remaining 150 are unread and
   the claim that they are the same two families is an inference (`open`).
+
+## §491 — an ES named import resolves in TYPE position (+13 checker cases, 5,804 → 5,817, 60.99%; +7 diagnostics; +169 right / −140 wrong at 169:1; gradient 90.28%)
+
+Probed before building: `import { A } from "./a"; let _: A` printed `error`
+CORPUS-WIDE — the type-reference road had no alias arm at all
+(`get_declared_type_of_symbol` matches CLASS/INTERFACE/TYPE_PARAMETER/
+TYPE_ALIAS/ENUM and an ALIAS fell to `error`), while the VALUE road resolved
+the same names. One arm in `get_type_from_type_reference`
+(`resolveTypeReferenceName` → `resolveAlias` → `getDeclaredTypeOfSymbol` of
+the TARGET), with three gates each carrying a measurement:
+
+- **UNRENAMED specifiers only** (`property_name.is_none()`): the target's
+  declared type prints the target's own name, which is the local name exactly
+  when no `as` intervenes — a renamed specifier is the §158 per-site naming
+  wall and stays a gap.
+- **TYPE_ALIAS targets decline**: the first pair's only R→W (4 lines,
+  `conformance/circular2`, a PASSING case — the full-stop class) was the §29
+  name-placeholder cycle seam printing `B` where upstream's circularity error
+  prints `any`; the gate removed all 4 and cost 49 of 218 gross lines.
+- Generic targets flow to `get_instantiated_type_reference` with the
+  TARGET's parameters.
+
+This also resolves through `export type *` chains (`exportNamespace6/9`, the
+directed vein that found it — their annotations type while the value-use
+error stays the diagnostics lane's), and the biggest wins are elsewhere:
+`dynamicNames` 56, the jsxNamespace reexport family, moduleAugmentation*.
+The cross-file binding wall (bd tsr-9or.1) just lost its widest single road.
