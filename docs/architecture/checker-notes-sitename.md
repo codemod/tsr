@@ -1530,3 +1530,62 @@ Separate measurement; it keeps the gap it always had.
 > different wrong answer. `no transitions vs baseline` means *nothing scored
 > moved* — it does not tell you whether the code ran. **Dump a row from the
 > target family before concluding that a zero is a refusal.**
+
+---
+
+## 22. §545 REFUSED — the destructuring-default re-widen is load-bearing (8 R→W against 1 W→R)
+
+Next family off the ranking: `for-of36/43` and `for-of46`'s siblings, wanting
+`number | true` where the port prints `number | boolean` — a destructuring
+default's literal type surviving into the union.
+
+Probed and reproduced outside `for-of` first, which is what made it worth
+opening:
+
+```ts
+var q = { p: 0 };
+var { p: c = true } = q;    // ours: number | boolean   upstream: number | true
+```
+
+`destructure.rs`'s annotation-less leg (§315, `checker.go:17789`) runs
+`getUnionTypeEx([strip(t), checkDeclarationInitializer], UnionReductionSubtype)`
+and then, when any constituent of the reduced union is FRESH, re-widens every
+constituent and re-reduces. That re-widen is what turns `number | true` into
+`number | boolean`.
+
+**The hypothesis was that the re-widen is redundant** — subtype reduction
+already absorbs the case it was added for (`var [x = 20] = [1, 2]` records
+`number` because `20` is a subtype of `number`), while `true` is not a subtype
+of `number` and should survive. Upstream has no such re-widen.
+
+**Measured, and the hypothesis is wrong:**
+
+```
+RIGHT->WRONG: 8   destructuringWithLiteralInitializers2 3, declarationsAndAssignments 2,
+                  for-of43 1, literalTypesAndDestructuring 1, literalTypesAndTypeAssertions 1
+WRONG->RIGHT: 1   for-of43 1
+```
+
+**8 R→W against 1 W→R, and `for-of43` appears on BOTH sides** — removing the
+re-widen fixes one of its lines and breaks another. Reverted; the tree
+re-measures `no transitions vs baseline`.
+
+### 22.1 The reopening condition
+
+The re-widen is doing real work that upstream does somewhere else, and the
+8 losses name where to look: `destructuringWithLiteralInitializers2` and
+`declarationsAndAssignments` are the shapes it protects.
+
+> **Reopen when the port has upstream's fresh/regular literal distinction at
+> this boundary.** Upstream widens a fresh literal at the *declaration* through
+> `getWidenedType` and keeps a regular one; this port has one literal type and
+> approximates the difference with a whole-union re-widen, which is too coarse
+> in one direction (`true` beside `number`) and exactly right in the other
+> (`20` beside `number`, `"a"` beside `string`). The blanket re-widen cannot be
+> narrowed by a predicate over the *reduced* union — that is what this
+> measurement rules out — so the distinction has to arrive with the
+> constituents.
+
+Recorded per §445's treatment: the refusal, its number, and what would make it
+revisitable. The `for-of` family is NOT available at this boundary and should
+not be re-ranked from a row dump without reading this section.
