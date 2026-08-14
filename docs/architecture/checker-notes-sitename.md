@@ -1457,3 +1457,41 @@ Two halves deliberately not ported, each stated rather than dropped:
 A missing global `Iterable` keeps §455's empty tuple rather than gapping: the
 lib may simply not be mounted, upstream's own answer there is `anyArrayType`,
 and a decline must not be worse than what the arm already produced.
+
+---
+
+## 21. §543's candidate, PROBED AND REPRODUCED — two spread arguments in one call gap the call
+
+Handed off with a minimal repro rather than built, because the window ended
+here. This is the next family off §19.1's corrected deficit-1 ranking:
+`iteratorSpreadInCall7/8/9/10` — **4 deficit-1 cases**, ordinary fixtures.
+
+§18.4's probe first, and it took two rounds to find the real shape:
+
+```ts
+function foo<T>(...s: T[]) { return s[0]; }
+class A { next() { return { value: Symbol(), done: false }; }
+          [Symbol.iterator]() { return this; } }
+
+var r = foo(...new A);          // >r : symbol      CORRECT
+var a = [...new A];             // >a : symbol[]    CORRECT
+var r2 = foo(...new A, ...new B);  // >r2 : error   WRONG
+```
+
+**One spread works; two spreads in one call gap it.** The iterator seam
+(§284/§285) and the single-spread call road are both fine — the defect is in
+combining two spread arguments, and `iteratorSpreadInCall7`'s own source is
+exactly `foo(...new SymbolIterator, ...new _StringIterator)`.
+
+That is worth recording precisely because the first probe *passed*: the obvious
+two-line fixture (`foo(...new SymbolIterator)`) prints `symbol` correctly, and a
+session that stopped there would have written the family off as another
+want-text cluster (§18.4) when it is a real, narrow, reproducible defect.
+
+> **Probe the fixture's ACTUAL shape, not the shape its name suggests.** §18.4's
+> rule catches false families; this is its complement — a probe that passes has
+> only cleared the shape you wrote, so read the failing fixture's own line
+> before concluding.
+
+Expected population: the 4 deficit-1 cases plus whatever else combines spreads,
+which the row dump does not bound from above. Unbuilt; no measurement claimed.
