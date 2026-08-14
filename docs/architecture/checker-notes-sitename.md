@@ -580,3 +580,83 @@ name buckets DOWN. The check: take the 22,095 structural lines and re-bucket
 them by whether their two type texts share a symbol-derived skeleton. Not
 run. Until it is, treat 79 cases as a floor for wall 2 and 75.8% as a ceiling
 for "not wall 2".
+
+---
+
+## 10. The other three quarters, sized — where the campaign's distance actually is
+
+§9 established that naming is 3.1% of the remaining damage. This sizes the
+rest, by the transition `(what we print) -> (what is wanted)`, and then asks
+the only question that matters for planning: **how many failing cases are
+blocked by exactly ONE transition** — i.e. would convert whole if that single
+mechanism were fixed. Instrument: `scripts/typegap_sizing.py`, same input.
+
+### 10.1 The transitions
+
+| we print | wanted | lines | share |
+|---|---|---:|---:|
+| `any` | function | 5,231 | 12.6% |
+| `any` | primitive | 5,216 | 12.6% |
+| function | function | 2,859 | 6.9% |
+| `error` | function | 2,813 | 6.8% |
+| `any` | object | 1,897 | 4.6% |
+| object | object | 1,725 | 4.2% |
+| `any` | name | 1,704 | 4.1% |
+| `any` | generic-ref | 1,598 | 3.9% |
+| `error` | primitive | 1,598 | 3.9% |
+| `any` | union | 1,352 | 3.3% |
+
+**`any` is the printed value on roughly 45% of all remaining damage.** Not
+`error` — `any`. The port answers a confident `any` where upstream computes a
+real type far more often than it gaps.
+
+### 10.2 The number to plan against
+
+**1,259 of 3,522 failing cases (36%) are blocked by exactly one transition.**
+The largest single-mechanism populations, by CASES:
+
+| cases | lines | transition |
+|---:|---:|---|
+| 100 | 396 | `any` → function |
+| 93 | 329 | `any` → primitive |
+| 93 | 218 | function → function |
+| 82 | 359 | `any` → object |
+| 60 | 219 | `error` → function |
+| 58 | 268 | object → object |
+| 51 | 163 | `any` → name |
+| 41 | 143 | `error` → `any` |
+| 39 | 108 | `error` → object |
+| 39 | 88 | typeof → typeof |
+
+Two readings, both load-bearing:
+
+1. **Function types are the single largest owner** — `any → function` (100)
+   plus `error → function` (60) plus `function → function` (93) is **253
+   single-transition cases**, and that is signature/contextual computation,
+   the territory `checker-notes-fnexpr.md` §10 measured at 86% entangled and
+   refused. The refusal was correct about the *contextual* half; this number
+   says the family is worth re-pricing as a whole, because it is now the
+   biggest thing on the board by cases.
+2. **`function → function` is 2.3 lines per case** — the signature IS
+   computed and one slot is wrong. Sampling shows at least four distinct
+   small mechanisms in it (union constituent order, a missing `| undefined`,
+   missing type parameters on the printed signature, `Promise<never>` vs
+   `Promise<void>`). Those are near-misses, not architecture.
+
+### 10.3 What this means for the 70% target
+
+`checker_types` is at 5,869/9,538. Reaching 6,677 needs +808. The
+single-transition population is 1,259 cases across ~20 mechanisms, and wall 2
+owns 79 of them. **No single build gets there; roughly eight to twelve of
+these mechanisms would.** That is a real, countable plan for the first time —
+and it says the campaign is a function-type-and-inference campaign, not a
+printing one.
+
+### 10.4 How you would know this is wrong
+
+The transitions are computed from PRINTED text, so a case whose lines all read
+`any → primitive` may be blocked by one cause or by five unrelated ones; the
+"single transition" test bounds the mechanism count from BELOW, not above.
+And a case with two transitions may still have one cause. Treat 1,259 as the
+count of cases with a *coherent* shape, and re-derive per family before
+building — exactly as §9's first loose pass had to be tightened.
