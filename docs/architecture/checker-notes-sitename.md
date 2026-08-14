@@ -1914,3 +1914,51 @@ unchanged.
 §413's rule was right all along — numeric and string method names take the
 property path's spelling, so `{ ["m"]() { } }` is `{ m(): number; }` exactly as
 `{ "foo"() { } }` is `{ foo(): void; }`.
+
+---
+
+## 27. §557 — a NEGATIVE numeric computed name keeps the bracketed form (+1 case, 6 W→R, 0 adverse)
+
+§553's own residue, found by probing its neighbourhood rather than by a row
+dump. The arm spelled every number-literal name through
+`printing::normalise_number` and printed it bare:
+
+```ts
+var e = { [-1]: 1 };   // ours: { -1: number; }   upstream: { [-1]: number; }
+```
+
+Two baselines settle it, and both are cases §553 itself moved:
+
+```
+computedPropertiesNarrowed.types              >t6 : { [-1]: number; }
+duplicateObjectLiteralProperty_computedName1  >{ "-1": 1, [-1]: 0 } : { [-1]: number; }
+```
+
+**A negative number is not spellable as a property name** — it is a unary
+expression, not a numeric literal token — so upstream keeps the written
+bracketed form. A non-negative one still prints bare (`{ [1]: 1 }` is
+`{ 1: number; }`, unchanged).
+
+```
+WRONG->RIGHT: 6   declarationEmitPartialReuseComputedProperty 4,
+                  computedPropertiesNarrowed 2
+no adverse transition of any kind
+checker_types 5,909 -> 5,910 (+1 case)
+```
+
+### 27.1 The pattern in the last four landings
+
+§553 opened a road, and §555 and §557 are both **its own residues**, each found
+by probing shapes the new arm now reaches and comparing against a baseline:
+
+| | | |
+|---|---|---|
+| §553 | the literal halves exist at all | +4 |
+| §555 | a literal-named METHOD keeps method spelling | +3 |
+| §557 | a NEGATIVE numeric name keeps brackets | +1 |
+
+**+8 cases from one seam**, and the two follow-ups cost a probe each. That is
+worth stating as method: *after landing an arm that makes new members exist,
+probe the shapes it newly reaches and diff them against baselines* — the arm's
+own conversions are where its residues hide, because those are the only places
+the new code runs.

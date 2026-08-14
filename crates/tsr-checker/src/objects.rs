@@ -398,7 +398,20 @@ impl Checker<'_, '_> {
             }
             crate::types::TypeData::NumberLiteral(text) => {
                 let text = text.clone();
-                return Some((printing::normalise_number(&text), true));
+                let spelled = printing::normalise_number(&text);
+                // §557: a NEGATIVE numeric name keeps the BRACKETED written
+                // form. `computedPropertiesNarrowed.types` records
+                // `>t6 : { [-1]: number; }` and
+                // `duplicateObjectLiteralProperty_computedName1` the same —
+                // upstream prints `[-1]`, never a bare `-1`, because a
+                // negative number is not spellable as a property name (it is a
+                // unary expression, not a numeric literal token). §553's arm
+                // spelled it bare, which was a residue of its own conversion:
+                // `computedPropertiesNarrowed` is one of the cases §553 moved.
+                if spelled.starts_with('-') {
+                    return Some((format!("[{spelled}]"), true));
+                }
+                return Some((spelled, true));
             }
             _ => {}
         }
