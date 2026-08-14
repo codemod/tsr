@@ -1642,3 +1642,52 @@ contextual road (`tuple_from_array_literal`) declines the whole pattern when it
 carries a rest, so the parent type never becomes a tuple and this arm's
 `for_of_element_type` is asked about a parent that already failed. Separate
 measurement, and it is the next thing to look at in this file.
+
+---
+
+## 24. §549 — §23.1's residue: a declined tuple context was CONTAGIOUS (+2 cases, 86 favorable : 12 adverse)
+
+§547 left `var [d, ...e] = [1, 2, 3]` gapping, and **`d` gapped with it** — a
+*non-rest* element whose positional read works fine on `number[]`. §23.1 named
+the blocker and this closes it.
+
+`tuple_from_array_literal` refuses several shapes: a rest in the pattern, a
+spread in the literal, a pattern longer than the literal. **Every one of those
+refusals is about the TUPLE CONTEXT, not about the initializer having no type.**
+Upstream's `checkDeclarationInitializer` still answers `number[]` for
+`[1, 2, 3]` when the contextual tuple does not apply. Returning `error` made the
+refusal contagious — it poisoned the parent type, and every element of the
+pattern gapped with it.
+
+One change: a decline falls through to the plain
+`check_expression` + `widenTypeInferredFromInitializer` road already sitting
+below it, instead of returning.
+
+```
+WRONG->RIGHT: 51   intraBindingPatternReferences 14,
+                   destructuringArrayBindingPatternAndAssignment3 13,
+                   declarationEmitDestructuringArrayPattern2 3
+GAP->RIGHT:    35  destructuringArrayBindingPatternAndAssignment5SiblingInitializer 13,
+                   declarationEmitDestructuringArrayPattern4 8, parserForStatement9 8
+GAP->WRONG:    12  declarationEmitDestructuringArrayPattern4 (already failing: 6 wrong, 20 gap)
+RIGHT->WRONG:   0
+checker_types 5,900 -> 5,902 (+2 cases), gradient 90.43% -> 90.45%
+```
+
+**86 favorable against 12 adverse, zero R→W.** All 12 land in one already-failing
+case, which also gains 8 G→R in the same run — the arm moves that case's gaps
+into answers, 8 of them right and 12 wrong, and the whole-corpus ratio is 7:1.
+
+### 24.1 What this says about decline plumbing generally
+
+The bug was not in what `tuple_from_array_literal` refuses — every one of its
+refusals is correct and each carries its own recorded reason. It was in **how
+the refusal was returned**: `error` is this port's gap sentinel *and* its "not
+applicable" answer, and those are different claims. A function that declines an
+OPTIONAL enrichment must not return the value that means *this construct has no
+type*.
+
+> **Worth a sweep**: any helper whose contract is "compute a better type if you
+> can" and whose decline path returns `error` is a candidate for the same bug.
+> This one cost 86 lines across 8 cases and was invisible because the decline
+> was correct and the plumbing was not.

@@ -478,7 +478,26 @@ impl Checker<'_, '_> {
                     if let tsr_ast::Expression::ArrayLiteralExpression(literal) = initializer
                         && self.holder_pattern_kind(holder) == Some(SyntaxKind::ArrayBindingPattern)
                     {
-                        return self.tuple_from_array_literal(literal, holder);
+                        // §549: a DECLINE falls through to the plain
+                        // initializer road below rather than poisoning the
+                        // parent. `tuple_from_array_literal` refuses several
+                        // shapes (a rest in the pattern, a spread in the
+                        // literal, a pattern longer than the literal) and each
+                        // refusal is about the TUPLE CONTEXT, not about the
+                        // initializer having no type at all: upstream's
+                        // `checkDeclarationInitializer` still answers
+                        // `number[]` for `[1, 2, 3]` when the contextual tuple
+                        // does not apply.
+                        //
+                        // Returning `error` here made the refusal contagious —
+                        // `var [d, ...e] = [1, 2, 3]` gapped `e` AND `d`, a
+                        // NON-rest element whose positional read
+                        // (`isArrayLikeType`, `checker.go:17769`) works fine on
+                        // `number[]`. §23.1 named this as §547's residue.
+                        let tuple = self.tuple_from_array_literal(literal, holder);
+                        if tuple != error {
+                            return tuple;
+                        }
                     }
                     // `widenTypeInferredFromInitializer(checkDeclarationInitializer(..))`
                     // (`checker.go:16748`), the same pair the identifier path
