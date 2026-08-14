@@ -1316,7 +1316,42 @@ impl Checker<'_, '_> {
             // gapping, and so does one mixing key kinds: upstream emits one
             // index info per kind, in string/number/symbol order, and getting
             // that order wrong prints a plausible wrong line. §206.
-            if !members.is_empty() {
+            // §551: the NUMBER-key slice of upstream's filter.
+            // `getObjectLiteralIndexInfo` (`checker.go:19721`) does not decline
+            // a mixed literal — it filters `propertiesArray` by whether each
+            // property's name suits the key, and for a NUMBER key that is the
+            // numerically-named members only. So
+            // `{ x: 1, [k]: 2 }` with `k: number` is
+            // `{ x: number; [x: number]: number; }`: `x` stays a PROPERTY and
+            // contributes nothing to the index value.
+            //
+            // The decline's stated reason was *"this port has no numeric-name
+            // predicate for a written name"*. It does: a written numeric name
+            // is normalised through `printing::normalise_number` at the mint
+            // above, so a member whose name is all digits is exactly the
+            // numeric case. When NO named member is numeric the filter removes
+            // nothing and the two agree by construction — which is the slice
+            // taken here.
+            //
+            // Still declining, each for its own reason:
+            //
+            // - **A numerically-named member beside a number key.** It joins
+            //   the index value union, and the union's ORDER against upstream's
+            //   is unverified. A wrong order prints a plausible wrong line.
+            // - **A STRING key beside named members.** Upstream's filter keeps
+            //   everything but symbol-named properties, so every named member
+            //   contributes to the value union — a different computation, not
+            //   this one, and it is measured separately or not at all.
+            // - **Mixed key kinds**, unchanged below: upstream emits one index
+            //   info per kind in string/number/symbol order and getting that
+            //   order wrong prints a plausible wrong line.
+            let numeric_named = members.iter().any(|member| match member {
+                Member::Property { name, .. } => {
+                    !name.is_empty() && name.bytes().all(|b| b.is_ascii_digit())
+                }
+                _ => true,
+            });
+            if !members.is_empty() && (index_values[0].0 != "number" || numeric_named) {
                 return error;
             }
             let key = index_values[0].0;

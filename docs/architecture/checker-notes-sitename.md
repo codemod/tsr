@@ -1720,3 +1720,48 @@ probe that PASSES has only cleared the shape you wrote.
 
 Unbuilt, no measurement claimed, and recorded specifically so the next session
 does not re-derive the same non-reproduction.
+
+---
+
+## 25. §551 — the NUMBER-key slice of `getObjectLiteralIndexInfo`'s filter (+3 lines, 0 adverse, +0 cases)
+
+§24.1's sweep, run. Probing the decline paths of `check_object_literal` found
+two poisoned shapes:
+
+```ts
+declare var k: number;
+var a = { x: 1, [k]: 2 };          // error   -> { x: number; [x: number]: number; }
+var b = { [k]: 1, ["s"+""]: 2 };   // error   (mixed key kinds, still declines)
+```
+
+**Upstream does not decline a mixed literal.**
+`getObjectLiteralIndexInfo` (`checker.go:19721`) filters `propertiesArray` by
+whether each property's name suits the key, and for a NUMBER key that is the
+numerically-named members only. `x` is not numeric, so it stays a PROPERTY and
+contributes nothing to the index value.
+
+The §206 decline's stated reason was *"this port has no numeric-name predicate
+for a written name"*. **It does** — a written numeric name is normalised through
+`printing::normalise_number` at the mint a few lines above, so an all-digits
+member name is exactly the numeric case. When NO named member is numeric the
+filter removes nothing and the two computations agree by construction, which is
+the slice taken.
+
+Three shapes still decline, each for its own recorded reason: a numerically-named
+member beside a number key (it joins the index value union, whose ORDER against
+upstream's is unverified); a STRING key beside named members (upstream's filter
+keeps everything but symbol-named, so every member contributes — a different
+computation); and mixed key kinds (one index info per kind, in string/number/
+symbol order).
+
+```
+WRONG->RIGHT: 3   modularizeLibrary_ErrorFromUsingES6FeaturesWithOnlyES5Lib
+no adverse transition of any kind
+checker_types 5,902 (+0 cases), gradient 90.45%
+```
+
+**+0 cases, and landed anyway** — it is not §515's zero: three lines moved right,
+nothing moved wrong, and it removes a shape (`{ x: 1, [computed]: 2 }`) that
+gapped whole where upstream answers. The case count does not move because the
+lines are spread across cases with other blockers, which §19.1 already
+quantified as the ordinary situation for a 3-line arm.
