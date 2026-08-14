@@ -52,3 +52,30 @@ fn a_mutable_export_written_the_same_way_keeps_its_type() {
 M[\"x\"] = 1;";
     assert_eq!(type_of_element_access(source), "number");
 }
+
+/// §477 `isForInVariableForNumericPropertyNames` (`checker.go:8179`): the
+/// for-in variable of a loop over a NUMERIC-only-indexed object reads as
+/// `number` at the access, though its own type is `string`
+/// (`capturedLetConstInLoop1` records `iobj[ix] : any` from
+/// `{ [x: number]: any }`). Deleting the effective-index substitution in
+/// `indexed.rs` reddens this to `error` (no applicable string signature).
+#[test]
+fn a_for_in_variable_over_a_numeric_index_reads_the_numeric_signature() {
+    let source = "declare const iobj: { [x: number]: any };
+for (let ix in iobj) {
+    iobj[ix];
+}";
+    assert_eq!(type_of_element_access(source), "any");
+}
+
+/// The control: a for-in over an object that ALSO has a string signature is
+/// not the numeric special case — `hasNumericPropertyNames` requires exactly
+/// one index info.
+#[test]
+fn a_for_in_over_a_string_indexed_object_stays_on_the_string_signature() {
+    let source = "declare const sobj: { [x: string]: boolean };
+for (let ix in sobj) {
+    sobj[ix];
+}";
+    assert_eq!(type_of_element_access(source), "boolean");
+}

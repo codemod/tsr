@@ -59,10 +59,12 @@ impl Checker<'_, '_> {
     /// Ported from `Checker.checkElementAccessExpression` (`checker.go:8146`).
     ///
     /// Upstream's `checkNonNullExpression` on the receiver, the widening for an
-    /// assignment target, the `const` enum diagnostic and the `for…in` numeric
-    /// special case are all absent: each either reports (`bd tsr-5e7.6`) or needs
-    /// machinery this port does not have, and **none of them changes the type**
-    /// for the shapes answered here.
+    /// assignment target and the `const` enum diagnostic are absent: each
+    /// either reports (`bd tsr-5e7.6`) or needs machinery this port does not
+    /// have, and **none of them changes the type** for the shapes answered
+    /// here. The `for…in` numeric special case — which DOES change the type —
+    /// was ported at §477 (`is_for_in_variable_for_numeric_property_names`),
+    /// and the readonly write answer at §473.
     pub fn check_element_access_expression(
         &mut self,
         node: &ElementAccessExpression<'_>,
@@ -209,6 +211,18 @@ impl Checker<'_, '_> {
         let error = self.intrinsics.error;
         let _ = node;
         let index_type = self.check_expression(index);
+        // §477: `isForInVariableForNumericPropertyNames` (`checker.go:8161`)
+        // — an index that is the FOR-IN VARIABLE of a loop over an object
+        // with only a NUMERIC index signature reads as `number`, though the
+        // variable's own type is `string`: `for (let ix in iobj) iobj[ix]`
+        // applies `{ [x: number]: any }`'s signature
+        // (`capturedLetConstInLoop1`). The effective-index substitution is
+        // upstream's own line; everything below sees `number`.
+        let index_type = if self.is_for_in_variable_for_numeric_property_names(index) {
+            self.intrinsics.number
+        } else {
+            index_type
+        };
         // An `any` receiver makes the access `any`, whatever the index.
         //
         // This is the largest single cause in the element-access row: of 12,905
@@ -389,6 +403,91 @@ impl Checker<'_, '_> {
             return self.intrinsics.any;
         }
         error
+    }
+
+    /// `isForInVariableForNumericPropertyNames` (`checker.go:8179`): the
+    /// index is an identifier (parens skipped) naming a VARIABLE that is the
+    /// for-in variable of an enclosing loop — reached by walking up through
+    /// STATEMENT positions only, exactly upstream's `child ==
+    /// node.Statement` test, so the head's own expression never matches
+    /// itself — whose iterated object's type has exactly one index info and
+    /// it is numeric (`hasNumericPropertyNames`, `:8216`).
+    fn is_for_in_variable_for_numeric_property_names(
+        &mut self,
+        index: tsr_ast::Expression<'_>,
+    ) -> bool {
+        let mut skipped = index;
+        while let tsr_ast::Expression::ParenthesizedExpression(parenthesized) = skipped {
+            let Some(inner) = parenthesized.expression else { return false };
+            skipped = inner;
+        }
+        let tsr_ast::Expression::Identifier(name) = skipped else { return false };
+        let Some(reference) = name.node_id else { return false };
+        let Some(symbol) = self.binder.resolve_name(
+            self.nodes,
+            self.node_map,
+            reference,
+            name.text,
+            tsr_binder::SymbolFlags::VALUE,
+        ) else {
+            return false;
+        };
+        if !self.binder.symbols().get(symbol).flags.intersects(tsr_binder::SymbolFlags::VARIABLE) {
+            return false;
+        }
+        let Some(start) = index.node_id() else { return false };
+        let mut child = start;
+        let mut current = self.nodes.parent(start);
+        while let Some(ancestor) = current {
+            if self.nodes.kind(ancestor) == tsr_ast::SyntaxKind::ForInStatement
+                && let Some(tsr_ast::Node::ForInOrOfStatement(statement)) =
+                    self.node_map.get(ancestor)
+                && statement.statement.and_then(|s| tsr_ast::Node::from(s).node_id()) == Some(child)
+                && self.for_in_variable_symbol(statement) == Some(symbol)
+                && let Some(iterated) = statement.expression
+            {
+                let iterated_type = self.check_expression(iterated);
+                if let Some(infos) = self.get_index_infos_of_type(iterated_type)
+                    && let [info] = infos.as_slice()
+                    && info.key == self.intrinsics.number
+                {
+                    return true;
+                }
+            }
+            child = ancestor;
+            current = self.nodes.parent(ancestor);
+        }
+        false
+    }
+
+    /// `getForInVariableSymbol` (`checker.go:8200`): the first declaration of
+    /// a declaration-list head (a non-pattern name), or the referenced
+    /// symbol of a bare identifier head.
+    fn for_in_variable_symbol(
+        &mut self,
+        statement: &tsr_ast::ForInOrOfStatement<'_>,
+    ) -> Option<tsr_binder::SymbolId> {
+        let initializer = statement.initializer?;
+        if let Some(list) = initializer.node_id()
+            && let Some(tsr_ast::Node::VariableDeclarationList(declarations)) =
+                self.node_map.get(list)
+        {
+            let first = declarations.declarations.first()?;
+            if matches!(first.name, Some(tsr_ast::BindingName::BindingPattern(_))) {
+                return None;
+            }
+            return self.binder.symbol_of(first.node_id?);
+        }
+        if let tsr_ast::ForInitializer::Identifier(name) = initializer {
+            return self.binder.resolve_name(
+                self.nodes,
+                self.node_map,
+                name.node_id?,
+                name.text,
+                tsr_binder::SymbolFlags::VALUE,
+            );
+        }
+        None
     }
 
     /// The `Array<T>`/tuple half of `getIndexedAccessType`'s numeric road
