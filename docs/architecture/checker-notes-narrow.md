@@ -8733,3 +8733,31 @@ The baseline the comment itself cites is what settles it:
 and this is the second this window (§605's was the first). Both also shipped a
 wrong prediction alongside the right diagnosis, which is the calibration to
 carry: trust a pinned fixture's LOCALISATION, re-derive its expected VALUE.
+
+### §622 REFUSED — indexing a TYPE PARAMETER through its constraint (stack overflow)
+
+The remaining four lines of `assignmentToAnyArrayRestParameters` are
+`type T10 = T["0"]` with `T extends string[]` (wants `string`) and the union-index
+forms. The constraint step looked like §620/§621's natural third slice:
+`type_parameter_constraint` already exists (`members.rs:792`), and
+`getIndexedAccessType` takes the apparent type of a type-parameter object.
+
+Substituting the constraint before the array/tuple lookup **overflows the
+stack** — the whole conformance run aborts, not one case.
+
+Reverted on sight. The cause is not diagnosed here and should not be guessed at:
+`type_parameter_constraint` re-enters `get_type_from_type_node`, and this arm is
+called *from* `get_type_from_type_node`, so a constraint that mentions its own
+parameter closes a loop that the deferred road never opened. §445 is already on
+the board as *"the contextual-signature road beyond written annotations —
+refused by a stack overflow"*, which makes this the second arm in this port to
+die the same way.
+
+**The guard this needs is a resolution-stack park**, the mechanism
+`self.resolutions.on_stack(...)` already provides for declared types and that
+§499 used for exactly this shape of cycle. That is the first thing to try, and
+it is a precondition rather than a fix: **§620 and §621 are safe because they
+only consult types already built; §622 is the first slice that asks for a type
+whose computation can re-enter this one.**
+
+That is the line where the concrete indexed-access road stops being free.
