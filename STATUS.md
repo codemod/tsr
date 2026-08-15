@@ -1130,6 +1130,46 @@ not thirty arms.
 `case:index:position`, byte-for-byte `verdict.rs:70`'s, so the join is one
 `join -t$'\t'` away and needs no build.
 
+### 4.-2e NEWLY SIZED, 2026-08-15 (§608) — two populations a test comment under-counted by 75×
+
+Found by grepping the test suite for fixtures that pin a KNOWN SHORTFALL — the
+search that produced §605 (+18 cases), whose test had carried the diagnosis, the
+upstream anchor and a 291-line estimate the whole time.
+
+**1. A qualified name printed where a resolved type is wanted — 153 lines / 71
+cases, 16 convertible.** `qualified_type_reference.rs`'s
+`an_alias_to_a_primitive_prints_the_written_name_and_upstream_does_not` records
+*"two corpus lines"*. It is 153. The population is **heterogeneous and is at
+least four arms**, which is why it is recorded as a survey rather than an item:
+
+```
+ 18  an ENUM MEMBER where the enum TYPE is wanted   (`Flag.A` vs `Flag`, `E.B` vs `E`)
+ 33  a generic reference MISSING its type arguments (see 2 below)
+ 16  an import-alias name (`m_public.i_public` vs `im_public_i_public`)
+  …  and a tail of one-offs
+```
+
+**2. A generic reference missing its type arguments — 33 lines / 13 cases, 3
+convertible.** Two sub-shapes that must not be conflated:
+
+- **self-reference**: inside its own generic declaration, `A` means `A<T>` —
+  `extendsTag5` (5 lines, CONVERTS), `overloadTag3` (3, CONVERTS),
+  `jsdocTemplateTag6`, `jsdocClassMissingTypeArguments`. Mostly JSDoc
+  `@template`.
+- **defaulted-to-`any`**: `React.ReactType<any>`, `React.SFC<{}>` —
+  `callsOnComplexSignatures`, `reactSFCAndFunctionResolvable`.
+
+`declared.rs`'s `base_type_of_heritage_entry` already records why the naive fix
+fails: *"Deleting this decline does not merely widen the arm: it renders
+`Base<>`, because `create_type_reference` prints the bracket list it is given."*
+So the arm needs a bare-reference road, and that note names it.
+
+**The transferable part is the search, not the numbers.** Two of this window's
+last three findings came from reading what the tests already said. A pinned
+shortfall is a defect someone has already diagnosed, anchored and left a count
+for — and at least two of those counts were stale by more than an order of
+magnitude.
+
 ### 4.-2c THE FORM SEAM, 2026-08-14 (§591–§595) — **a question, not an item; five landings and a live residue**
 
 The single most productive thing found this window, and it is a *question* to
