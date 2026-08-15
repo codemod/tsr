@@ -1943,9 +1943,7 @@ impl Checker<'_, '_> {
                 // `(bar: string)` (`functionOverloads33`). The exclusion
                 // dated from §273's FIRST draft, whose damage came from
                 // running the assignable pass first, not from the candidate.
-                !candidate.type_parameters.is_empty()
-                    || candidate.this_parameter.is_some()
-                    || candidate.parameters.iter().any(|parameter| parameter.rest)
+                !candidate.type_parameters.is_empty() || candidate.this_parameter.is_some()
             })
             .unwrap_or(candidates.len())
     }
@@ -2116,8 +2114,15 @@ impl Checker<'_, '_> {
 }
 
 fn has_correct_arity(candidate: &Signature, argument_count: usize) -> bool {
-    let required = candidate.parameters.iter().take_while(|p| !p.optional).count();
-    argument_count >= required && argument_count <= candidate.parameters.len()
+    // §588 EXPERIMENT: upstream's rest arm (`checker.go:9162`) is exactly
+    // *"no upper bound when the signature has an effective rest parameter"*,
+    // and a rest parameter is never itself required.
+    let has_rest = candidate.parameters.iter().any(|p| p.rest);
+    let required = candidate.parameters.iter().take_while(|p| !p.optional && !p.rest).count();
+    if argument_count < required {
+        return false;
+    }
+    has_rest || argument_count <= candidate.parameters.len()
 }
 
 #[cfg(test)]

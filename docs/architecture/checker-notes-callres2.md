@@ -2044,3 +2044,61 @@ Spread road only; the destructuring-pattern siblings
 slots. `generatorReturnTypeFallback.1` converts; `.3/.4` still gap on the
 SENT-value slot (the yield expression's contextual next type, unported) and
 `.2` on the empty-object double fallback.
+
+---
+
+## §588 — rest candidates enter the clean prefix (+1 case, +4 lines, 0 adverse), and `concat`'s reopening condition is CORRECTED
+
+§38.2 recorded `concat` as a refusal: `choose_overload` declines on *"a rest or
+this parameter on any candidate"*, both `Array<T>.concat` signatures are rest,
+and the registered reopening condition was **"upstream's `hasCorrectArity` rest
+arm"**. That condition is now built. **It is not sufficient, and `concat` still
+gaps** — the condition as written understated the work, and this section
+replaces it.
+
+### What the rest arm actually is
+
+`hasCorrectArity` (`checker.go:9107`) handles rest in one line (`:9162`): *no
+upper bound when the signature has an effective rest parameter*, plus a rest
+parameter never counting as required. Ported, that is four lines.
+
+With it in place, `rest` was removed from `clean_candidate_prefix_len`'s
+exclusion — the §273 prefix now admits rest candidates:
+
+```
+TOTAL 474196  right 433965  gap 8448  wrong 31783
+WRONG->RIGHT: 4  destructuringTuple, emitSkipsThisWithRestParameter,
+                 staticAnonymousTypeNotReferencingTypeParameter (+1 more)
+(no adverse transition of any kind)   checker_types 5,949 -> 5,950
+```
+
+### Why zero adverse, and why that is not the reassurance it looks like
+
+All three argument/parameter pairings in this file are POSITIONAL zips
+(`:1436`, `:1887`, `:2084`), and `Parameter::r#type` is `getTypeOfSymbol` of the
+parameter symbol — for `...items: (T | ConcatArray<T>)[]` that is the **array**,
+not the element. So a rest candidate admitted here compares argument *i* against
+an array type, which almost always **fails** assignability.
+
+That is why nothing regressed: the failure direction is *decline*, not
+*mis-pick*. It is also why `concat` did not convert — it cannot, until the
+pairing maps indices at or past the rest position to the rest **element** type,
+and until the `zip` stops silently truncating the arguments beyond
+`parameters.len()` that a rest signature is precisely there to accept.
+
+**So the honest reopening condition for `concat` is three things, not one:**
+
+1. the `hasCorrectArity` rest arm — **built here**;
+2. rest-aware argument pairing at `:1436`, `:1887` and `:2084`, extracting the
+   element type from the rest parameter's array type;
+3. dropping the `zip` truncation so a call with more arguments than parameters
+   is checked rather than silently accepted on its prefix.
+
+Only (1) was registered. (2) is three sites inside the subtype and assignability
+passes — the passes whose earlier drafts turned 34 gaps into wrong answers
+(§273) — and it is the reason this is a slice of work rather than a one-liner.
+
+**How you would know this is wrong:** if a rest-aware pairing lands and `concat`
+still gaps, then the blocker is neither arity nor pairing but the relater's
+handling of `ConcatArray<T> | T`, and this section should be superseded by the
+row dump that shows it.
