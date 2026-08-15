@@ -3293,6 +3293,43 @@ Reverted; no code change retained.
 > **That confirms §705's reading from the opposite direction: the blocker is the
 > missing EWTA type, not the gate.** Two independent cuts now say so.
 
+### §711 — the `autoArrayType` declaration arm was ALREADY THERE (duplicate, reverted)
+
+After §710, `controlFlowArrays` still had 16 lines wanting `any[]` and getting
+`never[]`, which looked like §648's other unported arm — *"`isEmptyArrayLiteral`
+→ `autoArrayType`"*. Built it. **Measured exactly zero, and the trace showed the
+arm never fired.**
+
+It never fired because **the same arm already exists**, at `symbols.rs:4270`:
+
+```rust
+if self.nodes.kind(declaration) == SyntaxKind::VariableDeclaration
+    && !self.has_binding_pattern_name(declaration)
+    && !self.is_exported_variable(declaration)
+    && !self.combined_node_flags(declaration).intersects(NodeFlags::AMBIENT)
+    && is_empty_array_literal(initializer)
+    && let Some(target) = self.global_type_symbol("Array")
+{
+    return Some(self.create_type_reference(target, vec![any]));
+}
+```
+
+sixty lines *above* where I added mine, so it returns first. **§648's note that
+this arm was unported is wrong** — like §703's stale note about the flow gate,
+it was written before the arm landed and nobody revised it. That is now **two**
+"unported" notes in the evolving-array area that had expired, plus §703's.
+
+Reverted; no code change retained. The remaining 16 `never[]` lines are therefore
+NOT the declaration arm and are still unexplained — **do not re-derive this arm a
+third time.**
+
+**Standing correction to my own method claim.** I have said several times this
+session that re-checking a deferral is reliably cheap. §693–§698 supported that;
+§704 (−357) and this one contradict it. The accurate statement is narrower:
+**re-checking a deferral is cheap; ACTING on one without re-reading the code it
+touches is not.** Here one `grep` for `is_empty_array_literal` before building
+would have cost nothing and saved the build.
+
 ### §710 — EVOLVING ARRAY TYPES, LANDED: +2 CASES, 39 W→R, zero regressed
 
 **LANDED. +2 cases (6,060 → 6,062), 39 WRONG→RIGHT, +33 lines, zero regressed by
