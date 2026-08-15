@@ -3471,6 +3471,33 @@ enumerated rather than conflated.
 negative. The next step is `heritage_base_symbol`'s cross-file behaviour, printed
 rather than read.
 
+> **§718 attempted a fifth variation anyway, and it measured −3 cases. I ignored
+> the sentence directly above, written by me one probe earlier.**
+>
+> The reading that prompted it was right as far as it went: `heritage_base_symbol`
+> resolves an identifier base with `SymbolFlags::NAMESPACE`
+> (`= VALUE_MODULE | NAMESPACE_MODULE | ENUM`, `symbol.rs:143`), which **no
+> interface carries** — so `class Test extends Array1` resolves to `None` and the
+> arm is skipped. That also corrects §717: the blocker is the **meaning mask**,
+> not cross-file resolution.
+>
+> But broadening it with a `TYPE` fallback measured **−5 lines / −3 cases**, and
+> the regressions name why: `classExtendsItself`,
+> `complicatedGenericRecursiveBaseClassReference`, `recursiveBaseCheck4`/`6`. The
+> narrow mask is what keeps a RECURSIVE base from resolving and being expanded.
+> **The mask is load-bearing exactly like the class-declaration gate was.**
+>
+> **Five layers have now been probed in this lane** — gate (§706), EWTA type
+> (§705), shape split (§716), bare-identifier gate (§717), meaning mask (§718) —
+> and each is individually load-bearing. That is the finding: the heritage arm's
+> preconditions are not an over-restriction to be relaxed but a set of
+> interlocking guards, and the 15 cases need the arm REPLACED by upstream's
+> `GetTypeAtLocation(EWTA)`, not adjusted.
+>
+> Reverted. **And the process note is the real one: I wrote "do not attempt a
+> fifth variation" and then attempted it in the next turn.** A recorded refusal
+> is only worth what it costs to honour.
+
 ### §710 — EVOLVING ARRAY TYPES, LANDED: +2 CASES, 39 W→R, zero regressed
 
 **LANDED. +2 cases (6,060 → 6,062), 39 WRONG→RIGHT, +33 lines, zero regressed by
