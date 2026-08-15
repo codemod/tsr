@@ -2161,3 +2161,46 @@ one of them.
 numbers were honest and their explanations were not, and the explanations are
 what cost the extra rounds: §606 blamed slot precedence, §632 blamed
 reachability, and the answer was neither.
+
+---
+
+## §636 — the ASSERTION positions feed the NEXT slot (+1 line), and a CAVEAT on the single-transition method
+
+`getContextualType`'s assertion arms are `getTypeFromTypeNode(parent.Type())`
+(`checker.go:29372`, `:29396`) — the contextual type is *written down*, so this
+port can compute it. `castOfYield` writes `<number>(yield 0)` and wants
+`() => Generator<number, void, number>`; §583 recorded it as a gap that "stays"
+because the port could not compute a contextual TYPE. It can compute this one.
+
+```
+WRONG->RIGHT: 1   castOfYield
+(no adverse transition of any kind)
+```
+
+A `const` assertion delegates to its own parent upstream (`isConstAssertion`),
+which this arm does not model and therefore declines rather than reading `const`
+as a type.
+
+### The caveat, which is worth more than the line
+
+`castOfYield`'s verdict-baseline deficit is **1**, and converting that line did
+**not** convert the case. The suite says why:
+
+```
+checker_types  FAIL  [5/9 lines]
+  castOfYield.ts: 8 assertion(s), expected 9
+```
+
+It fails on an assertion **COUNT** mismatch — this port emits 8 lines where the
+baseline has 9 — and `verdict.rs` records only ALIGNED lines, so that failure is
+invisible to `target/verdict_baseline.tsv` entirely.
+
+**Corpus-wide: 3,535 cases fail and only 3,381 carry a non-right aligned line.
+154 cases (4.4%) fail for reasons the baseline cannot represent.**
+
+So **"deficit 1 in the verdict baseline" is an UPPER bound on "one line from
+passing", not a synonym.** The single-transition join (STATUS §6) that produced
+§584, §605, §616, §626, §634 and §635 is still the best case-forecast this board
+has — every one of those landed real cases — but its convertible counts include
+an unknown share of cases that would still fail on alignment after the arm.
+**Check a deficit-1 case with `casequery` before promising it converts.**

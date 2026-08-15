@@ -1444,6 +1444,44 @@ impl<'a> Checker<'a, '_> {
                         }
                     }
                 }
+                // §636: an ASSERTION position's contextual type is the written
+                // type node — `getContextualType`'s `KindTypeAssertionExpression
+                // | KindAsExpression` arm is `getTypeFromTypeNode(parent.Type())`
+                // and `KindSatisfiesExpression` likewise (`checker.go:29372`,
+                // `:29396`). `castOfYield` writes `<number>(yield 0)` and wants
+                // `() => Generator<number, void, number>`; §583 recorded it as a
+                // gap that "stays" because the port could not compute a
+                // contextual TYPE. It can compute this one: it is written down.
+                //
+                // A `const` assertion delegates to its own parent upstream
+                // (`isConstAssertion`), which this arm does not model, so it
+                // declines there rather than reading `const` as a type.
+                if contextual
+                    && !recorded_next
+                    && let Some(parent) = self.nodes.parent(child)
+                    && matches!(
+                        self.nodes.kind(parent),
+                        SyntaxKind::TypeAssertionExpression
+                            | SyntaxKind::AsExpression
+                            | SyntaxKind::SatisfiesExpression
+                    )
+                {
+                    let written = match self.node_map.get(parent) {
+                        Some(Node::TypeAssertion(n)) => n.r#type,
+                        Some(Node::AsExpression(n)) => n.r#type,
+                        Some(Node::SatisfiesExpression(n)) => n.r#type,
+                        _ => None,
+                    };
+                    if let Some(written) = written {
+                        let t = self.get_type_from_type_node(written);
+                        if t != self.intrinsics.error {
+                            if !next_types.contains(&t) {
+                                next_types.push(t);
+                            }
+                            recorded_next = true;
+                        }
+                    }
+                }
                 if contextual
                     && !recorded_next
                     && let Some(parent) = self.nodes.parent(id)
