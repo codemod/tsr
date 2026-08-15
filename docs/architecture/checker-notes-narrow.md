@@ -8420,3 +8420,20 @@ sentence and moved on. Corrected in place, with the number, per the
 
 This is §11.3's fifth instance and the first where the un-printed population was
 asserted **in a doc comment** rather than in a board estimate.
+
+### §595 — `unique symbol` is the third `TypeOperator` spelling (+5 lines, 0 cases)
+
+`wrap_array_element_text` (`declared.rs`) wrapped an array element for a union,
+an intersection, a `typeof`, a `keyof` and a top-level arrow. `unique symbol` is
+a `TypeOperator` exactly as `keyof` is, and binds the same way — `unique
+symbol[]` parses as `unique (symbol[])` — so `uniqueSymbolsErrors` wants
+`(...args: (unique symbol)[]) => void` and this port dropped the parentheses.
+
+Five lines, no case (the case fails on others too). Kept for the same reason
+§592 was: it is a transcription of a rule this port already implements twice,
+and the third spelling was missing rather than declined.
+
+`readonly` is a `TypeOperator` too and is deliberately NOT added: it is carried
+on the array/tuple type here rather than in the element text, so it never
+reaches this road, and a general prefix test would claim ground nothing
+exercises.

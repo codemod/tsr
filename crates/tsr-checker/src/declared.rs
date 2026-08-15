@@ -2582,6 +2582,15 @@ impl<'a> Checker<'a, '_> {
             // unwrapped — `keyof T[]` is keyof-of-array
             // (`keyofIsLiteralContexualType` wants `(keyof T)[]`).
             || text.starts_with("keyof ")
+            // §595: `unique symbol` is the THIRD `TypeOperator` spelling, and
+            // it binds exactly as the other two do — `unique symbol[]` parses
+            // as `unique (symbol[])`, so the element must wrap.
+            // `uniqueSymbolsErrors` wants `(...args: (unique symbol)[]) => void`.
+            // Listed rather than folded into a shared prefix test because
+            // `readonly` is a `TypeOperator` too and does NOT reach this road —
+            // it is carried on the tuple/array *type* here, not in the element
+            // text — so a general test would claim ground nothing exercises.
+            || text.starts_with("unique ")
             || has_top_level_arrow(text);
         if wrap { format!("({text})") } else { text.to_string() }
     }
