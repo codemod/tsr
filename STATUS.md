@@ -2635,11 +2635,28 @@ half of the mechanism *is* ported (`flow.rs:236`, `is_auto_typed_declaration`,
 narrower than §65.1 implies: not a new axis, one finalisation step on machinery
 already present.
 
-**Caveat, stated rather than buried:** the 2 `want=null` lines sit in a case that
-§599 (this session) touched, and §599 was measured at zero adverse *per case*.
-Whether those 2 lines were already wrong before §599 or are line-level fallout
-under a case that was already failing is **not established here** — it needs a
-line-level diff against the pre-§599 baseline, and I did not run one.
+**§648 resolves the caveat this section opened, against upstream rather than a
+diff.** §599's gate is upstream's *exactly* — `checker.go:16697-16702`:
+
+```go
+if c.noImplicitAny && ast.IsVariableDeclaration(declaration) && !ast.IsBindingPattern(...) &&
+    ...ModifierFlagsExport == 0 && declaration.Flags&ast.NodeFlagsAmbient == 0 {
+    if ...NodeFlagsConstant == 0 && (initializer == nil || c.isNullOrUndefined(initializer)) {
+        return c.autoType
+    }
+```
+
+`isNullOrUndefined` covers `null`, so **upstream answers `autoType` for
+`var arg0 = null` too**, and then finalises it through flow back to `null` at the
+reference. The 2 `want=null` lines are therefore the *same* missing finalisation
+this section decodes — not a wrong gate. **§599 stands; no revert, no gate.**
+This is what my own "R→W is revert-or-gate" rule is for, and checking upstream
+answered it more cheaply than the baseline diff would have.
+
+Two arms of that upstream block remain unported and are named here so they are
+not rediscovered: the `initializer == nil` case (handled elsewhere in this port)
+and the `isEmptyArrayLiteral` → `autoArrayType` case, which `flow.rs:236`
+deliberately answers `false` for.
 
 ### §646 — the refusals that live only in source comments (INDEX)
 
