@@ -8634,3 +8634,33 @@ the case counter did not move scores the port against the wrong number.
 `exactOptionalPropertyTypes` half on both roads and neither accessor half; §616
 and §617 are the completion. When a helper is described as "the X half of Y",
 the question to ask is what the other half is and whether every road has it.
+
+### §619 — `string[]["0"]` needs the TYPE-level indexed access, which is declined by design (0 transitions, reverted)
+
+`assignmentToAnyArrayRestParameters` is 5 lines and its whole deficit, so it
+converts — and its wants are `type T00 = string[]["0"]` → `string`,
+`type T02 = string[][K | "0"]` → `string`. The rule looked small:
+`isNumericLiteralName` (`checker.go:16256`) is `String(+name) === name`, and the
+fixture pins that exactly by making `string[]["0.0"]` an **error** beside
+`string[]["0"]`'s `string`.
+
+Built on the VALUE road (`indexed.rs`, normalising a numeric-like string literal
+index to `number` before the array/tuple element access) and measured **zero
+transitions**. Reverted on §586's precedent.
+
+**The reason is the useful part.** `type T = string[]["0"]` is an
+`IndexedAccessTypeNode`, and `declared.rs:400` handles only the DEFERRED shape —
+a type-parameter index, printed `T[K]` as written — with everything else
+returning `error`. Its own comment says so: *"Literal indexes resolve concretely
+upstream and stay declined here."* The value road I patched is a different road
+and this fixture never reaches it.
+
+So the item is **the concrete type-level indexed access**, an unported feature in
+the same family as the conditional/mapped-type gaps (§608's survey: 383 GAP
+lines, 13 convertible cases), not a numeric-name predicate. The predicate is four
+lines and will be needed *inside* that feature; it is worth nothing before it.
+
+**Checking which ROAD a fixture takes is cheaper than building the rule.** This
+is the second time this window an arm was written on the sibling road of the one
+that mattered — §606's NEXT slot was the first — and both cost a build-and-measure
+cycle that reading one match arm would have saved.
