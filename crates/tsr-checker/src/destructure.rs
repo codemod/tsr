@@ -772,6 +772,19 @@ impl Checker<'_, '_> {
         if let Some(property_type) = self.get_type_of_property_of_type(parent_type, name) {
             return property_type;
         }
+        // §565: a PATTERN-IMPLIED object type has no symbol and therefore no
+        // members table, so the lookup above cannot see the members its own
+        // printed form shows. Every such member is `any` by construction
+        // (`getTypeFromObjectBindingPattern`, `checker.go:17938`, with no
+        // initializer to infer from), so the name being present IS the answer.
+        // A name the pattern does not declare keeps the gap.
+        if self
+            .pattern_implied_members
+            .get(&parent_type)
+            .is_some_and(|names| names.iter().any(|declared| declared == name))
+        {
+            return self.intrinsics.any;
+        }
         // §303: the APPARENT-type hop the plain member road already takes —
         // `var { toExponential } = 0` reads `Number`'s member exactly as
         // `(0).toExponential` does (`destructuringWithNumberLiteral`). A

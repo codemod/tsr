@@ -3582,8 +3582,21 @@ impl<'a> Checker<'a, '_> {
                             _ => None,
                         })
                         .collect();
+                    let names: Vec<String> = members
+                        .iter()
+                        .filter_map(|member| match member {
+                            crate::objects::Member::Property { name, .. } => Some(name.clone()),
+                            _ => None,
+                        })
+                        .collect();
                     let printed = crate::objects::render_object_type(&members);
-                    return self.store.new_named(TypeFlags::OBJECT, printed, None);
+                    let minted = self.store.new_named(TypeFlags::OBJECT, printed, None);
+                    // §565: the members exist only in the printed text — the
+                    // mint carries no symbol, so record the names for the
+                    // destructuring lookup. See
+                    // `Checker::pattern_implied_members`.
+                    self.pattern_implied_members.insert(minted, names);
+                    return minted;
                 }
                 if let Some(Node::ParameterDeclaration(parameter)) =
                     self.node_map.get(declaration)

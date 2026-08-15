@@ -503,6 +503,22 @@ pub struct Checker<'a, 'n> {
     /// [ADR-0003](../../../docs/adr/0003-tree-plus-side-tables.md) and matching
     /// the two tables declared beside it — the information exists only where
     /// the literal was checked, which is exactly the shape a side table is for.
+    /// The member NAMES of a pattern-implied object type, keyed by type id.
+    ///
+    /// §565, and the same shape §539 fixed for object literals. The implied
+    /// type of `{m}` is minted as `new_named(OBJECT, "{ m: any; }", None)` —
+    /// **no symbol**, because a binding pattern declares none — so
+    /// `get_type_of_property_of_type` has no members table to read and every
+    /// destructured element gapped: `function t({m}) { return m; }` answered
+    /// `error` while `function r([x]) { return x; }` answered `any`, the array
+    /// road reading its tuple positionally and the object road having nothing
+    /// to read.
+    ///
+    /// Only the names are stored: every member of a pattern-implied object is
+    /// `any` by construction (`getTypeFromObjectBindingPattern`,
+    /// `checker.go:17938`, with no initializer to infer from), so the value
+    /// needs no table.
+    pub(crate) pattern_implied_members: rustc_hash::FxHashMap<crate::types::TypeId, Vec<String>>,
     pub(crate) object_literal_index_infos:
         rustc_hash::FxHashMap<crate::types::TypeId, Vec<crate::index_signatures::IndexInfo>>,
     /// The identifier the JSX namespace hangs off, `getJsxNamespace`'s
@@ -921,6 +937,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             js_literal_types: rustc_hash::FxHashSet::default(),
             fresh_object_literal_types: rustc_hash::FxHashSet::default(),
             object_literal_index_infos: rustc_hash::FxHashMap::default(),
+            pattern_implied_members: rustc_hash::FxHashMap::default(),
             jsx_namespace: "React".to_string(),
             jsx_emit: tsr_core::JsxEmit::None,
             exact_optional_property_types: false,

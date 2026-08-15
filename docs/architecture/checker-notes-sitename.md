@@ -2158,3 +2158,57 @@ where the array-pattern one answers. That is not §29.3's shape — the gate adm
 both — so it is a separate defect in the element lookup, sized by nothing yet
 and recorded here rather than guessed at. It is the natural next probe in this
 file.
+
+---
+
+## 31. §565 — §30.1's object-element gap: §539's shape, a third time (+7 lines, 0 adverse)
+
+§30.1 recorded the gap without guessing at it:
+
+```ts
+function r([x]) { return x; }   // x : any     works
+function t({m}) { return m; }   // m : error   gaps — a DECLARATION
+```
+
+The cause is **§539's shape for the third time**. The pattern-implied object
+type is minted as
+
+```rust
+self.store.new_named(TypeFlags::OBJECT, printed, None)
+```
+
+— **no symbol**, because a binding pattern declares none — so
+`get_type_of_property_of_type` has no members table to read, and the members the
+type's own printed form shows (`{ m: any; }`) are invisible to every consumer.
+The array road never hit this because it reads its tuple positionally.
+
+Same remedy as §539 and per ADR-0003: a side table,
+`Checker::pattern_implied_members`, keyed by the minted type id. **Only the
+names are stored** — every member of a pattern-implied object is `any` by
+construction (`getTypeFromObjectBindingPattern`, `checker.go:17938`, with no
+initializer to infer from), so the name being present *is* the answer, and a
+name the pattern does not declare keeps the gap.
+
+```
+GAP->RIGHT: 7   asyncWithVarShadowing_es6 2, destructuringWithLiteralInitializers 2,
+                noImplicitAnyDestructuringInPrivateMethod 1
+no adverse transition of any kind
+checker_types 5,914 (+0 cases), gradient 90.49% -> 90.50%
+```
+
+### 31.1 Three instances now, and the shape is worth naming
+
+| § | what was printed but not consultable |
+|---|---|
+| 539 | an object literal's INDEX SIGNATURE — minted into the members list the type prints from, invisible to `get_index_infos_of_type` |
+| 565 | a pattern-implied object's MEMBERS — minted into the printed text, invisible to `get_type_of_property_of_type` |
+| (549) | the sibling failure: a decline returning the gap sentinel |
+
+**The port renders types from baked TEXT and answers queries from SYMBOLS, and
+anything minted without a symbol is visible to the first and invisible to the
+second.** Every `new_named(..., None)` in the tree is a candidate for this bug,
+and there are more of them than these two.
+
+> **Next sweep, concretely**: `grep -n "new_named(.*None)"` and ask of each mint
+> *"what would `get_type_of_property_of_type` answer here?"*. Two of the three
+> found so far were worth 7 and 19 lines; the sweep costs one grep.
