@@ -3063,3 +3063,48 @@ synthesis answer its type. Five deficit-1 cases, one-assertion head case.
 > earlier versions of this table that said *built* from reading code were each
 > wrong in a different row. That is the whole content of §39 and it is worth
 > more than the five cases.
+
+---
+
+## 40. §581 REFUSED — both steps built, measured −18, and step 3 still does not fire
+
+§39.9's two-step build, both halves written:
+
+1. **the binder mints a module symbol for a `.json` file** —
+   `self.is_module = is_external_module(file) || file_name.ends_with(".json")`;
+2. **the module symbol takes its value's type** — the `NodeFlags::JSON_FILE`
+   arm in `get_type_of_alias`.
+
+**Step 1 alone: `GAP->WRONG: 18`, zero conversions.** Expected and instructive —
+the import now resolves to a module carrying nothing, so lines that gapped
+honestly became confidently wrong. That is §549's rule again: a half-built road
+is worse than no road.
+
+**Steps 1 and 3 together: `GAP->WRONG: 18`, zero conversions — IDENTICAL.** The
+synthesis does not fire even with the module symbol present.
+
+Both reverted; the tree re-measures `no transitions vs baseline`.
+
+### 40.1 What this rules out, and the reopening condition
+
+The synthesis's preconditions are `resolve_alias(symbol)` reaching the module,
+the module's declarations containing a `SourceFile`, and that file carrying
+`NodeFlags::JSON_FILE`. The identical before/after number says **at least one
+still fails**, and which one is not yet measured — the trace that would say sits
+between them.
+
+> **Reopen with that trace, not with more code.** §39 cost three published
+> claims that were inferred rather than run, and §40 is the fourth: *"mint the
+> symbol and the synthesis becomes reachable"* was itself an inference from
+> §39.8's `symbol=None`, and it is now falsified. Minting the symbol did not
+> make the synthesis reachable.
+>
+> The candidates, in the order a trace should take them: does `resolve_alias`
+> now answer `Some`? Does the module symbol's declaration list contain the
+> `SourceFile`? Is `JSON_FILE` set on that node, or only on the nodes *inside*
+> it?
+
+**The 18 GAP→WRONG are the useful artefact.** They name the exact cases where a
+module symbol without a type is worse than no module symbol —
+`requireOfJsonFileTypes` 7 and `requireOfJsonFileWithEmptyObject` 6 — which is
+the population any future attempt must convert rather than merely stop damaging.
