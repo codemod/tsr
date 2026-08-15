@@ -3444,6 +3444,35 @@ impl<'a> Checker<'a, '_> {
                 self.intrinsics.any
             };
         }
+        // §687: `getTypeOfVariableOrParameterOrPropertyWorker`'s property arm
+        // (`checker.go:16752`) — *"a property declaration with no type
+        // annotation or initializer, in noImplicitAny mode"* takes its type
+        // from the CONSTRUCTOR's assignments, via `getFlowTypeInConstructor`.
+        //
+        // `class C { property; constructor() { this.property = `foo`; } }`
+        // records `property : string` (`classAttributeInferenceTemplate`);
+        // this port answered `any`. §599's auto-type arm is gated to
+        // `VariableDeclaration` and excludes properties, but that exclusion was
+        // reasoned about a property WITH an initializer (`foo = undefined`
+        // keeps `undefined`, `implicitAnyCastedValue`) — a property with NONE
+        // is this separate arm.
+        //
+        // The assignment WALK is an approximation of upstream's flow query: it
+        // unions the widened types assigned to `this.<name>` anywhere in the
+        // constructor, where upstream reads the flow type at the constructor's
+        // end. The two agree wherever the constructor assigns unconditionally,
+        // which is every line in the population; a conditional assignment would
+        // differ and is the falsifier.
+        if self.no_implicit_any
+            && self.nodes.kind(declaration) == SyntaxKind::PropertyDeclaration
+            && self.type_annotation_of(declaration).is_none()
+            && self.initializer_of(declaration).is_none()
+            && let Some(name) = self.property_declaration_name_text(declaration)
+            && let Some(assigned) = self.constructor_assignment_types(declaration, &name)
+            && !assigned.is_empty()
+        {
+            return self.get_union_type(&assigned);
+        }
         if let Some(id) = self.get_type_for_variable_like_declaration(declaration) {
             // SS187 `getWidenedType` (checker.go:16090): with
             // `strictNullChecks` OFF, a `null` or `undefined` type widens to
@@ -3670,6 +3699,94 @@ impl<'a> Checker<'a, '_> {
                     }
                 }
                 self.intrinsics.any
+            }
+        }
+    }
+
+    /// The written name of a property declaration, when it is a plain
+    /// identifier or string/numeric literal. §687.
+    fn property_declaration_name_text(&self, declaration: NodeId) -> Option<String> {
+        match self.node_map.get(declaration)? {
+            Node::PropertyDeclaration(property) => match property.name {
+                tsr_ast::PropertyName::Identifier(name) => Some(name.text.to_string()),
+                tsr_ast::PropertyName::StringLiteral(name) => Some(name.text.to_string()),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    /// The widened types assigned to `this.<name>` in the enclosing class's
+    /// constructor. §687's approximation of `getFlowTypeInConstructor`.
+    fn constructor_assignment_types(
+        &mut self,
+        declaration: NodeId,
+        name: &str,
+    ) -> Option<Vec<TypeId>> {
+        // A STATIC property is not what `this.<name> = …` assigns — that is the
+        // instance side. `class Square { static sideLength; constructor(n: number)
+        // { this.sideLength = n; } }` keeps `any` upstream
+        // (`staticVisibility2`, the single regression this gate removes).
+        if let Some(Node::PropertyDeclaration(property)) = self.node_map.get(declaration)
+            && property.modifiers.iter().any(|modifier| {
+                matches!(modifier, tsr_ast::ModifierLike::Token(token)
+                    if token.kind == SyntaxKind::StaticKeyword)
+            })
+        {
+            return None;
+        }
+        let class = self.nodes.parent(declaration)?;
+        let members = match self.node_map.get(class)? {
+            Node::ClassDeclaration(node) => node.members,
+            Node::ClassExpression(node) => node.members,
+            _ => return None,
+        };
+        let constructor = members.iter().find_map(|member| match member {
+            tsr_ast::ClassElement::ConstructorDeclaration(node) => node.node_id,
+            _ => None,
+        })?;
+        let mut assignments = Vec::new();
+        self.collect_this_assignments(constructor, name, &mut assignments);
+        let mut types = Vec::new();
+        for expression in assignments {
+            let checked = self.check_expression(expression);
+            if checked == self.intrinsics.error {
+                return None;
+            }
+            let widened = self.get_base_type_of_literal_type(checked);
+            if !types.contains(&widened) {
+                types.push(widened);
+            }
+        }
+        Some(types)
+    }
+
+    /// Every right-hand side of `this.<name> = …` under `node`. §687.
+    fn collect_this_assignments(
+        &mut self,
+        node: NodeId,
+        name: &str,
+        out: &mut Vec<tsr_ast::Expression<'a>>,
+    ) {
+        if let Some(Node::BinaryExpression(binary)) = self.node_map.get(node)
+            && binary.operator_token.is_some_and(|token| token.kind == SyntaxKind::EqualsToken)
+            && let Some(tsr_ast::Expression::PropertyAccessExpression(access)) = binary.left
+            && matches!(
+                access.expression,
+                Some(tsr_ast::Expression::KeywordExpression(keyword))
+                    if keyword.kind == SyntaxKind::ThisKeyword
+            )
+            && matches!(access.name, Some(tsr_ast::MemberName::Identifier(n)) if n.text == name)
+            && let Some(right) = binary.right
+        {
+            out.push(right);
+        }
+        let Some(current) = self.node_map.get(node) else { return };
+        let mut children = Vec::new();
+        tsr_ast::push_children(current, &mut children);
+        for child in children {
+            if let Some(id) = child.node_id() {
+                self.collect_this_assignments(id, name, out);
             }
         }
     }
