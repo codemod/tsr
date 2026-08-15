@@ -8781,3 +8781,45 @@ unverified, and is the next thing to print rather than assume.
 mechanism and costs nothing, so a future slice that needs re-entrant resolution
 here has its guard already written and measured. §622's refusal was fatal; §623
 reduces it to ordinary.
+
+### §624 REFUSED — widening the DEFERRED indexed-access road (+54 lines, but 27 G→W and 5 R→W)
+
+The trace §623 asked for settles what the remaining four lines of
+`assignmentToAnyArrayRestParameters` want, and it is the **opposite** of what
+§622/§623 built toward:
+
+```
+pos 22  want string[]["0" | K]     pos 24  want T["0.0"]
+pos 23  want T["0"]                pos 25  want T["0" | K]
+```
+
+They want the **written form, deferred** — not `string`. So the constraint
+substitution §622 attempted and §623 parked was wrong in DIRECTION; it would
+have resolved where upstream defers. It converting nothing was luck, and the
+trace is what turned that luck into knowledge.
+
+The real gap is printing: `deferred_index` accepts only a bare type-parameter
+`TypeReferenceNode`, so a LITERAL or UNION index has nowhere to go and the whole
+node answers `error`. Extending it (index text taken from the resolved index
+type, which agrees — `"0"`, and `"0" | K` because `sort_order_flags` puts
+`STRING_LITERAL` below `TYPE_PARAMETER`, §596) measures:
+
+```
+GAP->RIGHT   34      WRONG->RIGHT 25        (59 conversions, +54 lines net)
+GAP->WRONG   27  ⚠   RIGHT->WRONG  5  ⚠     (32 adverse; no PASSING case damaged)
+checker_types cases: UNCHANGED
+```
+
+**Refused at 1.84:1 for zero cases.** Every landing in this window ran 5:1 or
+better, most at zero adverse, and the 27 G→W are the specific thing this port's
+conventions exist to avoid — a gap is a known unknown and a wrong line is a
+confident falsehood. Trading 27 of the first for 34 of the second is a bad deal
+even where the arithmetic is positive.
+
+**Reopening condition:** print the 27 G→W rows and gate them. They are
+concentrated (`declarationEmitMappedTypeDistributivityPreservesConstraints` 5,
+`asyncFunctionReturnType` 4, `reactTransitiveImportHasValidDeclaration` 4,
+`uniqueSymbolsDeclarationsErrors` 4), so a gate is plausible rather than
+hypothetical — and with one, this becomes a clean +54 with real cases behind it.
+The four target lines DO convert here; what is missing is the discrimination,
+not the mechanism.

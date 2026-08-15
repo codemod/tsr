@@ -3,7 +3,7 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
 Passed         : 5998/9538 (62.89%)
-Assertion lines: 434632/478855 (90.76%)  — a gradient, not a pass rate
+Assertion lines: 434686/478855 (90.78%)  — a gradient, not a pass rate
 Failed         : 3540
 Skipped        : 2906 (excluded from the denominator)
 
@@ -204,7 +204,7 @@ compiler/assignmentCompatBug2
 compiler/assignmentNonObjectTypeConstraints
   assignmentNonObjectTypeConstraints.ts: >x : T — expected >x : A | B
 compiler/assignmentToAnyArrayRestParameters
-  assignmentToAnyArrayRestParameters.ts: >T02 : any — expected >T02 : string[]["0" | K]
+  assignmentToAnyArrayRestParameters.ts: >T01 : string[]["0.0"] — expected >T01 : any
 compiler/assignmentToConditionalBrandedStringTemplateOrMapping
   assignmentToConditionalBrandedStringTemplateOrMapping.ts: >a : error — expected >a : <T>() => T extends `${'a' & { a: 1; }}` ? 1 : 2
 compiler/assignmentToInstantiationExpression
