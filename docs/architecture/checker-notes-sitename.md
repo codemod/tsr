@@ -2212,3 +2212,31 @@ and there are more of them than these two.
 > **Next sweep, concretely**: `grep -n "new_named(.*None)"` and ask of each mint
 > *"what would `get_type_of_property_of_type` answer here?"*. Two of the three
 > found so far were worth 7 and 19 lines; the sweep costs one grep.
+
+### 31.2 §31.1's sweep, RUN — and it terminates in a subsystem, not a seam
+
+`grep -n "new_named(.*None)"` finds **17 mint sites**. Rather than read them,
+the question §31.1 poses was asked directly — *what does member access answer on
+each minted shape?*
+
+```ts
+type I = { x: number } & { y: string };   i.x  -> number    fine
+type O = Omit<{s:number,t:string},"t">;   o.s  -> number    fine
+type M = { [K in "a"|"b"]: number };      m.a  -> error
+type R = Record<"p", number>;             r.p  -> error
+type P = Partial<{ q: number }>;          p.q  -> error
+```
+
+The three failures are **not** the §539/§565 shape. The annotation itself does
+not resolve — `declare var m: M` gives `m : error`, so there is no minted type
+whose members are unreachable; there is no type at all. **Mapped types are
+unported at the type-node level**, and `Record`/`Partial` fail for the same
+reason while `Omit` happens to survive as a reference.
+
+So the sweep's honest outcome is: the `new_named(..., None)` mints that remain
+are not obviously carrying §31.1's bug, and the large gap adjacent to them is a
+**subsystem** — mapped-type resolution — with its own cost that this page has
+not sized and should not guess at.
+
+**Recorded so the sweep is not re-run.** §31.1's rule stands and is still worth
+applying to any NEW mint; what it does not do is point at more cheap wins today.
