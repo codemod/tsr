@@ -2705,3 +2705,39 @@ guard rather than behind anything §579 touched.
 > proved the failure was in overload selection rather than in `ConcatArray`,
 > rest parameters as such, or `T` from the instantiation. The +307 lines came
 > from the half of that diagnosis which was reachable.
+
+---
+
+## 39. §581's candidate — `resolveJsonModule`, SIZED at 5 deficit-1 cases and not built
+
+Re-dumping deficit-1 after §579 surfaced a family with an **identical wanted
+text across five cases**, which is the strongest shared-shape signal this
+instrument produces:
+
+```
+GAP  want { a: boolean; b: string; }  got error   × 5
+  requireOfJsonFileWithModuleEmitUndefined
+  requireOfJsonFileWithModuleNodeResolutionEmitEs2015
+  requireOfJsonFileWithModuleNodeResolutionEmitEsNext
+  requireOfJsonFileWithModuleNodeResolutionEmitUndefined
+  requireOfJsonFileWithoutEsModuleInterop
+```
+
+All five import a `.json` file. The `resolveJsonModule` **option** is plumbed
+(`tsr-execute`'s `compile.rs`, `help_all.rs`, `show_config.rs`) but nothing on
+the **type** side turns a `.json` file into a module whose shape is its
+contents, so every one of them gaps at `:0:0` — the import itself.
+
+**Sized and not built**, deliberately: the work is a loader change (admit `.json`
+as a source kind) plus a type synthesis (parse the literal and mint the object
+type), which is two subsystems and needs its own bar. What makes it worth
+recording rather than leaving in the dump is the shape:
+
+> **Five cases, one wanted text, one missing feature, and the option already
+> parsed.** That is the cheapest-to-verify family left on this page — one
+> `probefile` with a `.json` sibling confirms the whole diagnosis — and unlike
+> the mapped-type and conditional-type items it is a *feature that does not
+> exist* rather than a subsystem that is partially wrong.
+
+Recorded with its population so the next session does not have to re-derive the
+five case names from a fresh dump.
