@@ -128,18 +128,23 @@ fn the_same_name_from_outside_that_namespace_still_prints() {
 /// Baseline: `compiler/moduleVisibilityTest4.types:13` records `>a1 : M.num`
 /// where `M` exports `nums` and not `num`.
 ///
-/// **This port answers `error` and upstream answers `M.num`, so this fixture
-/// pins a known shortfall rather than a match.** Upstream falls through to
+/// **§605 CLOSED the shortfall this fixture pinned, and the fixture named its
+/// own fix.** What stood here read: *"This port answers `error` and upstream
+/// answers `M.num` … upstream falls through to
 /// `getUnresolvedSymbolForEntityName` (`checker.go:23102`) when
 /// `resolveQualifiedName` returns nil; this port reaches that path only when
-/// the *leftmost* name fails to resolve
-/// ([`crate::Checker::unresolved_type_reference`]'s caller), because a miss
-/// inside a namespace whose exports it can read is a different question from a
-/// name it cannot resolve at all. 291 corpus lines sit here.
+/// the *leftmost* name fails to resolve … 291 corpus lines sit here."*
+///
+/// That is exactly what §605 changed, and the estimate was good: **305 lines
+/// converted (78 GAP→RIGHT, 227 WRONG→RIGHT) for +18 cases, zero R→W.** The
+/// comment had carried the diagnosis, the upstream anchor and the line count
+/// for as long as it had existed — the work was reading it, not finding it.
+///
+/// The test now pins the MATCH, so a regression here is a regression.
 #[test]
-fn a_name_the_namespace_does_not_export_gaps() {
+fn a_name_the_namespace_does_not_export_prints_the_written_text() {
     let source = "namespace M { export type nums = number; }\nlet a1: M.num;";
-    assert_eq!(type_of_reference(source, 0), "error");
+    assert_eq!(type_of_reference(source, 0), "M.num");
 }
 
 /// Baseline: `compiler/moduleVisibilityTest4.types:17` records `>b1 : number`

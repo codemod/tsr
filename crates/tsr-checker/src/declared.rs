@@ -2196,11 +2196,44 @@ impl<'a> Checker<'a, '_> {
         if self.site_is_inside_namespace(site, namespace) {
             return error;
         }
-        // W still has to *resolve* to answer at all: a name upstream cannot
-        // resolve is a different bucket, and printing text for it here would be
-        // inventing an export that does not exist.
+        // §605: **upstream mints the unresolved symbol here too.** What stood
+        // here declined — *"a name upstream cannot resolve is a different
+        // bucket, and printing text for it here would be inventing an export
+        // that does not exist"* — and the second half is the error:
+        // `resolveEntityName` failing is precisely what sends upstream to
+        // `getUnresolvedSymbolForEntityName` (`checker.go:23102`), which mints
+        // a synthetic symbol and prints the WRITTEN text. `var foge: N.S` where
+        // `N` exports a function `S` and no type records `>foge : N.S`
+        // (`namespacesDeclaration2`), not `any`.
+        //
+        // The port already took that path when the LEFTMOST name failed; the
+        // miss inside a resolvable namespace was the half that declined.
+        // Measured: **305 lines (78 GAP→RIGHT, 227 WRONG→RIGHT), +18 cases,
+        // zero R→W** — the largest arm of this window.
+        //
+        // # The cycle gate, which cost a passing case before it existed
+        //
+        // A CIRCULAR alias must keep answering `error`. `circular4` writes
+        // `export type T = ns2.nested.T` across two files that import each
+        // other; upstream reports the circularity and yields `any`, and minting
+        // the written text there turned a PASSING case into a failing one (2
+        // R→W). The gate is the cycle itself, not the import: the namespace
+        // resolves through an ALIAS *and* the enclosing type alias's declared
+        // type is already on the resolution stack. Gating on the alias alone
+        // was tried first and cost 285 of the 305 lines — most of this arm's
+        // wins arrive through imported namespaces.
         let Some(resolved) = self.resolve_entity_name(name, SymbolFlags::TYPE) else {
-            return error;
+            if self.binder.symbols().get(namespace).flags.intersects(SymbolFlags::ALIAS)
+                && node.node_id.and_then(|id| self.alias_symbol_for_type_node(id)).is_some_and(
+                    |alias| {
+                        self.resolutions
+                            .on_stack(alias, crate::resolution::PropertyName::DeclaredType)
+                    },
+                )
+            {
+                return error;
+            }
+            return self.unresolved_type_reference(node);
         };
         // §41 (`checker-notes-narrow.md`): the resolved, argument-less
         // qualified reference answers a members-CARRYING named type — the
