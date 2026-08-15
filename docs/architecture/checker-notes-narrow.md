@@ -8755,9 +8755,29 @@ die the same way.
 
 **The guard this needs is a resolution-stack park**, the mechanism
 `self.resolutions.on_stack(...)` already provides for declared types and that
-§499 used for exactly this shape of cycle. That is the first thing to try, and
-it is a precondition rather than a fix: **§620 and §621 are safe because they
-only consult types already built; §622 is the first slice that asks for a type
-whose computation can re-enter this one.**
+§499 used for exactly this shape of cycle. That is a precondition rather than a
+fix: **§620 and §621 are safe because they only consult types already built;
+§622 is the first slice that asks for a type whose computation can re-enter this
+one.**
 
-That is the line where the concrete indexed-access road stops being free.
+### §623 — the park WORKS, and the constraint is still not the blocker (0 converted, 1 G→W)
+
+Built exactly that: push the type parameter's symbol on the resolution stack
+around `type_parameter_constraint`, skip the substitution when it is already
+there.
+
+**The overflow is gone** — the conformance run completes, which settles §622's
+open question and confirms the mechanism. But the arm **converts nothing**: 0
+WRONG→RIGHT and 1 GAP→WRONG (`mappedTypeRecursiveInference2`). Reverted.
+
+So the constraint step was never what stood between this road and
+`assignmentToAnyArrayRestParameters`'s remaining four lines. Something upstream
+of it does not deliver a type parameter here at all — the object node is a
+`TypeReferenceNode` and whether it resolves to a type carrying
+`TypeFlags::TYPE_PARAMETER` with an entry in `type_parameter_symbols` is
+unverified, and is the next thing to print rather than assume.
+
+**What is now known, and is worth more than the arm:** the park is the right
+mechanism and costs nothing, so a future slice that needs re-entrant resolution
+here has its guard already written and measured. §622's refusal was fatal; §623
+reduces it to ordinary.
