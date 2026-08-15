@@ -3163,6 +3163,53 @@ the global scope rather than anything in the naming road.
 > invocations before reading the implementation.** Two of the three defects found
 > this way were callers, not the roads themselves.
 
+### §687 — `getFlowTypeInConstructor`: annotation-less class properties (SIZED, ANCHORED)
+
+Re-cut the corpus for cases convertible by ONE `primitive ← any` shape: **66**,
+mostly fragmented, but `classAttributeInferenceTemplate` and its `…JS` twin carry
+**12 lines each** on one mechanism.
+
+```ts
+class MyClass {
+    property;            // no annotation, no initializer
+    property2;
+    constructor() {
+        const variable = 'something'
+        this.property = `foo`;                 // upstream: string
+        this.property2 = `foo-${variable}`;    // upstream: string
+    }
+}
+```
+
+Upstream types those properties from their **constructor assignments**;
+this port answers `any`.
+
+**Upstream anchor, exact** — `checker.go:16752`:
+
+```go
+if c.noImplicitAny && ast.IsPropertyDeclaration(declaration) {
+    // We have a property declaration with no type annotation or initializer,
+    // in noImplicitAny mode or a .js file.
+    …
+    t = c.getFlowTypeInConstructor(declaration.Symbol(), constructor)
+```
+
+**`getFlowTypeInConstructor` is unported.** The port's `noImplicitAny` auto-type
+arm (§599, `symbols.rs`) is gated to `VariableDeclaration` and deliberately
+excludes properties — but that exclusion was reasoned about a property *with* an
+initializer (`foo = undefined` keeps `undefined`,
+`implicitAnyCastedValue`). **A property with NO initializer is a different arm and
+is simply missing.**
+
+**Why this is well-positioned rather than merely sized:** the scalar half of the
+machinery it needs already exists — `is_auto_typed_declaration` and
+`get_type_at_flow_assignment` (`flow.rs:236`), landed for variables. What is
+missing is the property entry point and the constructor-scoped flow query.
+
+**Population: 2 cases, 24 lines**, plus an unknown share of the 66 — several of
+the singletons in that cut (`ambientPropertyDeclarationInJs`, 5 lines;
+`classStaticBlockUseBeforeDef4`, 12 lines) are the same shape and may ride along.
+
 ### §673 — the enum's OWN type never reached the qualifier: +2 CASES, 16 W→R
 
 **LANDED. +2 cases (6,029 → 6,031), 16 WRONG→RIGHT, zero adverse, zero regressed
