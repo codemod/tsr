@@ -2022,3 +2022,39 @@ than one source, and they are not additive.** Anyone porting the type-answering
 half should establish which source wins before writing the aggregate — upstream
 resolves that at `:20242` by consulting the contextual ITERATION type only when
 `nextTypes` is empty, which is precisely the ordering §606 inverted.
+
+---
+
+## §632 REFUSED — the NEXT slot from an ASSIGNMENT position (0 converted, 2 G→W)
+
+Four single-transition cases share one exact want — `() => Generator<any, void,
+any>` (`yieldExpressionInFlowLoop`, `yieldExpressionInControlFlow`,
+`YieldExpression5_es6`, `YieldStarExpression3_es6`) — and two of them are the
+same shape:
+
+```ts
+function* f() { let result; while (1) { result = yield result; } }
+```
+
+`getContextualTypeForBinaryOperand` (`checker.go:29374`) answers the LEFT
+operand's type for `x = yield e`, and `result` is an unannotated `let`, so both
+slots are `any`. That is a contextual position whose type this port can compute
+with a plain reference lookup — the one §606 (the annotated-declaration
+position) was not.
+
+Built with the same `next_types` aggregate upstream uses. Measured **0
+converted, 2 GAP→WRONG** (`typeOfYieldWithUnionInContextualReturnType`).
+Reverted.
+
+**The arm never reaches those four cases**, so something declines before the
+yield loop is entered — `declaration_takes_no_contextual_return`, the
+`while (1)` body's return aggregation, or the operand's own type. The two G→W
+prove the arm fires SOMEWHERE, which makes this a reachability question with a
+definite answer, not a design one.
+
+**Second refusal on the NEXT slot's type-answering half** (§606 was the first,
+also 0-for-2). Both attempts assumed the contextual position was the blocker;
+neither checked first that the yield loop runs at all for the target fixtures.
+**The next attempt should trace ENTRY to `return_type_from_body` for
+`yieldExpressionInFlowLoop` before writing any arm** — that is one `eprintln`
+and it discriminates every remaining hypothesis.
