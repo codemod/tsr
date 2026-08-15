@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 6020/9538 (63.12%)
-Assertion lines: 434865/478855 (90.81%)  — a gradient, not a pass rate
-Failed         : 3518
+Passed         : 6024/9538 (63.16%)
+Assertion lines: 434876/478855 (90.82%)  — a gradient, not a pass rate
+Failed         : 3514
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 3518 failures:
+First 100 of 3514 failures:
 compiler/2dArrays
   2dArrays.ts: >function (val) { return val.isSunk; } : error — expected >function (val) { return val.isSunk; } : (val: Ship) => boolean
 compiler/ClassDeclaration26
@@ -101,8 +101,6 @@ compiler/argumentsAsPropertyName
   argumentsAsPropertyName.ts: >function(j) { use(x); } : error — expected >function(j) { use(x); } : (j: number) => void
 compiler/argumentsAsPropertyName2
   argumentsAsPropertyName2.ts: >[].forEach : (callbackfn: (value: undefined, index: number, array: undefined[]) => void, thisArg?: any) => void — expected >[].forEach : (callbackfn: (value: any, index: number, array: any[]) => void, thisArg?: any) => void
-compiler/argumentsObjectIterator03_ES6
-  argumentsObjectIterator03_ES6.ts: >[z, y, x] : any[] — expected >[z, y, x] : [any, any, any]
 compiler/argumentsPropertyNameInJsMode1
   a.js: >foo : any — expected >foo : { f1: (params: any) => void; }
 compiler/argumentsReferenceInConstructor1_Js
@@ -213,3 +211,5 @@ compiler/asyncFunctionReturnType
   asyncFunctionReturnType.ts: >[1, true] : (number | boolean)[] — expected >[1, true] : [number, true]
 compiler/asyncFunctionReturnType.2
   asyncFunctionReturnType.2.ts: >f : error — expected >f : () => Promise<this>
+compiler/asyncFunctionsAcrossFiles
+  a.ts: >b : any — expected >b : { f: () => Promise<void>; }

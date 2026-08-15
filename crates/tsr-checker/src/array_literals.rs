@@ -335,6 +335,39 @@ impl Checker<'_, '_> {
                         _ => TupleContext::No,
                     }
                 }
+                // §654. `return [y, f(x)];` inside `f(...): [T, U]` — the
+                // literal's tuple context comes from the ENCLOSING function's
+                // return annotation, which no arm above reaches, so the parent
+                // fell to `_` and the literal widened to `(T | U)[]`.
+                //
+                // The branch was printed rather than guessed: the dispatch
+                // simply has no `ReturnStatement` arm. The lookup mirrors
+                // `enclosing_function_has_a_return_annotation`
+                // (`implicit_any.rs:462`) and then applies the same
+                // `tuple_element_lists` test every annotated arm above uses.
+                Some(tsr_ast::Node::ReturnStatement(_)) => {
+                    let annotation = self.nodes.ancestors(id).find_map(|ancestor| {
+                        match self.node_map.get(ancestor) {
+                            Some(tsr_ast::Node::FunctionDeclaration(n)) => Some(n.r#type),
+                            Some(tsr_ast::Node::FunctionExpression(n)) => Some(n.r#type),
+                            Some(tsr_ast::Node::ArrowFunction(n)) => Some(n.r#type),
+                            Some(tsr_ast::Node::MethodDeclaration(n)) => Some(n.r#type),
+                            Some(tsr_ast::Node::GetAccessorDeclaration(n)) => Some(n.r#type),
+                            _ => None,
+                        }
+                    });
+                    match annotation.flatten() {
+                        Some(annotation) => {
+                            let t = self.get_type_from_type_node(annotation);
+                            if self.tuple_element_lists.contains_key(&t) {
+                                TupleContext::Annotated
+                            } else {
+                                TupleContext::No
+                            }
+                        }
+                        None => TupleContext::No,
+                    }
+                }
                 _ => TupleContext::No,
             }
         }
