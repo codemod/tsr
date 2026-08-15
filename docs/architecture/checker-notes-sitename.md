@@ -2755,7 +2755,26 @@ waiting.
 > **Recorded as a correction rather than an edit** because the first claim was
 > wrong in the direction that would have made the next session skip the item as
 > too expensive — and because it is this session's fourth instance of an
-> instrument answering after the conclusion was written (§541, §555, §573, this). What makes it worth
+> instrument answering after the conclusion was written (§541, §555, §573, this).
+
+**One more elimination, so the next session starts in the right place.**
+`types_producer.rs:1553` filters `ScriptKind::Json` out of the unit whose own
+assertions are rendered — that is correct and is **not** the cause here. The
+five failures are at `:0:0` of **file 0**, the TypeScript file doing the
+importing, so the JSON unit's own (absent) section is beside the point.
+
+What remains unchecked, and is the first thing to look at:
+
+1. does `program.source_file` include the `.json` unit at all, and
+2. does its module symbol get a **type** — a JSON file parses to a `SourceFile`
+   with exactly ONE statement, its top-level value (`json.rs:57`), so the
+   synthesis is *"that expression's type is the module's type, with a `default`
+   export of the same"*.
+
+Every other piece is in the tree. Not built here because wiring it needs the
+resolution → module-symbol → type road traced end to end, and this session
+declined to start a change it could not measure and gate to the standard the
+other twenty-one landings met. What makes it worth
 recording rather than leaving in the dump is the shape:
 
 > **Five cases, one wanted text, one missing feature, and the option already
