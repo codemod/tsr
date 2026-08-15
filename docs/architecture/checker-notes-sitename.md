@@ -2240,3 +2240,63 @@ not sized and should not guess at.
 
 **Recorded so the sweep is not re-run.** §31.1's rule stands and is still worth
 applying to any NEW mint; what it does not do is point at more cheap wins today.
+
+---
+
+## 32. §567 — two halves of one sweep: the string spread and the enum index key (+2 cases, 38 favorable, 0 adverse)
+
+The third broad sweep, thirteen unrelated one-liners, two gaps — and both turned
+out to be **the same road split two ways**, where one entrance answers and the
+other does not.
+
+```ts
+for (const ch of "ab") { ch }   // string    works
+var c = [..."ab"];              // error
+var b = E[0];                   // string    works
+var a = E[E.A];                 // error
+```
+
+**The string spread.** `array_spread_element_type`'s iterator seam is gated on
+`declares_symbol_iterator`, a **syntactic** presence test, and a primitive
+declares nothing — `String`'s `[Symbol.iterator]` lives in the lib interface,
+not on the operand. So the spread road could not reach `for_of_element_type`,
+which handles a string perfectly well. One arm, widened not literal:
+`[..."ab"]` is `string[]`, the characters and not the literal.
+
+**The enum index key.** §262 synthesised the enum's reverse-mapping index
+signature, and `E[0]` reads it. `E[E.A]` did not, because
+`is_applicable_index_type` tests for the `number` intrinsic or a
+`TypeData::NumberLiteral`, and this port mints an enum member as its own
+`TypeFlags::ENUM` type. Upstream carries `NumberLiteral | EnumLiteral`
+**together**, so `isTypeAssignableTo(E.A, numberType)` holds there and the
+distinction never arises.
+
+```
+WRONG->RIGHT: 24   propertyAccess 9, noImplicitAnyIndexing 7,
+                   noUncheckedIndexedAccess 5
+GAP->RIGHT:    14  noUncheckedIndexAccess 8, enumMapBackIntoItself 3, enumBasics 3
+no adverse transition of any kind
+checker_types 5,914 -> 5,916 (+2 cases), gradient 90.50%
+```
+
+The string half alone measured **1 line**. The enum half took it to 38 — worth
+recording, because the sweep surfaced both in one run and stopping at the first
+would have looked like a dead end.
+
+### 32.1 The shape these two share with §559 and §561
+
+Four landings now, all the same sentence: **two entrances to one road, and only
+one of them was gated correctly.**
+
+| § | answers | gaps |
+|---|---|---|
+| 559 | `async function f() {…}` | `async () => 1` |
+| 561 | `function r([x]) {…}` | `([x]) => x` |
+| 567a | `for (const ch of "ab")` | `[..."ab"]` |
+| 567b | `E[0]` | `E[E.A]` |
+
+None was a missing subsystem; each was a gate or a test written for the entrance
+its author had in hand. **The probe that finds them is always the same: write
+the two spellings of one idea side by side and diff the output.** That is the
+cheapest instrument in this file and it has now produced four landings and 111
+lines.

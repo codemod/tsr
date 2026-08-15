@@ -737,6 +737,24 @@ impl Checker<'_, '_> {
         {
             return Some(arguments[0]);
         }
+        // §567: a STRING spreads to `string`. `checkIteratedTypeOrElementType`
+        // reaches `getIteratedTypeOrElementType` and a string-like operand
+        // yields `stringType` (`checker.go`'s `isTypeAssignableToKind(…,
+        // TypeFlagsStringLike)` arm), which is why
+        // `for (const ch of "ab")` already reads `string` here through
+        // `for_of_element_type`.
+        //
+        // The spread road could not reach that: its iterator seam is gated on
+        // `declares_symbol_iterator`, a SYNTACTIC presence test, and a
+        // primitive declares nothing — `String`'s `[Symbol.iterator]` lives in
+        // the lib interface, not on the operand. So `[..."ab"]` gapped while
+        // `for (const ch of "ab")` answered, the same road split two ways.
+        //
+        // Widened, not the literal: `[..."ab"]` is `string[]`, because the
+        // elements are the string's characters and not the literal itself.
+        if self.store.get(operand).flags.intersects(TypeFlags::STRING_LIKE) {
+            return Some(self.intrinsics.string);
+        }
         // §285: `[...new SymbolIterator]` reads the same custom-iterator seam
         // the for-of road does (§284), gated by the same syntactic presence
         // test (`iteratorSpreadInArray5`, `iteratorSpreadInCall*`).

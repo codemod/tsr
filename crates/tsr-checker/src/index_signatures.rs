@@ -390,8 +390,17 @@ impl<'a> Checker<'a, '_> {
     /// value type.
     fn is_applicable_index_type(&self, source: TypeId, target: TypeId) -> bool {
         let (string, number) = (self.intrinsics.string, self.intrinsics.number);
-        let source_is_number =
-            source == number || matches!(self.store.get(source).data, TypeData::NumberLiteral(_));
+        // §567: a NUMERIC ENUM MEMBER is number-like. Upstream's enum member
+        // type carries `NumberLiteral | EnumLiteral` together
+        // (`checker.go`'s `getFreshTypeOfLiteralType` chain), so
+        // `isTypeAssignableTo(E.A, numberType)` holds and `E[E.A]` reads the
+        // reverse-mapping signature §262 synthesised. This port mints an enum
+        // member as its own `TypeFlags::ENUM` type, so the literal test above
+        // could not see it and `E[E.A]` gapped while the identical `E[0]`
+        // answered `string`.
+        let source_is_number = source == number
+            || matches!(self.store.get(source).data, TypeData::NumberLiteral(_))
+            || self.store.get(source).flags.contains(crate::TypeFlags::ENUM);
         let source_is_string =
             source == string || matches!(self.store.get(source).data, TypeData::StringLiteral(_));
         if target == string {
