@@ -116,6 +116,25 @@ impl Checker<'_, '_> {
         // since §12.7 and this road lacked (`x['o'] = true`'s LHS narrowed
         // by a preceding guard, `controlFlowElementAccess`).
         if self.assignment_target_kind(id) == crate::expressions::AssignmentTargetKind::Definite {
+            // §617: the element-access half of §616 — `obj['x'] = v` sees the
+            // SETTER's annotation for a divergent accessor pair, exactly as
+            // `obj.x = v` does. The two roads carry the SAME two halves of
+            // `getWriteTypeOfSymbol` and this one had only the
+            // `exactOptionalPropertyTypes` one, which is the asymmetry §78.1
+            // left behind (`divergentAccessorsTypes8` writes through
+            // `obj['x']`).
+            let computed = if let (Some(receiver), Some(index)) =
+                (node.expression, node.argument_expression)
+            {
+                let object_type = self.check_expression(receiver);
+                let index_type = self.check_expression(index);
+                self.property_name_from_index(index_type)
+                    .and_then(|name| self.get_property_of_type(object_type, &name))
+                    .and_then(|property| self.write_type_of_accessors(property))
+                    .unwrap_or(computed)
+            } else {
+                computed
+            };
             // §78.1: the element-access half of `getWriteTypeOfSymbol` —
             // `obj['a'] = x` under `exactOptionalPropertyTypes` removes
             // `missingType`, as the property-access road does.

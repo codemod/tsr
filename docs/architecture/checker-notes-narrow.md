@@ -8610,3 +8610,27 @@ the 42 and named itself. **Three sizing steps, each correcting the last, and the
 arm fell out of the third.** The first two numbers were both wrong in the
 direction that would have wasted the work: 1,060 would have justified a
 subsystem, 42 justified an afternoon.
+
+### §617 — the same arm on the ELEMENT-access road (+6 lines, 0 cases, 0 adverse)
+
+`obj['x'] = v` sees the setter's annotation exactly as `obj.x = v` does. The two
+roads carry the same two halves of `getWriteTypeOfSymbol`, and after §616 the
+element-access road had only the `exactOptionalPropertyTypes` one — the
+asymmetry §78.1 left behind, visible because `divergentAccessorsTypes8` writes
+through `obj['x']` and was the largest remaining row in `writetarget.rs`'s
+over-narrowed split.
+
+```
+WRONG->RIGHT: 6   divergentAccessorsTypes8 5, computedPropertiesWithSetterAssignment 1
+(no adverse transition of any kind)
+```
+
+No case converts — `divergentAccessorsTypes8` has a deficit of 33 and this is 5
+of them. Kept on §592's rule: the arm fires, it transcribes an upstream rule the
+port already implements on the sibling road, and reverting a correct arm because
+the case counter did not move scores the port against the wrong number.
+
+**Two roads carrying two halves each is the shape to look for.** §78 built the
+`exactOptionalPropertyTypes` half on both roads and neither accessor half; §616
+and §617 are the completion. When a helper is described as "the X half of Y",
+the question to ask is what the other half is and whether every road has it.
