@@ -3416,6 +3416,46 @@ hour earlier and §664 named before that. Three occurrences now; the rule is not
 node before naming the lane"**, which is stricter and is what would have caught
 all three.
 
+### §716 — the heritage lane splits in two, and §706's regressions are a DIFFERENT shape
+
+Compared the two cases §706's ungated cut regressed against the case §714/§715
+wants, since both are "a class extending an interface":
+
+```ts
+// indexSignatureInOtherFile — WANTS the instance type
+class Test extends Array1 { … }          >Array1 : Array1<any>
+
+// classExtendsInterfaceInModule — WANTS any
+namespace M { export interface I1 {} }
+class C1 extends M.I1 {}                 >M.I1 : any      >M : any     >I1 : any
+
+// unusedInvalidTypeArguments — WANTS any
+type U = number;
+export type Z = U<N>;                    >Z : any
+```
+
+**They are not the same shape.** The heritage expression that wants the instance
+type is a **bare identifier**; the ones that want `any` are a **qualified name**
+(`M.I1`, where `M` itself prints `any`) and a **type alias applied as generic**.
+So §706's two regressions were never evidence that interface bases must be
+excluded — they are evidence that *qualified* and *alias* heritage expressions
+resolve to `any` upstream while bare interface names resolve to their instance
+type.
+
+**That changes the size of the fix.** §705/§706 concluded the lane needs a real
+`ExpressionWithTypeArguments` type. This comparison says the 15 cases may split:
+the bare-identifier ones might be reachable by relaxing the class-declaration
+gate to *bare identifier bases only*, leaving qualified and alias forms alone.
+
+**NOT ATTEMPTED — and the reason is a measurement, not caution.** §706 measured
+the fully-ungated cut at **−1 case** and the interface-excluded cut at **−20**.
+A third cut is worth one build, but only with the discrimination stated above
+written into it, and only judged by the case-set diff. **Whoever tries it should
+expect the JSX bases (`tsxUnionElementType3`/`4`,
+`checkJsxChildrenProperty12`/`13`) to be the risk** — they are neither bare
+identifiers nor qualified names in the sense above, and they supplied 54 of
+§706's regressions.
+
 ### §710 — EVOLVING ARRAY TYPES, LANDED: +2 CASES, 39 W→R, zero regressed
 
 **LANDED. +2 cases (6,060 → 6,062), 39 WRONG→RIGHT, +33 lines, zero regressed by
