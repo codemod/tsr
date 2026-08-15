@@ -1082,6 +1082,54 @@ cases, or land an arm worth more than 20. Either would mean the tail is
 shallower than these two joins say, and this section should be superseded with
 the row dump that shows it.
 
+### 4.-2d THE PRICED CAUSE BOARD, 2026-08-14 (§604) — **369 cases are blocked by a SINGLE cause**
+
+Built by joining both per-line dumps (§6: `TSR_ANY_DUMP=1` and
+`examples/gapdump.rs`) against the verdict baseline and keeping the cases whose
+non-right lines are *all* gap-or-`any` **and all share one cause**. Each such
+case converts when that one cause is built — this is a forecast, not a ceiling.
+
+```
+ 41  declaration name -> annotation denotes `any`      (declared.rs:27, checker.go:22811)
+ 34  declaration name -> shorthand ambient module      (symbols.rs:563, utilities.go:198)
+ 24  expression answered `any`: CallExpression
+ 21  expression answered error: CallExpression
+ 17  declared type of a type symbol is `any`
+ 17  declaration name -> alias target is `any`
+ 16  expression answered `any`: ObjectLiteralExpression
+ 15  declaration name -> symbol flags with no arm: NAMESPACE_MODULE   <- but see §311/§603
+ 11  identifier does not resolve (unreachable: answers error)
+ 11  expression answered error: ObjectLiteralExpression
+  9  expression answered error: NewExpression
+  9  element access: the indexed type is `any`
+  8  expression answered `any`: ArrowFunction
+  7  the alias RHS gaps: TypeReference with arguments (TYPE_ALIAS)
+                                                     ... total 369 cases
+```
+
+**This corrects the framing in §4.-3.** That section concluded from the
+single-transition population that what remains is *"a long tail, none above 5"*.
+Counted over **all** deficits rather than deficit-1 only, the causes are not
+flat: the top four are 41, 34, 24 and 21. §4.-3's arithmetic stands (the arms
+landed this window were worth 18, 9, 7, 5, 5, 3, 2, 2); what it got wrong is the
+shape of what is left. **The 191 cases a 2% goal asks for do exist inside this
+table** — they are four or five causes, each a genuine piece of implementation,
+not thirty arms.
+
+**Two health warnings, both earned this window:**
+
+- **The reason strings are the classifier's guess and several are wrong.** §584
+  found 25 plain `function*` declarations attributed to *"shorthand ambient
+  module"*. Read a row as *a population worth printing*, never as a diagnosis —
+  §598 published a cause from one of these and had to retract it (§599).
+- **Check §5 before building any row.** The `NAMESPACE_MODULE` row at 15 is
+  substantially §311's `declare global` name line, **already refused at 5:42**,
+  which §600 rediscovered and nearly re-paid (§603).
+
+**Cheapest first step for any row: print it.** Both dumps key on
+`case:index:position`, byte-for-byte `verdict.rs:70`'s, so the join is one
+`join -t$'\t'` away and needs no build.
+
 ### 4.-2c THE FORM SEAM, 2026-08-14 (§591–§595) — **a question, not an item; five landings and a live residue**
 
 The single most productive thing found this window, and it is a *question* to
