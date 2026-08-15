@@ -8295,3 +8295,36 @@ plurality is anonymous-object-vs-anonymous-object, where both compilers reduce
 to their own type-id order and this port's ids are not upstream's. That residue
 is a genuinely harder item than this one was and keeps §590's standing
 falsifier.
+
+### §592 — object types order by their symbol's DECLARATION POSITION (+16 lines, 0 cases, 0 adverse)
+
+§591 fixed the name lookup; this is the arm underneath it that §590's 103-line
+plurality actually needed.
+
+`CompareTypes` (`utilities.go:440`–`:444`): *"Order unnamed or identically named
+object types by symbol"*, and `compareSymbolsWorker` (`:376`) answers by the
+**first declaration's position** before it ever reaches a name or a symbol id.
+For two anonymous object literals that is SOURCE order, which is why
+`{ type: "FOO"; } | { type: "BAR"; }` keeps its written order upstream.
+
+This port had no such arm: two anonymous object types compared equal all the way
+down to the type-id tiebreak, which is *this* port's creation order and not
+upstream's — the thing §590 kept failing to reproduce by guessing at ordering
+rules. Only the position half is ported; the name and symbol-id tiebreaks below
+it cannot arise for the type-literal nodes this population is made of.
+
+```
+WRONG->RIGHT: 16   abstractClassUnionInstantiation 12, unionOfArraysFilterCall 2,
+                   assertionTypePredicates1 2
+(no adverse transition of any kind)
+```
+
+**Zero cases, and it is kept anyway.** This is not a §586-style zero: the arm
+demonstrably fires, converts 16 lines, and is a transcription of an upstream
+arm this port simply lacked. What it does not do is flip a case, because those
+16 lines sit in cases failing on other lines too — the 6:1 line-to-case ratio
+(STATUS §4.-3) in its plainest form. Reverting a correct upstream arm because
+the case counter did not move would be scoring the port against the wrong
+number.
+
+**Residue: 186 lines / 39 cases**, down from 206/49 across §591 and §592.

@@ -954,6 +954,45 @@ impl Checker<'_, '_> {
     /// literal would start sorting before unnamed types instead of after. That
     /// is a separate change with its own population and none of the 137 measured
     /// lines need it.
+    /// `compareSymbols` (`utilities.go:366`) restricted to the OBJECT arm
+    /// `CompareTypes` reaches it from (`:440`–`:444`).
+    ///
+    /// Upstream orders two object types by their symbols' **first declaration
+    /// position**, falling back to the symbol name and then to symbol id. Only
+    /// the position half is ported: it is the half that decides the
+    /// anonymous-vs-anonymous population (§590's 103-line plurality), and a
+    /// name tiebreak between two symbols whose declarations already compare
+    /// equal cannot arise for the type-literal nodes that population is made
+    /// of.
+    ///
+    /// A missing symbol sorts AFTER a present one, which is
+    /// `compareSymbolsWorker`'s `s1 == nil => 1` (`:370`).
+    fn compare_type_symbols(
+        &self,
+        left: &crate::types::Type,
+        right: &crate::types::Type,
+    ) -> Ordering {
+        // Upstream reaches this only inside `t1.flags&TypeFlagsObject != 0`.
+        if !left.flags.intersects(TypeFlags::OBJECT) || !right.flags.intersects(TypeFlags::OBJECT) {
+            return Ordering::Equal;
+        }
+        let position = |data: &TypeData| -> Option<u32> {
+            let symbol = match data {
+                TypeData::Anonymous { symbol, .. } => Some(*symbol),
+                TypeData::Named { members, .. } => *members,
+                _ => None,
+            }?;
+            let declaration = *self.binder.symbols().get(symbol).declarations.first()?;
+            Some(self.nodes.span(declaration).start)
+        };
+        match (position(&left.data), position(&right.data)) {
+            (Some(x), Some(y)) => x.cmp(&y),
+            (Some(_), None) => Ordering::Less,
+            (None, Some(_)) => Ordering::Greater,
+            (None, None) => Ordering::Equal,
+        }
+    }
+
     fn compare_type_names(
         &self,
         a: TypeId,
@@ -1038,6 +1077,14 @@ impl Checker<'_, '_> {
         sort_order_flags(left.flags)
             .cmp(&sort_order_flags(right.flags))
             .then_with(|| self.compare_type_names(a, b, left, right))
+            // §592: *"Order unnamed or identically named object types by
+            // symbol"* (`utilities.go:441`), which
+            // `compareSymbolsWorker` (`:376`) answers by the first
+            // DECLARATION's position — i.e. SOURCE order. This is the arm that
+            // decides two anonymous object literals, and without it they fell
+            // to the type-id tiebreak below, which is this port's creation
+            // order and not upstream's.
+            .then_with(|| self.compare_type_symbols(left, right))
             // `compareTupleTypes` (`utilities.go`), reached in upstream's
             // object-kind switch when both references target tuples: readonly
             // tuples after plain ones, then **ascending arity**
