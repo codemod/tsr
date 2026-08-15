@@ -1170,6 +1170,44 @@ shortfall is a defect someone has already diagnosed, anchored and left a count
 for — and at least two of those counts were stale by more than an order of
 magnitude.
 
+### 4.-2f NEWLY SIZED, 2026-08-15 (§618) — the `declared type of a type symbol is `any`` row, printed
+
+The priced board's 17-case row, printed rather than counted. It is **not one
+item**, but it contains one three-case cluster that is convertible and shares a
+mechanism:
+
+```
+1  exportDefaultClassAndValue            want `foo`
+1  exportDefaultInterfaceClassAndValue   want `foo`
+1  exportDefaultTypeClassAndValue        want `foo`
+```
+
+All three write a DUPLICATE default export:
+
+```ts
+const foo = 1
+export default foo
+export default class Foo {}     // >Foo : foo
+```
+
+The class declaration name prints as **`foo`** — the class symbol merges into
+the default-export symbol the const already created, so the instance type
+renders under the merged name. This port answers `any`: `get_declared_type_of_symbol`
+has no arm for that merged shape.
+
+**Each case is deficit 1, so the cluster is +3 cases** — but it is duplicate-
+default-export ERROR recovery reached through a binder merge, which is the same
+neighbourhood as §234/§311's global augmentation and has the same hazard: the
+merge decides a NAME, and this port's binder merges by name. Size the merge
+before touching it.
+
+The other 14 rows are separate mechanisms — mapped types (`anyMappedTypesError`,
+`noMappedGetSet`, `mappedTypeErrors2`), circular references
+(`circularlyReferentialInterfaceAccessNoCrash`), rest parameters
+(`assignmentToAnyArrayRestParameters`, 5 lines), named tuple members. **The row
+is a bucket, not a cause** — which is the second time this window a priced-board
+row has needed printing before it could be worked (§584's was the first).
+
 ### 4.-2c THE FORM SEAM, 2026-08-14 (§591–§595) — **a question, not an item; five landings and a live residue**
 
 The single most productive thing found this window, and it is a *question* to
