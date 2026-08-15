@@ -2676,3 +2676,32 @@ for the unannotated parameter pattern.
 
 The corpus never regressed: every landing carried a full scorepair, and all six
 tests were pinning refusals rather than behaviour the pairs measured.
+
+### 38.2 What §579 did and did not reach, re-probed
+
+The four-interface table from §37.1, re-run after the landing:
+
+| shape | before | after |
+|---|---|---|
+| `interface X<T> { m(a:T):T; m(a:T,b:T):T }` | error | **`number`** ✓ |
+| `interface Z<T> { p(...xs:T[]):T; p(...xs:string[]):T }` | error | error |
+| `[1,2].concat([3])` | error | error |
+
+**The discriminator between the fixed and unfixed halves is a REST parameter in
+the overload set**, and that is not an oversight: `choose_overload` declines
+outright on *"a rest or `this` parameter on any candidate"*, one of five
+reductions it names, *"which changes what arity means"*.
+
+`Array<T>.concat`'s two signatures are both rest, so it is blocked behind that
+guard rather than behind anything §579 touched.
+
+> **So `concat` is now a REFUSAL to reopen, not a defect to find.** The
+> reopening condition is `choose_overload`'s rest guard, which needs upstream's
+> arity treatment for spread/rest candidates (`hasCorrectArity`'s rest arm,
+> `checker.go:9107`) before it can be relaxed — a bar-and-pair change of its
+> own, and one that would also reach the `z.p` shape above.
+>
+> §37's four probe eliminations still stand and are not wasted: they are what
+> proved the failure was in overload selection rather than in `ConcatArray`,
+> rest parameters as such, or `T` from the instantiation. The +307 lines came
+> from the half of that diagnosis which was reachable.
