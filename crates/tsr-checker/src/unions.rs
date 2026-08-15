@@ -331,6 +331,58 @@ fn sort_order_flags(flags: TypeFlags) -> u32 {
 /// way. Recorded rather than fixed, because fixing it means giving
 /// `TypeData::Named` a symbol and an argument list, which is a reshape of a type
 /// two workstreams share. `bd tsr-bgz`.
+/// The name a NON-reference type sorts under — its **symbol's** name where it
+/// has one, and only otherwise its printed text.
+///
+/// §596. `getTypeNameSymbol` (`utilities.go:608`) answers a SYMBOL and
+/// `compareSymbolsWorker` (`:385`) compares `s.Name`, which for `namespace Foo {
+/// interface Yep {} }` is **`"Yep"`** — never the qualified `"Foo.Yep"` this
+/// port prints. Two namespaced types with the same member name therefore
+/// compare EQUAL upstream and fall through to the declaration-position rule
+/// (§592), which is what orders them; sorting `"Bar.Yep"` before `"Foo.Yep"` by
+/// ASCII put them in the opposite order (`namespaceDisambiguationInUnion`).
+///
+/// Only the qualified case can differ: for an unqualified name the printed text
+/// and the symbol name are the same string, so this narrows the comparison
+/// rather than redirecting it.
+fn named_symbol_name<'a>(
+    data: &'a TypeData,
+    symbols: &'a tsr_binder::SymbolStore<'a>,
+) -> Option<&'a str> {
+    if let TypeData::Named { text, .. } = data {
+        // A `Named` type that prints STRUCTURALLY has no name upstream would
+        // sort it by: it is an inline object type, `getTypeNameSymbol` returns
+        // its `__type`/`__object` symbol, and `compareSymbolsWorker` orders it
+        // by DECLARATION POSITION (§592) — which is why
+        // `{ kind: 'foo'; … } | { kind: 'bar'; … }` keeps its written order.
+        // Answering `None` here is what routes it to that rule.
+        if text.starts_with('{') {
+            return None;
+        }
+        // Otherwise the text IS the name — an alias's or an interface's — and
+        // upstream compares only the LAST segment, because
+        // `getTypeNameSymbol` answers a symbol and `compareSymbolsWorker`
+        // (`:385`) compares `s.Name`. `namespace Foo { interface Yep {} }` is
+        // `"Yep"`, never the qualified `"Foo.Yep"` this port prints, so two
+        // namespaced types with the same member name compare EQUAL and fall
+        // through to declaration position (`namespaceDisambiguationInUnion`).
+        let name = text.rsplit('.').next().unwrap_or(text);
+        let _ = symbols;
+        // The `members` symbol is deliberately NOT consulted: it is *"the
+        // symbol whose members table this type's properties live in"*, which
+        // for `type R = { a: number }` is the literal's synthetic `__type`,
+        // not the alias `R` that upstream names it by
+        // (`getTypeNameSymbol`'s first branch, `t.alias.symbol`). Reading it
+        // collapsed `R`, `W` and `RW` to one name and printed them in source
+        // order — `readonly (R | W | RW)[]` where `callWithSpread4` wants
+        // `readonly (R | RW | W)[]`. **That cost a PASSING case**, and is why
+        // this reads the printed text instead.
+        //
+        return Some(name);
+    }
+    type_name(data)
+}
+
 fn type_name(data: &TypeData) -> Option<&str> {
     match data {
         TypeData::Named { text, .. } | TypeData::Union { text, symbol: Some(_), .. } => Some(text),
@@ -1033,14 +1085,14 @@ impl Checker<'_, '_> {
         } else if let Some((target, _)) = reference_a {
             Some(symbols.get(*target).name)
         } else {
-            type_name(&left.data)
+            named_symbol_name(&left.data, symbols)
         };
         let right_name = if self.tuple_element_lists.contains_key(&b) {
             None
         } else if let Some((target, _)) = reference_b {
             Some(symbols.get(*target).name)
         } else {
-            type_name(&right.data)
+            named_symbol_name(&right.data, symbols)
         };
         match (left_name, right_name) {
             (Some(x), Some(y)) => x.cmp(y),

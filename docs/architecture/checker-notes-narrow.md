@@ -8437,3 +8437,53 @@ and the third spelling was missing rather than declined.
 on the array/tuple type here rather than in the element text, so it never
 reaches this road, and a general prefix test would claim ground nothing
 exercises.
+
+## §596 — the union comparator's NAME comes from `getTypeNameSymbol`, not from the printed text (+9 cases, 5,962 → 5,971)
+
+§590's residue was 186 lines / 39 cases of union-constituent order, and §592 had
+already added the declaration-position rule the anonymous half needed. What was
+still missing is the arm ABOVE it: which types have a name to compare at all.
+
+`compare_type_names` answered with the type's **printed text**. Upstream answers
+with `getTypeNameSymbol` (`utilities.go:608`) and then `compareSymbolsWorker`
+(`:385`) compares `s.Name`. Two consequences, and this port had neither:
+
+1. **A structurally-printed type has no name.** `{ kind: 'foo'; foo: string; }`
+   is named by its `__type` symbol, so `compareSymbolsWorker` orders it by
+   DECLARATION POSITION — source order. Comparing its braces text by ASCII put
+   `{ kind: 'bar'; … }` first. This is what §590's 103-line plurality was, and
+   what §592's arm was built for but could not reach because the text
+   comparison answered first.
+2. **A namespaced name compares by its LAST SEGMENT.** `Foo.Yep` is the symbol
+   `Yep`; two such types compare EQUAL and fall through to declaration position
+   (`namespaceDisambiguationInUnion`).
+
+```
+WRONG->RIGHT: 184   controlFlowAliasing 50, narrowingUnionWithBang 11,
+                    conditionalTypeDoesntSpinForever 10, …
+RIGHT->WRONG: 9  ⚠  spreadUnion2 8, unknownControlFlow 1 — both already failing,
+                    so NO passing case is damaged
+checker_types 5,962 -> 5,971, gradient 90.64% -> 90.68%
+```
+
+### The draft that cost a passing case, and what it taught
+
+The first build read the name off `Named`'s `members` symbol. That symbol is
+*"the symbol whose members table this type's properties live in"* — for
+`type R = { a: number }` it is the literal's synthetic `__type`, **not** the
+alias `R` that upstream names it by (`getTypeNameSymbol`'s first branch,
+`t.alias.symbol`). So `R`, `W` and `RW` collapsed to one name, fell through to
+declaration position, and printed in source order: `readonly (R | W | RW)[]`
+where `callWithSpread4` wants `readonly (R | RW | W)[]`.
+
+It scored **+176 W→R against 20 R→W and +8 cases**, and it was still wrong,
+because one of those twenty was a **passing case**. A net that good hides a
+regression easily; the only thing that caught it was checking each R→W case's
+deficit in the OLD baseline before accepting. **Net case count is not a
+sufficient gate — a lost case and a gained case cancel in it.**
+
+The correction reads the printed TEXT after all, but asks the right question of
+it: structural (`{`-leading) means no name, otherwise the last dot-segment is
+the name. That is `getTypeNameSymbol`'s two branches expressed in the only terms
+this port has at that point, and it converts the same 184 lines without the
+twenty.
