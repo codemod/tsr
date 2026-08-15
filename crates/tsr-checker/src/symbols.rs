@@ -4409,6 +4409,20 @@ impl<'a> Checker<'a, '_> {
         if self.combined_node_flags(declaration).intersects(NodeFlags::CONSTANT) {
             return id;
         }
+        // §695: `getWidenedLiteralTypeForInitializer` keeps the literal for a
+        // CONST **or a READONLY** declaration (`checker.go:16898`), and only the
+        // const half was ported. `class C { readonly type = E.A; }` records
+        // `type : E.A` (`declarationEmitEnumReadonlyProperty`); widening gave
+        // the enum's own `E`.
+        //
+        // `isDeclarationReadonly` (`checker/utilities.go:828`) excludes a
+        // PARAMETER PROPERTY. `Checker::declaration_is_readonly` already answers
+        // only for a `PropertyDeclaration`, so a parameter property — which is a
+        // `ParameterDeclaration` — is excluded by construction rather than by a
+        // second test.
+        if self.declaration_is_readonly(declaration) {
+            return id;
+        }
         // §134 iteration 2: the UNION arm of `getWidenedLiteralType`
         // (checker.go:25499, `mapType`) applied at THIS road only — the
         // whole-function form measured 45:80 inverted (return-inference

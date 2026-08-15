@@ -8173,7 +8173,7 @@ impl Checker<'_, '_> {
     }
 
     /// `isDeclarationReadonly` — a `readonly` modifier on the declaration.
-    fn declaration_is_readonly(&self, node: NodeId) -> bool {
+    pub(crate) fn declaration_is_readonly(&self, node: NodeId) -> bool {
         let modifiers = match self.node_map.get(node) {
             Some(Node::PropertyDeclaration(property)) => property.modifiers,
             _ => return false,
