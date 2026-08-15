@@ -529,3 +529,51 @@ twice.
   038def4 shape" and was wrong: there, both types existed and one stood in for
   the other; here the second does not exist at all. A correct change was nearly
   refused on a wrong analogy.
+
+---
+
+## §609 — `var e = E.B` should widen to `E`, and the fresh/regular twin is where to look (diagnosed, NOT attempted)
+
+`incrementAndDecrement` writes `var e = E.B;` and the baseline records
+`>e : E` — the enum member type widens to the enum type for a mutable
+declaration. This port prints `E.B`. **8 lines, and they are the case's whole
+deficit, so it converts.** A second case, `isolatedDeclarationErrorsEnums`,
+carries 10 more of the same shape (`Flag.A` where `Flag` is wanted) behind other
+failures.
+
+### Where it stops, exactly
+
+`get_widened_literal_type` (`literals.rs`) is upstream's
+(`checker.go:25487`) and its ENUM arm is right:
+`flags.intersects(ENUM_LIKE) && fresh => get_base_type_of_enum_like_type`. It
+opens `if !fresh { return id }`, so the arm only fires on the **fresh** twin.
+
+This port *does* model the pair — `get_declared_type_of_enum_type`
+(`declared.rs:2860`+) mints `regular` (printed `E`) beside `fresh` (printed
+`E.B`) and records `enum_member_regular[fresh] = regular`. So the machinery
+exists and the widening arm exists. What is unverified is **which twin an
+expression-position `E.B` actually receives**: `get_type_of_enum_member`
+(`symbols.rs:2076`) hands back `get_declared_type_of_enum_member`, which reads
+`declared_types` for the member symbol, and the twin cached there has not been
+traced. `enum_member_regular` is **written and never read**, which is the hint
+worth following first: if the fresh form were reaching an access site, something
+would need that map to get back.
+
+### Why it was not attempted here
+
+Enum literal freshness is consulted by the relater
+(`relater.rs:185` lists `ENUM_LITERAL` among the flags it treats specially),
+by union construction (`unions.rs:312`'s `sort_order_flags` collapse) and by
+`get_base_type_of_enum_like_type`. Changing which twin an access yields is a
+model change across those three, for 8 convertible lines.
+
+**Two measurements this window are the reason for the caution, not timidity:**
+§607 transcribed `getWidenedLiteralType`'s union arm faithfully and measured
+**110 R→W**, and §599.1 gated a sibling arm faithfully and measured **1,544
+R→W** — both because the port's CALLERS differ from upstream's around an
+otherwise correct rule. This is the same shape: a correct arm, an unaudited call
+graph.
+
+**First step for whoever takes it: print which twin `E.B` resolves to at an
+access site.** One trace answers it, and it decides whether this is a one-line
+fix or a model change.
