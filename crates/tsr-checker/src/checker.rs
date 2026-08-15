@@ -1710,6 +1710,27 @@ impl<'a, 'n> Checker<'a, 'n> {
             if let Some(&owner) = self.enum_member_owners.get(&id) {
                 let owner = self.binder.merged_symbol(owner);
                 let owner_name = self.binder.symbols().get(owner).name;
+                // §673: the enum's OWN type is registered in
+                // `enum_member_owners` too — §55.1's divergent twins put the
+                // regular spelling there — and it prints as the bare enum name
+                // with no `{enum}.` prefix to rename. The guard below needs a
+                // prefix (`printed.len() > owner_name.len()`), so `Mode` fell
+                // straight through unqualified while `Mode.Open` right beside it
+                // was qualified. `import f = require('./m')` wants `f.Mode` at
+                // every one of those positions (`enumFromExternalModule`).
+                if printed == owner_name
+                    && let Some(qualifier) = self.symbol_chain(
+                        owner,
+                        reference,
+                        SymbolFlags::TYPE | SymbolFlags::VALUE,
+                        0,
+                    )
+                {
+                    let mut out = String::with_capacity(printed.len() + qualifier.len());
+                    out.push_str(&qualifier);
+                    out.push_str(&printed);
+                    return Some(out);
+                }
                 if printed.len() > owner_name.len()
                     && printed.starts_with(owner_name)
                     && printed.as_bytes()[owner_name.len()] == b'.'
