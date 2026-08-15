@@ -2770,12 +2770,37 @@ importing, so the JSON unit's own (absent) section is beside the point.
 every one of the five fixtures sets `@resolveJsonModule: true`. So the option
 reaches the loader and `.json` is an admitted extension.
 
-**Exactly one unknown is left, and it is the whole item:**
+**Question 2 answered too, by the code's own words. §39 now has ZERO unknowns.**
+`get_type_of_alias` (`symbols.rs:389`) carries the phrase for exactly this
+state:
 
-> Does the `.json` module symbol get a **TYPE**? A JSON file parses to a
-> `SourceFile` with exactly ONE statement, its top-level value (`json.rs:57`),
-> so the synthesis is *"that expression's type is the module's type, with a
-> `default` export of the same"*.
+> *"an UNFINDABLE specifier reads `any` at every use site … **Findable-but-untyped
+> modules keep the errorType gap below**."*
+
+A `.json` module is precisely *findable but untyped*: resolution succeeds
+(question 1), and no synthesis gives its module symbol a type, so the alias
+falls to the `errorType` gap the comment names. **Nothing is broken; a synthesis
+is absent**, and the port already has a word for the hole.
+
+### 39.2 The item, fully specified
+
+| piece | state |
+|---|---|
+| `resolveJsonModule` parsed, gates the `.json` extension | **built** (`declarations.rs:479`, `file_names.rs:50`) |
+| `.json` resolves to a file | **built** (`SUPPORTED_TS_EXTENSIONS_WITH_JSON_FLAT`) |
+| `.json` parses to one statement, its top-level value | **built** (`parse_json_text`, `json.rs:50`) |
+| `ScriptKind::Json` routed | **built** (diagnostics suite, five sites) |
+| the JSON unit's own assertions filtered | **built and correct** (`types_producer.rs:1553`) |
+| **the module symbol's TYPE** | **ABSENT — this is the whole item** |
+
+The synthesis: *the single statement's expression type is the module's type,
+with a `default` export of the same.* Head case
+`requireOfJsonFileWithoutEsModuleInterop` has **one** assertion line, so the
+five-case family converts or does not on that one change.
+
+**Six suspects eliminated across five turns to get here.** Recorded at this
+resolution because the next session should spend its first hour on the
+synthesis, not on re-deriving that everything around it already works.
 
 The head case is the smallest possible: `requireOfJsonFileWithoutEsModuleInterop`
 has **one** assertion line —
