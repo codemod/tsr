@@ -514,7 +514,12 @@ impl<'a> Parser<'a> {
             match self.token.kind {
                 SyntaxKind::DotToken => {
                     self.next_token();
-                    let name = self.parse_member_name();
+                    let name = if self.right_side_of_dot_is_missing() {
+                        self.error_at_current(&messages::IDENTIFIER_EXPECTED);
+                        MemberName::Identifier(self.missing_identifier())
+                    } else {
+                        self.parse_member_name()
+                    };
                     let node = self.finish_node(
                         PropertyAccessExpression::new(Some(expression), None, Some(name)),
                         SyntaxKind::PropertyAccessExpression,
@@ -1775,7 +1780,12 @@ impl<'a> Parser<'a> {
             match self.token.kind {
                 SyntaxKind::DotToken => {
                     self.next_token();
-                    let name = self.parse_identifier_name();
+                    let name = if self.right_side_of_dot_is_missing() {
+                        self.error_at_current(&messages::IDENTIFIER_EXPECTED);
+                        self.missing_identifier()
+                    } else {
+                        self.parse_identifier_name()
+                    };
                     let node = self.finish_node(
                         PropertyAccessExpression::new(
                             Some(expression),
@@ -2116,6 +2126,37 @@ impl<'a> Parser<'a> {
     /// above `LastReservedWord` is. Positions upstream reads with
     /// `parseIdentifierName` — the right of a dot, property names — use
     /// [`Self::parse_identifier_name`], where every keyword is a name.
+    /// `parseRightSideOfDot`'s ASI recovery (`parser.go:2940`).
+    ///
+    /// `a.` followed by a NEWLINE and then `keyword identifier` is not a
+    /// property access with that keyword as the name — ASI would have ended the
+    /// statement at the dot, so upstream mints a MISSING identifier and lets
+    /// the next line parse as its own statement. §701.
+    ///
+    /// ```text
+    /// var x = IgnoreRulesSpecific.
+    /// var y = Position.IgnoreRulesSpecific;
+    /// ```
+    ///
+    /// Upstream records `IgnoreRulesSpecific. : any` and a separate
+    /// `var y = … : Position`; this port took `var` as the member name and
+    /// emitted one line too many (`enumConflictsWithGlobalIdentifier`).
+    fn right_side_of_dot_is_missing(&mut self) -> bool {
+        self.token.flags.contains(tsr_scanner::TokenFlags::PRECEDING_LINE_BREAK)
+            && (self.token.kind == SyntaxKind::Identifier || self.token.kind.is_keyword())
+            && self.look_ahead(Self::next_token_is_identifier_or_keyword_on_same_line)
+    }
+
+    /// `nextTokenIsIdentifierOrKeywordOnSameLine` (`parser.go`). §701.
+    fn next_token_is_identifier_or_keyword_on_same_line(&mut self) -> bool {
+        // `Parser::next_token` returns the token it CONSUMED, not the one it
+        // moved to (`parser.rs:348`) — reading its return value here tested the
+        // wrong token and the whole arm measured as a no-op. §701.
+        self.next_token();
+        !self.token.flags.contains(tsr_scanner::TokenFlags::PRECEDING_LINE_BREAK)
+            && (self.token.kind == SyntaxKind::Identifier || self.token.kind.is_keyword())
+    }
+
     pub(crate) fn parse_identifier(&mut self) -> &'a Identifier<'a> {
         let start = self.pos();
         if self.is_binding_identifier() {
