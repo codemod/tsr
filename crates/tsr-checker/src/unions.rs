@@ -1079,6 +1079,21 @@ impl Checker<'_, '_> {
         // A tuple is a reference to a SYNTHESISED target with no symbol, so
         // upstream's `getTypeNameSymbol` answers nil for it. Excluded on both
         // roads, not just the text one.
+        // §597: an ENUM member has no name to compare. `getTypeNameSymbol`
+        // (`utilities.go:608`) answers a symbol only for a type parameter, a
+        // string mapping, or an object carrying `ClassOrInterface`/`Reference`
+        // — an enum literal is none of those, so upstream reaches the type-id
+        // tiebreak, which is enum DECLARATION order. `compare_types`'s own
+        // comment already said enum members "fall through to the type-id
+        // tiebreak below"; they did not, because this port prints them as
+        // `Choice.Yes` and the text comparison answered first, sorting `No`
+        // before `Yes` by ASCII (`enumLiteralTypes1`/`2`,
+        // `stringEnumLiteralTypes1`/`2` all want `Choice.Yes | Choice.No`).
+        if left.flags.intersects(TypeFlags::ENUM_LIKE)
+            || right.flags.intersects(TypeFlags::ENUM_LIKE)
+        {
+            return Ordering::Equal;
+        }
         let symbols = self.binder.symbols();
         let left_name = if self.tuple_element_lists.contains_key(&a) {
             None

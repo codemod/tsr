@@ -8487,3 +8487,37 @@ it: structural (`{`-leading) means no name, otherwise the last dot-segment is
 the name. That is `getTypeNameSymbol`'s two branches expressed in the only terms
 this port has at that point, and it converts the same 184 lines without the
 twenty.
+
+### §597 — an ENUM member has no name to compare (+14 lines, 0 cases)
+
+`compare_types`'s own comment already said it: *"Enum members and type
+parameters are ordered by their symbols' declaration positions upstream
+(`compareSymbols`). Here they fall through to the type-id tiebreak below, which
+is creation order — and enum member types are created in declaration order, so
+the two agree for the case that reaches this."*
+
+**They did not fall through.** This port prints an enum member as `Choice.Yes`,
+`compare_type_names` compared that text, and `No` sorts before `Yes` by ASCII —
+so the tiebreak the comment relies on was never reached.
+`enumLiteralTypes1`/`2`/`3` all want `Choice.Yes | Choice.No`.
+
+`getTypeNameSymbol` (`utilities.go:608`) answers a symbol only for a type
+parameter, a string mapping, or an object carrying
+`ClassOrInterface`/`Reference`. An enum literal is none of those, so upstream
+genuinely has no name here and reaches the id tiebreak — which is enum
+declaration order.
+
+```
+WRONG->RIGHT: 14   enumLiteralTypes1 6, enumLiteralTypes2 6, enumLiteralTypes3 2
+(no adverse transition of any kind)
+```
+
+`stringEnumLiteralTypes1`/`2` did **not** move and still want
+`Choice.Yes | Choice.No`: a string enum member carries the string literal's own
+data, reaches a different arm, and is a separate item. Recorded rather than
+assumed fixed — the two look identical in the row dump and are not.
+
+**A comment asserting a fall-through is not evidence the fall-through happens.**
+This one had been correct about upstream and wrong about this port for as long
+as it had been written, and it read as reassurance in exactly the place someone
+would check.
