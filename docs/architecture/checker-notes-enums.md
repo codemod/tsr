@@ -532,7 +532,36 @@ twice.
 
 ---
 
-## §609 — `var e = E.B` should widen to `E`, and the fresh/regular twin is where to look (diagnosed, NOT attempted)
+## §609 CORRECTED BY §610 — the widening is FINE; the defect is flow narrowing at the REFERENCES
+
+> **§609's diagnosis below is wrong and is kept only as the record of a wrong
+> turn.** One trace settled it, which is what §609 said would settle it — and
+> the answer was the opposite of the guess.
+>
+> **Both enum construction paths already cache the FRESH twin** in
+> `declared_types` (`declared.rs:2884` for the single-member enum,
+> `:2946`/`:2947` for the multi-member one), so `get_type_of_enum_member` hands
+> back the fresh form and `get_widened_literal_type`'s ENUM arm fires exactly as
+> upstream's does. `enum_member_regular` being write-only is not the smell §609
+> read it as.
+>
+> **The proof is in the failing positions.** `incrementAndDecrement`'s eight
+> wrong lines are at `0:50`–`0:70`, and the `var e = E.B` declaration is not
+> among them: **that line is already RIGHT**, i.e. the port already prints
+> `e : E` there. The wrong lines are all later REFERENCES to `e` inside the
+> `e++` / `--e` block, where this port prints `E.B` and upstream prints `E`.
+>
+> So the question is not which twin an access yields — it is what the CONTROL
+> FLOW type of `e` is at a reference after an initialisation and a run of
+> compound assignments. That is `flow.rs`, not `literals.rs`, and none of the
+> three consumers §609 warned about (relater, union construction,
+> `get_base_type_of_enum_like_type`) are involved.
+>
+> **§609 localised a real 8-line convertible case to the wrong file.** It had
+> the right instinct — stop and trace rather than experiment — and then wrote
+> the note before running the trace it was recommending.
+
+## §609 (superseded above) — `var e = E.B` should widen to `E`, and the fresh/regular twin is where to look
 
 `incrementAndDecrement` writes `var e = E.B;` and the baseline records
 `>e : E` — the enum member type widens to the enum type for a mutable
