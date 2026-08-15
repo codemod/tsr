@@ -8521,3 +8521,40 @@ assumed fixed — the two look identical in the row dump and are not.
 This one had been correct about upstream and wrong about this port for as long
 as it had been written, and it read as reassurance in exactly the place someone
 would check.
+
+---
+
+## §607 REFUSED — `getWidenedLiteralType`'s UNION arm (110 R→W)
+
+`get_widened_literal_type` (`literals.rs`) opens `if !fresh { return id }` and
+upstream's `getWidenedLiteralType` (`checker.go:25487`) does not: its `Union`
+arm at `:25499` — `mapType(t, getWidenedLiteralType)` — sits *after* the literal
+arms and is reached **whatever the union's own freshness**. A union is never
+fresh, so this port never widens a union's constituents. That reads like a plain
+missing arm.
+
+Transcribed and measured:
+
+```
+RIGHT->WRONG: 110  ⚠  typePredicateTopLevelTypeParameter 9, intraExpressionInferences 8,
+                      generatorAssignability 7, tryCatchFinallyControlFlow 6, …
+WRONG->RIGHT:  13
+```
+
+Reverted. **The arm is upstream's; the call sites are not.** Upstream reaches
+`getWidenedLiteralType` from a small set of places that have already decided
+widening is wanted; this port calls it from `array_literals.rs` and
+`get_widened_literal_type_for_initializer` among others, and the `!fresh`
+short-circuit has been doing load-bearing work at those sites — it is what stops
+a union that a contextual position must keep literal from being flattened.
+
+**So the missing arm is real and the fix is not "add the arm".** It is to
+separate the call sites that want upstream's `getWidenedLiteralType` from those
+relying on the short-circuit, and only the first may take the union map. That is
+a call-site audit, not a one-line transcription, and 110 R→W is what doing it
+the other way costs.
+
+This is the second time this window that a faithful transcription measured badly
+because the port's CALLERS differ from upstream's (§599.1's empty-array arm is
+the first). The pattern is worth naming: **a transcription is only as faithful
+as the call graph around it.**
