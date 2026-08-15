@@ -1082,6 +1082,48 @@ cases, or land an arm worth more than 20. Either would mean the tail is
 shallower than these two joins say, and this section should be superseded with
 the row dump that shows it.
 
+### 4.-2b SIZED AND UNCLAIMED, 2026-08-14 (§590) — **union constituent ORDER: 10 cases, 206 lines**
+
+Found by asking a question no instrument on the board asks: *which non-right
+lines hold the same constituents as the baseline and differ only in their
+ORDER?*
+
+```
+lines differing ONLY by union order      206     (2-way 163, 3-way 27, 4-way 5, 9-11-way 11)
+cases touched                             49
+cases where union order is the ONLY defect  10   <- these convert
+   deficit 1: 8   deficit 2: 1   deficit 3: 1
+```
+
+The ten: `namespaceDisambiguationInUnion`, `noInferUnionExcessPropertyCheck1`,
+`objectLiteralExcessProperties`, `objectLiteralsAgainstUnionsOfArrays01`,
+`restUnion`, `unionRelationshipCheckPasses`, `checkJsxChildrenProperty6`/`7`/`14`,
+`thisTypeInInterfaces`.
+
+**Bigger than any arm this window landed except §584** — and unclaimed, because
+it is not a small change and the obvious hypotheses are already refuted by the
+corpus:
+
+- upstream orders by **type id** (`addTypeToUnion` binary-inserts on id), and
+  this port sorts with a semantic comparator (`unions.rs:528`) plus a
+  nullable-last rule, both tuned against recorded baselines;
+- **not source order**: `numberAssignableToEnumInsideUnion` writes
+  `E | boolean` and upstream prints `boolean | E`;
+- **not plain id order either**, or at least not one this port can reproduce:
+  `thisTypeInInterfaces` wants `this | Date`, and a `this` type is minted
+  during class checking, long after a lib type like `Date`.
+
+So the item is *"reproduce upstream's constituent order"*, and its real content
+is working out what that order actually is — which the two refutations above
+already narrow. **The 206 lines move in both directions**: the current
+comparator is right on far more unions than it is wrong on, so this is a
+replacement to be scored line-by-line with `verdictdump`, not a patch.
+
+**Cheapest first step**, if someone takes it: print the 206 rows beside the
+constituents' creation sites. This section was written from a count; the rule
+§11.3 has caught four times this campaign is that a population nobody has
+printed will not behave the way its aggregate suggests.
+
 ### 4.-2 REPRICED, 2026-08-14 (§582) — **`getAccessibleSymbolChain` is an 8-case item, not the highest-value one**
 
 `checker-notes-sitename.md` §17 closed by naming
