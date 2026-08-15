@@ -3328,11 +3328,39 @@ want `any[]` and now get the evolved union, at references that are NOT operation
 targets — `return typedArrays` among them. So **upstream does not evolve there at
 all**, and the operation-target gate is not the only condition.
 
-**REOPENS ON: the remaining condition in `getTypeAtFlowArrayMutation`**
-(`flow.go`). It returns `nil` — leaving the type unevolved — under a test this
-port has not reproduced; `typedArrays` is the fixture that isolates it, since its
-mutations are element assignments of CONSTRUCTOR values. Read that function, not
-the writer.
+**§709 read `getTypeAtFlowArrayMutation` and found the third gate, but it does
+NOT explain `typedArrays`.** The function (`flow.go:1404`) is:
+
+```go
+if f.declaredType == c.autoType || f.declaredType == c.autoArrayType {
+    …
+    if c.isMatchingReference(f.reference, c.getReferenceCandidate(expr)) {
+        flowType := c.getTypeAtFlowNode(f, flow.Antecedent)
+        if flowType.t.objectFlags&ObjectFlagsEvolvingArray != 0 {   // <- third gate
+            …extend…
+        }
+        return flowType                                             // <- unevolved
+    }
+}
+```
+
+**The antecedent's type must ALREADY be an evolving array**, so the chain only
+evolves if it *starts* as one. That is the structural reason a walk-level
+accumulator can never be equivalent, and it confirms §704's diagnosis.
+
+**But it does not explain the fixture.** `typedArrays[0] = Int8Array` is a
+numeric element assignment, which line 1424 admits, and `return typedArrays`
+still records `any[]` — verified directly in the baseline, not inferred. So
+either the declaration's `[]` never becomes an evolving array here while
+`controlFlowArrays`' does, or `isMatchingReference` declines. **Reading did not
+settle which, and further reading is the wrong tool** — the next step is to
+instrument upstream, which §663 showed costs one 40-line Go program and settles
+these in a single run.
+
+**REOPENS ON: instrumenting upstream's `getTypeAtFlowArrayMutation` on
+`typedArrays` vs `controlFlowArrays`** — print `declaredType`, the antecedent's
+`objectFlags`, and the `isMatchingReference` answer for both. The difference
+between those two fixtures IS the missing condition.
 
 **This is the closest an evolving-array attempt has come**, and the two gates are
 now known: `is_auto_array` (built) and `isEvolvingArrayOperationTarget` (written
