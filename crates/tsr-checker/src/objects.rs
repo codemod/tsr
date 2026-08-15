@@ -1449,12 +1449,31 @@ impl Checker<'_, '_> {
             // The parameter name is upstream's synthesized `x` — a real index
             // signature prints the name its declaration wrote, but this one has
             // no declaration (`newIndexInfo(..., declaration: nil, ...)`).
-            members.push(Member::Index {
-                readonly: const_context,
-                name: "x".to_string(),
-                key: key.to_string(),
-                value: self.type_to_string(value),
-            });
+            // §593: BEFORE the properties, not after them. Upstream's node
+            // builder emits an anonymous object's index signatures ahead of its
+            // properties — `{ [x: number]: any; p1: number; … }`
+            // (`computedPropertyNames49_ES5`/`50`, ES5 and ES6 halves) — and
+            // `get_type_from_type_literal` (`declared.rs`) already orders its
+            // own three groups `signatures, indexes, properties`. This road
+            // pushed the index onto the END, so the two spellings of one rule
+            // disagreed and this one printed the index last.
+            //
+            // Inserted before the first PROPERTY rather than at index 0, which
+            // keeps it behind any call/construct signature exactly as the
+            // TypeLiteral road's group order does.
+            let first_property = members
+                .iter()
+                .position(|member| matches!(member, Member::Property { .. }))
+                .unwrap_or(members.len());
+            members.insert(
+                first_property,
+                Member::Index {
+                    readonly: const_context,
+                    name: "x".to_string(),
+                    key: key.to_string(),
+                    value: self.type_to_string(value),
+                },
+            );
             // §539: the same info, kept so the LOOKUP can consult it. Until
             // now this signature existed only in the printed text — the type
             // is a `Named` over the binder's `__object` symbol and

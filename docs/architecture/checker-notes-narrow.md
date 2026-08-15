@@ -8328,3 +8328,48 @@ the case counter did not move would be scoring the port against the wrong
 number.
 
 **Residue: 186 lines / 39 cases**, down from 206/49 across §591 and §592.
+
+### §593 — an anonymous object prints its INDEX signatures before its properties (+5 cases, 5,955 → 5,960)
+
+The third find from the same question §590 opened — *which lines hold the same
+content as the baseline and differ only in FORM?* After union constituent order
+(§591, §592), the next answer was **object member order**: 47 lines / 21 cases,
+of which 5 convert.
+
+`get_type_from_type_literal` (`declared.rs`) had the group order right from the
+start — `signatures`, then `indexes`, then `properties`. The object-literal road
+(`objects.rs`) built the same three groups and **pushed the index onto the end**,
+so the two spellings of one rule disagreed.
+
+Upstream is unambiguous, and the fixture settles it against source order:
+`computedPropertyNames49_ES5` writes
+
+```ts
+var x = { p1: 10, get [1 + 1]() { … }, get foo() { … }, p2: 20 }
+```
+
+— `p1` first — and its baseline records
+`{ [x: number]: any; p1: number; readonly foo: number; p2: number; }`. The index
+leads regardless of where the computed member was written.
+
+```
+WRONG->RIGHT: 11   modularizeLibrary_ErrorFromUsingES6FeaturesWithOnlyES5Lib 3,
+                   computedPropertyNames49_ES5/49_ES6/50_ES5/50_ES6 2 each
+(no adverse transition of any kind)
+```
+
+Inserted before the first PROPERTY rather than at position 0, so a call or
+construct signature keeps its place ahead of the index — the TypeLiteral road's
+group order, reproduced rather than approximated.
+
+### The unit test that pinned the defect
+
+`a_mixed_literal_still_gaps` asserted `{ a: number; [x: number]: number; }` and
+went red. The expectation was **hand-written, not taken from a baseline**, and
+it was wrong; `computedPropertyNames49_ES5` above is the authority and the
+corpus agreed with it at 11 lines and zero adverse. Corrected in place with the
+baseline cited, so the next reader can check the claim instead of trusting it.
+
+That is the second hand-written expectation this window found pinning a defect
+(the first was §583's contextual gate). Both were written as controls for real
+work and both encoded an assumption the corpus had never been asked about.

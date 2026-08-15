@@ -336,8 +336,17 @@ fn a_mixed_literal_still_gaps() {
         // stale: `printing::normalise_number` normalises written numeric names
         // a few lines from the mint. The STRING-key half and mixed key kinds
         // still decline, each for its own recorded reason.
+        // §593 CORRECTED the ORDER in this expectation, which was written by
+        // hand and put the index last. An anonymous object prints its index
+        // signatures **before** its properties whatever the source order:
+        // `computedPropertyNames49_ES5` writes `{ p1: 10, get [1 + 1]() {…}, …
+        // p2: 20 }` — `p1` first — and its baseline records
+        // `{ [x: number]: any; p1: number; readonly foo: number; p2: number; }`.
+        // `get_type_from_type_literal` had the group order right all along
+        // (`signatures, indexes, properties`); the object-literal road pushed
+        // the index onto the end, and this assertion pinned that.
         type_of_initialiser_at("declare const k: number;\nvar v = { a: 1, [k]: 2 };", 1),
-        "{ a: number; [x: number]: number; }"
+        "{ [x: number]: number; a: number; }"
     );
     assert_eq!(
         type_of_initialiser_at(
