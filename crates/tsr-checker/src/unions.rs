@@ -961,24 +961,48 @@ impl Checker<'_, '_> {
         left: &crate::types::Type,
         right: &crate::types::Type,
     ) -> Ordering {
-        if let (Some((target_a, args_a)), Some((target_b, args_b))) =
-            (self.type_reference_targets.get(&a), self.type_reference_targets.get(&b))
+        let reference_a = self.type_reference_targets.get(&a);
+        let reference_b = self.type_reference_targets.get(&b);
+        if let (Some((target_a, args_a)), Some((target_b, args_b))) = (reference_a, reference_b)
+            && target_a == target_b
         {
-            if target_a == target_b {
-                return self.compare_type_lists(args_a, args_b);
-            }
-            let symbols = self.binder.symbols();
-            return symbols.get(*target_a).name.cmp(symbols.get(*target_b).name);
+            return self.compare_type_lists(args_a, args_b);
         }
         // A tuple has NO name upstream — it is a reference to a synthesised
         // target with no symbol — so its printed text must not enter the name
         // comparison. Left named, it sorted by ASCII (`[` before letters),
         // which put `[number, string]` ahead of `null[]` where the baseline
         // records the named type first (`bd tsr-5ll`, 34 lines, 8 cases).
-        let left_name =
-            if self.tuple_element_lists.contains_key(&a) { None } else { type_name(&left.data) };
-        let right_name =
-            if self.tuple_element_lists.contains_key(&b) { None } else { type_name(&right.data) };
+        // §591: a type REFERENCE names itself by its TARGET's symbol, whichever
+        // the other side is. `getTypeNameSymbol` (`utilities.go:608`) returns
+        // `t.symbol` for anything carrying `ObjectFlagsReference`, so
+        // `JSX.Element[]` is `Array<JSX.Element>` and sorts under **"Array"** —
+        // before `JSX.Element`'s "Element". This port compared the reference's
+        // PRINTED TEXT (`"JSX.Element[]"`) whenever the other side was not also
+        // a reference, which put `JSX.Element` first and inverted the union.
+        //
+        // The both-references branch above was already doing this correctly;
+        // the bug was that it was the ONLY road to a target name. This is the
+        // same defect the tuple exclusion below was written for — a printed
+        // text standing in for a name upstream takes from a symbol.
+        // A tuple is a reference to a SYNTHESISED target with no symbol, so
+        // upstream's `getTypeNameSymbol` answers nil for it. Excluded on both
+        // roads, not just the text one.
+        let symbols = self.binder.symbols();
+        let left_name = if self.tuple_element_lists.contains_key(&a) {
+            None
+        } else if let Some((target, _)) = reference_a {
+            Some(symbols.get(*target).name)
+        } else {
+            type_name(&left.data)
+        };
+        let right_name = if self.tuple_element_lists.contains_key(&b) {
+            None
+        } else if let Some((target, _)) = reference_b {
+            Some(symbols.get(*target).name)
+        } else {
+            type_name(&right.data)
+        };
         match (left_name, right_name) {
             (Some(x), Some(y)) => x.cmp(y),
             // A type with no name sorts after one with a name

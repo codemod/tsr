@@ -8232,3 +8232,66 @@ which would make this the fifth appearance).
 declared; the link is intact and sufficient). No code changed;
 both instrumentations reverted. This entry is now a finished
 investigation with a named next test, not a lead.
+
+---
+
+## §591 — a type REFERENCE names itself by its TARGET's symbol (+5 cases, 5,950 → 5,955)
+
+§590 sized "union constituent order" at 206 lines / 49 cases / 10 convertible
+and left it unclaimed, having refuted source order, a reproducible id order, and
+(at §590.1, measured) insertion order. Printing the rows found the real defect,
+and it is not an ordering RULE at all — it is a name lookup.
+
+### The defect
+
+`compare_type_names` (`unions.rs`) took a target symbol's name only when **both**
+sides were type references:
+
+```rust
+if let (Some((target_a, ..)), Some((target_b, ..))) = (ref_a, ref_b) { ... name cmp ... }
+// otherwise: compare the PRINTED TEXT
+```
+
+Upstream has no such condition. `getTypeNameSymbol` (`utilities.go:608`) returns
+`t.symbol` for anything carrying `ObjectFlagsReference`, whichever the other
+side is. So `JSX.Element[]` is `Array<JSX.Element>` and sorts under **"Array"**,
+which is before `JSX.Element`'s **"Element"** — and the baseline duly records
+`JSX.Element[] | JSX.Element`.
+
+This port fell through to the printed text, compared `"JSX.Element"` against
+`"JSX.Element[]"`, and inverted the union.
+
+**This is the same defect the tuple exclusion three lines below was written
+for** (`bd tsr-5ll`, 34 lines, 8 cases): a printed text standing in for a name
+upstream takes from a symbol. That fix was applied to the text road only, so the
+general case survived it.
+
+```
+WRONG->RIGHT: 12   noIterationTypeErrorsInCFA 3, objectLiteralExcessProperties 3,
+                   TypeGuardWithArrayUnion 2, …
+(no adverse transition of any kind)     checker_types 5,950 -> 5,955
+union-order lines 206 -> 194, cases 49 -> 42
+```
+
+### What the trace ruled out first, and why that mattered
+
+The 47-line concentration in `controlFlowAliasing` looked like the place to
+start. Tracing `get_type_from_union_type_node` under `TSR_TRACE_UNION` showed
+its constituents minted **in source order with ascending ids**
+(`TypeId(100)={ kind: 'foo'; … }` before `TypeId(101)={ kind: 'bar'; … }`) — so
+the comparator was already receiving them correctly and that case's 152 wrong
+lines are a different problem entirely. It was never one of the ten convertible
+cases; line concentration had pointed at it, and line concentration was the
+wrong ranking.
+
+**The ten convertible cases were the right place to look, and they were a
+different shape from the 103-line plurality.** A count over lines and a count
+over convertible cases disagreed about where the work was, and the cases won.
+
+### What is left
+
+194 lines / 42 cases still differ only by constituent order, and the remaining
+plurality is anonymous-object-vs-anonymous-object, where both compilers reduce
+to their own type-id order and this port's ids are not upstream's. That residue
+is a genuinely harder item than this one was and keeps §590's standing
+falsifier.
