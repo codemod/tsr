@@ -3240,6 +3240,31 @@ the two must stay separate.
 
 Reverted; no code change retained.
 
+> **§706 tried the other end — relaxing the EXISTING arm instead of typing the
+> node — and both cuts measured negative.**
+>
+> | cut | right | RIGHT→WRONG | cases |
+> |---|---|---|---|
+> | drop the class-declaration gate entirely | 435,267 | 2 | **−1** |
+> | …gate on "not an INTERFACE base" instead | 435,215 | **54** | **−20** |
+>
+> The first lost only `classExtendsInterfaceInModule` and
+> `unusedInvalidTypeArguments` — both a class extending an interface, an error
+> construct where this port's `base_type_of_heritage_entry` answers something
+> upstream does not print. Excluding interfaces to fix that made it **far**
+> worse: 54 RIGHT→WRONG across `tsxUnionElementType3`/`4`,
+> `checkJsxChildrenProperty12`/`13`, `tsxGenericAttributesType3`/`4` — JSX
+> heritage bases that are neither class nor interface and were being protected by
+> the class REQUIREMENT, not merely by the interface exclusion.
+>
+> **So the class-declaration gate is load-bearing and stays.** Upstream can afford
+> its unconditional rule because `GetTypeAtLocation(EWTA)` gives it a real type;
+> this port has no such type, so every attempt to widen the gate substitutes
+> `base_type_of_heritage_entry` into positions upstream never asks it about.
+>
+> **That confirms §705's reading from the opposite direction: the blocker is the
+> missing EWTA type, not the gate.** Two independent cuts now say so.
+
 ### §704 — evolving arrays as a walk-and-collect: BUILT, −357 LINES, REVERTED
 
 §703 said the two hard parts were already built and what remained was
