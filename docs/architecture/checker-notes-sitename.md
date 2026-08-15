@@ -2728,9 +2728,18 @@ All five import a `.json` file. The `resolveJsonModule` **option** is plumbed
 the **type** side turns a `.json` file into a module whose shape is its
 contents, so every one of them gaps at `:0:0` — the import itself.
 
-**Sized and not built**, deliberately: the work is a loader change (admit `.json`
-as a source kind) plus a type synthesis (parse the literal and mint the object
-type), which is two subsystems and needs its own bar. What makes it worth
+**Sized and not built** — and the sizing is now sharper than "two subsystems".
+Checked: **the RESOLUTION side already exists.** `loader.rs` imports
+`SUPPORTED_TS_EXTENSIONS_WITH_JSON_FLAT` and threads
+`supported_extensions_with_json`, so a `.json` specifier already resolves to a
+file. What is missing is upstream's **`parseJsonText`** — nothing in the tree
+matches that name — and the module type built from its result.
+
+That matters because it moves the item from *"a loader change plus a type
+synthesis"* to *"a PARSER entry point plus a type synthesis"*, and the parser
+half is the load-bearing one: a `.json` file is not valid TS as a statement
+(`{ "a": 1 }` parses as a BLOCK, not an object literal), which is exactly why
+upstream has a separate entry point rather than reusing the expression parser. What makes it worth
 recording rather than leaving in the dump is the shape:
 
 > **Five cases, one wanted text, one missing feature, and the option already
