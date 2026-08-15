@@ -2599,6 +2599,35 @@ version of bare `any`.
 ### §598 CORRECTED BY §599, 2026-08-14 — **the diagnosis below was WRONG; the gate is `noImplicitAny`, and the arm has since LANDED (+7 cases)**
 
 
+### §653 — array literal contextually typed by a tuple RETURN annotation (SIZED, NOT ATTEMPTED)
+
+Third family from §651's name-stem cut, and the one I stopped at rather than
+guessed: `typeParameterFixingWithContextSensitiveArguments2`/`3`/`4`, each
+deficit-1, each wanting `[T, U]` and printing `(T | U)[]`.
+
+```ts
+function f<T, U>(y: T, f: (x: T) => U, x: T): [T, U] { return [y, f(x)]; }
+```
+
+The failing line is the **array literal in the body**, not the annotation:
+baseline records `[y, f(x)] : [T, U]`. So the literal is not picking up the tuple
+contextual type from the enclosing function's return annotation and falls back to
+the union-element array.
+
+**What is already built, so this is not a from-scratch port:** `array_literals.rs`
+already consults `tuple_element_lists` for a contextual tuple (lines 261–332),
+and `instantiate_type`'s arm 6 already substitutes tuples element-wise
+(`inference.rs:1291`). Both halves exist; what is unproven is whether the
+contextual type reaches the literal at all on this road.
+
+**NEXT VALUE TO PRINT — do not skip this.** At the array-literal check for
+`typeParameterFixingWithContextSensitiveArguments2`, print the contextual type id
+and whether `tuple_element_lists` contains it. If it is absent, the defect is in
+`get_contextual_type`'s return-annotation arm; if present, it is in the literal's
+own tuple selection. Those are different fixes in different files, and this
+session's record (§632→§633, §641→§642, §649→§650) is four separate cases of a
+mechanism guessed before its branch was printed, each costing a build.
+
 ### §652 — a type-parameter computed name contributes a string index: +3 CASES
 
 **LANDED. +3 cases (6,017 → 6,020), 7 WRONG→RIGHT, zero adverse.**
