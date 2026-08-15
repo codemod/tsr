@@ -2645,6 +2645,53 @@ handful of the 69, which enclosing scope the printer names from and what chain
 upstream picks — and measure with the **case-set diff**, not the transition list,
 which is what caught §656's and §661's regressions when the net looked positive.
 
+### §670 — the flat-naming subset traced to one arm (5 printed values, not landed)
+
+Took §669's 11 arm-sized cases, starting with `enumFromExternalModule`:
+
+```ts
+import f = require('./enumFromExternalModule_0');   // exports `enum Mode`
+var x = f.Mode.Open;    // upstream: x : f.Mode      this port: x : Mode
+```
+
+**The machinery already exists.** This port has `symbol_chain`
+(`checker.rs:1960`) — its `getAccessibleSymbolChain` — and it *works here*:
+
+```
+QN printed="typeof Mode"  sym=27415  chain=Some("f.")     <- correct
+QN printed="Mode"         sym=27415  chain=None           <- the defect
+```
+
+**Same symbol, same flags, same file.** So the deciding input is the `reference`
+node, and the failure is not "the walk is missing".
+
+Five values printed, narrowing it:
+
+| probe | answer |
+|---|---|
+| `needs_qualification` | `true` for both `_1.ts` references (correctly `false` in `_0.ts`) |
+| `alias_in_scope_for` | `false` — the early `return None` at `:1985` does **not** fire |
+| container | `SymbolId(27413)`, the module — so the module arm is entered |
+| chain result | `None` for the type reference, `Some("f.")` for `f.Mode` |
+
+**So the divergence is inside the container-alias arm past `checker.rs:1993`**,
+after both guards agree. Everything before that arm behaves identically for the
+two references.
+
+**NOT LANDED, and stopping here was the call rather than a limit.** Continuing
+meant a sixth trace inside that arm; the state above is what a sixth would build
+on, so recording it loses nothing. **Next value to print: inside the container
+arm, which candidate chains are collected for each of the two references and how
+they are sorted** — the arm's own comment (`:1989`) says §533 made it sort
+candidates and return the first, so a reference that collects zero candidates and
+one that collects `f.` is the shape to look for.
+
+**Standing correction:** §668 said this lane is a rendering change. That holds for
+the ~62 nested cases (`symbols.rs:2273` bakes type text at creation). It does
+**not** hold for these 11 — the per-reference road is already wired and already
+answers correctly for one spelling of the same symbol, which makes this a bug in
+one arm rather than an architectural decision.
+
 ### §668 — why `getAccessibleSymbolChain` is a RENDERING change, not an arm
 
 Took the tightest family in §664's naming bucket: `aliasUsage*`, 8 cases. Two
