@@ -2463,10 +2463,32 @@ These 27 lines are the other side of that trade, and they were not visible when
 it was made.
 
 **Reverted rather than left dormant**, on §586's precedent: an arm that measures
-zero does not stay in the tree. What is kept is the number — *whoever revisits
-the `strictNullChecks` default now knows it is worth **+27 lines / up to 15
-cases** on the widening side alone, against the 1,221 lines the `false` default
-cost.* That is a real trade to price, and neither figure alone describes it.
+zero does not stay in the tree.
+
+### §628 — the `strictNullChecks` default RE-MEASURED, and the trade is not close
+
+`types_producer.rs` records the rule that governs its own defaults: *"a default
+tuned against a partial implementation measures the gap, not the language, and
+it has to be re-measured whenever the gap closes."* Twenty-one arms landed this
+window, so it was re-measured — flipping the unset default from `true` to
+`false`:
+
+```
+right 434,677 -> 428,529   (−6,148 lines)
+RIGHT->WRONG 6,395 ⚠   (controlFlowOptionalChain 479, strictOptionalProperties1 149, …)
+WRONG->RIGHT   267
+```
+
+**The `true` default is now confirmed far more strongly than when it was set** —
+it cost 1,221 lines to get wrong then and costs 6,148 now, because the checker
+has since learned enough strict-mode behaviour to lose it. §599's arm is
+therefore *not* gated on a decision anyone should revisit: it is gated on a
+default that is correct and getting more correct.
+
+**This closes the item.** §598 left "a real trade to price"; the price is
+6,148 : 27 against, and the widening population needs a different route — most
+of it was taken by §599's `autoType` arm, which found the same lines behind
+`noImplicitAny` rather than `strictNullChecks`.
 Neither the arm nor the default is refused; the arm is **gated on a decision
 nobody has re-taken.**
 
