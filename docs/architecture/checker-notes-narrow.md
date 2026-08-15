@@ -8868,3 +8868,38 @@ evidence against the gate; they are the next feature boundary.
 gate them"*, and printing them took one command and produced the rule. The
 refusal was correct on its numbers and one step short of the answer — which is
 the argument for writing reopening conditions concrete enough to execute.
+
+### §626 — an ARRAY object can carry the deferred print (+1 case, 5,998 → 5,999)
+
+`string[]["0" | K]` is concrete on the left and generic on the right, which
+§625's gate admits — but `TypeReferenceNode` was still the only object shape
+that could produce the printed text, so the node answered `error` anyway. Adding
+the `ArrayTypeNode` arm converts it, with **zero adverse of any kind**.
+
+That was `assignmentToAnyArrayRestParameters`' last line. **The case converts.**
+
+### The road, end to end
+
+Five slices, each measured, and the case that started it took all five:
+
+| | | |
+|---|---|---|
+| §620 | concrete array + literal index resolves | +1 line |
+| §621 | concrete tuple + literal index selects the element | +5 lines |
+| §622 | constraint substitution — **stack overflow, aborts the run** | refused |
+| §623 | the resolution-stack park fixes the overflow; arm still converts nothing | refused |
+| §624 | deferred widening, ungated — 27 G→W at 1.84:1 | refused |
+| §625 | defer only when GENERIC — the condition §624 lacked | +44 lines |
+| §626 | array objects carry the deferred text | **+1 case** |
+
+**Three refusals and four landings on one road**, and the refusals did the
+work: §622 found the cycle, §623 proved the park fixes it, §624 measured the
+ratio that forced the question, and §625 answered it by printing §624's own
+adverse rows. The trace §623 demanded is also what killed §622's premise —
+the four lines wanted the DEFERRED form, so the constraint substitution was
+resolving where upstream defers, and its converting nothing was luck rather
+than judgement.
+
+**A refusal with an executable reopening condition is worth more than a landing
+without one.** Every step here was reopened by the previous step's recorded
+number, and the total is +51 lines and a case that had resisted five attempts.

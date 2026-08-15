@@ -541,6 +541,18 @@ impl<'a> Checker<'a, '_> {
                     _ => None,
                 };
                 let object_text = match node.object_type {
+                    // §626: an ARRAY object can carry the deferred print too —
+                    // `string[]["0" | K]` is concrete on the left and generic on
+                    // the right, which §625's gate admits, but `TypeReferenceNode`
+                    // was the only object shape that could produce the text, so
+                    // the node still answered `error`. This is the last line of
+                    // `assignmentToAnyArrayRestParameters`, and it converts the
+                    // case.
+                    Some(object @ TypeNode::ArrayTypeNode(_)) => {
+                        let object_type = self.get_type_from_type_node(object);
+                        (object_type != self.intrinsics.error)
+                            .then(|| crate::printing::type_to_string(self.store.get(object_type)))
+                    }
                     Some(TypeNode::TypeReferenceNode(object))
                         if object.type_arguments.is_empty() =>
                     {
