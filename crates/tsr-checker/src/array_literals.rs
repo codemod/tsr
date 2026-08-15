@@ -763,6 +763,22 @@ impl Checker<'_, '_> {
                 return Some(element);
             }
         }
+        // §569: the syntactic gate above is a SUFFICIENT condition, not a
+        // necessary one. `declares_symbol_iterator` asks whether the operand's
+        // own declarations spell `[Symbol.iterator]`, which a LIB type never
+        // does from the operand's side — a `Generator`, a `Set`, a `Map` all
+        // carry it on the interface. So `for (const x of g1())` read `number`
+        // while `[...g1()]` gapped: §32.1's shape, two entrances to one road
+        // with only one gated correctly.
+        //
+        // Falling through to the same `for_of_element_type` the for-of road
+        // calls is safe by construction — it answers `Option` and DECLINES
+        // where it cannot decide, so this can only turn a gap into an answer
+        // the for-of road already trusts. It runs BEFORE the decidable-failure
+        // arm so a real element type wins over that arm's `any`.
+        if let Some(element) = self.for_of_element_type(operand) {
+            return Some(element);
+        }
         // §495: a DECIDABLE protocol failure is upstream's reported
         // not-iterable error, and `checkIteratedTypeOrElementType` answers
         // `anyType` there (`checker.go:6103`) — a heritage-free class with no

@@ -2300,3 +2300,58 @@ its author had in hand. **The probe that finds them is always the same: write
 the two spellings of one idea side by side and diff the output.** That is the
 cheapest instrument in this file and it has now produced four landings and 111
 lines.
+
+---
+
+## 33. §569 — the spread's iterator gate was SUFFICIENT, not necessary (+5 cases, 92 favorable, 0 adverse)
+
+§32.1's instrument, run deliberately: pairs of one idea, side by side.
+
+```ts
+for (const x of g1()) { x }      // number   works
+var c1 = [...g1()];              // error
+var c2 = [...new Set([1])];      // error
+```
+
+`array_spread_element_type`'s iterator seam is gated on
+`declares_symbol_iterator`, which asks whether the operand's **own
+declarations** spell `[Symbol.iterator]`. A LIB type never does from the
+operand's side — a `Generator`, a `Set`, a `Map` all carry it on the interface —
+so the gate is a **sufficient condition standing in for a necessary one**, and
+every lib iterable fell off the road that `for..of` walks happily.
+
+The fix is to fall through to the same `for_of_element_type` the for-of road
+calls. **Safe by construction**: it answers `Option` and declines where it
+cannot decide, so this can only turn a gap into an answer the for-of road
+already trusts. Placed before the decidable-failure arm so a real element type
+wins over that arm's `any`.
+
+```
+WRONG->RIGHT: 76   genericRestParameters1 16, callWithSpread3 9,
+                   readonlyRestParameters 8
+GAP->RIGHT:    16  spreadsAndContextualTupleTypes 15, partiallyNamedTuples3 1
+no adverse transition of any kind
+checker_types 5,916 -> 5,921 (+5 cases), gradient 90.50% -> 90.52%
+```
+
+**92 favorable, zero adverse** — the best ratio since §553, and the reach is
+almost entirely in *rest-parameter and call-spread* families that no probe
+aimed at. §567a had already shaved the string case off this same gate one
+landing earlier; the general form was worth 92 lines where the special case was
+worth 1.
+
+### 33.1 The lesson §567a nearly hid
+
+§567 fixed **strings** by adding a special-case arm above the gate. That was
+correct and it measured, but it treated a symptom: the gate itself was the
+defect, and one more probe pair (`[...g1()]` against `for (const x of g1())`)
+showed the same failure with nothing to do with primitives.
+
+> **When a gate turns out to reject one thing it should admit, ask what ELSE it
+> rejects before writing the special case.** §567a's string arm is now
+> redundant-looking but harmless — it answers earlier and identically — and is
+> kept because deleting it is a separate measurement, not because it is needed.
+
+Five landings now share §32.1's sentence (§559, §561, §567a, §567b, §569), and
+this is the first where fixing the *gate* rather than the *case* multiplied the
+result by ninety.
