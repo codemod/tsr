@@ -1919,3 +1919,60 @@ fed by a contextual position (`<number>(yield 0)`, a `TypeAssertionExpression`,
 whose arm really does answer). It stays a gap. This change converts the
 positions where upstream answers **nil**; it does not port the positions where
 upstream answers a **type**, which is the remaining half and is not sized here.
+
+---
+
+## §587 — §583's nil test at two more kinds (+3 cases, 5,946 → 5,949)
+
+§583 replaced the kind-list with upstream's nil test for the **variable-like**
+arms only, and said so. The remaining kinds were left alone deliberately: each
+needs its own reading of what its arm answers. Two of them turn out to be
+cheaper than the first, and both were found by joining the new
+`examples/gapdump.rs` against the single-transition population — five of the
+seven cases in the row *"declaration name, symbol has no type:
+SymbolFlags(FUNCTION) / FunctionDeclaration / neither"* are generators.
+
+### `ReturnStatement` — the premise is INHERITED, not assumed
+
+`getContextualTypeForReturnExpression` (`:29621`) answers nil whenever
+`getContextualReturnType(fn)` is nil. The enclosing arm has **already
+established exactly that**: a non-expression generator only reaches the yield
+loop after `declaration_takes_no_contextual_return` has passed. So this is not
+a new assumption about upstream — it is the gate one scope up, restated.
+
+`function* g() { return yield yield 0; }` (`generatorTypeCheck37`) wants
+`() => Generator<any, any, unknown>` and was a gap.
+
+This is worth naming as a pattern: **the cheapest nil proofs are the ones some
+enclosing gate has already paid for.** §583's variable-like arm needed four
+syntactic tests; this one needed none, because the caller could not have got
+here otherwise.
+
+### `TemplateSpan` — two lines upstream, two lines here
+
+`getContextualTypeForSubstitutionExpression` (`:30030`) is a tagged-template
+check and a `return nil`. Nothing type-shaped is consulted, so the port's test
+is syntactic too: walk `TemplateSpan → TemplateExpression → parent` and ask
+whether that parent is a `TaggedTemplateExpression`.
+
+``var x = `abc${ yield 10 }def` `` (`templateStringWithEmbeddedYieldKeywordES6`)
+wants `() => Generator<number, void, unknown>`; the non-ES6 sibling came along
+as a third conversion.
+
+```
+GAP->RIGHT: 2    generatorTypeCheck37, templateStringWithEmbeddedYieldKeywordES6
+WRONG->RIGHT: 1  templateStringWithEmbeddedYieldKeyword
+(no adverse transition of any kind)
+```
+
+### What is deliberately still declined
+
+`Parameter` and `BindingElement` (`getContextuallyTypedParameterType`,
+`getContextualTypeForBindingElement`) consult real type machinery;
+`TypeAssertionExpression`, `AsExpression` and `SatisfiesExpression` answer
+`getTypeFromTypeNode` and are therefore **never** nil, which is why
+`castOfYield` must keep gapping; `CallExpression`/`NewExpression` arguments have
+genuine contextual types. The remaining recursive kinds
+(`ConditionalExpression`, `SpreadAssignment`) delegate to their own parent and
+would need the whole dispatch ported to answer honestly — that is the shape of
+the next slice here, and it is not a kind-by-kind job much longer.

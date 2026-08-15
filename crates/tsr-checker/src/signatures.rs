@@ -1302,6 +1302,43 @@ impl<'a> Checker<'a, '_> {
                         {
                             return self.initializer_position_is_contextual(parent, child);
                         }
+                        // §587, the same nil test at two more kinds, both
+                        // DECLARATION-only for the reason §583 recorded.
+                        //
+                        // `ReturnStatement` (`:29358`) routes to
+                        // `getContextualTypeForReturnExpression` (`:29621`),
+                        // which answers nil whenever
+                        // `getContextualReturnType(fn)` is nil. **The enclosing
+                        // arm has already established exactly that**: a
+                        // non-expression generator only reaches this loop after
+                        // `declaration_takes_no_contextual_return` passed. So
+                        // the premise is not assumed here, it is inherited —
+                        // `function* g() { return yield yield 0 }` wants
+                        // `Generator<any, any, unknown>` (`generatorTypeCheck37`).
+                        if !generator_expression
+                            && self.nodes.kind(parent) == SyntaxKind::ReturnStatement
+                        {
+                            return false;
+                        }
+                        // `TemplateSpan` (`:29390`) routes to
+                        // `getContextualTypeForSubstitutionExpression`
+                        // (`:30030`), which is two lines: a TAGGED template
+                        // delegates to the argument road, and everything else
+                        // returns nil. Purely syntactic, so the test is too —
+                        // `` var x = `abc${ yield 10 }def` `` in a generator
+                        // wants `Generator<number, void, unknown>`
+                        // (`templateStringWithEmbeddedYieldKeywordES6`).
+                        if !generator_expression
+                            && self.nodes.kind(parent) == SyntaxKind::TemplateSpan
+                        {
+                            return self
+                                .nodes
+                                .parent(parent)
+                                .and_then(|template| self.nodes.parent(template))
+                                .is_some_and(|owner| {
+                                    self.nodes.kind(owner) == SyntaxKind::TaggedTemplateExpression
+                                });
+                        }
                         matches!(
                             self.nodes.kind(parent),
                             // Still declined wholesale on the EXPRESSION side,
