@@ -2540,15 +2540,61 @@ impl<'a> Checker<'a, '_> {
                     // `function g4([x, y] = [1])` prints
                     // `[number, number?]`, not `[number]`
                     // (`destructuringWithLiteralInitializers`).
-                    if !self.nodes.parent(id).is_some_and(|f| {
-                        matches!(
-                            self.nodes.kind(f),
-                            SyntaxKind::FunctionDeclaration | SyntaxKind::MethodDeclaration
-                        )
+                    if !self.nodes.parent(id).is_some_and(|f| match self.nodes.kind(f) {
+                        SyntaxKind::FunctionDeclaration | SyntaxKind::MethodDeclaration => true,
+                        // §561: an ARROW or FUNCTION EXPRESSION too, but ONLY
+                        // where §94's predicate can SHOW there is no contextual
+                        // type at its position. §429 excluded them wholesale and
+                        // its recorded reason is exactly this: *"expression/arrow
+                        // parameters may be contextually typed upstream and the
+                        // implied `any` there was 78 G->W
+                        // (`coAndContraVariantInferences3`)"*. That is a claim
+                        // about CONTEXTUALLY TYPED arrows, and
+                        // `has_no_contextual_type` is the machinery already built
+                        // to decide it — the same refinement §169 made to the
+                        // return-type gate, for the same reason.
+                        //
+                        // Without it every destructured parameter of an arrow
+                        // gapped while the identical `function` worked:
+                        // `([x]) => x`, `({m}) => m` and `({a=1}={}) => a` all
+                        // answered `error` where `function r([x]) { … }` answered
+                        // `([x]: [any]) => any`.
+                        //
+                        // FALSIFIER: if `coAndContraVariantInferences3` loses
+                        // lines, the predicate is not showing what it claims and
+                        // this comes straight back out.
+                        SyntaxKind::ArrowFunction | SyntaxKind::FunctionExpression => {
+                            self.has_no_contextual_type(f)
+                        }
+                        _ => false,
                     }) {
                         return None;
                     }
                     let computed = self.get_widened_type_for_variable_like_declaration(id);
+                    // §561: a NEWLY-ADMITTED arrow/function-expression
+                    // parameter declines when the implied type came out as a
+                    // bare `any`. §429's gate was hiding shapes the implied-type
+                    // computation cannot spell — a REST-ONLY pattern
+                    // (`([...a]) => {}` wants `Iterable<any, void, undefined>`)
+                    // and an OPTIONAL element (`([a]) => {}` with a default
+                    // wants `[number?]`) both fall through its element guard to
+                    // `any`. Widening the gate without this made those render
+                    // `([...a]: any)` where they used to gap, which is §549's
+                    // rule in the other direction: a computation that cannot
+                    // answer must DECLINE, not emit its fallback.
+                    //
+                    // A declaration keeps its `any` — that is the behaviour
+                    // §429 shipped and it is not this landing's to change.
+                    if computed == self.intrinsics.any
+                        && self.nodes.parent(id).is_some_and(|f| {
+                            matches!(
+                                self.nodes.kind(f),
+                                SyntaxKind::ArrowFunction | SyntaxKind::FunctionExpression
+                            )
+                        })
+                    {
+                        return None;
+                    }
                     if node.initializer.is_some()
                         && let Some(tsr_ast::BindingName::BindingPattern(pattern)) = node.name
                         && let Some((tuple_elements, _)) =

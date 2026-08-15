@@ -3455,11 +3455,33 @@ impl<'a> Checker<'a, '_> {
                     // uncontextual; expression/arrow parameters may be
                     // contextually typed upstream and the implied `any`
                     // there was 78 G->W (`coAndContraVariantInferences3`).
-                    && self.nodes.parent(declaration).is_some_and(|f| {
-                        matches!(
-                            self.nodes.kind(f),
-                            SyntaxKind::FunctionDeclaration | SyntaxKind::MethodDeclaration
-                        )
+                    && self.nodes.parent(declaration).is_some_and(|f| match self.nodes.kind(f) {
+                        SyntaxKind::FunctionDeclaration | SyntaxKind::MethodDeclaration => true,
+                        // §561: an ARROW or FUNCTION EXPRESSION too, but ONLY
+                        // where §94's predicate can SHOW there is no contextual
+                        // type at its position. §429 excluded them wholesale and
+                        // its recorded reason is exactly this: *"expression/arrow
+                        // parameters may be contextually typed upstream and the
+                        // implied `any` there was 78 G->W
+                        // (`coAndContraVariantInferences3`)"*. That is a claim
+                        // about CONTEXTUALLY TYPED arrows, and
+                        // `has_no_contextual_type` is the machinery already built
+                        // to decide it — the same refinement §169 made to the
+                        // return-type gate, for the same reason.
+                        //
+                        // Without it every destructured parameter of an arrow
+                        // gapped while the identical `function` worked:
+                        // `([x]) => x`, `({m}) => m` and `({a=1}={}) => a` all
+                        // answered `error` where `function r([x]) { … }` answered
+                        // `([x]: [any]) => any`.
+                        //
+                        // FALSIFIER: if `coAndContraVariantInferences3` loses
+                        // lines, the predicate is not showing what it claims and
+                        // this comes straight back out.
+                        SyntaxKind::ArrowFunction | SyntaxKind::FunctionExpression => {
+                            self.has_no_contextual_type(f)
+                        }
+                        _ => false,
                     })
                     && let Some(tsr_ast::BindingName::BindingPattern(pattern)) = parameter.name
                     && pattern.elements.iter().all(|element| {

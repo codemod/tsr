@@ -2049,3 +2049,74 @@ spread thinly across cases with other blockers.
 
 **Both instruments are needed**: the dump ranks what is already visible; the
 sweep finds what nothing has pointed at yet.
+
+---
+
+## 29. §561 — §429's gate refined for uncontextual arrows (+1 case, 24 favorable, 0 adverse)
+
+The second broad sweep's find, and the same asymmetry §559 had: **every**
+destructured-parameter shape worked for a `function` declaration and gapped for
+an arrow.
+
+```ts
+function r([x]) { return x; }   // ([x]: [any]) => any
+var      s = ([x]) => x;        // error
+function t({m}) { return m; }   // ({ m }: { m: any; }) => any
+var      u = ({m}) => m;        // error
+```
+
+§429 gated the pattern-implied type to `FunctionDeclaration | MethodDeclaration`
+containers, and its recorded reason is precise: *"expression/arrow parameters
+may be contextually typed upstream and the implied `any` there was 78 G→W
+(`coAndContraVariantInferences3`)"*. That is a claim about **contextually
+typed** arrows, and `has_no_contextual_type` is the machinery already built to
+decide it — the same refinement §169 made to the return-type gate. The gate now
+admits an arrow or function expression exactly where that predicate can *show*
+there is no contextual type.
+
+### 29.1 The first draft measured 25 favorable : 29 ADVERSE, and the rows said why
+
+```
+emitArrowFunctionES6:0:30  want ([...a]: Iterable<any, void, undefined>) => void
+                           got  ([...a]: any) => void
+emitArrowFunctionES6:0:39  want ([a]: [number?]) => void
+                           got  ([a]: any) => void
+```
+
+**§429's gate was hiding shapes the implied-type computation cannot spell.** A
+REST-ONLY pattern and an OPTIONAL element both fall through its element guard
+and land on a bare `any`. Widening the gate made those *render* where they used
+to gap — a confident wrong answer replacing a silence, which is §549's rule
+running in the other direction: **a computation that cannot answer must
+DECLINE, not emit its fallback.**
+
+Adding that decline — a newly-admitted arrow parameter whose implied type came
+out as a bare `any` returns `None` — took the pair from 25:29 to:
+
+```
+WRONG->RIGHT: 16   unusedDestructuringParameters 14, destructuringInFunctionType 2
+GAP->RIGHT:    8   arrowFunctionExpressions 4, emitArrowFunctionES6 4
+no adverse transition of any kind
+checker_types 5,913 -> 5,914 (+1 case) — and 62.00% is crossed
+```
+
+A **declaration** keeps its `any`: that is what §429 shipped and it is not this
+landing's to change.
+
+### 29.2 §429's falsifier, checked
+
+§429's number is the bar, so the named falsifier was *"if
+`coAndContraVariantInferences3` loses lines, the predicate is not showing what
+it claims"*. It does not appear in the pair at all — zero movement, in either
+direction. The 78 G→W were contextually-typed arrows, and
+`has_no_contextual_type` excludes exactly those.
+
+### 29.3 What the two sweeps have now established
+
+§559 and §561 are the same defect wearing two hats: **a gate written for
+declarations, excluding arrows wholesale, where the recorded reason only ever
+justified excluding *contextually typed* ones.** Two subsystems, two sweeps,
+one shape. Worth a third look elsewhere — any gate matching
+`FunctionDeclaration | MethodDeclaration` is a candidate, and there is one more
+at `signatures.rs`'s `declaration_takes_no_contextual_return` which §28.1
+already fenced for its own reason.
