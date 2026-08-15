@@ -3293,6 +3293,51 @@ Reverted; no code change retained.
 > **That confirms §705's reading from the opposite direction: the blocker is the
 > missing EWTA type, not the gate.** Two independent cuts now say so.
 
+### §708 — evolving arrays with the operation-target gate: −357 → +9 lines, still REVERTED
+
+§704 failed at **−357 lines / 396 RIGHT→WRONG**. Found the missing piece by
+reading what upstream actually PRINTS rather than what it computes:
+`typedArrays` records `>typedArrays : any[]` on **every** reference, even after
+nine element assignments. Upstream's gate (`checker.go:11182`):
+
+```go
+if !c.isEvolvingArrayOperationTarget(node) && (t == c.autoType || t == c.autoArrayType) { … }
+```
+
+**`isEvolvingArrayOperationTarget`** (`flow.go:1542`) — a reference that is the
+receiver of `.length`, `.push`/`.unshift`, or a numeric `x[i] = …` keeps the
+**UNfinalized** form, which prints `any[]`. §704 finalised everywhere, and
+`typedArrays` — where every reference is an element-assignment target — supplied
+198 of its 396 regressions.
+
+**Rebuilt with the gate. The improvement is large:**
+
+| | §704 | §708 |
+|---|---|---|
+| right | 434,912 (−357) | **435,278 (+9)** |
+| RIGHT→WRONG | 396 | **30** |
+| WRONG→RIGHT | 39 | 39 |
+| cases | −1 | **+1** (2 gained, 1 regressed) |
+
+`controlFlowArrays` +24, `controlFlowArrayErrors` +7, `nonNullFullInference` +4;
+`evolvingArrayTypeInAssert` and
+`narrowSwitchOptionalChainContainmentEvolvingArrayNoCrash1` both converted.
+
+**REVERTED anyway: `typedArrays` was passing and regressed.** Ten of its lines
+want `any[]` and now get the evolved union, at references that are NOT operation
+targets — `return typedArrays` among them. So **upstream does not evolve there at
+all**, and the operation-target gate is not the only condition.
+
+**REOPENS ON: the remaining condition in `getTypeAtFlowArrayMutation`**
+(`flow.go`). It returns `nil` — leaving the type unevolved — under a test this
+port has not reproduced; `typedArrays` is the fixture that isolates it, since its
+mutations are element assignments of CONSTRUCTOR values. Read that function, not
+the writer.
+
+**This is the closest an evolving-array attempt has come**, and the two gates are
+now known: `is_auto_array` (built) and `isEvolvingArrayOperationTarget` (written
+here, in the reverted diff). Only the third is missing.
+
 ### §704 — evolving arrays as a walk-and-collect: BUILT, −357 LINES, REVERTED
 
 §703 said the two hard parts were already built and what remained was
