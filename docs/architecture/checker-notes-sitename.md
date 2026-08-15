@@ -3024,3 +3024,42 @@ consistent with the code as written.
 branch; if it is (b), upstream's fix is that a JSON source file gets a module
 symbol (upstream binds one whose single export is the file's value), and the
 synthesis §39.2 wrote then becomes reachable as step 3 of 3.
+
+### 39.8 SETTLED, branch (b) — the host resolves the file; the BINDER mints no symbol
+
+One `eprintln` between the two lines, exactly as §39.7 specified:
+
+```
+[jsonbranch] "./test.json" resolved_module=true symbol=None
+```
+
+**Branch (a) succeeds and branch (b) is the blocker.** The host resolves
+`./test.json` to a source file; `binder.symbol_of(file)` answers `None`. §39.5's
+binder hypothesis is confirmed **by measurement**, not by the comment that
+indicated it.
+
+### 39.9 §39, fully settled — the specification the next session should start from
+
+| step | state |
+|---|---|
+| the option parses and gates the `.json` extension | built |
+| the host RESOLVES `./test.json` to a file | **built — measured `resolved_module=true`** |
+| the file PARSES to one statement, its top-level value | built (`parse_json_text`) |
+| **the file gets a MODULE SYMBOL** | **ABSENT — the blocker, measured `symbol=None`** |
+| `getTargetOfNamespaceImport` reaches it | unreachable until the above |
+| the module symbol takes its value's TYPE | written, correct, reverted unlanded |
+
+Upstream binds a JSON source file as a module whose single export is the file's
+value. This port binds it as a plain script — `is_export_context` requires
+`self.is_module`, and a JSON file satisfies no ES-module test — so the file
+exists, parses, and names nothing.
+
+**The build is now two steps in a known order**: mint the module symbol in the
+binder for a `JSON_FILE`-flagged source file, then let the already-written
+synthesis answer its type. Five deficit-1 cases, one-assertion head case.
+
+> **Ten eliminations and three settled measurements to reach a six-row table.**
+> Every row above that says *built* was checked by running something; the three
+> earlier versions of this table that said *built* from reading code were each
+> wrong in a different row. That is the whole content of §39 and it is worth
+> more than the five cases.
