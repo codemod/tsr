@@ -3163,6 +3163,50 @@ the global scope rather than anything in the naming road.
 > invocations before reading the implementation.** Two of the three defects found
 > this way were callers, not the roads themselves.
 
+### §700 — the TOO-MANY side of the count-only lane (SIZED, one mechanism named)
+
+§698/§699 worked the short-by-one side. The other half had never been grouped at
+all: **32 count-only cases emit exactly ONE line too many.** Dumped three and the
+extra line is a *parse-recovery* divergence in every one:
+
+```
+parserErrorRecovery_ClassElement1   want=D : D          got=class : any  (+ D : any)
+enumConflictsWithGlobalIdentifier   want=IgnoreRulesSpecific. : any
+                                     got=IgnoreRulesSpecific.var : any
+```
+
+**The `parserErrorRecovery_ClassElement1`–`3` family (3 cases) shares one
+mechanism, and it is upstream's, not a fixture quirk:**
+
+```ts
+class C {
+// Classes can't be nested. So we should bail out of parsing here and recover
+// this as a source unit element.
+class D {
+}
+```
+
+Upstream **aborts the class-member list** and re-parses `class D` as a
+source-unit element, recording `D : D`. This port takes `class` as a member NAME
+— which is legal in general, since reserved words may name members — and emits
+`class : any` plus `D : any`, two lines where upstream has one.
+
+**The mechanism is `abortParsingListOrMoveToNextToken`**: upstream's list parser
+asks `isInSomeParsingContext()` — would this token be a valid element of an
+ENCLOSING context? — and if so abandons the inner list rather than consuming the
+token. This port has no equivalent, so every list runs to its own terminator.
+
+**Sized, not attempted, and the hazard is the reason.** A general
+`isInSomeParsingContext` is a parser-wide change to every list; a narrow "abort
+the class body on `class`/`enum`/`namespace`" is fixture-shaped **and wrong in
+general**, because those words are legal member names. Both are §247's
+position-shift territory, where §649/§650 measured negative twice.
+
+**What this closes:** the count-only lane (135 cases) is now grouped on both
+sides — short-by-one by missing content (§699), too-many by extra content here —
+and no part of it remains merely "a grind". The largest single remaining
+mechanism is list-abort recovery, worth at least the 3 `ClassElement` cases.
+
 ### §698 — `parse_statement_or_missing` mints the wrong node: +5 CASES
 
 **LANDED. +5 cases (6,052 → 6,057), zero adverse, zero regressed.** The first
