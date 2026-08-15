@@ -643,3 +643,35 @@ actually caches on the initializer node during
 the suspect, and whether it writes back to the node's links is the whole
 question. Three experiments have now been spent guessing at it (§609's twin,
 §611's declared type); the fourth should be a read of that write.
+
+### §612 — the reduction is NOT the difference either; three mechanisms now ruled out
+
+Continuing §611's "read the write rather than guess", two readings settle two
+more candidates and neither is the defect:
+
+- **`widenTypeInferredFromInitializer` (`checker.go:16882`) does not write
+  back.** It returns the widened type and stores nothing on the initializer's
+  node links. So `getTypeOfInitializer`'s cache holds the **unwidened** `E.B`,
+  upstream's flow starts there too, and §611's "start at the declared type" was
+  wrong about upstream as well as costly here (83 R→W).
+- **`get_assignment_reduced_type` (`flow.rs:1834`) already matches
+  `getAssignmentReducedTypeWorker` (`flow.go:2415`) structurally** — the
+  constituent filter, the fresh-boolean remap, and crucially upstream's
+  give-up path (*"when that happens, we give up and don't narrow at all"*,
+  `:2426`-`:2431`), which this port spells as the `else { declared }` at
+  `flow.rs:1886`.
+
+**So the divergence is inside an answer, not inside a shape.** Both compilers
+reach the same reduction with the same declared type `E` and the same assigned
+type `E.B`; upstream returns `E` (the give-up branch) and this port returns
+`E.B` (the narrow branch). The branch is chosen by
+`isTypeAssignableTo(assignedType, reducedType)` — a FRESH enum literal against
+its REGULAR twin — so **that single assignability query is the whole remaining
+question**, and it is one probe wide.
+
+Three mechanisms are now ruled out by measurement or by reading: the fresh/regular
+twin at the access site (§610), the initial flow type (§611), the reduction's
+structure (§612). What is left is small and named. **The 8 lines are one case
+and this is four sessions' worth of note for them** — recorded at this length
+only because each ruled-out mechanism was the obvious next guess, and a future
+reader would otherwise spend the same three experiments.
