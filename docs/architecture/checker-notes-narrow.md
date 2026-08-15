@@ -8558,3 +8558,55 @@ This is the second time this window that a faithful transcription measured badly
 because the port's CALLERS differ from upstream's (§599.1's empty-array arm is
 the first). The pattern is worth naming: **a transcription is only as faithful
 as the call graph around it.**
+
+---
+
+## §616 — the DIVERGENT-ACCESSOR half of `getWriteTypeOfSymbol` (+2 cases, 24 lines, 0 adverse)
+
+A write to a property whose setter is annotated sees the **setter's** parameter
+type (`getWriteTypeOfAccessors`, `checker.go:16447`). `get_type_of_accessors_worker`
+prefers the GETTER's annotation and falls back to the setter's; a write reverses
+that preference, and the two differ only for a DIVERGENT pair:
+
+```ts
+get x(): string;
+set x(v: string | number | boolean);   // divergentAccessorsTypes1
+```
+
+This port had the OTHER half of `getWriteTypeOfSymbol` already — §78's
+`exactOptionalPropertyTypes` missing-type removal, three lines away, behind the
+same `assignment_target_kind(...) == Definite` test. The accessor half was
+simply absent.
+
+```
+WRONG->RIGHT: 24   divergentAccessorsTypes1 12, divergentAccessorsTypes6 4,
+                   computedPropertiesWithSetterAssignment 2, …
+(no adverse transition of any kind)     checker_types 5,996 -> 5,998
+```
+
+### The gate, and it cost two PASSING cases before it existed
+
+The first build applied the setter's annotation unconditionally and measured
+**4 R→W across two passing cases** (`instancePropertyInClassType`,
+`privateNamesAndGenericClasses-2`). Both write `set y(v: U)` inside
+`class C<T, U>`: the read path INSTANTIATES the member for the receiver's type
+arguments, and `get_type_from_type_node(annotation)` returns the bare `U`. So
+the arm was right and its integration point was wrong — it bypassed
+instantiation.
+
+Gated on the annotation not denoting a type parameter, which is the population
+this arm is for (divergent pairs are annotated with concrete types) and not a
+patch over the symptom. **The general fix is to route the write type through the
+same instantiation the read takes**, and that is the item if the remaining
+generic cases are ever wanted.
+
+### How this was found, which is the part worth reusing
+
+Not by reading `members.rs`. By §613 noticing that all of one case's wrong lines
+were assignment TARGETS, §614 building `writetarget.rs` to size that across the
+corpus at 1,060 lines, and §615 splitting it down to the 42 that are actually
+OVER-NARROWED — at which point the `divergentAccessorsTypes` family was 22 of
+the 42 and named itself. **Three sizing steps, each correcting the last, and the
+arm fell out of the third.** The first two numbers were both wrong in the
+direction that would have wasted the work: 1,060 would have justified a
+subsystem, 42 justified an afternoon.

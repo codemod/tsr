@@ -285,11 +285,24 @@ impl Checker<'_, '_> {
         // `exactOptionalPropertyTypes` — a WRITE position removes
         // `missingType`, so `obj.a = 'hello'` prints `string` while the read
         // keeps `string | undefined` (`strictOptionalProperties1`).
-        let result = if self.exact_optional_property_types
-            && node.node_id.is_some_and(|id| {
-                self.assignment_target_kind(id)
-                    == crate::expressions::AssignmentTargetKind::Definite
-            }) {
+        // §616: the DIVERGENT-ACCESSOR half of `getWriteTypeOfSymbol`, beside
+        // the `exactOptionalPropertyTypes` half below. A write to a property
+        // whose setter is annotated sees the SETTER's parameter type
+        // (`getWriteTypeOfAccessors`, `checker.go:16447`), which differs from
+        // the read type only for a divergent pair — `get x(): string` beside
+        // `set x(v: string | number | boolean)`.
+        let is_definite_write = node.node_id.is_some_and(|id| {
+            self.assignment_target_kind(id) == crate::expressions::AssignmentTargetKind::Definite
+        });
+        let result = if is_definite_write
+            && let Some(property) = self.get_property_of_type(stripped, name)
+            && let Some(written) = self.write_type_of_accessors(property)
+        {
+            written
+        } else {
+            result
+        };
+        let result = if self.exact_optional_property_types && is_definite_write {
             self.remove_missing_type(result)
         } else {
             result

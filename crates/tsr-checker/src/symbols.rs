@@ -228,6 +228,44 @@ impl<'a> Checker<'a, '_> {
         computed
     }
 
+    /// `getWriteTypeOfAccessors` (`checker.go:16447`) — the type a WRITE to a
+    /// property sees, which is the **setter's** parameter annotation.
+    ///
+    /// [`Checker::get_type_of_accessors_worker`] prefers the GETTER's
+    /// annotation and falls back to the setter's; a write reverses that
+    /// preference. The two differ only for a DIVERGENT accessor pair
+    /// (`get x(): string` beside `set x(v: string | number | boolean)`), which
+    /// is exactly the population §615 measured — `divergentAccessorsTypes1`,
+    /// `2`, `7`, `8` are 22 of its 42 lines.
+    ///
+    /// Answers `None` when there is no setter annotation, so every other
+    /// property keeps the read type and this arm cannot widen anything it does
+    /// not own.
+    pub(crate) fn write_type_of_accessors(&mut self, symbol: SymbolId) -> Option<TypeId> {
+        let declarations =
+            self.binder.symbols().get(symbol).declarations.iter().copied().collect::<Vec<_>>();
+        let setter = declarations.into_iter().find(|&declaration| {
+            matches!(self.node_map.get(declaration), Some(Node::SetAccessorDeclaration(_)))
+        })?;
+        let annotation = self.accessor_annotation(setter)?;
+        let written = self.get_type_from_type_node(annotation);
+        if written == self.intrinsics.error {
+            return None;
+        }
+        // A setter annotated with a TYPE PARAMETER must not take this road: the
+        // read path instantiates the member for the receiver's arguments and
+        // this returns the uninstantiated parameter, so `set y(v: U)` in
+        // `class C<T, U>` came out as the bare `U` where the instantiated read
+        // was already right (`instancePropertyInClassType`,
+        // `privateNamesAndGenericClasses-2` — two PASSING cases, measured).
+        // The divergent-accessor population this arm is for is annotated with
+        // concrete types.
+        if self.store.get(written).flags.intersects(crate::flags::TypeFlags::TYPE_PARAMETER) {
+            return None;
+        }
+        Some(written)
+    }
+
     fn get_type_of_accessors_worker(&mut self, symbol: SymbolId) -> TypeId {
         let mut declarations =
             self.binder.symbols().get(symbol).declarations.iter().copied().collect::<Vec<_>>();
