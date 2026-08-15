@@ -3178,9 +3178,29 @@ re-measurement says:
 | `importElisionEnum` | 2 | "enum member spelling" | **alias resolution through a property access** — `MyEnumFromModule.a` yields the enum type, not the member; the rename arm never sees a member text |
 | `mergedClassWithNamespacePrototype` | 1 | "flat naming, arm-sized" | a nested namespace's DECLARATION NAME wants its container qualifier (`typeof Foo.prototype`), which §509's *"no qualifier where the bare name resolves"* rule declines — the same shape §670–§682 spent eleven probes on |
 | `logicalAndOperatorWithEveryType` | 1 | enum spelling | wants `E.b \| E.c`, gets `E` — enum-union narrowing, not spelling |
-| `typeGuardNarrows…11`/`12` | 8 each | narrowing | want `string`, get `error` — a GAP, so not the narrowing lane at all |
+| `typeGuardNarrows…11`/`12` | 8 each | narrowing | **MAPPED TYPES ARE UNPORTED** — §697 |
 | `ambientPropertyDeclarationInJs` | 5 | §687 sibling | `declare prop: string` in a **.js** file; the annotation is not read. JS-specific |
 | `declarationEmitOfTypeofAliasedExport` | 2 | flat naming | `typeof a.D` vs `typeof C` — an export alias, not a qualifier |
+
+> **§697 settles the largest of them, and it is a FEATURE, not an arm.** Both
+> `typeGuardNarrows…11` and `12` open with a mapped type over an enum:
+>
+> ```ts
+> enum E { A, B }
+> declare const m: { [K in E]: string | null };
+> if (m[E.A] !== null) { m[E.A].toString(); }   // upstream: string
+> ```
+>
+> Upstream resolves the annotation to `{ 0: string | null; 1: string | null }`;
+> this port answers `errorType`, and every one of the 16 lines follows from that
+> single gap. **`MappedTypeNode` has no arm anywhere in the checker** — grepping
+> `crates/tsr-checker/src` for `MappedType` finds three files and every hit is a
+> comment. The type-node road simply has no case for it.
+>
+> So these two cases are not narrowing, not indexed-access, and not a gap in an
+> existing road: they need **mapped type resolution**, which is a subsystem. They
+> should be re-filed under whatever plan item covers that, and removed from any
+> naming or narrowing lane they were counted in.
 
 **Every one of these was originally filed under a lane it does not belong to.**
 That is the same failure as §664's classifier, and it is now six-for-six on this
