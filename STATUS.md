@@ -2909,10 +2909,37 @@ the global scope rather than anything in the naming road.
 > is in **part3**, where qualifying is right; the bare `<T extends Point>` at 15
 > is part1, where it is also right. Both correct.
 >
-> **NEXT VALUE TO PRINT:** what distinguishes references 105 and 106 from 122 and
-> 128 — same file, same symbol, same wanted qualifier, opposite outcomes. Print
-> `needs_qualification` and the parent node kind for those four. This is now a
-> two-reference question in one file, which is as small as this gets.
+> **§680 ran that comparison and the two failing references DO NOT REACH THE
+> QUALIFIER AT ALL.** Filtering `qualified_name_at` to `printed == "Point"`:
+>
+> ```
+>   PT ref=NodeId(114) parent_kind=PropertyAccessExpression needs_qual=true chain=Some("A.")
+>   PT ref=NodeId(115) parent_kind=CallExpression           needs_qual=true chain=Some("A.")
+> ```
+>
+> **Only 114 and 115 print — 105 and 106 never appear.** So the qualifier road is
+> never entered for them; `type_to_string_at` returns before reaching it. Every
+> reference that *does* reach it qualifies correctly, which is why nine probes
+> found nothing wrong inside.
+>
+> **FINAL LOCALISATION for this thread:** the defect is an early return in
+> `type_to_string_at` (`checker.rs:1326`) — before `checker.rs:1902` — taken for
+> references 105/106 and not for 114/115. The candidates, all in that function
+> and all *upstream* of every component cleared in §670–§679: the
+> `TypeData` match that extracts `module` (`:1327`), the composite-render guard
+> `rendering_composites` (`:1448`), and the generic-argument re-render branch
+> (`:1446`).
+>
+> **NEXT VALUE TO PRINT:** which of those three `type_to_string_at` returns fires
+> for reference 105. That is one print inside one function, and it ends this
+> thread.
+>
+> **Closing tally, §670–§680: eleven probes, ONE landing (§673, +2 cases), FOUR
+> framings retired by measurement.** Every framing was constructed from the
+> symptom and refuted by a probe further downstream. **The single transferable
+> instruction: instrument the OUTPUT boundary first (`render`, one line), read
+> which inputs it never receives, and walk backward from there.** Applied at the
+> start it would have reached this same point in two probes instead of eleven.
 >
 > **Running tally for this thread: §670–§679, one landing (§673, +2 cases), and
 > THREE successive framings retired by measurement** — "the module arm declines"
