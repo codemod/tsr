@@ -2599,6 +2599,31 @@ version of bare `any`.
 ### §598 CORRECTED BY §599, 2026-08-14 — **the diagnosis below was WRONG; the gate is `noImplicitAny`, and the arm has since LANDED (+7 cases)**
 
 
+### §719 — `xtask issue-ids` cannot be verified here, and the JSONL is NOT a substitute
+
+`cargo run -p xtask -- issue-ids` reports **SKIPPED: `bd list --all --json` did
+not answer, so 720 issue citation(s) across 190 id(s) were NOT checked** — the
+same at session start and end. `bd` IS installed
+(`~/.local/bin/bd`) but answers *"no beads database found"*: this checkout has
+`.beads/issues.jsonl` and no Dolt database.
+
+**I tried to verify the citations against that JSONL instead. Do not repeat
+this.** The export contains **5 issues**, while the tree cites **157 distinct
+ids across 2,665 occurrences**. A naive comparison reports *"153 cited ids do not
+exist"* — which is **false**, and would have been a serious false alarm had it
+been believed: it measures the emptiness of a stale export, not the validity of
+the citations.
+
+**The gate remains genuinely unverified.** Per the architecture note, issues live
+in a local Dolt DB synced through `refs/dolt/data`; `.beads/issues.jsonl` is a
+*passive export* and this one is stale. Verifying the 720 citations needs an
+environment where `bd list --all --json` answers.
+
+**Recorded as a CHECKED-AND-INCONCLUSIVE gate**, not a pass and not a failure —
+the distinction matters, because "SKIPPED" read as "fine" is how an unchecked
+720-citation surface stays unchecked.
+
+
 ### §664 — sizing `getAccessibleSymbolChain`, and a correction to my own number
 
 The briefing ranked this #1 with *"size it before it becomes another number in a
