@@ -3447,14 +3447,29 @@ type.
 the bare-identifier ones might be reachable by relaxing the class-declaration
 gate to *bare identifier bases only*, leaving qualified and alias forms alone.
 
-**NOT ATTEMPTED — and the reason is a measurement, not caution.** §706 measured
-the fully-ungated cut at **−1 case** and the interface-excluded cut at **−20**.
-A third cut is worth one build, but only with the discrimination stated above
-written into it, and only judged by the case-set diff. **Whoever tries it should
-expect the JSX bases (`tsxUnionElementType3`/`4`,
-`checkJsxChildrenProperty12`/`13`) to be the risk** — they are neither bare
-identifiers nor qualified names in the sense above, and they supplied 54 of
-§706's regressions.
+**§717 built exactly that cut — class base OR bare-identifier interface base —
+and it measured ZERO, with no regressions and no gains.** Traced it: the arm
+never reaches `base_type_of_heritage_entry` at all, so the gate was never the
+question.
+
+The chain fails earlier, and the fixture name says where:
+**`indexSignatureInOtherFile`** — `Array1` is declared in `other.ts` and
+referenced from `index.ts`. `heritage_base_symbol` does not resolve it across the
+file boundary, so the arm is skipped before any type is computed.
+
+**So the heritage lane has TWO independent blockers, not one:**
+
+1. **Cross-file base resolution** — `heritage_base_symbol` (this case)
+2. **The base-type computation diverging for non-class bases** — §705/§706
+
+§716's shape analysis stands and is the right discrimination, but cannot be
+tested until (1) is fixed. **Four probes into this lane (§705, §706, §714/§715,
+§717) have each found a different layer**; the residue is that they are now
+enumerated rather than conflated.
+
+**Do not attempt a fifth gate variation** — every one has measured zero or
+negative. The next step is `heritage_base_symbol`'s cross-file behaviour, printed
+rather than read.
 
 ### §710 — EVOLVING ARRAY TYPES, LANDED: +2 CASES, 39 W→R, zero regressed
 
