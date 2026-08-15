@@ -2245,3 +2245,26 @@ at all — `never`, `any`, or a plain value.
 `getAwaitedType`, which is the same machinery the async non-generator arm still
 waits on (§14). The three lines are the honest price and are named here so a
 future `getAwaitedType` landing knows to re-measure them.
+
+### §641 REFUSED — recovering a bare `yield *` (0 transitions)
+
+`function* g() { yield *; }` wants `() => Generator<any, void, any>`
+(`YieldStarExpression3_es6`, `YieldExpression5_es6`, both deficit 1): upstream
+recovers from the parse error by typing the absent operand `any`, and
+`getIterationTypesOfIterable(any, …)` answers `any` for the NEXT slot.
+
+The delegating branch here opens `let operand = operand?;`, which declines the
+whole signature when the operand is missing — an obvious candidate. Replacing it
+with the `any`/`any` contribution measured **zero transitions**. Reverted on
+§586's rule.
+
+**So the operand is not `None` at that point**, and the case declines somewhere
+earlier or the parser does not build a delegating yield here at all — §583
+records that `yield * []` OUTSIDE a generator is a MULTIPLICATION and that this
+port's parser handles the distinction in `tsr_parser` (§106), which makes the
+parse of a bare `yield *` INSIDE one the first thing to check.
+
+**Next step, and it is one trace**: print `delegates` and `operand.is_some()` for
+`YieldStarExpression3_es6` before writing another arm. §632 and §606 both cost a
+build-and-measure cycle for exactly this — assuming which branch a fixture takes
+instead of printing it — and §633/§634 are what it took to recover.
