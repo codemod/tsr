@@ -2645,6 +2645,51 @@ handful of the 69, which enclosing scope the printer names from and what chain
 upstream picks — and measure with the **case-set diff**, not the transition list,
 which is what caught §656's and §661's regressions when the net looked positive.
 
+### §665 — enum narrowing by `!==` a literal: DIAGNOSED THREE LEVELS DOWN (one table from landing)
+
+§664 split 5 cases out of the qualified-name population as enum NARROWING rather
+than naming. Took them. `function f1(v: E1) { if (v !== 1) { v; } }` should
+narrow to `E1.b`; the port prints `E1`.
+
+**Three candidate blockers, each PRINTED rather than reasoned about, and the
+first two were wrong:**
+
+1. **The named-union guard.** `narrow_type_by_equality` bails on
+   `TypeData::Union { symbol: Some(_), .. }` (`flow.rs:4842`) so a named union
+   keeps its name — and an enum's declared type is a union carrying the enum's
+   own symbol. Looked decisive. **Built the `ENUM_LITERAL` exemption and measured
+   it: literally zero transitions.** The guard was not the blocker.
+2. **`unit_like`.** Next guess was that enum member types, minted with
+   `TypeFlags::ENUM`, fail the `UNIT` test at `flow.rs:4910`. Printed it:
+   `flags=TypeFlags(ENUM) unit=true`. **Wrong again** — `ENUM` carries `UNIT`.
+3. **The actual blocker**, from the same print:
+
+```
+FILTER c=E1.a flags=TypeFlags(ENUM) unit=true vs v=1 -> Some(false)
+FILTER c=E1.b flags=TypeFlags(ENUM) unit=true vs v=2 -> Some(false)
+```
+
+`comparable_ternary(E1.a, 1)` answers **`Some(false)`**. It should be true:
+`E1.a`'s value *is* `1`. Nothing is removed, so the union survives whole and
+prints `E1`.
+
+**Root cause: enum member VALUES are not stored.**
+`get_declared_type_of_enum` folds them (`MemberValue::Num`/`Str`, `declared.rs`
+§55) and then discards them — the checker keeps `enum_member_owners`,
+`enum_member_regular`, `enum_access_spelling`, but **no `TypeId → value` map**.
+So no comparability arm can relate `E1.a` to `1`.
+
+**REOPENS ON: a `enum_member_values: FxHashMap<TypeId, MemberValue>` side table**,
+populated at the two mint sites (`declared.rs:2995` and `:3008`), plus an arm in
+`comparable_ternary` that compares an `ENUM` constituent's stored value against a
+numeric/string literal. Both halves are small and the population is measured: 5
+cases, 15 lines. **The §665 guard exemption is NOT needed and was reverted** — it
+measured zero and would be dead code.
+
+**Method note.** Two of three levels were guessed wrong and printed right, in a
+lane I had already worked (§55.1, §597). The cost of each print was one build;
+the cost of skipping one, per §641 and §649, is a build *plus* a wrong section.
+
 ### §661 — the name-vs-value rule: BUILT, +7 CASES, REFUTED BY ITS OWN REGRESSION, REVERTED
 
 §660 left one question: upstream emits an empty-text line for the missing
