@@ -2814,6 +2814,33 @@ the global scope rather than anything in the naming road.
 > call what production calls answers a different question. §661 measured a rule
 > that was already refuted; this one printed a chain the code never asks for.
 > **Copy the real call's arguments into the probe, do not reconstruct them.**
+>
+> **§676 did exactly that — instrumented AT `checker.rs:1902` — and the mask was
+> a red herring too.** With production's own arguments:
+>
+> ```
+> REAL printed="Point" meaning=<TYPE mask> needs_qual=true chain=Some("A.")   x2
+> ```
+>
+> **The qualifier IS computed under the TYPE mask.** So §675's correction, while
+> right about the probe being wrong, was wrong about the consequence: the TYPE
+> path does not decline. `qualified_name_at` builds `"A." + "Point"` and returns
+> `A.Point`.
+>
+> **So the naming road is correct end to end, and the failing lines do not come
+> through it.** `qualified_name_at` has exactly ONE caller (`checker.rs:1461`,
+> inside `type_to_string_at`); the ordinary `type_to_string` road bypasses it
+> entirely. This is §672's finding a second time, in a different function: *the
+> machinery works, and the positions that need it never ask.*
+>
+> **NEXT VALUE TO PRINT:** for each of the two failing verdict lines, whether the
+> producer reached `type_to_string_at` or plain `type_to_string`. That is the
+> discriminator, and it is a question about the CALLER, not about naming.
+>
+> **Three probes into this arm now say the same thing** (§672's call count,
+> §673's landing, §676's chain): when a naming lane looks broken, **count the
+> invocations before reading the implementation.** Two of the three defects found
+> this way were callers, not the roads themselves.
 
 ### §673 — the enum's OWN type never reached the qualifier: +2 CASES, 16 W→R
 
