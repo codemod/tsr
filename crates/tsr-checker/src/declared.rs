@@ -927,6 +927,16 @@ impl<'a> Checker<'a, '_> {
                                 None => return error,
                             }
                         }
+                        // §586 REVERTED: the symmetric arm for the METHOD half
+                        // — a method signature named by a string or numeric
+                        // literal, `{ "a b"(): void }` — was built, and it
+                        // measured **zero transitions**. It is kept out rather
+                        // than kept in on the §219 rule: unmeasured surface
+                        // riding along on a measured change is how a later
+                        // session inherits behaviour nothing ever scored. The
+                        // property half (§584) is +161; this half is a shape
+                        // the corpus appears not to write. Reopen it with a
+                        // fixture that reaches this arm.
                         _ => return error,
                     };
                     // A method groups with the properties: see the doc comment.
@@ -962,6 +972,25 @@ impl<'a> Checker<'a, '_> {
                 continue;
             }
             if let tsr_ast::TypeElement::IndexSignatureDeclaration(index) = member {
+                // §585: a DEGENERATE index signature contributes nothing, and
+                // is not the same event as one this port cannot spell.
+                // `index_signature_member` answers `None` for both, and the
+                // caller turned every `None` into a whole-literal `error` —
+                // so `var y: { []; }` printed `any` where upstream prints
+                // `{}` (`indexWithoutParamType`).
+                //
+                // `[]` is a parse error; the parser reports it and hands back
+                // an `IndexSignatureDeclaration` with NO parameter, which
+                // upstream drops on the floor rather than admitting to the
+                // type. Dropping is only safe BECAUSE the member is
+                // degenerate: a real `[k: string]: T` this port cannot render
+                // must keep declining the literal whole, since dropping that
+                // one silently loses an index signature and prints a smaller
+                // type that looks correct. The narrow test — an empty
+                // parameter list — is what separates them.
+                if index.parameters.is_empty() {
+                    continue;
+                }
                 let Some(rendered) = self.index_signature_member(index) else { return error };
                 indexes.push(rendered);
                 continue;

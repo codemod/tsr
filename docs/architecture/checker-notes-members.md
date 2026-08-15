@@ -786,3 +786,47 @@ measured defect** — churn for no conversion, so it was not done. Both copies
 call the same `printing::quote`/`printing::normalise_number`, so the escape
 table stays single-sourced; what is duplicated is the dispatch. If they ever
 disagree, the extracted copy is the one to delete.
+
+---
+
+## §585 — a DEGENERATE index signature is dropped, not declined (+2 cases, 5,944 → 5,946)
+
+§584's sibling, found by the same join and in the same function.
+`get_type_from_type_literal` called `index_signature_member` and turned **every**
+`None` into a whole-literal `error`:
+
+```ts
+var y: { []; }          // indexWithoutParamType — upstream `{}`,        this port `any`
+var v: { a: B; []; }    // parserObjectType6     — upstream `{ a: B; }`, this port `any`
+```
+
+`index_signature_member` answers `None` for reasons that are **not the same
+event**, and collapsing them is the defect:
+
+| `None` because | upstream does | so the caller must |
+|---|---|---|
+| the signature has NO parameter (`[]`, a parse error) | drop the member | `continue` |
+| a non-identifier parameter name | drop the member | `continue` (not taken — unmeasured) |
+| the key type is `error` or a UNION | keep a real index signature this port cannot spell | decline whole |
+| the value type is `error` | same | decline whole |
+
+Only the first is taken here, on the narrowest test that separates it — an
+**empty parameter list**. The asymmetry is deliberate and is the whole reason
+this is safe: dropping a *degenerate* member loses nothing, because upstream
+never admitted it either; dropping a *real* one silently loses an index
+signature and prints a smaller type that looks correct. A wrong decline costs a
+gap; a wrong drop costs a confident wrong line.
+
+### §586 REVERTED, and recorded rather than deleted
+
+The symmetric arm for §584's **method** half — a `MethodSignatureDeclaration`
+named by a string or numeric literal, `{ "a b"(): void }` — was built against
+the same `written_property_name` and measured **zero transitions**. It is out.
+
+Zero here is not the §543 "no transitions was the success criterion" kind: this
+arm had a conversion to make and made none, and no fixture was found that
+reaches it. Keeping it would be unmeasured surface riding along on a measured
+change (the §219 rule), and a later session would inherit behaviour nothing
+ever scored. **Reopen with a fixture that reaches the arm**, not with the
+observation that it is symmetric — symmetry was the argument for building it,
+and the corpus declined to agree.
