@@ -2858,3 +2858,44 @@ these five share is environment- or fixture-specific rather than mechanical.
 
 Not built, and specifically **not** filed as "merged signatures are broken",
 because they are not.
+
+### 39.3 §581 BUILT the synthesis, and it NEVER FIRED — the blocker is EARLIER
+
+The one-sentence synthesis §39.2 specified was written: detect the root's
+`NodeFlags::JSON_FILE`, take the source file's single `ExpressionStatement`, and
+answer its expression's type. It compiles, and it measures **`no transitions vs
+baseline`** on the family it was aimed at.
+
+Per §20.1 the zero was interrogated rather than believed, and one trace answers
+it:
+
+```
+[json] sym=SymbolId(27613) target=None decls=None
+```
+
+**`resolve_alias` answers `None`.** The alias never reaches a module symbol at
+all, so nothing downstream of it — including a correct type synthesis — can run.
+
+> **§39.2's table was wrong in one row, and this corrects it.** *"`.json`
+> resolves to a file"* was inferred from the OPTION being parsed and the
+> extension being gated (`file_names.rs:50`) — a claim about `include` /
+> file-name expansion, **not** about `resolveExternalModuleName` resolving this
+> specifier to this module's symbol. Those are different roads and only the
+> first was checked.
+>
+> **So the item's first question is not the type at all.** It is *why does
+> `resolve_alias` answer `None` for `import * as test from "./test.json"`* —
+> `getTargetOfNamespaceImport` (`checker.go:14724`) →
+> `resolveExternalModuleName`. The synthesis stays specified and correct; it is
+> simply the second half, and unreachable until the first is fixed.
+
+The arm was reverted unlanded — it measured zero and its precondition is
+unreachable — and the tree re-measures `no transitions vs baseline`.
+
+This is the session's **fifth** instance of an instrument answering after a
+conclusion was written (§541 a precondition never met, §555 an edit that never
+applied, §573 a probe too narrow, §39's grep read after the sentence, and now
+this) — and the first where the conclusion it corrected was one **I had
+published two commits earlier**. §39.2's confident *"ZERO unknowns"* was itself
+the error: a table of *built* rows assembled from inference rather than from a
+run.
