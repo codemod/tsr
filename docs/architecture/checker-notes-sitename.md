@@ -2987,3 +2987,40 @@ further in.
 > Each was assembled from reading code rather than running it. The item is worth
 > less than the lesson: **on this codebase, an inference about what is built is
 > worth about one trace, and the trace costs a minute.**
+
+### 39.7 The two branches, named from the code — and NOT separated by measurement
+
+`resolve_external_module_name`'s tail is two lines and each can produce §39.6's
+`None`:
+
+```rust
+let target = self.module_host?.resolved_module(importing_file, literal.text)?;   // (a)
+self.binder.symbol_of(target)                                                    // (b)
+```
+
+and the existing comment beside them identifies exactly what (b) means:
+
+> *"`sourceFile.Symbol != nil` (`checker.go:15321`). `None` here is a file that
+> is not an external module — upstream's `File_0_is_not_a_module` — and it is
+> the reason the host answers a **file** rather than a symbol: resolving to a
+> plain script is a successful resolution with no module symbol at the end of
+> it."*
+
+A `.json` file **is** exactly *"a successful resolution with no module symbol"*,
+so (b) is the strongly-indicated branch and §39.5's binder hypothesis is
+consistent with the code as written.
+
+> **Stated as an indication, not a result.** The trace in §39.6 was taken on the
+> function's RETURN, which both branches share; it does not distinguish them.
+> Separating them is one more `eprintln`, between the two lines above.
+>
+> This distinction is laboured deliberately: **the last three wrong claims on
+> this item all came from reading exactly this kind of comment and treating it
+> as a measurement.** The comment is upstream-anchored and almost certainly
+> right about what (b) means — and it still says nothing about which branch
+> fires for `./test.json`.
+
+**Where the item stands, for the next session:** one `eprintln` settles the
+branch; if it is (b), upstream's fix is that a JSON source file gets a module
+symbol (upstream binds one whose single export is the file's value), and the
+synthesis §39.2 wrote then becomes reachable as step 3 of 3.
