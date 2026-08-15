@@ -1893,9 +1893,27 @@ impl<'a> Checker<'a, '_> {
     /// Widening that gate is the actual fix and is **not** a one-liner: adding
     /// `VALUE_MODULE | NAMESPACE_MODULE` makes the interception fire and then
     /// `module_name_at` declines, so the line becomes `error` instead, and it
-    /// regresses a passing case that wants `typeof N`. (`NAMESPACE_MODULE`
-    /// alone fires on nothing — a namespace containing a class is
-    /// INSTANTIATED, so the binder stamps `VALUE_MODULE`.) The two changes are
+    /// regresses a passing case that wants `typeof N`.
+    ///
+    /// **§602 corrects the parenthetical that stood here.** It read
+    /// *"`NAMESPACE_MODULE` alone fires on nothing — a namespace containing a
+    /// class is INSTANTIATED, so the binder stamps `VALUE_MODULE`"*. The
+    /// reasoning is sound for a *namespace*, and the conclusion does not
+    /// follow, because namespaces are not the only modules: measured at the
+    /// §601 baseline, **46 lines across 32 cases** reach
+    /// [`Checker::get_type_of_symbol`] with a `NAMESPACE_MODULE`-only symbol
+    /// and answer `any` — ambient declarations and `declare global`
+    /// augmentations, which are non-instantiated by construction
+    /// (`ambientErrors`, `parserModuleDeclaration1`,
+    /// `moduleAugmentationGlobal6_1`, `ambientExternalModuleInsideNonAmbient`,
+    /// …). The count is *after* §601 moved `ConstEnumOnly` into
+    /// `VALUE_MODULE`, so it is a floor rather than an artefact.
+    ///
+    /// What this does NOT establish is that widening the interception gate
+    /// would convert them — the note's own measurement (the line becomes
+    /// `error` because `module_name_at` declines) still stands and is a
+    /// separate test. The correction is to the *reason*, which read as evidence
+    /// that the population was empty when it is 32 cases. The two changes are
     /// one piece of work and `bd tsr-e2u` should carry both halves.
     ///
     /// **How you would know this is wrong:** if `module_name_at` learns to name
