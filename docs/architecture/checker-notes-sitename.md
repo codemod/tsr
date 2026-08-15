@@ -2444,3 +2444,64 @@ mount.
 > arm fired before believing a zero — the corpus IS that check, and it is the
 > one that counts. Had this been reverted on the probe's word, nine correct
 > lines would have gone with it.
+
+---
+
+## 36. §575 REFUSED — the `keyof` gate is load-bearing (177 R→W)
+
+The paired sweep found `keyof` erroring in every form:
+
+```ts
+type K1 = keyof I;          // error
+type K2 = keyof { x: 1 };   // error
+type K3 = keyof C;          // error
+```
+
+and the machinery to answer it **already exists** — `keys_of` and
+`literal_key_union`, with an arm in `get_type_from_type_node` gated on
+`!self.alias_evaluation_bindings.is_empty()`. That reads exactly like §32.1's
+shape (one entrance gated, the road built) and the ungated form does produce the
+right answers on a probe:
+
+```
+keyof I        -> "x" | "y"
+keyof { x: 1 } -> "x"
+keyof C        -> "z"
+```
+
+**Measured, and it is catastrophic:**
+
+```
+RIGHT->WRONG: 177   mappedTypeRelationships 48, keyofAndIndexedAccessErrors 15,
+                    controlFlowGenericTypes 14, spyComparisonChecking 10,
+                    nonPrimitiveConstraintOfIndexAccessType 10, conditionalTypes1 8
+WRONG->GAP:    17
+WRONG->RIGHT:  23
+```
+
+Reverted; the tree re-measures `no transitions vs baseline`.
+
+### 36.1 Why the gate is right, and the reopening condition
+
+`keyof T` over a **generic or otherwise deferred** `T` must stay deferred and
+**print as `keyof T`**. Eagerly evaluating it answers the keys of the
+constraint — or of nothing — and the 177 lines are overwhelmingly generic
+positions (`mappedTypeRelationships`, `controlFlowGenericTypes`,
+`conditionalTypes1`) where upstream prints the operator and this port would
+print an evaluated union. §35's deferred print is what the gate protects, and
+the alias-evaluation window is the one place the evaluation is both wanted and
+safe.
+
+> **Reopen when the arm can distinguish a CONCRETE operand from a deferred
+> one.** The probe's three shapes — an interface, a type literal, a class — are
+> all concrete and all answered correctly, so the split is real and the win is
+> the 23 W→R the ungated form also produced. The predicate needed is *"does
+> `keys_of` see a complete members table that cannot change under
+> instantiation"*, which is not the same question as *"did `keys_of` return
+> `Some`"* — the ungated arm proves that, because `keys_of` answered `Some` for
+> all 177 losers too.
+
+**This is the second refusal of the session where the machinery existed and the
+gate was the whole design** (§545 was the first). Both times the gate looked
+like an oversight and both times it was measured, load-bearing, and cheaper to
+respect than to re-derive.
