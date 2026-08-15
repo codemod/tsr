@@ -118,7 +118,15 @@ fn a_member_this_port_cannot_type_makes_the_whole_literal_a_gap() {
     //
     // The rule has now been applied three times in this one file. What is left
     // must be a member that genuinely cannot be typed: a computed name.
-    assert_eq!(type_of_initialiser("const o = { [1]: 1 };"), "error");
+    // **Came due at §553.** A NUMBER- or STRING-literal computed name is
+    // late-bound, and its printing is no longer unported:
+    // `computed_member_index_key` already routed both to `LateBound` (upstream's
+    // `StringOrNumberLiteralOrUnique` guard, `checker.go:13317`) while
+    // `late_bound_symbol_member_name` answered only the SYMBOL half, so the
+    // literal halves reached a `None` and the caller gapped the whole literal.
+    // The name IS the member's name and takes the written-property spelling
+    // rules. §553 measured 126 favourable against 20 adverse.
+    assert_eq!(type_of_initialiser("const o = { [1]: 1 };"), "{ 1: number; }");
     // A method whose *signature* cannot be built keeps the whole literal a
     // gap, which is the property the removed line was really testing.
     assert_eq!(type_of_initialiser("const o = { m(x: keyof string) {} };"), "error");
@@ -263,7 +271,10 @@ fn a_string_like_computed_name_becomes_an_index_signature_rather_than_vanishing(
     );
     // And a LITERAL-typed name is late-bound: a real member whose printing is
     // unported, so it is still a gap and must not be swept into a signature.
-    assert_eq!(type_of_initialiser_at("var v = { [1]: 1 };", 0), "error");
+    // **Came due at §553** — see the same-shaped assertion earlier in this
+    // file. A literal-typed name is late-bound AND now printable; it is still
+    // not swept into a signature, which is what this line really guards.
+    assert_eq!(type_of_initialiser_at("var v = { [1]: 1 };", 0), "{ 1: number; }");
 }
 
 /// §206. A computed name that CAN key a property contributes an index
@@ -316,8 +327,17 @@ fn the_index_value_unions_every_contributing_member() {
 #[test]
 fn a_mixed_literal_still_gaps() {
     assert_eq!(
+        // **Came due at §551.** Upstream does not decline a mixed literal:
+        // `getObjectLiteralIndexInfo` (`checker.go:19721`) filters
+        // `propertiesArray` by whether each property's name suits the key, and
+        // for a NUMBER key that is the numerically-named members only — so `a`
+        // stays a PROPERTY and contributes nothing to the index value. §206's
+        // stated reason (*"no numeric-name predicate for a written name"*) was
+        // stale: `printing::normalise_number` normalises written numeric names
+        // a few lines from the mint. The STRING-key half and mixed key kinds
+        // still decline, each for its own recorded reason.
         type_of_initialiser_at("declare const k: number;\nvar v = { a: 1, [k]: 2 };", 1),
-        "error"
+        "{ a: number; [x: number]: number; }"
     );
     assert_eq!(
         type_of_initialiser_at(

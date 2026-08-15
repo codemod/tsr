@@ -2609,3 +2609,70 @@ Also unresolved from the same sweep and NOT the same thing: `[1,2].reduce(…)`
 and `[1,2].find(…)` / `.filter(…)` fail through the callback's contextual type,
 which `checker-notes-fnexpr.md` §10 measured at 86% entangled and refused.
 Do not bundle them with `concat`.
+
+---
+
+## 38. §579 — overload selection on an instantiated signature type (+307 lines, 0 adverse) — and SIX red tests found
+
+§37.1 localised the `concat` defect to *"the overload path reads a member's
+signatures without the receiver's instantiation"*. **Following it one step
+further corrected that too**, and the truth is narrower and better:
+
+`instantiate_signature_type` already loops over every signature — instantiation
+was never the problem. The block in `resolve_call_signature` guarded by
+`is_instantiated_signature_type` handles `[signature]` and gaps anything longer,
+and its own comment explains why: *"an overload set stays a gap for the same
+reason the symbol path's does."*
+
+**The symbol path does not gap one.** `interface W { q(a: number): number;
+q(a: string): string }` resolves `w.q(1)` to `number` today. So the two are not
+the same reason, and what was unhandled was exactly **overloaded AND generic** —
+the shape `Array<T>.concat` has.
+
+The fix is to run the same `choose_overload` the symbol path runs, over the
+signatures already read off the type. Every guard inside it applies unchanged.
+
+```
+WRONG->RIGHT: 307   promisePermutations2 130, promisePermutations 112,
+                    promisePermutations3 32
+no adverse transition of any kind
+checker_types 5,921 (+0 cases), gradient 90.52% -> 90.59%
+```
+
+**+307 lines and the largest gradient move of the session**, in the promise
+families — a subsystem §182's notes had priced as blocked on conditional-type
+evaluation. It was partly blocked on this instead.
+
+### 38.1 The gate report was wrong, and it was wrong for a mechanical reason
+
+Running the crate suite properly found **six red tests**, the oldest red since
+§533. Every one pins a refusal a measured landing in this session deliberately
+overturned:
+
+| test | overturned by | now |
+|---|---|---|
+| `a_module_named_by_two_aliases_is_a_gap` (×2 shapes) | §533 | `typeof one` / `typeof a` |
+| `the_refused_legs_stay_gaps` — out-of-range element | §549 | `undefined` |
+| `the_refused_legs_stay_gaps` — parameter pattern | §565 | `any` |
+| `a_mixed_literal_still_gaps` | §551 | `{ a: number; [x: number]: number; }` |
+| `a_member_this_port_cannot_type…` / `a_string_like_computed_name…` | §553 | `{ 1: number; }` |
+
+Each was re-pointed at **upstream's baseline**, not at whatever the port now
+prints — `destructuringArrayBindingPatternAndAssignment1ES5.types` records
+`>c2 : undefined` for the out-of-range element, and `>p : any` appears verbatim
+for the unannotated parameter pattern.
+
+> **Why they went unnoticed: `cargo test -p tsr-checker` was TIMING OUT at 600 s
+> and I read the partial log.** `grep -c '^test result: ok'` on a truncated log
+> counts the suites that finished and sees no failure from the ones that never
+> ran. The counts reported in earlier landings ("19 suites green") weretrue for
+> the suites that ran and meaningless as a gate.
+>
+> **A test gate must assert on the RUN, not on a grep of its log.** The
+> whole-crate suite is 64 suites; any report quoting fewer was partial. This is
+> the same class as §555 (a scripted edit with no assertion) and §573 (a probe
+> too narrow to see the change) — three different ways of believing an
+> instrument that was not actually answering.
+
+The corpus never regressed: every landing carried a full scorepair, and all six
+tests were pinning refusals rather than behaviour the pairs measured.

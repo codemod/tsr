@@ -1095,6 +1095,36 @@ impl Checker<'_, '_> {
                 }
                 return Some(signature.clone());
             }
+            // §579: an OVERLOAD SET on an instantiated signature type is
+            // selected here rather than gapped. The comment above says it
+            // *"stays a gap for the same reason the symbol path's does"* — but
+            // the symbol path does NOT gap a non-generic overload set:
+            // `interface W { q(a: number): number; q(a: string): string }`
+            // resolves `w.q(1)` to `number` today. So the two are not the same
+            // reason, and what was left unhandled is exactly
+            // **overloaded AND generic**:
+            //
+            //     interface X<T> { m(a: T): T; m(a: T, b: T): T }
+            //     x.m(1)   // gapped, and the member printed the UNINSTANTIATED `T`
+            //
+            // `Array.prototype.concat` is that shape (two signatures, `T` from
+            // `Array<T>`), which is why `[1,2].concat([3])` gapped while
+            // `.slice`, `.indexOf`, `.push` and `.map` all answered. §37.1
+            // carries the four-probe table that isolated it.
+            //
+            // The signatures are already correctly instantiated — reading them
+            // OFF THE TYPE is what the branch above does and what
+            // `getSignaturesOfType` (`checker.go:18959`) does — so the only
+            // thing missing was running the SAME `choose_overload` the symbol
+            // path runs. Every guard inside it (arity first, the clean prefix,
+            // the same-return reduction) applies unchanged; a set it cannot
+            // decide still declines.
+            if let Some(arguments) = arguments
+                && let Some(signature) =
+                    self.choose_overload(&signatures, arguments, has_type_arguments)
+            {
+                return Some(signature);
+            }
             if counted {
                 bump(&COUNTERS.callee_no_signatures);
             }

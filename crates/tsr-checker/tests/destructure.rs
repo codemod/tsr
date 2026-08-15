@@ -194,13 +194,35 @@ fn the_refused_legs_stay_gaps() {
     // is the wider suite.
     let literal = r#"var [q] = [1, "x"];"#;
     assert_eq!(type_of_binding(literal, "q"), "number");
+    // **Came due at §549** (the fifteenth stand-in in this project to do so).
+    // An OUT-OF-RANGE element used to gap because `tuple_from_array_literal`
+    // refuses a pattern longer than the literal and that refusal was returned
+    // as `error`, poisoning the whole parent. §549 made the refusal fall
+    // through to the plain initializer type, and the element now reads
+    // `undefined` — which is UPSTREAM'S ANSWER, not a side effect:
+    // `conformance/destructuringArrayBindingPatternAndAssignment1ES5.types`
+    // records `>c2 : undefined`, `>c3 : undefined`, `>c4 : undefined` for
+    // exactly this shape. The assertion is updated to the baseline rather than
+    // to whatever the port now prints.
     let out_of_range = r#"var [q1, q2, q3] = [1, "x"];"#;
-    assert_eq!(type_of_binding(out_of_range, "q3"), "error");
-    // A parameter pattern with no annotation: upstream consults contextual
-    // typing first (`checker.go:16735`), and `None` from the ported slice
-    // cannot distinguish absent from unported.
+    assert_eq!(type_of_binding(out_of_range, "q3"), "undefined");
+    // **Came due at §565.** A parameter pattern with no annotation used to gap
+    // because the pattern-implied object type is minted with NO SYMBOL, so
+    // `get_type_of_property_of_type` had no members table and every element
+    // read `error` — the type's own printed form (`{ p: any; }`) showed a
+    // member nothing could consult. §565's `pattern_implied_members` side
+    // table makes it readable, and the element reads `any`, which is what
+    // upstream records for an unannotated, uncontextual destructured
+    // parameter (`getTypeFromObjectBindingPattern`, `checker.go:17938`, has no
+    // initializer to infer from, so every implied member IS `any`).
+    //
+    // The old comment's reasoning — *"upstream consults contextual typing
+    // first and `None` cannot distinguish absent from unported"* — was about
+    // the GATE (§429/§561), not about this shape: `function h(…)` is a
+    // DECLARATION and takes no contextual return, so there was never a
+    // contextual type here to be confused by.
     let contextual = "function h({ p }) { }";
-    assert_eq!(type_of_binding(contextual, "p"), "error");
+    assert_eq!(type_of_binding(contextual, "p"), "any");
     // A `for-of` head: needs `checkRightHandSideOfForOf`.
     let for_of = "declare var pairs: [number, string][];
 for (var [f] of pairs) { }";

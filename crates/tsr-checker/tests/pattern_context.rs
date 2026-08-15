@@ -71,10 +71,20 @@ fn the_elements_widen() {
 /// mispredicting.
 #[test]
 fn the_refused_shapes_stay_gaps() {
-    // A pattern longer than the literal reads out of range, where upstream's
-    // element is optional and prints `T | undefined`.
+    // **Came due at §549**, and the old comment's expectation was wrong about
+    // upstream too. A pattern longer than the literal reads out of range; the
+    // comment predicted `T | undefined`, and
+    // `conformance/destructuringArrayBindingPatternAndAssignment1ES5.types`
+    // records plain `>c2 : undefined`, `>c3 : undefined`, `>c4 : undefined`.
+    //
+    // It gapped because `tuple_from_array_literal` returns `error` when it
+    // declines, which poisoned the parent and took every element with it.
+    // §549 made the decline fall through to the plain initializer road — the
+    // refusal is about the TUPLE CONTEXT, not about the initializer having no
+    // type — and the out-of-range element now reads `undefined`, upstream's
+    // answer.
     let long = r#"var [a, b, c] = [1, "x"];"#;
-    assert_eq!(type_of_binding(long, "c"), "error");
+    assert_eq!(type_of_binding(long, "c"), "undefined");
     let exact = r#"var [d, e] = [1, "x"];"#;
     assert_eq!(type_of_binding(exact, "d"), "number");
 

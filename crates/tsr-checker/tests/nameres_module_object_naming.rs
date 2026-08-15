@@ -152,8 +152,14 @@ fn a_module_named_by_two_aliases_is_a_gap() {
             ("b", "import * as one from \"./m\";\nimport * as two from \"./m\";\n"),
         ],
     );
-    assert_eq!(rendered_at(&fixture, "one", SyntaxKind::NamespaceImport), "error");
-    assert_eq!(rendered_at(&fixture, "two", SyntaxKind::NamespaceImport), "error");
+    // **Came due at §533**, the FILE-module twin of the ambient case below —
+    // see that test's comment for the full history. §14's ambiguity refusal is
+    // retired: `compareSymbolChains` (`symbolaccessibility.go:582-586`) sorts
+    // and returns the first, which reduces to EARLIEST DECLARATION POSITION,
+    // so both bindings render the earlier alias. The per-binding-own-name
+    // residue is slice 3's (§14.4) and is recorded there.
+    assert_eq!(rendered_at(&fixture, "one", SyntaxKind::NamespaceImport), "typeof one");
+    assert_eq!(rendered_at(&fixture, "two", SyntaxKind::NamespaceImport), "typeof one");
 }
 
 #[test]
@@ -301,8 +307,24 @@ fn an_ambient_module_named_by_two_aliases_is_still_a_gap() {
             ("core", "import a = require(\"m\");\nimport b = require(\"m\");\n"),
         ],
     );
-    assert_eq!(rendered_at(&fixture, "a", SyntaxKind::ImportEqualsDeclaration), "error");
-    assert_eq!(rendered_at(&fixture, "b", SyntaxKind::ImportEqualsDeclaration), "error");
+    // **Came due at §533.** These pinned `checker-notes-nameres.md` §14's
+    // AMBIGUITY REFUSAL — two aliases reaching one module declined outright,
+    // on the reasoning that upstream picked *some* alias and guessing wrong
+    // prints a name upstream did not. §533 retired that refusal: upstream
+    // sorts the candidate chains and returns the first
+    // (`symbolaccessibility.go:582-586`), which reduces here to
+    // `compareSymbols`' first key, EARLIEST DECLARATION POSITION. The witness
+    // is `compiler/importDecl`, which writes `import m4` at line 33 and
+    // `import multiImport_m4` at line 79 and whose baseline records `m4.d`.
+    // The pair measured 127 favourable against 2 adverse.
+    //
+    // So both bindings now render the EARLIER alias's name. The residue is
+    // real and recorded rather than hidden: upstream prints each binding under
+    // its OWN name where the binding itself is the printed symbol
+    // (`exportsAndImports4-es6`, §14.4), which is slice 3's rule and not this
+    // tie-break's — §533's own 2 adverse rows are exactly that shape.
+    assert_eq!(rendered_at(&fixture, "a", SyntaxKind::ImportEqualsDeclaration), "typeof a");
+    assert_eq!(rendered_at(&fixture, "b", SyntaxKind::ImportEqualsDeclaration), "typeof a");
 }
 
 /// Render the type of the variable named `variable`, through the rendering
