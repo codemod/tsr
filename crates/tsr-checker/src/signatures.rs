@@ -1151,6 +1151,7 @@ impl<'a> Checker<'a, '_> {
             // multiple subtype-reduce, a gap declines whole. The old arm
             // declined every valued return.
             let mut return_types: Vec<TypeId> = Vec::new();
+            let mut next_types: Vec<TypeId> = Vec::new();
             for expression in self.return_expressions_of(block, declaration) {
                 let Some(expression) = expression else { continue };
                 let t = self.check_expression(expression);
@@ -1383,7 +1384,28 @@ impl<'a> Checker<'a, '_> {
                         )
                     })
                 };
-                if contextual {
+                let mut recorded_next = false;
+                if contextual
+                    && let Some(parent) = self.nodes.parent(id)
+                    && let Some(Node::BinaryExpression(b)) = self.node_map.get(parent)
+                    && b.operator_token.is_some_and(|t| t.kind == SyntaxKind::EqualsToken)
+                    && b.right.and_then(|r| r.node_id()) == Some(id)
+                    && let Some(left) = b.left
+                {
+                    let t = self.check_expression(left);
+                    if t != self.intrinsics.error {
+                        if !next_types.contains(&t) {
+                            next_types.push(t);
+                        }
+                        // NO `continue`: upstream appends to BOTH aggregates —
+                        // `yieldTypes` from the operand and `nextTypes` from the
+                        // contextual type (`checker.go:20334`-`:20347`). Skipping
+                        // the operand left `yieldTypes` empty and the slot
+                        // `never`, which is what the first draft measured.
+                        recorded_next = true;
+                    }
+                }
+                if contextual && !recorded_next {
                     return None;
                 }
                 // §135: a BARE `yield;` contributes `undefined` (strict) —
@@ -1487,9 +1509,13 @@ impl<'a> Checker<'a, '_> {
                     self.union_with_subtype_reduction(&candidates)?
                 }
             };
-            let unknown = self.intrinsics.unknown;
+            let next_slot = match next_types.as_slice() {
+                [] => self.intrinsics.unknown,
+                [single] => *single,
+                many => self.get_intersection_type(many, None),
+            };
             return Some(
-                self.create_type_reference(generator, vec![yield_type, return_slot, unknown]),
+                self.create_type_reference(generator, vec![yield_type, return_slot, next_slot]),
             );
         }
         // An async **declaration** with no valued return answers

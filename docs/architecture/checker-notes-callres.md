@@ -2075,3 +2075,47 @@ neither checked first that the yield loop runs at all for the target fixtures.
 **The next attempt should print `check_expression(result)` at that gate** — one
 value, and it decides between the two candidates above. §633 already spent the
 entry trace this note asked for; do not spend it again.
+
+---
+
+## §634 — the NEXT slot from an ASSIGNMENT, landed (+2 cases, 6,001), and why §632 measured zero
+
+§632 built this arm and measured **0 converted, 2 G→W**. §633's trace killed its
+"never reaches" explanation — decline #5 *is* the contextual gate. §634 printed
+one more value and found the real defect in three words:
+
+```
+BUILT yield=never return=void next=any     <- §632
+BUILT yield=any   return=void next=any     <- §634
+```
+
+**§632's arm `continue`d.** Recording the contextual type and skipping the rest
+of the loop body meant the yield OPERAND was never added to `operand_types`, so
+the yield slot aggregated empty and became `never`. Upstream appends to **both**
+aggregates from one yield (`checker.go:20334`–`:20347`): `yieldTypes` from the
+operand, `nextTypes` from `getContextualType`. They are not alternatives.
+
+Falling through instead of continuing:
+
+```
+GAP->RIGHT   2   typeOfYieldWithUnionInContextualReturnType
+WRONG->RIGHT 2   yieldExpressionInFlowLoop, yieldExpressionInControlFlow
+(no adverse transition of any kind)      checker_types 5,999 -> 6,001
+```
+
+**The two GAP→WRONG §632 measured are now GAP→RIGHT** — same fixture, same arm,
+one `continue` removed. A single wrong control-flow keyword turned a +4 into a
+0-for-2, and three sections were spent explaining a number that had nothing to
+do with the design.
+
+### What the chain cost and what it bought
+
+§606 (annotated declarations, 0/2) → §632 (assignments, 0/2) → §633 (the trace:
+it declines AT the gate) → §634 (the `continue`). **Two refusals, one trace, one
+landing**, and the two refusals were both *right about where to work* and wrong
+about why it failed.
+
+**The rule this earns:** when an arm records into an aggregate and the enclosing
+loop feeds several, `continue` is a claim that the other aggregates want nothing
+from this iteration. Upstream's yield loop feeds two. Neither §606 nor §632
+checked which.
