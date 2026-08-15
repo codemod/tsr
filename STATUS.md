@@ -2645,6 +2645,58 @@ handful of the 69, which enclosing scope the printer names from and what chain
 upstream picks — and measure with the **case-set diff**, not the transition list,
 which is what caught §656's and §661's regressions when the net looked positive.
 
+### §668 — why `getAccessibleSymbolChain` is a RENDERING change, not an arm
+
+Took the tightest family in §664's naming bucket: `aliasUsage*`, 8 cases. Two
+sub-shapes, and neither converts alone —
+
+```
+want={ x: typeof moduleA; }      got={ x: typeof /aliasUsageInObjectLiteral_moduleA; }
+want=typeof Backbone.Model       got=any
+```
+
+— so every one of these needs *both* module naming and `import X = require(…)`
+resolution. That already prices the family above "an arm".
+
+**But the naming half is the more important finding.** Traced where
+`typeof /path` is produced: **`symbols.rs:2273`**, where a `VALUE_MODULE`
+symbol's type is minted as `format!("typeof {name}")` with the symbol's own name
+— which for a file module *is* the path. **The text is baked at type-CREATION
+time.**
+
+Upstream does the opposite: it renders a type's name **per reference site**,
+which is what `getAccessibleSymbolChain` is for — the shortest chain by which the
+symbol is reachable *from the enclosing scope*. That is why the same module
+prints `moduleA` in one file and `import("./x")` in another.
+
+This port does have a per-reference layer — `qualified_name_at(id, printed,
+reference)` and `module_name_at`/`module_alias_at` (`checker.rs:1463`, `:2566`)
+re-name a type at its reference. **The module case never reaches it here because
+the failing text is NESTED**: `{ x: typeof /path; }` is one baked string built
+bottom-up, and the outer object type's text already contains the inner module's
+name by the time any reference-sensitive namer runs.
+
+**So the 69-case naming lane is not 69 small fixes.** It is one structural
+question: *can a nested type name be re-rendered at the reference, or is the
+bottom-up string the limit?* Options, neither cheap:
+
+1. Render lazily — carry structure instead of text and format at the reference.
+   Correct, and touches every printing site.
+2. Re-render nested module names when the outer text is produced at a reference,
+   i.e. thread `reference` down through the object-type text builder.
+
+**Consequence for planning:** §664 sized this lane at ~69 cases and ranked it
+first. That sizing stands, but **the cost estimate implied by "an arm" does
+not** — this is the port's text-baking convention meeting upstream's
+render-at-reference convention, which is an ADR-scale decision, not a patch. It
+should get a decision record before any code.
+
+**How I would know I was wrong:** if some meaningful subset of the 69 fails at a
+NON-nested position — a bare `typeof moduleA` rather than one inside an object or
+signature text — then that subset is reachable through the existing
+`module_name_at` road and is genuinely arm-sized. **That subset has not been
+counted, and counting it is the cheap next step.**
+
 ### §665/§666/§667 — enum narrowing by `!==` a literal: +5 CASES, 78 W→R
 
 **LANDED. +5 cases (6,024 → 6,029), 78 WRONG→RIGHT, zero adverse, zero regressed
