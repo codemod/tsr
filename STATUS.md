@@ -3196,6 +3196,34 @@ stale doc implied.
 answered `false`; nobody updated it when the gate changed. **A "not ported" note
 is only true as of its writing, and this session found five that had expired.**
 
+### §707 — the deficit-1 `any ← error` group is not a lane (16 cases, checked)
+
+The largest remaining deficit-1 shape is `want=any got=error`, **16 cases**.
+Checked whether it is one mechanism. **It is not** — it is at least four:
+
+- **Cross-module** — `esModuleInterop`, `typeAliasExport`,
+  `recursiveExportAssignmentAndFindAliasedType7`,
+  `propertyAssignmentOnImportedSymbol` (`typeof import("a")` and export-assignment
+  aliasing)
+- **`this`-property** — `constructorPropertyJs`, `thisPropertyOverridesAccessors`,
+  `privateIdentifierExpando`, `classPropertyIsPublicByDefault` (expando
+  properties, JS)
+- **Type queries** — `typeofThisWithImplicitThis`: `let x: typeof this.no = 1`
+  wants `this.no : any`; a `this`-qualified entity name inside `typeof` is a road
+  this port's type-query resolution does not walk
+- **One-offs** — `restTypeRetainsMappyness`, `computedPropertyNames20_ES6`,
+  `autoAccessor10`, `destructuringObjectBindingPatternAndAssignment5`
+
+**So the `any ← error` shape is a SYMPTOM — "we produced no type" — and not a
+mechanism**, which is the same trap §664 fell into with `want=A.Point`. Sixteen
+cases sharing an output string share nothing else.
+
+**Recorded so the count is not mistaken for a lane.** The deficit-1 board's
+headline shapes (`any←error` 16, `number←any` 12, `string←any` 8) are all
+symptom-shaped for the same reason; the cuts that produced landings this session
+keyed on something narrower — a shared *fixture family* (§651, §688), a shared
+*missing-line content* (§698, §701), or a *named upstream rule* (§694, §695).
+
 ### §705 — `typeof C` in an extends clause: 13 cases, blocked on EWTA typing
 
 Re-cut deficit-1 after 42 landings (**502 cases**) and found a shape worth 13 of
