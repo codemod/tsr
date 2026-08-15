@@ -1151,6 +1151,25 @@ printing what `get_type_of_alias` answers for `React` in
 `contextuallyTypedJsxChildren`**, not by re-reading `bd tsr-e2u`'s history: the
 history describes a blocker that the code no longer obviously has.
 
+> **§631 ran that trace, and it corrects this section.** Instrumenting every
+> `any` exit of `get_type_of_alias` and filtering to a symbol named `React`
+> produces **no output at all** on `contextuallyTypedJsxChildren`: the function
+> is never reached for it. So *"the alias target types as `any`"* is not what is
+> happening, and the 43-case grouping above is **an artefact of the reason
+> string, not a mechanism**.
+>
+> The row is a `DISAGREEMENT` row — `any_audit`'s own label for *the
+> classifier's reason does not explain this line* — and §4.-2d's health warning
+> says exactly that in bold. **§630 grouped 43 cases by a reason it had been
+> warned not to read**, and then reasoned about `bd tsr-e2u` from the grouping.
+> The count of cases is real; the shared cause is not established.
+>
+> This is the fourth time this window a reason string was mistaken for a
+> diagnosis (§584 found 25 `function*` declarations filed under "shorthand
+> ambient module"; §598 published a cause from one and retracted it at §599).
+> **The rule that keeps surviving: a row is a population worth printing, and
+> printing means the ROWS, not the label.**
+
 ### 4.-2d THE PRICED CAUSE BOARD, 2026-08-14 (§604) — **369 cases are blocked by a SINGLE cause**
 
 Built by joining both per-line dumps (§6: `TSR_ANY_DUMP=1` and
