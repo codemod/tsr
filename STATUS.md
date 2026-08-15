@@ -2833,9 +2833,36 @@ the global scope rather than anything in the naming road.
 > entirely. This is §672's finding a second time, in a different function: *the
 > machinery works, and the positions that need it never ask.*
 >
-> **NEXT VALUE TO PRINT:** for each of the two failing verdict lines, whether the
-> producer reached `type_to_string_at` or plain `type_to_string`. That is the
-> discriminator, and it is a question about the CALLER, not about naming.
+> **§677 answered that: the producer DOES reach it.** `types_producer.rs:1349`'s
+> `render` is `checker.type_to_string_at(id, reference)`, unconditionally, for
+> every line. So the caller-routing hypothesis is dead too.
+>
+> And instrumenting `checker.rs:1902` with the reference's file attached:
+>
+> ```
+> REAL2 printed="Point" file=Some(NodeId(167)) chain=Some("A.")   x2
+> ```
+>
+> **Exactly two calls, both in one file, both computing `A.`** — and the two
+> failing verdict rows are `…SameCommonRoot:2:6` and `:2:8`, i.e. **file index 2,
+> `part3.ts`**, the same two. So `qualified_name_at` returns **`A.Point`** for
+> precisely the lines that print `Point`.
+>
+> **The qualifier is therefore discarded AFTER `qualified_name_at` returns and
+> BEFORE the producer writes the line.** Everything upstream of that point is
+> now measured correct: `needs_qualification`, `alias_in_scope_for`, the module
+> arm, the TYPE mask, `symbol_chain`, `resolve_name`, §509, and the producer's
+> entry point.
+>
+> **NEXT VALUE TO PRINT:** `type_to_string_at`'s RETURN value for those two
+> references, compared against `qualified_name_at`'s. The block containing
+> `checker.rs:1461` returns into an enclosing expression; whatever consumes it is
+> the last unexamined step and the only one left.
+>
+> **Six probes, one landing (§673), and five hypotheses killed by measurement.**
+> Recorded in full because the value here is the elimination: the next session
+> should start at the consumer of `qualified_name_at`'s result and not re-walk
+> any of the above.
 >
 > **Three probes into this arm now say the same thing** (§672's call count,
 > §673's landing, §676's chain): when a naming lane looks broken, **count the
