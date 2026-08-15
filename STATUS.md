@@ -3163,6 +3163,39 @@ the global scope rather than anything in the naming road.
 > invocations before reading the implementation.** Two of the three defects found
 > this way were callers, not the roads themselves.
 
+### §703 — evolving ARRAY types: the doc was stale, the gap is one step further in
+
+Systematised instrument 3: enumerated every **`REOPENS ON`** condition this
+session recorded (9 of them) and re-measured the population behind each. Most
+still hold. One did not.
+
+`flow.rs:236` said the array half of the evolving-type mechanism is *"selected by
+an empty-array initialiser, which this port answers `false` for, so the two do
+not interleave."* **That is stale.** `is_auto_array_declaration`
+(`flow.rs:1750`) answers `true` for exactly `var x = []` with no annotation, so
+the array half IS selected and `state.is_auto_array` is set.
+
+**The real gap is one step further in.** The `ARRAY_MUTATION` arm
+(`flow.rs:604`) only guards recursion depth and then walks to the antecedent — it
+never **accumulates** the pushed element types. An evolving array therefore never
+evolves, and the declared `any[]` survives to the reference.
+
+**`controlFlowArrays` wants `() => (string | number)[]` and gets `() => any[]` on
+80 lines** for that single reason — the largest per-case line count left on the
+board.
+
+**What it needs:** `addEvolvingArrayElementType` at each `x.push(e)` / `x[i] = e`,
+and `finalizeEvolvingArrayType` collapsing to `E[]` at the reference. That is a
+mechanism, not an arm — but **the two hard parts are already built** (the
+declaration gate and the flow-node arm reaching `ARRAY_MUTATION` with
+`is_auto_array` set), which is a materially better starting position than the
+stale doc implied.
+
+**This is the fifth time a recorded blocker turned out not to be the blocker**
+(§693, §694, §695, §698, and here). The doc was written when the gate genuinely
+answered `false`; nobody updated it when the gate changed. **A "not ported" note
+is only true as of its writing, and this session found five that had expired.**
+
 ### §701 — `parseRightSideOfDot`'s ASI recovery: +3 CASES
 
 **LANDED. +3 cases (6,057 → 6,060), 2 WRONG→RIGHT + 16 newly-comparable lines,
