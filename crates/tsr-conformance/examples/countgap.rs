@@ -138,6 +138,52 @@ fn main() {
         println!("  ({} listed)", misses.len());
     }
 
+    // §658: dump every mismatched file so the list can be joined against the
+    // verdict table. The ranked view above answers "how big"; converting cases
+    // needs "which ones", and the top-12 view cannot supply it.
+    if std::env::var("TSR_COUNT_ALL").is_ok() {
+        println!("\n-- every mismatched file --");
+        let mut all = rows.clone();
+        all.sort();
+        for (name, got, want) in &all {
+            println!("ALL\t{name}\t{got}\t{want}");
+        }
+    }
+
+    // §658: side-by-side dump for one named case, so the EXTRA or MISSING line
+    // can be read rather than inferred. `TSR_COUNT_DUMP=<case substring>`.
+    if let Ok(want_case) = std::env::var("TSR_COUNT_DUMP") {
+        for case in &cases {
+            if !case.name.contains(&want_case) {
+                continue;
+            }
+            let Some(text) = case.expected_types() else { continue };
+            let expected = types_baseline::parse(&text);
+            let Ok(parsed) = case.load() else { continue };
+            let arena = tsr_core::Arena::new();
+            let (_p, ours, _i) =
+                types_producer::assertions_for_case_with_ids(&arena, &parsed, &expected);
+            for (index, expected_file) in expected.iter().enumerate() {
+                println!("DUMP {} #{index}", case.name);
+                let empty = Vec::new();
+                let our_file = ours.get(index).unwrap_or(&empty);
+                let n = expected_file.assertions.len().max(our_file.len());
+                for position in 0..n {
+                    let want = expected_file.assertions.get(position).map(|a| a.text.clone());
+                    let got = our_file
+                        .get(position)
+                        .map(tsr_conformance::types_producer::Assertion::line);
+                    let flag = if want == got { " " } else { "*" };
+                    println!(
+                        "  {flag}{position:>3} want={:<46} got={}",
+                        want.unwrap_or_else(|| "<none>".into()),
+                        got.unwrap_or_else(|| "<none>".into())
+                    );
+                }
+            }
+        }
+    }
+
     println!("\nlargest shortfalls:");
     let mut worst = rows.clone();
     // Largest shortfall first: `want - got`, saturating so the too-many side

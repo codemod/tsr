@@ -2640,9 +2640,53 @@ start.
 
 **Correction to my own earlier framing:** I described this lane as "~154 cases
 failing invisibly" and as the honest next lever. The first half stands; the
-second was too optimistic — a third of the short-by-one population sits behind
-refusals already measured negative, so the lane is materially smaller than its
-309-file headline.
+second was too optimistic about the *short-by-one* slice — a third of it sits
+behind refusals already measured negative.
+
+> **§658 measured the lane properly and my pessimism above was WRONG.** The
+> short-by-one slice is not the lane. Joining the verdict table against
+> `countgap`:
+>
+> ```
+> cases with EVERY aligned row RIGHT: 6,159
+> coverage says passing:              6,024
+> => fail on COUNT ALONE:               135
+> ```
+>
+> **135 cases have no wrong line at all** — every aligned assertion matches, and
+> they fail only because the port emits the wrong NUMBER of assertions. 111 of
+> them have a `countgap` row; their deltas are **+1 (32), −1 (26), +2 (14),
+> −2 (10), +3 (6), +4 (6)**. These convert one-for-one with the count, with no
+> type work at all.
+>
+> **That is larger than this session's entire shortfall (88)**, and it is the
+> single most valuable thing found this session. My §657 read — "materially
+> smaller than its 309-file headline" — measured the wrong slice and understated
+> it.
+>
+> **First family, traced.** `classExtendsNull`, `classExtendsNull2`,
+> `classExtendsNull3` each emit one line too many, and it is the same line:
+>
+> ```
+>   *  1 want=super() : void        got=null : any
+> ```
+>
+> We emit a `.types` line for the `null` in `class C extends null`; upstream
+> emits none. **Where upstream decides is located but NOT resolved:**
+> `visitNode` selects on `ast.IsExpressionNode` (`type_symbol_baseline.go:308`),
+> and `IsExpressionNode` returns `true` unconditionally for `KindNullKeyword`
+> (`ast/utilities.go:1950`) — so selection is not the gate. The gate must be
+> `writeTypeOrSymbol`'s `ast.IsPartOfTypeNode(node)` early return
+> (`:358`). **How that answers for the expression of a class-extends
+> `ExpressionWithTypeArguments` is the open question, and it is the next thing to
+> read** — do not implement "skip `null` under extends" from these three
+> fixtures, which is fixture-shaped rather than a rule.
+>
+> **Instruments added** (both env-gated, no default behaviour change):
+> `TSR_COUNT_ALL=1` dumps every mismatched file for joining against the verdict
+> table — the ranked top-12 view cannot answer *which* cases; and
+> `TSR_COUNT_DUMP=<case>` prints our lines beside the baseline's, position by
+> position, which is what turned "+1" into the exact extra line above.
 
 ### §656 — a non-generic alias printing its own name: BUILT THREE WAYS, REFUSED
 
