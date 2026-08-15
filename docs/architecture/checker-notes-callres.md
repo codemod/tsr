@@ -2268,3 +2268,37 @@ parse of a bare `yield *` INSIDE one the first thing to check.
 `YieldStarExpression3_es6` before writing another arm. §632 and §606 both cost a
 build-and-measure cycle for exactly this — assuming which branch a fixture takes
 instead of printing it — and §633/§634 are what it took to recover.
+
+### §642 — `yield*` over an `any` operand (+2 cases, 6,005 → 6,007), and §641's lesson applied
+
+`getIterationTypesOfIterable` on `any` answers `any` throughout
+(`checker.go:20343`), so `yield* x` with an `any` operand contributes `any` to
+BOTH slots. The delegating branch tested for an `Array<…>` reference and
+declined everything else, and `any` is not a reference.
+
+That is also the parse-recovery shape: `function* g() { yield *; }` gives the
+delegating yield an `Identifier` operand with **empty text**, typing as `any`.
+
+```
+WRONG->RIGHT: 2   YieldStarExpression3_es6, YieldExpression5_es6
+(no adverse transition of any kind)      checker_types 6,005 -> 6,007
+```
+
+### §641 guessed; §642 printed
+
+§641 assumed the operand was ABSENT and patched `operand?`. Zero transitions.
+Its note then demanded the trace before any further arm:
+
+```
+YIELD delegates=true operand=Some((Identifier, "", "any"))
+```
+
+Two values — `delegates` and what the operand actually IS — and the answer was
+immediate: present, a placeholder, already typed `any`. **The decline was never
+the `?`; it was the type-reference test three lines below.**
+
+This is the third time in this arm that printing the branch beat reasoning about
+it (§633 for the gate, §634 for the `continue`, §642 here), and the second time a
+refusal's own recorded next-step produced the landing within one run. **A
+refusal that names the value to print is worth more than one that names a
+hypothesis.**

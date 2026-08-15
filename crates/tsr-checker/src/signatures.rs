@@ -1186,6 +1186,31 @@ impl<'a> Checker<'a, '_> {
                     if operand_type == self.intrinsics.error {
                         return None;
                     }
+                    // §642: `yield* x` where `x` is `any` contributes `any` to
+                    // BOTH slots — `getIterationTypesOfIterable` on `any`
+                    // answers `any` throughout (`checker.go:20343`). This is
+                    // also the parse-recovery shape: `function* g() { yield *; }`
+                    // gives the delegating yield an Identifier operand with
+                    // EMPTY text typing as `any`
+                    // (`YieldStarExpression3_es6`, `YieldExpression5_es6`, both
+                    // wanting `() => Generator<any, void, any>`), and the
+                    // type-reference test below cannot match `any`, so the whole
+                    // signature declined.
+                    //
+                    // §641 assumed the operand was absent and patched
+                    // `operand?`; it measured zero because the operand is
+                    // PRESENT and is the placeholder. Printing it — which §641's
+                    // own note demanded — took one run.
+                    if operand_type == self.intrinsics.any {
+                        let any = self.intrinsics.any;
+                        if !operand_types.contains(&any) {
+                            operand_types.push(any);
+                        }
+                        if !next_types.contains(&any) {
+                            next_types.push(any);
+                        }
+                        continue;
+                    }
                     if let Some((target, arguments)) =
                         self.type_reference_targets.get(&operand_type).cloned()
                         && arguments.len() == 1
