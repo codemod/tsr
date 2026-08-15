@@ -2510,7 +2510,22 @@ impl<'a> Checker<'a, '_> {
             // reachable whatever its body does — `for…of`/`for…in` over a
             // possibly-empty source (`capturedLetConstInLoop10`).
             | SyntaxKind::ForOfStatement
-            | SyntaxKind::ForInStatement => Some(true),
+            | SyntaxKind::ForInStatement
+            // §651. A `break` or `continue` reached *here* is one this walk
+            // found at the function body's own level — a valid one lives
+            // inside a loop, and every loop arm answers without recursing into
+            // its statement, so this arm never sees it.
+            //
+            // What is left is the invalid form: `() => { continue TWO; }`,
+            // where `TWO` labels a statement outside the arrow. Upstream types
+            // that arrow `() => void` (`continueNotInIterationStatement4`),
+            // which is only consistent with the body's endpoint staying
+            // REACHABLE — the label does not resolve inside this function, so
+            // no jump edge exists and the statement falls through. Answering
+            // `None` here instead made the whole inference decline, and the
+            // arrow printed `any`.
+            | SyntaxKind::BreakStatement
+            | SyntaxKind::ContinueStatement => Some(true),
             // `Some(true)` when nothing in it can fail to return; `None` when a
             // call is in the way, because a `never`-returning call ends the block.
             // **A call only ends the block if it returns `never`, and that is
