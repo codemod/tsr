@@ -1223,6 +1223,40 @@ level up: the CYCLE, not the error.
 > §632→§633, §643→§644). In all three the POPULATION was right and the
 > MECHANISM was invented; the trace cost one run each time.
 
+> **§645 SETTLES §643 by finding it already REFUSED — as §216/§217.** Reading
+> `crates/tsr-binder/src/lib.rs:609` (the arm this population needs) turns up a
+> refusal recorded in **August 2026**, and §643/§644 re-derived its population
+> from scratch.
+>
+> Upstream resolves a named function expression's own name at
+> `binder/nameresolver.go:233-244`; `bindFunctionExpression` puts the symbol in
+> NO table, so no `locals` lookup finds it and the walk compares against the
+> written name. The port's `resolve_name_excluding` deliberately omits that arm.
+> **Built, measured at +1 case / −10 lines, reverted.** §644's trace is
+> consistent: the symbol road completes cleanly *because* the arm is absent —
+> the inner `y` resolves to nothing and types as `any`, so no cycle forms.
+>
+> §216 first blamed the return-type cycle answering `errorType`, and **§217
+> built a dedicated resolution key for it and it changed nothing** — the
+> re-entry is caught one level out at `(symbol, Type)`, because
+> `get_type_of_func_class_enum_module`'s worker builds each signature's return
+> **eagerly**. Upstream answers an anonymous type immediately and computes
+> returns on demand, so the symbol has finished resolving before any body is
+> checked.
+>
+> **REOPENS ON: lazy signature return types.** Make `get_signatures_of_symbol`
+> produce signatures whose return is computed on demand, then re-apply the four
+> lines. That is an architectural change, not an arm — do not price it as one.
+>
+> **The process defect this exposes, which is worth more than the case:** this
+> refusal existed only as a comment in the file that would implement it. The
+> deficit-1 join, `gapdump`, and `any_audit` all read verdict rows and none of
+> them read source comments, so the population presented itself as new to every
+> instrument built this window. **A refusal recorded only where the fix would go
+> is invisible to every instrument that ranks work.** §5 below now carries it;
+> that is the correct home, and the same audit should be run for other refusals
+> parked in comments.
+
 ### 4.-2d THE PRICED CAUSE BOARD, 2026-08-14 (§604) — **369 cases are blocked by a SINGLE cause**
 
 Built by joining both per-line dumps (§6: `TSR_ANY_DUMP=1` and
@@ -2563,6 +2597,27 @@ version of bare `any`.
 ## 5. Refused, with the number that refused it
 
 ### §598 CORRECTED BY §599, 2026-08-14 — **the diagnosis below was WRONG; the gate is `noImplicitAny`, and the arm has since LANDED (+7 cases)**
+
+
+### §216/§217 — a named function expression's own name (REFUSED, re-confirmed §645)
+
+`function y() { return y; }` prints `y : any` where the baseline wants
+`() => any`. Five deficit-1 cases (`recursiveNamedLambdaCall`,
+`MemberFunctionDeclaration5_es6`, `parserEqualsGreaterThanAfterFunction1`, both
+`templateStringWithEmbeddedFunctionExpression` variants).
+
+The four-line resolver arm (`binder/nameresolver.go:233-244`) was **built and
+measured at +1 case / −10 lines, and reverted**. §216's diagnosis was wrong and
+§217 built its falsifier for nothing: the cycle is caught at `(symbol, Type)`,
+not at the return key, because this port computes signature returns eagerly
+where upstream computes them on demand.
+
+**REOPENS ON: lazy signature return types** — an architectural change, not an
+arm. Full reasoning at `crates/tsr-binder/src/lib.rs:609` and §4.-2i above.
+
+**Recorded here in §645 because it had lived only as a source comment**, where
+no instrument that ranks work could see it — which is why §643 re-derived the
+population as though it were new.
 
 > §598 concluded that this population was blocked by the `strictNullChecks`
 > default. **It is not.** Upstream's gate (`checker.go:16697`) is
