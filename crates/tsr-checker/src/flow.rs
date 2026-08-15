@@ -3187,9 +3187,46 @@ impl Checker<'_, '_> {
     /// primitive pairs answer definitely; anything structural is `None`,
     /// which declines the narrowing whole. `checker.go`'s comparable
     /// relation is not ported; this is its unit-type fragment.
+    /// `true`/`false` when `member` is an enum member type and `literal` is a
+    /// unit literal, `None` when the pair is not that shape. §666.
+    fn enum_member_matches_literal(&mut self, member: TypeId, literal: TypeId) -> Option<bool> {
+        if !self.store.get(member).flags.intersects(TypeFlags::ENUM) {
+            return None;
+        }
+        let owner = *self.enum_member_owners.get(&member)?;
+        let flags = self.store.get(literal).flags;
+        let text = crate::printing::type_to_string(self.store.get(literal));
+        let key = if flags.intersects(TypeFlags::NUMBER_LITERAL) {
+            format!("n:{text}")
+        } else if flags.intersects(TypeFlags::STRING_LITERAL) {
+            format!("s:{}", text.trim_matches('"'))
+        } else {
+            return None;
+        };
+        let matched = self.enum_value_types.get(&(owner, key)).copied();
+        Some(matched.is_some_and(|found| {
+            found == member || self.enum_member_regular.get(&member).copied() == Some(found)
+        }))
+    }
+
     fn comparable_ternary(&mut self, discriminant: TypeId, constituent: TypeId) -> Option<bool> {
         if discriminant == constituent {
             return Some(true);
+        }
+        // §666: an ENUM member is comparable to the literal holding its VALUE.
+        // `function f1(v: E1) { if (v !== 1) { v; } }` narrows to `E1.b`
+        // upstream (`equalityWithEnumTypes`); this answered `Some(false)` for
+        // `(E1.a, 1)` and so filtered nothing, leaving `E1` unnarrowed.
+        //
+        // The value is already recorded: `get_declared_type_of_enum` interns
+        // `enum_value_types[(enum symbol, canonical value)] -> member type`
+        // (`declared.rs`, §55's folder), and `enum_member_owners` gives the
+        // symbol back. So this is a lookup, not a re-fold.
+        if let Some(answer) = self.enum_member_matches_literal(discriminant, constituent) {
+            return Some(answer);
+        }
+        if let Some(answer) = self.enum_member_matches_literal(constituent, discriminant) {
+            return Some(answer);
         }
         let simple = TypeFlags::UNIT
             | TypeFlags::STRING
@@ -4830,7 +4867,15 @@ impl Checker<'_, '_> {
             // The §52 wins are all ANONYMOUS unions (`Thing | undefined`).
             let constituents: Vec<TypeId> = match &self.store.get(t).data {
                 TypeData::Union { types, symbol, .. } => {
-                    if symbol.is_some() {
+                    // A named union keeps its name rather than being filtered —
+                    // EXCEPT an enum, whose declared type is a union carrying
+                    // the enum's own symbol and which upstream does narrow.
+                    // Paired with §666's comparability arm: neither half moves a
+                    // line alone, because this guard stops the walk before the
+                    // filter and the filter answers `false` without that arm.
+                    if symbol.is_some()
+                        && !self.store.get(t).flags.intersects(TypeFlags::ENUM_LITERAL)
+                    {
                         return t;
                     }
                     types.clone()

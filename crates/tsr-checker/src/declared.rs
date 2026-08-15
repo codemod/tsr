@@ -2857,6 +2857,61 @@ impl<'a> Checker<'a, '_> {
                     .rev()
                     .find(|(n, _)| n == identifier.text)
                     .and_then(|(_, v)| v.clone()),
+                // §667: upstream's enum constant evaluator folds the arithmetic
+                // and bitwise operators, not just literals and unary minus
+                // (`evaluate`, checker.go). `enum E2 { a = 1 << 0, b = 1 << 1 }`
+                // (`equalityWithEnumTypes`) has no value without this, so its
+                // members never enter `enum_value_types` and §666's
+                // comparability lookup cannot match them.
+                tsr_ast::Expression::BinaryExpression(binary) => {
+                    let left = binary.left.as_ref().and_then(|l| eval(l, enum_name, folded))?;
+                    let right = binary.right.as_ref().and_then(|r| eval(r, enum_name, folded))?;
+                    let token = binary.operator_token?;
+                    // String `+` concatenates; every other operator is numeric.
+                    if let (MemberValue::Str(a), MemberValue::Str(b)) = (&left, &right) {
+                        return (token.kind == SyntaxKind::PlusToken)
+                            .then(|| MemberValue::Str(format!("{a}{b}")));
+                    }
+                    let (MemberValue::Num(a), MemberValue::Num(b)) = (&left, &right) else {
+                        return None;
+                    };
+                    #[expect(
+                        clippy::cast_possible_truncation,
+                        reason = "upstream's bitwise ops are defined on int32, per the language"
+                    )]
+                    let (ia, ib) = (*a as i32, *b as i32);
+                    // The shift count is masked to 0..=31 first, so the `u32`
+                    // conversion cannot lose a sign; `>>>` is defined on the
+                    // unsigned reinterpretation and wraps back, which is the
+                    // language's own semantics rather than an accident.
+                    #[expect(
+                        clippy::cast_sign_loss,
+                        clippy::cast_possible_wrap,
+                        reason = "ECMAScript shift semantics: masked count, int32 <-> uint32 reinterpretation"
+                    )]
+                    let value = match token.kind {
+                        SyntaxKind::PlusToken => a + b,
+                        SyntaxKind::MinusToken => a - b,
+                        SyntaxKind::AsteriskToken => a * b,
+                        SyntaxKind::SlashToken => a / b,
+                        SyntaxKind::PercentToken => a % b,
+                        SyntaxKind::AsteriskAsteriskToken => a.powf(*b),
+                        SyntaxKind::AmpersandToken => f64::from(ia & ib),
+                        SyntaxKind::BarToken => f64::from(ia | ib),
+                        SyntaxKind::CaretToken => f64::from(ia ^ ib),
+                        SyntaxKind::LessThanLessThanToken => {
+                            f64::from(ia.wrapping_shl((ib & 31) as u32))
+                        }
+                        SyntaxKind::GreaterThanGreaterThanToken => {
+                            f64::from(ia.wrapping_shr((ib & 31) as u32))
+                        }
+                        SyntaxKind::GreaterThanGreaterThanGreaterThanToken => {
+                            f64::from(((ia as u32) >> ((ib & 31) as u32)) as i32)
+                        }
+                        _ => return None,
+                    };
+                    Some(MemberValue::Num(value))
+                }
                 tsr_ast::Expression::PropertyAccessExpression(access) => {
                     let receiver = match access.expression {
                         Some(tsr_ast::Expression::Identifier(r)) => r.text,
