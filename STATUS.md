@@ -2618,6 +2618,30 @@ See `checker-notes-callres2.md` §588/§589.
 > step §600 skipped. **A refusal is only worth its number if the next session
 > can find it**, so entries here are indexed by their POPULATION, not only by
 > their mechanism: this one is `declare global`'s DECLARATION NAME.
+>
+> **§627 read the guard chain §311's condition asks for, and it sharpens the
+> condition rather than satisfying it.** The chain is
+> `type_symbol_baseline.go:379`–`:388`: when the type is `any`, the fast path
+> that prints the intrinsic name is SKIPPED for eight shapes, and
+> `!ast.IsGlobalScopeAugmentation(node.Parent)` is one of them — so upstream
+> routes `declare global`'s name to the NODE BUILDER, which renders
+> `typeof global`. `types_producer.rs:1208` already names this as one of the
+> seven unported guards.
+>
+> **But porting that guard alone cannot pay.** The port's global-augmentation
+> symbol carries `NAMESPACE_MODULE` and `get_type_of_symbol` has no arm for it
+> (§600), so routing past the fast path renders `error`, not `typeof global`.
+> And §311's 42 broken lines are an ALIGNMENT failure — *"files where upstream
+> emits NO line for the name shift every later assertion out of alignment"* —
+> which is decided by the walker's node SELECTION, a different part of
+> `type_symbol_baseline.go` from this type guard.
+>
+> **So the condition is three things, not one**: the symbol needs a type
+> (§600), the fast-path guard needs porting (here), and the emission walk needs
+> to agree about which global names get a line at all (the 42). §311's
+> "transcribe the guard chain" named only the second. Anyone taking it should
+> start with the emission walk, because that is what the 42 measures and it is
+> the one that can silently shift every later line in a file.
 
 
 - **The name line's spelling is a writer-side decision this port cannot yet
