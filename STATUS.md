@@ -2779,12 +2779,41 @@ If `binder.resolve_name` answers with it anyway, the guard correctly suppresses 
 qualifier on a wrong premise, and the defect is namespace members leaking into
 the global scope rather than anything in the naming road.
 
-**NEXT VALUE TO PRINT:** at a `part3.ts` reference, what
-`binder.resolve_name(reference, "Point", TYPE|VALUE)` returns and whether
-`same_spelling` is true. **Do not change the §509 guard on this evidence** — if
-the resolver is the leak, editing the naming road would paper over a binder bug
-and §509 exists because removing it cost measured regressions
-(`interMixingModulesInterfaces2-5`).
+> **§675 ran that probe and it exonerates both suspects — and invalidates my own
+> earlier trace.**
+>
+> `resolve_name` is **not** leaking: only ONE `§509` line prints for `Point`, and
+> it resolves to itself at the reference *inside* `namespace A`, which is
+> correct. The two `part3.ts` references never reach the guard at all —
+> `resolve_name` answers `None` there, exactly as it should. **The §509 guard is
+> innocent and so is the binder.**
+>
+> **My §674 trace was measuring a call that does not happen.** It printed
+> `symbol_chain(symbol, reference, TYPE | VALUE, 0)`. The real call site
+> (`checker.rs:1902`) passes **one** meaning:
+>
+> ```rust
+> let meaning =
+>     if printed.starts_with("typeof ") { SymbolFlags::VALUE } else { SymbolFlags::TYPE };
+> let Some(qualifier) = self.symbol_chain(symbol, reference, meaning, 0) else {
+>     return Some(printed);
+> };
+> ```
+>
+> That is **§527/ADR-0044** — upstream's `mask` is one meaning, not the union,
+> because `TYPE | VALUE` let a Value-only shadow qualify a Type reference. So the
+> genuine answer here is `symbol_chain(Point, part3-ref, TYPE)` → **`None`**, and
+> `chain=Some("A.")` in §674 came from passing the wrong mask.
+>
+> **Corrected next step:** print `needs_qualification(Point, "Point", part3-ref,
+> TYPE)` and, if true, which arm of `symbol_chain` declines under the TYPE mask.
+> The defect is inside the TYPE-meaning path, not in §509 and not in the
+> resolver.
+>
+> **Method note, and it is the second time this session:** a probe that does not
+> call what production calls answers a different question. §661 measured a rule
+> that was already refuted; this one printed a chain the code never asks for.
+> **Copy the real call's arguments into the probe, do not reconstruct them.**
 
 ### §673 — the enum's OWN type never reached the qualifier: +2 CASES, 16 W→R
 
