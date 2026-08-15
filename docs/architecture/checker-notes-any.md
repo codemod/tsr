@@ -496,3 +496,31 @@ that settles it (`initializersWidened`) names its own option in line 2.
 
 **"I found the population" and "I found the cause" are different claims.** §598
 published the second holding only the first.
+
+### §599.1 — the sibling arm must NOT take the same gate (1,544 R→W)
+
+§599 gated its own arm on `noImplicitAny` and left the empty-array arm beside it
+ungated, calling that *"a separate measurement, not because the option is
+unavailable"*. The measurement was taken immediately and is emphatic:
+
+```
+gating `is_empty_array_literal` on `no_implicit_any`:
+RIGHT->WRONG: 1544  ⚠  deeplyDependentLargeArrayMutation2 1222, typedArrays 231,
+                       parserRegularExpressionDivideAmbiguity6 35, …
+```
+
+Reverted on sight. **Upstream holds both arms under one `noImplicitAny`, and
+this port cannot** — which is a statement about this port, not about upstream.
+Two readings, and this measurement does not separate them:
+
+- `no_implicit_any` is `false` here for cases where upstream's is true, so the
+  gate switches off an arm that should fire — the option derivation is wrong;
+- the ungated `Array<any>` answer is doing work upstream gets from the evolving
+  ARRAY machinery (`checker-notes-evolvearray.md`) rather than from
+  `autoArrayType`, and removing it exposes that gap.
+
+The second is likelier given where the damage lands — `deeplyDependentLargeArrayMutation2`
+is 1,222 lines of exactly that mutation pattern. **Recorded rather than
+resolved**: the asymmetry is now a known, measured property of this file, and
+anyone who "tidies" the two arms into one condition will lose 1,544 lines. That
+sentence is the whole reason this subsection exists.
