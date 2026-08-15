@@ -2505,3 +2505,36 @@ safe.
 gate was the whole design** (§545 was the first). Both times the gate looked
 like an oversight and both times it was measured, load-bearing, and cheaper to
 respect than to re-derive.
+
+### 36.2 §577 — the first attempt at that predicate, and it measured the SAME 177
+
+The obvious reading of §36.1 was written and measured: *concrete* = the operand
+is not itself a type parameter, and no type argument of it is.
+
+```
+RIGHT->WRONG: 177   — byte-identical to the ungated form
+```
+
+**The predicate excluded nothing.** The losers are lines like
+
+```
+k  : keyof T
+f3 : <T, U extends T>(x: T, y: U, k: keyof T) => void
+```
+
+— unmistakably generic — so a `TypeFlags::TYPE_PARAMETER` test on
+`get_type_from_type_node(T)` is not identifying them. Reverted; the tree
+re-measures `no transitions vs baseline`.
+
+**What that tells the next attempt**, and it is worth more than the attempt
+itself: those lines are **RIGHT today**, printing `keyof T`. The gated arm
+answers `error` for them, and the correct text is coming from **baked text**,
+not from this arm at all. So ungating does not "evaluate a deferred type" — it
+*replaces a correct printed form with an evaluated one*.
+
+> **The reopening condition is therefore NOT a type-shape predicate.** It is:
+> *the arm must not fire where the baked text is already the answer.* That is
+> the same distinction §15 drew for slice 3 — baked text being richer than the
+> computed name — arriving here from the other direction, and it means any
+> future attempt should start by asking what the printed form is today rather
+> than what the type is.
