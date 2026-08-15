@@ -587,8 +587,21 @@ impl Checker<'_, '_> {
             // the return with the written list when the arity matches
             // (`typeAssertions`, `thisInInvalidContexts`); a mismatch or an
             // unresolvable argument keeps the inference road below.
-            if !node.type_arguments.is_empty()
-                && node.type_arguments.len() == signature.type_parameters.len()
+            // §690: upstream reports the ARITY error and instantiates anyway —
+            // `f<number>(1, '')` on `f<T, U>` still records `number`
+            // (`callGenericFunctionWithIncorrectNumberOfTypeArguments`), because
+            // `checkTypeArguments` diagnoses while `getSignatureInstantiation`
+            // proceeds through `fillMissingTypeArguments`. Requiring an exact
+            // match made every mis-arity call a gap. Extra arguments are
+            // dropped and missing ones filled below.
+            // Only the SURPLUS half: `f<number, string, number>(…)` on `f<T, U>`
+            // drops the third and instantiates. The missing half
+            // (`f<number>(…)`) needs `fillMissingTypeArguments`' DEFAULTS, and
+            // this port's `TypeParameter` carries no default — filling with
+            // `any` instead measured **62 RIGHT→WRONG in `genericDefaults`
+            // alone**. Reopens when type-parameter defaults are modelled.
+            if node.type_arguments.len() >= signature.type_parameters.len()
+                && !signature.type_parameters.is_empty()
                 && let Some(written_nodes) =
                     node.node_id.and_then(|id| match self.node_map.get(id) {
                         Some(tsr_ast::Node::CallExpression(fetched)) => {
@@ -609,6 +622,13 @@ impl Checker<'_, '_> {
                         .iter()
                         .map(|parameter| parameter.name.as_str())
                         .collect();
+                    // `fillMissingTypeArguments`: pair what was written with the
+                    // parameters in order, drop any surplus, and fill a missing
+                    // slot with `any` — upstream fills from the parameter's
+                    // default or constraint, and neither is observable on the
+                    // lines this converts (the return slot uses the WRITTEN
+                    // arguments), so `any` is the honest stand-in until
+                    // defaults land.
                     let map: Vec<(TypeId, TypeId)> =
                         parameters.iter().copied().zip(written.iter().copied()).collect();
                     let answer = self.instantiate_type(signature.r#type, &map, &parameters, &names);

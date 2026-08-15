@@ -99,11 +99,32 @@ fn a_written_type_argument_is_used_instead_of_inference() {
 
 #[test]
 fn type_arguments_that_do_not_check_are_a_gap() {
-    // Wrong arity: `checkTypeArguments` (`checker.go:9269`) fails the call, so
-    // answering the one written argument would be a wrong answer.
+    // SURPLUS arity FLIPPED at §690, on the same derivation §375 corrected for
+    // the assertion below — and for the same reason. The old line asserted
+    // `error` because *"`checkTypeArguments` fails the call, so answering the
+    // one written argument would be a wrong answer"*. Upstream reports the
+    // arity error and **still instantiates**: `getSignatureInstantiation`
+    // proceeds past the diagnostic, dropping the surplus. The corpus witness is
+    // `callGenericFunctionWithIncorrectNumberOfTypeArguments`, whose
+    // `f<number, string, number>(1, '')` on `f<T, U>` records `number` — three
+    // arguments, two parameters, resolved. Measured at 9 WRONG→RIGHT, zero
+    // adverse.
+    //
+    // §690 deliberately covers the SURPLUS half only. The MISSING half is left
+    // to ordinary inference, which already answers it — `f<number>(1, 2)` on
+    // `f<T, U>` infers `T = number` from the argument and records `number`,
+    // upstream's answer too. Routing it through the written-argument path
+    // instead would need `fillMissingTypeArguments`' defaults, which this
+    // port's `TypeParameter` does not carry; filling with `any` measured **62
+    // RIGHT→WRONG in `genericDefaults`**. Pinned so that the next attempt sees
+    // the missing half is not broken and needs no arm.
     assert_eq!(
         type_of_last("function f<T>(x: T): T { return x; }\nconst a = f<string, number>(\"s\");"),
-        "error"
+        "string"
+    );
+    assert_eq!(
+        type_of_last("function f<T, U>(x: T, y: U): T { return x; }\nconst a = f<number>(1, 2);"),
+        "number"
     );
     // Type arguments on a signature that takes none — `checkNoTypeArguments`.
     // FLIPPED at §375: the old line asserted `error` on the derivation that
