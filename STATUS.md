@@ -3196,6 +3196,46 @@ stale doc implied.
 answered `false`; nobody updated it when the gate changed. **A "not ported" note
 is only true as of its writing, and this session found five that had expired.**
 
+### §704 — evolving arrays as a walk-and-collect: BUILT, −357 LINES, REVERTED
+
+§703 said the two hard parts were already built and what remained was
+`addEvolvingArrayElementType` + `finalizeEvolvingArrayType`. Built that as a
+**walk-and-collect**: accumulate each `x.push(e)` / `x[i] = e` element type while
+the backward flow walk passes its `ARRAY_MUTATION` node, then collapse to `E[]`
+if the walk ended at the declared type.
+
+**Measured, and it is badly wrong:**
+
+| | baseline | §704 |
+|---|---|---|
+| right | 435,269 | 434,912 (**−357**) |
+| RIGHT→WRONG | — | **396** |
+| WRONG→RIGHT | — | 39 |
+| cases | 6,060 | 6,059 |
+
+`typedArrays` alone lost **198** lines, `deeplyDependentLargeArrayMutation` 72,
+`assignmentToExpandingArrayType` 46 — and `controlFlowArrays`, the target,
+gained 24 while losing 45.
+
+**Why the shape is wrong, and it is not a tuning problem.** Upstream's evolving
+array is a **type that exists per flow node**: `getTypeAtFlowArrayMutation` asks
+for the antecedent's type, and only extends it if *that* type is already an
+evolving array. Finalisation then happens at the reference against whatever the
+flow actually produced. A backward walk that collects every mutation it passes
+and unions them applies the result at references where upstream would not have
+evolved at all — which is exactly what the 396 regressions are.
+
+**REOPENS ON: an evolving-array TYPE in the store**, carrying its element set, so
+`ARRAY_MUTATION` extends the antecedent's type rather than a walk-level
+accumulator. **Do not retry the accumulator shape** — it has now been measured at
+−357.
+
+**§703's "the two hard parts are already built" was too optimistic**, and this is
+the measurement that corrects it. The declaration gate and the flow-node arm are
+built; the *type representation* is not, and it is the part the mechanism turns
+on. That makes this the sixth recorded estimate this session that measurement
+moved — the first one in the EXPENSIVE direction.
+
 ### §701 — `parseRightSideOfDot`'s ASI recovery: +3 CASES
 
 **LANDED. +3 cases (6,057 → 6,060), 2 WRONG→RIGHT + 16 newly-comparable lines,
