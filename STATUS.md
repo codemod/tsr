@@ -2930,9 +2930,45 @@ the global scope rather than anything in the naming road.
 > `rendering_composites` (`:1448`), and the generic-argument re-render branch
 > (`:1446`).
 >
-> **NEXT VALUE TO PRINT:** which of those three `type_to_string_at` returns fires
-> for reference 105. That is one print inside one function, and it ends this
-> thread.
+> **§681 ran it, and the answer is none of the three — the framing was wrong one
+> last time.** Printing `type_to_string_at`'s state at entry for the two failing
+> and two succeeding references:
+>
+> ```
+> TTS ref=105 variant=Named baked="Point"    has_ref_target=false in_composites=false
+> TTS ref=106 variant=Named baked="Point"    has_ref_target=false in_composites=false
+> TTS ref=122 variant=Named baked="A.Point"  has_ref_target=false in_composites=false
+> TTS ref=128 variant=Named baked="A.Point"  has_ref_target=false in_composites=false
+> ```
+>
+> **The text is already different at entry.** No early return, no guard, no
+> composite branch — all four take the same path. The two references simply
+> receive **different TypeIds for the same interface**: one whose baked text is
+> `Point` and one whose baked text is `A.Point`.
+>
+> **So qualification for these lines happens at type CREATION, not at the
+> reference** — which means every probe from §670 onward was searching a
+> reference-time road that was never responsible. `qualified_name_at`,
+> `symbol_chain`, `needs_qualification`, §509, the module arm and the TYPE mask
+> are all irrelevant to this population.
+>
+> **The real question, and it is a different lane:** why does this port mint two
+> types for one interface, and why is the one reached at 105/106 the bare-baked
+> one? The fixture name is the clue —
+> `TwoInternalModulesWithTheSameNameAndSameCommonRoot` — two `namespace A`
+> declarations that **merge**. A merge that produces two type objects instead of
+> one is a binder/declared-type question.
+>
+> **NEXT STEP: compare the two TypeIds' owning symbols and declarations.** Not
+> another naming probe.
+>
+> **Final tally, §670–§681: twelve probes, ONE landing (§673, +2 cases), FIVE
+> framings retired.** The thread is a case study in the cost of reasoning from a
+> symptom's *appearance*: `want=A.Point got=Point` reads as a naming defect, and
+> §664 filed it under `getAccessibleSymbolChain` on that basis. It was a
+> type-identity defect the whole time. **The one probe that would have shown this
+> immediately — print the BAKED text at the entry point — was available from the
+> first minute and cost one build.**
 >
 > **Closing tally, §670–§680: eleven probes, ONE landing (§673, +2 cases), FOUR
 > framings retired by measurement.** Every framing was constructed from the
