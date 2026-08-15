@@ -3045,10 +3045,40 @@ the global scope rather than anything in the naming road.
 > the symbols merge; what does not is **`resolve_name` seeing the merged
 > namespace's members from another file's contribution**.
 >
-> **NEXT STEP:** from a `part2.ts` site inside `namespace A`, print what
-> `binder.resolve_name(site, "Point", TYPE)` returns. Expect `None`; the fix is
-> in the resolver's namespace-locals walk, which must consult the MERGED symbol's
-> exports rather than the current declaration's own table.
+> **§685 read the walk and the root cause is confirmed.**
+> `resolve_name_excluding` (`binder/lib.rs:599`) walks ancestors and looks up
+> **`self.locals.get(&node)` — the node's OWN locals table**:
+>
+> ```rust
+> while let Some(node) = current {
+>     if let Some(found) = self.lookup_scoped(self.locals.get(&node), name, meaning) { … }
+> ```
+>
+> A namespace merged across files has **one symbol but N declaration nodes, each
+> with its own locals table**. From a site inside part2's `namespace A`, the walk
+> reaches part2's `A` node, finds only what part2 declared (`Utils`), and never
+> consults part1's table where `Point` lives. Upstream shares one merged table
+> across the declarations, so the bare `Point` resolves there.
+>
+> **ROOT CAUSE (complete): the scope walk is per-DECLARATION where the symbol is
+> per-NAMESPACE.** `binder_symbols` is 8,498/8,498 because the *symbols* merge
+> correctly; the *locals tables* behind them do not.
+>
+> **THE FIX, and why it was not attempted here:** at a container node whose
+> symbol has multiple declarations, the lookup must span the merged symbol's
+> declarations (or the binder must merge their locals at bind time). That is a
+> change to the resolution path every name in the corpus takes — the widest blast
+> radius of anything found this session, and this session has three broad changes
+> measured negative (§649/§650 −5, §656 R→W 398, §659 −76). **It needs its own
+> session, a measured baseline, and the case-set diff — not an end-of-session
+> patch.**
+>
+> **What it is worth:** unknown, and deliberately not guessed. `resolve_name`
+> feeds naming, type resolution and the unresolved-mint fallback, so the
+> population is at least the qualified-name lane plus an unknown share of the 71
+> `any`/`error` cases §664 counted. **Size it by instrumenting how often the walk
+> reaches a container whose symbol has >1 declaration and finds nothing** — that
+> count is the population, and it is one probe.
 >
 > **Consequence for §664's sizing, which must not be inherited uncorrected:** the
 > 145 "qualified name" cases were split 74 naming / 71 unresolved on the strength
