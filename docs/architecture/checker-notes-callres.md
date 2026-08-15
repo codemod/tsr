@@ -2046,15 +2046,32 @@ Built with the same `next_types` aggregate upstream uses. Measured **0
 converted, 2 GAP→WRONG** (`typeOfYieldWithUnionInContextualReturnType`).
 Reverted.
 
-**The arm never reaches those four cases**, so something declines before the
-yield loop is entered — `declaration_takes_no_contextual_return`, the
-`while (1)` body's return aggregation, or the operand's own type. The two G→W
-prove the arm fires SOMEWHERE, which makes this a reachability question with a
-definite answer, not a design one.
+**§633 ran the trace and this paragraph was wrong.** What stood here read *"the
+arm never reaches those four cases, so something declines before the yield loop
+is entered"*. Instrumenting entry and all eleven declines of
+`return_type_from_body` for `yieldExpressionInFlowLoop`:
+
+```
+RTFB entry: kind=FunctionDeclaration asterisk=true may_return_never=false
+RTFB none #5
+```
+
+Entry happens, the contextual-return gate does NOT fire, and decline **#5 is the
+`if contextual { return None }` gate itself** — the exact line §632 replaced. So
+the reachability hypothesis is dead: the arm reaches the right place and fails
+inside its own body. Two candidates remain, and both are one assertion wide:
+`binary.right == Some(child)` not holding, or `check_expression(target)`
+answering `error` for `let result;` — the unannotated, uninitialised `let` whose
+type §599's neighbourhood mints as implicit `any`.
+
+**§632's premise was right and its note was wrong.** Recorded because "it never
+gets there" is the most expensive kind of wrong diagnosis: it sends the next
+attempt to instrument the callers instead of the four lines that actually
+declined.
 
 **Second refusal on the NEXT slot's type-answering half** (§606 was the first,
 also 0-for-2). Both attempts assumed the contextual position was the blocker;
 neither checked first that the yield loop runs at all for the target fixtures.
-**The next attempt should trace ENTRY to `return_type_from_body` for
-`yieldExpressionInFlowLoop` before writing any arm** — that is one `eprintln`
-and it discriminates every remaining hypothesis.
+**The next attempt should print `check_expression(result)` at that gate** — one
+value, and it decides between the two candidates above. §633 already spent the
+entry trace this note asked for; do not spend it again.
