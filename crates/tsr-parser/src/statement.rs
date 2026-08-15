@@ -1008,9 +1008,26 @@ impl<'a> Parser<'a> {
     fn parse_statement_or_missing(&mut self) -> Statement<'a> {
         let start = self.pos();
         self.parse_statement().unwrap_or_else(|| {
+            // §698: upstream's `parseStatement` has no "no statement" answer —
+            // a token that cannot start one falls through to
+            // `parseExpressionOrLabeledStatement`, whose `parseExpression`
+            // mints a MISSING IDENTIFIER. So `if (a` (with no body) yields an
+            // `ExpressionStatement` over that identifier, and the `.types`
+            // baseline records an empty-text `> : any` line for it
+            // (`parserErrorRecoveryIfStatement1`–`4`,
+            // `parserErrorRecovery_ObjectLiteral2`/`4`/`5`, and 8 more files
+            // short by exactly that line).
+            //
+            // An `EmptyStatement` carries no expression, so it emitted nothing
+            // and every one of those files came up one assertion short.
             self.error_at_current(&messages::STATEMENT_EXPECTED);
-            let node = self.finish_node(EmptyStatement::new(), SyntaxKind::EmptyStatement, start);
-            Statement::EmptyStatement(node)
+            let identifier = self.missing_identifier();
+            let node = self.finish_node(
+                ExpressionStatement::new(Some(Expression::Identifier(identifier))),
+                SyntaxKind::ExpressionStatement,
+                start,
+            );
+            Statement::ExpressionStatement(node)
         })
     }
 
