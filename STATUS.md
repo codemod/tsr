@@ -3197,9 +3197,30 @@ and one more.
 A transition-list reading would have called this a no-op.
 
 **Grouping by name was the mistake, and it is the same mistake as §664's** — both
-classified a population by an attribute that was not the mechanism. 120 files
-remain short-by-one, now grouped by content: `e => f` (4), `{} : {}` (4),
-`void {}` (3), `notAHelper` (3).
+classified a population by an attribute that was not the mechanism.
+
+**§699 worked the rest of the short-by-one board by content.** After §698 the
+remaining groups are small and each is its own recovery shape — the dominant
+cause really was the `EmptyStatement` one:
+
+| missing line | files | what it is |
+|---|---|---|
+| `{} : {}` | 4 | **REFUSED — §40/§581**, the JSON two-step (`requireOfJsonFile*`, `isolatedModules_resolveJsonModule*`) |
+| `e => f : (e: any) => any` | 2 | `a ? (b) : c => (d) : e => f` in a **.js** file — an ambiguous conditional/arrow recovery, one shape per fixture |
+| `void {} : undefined` | 2 | `class void {}` — upstream abandons the class and parses `void {}` as an EXPRESSION; this port keeps a class with a keyword name |
+| `notAHelper : any` | 2 | `tslib*MissingHelper` — a missing import helper |
+
+**So the lane is now correctly sized rather than dismissed:** one large shared
+cause (§698, landed, +5) and a tail of 2–4-file recovery shapes, each needing its
+own parser work with §247's position-shift hazard. **That is a materially
+different statement from §657's "58 singletons"** — the singleton count was an
+artefact of grouping by fixture name, and one third of the board was a single
+mechanism.
+
+**Not attempted, and priced:** each remaining group is a distinct parse-recovery
+divergence. `class void {}` is the clearest — upstream abandons the class
+declaration entirely — but changing class-name recovery affects every malformed
+class in the corpus, which is exactly the shape §649/§650 measured negative twice.
 
 Gates: clippy 0 errors, 657 checker + 182 parser tests to completion, case-set
 diff clean, baseline accepted.
