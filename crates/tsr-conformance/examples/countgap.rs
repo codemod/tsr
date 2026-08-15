@@ -184,6 +184,39 @@ fn main() {
         }
     }
 
+    // §660: answer §659's question — the KIND distribution of zero-width nodes.
+    if std::env::var("TSR_ZERO_WIDTH").is_ok() {
+        let mut kinds: std::collections::BTreeMap<String, usize> =
+            std::collections::BTreeMap::new();
+        let mut total = 0usize;
+        let mut zero = 0usize;
+        for case in cases.iter().take(400) {
+            let Some(text) = case.expected_types() else { continue };
+            let expected = types_baseline::parse(&text);
+            let Ok(parsed) = case.load() else { continue };
+            let arena = tsr_core::Arena::new();
+            let (program, _ours, _ids) =
+                types_producer::assertions_for_case_with_ids(&arena, &parsed, &expected);
+            let nodes = program.nodes();
+            for index in 0..nodes.len() {
+                let id = tsr_ast::NodeId::new(u32::try_from(index).unwrap_or(u32::MAX));
+                let span = nodes.span(id);
+                total += 1;
+                if span.start == span.end {
+                    zero += 1;
+                    *kinds.entry(format!("{:?}", nodes.kind(id))).or_default() += 1;
+                }
+            }
+        }
+        println!("\n-- zero-width nodes over the first 400 cases --");
+        println!("   nodes: {total}   zero-width: {zero}");
+        let mut ranked: Vec<_> = kinds.into_iter().collect();
+        ranked.sort_by_key(|entry| std::cmp::Reverse(entry.1));
+        for (kind, n) in ranked.iter().take(14) {
+            println!("   {n:>7}  {kind}");
+        }
+    }
+
     println!("\nlargest shortfalls:");
     let mut worst = rows.clone();
     // Largest shortfall first: `want - got`, saturating so the too-many side

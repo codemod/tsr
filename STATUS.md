@@ -2640,10 +2640,41 @@ of nodes is never assigned a span (they would default to `0,0`), or spans are
 recorded with a convention this reading does not match.
 
 **That question is worth more than the 8 cases.** If a node class is genuinely
-missing spans, it affects anything keyed on position. **NEXT VALUE TO PRINT:** the
-KIND distribution of nodes with `start == end` over one corpus file. If it is
-concentrated in one or two kinds, it is a span-assignment defect; if it is spread
-across everything, the accessor convention is what I misread.
+missing spans, it affects anything keyed on position.
+
+> **§660 printed it.** Over the first 400 cases (48.9M nodes, 317,657
+> zero-width):
+>
+> ```
+>   306231  JSDocParameterTag
+>     7435  EndOfFile
+>     2331  Identifier
+>     1650  JSDocPropertyTag
+>        4  ForOfStatement
+> ```
+>
+> **Concentrated, not a convention misread — so it is a span-assignment defect.**
+> **96% of zero-width nodes are `JSDocParameterTag`**, plus `JSDocPropertyTag`:
+> JSDoc tags are not given spans in this port. That is a *separate* finding from
+> §659 and worth its own work — anything keyed on a JSDoc node's position is
+> reading `0,0`. Filed as the first thing to check in the JSDoc lane.
+>
+> **And it explains §659's −76 without rescuing it.** The nodes `selects`
+> actually reaches are the **2,331 zero-width `Identifier`s** (JSDoc tags and
+> `EndOfFile` are not expressions, identifiers or declaration names, so they were
+> never selected). Extrapolated across the full corpus that is the right order
+> for the ~15,000 lines that vanished. So the skip did what it said — and
+> **upstream emits lines for many of those missing identifiers**, which the
+> short-by-one list already showed: `parserErrorRecovery_ObjectLiteral2`,
+> `parserErrorRecoveryIfStatement1`–`4` and others have an EXPECTED line whose
+> expression text is empty.
+>
+> **The refined question, which is the real rule:** upstream emits an empty-text
+> line for the missing identifier in `parserErrorRecovery*` but NOT for the one
+> in `var x = { `a`: 321 }`. What separates them is what §659 needs, and it is
+> not width. Until that is answered, neither "skip zero-width" nor "emit
+> zero-width" is right — the port currently does the second and it costs 8
+> `templateString*` cases.
 
 **Do not retry the skip on `span`** until that is answered — it has been measured
 once at −76.
