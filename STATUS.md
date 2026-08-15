@@ -2599,6 +2599,51 @@ version of bare `any`.
 ### §598 CORRECTED BY §599, 2026-08-14 — **the diagnosis below was WRONG; the gate is `noImplicitAny`, and the arm has since LANDED (+7 cases)**
 
 
+### §657 — what the 309 count-mismatch files actually contain (SIZED)
+
+I have named the alignment lane as "the next lever" for several sections without
+opening it. Opened it. `countgap` and `TSR_COUNT_MISSING=1`:
+
+```
+files whose assertion COUNT differs: 309
+  port emits TOO FEW:  151      port emits TOO MANY: 158
+deltas: +1 (73), -1 (67), +2 (29), -5 (22), -2 (21), +4 (16)
+```
+
+**It is not one lane, and roughly half of it is already refused.** Of the 67
+files short by exactly one, the named clusters are:
+
+| cluster | files | status |
+|---|---|---|
+| `parserErrorRecovery*`, `parserMissingToken`, `parserArrowFunctionExpression9`, `parserShorthandPropertyAssignment2` — a missing node in error recovery, usually with EMPTY expression text | ~20 | open, but each is its own parse-recovery shape |
+| `requireOfJsonFile*`, `isolatedModules_resolveJsonModule*` (`{} : {}`) | 5 | **REFUSED — §40/§581**, the JSON two-step, measured −18 |
+| `YieldStarExpression1`/`2` (`yield : any`) | 2 | **REFUSED — §649/§650**, measured −5 twice |
+| `duplicatePackage_globalMerge` (`global : typeof global`) | 1 | **REFUSED — §311/§600/§627**, 5:42 |
+| `numericLiteralsWithTrailingDecimalPoints01`/`02` (`toString : any`) | 2 | open — `1..toString()`, scanner-level |
+| `tslib*MissingHelper` (`notAHelper : any`) | 2 | open |
+
+**The largest shortfalls are not small change**: `jsxUnclosedParserRecovery`
+243/282, `intTypeCheck` 283/307, `parseAssertEntriesError` and
+`parseImportAttributesError` 13/36 each, and four files emitting **0** where the
+baseline wants 8–10 (`requireOfJsonFileTypes#1`,
+`jsonFileImportChecksCallCorrectlyTwice#1`,
+`moduleDeclarationExportStarShadowingGlobalIsNameable#2`,
+`jsFileCompilationExternalPackageError#2` — all secondary FILES of multi-file
+cases, i.e. module resolution not producing a file at all).
+
+**Why I did not start one.** Every fix here changes what the walk emits, which is
+§247's hazard (making a heritage node visited cost 458 cases) and is exactly what
+refused §649/§650 twice this session at −5 each. These are not arm-sized changes
+priced like arm-sized changes; the four `0`-emitting files are the only subset
+where adding output cannot shift an existing position, and that is where I would
+start.
+
+**Correction to my own earlier framing:** I described this lane as "~154 cases
+failing invisibly" and as the honest next lever. The first half stands; the
+second was too optimistic — a third of the short-by-one population sits behind
+refusals already measured negative, so the lane is materially smaller than its
+309-file headline.
+
 ### §656 — a non-generic alias printing its own name: BUILT THREE WAYS, REFUSED
 
 `type IStringContainer = Container<string>` records `>IStringContainer :
