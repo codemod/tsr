@@ -420,13 +420,20 @@ fn the_contextual_gate_declines_where_upstream_has_an_arm_that_answers() {
         generator_declaration_type("function* g() { var v = yield 1; }", "g", false),
         "() => Generator<number, void, unknown>"
     );
-    // g3's half, and the reason the arm is a nil test and not a deletion: an
-    // ANNOTATED declaration really is a contextual position, upstream reads
-    // the NEXT slot from it, and this port does not compute that — so it must
-    // still decline whole rather than print `unknown` there.
+    // **§635 made this computable and the expectation flips.** What stood here
+    // read: *"an ANNOTATED declaration really is a contextual position,
+    // upstream reads the NEXT slot from it, and this port does not compute
+    // that — so it must still decline whole rather than print `unknown`
+    // there."* The premise was true when written and is no longer: §635 reads
+    // the annotation into the NEXT slot, so `var v: string = yield 1` gives
+    // `yield 1` → `number`, the annotation → `string`, and no returns → `void`.
+    //
+    // This is `generatorImplicitAny`'s g3 shape, which the corpus records as
+    // `() => Generator<undefined, void, string>` for a BARE yield — the same
+    // rule with a different operand.
     assert_eq!(
         generator_declaration_type("function* g() { var v: string = yield 1; }", "g", false),
-        "error"
+        "() => Generator<number, void, string>"
     );
     // FLIPPED at §353. `KindYieldExpression` (`:29360`) IS in the switch —
     // §223's derivation was right about that — but its arm resolves through
@@ -457,9 +464,21 @@ fn the_contextual_gate_declines_where_upstream_has_an_arm_that_answers() {
     // what puts a contextual parent back on the far side of the parenthesis.
     // A control that stops discriminating is worse than no control, because it
     // still reads green.
+    //
+    // **§635 changed the answer and the control got STRONGER.** It read
+    // `"error"`; now that the annotated next slot is computed, the walk's
+    // presence is visible in the SLOT VALUE rather than in error-vs-not:
+    // with the walk, `child` is the parenthesis, it matches the declaration's
+    // initialiser, and the annotation lands `string` in the next slot; without
+    // it, `child` is the yield, its parent is a `ParenthesizedExpression` —
+    // which is not in the decline list at all — so the position reads
+    // non-contextual and the slot falls back to `unknown`.
+    //
+    // `string` vs `unknown` in the third argument is a sharper discriminator
+    // than `error` vs anything, because it also proves WHICH parent was found.
     assert_eq!(
         generator_declaration_type("function* g() { var v: string = (yield 1); }", "g", false),
-        "error"
+        "() => Generator<number, void, string>"
     );
     // Kept beside it as the case that does NOT discriminate, so the next
     // reader does not mistake it for the control.

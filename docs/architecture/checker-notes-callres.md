@@ -2119,3 +2119,45 @@ about why it failed.
 loop feeds several, `continue` is a claim that the other aggregates want nothing
 from this iteration. Upstream's yield loop feeds two. Neither §606 nor §632
 checked which.
+
+---
+
+## §635 — §606 retried with §634's fix: the ANNOTATED position lands too (+2 cases, 6,003)
+
+§606 refused the annotated-declaration NEXT slot at **0 converted, 2 G→W**.
+§634 found why §632 measured the same shape of zero — a `continue` that starved
+the yield aggregate — and the same defect was in §606. Retried with the
+fall-through:
+
+```
+GAP->RIGHT    2   generatorReturnTypeFallback.3, generatorReturnTypeFallback.4
+WRONG->RIGHT 19   generatorReturnTypeInference 9, generatorReturnTypeInferenceNonStrict 9
+(no adverse transition of any kind)     checker_types 6,001 -> 6,003
+```
+
+**The two cases §606 BROKE are the two that now convert.**
+`generatorReturnTypeFallback.3`/`.4` were §606's entire adverse column; they were
+never evidence against the position, only against the `continue`.
+
+§606's note reasoned at length that *"the NEXT slot has more than one source and
+they are not additive"*, and offered the return-annotation road as the likely
+conflict. That was wrong. The sources ARE additive — upstream appends to
+`yieldTypes` and `nextTypes` from the same iteration — and the arm was starving
+one of them.
+
+### The three-arm chain, complete
+
+| | position | result |
+|---|---|---|
+| §583 | the nil positions (unannotated variable-like) | +5 lines |
+| §587 | `ReturnStatement`, `TemplateSpan` | +3 cases |
+| §606 | annotated declarations — `continue` | 0 for 2, refused |
+| §632 | assignments — same `continue` | 0 for 2, refused |
+| §633 | trace: it declines AT the gate, not before | — |
+| §634 | assignments, fall-through | +2 cases |
+| §635 | annotated declarations, fall-through | +2 cases |
+
+**Two refusals, both caused by one keyword, both recovered.** The refusals'
+numbers were honest and their explanations were not, and the explanations are
+what cost the extra rounds: §606 blamed slot precedence, §632 blamed
+reachability, and the answer was neither.

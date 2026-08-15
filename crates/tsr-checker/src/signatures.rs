@@ -1243,6 +1243,25 @@ impl<'a> Checker<'a, '_> {
                 // safe: a kind wrongly listed here costs a gap, a kind wrongly
                 // omitted costs a wrong `next` slot. Corollary 20 — the
                 // predicate is shorter than the witnesses were.
+                // §635: the node the contextual delegation would be called
+                // with — a parenthesised yield is walked through, so the
+                // `node == initializer` test at `checker.go:29426` compares the
+                // outermost parenthesis, not the yield.
+                let mut child = id;
+                {
+                    let mut current = self.nodes.parent(id);
+                    while let Some(parent) = current {
+                        if matches!(
+                            self.nodes.kind(parent),
+                            SyntaxKind::ParenthesizedExpression | SyntaxKind::NonNullExpression
+                        ) {
+                            child = parent;
+                            current = self.nodes.parent(parent);
+                            continue;
+                        }
+                        break;
+                    }
+                }
                 let contextual = {
                     // `KindParenthesizedExpression` and `KindNonNullExpression`
                     // delegate to their own parent (`:29392`, `:29394`), so they
@@ -1385,7 +1404,48 @@ impl<'a> Checker<'a, '_> {
                     })
                 };
                 let mut recorded_next = false;
+                // §635: §606's position, retried with §634's fall-through. An
+                // ANNOTATED variable-like declaration's contextual type is its
+                // annotation (`getContextualTypeForVariableLikeDeclaration`,
+                // `checker.go:29440`), so `const value: string = yield;` feeds
+                // the NEXT slot `string` while the BARE yield still contributes
+                // `undefined` to the yield slot —
+                // `generatorImplicitAny` wants
+                // `() => Generator<undefined, void, string>`. §606 measured
+                // 0-for-2 here for the same reason §632 did: it `continue`d and
+                // starved the yield aggregate.
                 if contextual
+                    && let Some(parent) = self.nodes.parent(child)
+                    && matches!(
+                        self.nodes.kind(parent),
+                        SyntaxKind::VariableDeclaration | SyntaxKind::PropertyDeclaration
+                    )
+                {
+                    let annotation = match self.node_map.get(parent) {
+                        Some(Node::VariableDeclaration(d)) => {
+                            (d.initializer.and_then(|i| i.node_id()) == Some(child))
+                                .then_some(d.r#type)
+                                .flatten()
+                        }
+                        Some(Node::PropertyDeclaration(d)) => {
+                            (d.initializer.and_then(|i| i.node_id()) == Some(child))
+                                .then_some(d.r#type)
+                                .flatten()
+                        }
+                        _ => None,
+                    };
+                    if let Some(annotation) = annotation {
+                        let t = self.get_type_from_type_node(annotation);
+                        if t != self.intrinsics.error {
+                            if !next_types.contains(&t) {
+                                next_types.push(t);
+                            }
+                            recorded_next = true;
+                        }
+                    }
+                }
+                if contextual
+                    && !recorded_next
                     && let Some(parent) = self.nodes.parent(id)
                     && let Some(Node::BinaryExpression(b)) = self.node_map.get(parent)
                     && b.operator_token.is_some_and(|t| t.kind == SyntaxKind::EqualsToken)
