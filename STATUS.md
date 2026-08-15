@@ -1119,10 +1119,36 @@ already narrow. **The 206 lines move in both directions**: the current
 comparator is right on far more unions than it is wrong on, so this is a
 replacement to be scored line-by-line with `verdictdump`, not a patch.
 
-**Cheapest first step**, if someone takes it: print the 206 rows beside the
-constituents' creation sites. This section was written from a count; the rule
-§11.3 has caught four times this campaign is that a population nobody has
-printed will not behave the way its aggregate suggests.
+**The rows were then printed**, and they narrow it further. Of the 163 two-way
+swaps, **103 are anonymous-object-vs-anonymous-object** across 20 cases
+(`controlFlowAliasing` 47, `contextualTypeWithUnionTypeObjectLiteral` 6,
+`unionTypeCallSignatures`/`unionTypeConstructSignatures`/`unionTypeIndexSignature`
+6 each). For two ANONYMOUS types `compare_types` reduces to the type-id
+tiebreak, and so does upstream's comparator — `type_name` answers `None` for
+`TypeData::Anonymous`, so no name comparison happens on either side. **The
+difference is therefore purely which ids the two compilers assign**, not which
+comparator they run.
+
+**A third hypothesis, built and refuted (§590.1).** `sort_by` is stable, so
+dropping the id tiebreak makes a written union print in the caller's insertion
+order. Measured:
+
+```
+right 433,965 -> 433,967  (net +2)
+RIGHT->WRONG: 4  ⚠ compiler/temporal
+WRONG->RIGHT: 6    abstractClassUnionInstantiation
+```
+
+Reverted: 4 R→W for a net of 2, and — the decisive part — **it converted none
+of the ten.** `controlFlowAliasing` did not move, so its constituents do not
+reach this sort in source order at all; they arrive from a narrowing path that
+has already fixed their order. So the item is not "insertion order" either.
+
+**Three hypotheses are now refuted by measurement rather than by argument**:
+source order (§590), a reproducible id order (§590), insertion order (§590.1).
+What remains is to find where `controlFlowAliasing`'s constituents are actually
+minted — the 47-line concentration makes it the only case worth tracing first —
+and that trace, not another ordering rule, is the next step.
 
 ### 4.-2 REPRICED, 2026-08-14 (§582) — **`getAccessibleSymbolChain` is an 8-case item, not the highest-value one**
 
