@@ -2678,13 +2678,33 @@ Five values printed, narrowing it:
 after both guards agree. Everything before that arm behaves identically for the
 two references.
 
-**NOT LANDED, and stopping here was the call rather than a limit.** Continuing
-meant a sixth trace inside that arm; the state above is what a sixth would build
-on, so recording it loses nothing. **Next value to print: inside the container
-arm, which candidate chains are collected for each of the two references and how
-they are sorted** — the arm's own comment (`:1989`) says §533 made it sort
-candidates and return the first, so a reference that collects zero candidates and
-one that collects `f.` is the shape to look for.
+> **§671 ran the sixth and seventh probes. The arm is narrower than §670 thought,
+> and my fix was in the wrong place — measured at zero.**
+>
+> Read the module arm to its end. `checker.rs:2054` returns
+> `import("./stem").` only when the module is **neither** the reference's own
+> file **nor** imported there; otherwise it falls through to `return None`. That
+> looked like the bug: `import f = require('./m')` means the module *is*
+> imported here, so the fall-through fires — but `Mode` is still only spellable
+> as `f.Mode`, and `:1985` had already established no alias reaches the symbol
+> itself. Added a qualifier from `module_alias_at(parent, reference)`.
+>
+> **Measured: zero transitions.** Traced why, and the tail never executes —
+> `MODARM` (at `:1985`) prints for this reference but a probe at `:2054`'s
+> neighbourhood prints **nothing at all**. So control leaves the module block
+> **between `:1985` and `:2054`**, and the fall-through I "fixed" is not on this
+> reference's path.
+>
+> **Reverted.** The corrected handoff: the deciding branch is in
+> `checker.rs:1986–2053`, and it is reached — the two candidate returns there are
+> the ambient arm (`:1997`) and `is_module_symbol(parent)` (`:2005`). **Next value
+> to print: `is_module_symbol(parent)` and `is_ambient_module(parent)` for this
+> reference.** If the first is false the whole `:2005` block is skipped, which
+> would explain both the silence and the `None`.
+>
+> Two placements now measured at zero in this arm (§665's guard was the other
+> kind — zero because a later stage declined). **Do not add a third qualifier
+> return without first printing which branch the reference actually takes.**
 
 **Standing correction:** §668 said this lane is a rendering change. That holds for
 the ~62 nested cases (`symbols.rs:2273` bakes type text at creation). It does
