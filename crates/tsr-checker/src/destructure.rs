@@ -117,9 +117,24 @@ impl Checker<'_, '_> {
         {
             return error;
         }
-        if matches!(element.property_name, Some(PropertyName::ComputedPropertyName(_))) {
-            return error;
-        }
+        // §691: a COMPUTED destructuring key is resolved against the source's
+        // INDEX SIGNATURE, not declined. `let {[numed]: prop3} = numIndexed`
+        // with `numed: number` and `numIndexed: { [idx: number]: string }`
+        // records `prop3 : string`
+        // (`lateBoundDestructuringImplicitAnyError`); the same file's
+        // `{[named]: prop2} = numIndexed` — a STRING key against a NUMBER index
+        // — correctly stays `any`, and `get_applicable_index_info` makes that
+        // distinction itself.
+        //
+        // Handled below, once `parent_type` is known; a late-bound name that
+        // reaches no index info still returns `error`.
+        let computed_key = match element.property_name {
+            Some(PropertyName::ComputedPropertyName(computed)) => {
+                let Some(expression) = computed.expression else { return error };
+                Some(self.check_expression(expression))
+            }
+            _ => None,
+        };
         let Some(pattern_id) = self.nodes.parent(declaration) else { return error };
         let Some(holder) = self.nodes.parent(pattern_id) else { return error };
         let parent_type = match parent_override {
@@ -148,6 +163,14 @@ impl Checker<'_, '_> {
                 // risk — so the declared slice is the answer.
                 if element.dot_dot_dot_token.is_some() {
                     return self.object_rest_type(parent_type, pattern_id, declaration);
+                }
+                if let Some(key) = computed_key {
+                    if key == error {
+                        return error;
+                    }
+                    return self
+                        .get_applicable_index_info(parent_type, key)
+                        .map_or(error, |info| info.value);
                 }
                 let Some((name, numeric)) = Self::binding_element_property_name(element) else {
                     return error;
