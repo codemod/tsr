@@ -2574,10 +2574,36 @@ both carry the *enclosing interface's* type parameter in a rest position.
 the suspect is **overload resolution over signatures instantiated from the
 receiver**, not the rest parameter and not `T`.
 
-**Not built.** Confirming the hypothesis costs one trace and the fix is an
-overload-resolution change, which needs a bar registered before it and a full
-pair after; recorded here at the point where the next session can start from the
-four eliminations rather than repeat them.
+### 37.1 CONFIRMED — it is OVERLOADED *and* GENERIC, and the signature is uninstantiated
+
+The hypothesis was tested directly with four user-written interfaces, and it is
+no longer a hypothesis:
+
+| shape | `x.m(1)` |
+|---|---|
+| `interface X<T> { m(a: T): T; m(a: T, b: T): T }` — overloaded + generic | **error**, and the member prints `>a : T` |
+| `interface Y<T> { n(...xs: T[]): T }` — generic, ONE signature | `number` ✓ |
+| `interface Z<T> { p(...xs: T[]): T; p(...xs: string[]): T }` — overloaded + generic | **error** |
+| `interface W { q(a: number): number; q(a: string): string }` — overloaded, NOT generic | `number` ✓ |
+
+**Either property alone is fine; together they fail.** And the failing member
+prints `T` — the *uninstantiated* parameter — which localises it precisely:
+
+> **The overload path reads a member's signatures WITHOUT the receiver's
+> instantiation.** The single-signature road applies it (`Y` answers `number`),
+> and the same seam is already documented one file over — *"on an instantiated
+> reference the declared value types are the target's uninstantiated ones;
+> `Array<string>`'s `[n: number]: T` must answer `string`, not `T`"* — so the
+> mechanism exists and the multi-signature member does not thread it.
+
+`Array.prototype.concat` is exactly this shape: two signatures, `T` from
+`Array<T>`.
+
+**Still not built.** The diagnosis is now a measured fact rather than a guess,
+but the fix threads instantiation through the multi-signature member road, which
+needs a bar registered before it and a full pair after. Recorded at the point
+where the next session starts from a confirmed localisation and a four-row
+falsifier table rather than from a failing lib method.
 
 Also unresolved from the same sweep and NOT the same thing: `[1,2].reduce(…)`
 and `[1,2].find(…)` / `.filter(…)` fail through the callback's contextual type,
