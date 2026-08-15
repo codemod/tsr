@@ -426,6 +426,35 @@ impl<'a> Checker<'a, '_> {
                             }
                             _ => None,
                         };
+                        // §621: a TUPLE with a literal index selects the
+                        // SPECIFIC element, which is what §620 recorded as the
+                        // next slice — `[a: string, b?: number]["0"]` is
+                        // `string`. The index's VALUE is what the numeric
+                        // normalisation below discards, so this arm reads it
+                        // from the literal directly and never routes through
+                        // `array_or_tuple_element_access`.
+                        //
+                        // Out of range declines rather than guessing: upstream
+                        // answers `undefined` there under
+                        // `noUncheckedIndexedAccess` and the element type
+                        // otherwise, and this port models neither, so a gap is
+                        // the honest answer.
+                        if let Some((elements, _)) =
+                            self.tuple_element_lists.get(&object_type).cloned()
+                        {
+                            let literal = match &self.store.get(index_type).data {
+                                crate::types::TypeData::StringLiteral(text)
+                                | crate::types::TypeData::NumberLiteral(text) => {
+                                    text.parse::<usize>().ok()
+                                }
+                                _ => None,
+                            };
+                            if let Some(position) = literal
+                                && let Some(&element) = elements.get(position)
+                            {
+                                return element;
+                            }
+                        }
                         // TUPLES excluded: `array_or_tuple_element_access`
                         // answers the UNION of a tuple's elements for a
                         // `number` index, which is right for `number` and wrong

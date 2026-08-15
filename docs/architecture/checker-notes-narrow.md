@@ -8697,3 +8697,39 @@ zero adverse — and because it is the road §619 named as missing rather than a
 patch beside it. What it establishes is that the concrete road can be opened
 safely: it only fires where the arm already answered `error`, so its failure
 direction is gap→wrong, never right→wrong.
+
+### §621 — a TUPLE indexed by a literal selects the specific element (+5 lines, 1 G→W, 0 R→W)
+
+§620's registered next slice, built. `array_or_tuple_element_access` answers the
+UNION of a tuple's elements for a `number` index, and the numeric normalisation
+§620 uses discards the literal's VALUE — which is exactly what a tuple needs. So
+this arm reads the value off the literal directly and never routes through that
+function.
+
+```
+GAP->RIGHT:    1   partiallyNamedTuples
+WRONG->RIGHT:  4   indexerWithTuple 2, unionsOfTupleTypes1 2
+GAP->WRONG:    1 ⚠ partiallyNamedTuples (already failing; no passing case damaged)
+```
+
+Out of range DECLINES rather than guessing: upstream answers `undefined` there
+under `noUncheckedIndexedAccess` and the element otherwise, and this port models
+neither.
+
+### The test that was waiting for this, and the prediction it got wrong
+
+`tuples.rs::a_tuple_has_no_members_and_that_is_deliberate` asserted `error` and
+said: *"When indexed-access TYPE nodes land, this expectation flips to `string`
+… and must be updated with a bar, not silently."* The bar is paid and the
+expectation flipped — **to `number`, not `string`.**
+
+The baseline the comment itself cites is what settles it:
+`declarationEmitTypeofIndexedAccessNoParens.types` records
+`export type C = typeof C[keyof typeof C]` as `number`, so the form parses as
+`(typeof C)[…]`. `typeof t[0]` is therefore `(typeof t)[0]` — element **zero** of
+`[number, string]`.
+
+**A pin that names its own successor is worth more than one that just fails**,
+and this is the second this window (§605's was the first). Both also shipped a
+wrong prediction alongside the right diagnosis, which is the calibration to
+carry: trust a pinned fixture's LOCALISATION, re-derive its expected VALUE.

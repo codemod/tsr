@@ -135,21 +135,29 @@ fn the_same_tuple_written_twice_is_one_type() {
 }
 
 #[test]
-fn a_tuple_has_no_members_and_that_is_deliberate() {
-    // §3's "nothing structural is claimed" argument was deliberately SPENT by
-    // §8 (`t[0]` answers the element, with its own registered bar), so this
-    // fixture no longer guards the whole claim — what keeps it red is the
-    // *type-node* path alone: `typeof t[0]` is an `IndexedAccessTypeNode`,
-    // which `get_type_from_type_node` has no arm for. When indexed-access
-    // TYPE nodes land, this expectation flips to `string` per
+fn a_tuple_indexed_by_a_literal_type_node_answers_the_element() {
+    // **§621 landed the flip this fixture was waiting for**, and corrected the
+    // prediction it carried. What stood here read: *"When indexed-access TYPE
+    // nodes land, this expectation flips to `string` per
     // `declarationEmitTypeofIndexedAccessNoParens.types`-family baselines and
-    // must be updated with a bar, not silently.
+    // must be updated with a bar, not silently."*
+    //
+    // The bar is paid — §621 measured +5 conversions (`indexerWithTuple` 2,
+    // `unionsOfTupleTypes1` 2, `partiallyNamedTuples` 1) against 1 GAP→WRONG
+    // and zero R→W — but the predicted **`string` was wrong**, and the very
+    // baseline it cites is what settles that: it records
+    // `export type C = typeof C[keyof typeof C]` as `number`, i.e. the form
+    // parses as `(typeof C)[…]`. So `typeof t[0]` is `(typeof t)[0]`, which for
+    // `[number, string]` is element ZERO — `number`.
+    //
+    // Kept as the type-node road's pin: the VALUE road (`t[0]`) has answered
+    // since §8 and is a different arm.
     assert_eq!(
         type_of_declaration(
             "declare const t: [number, string];\ndeclare const u: typeof t[0];",
             "u"
         ),
-        "error"
+        "number"
     );
 }
 
