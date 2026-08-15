@@ -3370,6 +3370,34 @@ session that re-checking a deferral is reliably cheap. §693–§698 supported t
 touches is not.** Here one `grep` for `is_empty_array_literal` before building
 would have cost nothing and saved the build.
 
+### §714 — a generic type referenced with NO type arguments (SIZED, 2 cases)
+
+Re-cut the family board after §710 (889 single-shape cases, 32 families ≥2, all
+pairs or triples). One I had not examined:
+
+```ts
+class Test extends Array1 { … }        // Array1<T> is generic
+interface Array1<T> { length: number; [n: number]: T }
+```
+
+Upstream records `Array1<any>` — a generic type referenced with **no** type
+arguments reports the arity error and fills the missing parameters with `any`.
+This port prints **`Array1<T>`**, the uninstantiated form, leaking the type
+parameter into the printed text.
+
+`indexSignatureInOtherFile` and `indexSignatureInOtherFile1`, one line each.
+
+**Same rule family as §690**, which landed the surplus half of the call-site
+arity mismatch and refused the missing half because `TypeParameter` carries no
+default. Here the fill is unconditionally `any` (there are no arguments at all to
+pair), so the default problem does not arise — **this half may be reachable where
+§690's was not.**
+
+**NOT ATTEMPTED.** `get_type_from_type_reference` (`declared.rs:675`) is long and
+its arity handling is not where the alias branches are; locating the right point
+is the first step, and it should be done with a printed value (which branch
+answers for `Array1`) rather than by reading, per §670–§685's record.
+
 ### §710 — EVOLVING ARRAY TYPES, LANDED: +2 CASES, 39 W→R, zero regressed
 
 **LANDED. +2 cases (6,060 → 6,062), 39 WRONG→RIGHT, +33 lines, zero regressed by
