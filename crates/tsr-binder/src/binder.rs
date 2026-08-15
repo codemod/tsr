@@ -4838,7 +4838,30 @@ fn declaration_name<'a>(
         // `moduleAugmentationGlobal6`/`6_1`/`7`/`7_1` and
         // `duplicatePackage_globalMerge`.
         //
-        // **Not attempted here**, but not for §600's original reason. The
+        // # §603: THIS IS ALREADY REFUSED, and §600 failed to find it
+        //
+        // **STATUS §5 carries `§311 \`declare global\`'s name line — refused by
+        // 5:42`, measured at `483de91f`, and its population is exactly the five
+        // cases below.** Answering `typeof global` — *"from
+        // `get_type_of_symbol` OR from the producer's declaration-name arm,
+        // both measured identically"* — wins 5 lines and breaks 42:
+        // error-carrying cases want `any` on the same line
+        // (`duplicateIdentifierRelatedSpans5`), and files where upstream emits
+        // NO line for the name shift every later assertion out of alignment
+        // (`jsxElementType`, 30+ lines).
+        //
+        // Its reopening condition is already written and is NOT a flag change:
+        // *transcribe upstream's `type_symbol_baseline.go` guard chain for WHEN
+        // the global name emits and with which arm* — the §254 note records the
+        // fast-path/node-builder split it turns on.
+        //
+        // §600 presented these five as an unrecorded population. They were
+        // recorded, with a number, in the file §600 was written into. **A
+        // refusal is only worth its number if the next session can find it** —
+        // this one was found by reading STATUS §5 top to bottom, which is what
+        // §600 should have done before writing a word.
+        //
+        // **Not attempted here**, and the reason below is superseded by §311's. The
         // reference half is already correct (see the correction above), so this
         // is a standalone item. What stops it is that upstream's own answer is
         // not yet understood: `declare global { interface … }` is

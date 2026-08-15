@@ -2482,7 +2482,17 @@ See `checker-notes-callres2.md` §588/§589.
   **Reopening condition: per-site type printing** (the same wall as
   `TypeData::Named`, ADR-0043). Measured at the §371 tree, reverted whole. §373
 
-### New, 2026-08-13, §311 `declare global`'s name line — refused by 5:42
+### New, 2026-08-13, §311 `declare global`'s name line — refused by 5:42 — **RE-CONFIRMED 2026-08-14 (§603), and it was nearly re-attempted**
+
+> **§600 rediscovered this population and did not find this entry.** It recorded
+> the same five cases (`moduleAugmentationGlobal6`/`6_1`/`7`/`7_1`,
+> `duplicatePackage_globalMerge`) as unrecorded, reasoned about the binder flag
+> that would answer them, and was one measurement away from re-paying the 42
+> lines below. Found by reading this section top to bottom — which is the cheap
+> step §600 skipped. **A refusal is only worth its number if the next session
+> can find it**, so entries here are indexed by their POPULATION, not only by
+> their mechanism: this one is `declare global`'s DECLARATION NAME.
+
 
 - **The name line's spelling is a writer-side decision this port cannot yet
   reproduce.** Four deficit-1 cases (`moduleAugmentationGlobal6/6_1/7/7_1`)
