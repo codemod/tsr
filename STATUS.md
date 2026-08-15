@@ -2599,6 +2599,57 @@ version of bare `any`.
 ### §598 CORRECTED BY §599, 2026-08-14 — **the diagnosis below was WRONG; the gate is `noImplicitAny`, and the arm has since LANDED (+7 cases)**
 
 
+### §661 — the name-vs-value rule: BUILT, +7 CASES, REFUTED BY ITS OWN REGRESSION, REVERTED
+
+§660 left one question: upstream emits an empty-text line for the missing
+identifier in `parserErrorRecovery_ObjectLiteral2` but not for the one in
+`var x = { `a`: 321 }`. Dumped both and the contrast looked clean —
+
+```
+parserErrorRecovery_ObjectLiteral2   *4 want= : any      got=<none>   (value position)
+templateStringInPropertyName1        *3 want=`a` : "a"   got= : any   (name position)
+```
+
+— so the rule proposed was **skip a zero-width node that is a declaration NAME,
+keep one in value position.** Built it. **Measured +7 cases (6,024 → 6,031),
+right +66, and 3 RIGHT→WRONG.**
+
+**The case-set diff (§656's lesson, applied) found 2 regressions, and one of them
+refutes the rule.** `parseInvalidNames` was already failing on count (10 vs 12),
+so it is not a loss. But `objectBindingPatternKeywordIdentifiers03` **was
+genuinely passing**, and it breaks like this:
+
+```ts
+var { "while" } = { while: 1 }
+   *0 want= : number      got={ while: 1 } : { while: number; }
+```
+
+Upstream **does** emit an empty-text line for that missing identifier — and it is
+a **`BindingElement`'s name**, a declaration name. So "name versus value" is not
+the separator: upstream emits for a missing `BindingElement` name and not for a
+missing `PropertyAssignment` name, and there is no principled reason for that
+split. Gating the arm to exclude `BindingElement` would be shaping to fixtures.
+
+**Reverted, despite netting +7.** A rule I have just disproved does not get kept
+because its arithmetic is positive; that is the standard every other refusal this
+session was held to.
+
+**What the two experiments together now establish** — and this is the useful
+residue:
+
+1. Upstream emits empty-text lines for missing identifiers **in general**
+   (§659's −76 and this regression both prove it).
+2. So `templateStringInPropertyName1` is **not a writer-rule difference at all.**
+   The likeliest reading is that upstream never creates that missing node:
+   its property-name parse consumes the template literal, while this port
+   produces a missing identifier **and** the literal, one node too many.
+
+**REOPENS ON: `parse_property_name`.** Check whether a
+`NoSubstitutionTemplateLiteral` in property-name position is consumed as the name
+rather than leaving a missing identifier beside it. That is a parser question,
+not a producer one, and both producer-side attempts (§659, §661) have now been
+measured and reverted. Do not try a third.
+
 ### §659 — the missing-node skip: BUILT, MEASURED −76 CASES, REVERTED
 
 Acted on §658's population rather than leaving it as a future opportunity, and
