@@ -3018,9 +3018,37 @@ the global scope rather than anything in the naming road.
 > "we failed to resolve `A.Point` and fell back to printing part of it". The
 > symptom text was misleading in exactly the way §664's classifier read it.
 >
-> **THE LANE IS §605's** — `qualified_type_reference` — not
-> `getAccessibleSymbolChain`. The specific gap: a qualified reference whose left
-> segment is a namespace **merged across source files**.
+> **§684 corrects §683's own reading: the unresolved reference is BARE `Point`,
+> not `A.Point`.** `entity_name_text` (`declared.rs:2566`) renders a
+> `QualifiedName` correctly as `"A.Point"`, so a failing `A.Point` would have
+> minted text `A.Point`. The mint caught was `"Point"` — a **bare** reference.
+>
+> Bare `Point` appears only *inside* namespace `A`:
+>
+> ```ts
+> // part1.ts
+> namespace A { export interface Point { … }
+>   export namespace Utils { export function mirror<T extends Point>(p: T) … } }
+> // part2.ts
+> namespace A { export namespace Utils {
+>   export class Plane { constructor(public tl: Point, public br: Point) { } } } }
+> ```
+>
+> It resolves in **part1** (where `Point` is declared) and fails in **part2** —
+> the same namespace `A`, a different file. The symbol-less type minted there is
+> `TypeId(25)`, and it is what `part3`'s references later receive, which is why
+> they can never be qualified.
+>
+> **THE LANE IS CROSS-FILE NAMESPACE MERGING at name resolution.** Not naming,
+> not `qualified_type_reference`, not type identity. The fixture's own name says
+> so — *"test the merging actually worked"*. `binder_symbols` is 8,498/8,498, so
+> the symbols merge; what does not is **`resolve_name` seeing the merged
+> namespace's members from another file's contribution**.
+>
+> **NEXT STEP:** from a `part2.ts` site inside `namespace A`, print what
+> `binder.resolve_name(site, "Point", TYPE)` returns. Expect `None`; the fix is
+> in the resolver's namespace-locals walk, which must consult the MERGED symbol's
+> exports rather than the current declaration's own table.
 >
 > **Consequence for §664's sizing, which must not be inherited uncorrected:** the
 > 145 "qualified name" cases were split 74 naming / 71 unresolved on the strength
