@@ -4798,6 +4798,27 @@ fn declaration_name<'a>(
         // declines a global-augmentation module symbol, not a rename. Recorded
         // rather than attempted because the merge path is the real dependency
         // and it has not been read.
+        //
+        // # §600: the DECLARATION half, which §234 does not cover, and it is wrong the other way
+        //
+        // §234 is about a REFERENCE to `global`. At the **declaration name** the
+        // port is wrong in the opposite direction: `declare global { … }` wants
+        // `>global : typeof global` and this port answers `any`, because the
+        // augmentation symbol carries `NAMESPACE_MODULE` alone and
+        // `get_type_of_symbol`'s module arm tests `VALUE_MODULE`
+        // (`checker.go:16511` — upstream's flag list, faithfully ported).
+        //
+        // Five single-transition cases, each one line from passing:
+        // `moduleAugmentationGlobal6`/`6_1`/`7`/`7_1` and
+        // `duplicatePackage_globalMerge`.
+        //
+        // **Not attempted here.** The two halves want opposite answers for the
+        // same symbol, so a change that satisfies one by adjusting the symbol's
+        // flags or name will move the other, and §234 already measured what
+        // that costs: 0 won and 5 LOST. Whoever takes it should price BOTH
+        // halves in one measurement — the reference half is `spellingSuggestionGlobal1`/`2`/`4`,
+        // the declaration half is the five above — and should expect to need
+        // the merge path §234 names, not a flag tweak.
         Node::ModuleDeclaration(n) => n.name.map(|name| match name {
             tsr_ast::ModuleName::StringLiteral(literal) => quoted_module_name(arena, literal.text),
             tsr_ast::ModuleName::Identifier(identifier) => identifier.text,
