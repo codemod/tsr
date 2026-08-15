@@ -1082,6 +1082,40 @@ cases, or land an arm worth more than 20. Either would mean the tail is
 shallower than these two joins say, and this section should be superseded with
 the row dump that shows it.
 
+### 4.-2g THE `CallExpression` ROWS, PRINTED, 2026-08-15 (§629) — mostly ALREADY-REFUSED items
+
+The priced board's largest gap row — *"expression answered error:
+CallExpression"*, 22 cases where it is the ONLY defect — printed rather than
+counted. It is not one item, and more than half of it is already on this page
+with a number:
+
+```
+ 3  arrayConcat2          string[]          <- §38.2/§589 concat, refused; needs spread-argument handling
+ 1  arrayConcat3          Fn<T1>[]          <- same
+ 2  localClassesInLoop    any               <- §24 calleegap, refused at 248 G→W vs a bar of 20
+ 2  localClassesInLoop_ES6 any              <- same
+ 1  classPropertyIsPublicByDefault  any     <- same
+ 6  tupleTypeInference2   unknown           }
+ 4  contextualSignatureInstantiation3 number[] }  generic inference
+ 3  circularContextualMappedType { name: number; } }
+ 2  arrayFind             number | undefined
+ …  and a tail of one-offs
+```
+
+**The `any`-wanting rows are the untyped-call gate.** `use(data[0]())` wants
+`any` because `data[0]` is `any` and upstream's `resolveUntypedCall`
+(`checker.go:9902`) answers `any` for an `any` callee. This port HAS that arm
+(`calls.rs:528`) but narrowed it to *"the `any` was WRITTEN in an annotation"*
+after the unnarrowed form measured **248 gap→wrong against a bar of 20** — the
+`any` this port produces from an unported mechanism is indistinguishable, at
+that site, from the `any` upstream computes.
+
+So the row's shape is: **~6 cases behind two recorded refusals, ~15 behind
+generic inference, and a tail.** It is the board's biggest row and the *least*
+available of them, which is the opposite of what its size suggests — and is why
+a priced board row must be printed before it is worked (the third time this
+window: §584's, §618's, and now this).
+
 ### 4.-2d THE PRICED CAUSE BOARD, 2026-08-14 (§604) — **369 cases are blocked by a SINGLE cause**
 
 Built by joining both per-line dumps (§6: `TSR_ANY_DUMP=1` and
