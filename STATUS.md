@@ -2987,11 +2987,48 @@ the global scope rather than anything in the naming road.
 > exit before `needs_qualification`, `symbol_chain`, §509 and the TYPE mask are
 > ever consulted. Nine probes searched code those references never execute.
 >
-> **THE FIX IS AT THE MINT SITE, not in naming:** find what creates a symbol-less
-> `Named` type for an interface reference and give it the declared type (or the
-> symbol). A `Named` type with `members: None` cannot be qualified by
-> construction, so **any type minted without its symbol is permanently
-> unqualifiable** — worth auditing beyond this fixture.
+> **§683 caught the mint with a backtrace, and the lane changes AGAIN — for the
+> last time. It is RESOLUTION, not naming and not type identity.**
+>
+> ```
+> MINT symbol-less Point
+>   1: TypeStore::new_named
+>   2: Checker::unresolved_type_reference        <- here
+>   3: Checker::get_widened_type_for_variable_like_declaration
+>   4: Checker::get_type_of_symbol
+> ```
+>
+> and a second path through `annotation_member_context` → `check_object_literal`.
+>
+> **`unresolved_type_reference` is the mint site.** And `part3.ts` writes the
+> reference **already qualified**:
+>
+> ```ts
+> var o: A.Point;
+> var p: { tl: A.Point; br: A.Point };
+> ```
+>
+> So `A.Point` — a qualified type reference into a namespace merged across
+> files — **fails to resolve**, and the fallback mints a symbol-less `Named` type
+> from the last segment, `Point`. That is why nothing downstream could ever
+> qualify it: there is no symbol to qualify *with*, and the text it prints is the
+> written name minus its qualifier.
+>
+> **`want=A.Point got=Point` never meant "we failed to add a prefix".** It meant
+> "we failed to resolve `A.Point` and fell back to printing part of it". The
+> symptom text was misleading in exactly the way §664's classifier read it.
+>
+> **THE LANE IS §605's** — `qualified_type_reference` — not
+> `getAccessibleSymbolChain`. The specific gap: a qualified reference whose left
+> segment is a namespace **merged across source files**.
+>
+> **Consequence for §664's sizing, which must not be inherited uncorrected:** the
+> 145 "qualified name" cases were split 74 naming / 71 unresolved on the strength
+> of whether `got` was `any`/`error`. **That test is wrong** — an unresolved
+> qualified reference can also print a bare segment, which reads as "naming". The
+> naming bucket is therefore smaller than 69 by an unknown amount, and the
+> resolution bucket larger. **Re-derive that split by checking whether the type
+> carries a symbol, not by reading the printed text.**
 >
 > **Thread closed at thirteen probes, one landing (§673, +2), five framings
 > retired.** The correct opening move is recorded above: print the BAKED text and
