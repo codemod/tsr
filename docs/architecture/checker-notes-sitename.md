@@ -2732,14 +2732,30 @@ contents, so every one of them gaps at `:0:0` — the import itself.
 Checked: **the RESOLUTION side already exists.** `loader.rs` imports
 `SUPPORTED_TS_EXTENSIONS_WITH_JSON_FLAT` and threads
 `supported_extensions_with_json`, so a `.json` specifier already resolves to a
-file. What is missing is upstream's **`parseJsonText`** — nothing in the tree
-matches that name — and the module type built from its result.
+file. **CORRECTION, same session, before this paragraph was an hour old.** It first
+said *"what is missing is upstream's `parseJsonText` — nothing in the tree
+matches that name"*. **That was false and the grep proving it came back in the
+same command that wrote it.** `Parser::parse_json_text` is
+`crates/tsr-parser/src/json.rs:50`, reached from `lib.rs:159` and
+`parsed_file.rs:113`, and `ScriptKind::Json` is routed in
+`tsr-conformance/src/diagnostics_suite.rs` at five sites.
 
-That matters because it moves the item from *"a loader change plus a type
-synthesis"* to *"a PARSER entry point plus a type synthesis"*, and the parser
-half is the load-bearing one: a `.json` file is not valid TS as a statement
-(`{ "a": 1 }` parses as a BLOCK, not an object literal), which is exactly why
-upstream has a separate entry point rather than reusing the expression parser. What makes it worth
+So **both** halves the original sizing named already exist: `.json` resolves
+(`SUPPORTED_TS_EXTENSIONS_WITH_JSON_FLAT`) and `.json` parses
+(`parse_json_text`). What is missing is only the **type**: a `.json` source file
+becoming a module whose shape is its contents, which the `checker_types` suite's
+five `requireOfJsonFile*` cases want and which the *diagnostics* suite already
+routes around.
+
+That is a materially smaller item than either version of this paragraph claimed
+before, and it is now the best-priced unbuilt entry on this page: two
+subsystems already built, one type synthesis missing, five deficit-1 cases
+waiting.
+
+> **Recorded as a correction rather than an edit** because the first claim was
+> wrong in the direction that would have made the next session skip the item as
+> too expensive — and because it is this session's fourth instance of an
+> instrument answering after the conclusion was written (§541, §555, §573, this). What makes it worth
 recording rather than leaving in the dump is the shape:
 
 > **Five cases, one wanted text, one missing feature, and the option already
