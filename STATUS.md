@@ -3319,9 +3319,33 @@ this arm was unported is wrong** — like §703's stale note about the flow gate
 it was written before the arm landed and nobody revised it. That is now **two**
 "unported" notes in the evolving-array area that had expired, plus §703's.
 
-Reverted; no code change retained. The remaining 16 `never[]` lines are therefore
-NOT the declaration arm and are still unexplained — **do not re-derive this arm a
-third time.**
+Reverted; no code change retained.
+
+**§712 identified what the 16 lines actually are.** They are not the declaration
+arm and not a naming issue — they are the `let x;` **assignment** path:
+
+```ts
+function f5() {
+    let x;                                   // no initializer
+    if (cond()) { x = []; x.push(5); }
+    else        { x = []; x.push("hello"); }
+    return x;                                // upstream: (string | number)[]
+}
+```
+
+`is_auto_array_declaration` (`flow.rs:1750`) inspects the **declaration's**
+initializer only, so `let x;` never enters the array track however many `x = []`
+assignments follow. Upstream gets there through
+`getTypeAtFlowAssignment`: an auto-typed variable assigned an empty array
+literal becomes an evolving array at that flow node.
+
+**REOPENS ON: the assignment half of the array track** — when a flow ASSIGNMENT
+node assigns `[]` to an auto-typed (scalar) variable, switch it to the evolving
+array. §710 built the declaration half and all three of its gates; this is the
+one remaining entry point, and `controlFlowArrays`' `f5`/`f6` isolate it.
+
+**Do not re-derive the declaration arm a third time** — it exists at
+`symbols.rs:4270` and works.
 
 **Standing correction to my own method claim.** I have said several times this
 session that re-checking a deferral is reliably cheap. §693–§698 supported that;
