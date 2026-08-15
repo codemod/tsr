@@ -8823,3 +8823,48 @@ concentrated (`declarationEmitMappedTypeDistributivityPreservesConstraints` 5,
 hypothetical — and with one, this becomes a clean +54 with real cases behind it.
 The four target lines DO convert here; what is missing is the discrimination,
 not the mechanism.
+
+### §625 — the deferred road defers only when the access is GENERIC (+44 lines, 0 R→W)
+
+§624 refused the deferred widening at 1.84:1 with 27 G→W and could not say why
+those rows broke. Printing them answers it in one line:
+`uniqueSymbols` wants `unique symbol` where the widened road printed
+`I["readonlyType"]`.
+
+**Upstream resolves a fully CONCRETE indexed access and defers a GENERIC one**,
+and the corpus states the rule in four shapes:
+
+| | |
+|---|---|
+| `T["0"]` | object is a type parameter → **defer** |
+| `string[]["0" \| K]` | index mentions one → **defer** |
+| `I["readonlyType"]` | both concrete → **resolve** (`unique symbol`) |
+| `string[]["0"]` | both concrete → **resolve** (§620) |
+
+§624 had the mechanism right and the CONDITION missing; gated on
+"object is a type parameter, or the index type mentions one", the same change
+measures:
+
+```
+GAP->RIGHT 23   WRONG->RIGHT 21      (44 conversions, +44 lines)
+GAP->WRONG 10 ⚠  RIGHT->WRONG 0
+1.84:1 -> 4.4:1, and the R→W column empties
+```
+
+A `GAP→WRONG` cannot damage a passing case by construction — a passing case has
+no non-right lines, so it has no gaps to move — which is why the R→W column
+being empty is the whole safety argument here.
+
+### The residue, and what it is not
+
+The 10 remaining G→W are a DIFFERENT population:
+`declarationEmitMappedTypeDistributivityPreservesConstraints` (5, mapped-type
+distributivity) and `asyncFunctionReturnType` (`Promise<Awaited<TObj["x"]>>`).
+Both want a deferred access nested inside machinery this port does not have, so
+the enclosing type now builds and prints wrong where it used to gap. They are not
+evidence against the gate; they are the next feature boundary.
+
+**The method note:** §624's reopening condition was *"print the 27 G→W rows and
+gate them"*, and printing them took one command and produced the rule. The
+refusal was correct on its numbers and one step short of the answer — which is
+the argument for writing reopening conditions concrete enough to execute.

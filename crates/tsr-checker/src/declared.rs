@@ -504,6 +504,40 @@ impl<'a> Checker<'a, '_> {
                             None
                         }
                     }
+                    // §625: a LITERAL or UNION index defers **only when the
+                    // access is generic** — the object is a type parameter, or
+                    // the index mentions one. A fully CONCRETE pair resolves:
+                    // `I["readonlyType"]` is `unique symbol`, not the written
+                    // form (`uniqueSymbols`), and deferring it printed a
+                    // confident `I["readonlyType"]` over a right answer. That
+                    // asymmetry is what §624 measured as 27 G→W and could not
+                    // name.
+                    //
+                    // The corpus states the rule in four shapes:
+                    // `T["0"]` defers (generic object), `string[]["0" | K]`
+                    // defers (generic index), `I["readonlyType"]` resolves and
+                    // `string[]["0"]` resolves (§620) — both concrete.
+                    Some(index @ (TypeNode::LiteralTypeNode(_) | TypeNode::UnionTypeNode(_))) => {
+                        let index_type = self.get_type_from_type_node(index);
+                        let object_type =
+                            node.object_type.map(|object| self.get_type_from_type_node(object));
+                        let object_is_generic = object_type.is_some_and(|object| {
+                            self.store.get(object).flags.contains(TypeFlags::TYPE_PARAMETER)
+                        });
+                        let index_is_generic = {
+                            let ty = self.store.get(index_type);
+                            ty.flags.contains(TypeFlags::TYPE_PARAMETER)
+                                || matches!(&ty.data, crate::types::TypeData::Union { types, .. }
+                                    if types.iter().any(|&t| self
+                                        .store
+                                        .get(t)
+                                        .flags
+                                        .contains(TypeFlags::TYPE_PARAMETER)))
+                        };
+                        (index_type != self.intrinsics.error
+                            && (object_is_generic || index_is_generic))
+                            .then(|| crate::printing::type_to_string(self.store.get(index_type)))
+                    }
                     _ => None,
                 };
                 let object_text = match node.object_type {
