@@ -2599,6 +2599,55 @@ version of bare `any`.
 ### §598 CORRECTED BY §599, 2026-08-14 — **the diagnosis below was WRONG; the gate is `noImplicitAny`, and the arm has since LANDED (+7 cases)**
 
 
+### §659 — the missing-node skip: BUILT, MEASURED −76 CASES, REVERTED
+
+Acted on §658's population rather than leaving it as a future opportunity, and
+picked its largest clean family: of the **32** count-only cases at exactly +1,
+**8 are `templateString*`** (`InFunctionParameterType`, `InObjectLiteral`,
+`InPropertyName1`/`2`, and their ES6 twins).
+
+`TSR_COUNT_DUMP` named the extra line exactly:
+
+```
+var x = { `a`: 321 }
+     3 want=`a` : "a"      got= : any        <- ours, EMPTY expression text
+     4 want=321 : 321      got=`a` : "a"
+```
+
+We emit a line for the **missing identifier** the parser creates when a template
+literal appears where a property name belongs, and then the template literal;
+upstream emits only the template literal. Upstream's parser creates the same
+missing node (`parsePropertyNameWorker` falls through to `parseIdentifierName`,
+`parser.go:3464`), so the difference is in the baseline WRITER, not the parse.
+
+**Built** the corresponding skip in `selects` — drop a node whose span has
+`start == end`. **Measured, and it is badly wrong:**
+
+| | baseline | with §659 |
+|---|---|---|
+| checker_types | **6,024** | **5,948** (−76) |
+| comparable lines (TOTAL) | 474,196 | 459,223 (**−14,973**) |
+| gradient | 90.82% | 87.71% |
+
+RIGHT→WRONG was only 10 and WRONG→RIGHT 1 — **almost the whole loss is lines
+vanishing from the comparison, not transitioning.** Reverted.
+
+**The reason it failed is itself worth recording, and I have not resolved it:**
+roughly **15,000 nodes in this port's tree report `span.start == span.end`** —
+about 3% of every node a `.types` line is emitted for. "Zero width" is therefore
+NOT the same predicate as upstream's `nodeIsMissing` here. Either a broad class
+of nodes is never assigned a span (they would default to `0,0`), or spans are
+recorded with a convention this reading does not match.
+
+**That question is worth more than the 8 cases.** If a node class is genuinely
+missing spans, it affects anything keyed on position. **NEXT VALUE TO PRINT:** the
+KIND distribution of nodes with `start == end` over one corpus file. If it is
+concentrated in one or two kinds, it is a span-assignment defect; if it is spread
+across everything, the accessor convention is what I misread.
+
+**Do not retry the skip on `span`** until that is answered — it has been measured
+once at −76.
+
 ### §657 — what the 309 count-mismatch files actually contain (SIZED)
 
 I have named the alignment lane as "the next lever" for several sections without
