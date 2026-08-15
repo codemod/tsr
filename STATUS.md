@@ -2599,7 +2599,7 @@ version of bare `any`.
 ### §598 CORRECTED BY §599, 2026-08-14 — **the diagnosis below was WRONG; the gate is `noImplicitAny`, and the arm has since LANDED (+7 cases)**
 
 
-### §649 — `isYieldExpression`'s context half: BUILT, MEASURED −5 CASES, REVERTED
+### §649/§650 — `isYieldExpression`'s context half: BUILT TWICE, MEASURED −5 CASES BOTH TIMES, REVERTED
 
 **Population.** `YieldStarExpression1_es6` / `2_es6`, both deficit-1, both `pos 0`,
 want `number` and print `any`. The diagnosis was right and is worth keeping:
@@ -2637,15 +2637,42 @@ here it was most of the damage.
 **Reverted.** R→W and a case loss in one change is revert-or-gate, and there is
 no gate that separates these.
 
-**REOPENS ON: the boundary audit.** `generatorTypeCheck28` names the miss —
-`*[Symbol.iterator]() { … }`, a computed-name generator method in an **object
-literal**, which parses through a site the five wrapped boundaries
-(function declaration, function expression, class method, constructor, accessor)
-do not cover. Whoever retries should **enumerate every function-like parse site
-first** and wrap all of them, then re-measure; a partial boundary set makes the
-context bit wrong in exactly the nested cases the corpus is dense in. The two
-target cases were never the point — the mechanism is right and the boundary set
-was incomplete.
+**§650 RAN that boundary audit, and the answer is STILL NEGATIVE — this is now
+a settled refusal, not a deferred one.**
+
+The audit found the miss exactly where §649 predicted, and the cause was my own
+error rather than a missing site: `expression.rs:1235` is the **object-literal
+method** — it carries an `asterisk` — and §649 had wrapped it with `false`,
+having mis-read a nearby `SetAccessor` arm. Enumerating the asterisk sites
+(`declaration.rs:477` class method, `expression.rs:1179` object-literal method,
+`expression.rs:1904` function expression, plus the function declaration in
+`statement.rs`) settles the boundary set completely. Re-measured with it
+corrected:
+
+| | baseline | §649 (wrong boundary) | §650 (audited) |
+|---|---|---|---|
+| checker_types cases | **6,007** | 6,002 | **6,002** |
+| right lines | 434,822 | 434,809 | 434,817 |
+| reported transitions | — | 2 G→W | **none** |
+
+Correcting the boundary set recovered 8 of the 13 lost lines and both G→W, and
+**moved the case number not at all**. With zero reported transitions the entire
+remaining loss is assertion-COUNT shift: re-parsing `yield` as an identifier adds
+a line wherever it occurs, and every downstream position in that file stops
+aligning.
+
+**So the refusal is not "the boundary set was incomplete" — it is that the two
+cases this buys cost seven elsewhere through realignment.** That is §247's
+finding again (making a node visited cost 458 cases), and it is a property of the
+change, not of the implementation.
+
+**REOPENS ON: nothing in the parser.** The mechanism is right, upstream-faithful,
+and correctly implemented at §650, and it still loses. It reopens only if the
+harness stops keying on position — i.e. if `verdict.rs` aligns by node identity
+rather than index, which would make an added line local instead of file-wide.
+That is a conformance-harness change (§637–§639's lane), and it would unblock
+this along with an unknown number of the **309** count-mismatch files. Do not
+retry the parser arm on its own; it has now been measured twice.
 
 ### §647 — §65.1's "undecoded fourth key" is decoded, and it is not a key
 
