@@ -2763,13 +2763,24 @@ assertions are rendered — that is correct and is **not** the cause here. The
 five failures are at `:0:0` of **file 0**, the TypeScript file doing the
 importing, so the JSON unit's own (absent) section is beside the point.
 
-What remains unchecked, and is the first thing to look at:
+**Question 1 answered: the resolution path is fully plumbed and option-gated.**
+`tsr-tsoptions/src/declarations.rs:479` parses `resolveJsonModule` and
+`file_names.rs:50` gates the `.json` extension on it —
+*"[`supported_extensions`] plus `.json` when `resolveJsonModule` is on"* — and
+every one of the five fixtures sets `@resolveJsonModule: true`. So the option
+reaches the loader and `.json` is an admitted extension.
 
-1. does `program.source_file` include the `.json` unit at all, and
-2. does its module symbol get a **type** — a JSON file parses to a `SourceFile`
-   with exactly ONE statement, its top-level value (`json.rs:57`), so the
-   synthesis is *"that expression's type is the module's type, with a `default`
-   export of the same"*.
+**Exactly one unknown is left, and it is the whole item:**
+
+> Does the `.json` module symbol get a **TYPE**? A JSON file parses to a
+> `SourceFile` with exactly ONE statement, its top-level value (`json.rs:57`),
+> so the synthesis is *"that expression's type is the module's type, with a
+> `default` export of the same"*.
+
+The head case is the smallest possible: `requireOfJsonFileWithoutEsModuleInterop`
+has **one** assertion line —
+`import * as test from "./test.json"` wanting `{ a: boolean; b: string; }` — so
+the whole family converts or does not on that single synthesis.
 
 Every other piece is in the tree. Not built here because wiring it needs the
 resolution → module-symbol → type road traced end to end, and this session
