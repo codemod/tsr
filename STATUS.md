@@ -2295,6 +2295,44 @@ version of bare `any`.
 
 ## 5. Refused, with the number that refused it
 
+### §598, 2026-08-14 — **nullable widening is BUILT, CORRECT, and blocked by the `strictNullChecks` default** (not refused: gated)
+
+`getWidenedTypeWithContext` (`checker.go:18368`) widens a `RequiresWidening`
+`Nullable` to **`any`**, which is why `var a = null` records `a : any`
+(`variableDeclarationInnerCommentEmit`). This port answers `null`. The
+population is large and unusually convertible:
+
+```
+want `any`, got `null`/`undefined`:  109 lines / 27 cases, 15 of them CONVERTIBLE
+```
+
+The rule was transcribed at the initialiser-widening site and **measured zero**,
+because `strict_null_checks` is `true` for these cases. Removing the gate to
+test the arm rather than the flag settles both halves at once:
+
+```
+ungated:  WRONG->RIGHT 27   (variableDeclarationInnerCommentEmit 4,
+                             controlFlowNoImplicitAny 6, ifDoWhileStatements 4, …)
+          RIGHT->WRONG 216 ⚠ (logicalAndOperatorStrictMode 107, …) — the genuinely
+                             strict cases, where `null` must stay `null`
+```
+
+**So the arm is right, the gate is right, and the blocker is the DEFAULT.**
+`types_producer.rs:1503` defaults `strictNullChecks` to `true` when a case
+writes neither `@strict` nor `@strictNullChecks` — a default measured off the
+baselines, where `false` "lost 1,221 lines across 345 strict-by-default cases".
+These 27 lines are the other side of that trade, and they were not visible when
+it was made.
+
+**Reverted rather than left dormant**, on §586's precedent: an arm that measures
+zero does not stay in the tree. What is kept is the number — *whoever revisits
+the `strictNullChecks` default now knows it is worth **+27 lines / up to 15
+cases** on the widening side alone, against the 1,221 lines the `false` default
+cost.* That is a real trade to price, and neither figure alone describes it.
+Neither the arm nor the default is refused; the arm is **gated on a decision
+nobody has re-taken.**
+
+
 ### §589, 2026-08-14 — **rest-aware argument pairing in `choose_overload`** (3 R→W, net zero)
 
 Built as part 2 of `concat`'s corrected condition and reverted the same
