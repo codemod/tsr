@@ -1138,8 +1138,15 @@ impl<'a> Checker<'a, '_> {
                 self.nodes.kind(declaration),
                 SyntaxKind::FunctionExpression | SyntaxKind::ArrowFunction
             );
-            if is_async
-                || (!generator_expression
+            // §640: an ASYNC generator mints `AsyncGenerator` from the same
+            // three slots — `createGeneratorType(yield, return, next, isAsync)`
+            // (`checker.go:20247`). §583 declined `is_async` wholesale; that gate
+            // was written for the async NON-generator arm, whose contextual
+            // return can turn `void` into `undefined`, and a generator's slots
+            // do not go through that road.
+            if (is_async && generator_expression)
+                || (!is_async
+                    && !generator_expression
                     && !self.declaration_takes_no_contextual_return(declaration, may_return_never))
             {
                 return None;
@@ -1592,9 +1599,13 @@ impl<'a> Checker<'a, '_> {
             // (`generatorReturnTypeFallback.1-4` want
             // `IterableIterator<number, void, unknown>` under
             // `@lib: es5,es2015.iterable`).
-            let generator = self
-                .global_type_symbol_with_arity("Generator", 3)
-                .or_else(|| self.global_type_symbol_with_arity("IterableIterator", 3))?;
+            let generator = if is_async {
+                self.global_type_symbol_with_arity("AsyncGenerator", 3)
+                    .or_else(|| self.global_type_symbol_with_arity("AsyncIterableIterator", 3))?
+            } else {
+                self.global_type_symbol_with_arity("Generator", 3)
+                    .or_else(|| self.global_type_symbol_with_arity("IterableIterator", 3))?
+            };
             // §135 slice 1's R slot: the return aggregate, `void` when empty.
             let return_slot = match return_types.as_slice() {
                 [] => self.intrinsics.void,

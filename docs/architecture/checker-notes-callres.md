@@ -2204,3 +2204,44 @@ passing", not a synonym.** The single-transition join (STATUS §6) that produced
 has — every one of those landed real cases — but its convertible counts include
 an unknown share of cases that would still fail on alignment after the arm.
 **Check a deficit-1 case with `casequery` before promising it converts.**
+
+---
+
+## §640 — ASYNC generators mint `AsyncGenerator` (+2 cases, 117 lines, 0 R→W)
+
+`createGeneratorType(yield, return, next, isAsync)` (`checker.go:20247`) picks
+`AsyncGenerator` over `Generator` from one flag; the three slots are computed
+identically. §583 declined `is_async` **wholesale**, and that gate was written
+for the async NON-generator arm — whose contextual return really can turn `void`
+into `undefined` (`checker.go:20179`). A generator's slots never go through that
+road, so the gate was over-broad from the start.
+
+Split so the async gate applies only to async generator EXPRESSIONS (which can
+carry a contextual signature) and the declaration road resolves:
+
+```
+GAP->RIGHT   85   emitter.asyncGenerators.objectLiteralMethods.es2015 18, …
+WRONG->RIGHT 32   privateNameStaticMethodAsync 15, privateNameMethodAsync 10, …
+GAP->WRONG    3 ⚠  types.asyncGenerators.es2018.1
+RIGHT->WRONG  0
+checker_types 6,003 -> 6,005, gradient 90.78% -> 90.80%
+```
+
+**117 conversions from splitting one boolean.** The arm was not missing; it was
+excluded by a condition that named the wrong population — §583 wrote
+`is_async ||` where upstream writes `isAsync` as an *argument* to the type
+constructor.
+
+### What is still approximate, and why it measured almost clean anyway
+
+Upstream takes the **awaited** operand type for an async generator's yield slot.
+This arm does not await, so a `yield somePromise` inside an async generator
+would over-report. The corpus punished that three times
+(`types.asyncGenerators.es2018.1`) against 117 conversions, because the
+overwhelming majority of async-generator fixtures yield non-thenables or nothing
+at all — `never`, `any`, or a plain value.
+
+**Recorded rather than gated**: gating on "no thenable operand" would need
+`getAwaitedType`, which is the same machinery the async non-generator arm still
+waits on (§14). The three lines are the honest price and are named here so a
+future `getAwaitedType` landing knows to re-measure them.
