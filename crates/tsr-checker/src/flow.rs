@@ -235,9 +235,22 @@ impl Checker<'_, '_> {
     /// - **Evolving *array* types** — `ObjectFlagsEvolvingArray`,
     ///   `autoArrayType`, `finalizeEvolvingArrayType`. The scalar half of the
     ///   same mechanism *is* ported (see [`Checker::is_auto_typed_declaration`]
-    ///   and [`Checker::get_type_at_flow_assignment`]); the array half is
-    ///   selected by an empty-array initialiser, which this port answers `false`
-    ///   for, so the two do not interleave.
+    ///   and [`Checker::get_type_at_flow_assignment`]).
+    ///
+    ///   **§703 corrects what stood here.** This said the array half was
+    ///   "selected by an empty-array initialiser, which this port answers
+    ///   `false` for". That is **stale**: [`Checker::is_auto_array_declaration`]
+    ///   answers `true` for exactly `var x = []` with no annotation, so the
+    ///   array half IS selected and `state.is_auto_array` is set.
+    ///
+    ///   The gap is one step further in: the `ARRAY_MUTATION` arm below only
+    ///   guards recursion depth and then walks to the antecedent — it never
+    ///   **accumulates** the pushed element types, so an evolving array never
+    ///   evolves and the declared `any[]` survives. `controlFlowArrays` wants
+    ///   `() => (string | number)[]` and gets `() => any[]` on **80 lines** for
+    ///   that reason. What is missing is `addEvolvingArrayElementType` at each
+    ///   `x.push(e)` / `x[i] = e` plus `finalizeEvolvingArrayType` at the
+    ///   reference.
     /// - **The `unreachableNeverType` and non-null-assertion fallbacks** at the
     ///   end of `getFlowTypeOfReferenceEx`. Neither can fire: this port produces
     ///   no `unreachableNeverType`, because `isReachableFlowNode` — the only
