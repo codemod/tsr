@@ -716,3 +716,73 @@ the setter's symbol never saw the getter upstream's late-bound merge reads —
 the same way. `get_type_of_accessors_worker` now reconstructs the pair
 through §383's sibling walk (same spelled name, accessor kinds) before the
 getter/setter split. Wins: symbolProperty47, symbolDeclarationEmit4/10/11.
+
+---
+
+## §584 — a `TypeLiteral` property name that is not an identifier (+161 lines, 0 adverse)
+
+`get_type_from_type_literal` (`declared.rs`) resolved a `PropertySignature`
+name with a one-arm match — `Identifier` — and a `_ => return error` catching
+everything else. A returned `error` is not a local decline: it is the type of
+the WHOLE literal, printed `any`. So
+
+```ts
+var a: { 1: number; 1: number; }        // numericNamedPropertyDuplicates
+var x: { "data-foo"?: string; }         // tsxAttributeResolution7
+```
+
+printed `any` where upstream prints `{ 1: number; }` and
+`{ "data-foo"?: string; }`.
+
+### The find
+
+This did not come from reading `declared.rs`. It came from **joining the `any`
+audit against the single-transition population** — the 547 cases whose only
+non-right line is one line, so that converting it flips a case. 180 of those
+547 print `any`, and `any_audit`'s ranked rows could not say which arm to build
+because its rows are diffuse (top-1 under 4%, each row spread over hundreds of
+cases that fail for other reasons too). Ranking those same rows **by their
+intersection with the single-transition set** is a case forecast rather than a
+line count, and it is what put a one-arm match at the top of a 9,538-case
+board. `TSR_ANY_DUMP=1 cargo run --release -p tsr-conformance --example
+any_audit` writes `target/any_lost_lines.tsv` for that join; the key is
+`verdict.rs:70`'s, byte-for-byte.
+
+**The attributed REASON on those rows was wrong and did not matter.** 25 of the
+42 function-typed wants carried "declaration name -> shorthand ambient module",
+which is nonsense for a plain `function*` — they are `UNCLASSIFIED/DISAGREEMENT`
+rows, and that label means precisely *the classifier's reason does not explain
+this line*. The rows were still the right ranking, because what was being
+ranked was the **population**, not the explanation. A probe can be worth using
+with a broken column in it, provided the broken column is the one you are not
+reading.
+
+### The answer
+
+The object-literal road (`objects.rs:1132`) had already solved this exact
+question — unquoted when the name is identifier-valid, `printing::quote`
+otherwise, the §77.3 single-quote rule, `printing::normalise_number` for a
+numeric name. `objects::written_property_name` is that spelling extracted;
+`declared.rs` calls it for the `StringLiteral` and `NumericLiteral` arms.
+
+```
+TOTAL 474196  right 433956  gap 8450  wrong 31790
+GAP->RIGHT: 31   WRONG->RIGHT: 130   (no adverse transition of any kind)
+  assignmentCompatWithObjectMembersStringNumericNames 31, numericIndexingResults 28,
+  assignmentCompatWithObjectMembersNumericNames 15, unionTypeWithIndexSignature 11,
+  objectTypeWithStringNamedPropertyOfIllegalCharacters 8
+```
+
+161 lines from an arm that is four lines of dispatch, because a whole-literal
+decline is leveraged: one unspellable member costs every line the literal
+appears on.
+
+### The duplication, stated rather than hidden
+
+The object-literal road still carries its own inline copy of the four arms.
+Wiring it through the extracted function means restructuring a match whose
+other arms `continue` and contribute index signatures, on a road with **no
+measured defect** — churn for no conversion, so it was not done. Both copies
+call the same `printing::quote`/`printing::normalise_number`, so the escape
+table stays single-sourced; what is duplicated is the dispatch. If they ever
+disagree, the extracted copy is the one to delete.

@@ -401,11 +401,31 @@ fn the_intra_expression_road_cannot_reenter_a_return_inference() {
 }
 
 #[test]
-fn the_contextual_gate_still_declines_where_upstream_has_an_arm() {
-    // A parent WITH an arm still declines — `KindVariableDeclaration`
-    // (`:29356`). This is the case §135 was protecting and it must not move.
+fn the_contextual_gate_declines_where_upstream_has_an_arm_that_answers() {
+    // §583 CORRECTED THIS ASSERTION, which read `"error"` and was named
+    // "...where upstream has an ARM". Having an arm was never the test:
+    // `checkAndAggregateYieldOperandTypes` (`checker.go:20334`) appends the
+    // NEXT slot only when `getContextualType` returns NON-NIL, and an empty
+    // `nextTypes` becomes `unknownType` (`:20242`). `KindVariableDeclaration`
+    // routes to `getContextualTypeForInitializerExpression` (`:29423`), which
+    // answers nil for an UNANNOTATED declaration.
+    //
+    // Upstream's own baseline settles it rather than this comment:
+    // `generatorImplicitAny` records `const value = yield;` as
+    // `() => Generator<undefined, void, unknown>` (g2) and
+    // `const value: string = yield;` as
+    // `() => Generator<undefined, void, string>` (g3). Unannotated is
+    // `unknown`; the ANNOTATION is what makes the position contextual.
     assert_eq!(
         generator_declaration_type("function* g() { var v = yield 1; }", "g", false),
+        "() => Generator<number, void, unknown>"
+    );
+    // g3's half, and the reason the arm is a nil test and not a deletion: an
+    // ANNOTATED declaration really is a contextual position, upstream reads
+    // the NEXT slot from it, and this port does not compute that — so it must
+    // still decline whole rather than print `unknown` there.
+    assert_eq!(
+        generator_declaration_type("function* g() { var v: string = yield 1; }", "g", false),
         "error"
     );
     // FLIPPED at §353. `KindYieldExpression` (`:29360`) IS in the switch —
@@ -429,8 +449,16 @@ fn the_contextual_gate_still_declines_where_upstream_has_an_arm() {
     // IS contextual can tell them apart. Deleting
     // `SyntaxKind::ParenthesizedExpression` from the walk reddens exactly this
     // line and nothing else.
+    //
+    // §583 had to ANNOTATE this fixture to keep it discriminating: it read
+    // `var v = (yield 1)`, and an unannotated declaration is no longer a
+    // contextual position, so both the walk and its deletion now answer the
+    // same `Generator` type and the control had gone silent. The annotation is
+    // what puts a contextual parent back on the far side of the parenthesis.
+    // A control that stops discriminating is worse than no control, because it
+    // still reads green.
     assert_eq!(
-        generator_declaration_type("function* g() { var v = (yield 1); }", "g", false),
+        generator_declaration_type("function* g() { var v: string = (yield 1); }", "g", false),
         "error"
     );
     // Kept beside it as the case that does NOT discriminate, so the next

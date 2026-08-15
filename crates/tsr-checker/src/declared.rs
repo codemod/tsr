@@ -970,6 +970,18 @@ impl<'a> Checker<'a, '_> {
                 return error;
             };
             let name = match property.name {
+                // §584: a STRING- or NUMERIC-named signature renders through
+                // the object-literal road's own spelling rather than declining
+                // the whole literal. `var a: { 1: number }` printed `any`
+                // because the `_ => return error` below caught every name kind
+                // this arm did not list, and the list was one kind long.
+                tsr_ast::PropertyName::StringLiteral(_)
+                | tsr_ast::PropertyName::NumericLiteral(_) => {
+                    match crate::objects::written_property_name(&property.name) {
+                        Some(name) => name,
+                        None => return error,
+                    }
+                }
                 tsr_ast::PropertyName::Identifier(name) => name.text.to_string(),
                 // SS327: the property-signature half of the late-bound arm -
                 // `{ [Symbol.iterator]: { x } }` in type position prints the

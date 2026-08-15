@@ -1671,6 +1671,72 @@ fn implied_pattern_member_is_optional(
     matching_pattern_element(pattern, name).is_some_and(|element| element.initializer.is_some())
 }
 
+/// How a **written** property name PRINTS as a member name — upstream's
+/// `symbolToString` spelling.
+///
+/// **Called by the `TypeLiteral` road only.** The object-literal road above
+/// (`:1132`) still carries the original inline arms this was extracted from;
+/// they are the same four answers, and this is deliberately their copy rather
+/// than their replacement. Wiring that road through here means restructuring a
+/// match whose remaining arms `continue` and contribute index signatures, on a
+/// road with no measured defect — churn on working code for no conversion.
+///
+/// Stated rather than done silently, because a reader is entitled to know the
+/// two copies exist. **If they ever disagree, this one is the copy to delete**:
+/// the object-literal road's arms are the ones with the corpus behind them.
+/// Both call `printing::quote` and `printing::normalise_number`, so the escape
+/// table the `:1166` comment warns about is still single-sourced — what is
+/// duplicated is the four-way dispatch, not the table.
+///
+/// Answers `None` for a computed or template name and for the parser's empty
+/// recovery identifier: those are not name-rendering questions, and each
+/// caller already owns a different answer for them (`continue`, a late-bound
+/// lookup, an index contribution). Returning `None` rather than guessing is
+/// what keeps that ownership with the caller.
+///
+/// # Why this is one function and not two
+///
+/// §584: `get_type_from_type_literal` (`declared.rs:1019`) declined the WHOLE
+/// literal for any non-identifier `PropertySignature` name, so
+/// `var a: { 1: number }` printed `any` — 18 corpus cases, each exactly one
+/// line from passing. The object-literal road (`:1155`) had already solved the
+/// identical question. Duplicating its three string arms would have put the
+/// single-quote rule (§77.3) and the `normalise_number` call in two places
+/// that must agree, which is the divergence the re-quoting comment at `:1166`
+/// argues against for the escape table itself.
+pub(crate) fn written_property_name(name: &tsr_ast::PropertyName<'_>) -> Option<String> {
+    match name {
+        // The parser's recovery placeholder — an `Identifier` with no text.
+        // See `:1145`: printing it yields `{ : any; }`, a shape no compiler
+        // emits.
+        tsr_ast::PropertyName::Identifier(identifier) if identifier.text.is_empty() => None,
+        tsr_ast::PropertyName::Identifier(identifier) => Some(identifier.text.to_string()),
+        // Unquoted when the name is a valid identifier, re-quoted otherwise:
+        // `{ "a": 1 }` is `{ a: number; }` and `{ "a-b": 1 }` is
+        // `{ "a-b": number; }`.
+        tsr_ast::PropertyName::StringLiteral(literal) if is_identifier_text(literal.text) => {
+            Some(literal.text.to_string())
+        }
+        // §77.3: a SINGLE-quoted written name keeps its quote — `{ '1.0': "" }`
+        // prints `{ '1.0': string; }`. Only on the re-quoted arm; an
+        // identifier-valid name prints bare whichever quote wrote it.
+        tsr_ast::PropertyName::StringLiteral(literal)
+            if literal.token_flags.contains(tsr_ast::TokenFlags::SINGLE_QUOTE) =>
+        {
+            Some(format!("'{}'", literal.text))
+        }
+        tsr_ast::PropertyName::StringLiteral(literal) => Some(printing::quote(literal.text)),
+        // A numeric name prints as its NORMALISED value, unquoted: `{ 1.0: x }`
+        // prints `1`. `normalise_number` is the same function the numeric
+        // literal TYPE prints through, which is what stops `{ 1e3: x }`
+        // printing `1e3` here and `1000` there.
+        tsr_ast::PropertyName::NumericLiteral(literal) => {
+            Some(printing::normalise_number(literal.text))
+        }
+        _ => None,
+    }
+}
+
 /// The literal text a property name binds under, for the §489 match. Computed
 /// and template names answer `None` — the callers decline there.
 fn property_name_text<'a>(name: &tsr_ast::PropertyName<'a>) -> Option<&'a str> {

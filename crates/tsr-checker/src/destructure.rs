@@ -206,7 +206,7 @@ impl Checker<'_, '_> {
                     // above and must keep declining: this arm is reached only
                     // when the parent is not a tuple at all, so it cannot
                     // silently answer the sliced-mask question §321 refused.
-                    if self.tuple_element_lists.get(&parent_type).is_none()
+                    if !self.tuple_element_lists.contains_key(&parent_type)
                         && let Some(element_type) = self.for_of_element_type(parent_type)
                         && element_type != error
                         && let Some(array) = self.global_type_symbol("Array")

@@ -1848,3 +1848,74 @@ type-side admission inverts the failure cost: a diagnostic not emitted
 is silence, an `any` minted where upstream resolves is a wrong line per
 use. REFUSED until the host learns symlink/path-mapping resolution;
 the ~2,500-line no-value-decl ALIAS rows stay with `bd tsr-9or.1`.
+---
+
+## §583 — the generator NEXT slot: a kind list where upstream has a nil test (+5 lines, 0 adverse)
+
+`return_type_from_body`'s generator arm declines the WHOLE signature when a
+`yield` sits in a "contextual" position, where contextual is a **list of parent
+kinds** (§223, which had already widened it once from §135's allowlist of two).
+
+The list is wrong in a way neither earlier pass caught, and the fixture that
+shows it is three lines long:
+
+```ts
+function* g() { class C { x = yield 0 } }   // generatorTypeCheck57
+```
+
+wants `() => Generator<number, void, unknown>`; this port printed `any`.
+
+### The confusion
+
+§223 built the list as *the complement of the kinds absent from
+`getContextualType`'s switch* (`checker.go:29354`) — correct as far as it goes.
+But the NEXT slot does not ask *"does this kind have an arm"*, it asks **what
+the arm ANSWERS**: `checkAndAggregateYieldOperandTypes` (`:20334`) sets
+`nextType = getContextualType(yieldExpr)` and appends **only if non-nil**, and a
+`nextTypes` that stays empty becomes `unknownType` (`:20242`–`:20245`).
+
+The variable-like arms (`:29356`) all route to
+`getContextualTypeForInitializerExpression` (`:29423`), which returns nil
+whenever the declaration carries no annotation. So an unannotated `x = yield 0`
+has **no** contextual type, the NEXT slot is `unknown`, and there was never
+anything to decline. A kind having an arm and that arm answering are two
+different claims, and the list conflated them.
+
+`initializer_position_is_contextual` (`signatures.rs`) is the nil test
+transcribed: not the initializer (`:29426`) → nil; annotated (`:29440`) →
+contextual; binding-pattern name (`:29431`) → contextual; STATIC property
+(`:29448` → `:29612`) → contextual only when the class is an **expression**,
+which is why `class C { static x = yield 0 }` as a declaration statement
+(`generatorTypeCheck58`) also wants `unknown`.
+
+### The gate the measurement added
+
+The first build applied the refinement everywhere and scored **+5 with one
+adverse**: `generatorYieldContextualType`'s `f1<0, 0, 1>(function* () { const a
+= yield 0 })` went GAP→WRONG. A generator **expression** can carry a contextual
+SIGNATURE, and then the NEXT slot comes from `getContextualIterationType`
+rather than from the yield's own position — the nil analysis above is about
+`getContextualTypeForInitializerExpression` and simply does not cover that
+road. Restricted to the DECLARATION arm — the arm §223's safety argument was
+made in — the same change measures:
+
+```
+TOTAL 474196  right 433795  gap 8481  wrong 31920
+GAP->RIGHT: 2    compiler/generatorES6_6, conformance/templateStringInYieldKeyword
+WRONG->RIGHT: 3  generatorImplicitAny, generatorTypeCheck57, generatorTypeCheck58
+(no adverse transition of any kind)
+```
+
+**The adverse was found by the full run, not by the reasoning.** The filtered
+run over the four cases the arm was written for was clean; the corpus named the
+case the argument had not covered. That is the §12.2 discipline paying out
+exactly as advertised, and it is why a filtered score may iterate but never
+land.
+
+### Still declined, and still correctly
+
+`castOfYield` wants `Generator<number, void, number>` — a NEXT slot genuinely
+fed by a contextual position (`<number>(yield 0)`, a `TypeAssertionExpression`,
+whose arm really does answer). It stays a gap. This change converts the
+positions where upstream answers **nil**; it does not port the positions where
+upstream answers a **type**, which is the remaining half and is not sized here.

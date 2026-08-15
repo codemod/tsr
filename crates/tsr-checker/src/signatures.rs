@@ -1046,6 +1046,65 @@ impl<'a> Checker<'a, '_> {
 
     /// `getReturnTypeFromBody`'s body, shared by the signature path and
     /// [`Checker::get_return_type_from_body`] so the two cannot drift.
+    /// Does a yield sitting in `declaration`'s initializer slot actually have a
+    /// contextual type? — `getContextualTypeForInitializerExpression`
+    /// (`checker.go:29423`) reduced to the question the generator's NEXT slot
+    /// asks of it.
+    ///
+    /// Answering `false` is the claim *"upstream's `getContextualType` returns
+    /// nil here"*, which makes the NEXT slot `unknown` (`checker.go:20242`).
+    /// Every arm below is a place `:29423`/`:29438` provably falls through to
+    /// its `return nil`, so a wrong answer here costs a wrong `next` slot
+    /// rather than a crash — the same failure direction §223 chose for the
+    /// list this refines.
+    fn initializer_position_is_contextual(&self, declaration: NodeId, child: NodeId) -> bool {
+        let (name_is_pattern, annotated, initializer, modifiers) =
+            match self.node_map.get(declaration) {
+                Some(Node::VariableDeclaration(d)) => (
+                    matches!(d.name, Some(tsr_ast::BindingName::BindingPattern(_))),
+                    d.r#type.is_some(),
+                    d.initializer.and_then(|initializer| initializer.node_id()),
+                    &[][..],
+                ),
+                Some(Node::PropertyDeclaration(d)) => (
+                    false,
+                    d.r#type.is_some(),
+                    d.initializer.and_then(|initializer| initializer.node_id()),
+                    d.modifiers,
+                ),
+                // Not a shape this refinement claims anything about.
+                _ => return true,
+            };
+        // `:29426` — the contextual type is the INITIALISER's alone. A yield
+        // anywhere else under the declaration (a computed property name, an
+        // annotation's expression) reaches `:29435`'s `return nil`.
+        if initializer != Some(child) {
+            return false;
+        }
+        // `:29440` — an annotation is the contextual type, so this really is a
+        // contextual position and the signature must still decline.
+        if annotated {
+            return true;
+        }
+        // `:29431` — a binding-pattern name synthesises a contextual type from
+        // the pattern even with no annotation.
+        if name_is_pattern {
+            return true;
+        }
+        // `:29448` — a STATIC property routes to
+        // `getContextualTypeForStaticPropertyDeclaration` (`:29612`), which
+        // answers non-nil only when the class itself is an EXPRESSION with a
+        // contextual type. `class C { static x = yield 0 }` as a declaration
+        // statement (`generatorTypeCheck58`) therefore still wants `unknown`.
+        if crate::check::has_modifier(modifiers, SyntaxKind::StaticKeyword) {
+            return self
+                .nodes
+                .parent(declaration)
+                .is_some_and(|class| self.nodes.kind(class) == SyntaxKind::ClassExpression);
+        }
+        false
+    }
+
     fn return_type_from_body(
         &mut self,
         declaration: NodeId,
@@ -1189,23 +1248,68 @@ impl<'a> Checker<'a, '_> {
                     // are walked through rather than listed. Without this,
                     // `(yield 0)` — the shape every heritage-clause fixture
                     // writes — never reaches the test at all.
+                    //
+                    // `child` tracks the node the delegation would have been
+                    // called WITH: upstream recurses `getContextualType(parent)`
+                    // on the parenthesis itself, so the `node == initializer`
+                    // test at `:29426` compares the outermost parenthesis, not
+                    // the yield inside it.
+                    let mut child = id;
                     let mut current = self.nodes.parent(id);
                     while let Some(parent) = current {
                         if matches!(
                             self.nodes.kind(parent),
                             SyntaxKind::ParenthesizedExpression | SyntaxKind::NonNullExpression
                         ) {
+                            child = parent;
                             current = self.nodes.parent(parent);
                             continue;
                         }
                         break;
                     }
                     current.is_some_and(|parent| {
+                        // §583: the DECLINE list is a list of PARENT KINDS, and
+                        // a kind having an arm in `getContextualType`
+                        // (`checker.go:29354`) is not the same claim as that arm
+                        // ANSWERING. The variable-like arms (`:29356`) all route
+                        // to `getContextualTypeForInitializerExpression`
+                        // (`:29423`), which answers **nil** whenever the
+                        // declaration carries no annotation — and a nil
+                        // contextual type is upstream's `unknown` NEXT slot
+                        // (`:20242`–`:20245`), not a reason to decline the whole
+                        // signature. `function* g() { class C { x = yield 0 } }`
+                        // (`generatorTypeCheck57`) wants
+                        // `Generator<number, void, unknown>` and this port
+                        // declined it — the gate was written for the entrance
+                        // its author had in hand (§32.1, a fifth instance).
+                        //
+                        // Restricted to the DECLARATION arm. A generator
+                        // EXPRESSION can carry a contextual SIGNATURE, and then
+                        // the NEXT slot comes from
+                        // `getContextualIterationType` (`:20242`) rather than
+                        // from the yield's own position — `f1<0, 0, 1>(function*
+                        // () { const a = yield 0 })` wants
+                        // `() => Generator<0, 0, 1>`
+                        // (`generatorYieldContextualType`), and reading the
+                        // unannotated `const a` as non-contextual made it WRONG
+                        // where it had been a gap. Measured, not reasoned: it
+                        // was this refinement's only adverse transition.
+                        if !generator_expression
+                            && matches!(
+                                self.nodes.kind(parent),
+                                SyntaxKind::VariableDeclaration | SyntaxKind::PropertyDeclaration
+                            )
+                        {
+                            return self.initializer_position_is_contextual(parent, child);
+                        }
                         matches!(
                             self.nodes.kind(parent),
+                            // Still declined wholesale on the EXPRESSION side,
+                            // which the refinement above deliberately does not
+                            // reach.
                             SyntaxKind::VariableDeclaration
-                                | SyntaxKind::Parameter
                                 | SyntaxKind::PropertyDeclaration
+                                | SyntaxKind::Parameter
                                 | SyntaxKind::PropertySignature
                                 | SyntaxKind::BindingElement
                                 | SyntaxKind::ArrowFunction

@@ -129,6 +129,14 @@ struct CaseReport {
     /// What upstream printed on the lost lines.
     lost_wants: HashMap<String, usize>,
     disagreement: usize,
+    /// Per-line attribution for the LOST lines, emitted only under
+    /// `TSR_ANY_DUMP=1`. The key is `case:index:position`, byte-for-byte the
+    /// one `verdict.rs:70` writes, so this joins against
+    /// `target/verdict_baseline.tsv` without a fuzzy match. Written because
+    /// the ranked rows above are diffuse (top-1 under 4%): the forecastable
+    /// quantity is not a row's line count but its intersection with the
+    /// single-transition population, and only a join can compute that.
+    dump: Vec<String>,
 }
 
 #[allow(clippy::cast_precision_loss)]
@@ -599,6 +607,7 @@ fn main() {
     let corpus = Corpus::from_repo_root(&root);
     assert!(corpus.is_available(), "corpus missing; run git submodule update --init --recursive");
     let cases = corpus.discover().expect("discovering cases");
+    let dump = std::env::var("TSR_ANY_DUMP").is_ok_and(|v| !v.is_empty());
 
     let reports: Vec<CaseReport> = cases
         .par_iter()
@@ -654,12 +663,29 @@ fn main() {
                     rows.entry((bucket.label(), reason)).or_default().add(&case.name);
                     if want_type != "any" {
                         *report.lost_wants.entry(want_type.to_string()).or_default() += 1;
+                        if dump {
+                            let (bucket, reason) = ctx.classify(id);
+                            report.dump.push(format!(
+                                "{}:{index}:{position}\t{}\t{reason}\t{want_type}",
+                                case.name,
+                                bucket.label(),
+                            ));
+                        }
                     }
                 }
             }
             Some(report)
         })
         .collect();
+
+    if dump {
+        let path = repo_root().join("target/any_lost_lines.tsv");
+        let mut out: Vec<&str> =
+            reports.iter().flat_map(|r| r.dump.iter().map(String::as_str)).collect();
+        out.sort_unstable();
+        std::fs::write(&path, out.join("\n")).expect("write any dump");
+        eprintln!("any_audit: wrote {} LOST lines to {}", out.len(), path.display());
+    }
 
     let aligned: usize = reports.iter().map(|r| r.aligned).sum();
     let matched: usize = reports.iter().map(|r| r.matched).sum();

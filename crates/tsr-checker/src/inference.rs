@@ -218,7 +218,7 @@ impl Checker<'_, '_> {
                 // separate measurement and keeps the gap it always had.
                 // **The FIRST spread's element, not the union of them.**
                 // Upstream infers `T` through the ordinary candidate machinery
-                // (`getInferredType` -> `getCommonSupertype`, `infer.go`), and
+                // (`getInferredType` -> `getCommonSupertype`, `inference.go`), and
                 // with no common supertype among the candidates the first one
                 // wins. `foo(...new SymbolIterator, ...new _StringIterator)`
                 // records `symbol`, not `string | symbol` — measured: the union

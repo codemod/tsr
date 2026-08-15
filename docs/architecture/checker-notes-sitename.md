@@ -3108,3 +3108,72 @@ between them.
 module symbol without a type is worse than no module symbol —
 `requireOfJsonFileTypes` 7 and `requireOfJsonFileWithEmptyObject` 6 — which is
 the population any future attempt must convert rather than merely stop damaging.
+
+---
+
+## 41. §582 — `getAccessibleSymbolChain` SIZED, and it is not what the page said
+
+§17 closed with *"the single highest-value unbuilt item on this page is now
+`getAccessibleSymbolChain` (`symbolaccessibility.go:373`)"*, on the argument
+that it is named as the blocker in three places (§12.4, §15.4, §16) and is
+therefore one piece of work paying three debts. The briefing for §582 carried
+that ranking forward with the instruction to **size it before it becomes
+another number in a goal**. It was sized. The ranking does not survive.
+
+### 41.1 What the instrument answers
+
+`examples/qualname.rs` is the probe built for exactly this family — the
+resolution half, the half `getAccessibleSymbolChain` *is*. At `10e99bd1`:
+
+```
+classified target (gap line, root is a qualified TypeReference
+                   whose leftmost resolves as a namespace):  198
+
+converting cases: W 8, R 1;  classified cases 52
+design                    CONVERTS   WOULD PRINT WRONG   DECLINES
+W  written entity name         27                  42        125
+R  computed bare name          40                  32        126
+```
+
+**Eight cases.** The whole resolution half of the item ranked highest on this
+page converts 8 cases on its better design, and that design also prints 42
+lines wrong. The printing half (design P) is not a gain column at all: its
+5,308 (strict) / 15,898 (loose) are lines **at risk** — right today, moved by
+the mechanism.
+
+### 41.2 Why the "three debts" argument overcounted
+
+Each of the three citations is real, and none of them is a case count:
+
+- **§12.4** — `needs_qualification`'s `None => true` supplies "6,850 lines'
+  worth of qualifiers". That is the size of the population the proxy
+  *serves*, not the size of the population it gets *wrong*. §12.4 says so
+  itself: "its `None` arm is a correct proxy for a function this port does not
+  have." A correct proxy replaced by the real function converts nothing.
+- **§15.4** — reopens slice 3, whose own arithmetic (60 cases) was refuted at
+  43,423 rows by §535 and is retired (STATUS.md §4.-1). Reopening a refused
+  item restores the *question*, not its pre-refutation price.
+- **§16** — §11.2's ~325 lines, explicitly recorded as having "no independent
+  path" and carrying §15.4's condition verbatim. It is the same debt as the
+  one above, counted a second time.
+
+Three citations, one of which is a proxy that is already right, one a retired
+number, and one a duplicate of the second. **"Named as the blocker in three
+places" measured the page's own cross-referencing, not the corpus.**
+
+### 41.3 The rule this is a fourth instance of
+
+§11.3 — *distrust an aggregate claim about a population nobody has printed* —
+is now carrying its fourth confirmed instance (the loose rename bucket, the
+`function -> function` near-miss ratio, §1.2's symbol-means-a-name, and this).
+This one is worth distinguishing from the other three: the aggregate here was
+not a ratio or a row count but a **citation count**, which is a claim about
+documentation rather than about the corpus, and it survived three sessions of
+readers because every individual citation it rested on was true.
+
+> **Not refused — repriced.** `getAccessibleSymbolChain` remains the correct
+> port of a function this port lacks, and its alias walk and shortest-chain
+> total order are still the honest answers where `module_alias_at` declines on
+> ambiguity (§4.2). It is an 8-case item with a 5,308-line at-risk shadow, and
+> it must be ranked as one. **Reopen the "highest-value" claim only against a
+> printed row dump that names more than 8 cases.**
