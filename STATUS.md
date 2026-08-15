@@ -2705,6 +2705,39 @@ two references.
 > Two placements now measured at zero in this arm (§665's guard was the other
 > kind — zero because a later stage declined). **Do not add a third qualifier
 > return without first printing which branch the reference actually takes.**
+>
+> **§672 printed the branch, and the arm I tried to add ALREADY EXISTS.**
+> `checker.rs:1991`:
+>
+> ```rust
+> if let Some(alias) = self.module_alias_at(parent, reference) {
+>     return Some(format!("{alias}."));
+> }
+> ```
+>
+> That is exactly the qualifier §671 appended to the tail — sitting **57 lines
+> earlier** and returning before it, which is why the tail probe was silent and
+> the addition measured zero. I wrote a fix the file already had because I read
+> the arm from `:2005` downward instead of from its top.
+>
+> **The predicates, printed:** `alias_in_scope=false is_module_symbol=true
+> is_ambient=false`, and `needs_qualification` split correctly by file —
+> **`true` for both references in `_1.ts`, `false` for the one in `_0.ts`**,
+> which is right in both files. So the walk is entered, qualifies correctly, and
+> `module_alias_at` answers `f`.
+>
+> **The actual defect is UPSTREAM of `symbol_chain`, and the count is the
+> evidence: `symbol_chain` is called only THREE times for this fixture, while
+> `_1.ts` has SIX lines wanting `f.Mode`.** The naming road is never invoked for
+> most of the enum-typed positions — `x : f.Mode`, `Open : f.Mode` and the rest
+> never ask. So nothing inside `symbol_chain` or its module arm can fix them.
+>
+> **NEXT VALUE TO PRINT — and it is a different question from every probe so
+> far:** for the `x : Mode` line, whether `qualified_name_at` is called at all,
+> and if so what `TypeData` variant the enum type has. `qualified_name_at`
+> extracts a symbol only from `Named`/`Anonymous`/`Union`/`Intersection`
+> (`:1687-1699`); an enum member or enum type in another shape yields `None` and
+> returns the baked text untouched. **Stop probing the module arm — it works.**
 
 **Standing correction:** §668 said this lane is a rendering change. That holds for
 the ~62 nested cases (`symbols.rs:2273` bakes type text at creation). It does
