@@ -2599,6 +2599,52 @@ version of bare `any`.
 ### §598 CORRECTED BY §599, 2026-08-14 — **the diagnosis below was WRONG; the gate is `noImplicitAny`, and the arm has since LANDED (+7 cases)**
 
 
+### §664 — sizing `getAccessibleSymbolChain`, and a correction to my own number
+
+The briefing ranked this #1 with *"size it before it becomes another number in a
+goal."* It was never sized this session. Sized now, against the §654 baseline.
+
+**Cases whose every wrong line wants a QUALIFIED name and gets a bare one: 145
+(3,204 lines).** Split by what the port prints:
+
+| | cases |
+|---|---|
+| a real type, un-qualified | 74 |
+| `any` — symbol never resolved | 44 |
+| `error` — symbol never resolved | 27 |
+
+**CORRECTION, made before this number gets used.** I first reported the 74 as
+"naming only — the type is already right." **That is wrong for at least 5 of
+them.** The tightest sub-family — where `want` is exactly `got + ".<member>"` —
+is all enums, and they are **narrowing failures, not naming failures**:
+
+```ts
+function f1(v: E1) { if (v !== 1) { v; } }   // upstream: v : E1.b
+```
+
+We print `E1` because the enum union is not narrowed by `!==` against a numeric
+literal, not because the name is unqualified. `equalityWithEnumTypes` (4 lines),
+`computedEnumTypeWidening`, `declarationEmitEnumReadonlyProperty`,
+`enumMemberReduction`, `logicalAndOperatorWithEveryType` are that shape. The
+member DECLARATIONS already print `E1.a` correctly — `declared.rs:3008` mints
+`{name}.{member_name}` — so the naming road is fine and the flow road is not.
+
+So the honest split is **≈69 naming + 5 enum narrowing**, not 74. Still the
+largest coherent lane and still larger than this session's 88-case shortfall, but
+the headline was inflated by a classifier reading "got is a real type" as "got is
+correctly computed".
+
+**The 69 are genuinely qualification**, clustering by *what* qualifies:
+`import("./color").default`, `import("foo").SomeProps`, `typeof m1.c`,
+`typeof maker.Bar`, `f.NumArray<any>`, `M.Function`. That is
+`getAccessibleSymbolChain` (`symbolaccessibility.go:373`).
+
+**Hazard, priced from this session:** §656 was a naming rule and cost **398
+RIGHT→WRONG** when its gate was wrong. Do not write the walk first. Print, for a
+handful of the 69, which enclosing scope the printer names from and what chain
+upstream picks — and measure with the **case-set diff**, not the transition list,
+which is what caught §656's and §661's regressions when the net looked positive.
+
 ### §661 — the name-vs-value rule: BUILT, +7 CASES, REFUTED BY ITS OWN REGRESSION, REVERTED
 
 §660 left one question: upstream emits an empty-text line for the missing
