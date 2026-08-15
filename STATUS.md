@@ -2694,8 +2694,43 @@ should get a decision record before any code.
 **How I would know I was wrong:** if some meaningful subset of the 69 fails at a
 NON-nested position — a bare `typeof moduleA` rather than one inside an object or
 signature text — then that subset is reachable through the existing
-`module_name_at` road and is genuinely arm-sized. **That subset has not been
-counted, and counting it is the cheap next step.**
+`module_name_at` road and is genuinely arm-sized.
+
+> **§669 counted it, and I was partly wrong — some of the lane IS arm-sized.**
+> Splitting the naming bucket by whether either side contains `{}()[]<>`:
+>
+> | | cases | lines |
+> |---|---|---|
+> | **FLAT — no nesting** | **11** | 19 |
+> | NESTED — needs the rendering change | 62 | — |
+>
+> The 11 cluster on one shape, *"want `Namespace.Name`, got bare `Name`"*:
+>
+> ```
+> enumFromExternalModule                want=f.Mode                 got=Mode
+> importElisionEnum                     want=MyEnumFromModule.a     got=MyEnum
+> TwoInternalModulesWithTheSameName…    want=A.Point                got=Point
+> mergedClassWithNamespacePrototype     want=typeof Foo.prototype   got=typeof prototype
+> declarationEmitOfTypeofAliasedExport  want=typeof a.D             got=typeof C
+> ```
+>
+> These are a **missing namespace/module qualifier on a flat name**, and
+> `qualified_name_at` (`checker.rs:1681`) is exactly the road that should supply
+> it — it already qualifies classes, aliases, unions, intersections and enum
+> members through `enum_member_owners`. So this subset does not need the
+> rendering decision at all.
+>
+> **Revised pricing of §664's lane: ~11 arm-sized + ~62 blocked on the rendering
+> question + 5 enum narrowing (landed at §665–§667) + 71 unresolved-symbol.**
+> The 11 are the correct next target — smaller than the headline, but reachable
+> without an ADR, and 2 of them (`computedEnumTypeWidening`,
+> `declarationEmitEnumReadonlyProperty`) are already half-served by the enum work
+> just landed.
+>
+> **Next step, and print before building:** for `enumFromExternalModule`, print
+> what `qualified_name_at` receives and returns. §665 cost two wrong guesses in a
+> lane I had already worked; this one is unfamiliar, so the print is not
+> optional.
 
 ### §665/§666/§667 — enum narrowing by `!==` a literal: +5 CASES, 78 W→R
 
