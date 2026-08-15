@@ -2599,6 +2599,34 @@ version of bare `any`.
 ### §598 CORRECTED BY §599, 2026-08-14 — **the diagnosis below was WRONG; the gate is `noImplicitAny`, and the arm has since LANDED (+7 cases)**
 
 
+### §646 — the refusals that live only in source comments (INDEX)
+
+§645 found §216/§217 recorded nowhere but the file that would implement it, and
+so re-derived its population from scratch. That prompted an audit: **134 refusal
+comments across `crates/`, citing 25 distinct sections, of which 10 appear
+nowhere in this §5.** Every instrument that ranks work (`gapdump`, `any_audit`,
+`writetarget`, `countgap`, the deficit-1 join) reads verdict rows, and none reads
+source comments — so each of these can be re-derived as though it were new.
+
+Indexed here by pointer, not re-summarised; the file is the authority. **Three
+turned out to be historical rather than live**, which is itself the reason to
+index rather than trust the grep:
+
+| § | Where | Status |
+|---|---|---|
+| §41.2 | `checker/src/assignreport.rs:920` | **REOPENED and landed** — §22 refused at 1:8 against a table that declined instantiated refs, generic decls and `Anonymous` receivers; §35/§38.2/§41.1 removed all three and the switch is now positive |
+| §190/§191 | `parser/src/expression.rs:272` | **REOPENED and fixed** — refused at `diagnostics −6` while the sink double-reported; §193 fixed the sink |
+| §191/§197 | `checker/src/signatures.rs:3751` | LIVE — a wrong `(a: any) => void` is worse than the gap; falsifier named (`call_signatures_of_type` on `interface F { (): void }`) |
+| §290 | `checker/src/declared.rs:1423` | LIVE — never-reduction of a discriminant-conflicting intersection, **measured and refused** on the `08febc71` tree |
+| §65.1 | `checker/src/symbols.rs:4302` | LIVE — the null twin of §599's `autoType`, refused at **2.4:1**; a fourth key exists and is undecoded |
+| §226 | `checker/src/check.rs:8706` | LIVE — `checkSuperExpression`'s extends test, blocked behind four arms that report other `super` messages first (§228's shape) |
+| §145/§156 | `checker/src/expressions.rs:815` | PARTLY REOPENED by §305 — the anonymous case needs per-site contextual naming; §305 reads it instead as a declaration walk |
+| §321 | `checker/src/destructure.rs:208` | LIVE — the sliced-mask question, guarded so the non-tuple parent cannot answer it silently |
+
+**The rule this establishes:** a refusal belongs in §5 *as well as* at the code.
+Recording it only where the fix would go hides it from everything that decides
+what to work on next — which cost this session two sections and a build.
+
 ### §216/§217 — a named function expression's own name (REFUSED, re-confirmed §645)
 
 `function y() { return y; }` prints `y : any` where the baseline wants
