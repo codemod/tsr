@@ -3344,6 +3344,22 @@ node assigns `[]` to an auto-typed (scalar) variable, switch it to the evolving
 array. §710 built the declaration half and all three of its gates; this is the
 one remaining entry point, and `controlFlowArrays`' `f5`/`f6` isolate it.
 
+> **§713 tried the cheap version and it does not reach the case.** Admitting
+> `is_auto_typed_declaration` into `is_auto_array_declaration` — so `let x;`
+> enters the array track — measured **−6 lines, 6 adverse
+> (`parsingDeepParenthensizedExpression`), and ZERO gains.**
+>
+> Zero gains is the informative part. §710's finalisation is gated on
+> `answer.t == state.declared_type`, and for `let x;` the declared type is `any`
+> while the flow answer at `return x` is whatever the `x = []` assignments
+> produced — never equal, so finalisation never fires however many elements
+> accumulate.
+>
+> **So the assignment half genuinely needs the evolving array to be carried
+> THROUGH the assignment node**, as upstream does: `getTypeAtFlowAssignment`
+> returns an evolving array for `x = []`, and the mutation arm then extends
+> *that*. It cannot be reached by widening the declaration predicate. Reverted.
+
 **Do not re-derive the declaration arm a third time** — it exists at
 `symbols.rs:4270` and works.
 
