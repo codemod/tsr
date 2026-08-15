@@ -8664,3 +8664,36 @@ lines and will be needed *inside* that feature; it is worth nothing before it.
 is the second time this window an arm was written on the sibling road of the one
 that mattered — §606's NEXT slot was the first — and both cost a build-and-measure
 cycle that reading one match arm would have saved.
+
+### §620 — the CONCRETE indexed-access type, array slice only (+1 line, 0 adverse)
+
+§619 found that `declared.rs`'s `IndexedAccessTypeNode` arm handles only the
+DEFERRED shape and answers `error` for everything else, by its own comment.
+This opens the concrete road on the slice that needs no inference: an **array**
+object with a literal index.
+
+`type T00 = string[]["0"]` is `string`. A numeric-literal NAME is a numeric
+index — `isNumericLiteralName` (`checker.go:16256`) is `String(+name) === name`,
+which `assignmentToAnyArrayRestParameters` pins by making `string[]["0.0"]` an
+**error** beside it.
+
+**It is worth one line, and the honesty is the point.** That fixture has five
+wrong lines and only one is this shape; the other four are `T["0"]` where `T` is
+a type parameter constrained to `string[]` (needs the constraint) and
+`string[][K | "0"]` (needs a union index). The case does not convert.
+
+### Tuples are excluded, and that guard cost 2 G→W before it existed
+
+`array_or_tuple_element_access` answers the UNION of a tuple's elements for a
+`number` index — correct for `number`, wrong for a literal:
+`[a: string, b?: number]["0"]` is `string`, not `string | number`. Normalising a
+literal to `number` and handing it to that function regressed
+`partiallyNamedTuples` by 2. Selecting the specific element needs the literal's
+VALUE, which the numeric normalisation deliberately discards, so the tuple slice
+is a different arm rather than a wider gate.
+
+**Kept at one line on §592's rule** — a correct transcription that fires, with
+zero adverse — and because it is the road §619 named as missing rather than a
+patch beside it. What it establishes is that the concrete road can be opened
+safely: it only fires where the arm already answered `error`, so its failure
+direction is gap→wrong, never right→wrong.

@@ -398,6 +398,51 @@ impl<'a> Checker<'a, '_> {
             // line changes. Literal indexes resolve concretely upstream and
             // stay declined here.
             TypeNode::IndexedAccessTypeNode(node) => {
+                // §620: the CONCRETE arm, ahead of the deferred one. The road
+                // below prints `T[K]` as written for a type-PARAMETER index and
+                // answers `error` for everything else — *"Literal indexes
+                // resolve concretely upstream and stay declined here"* (§619).
+                // An array or tuple object with a literal index is the slice
+                // that needs no inference: `type T = string[]["0"]` is `string`
+                // (`assignmentToAnyArrayRestParameters`), and a numeric-literal
+                // NAME is a numeric index — `isNumericLiteralName`
+                // (`checker.go:16256`) is `String(+name) === name`, which is why
+                // the same fixture makes `string[]["0.0"]` an ERROR.
+                //
+                // Only fires where the road already answered `error`, so its
+                // failure direction is gap→wrong rather than right→wrong.
+                if let (Some(object_node), Some(index_node)) = (node.object_type, node.index_type) {
+                    let object_type = self.get_type_from_type_node(object_node);
+                    if object_type != self.intrinsics.error {
+                        let index_type = self.get_type_from_type_node(index_node);
+                        let numeric = match &self.store.get(index_type).data {
+                            crate::types::TypeData::StringLiteral(text)
+                                if crate::printing::normalise_number(text) == *text =>
+                            {
+                                Some(self.intrinsics.number)
+                            }
+                            crate::types::TypeData::NumberLiteral(_) => {
+                                Some(self.intrinsics.number)
+                            }
+                            _ => None,
+                        };
+                        // TUPLES excluded: `array_or_tuple_element_access`
+                        // answers the UNION of a tuple's elements for a
+                        // `number` index, which is right for `number` and wrong
+                        // for a literal — `[a: string, b?: number]["0"]` is
+                        // `string`, not `string | number`
+                        // (`partiallyNamedTuples`, measured at 2 G→W before
+                        // this guard). Selecting the specific element needs the
+                        // literal's value, which is the next slice.
+                        if let Some(numeric) = numeric
+                            && !self.tuple_element_lists.contains_key(&object_type)
+                            && let Some(element) =
+                                self.array_or_tuple_element_access(object_type, numeric, false)
+                        {
+                            return element;
+                        }
+                    }
+                }
                 let deferred_index = match node.index_type {
                     Some(TypeNode::TypeReferenceNode(index)) => {
                         let text = Self::entity_name_text(index.type_name);

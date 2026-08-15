@@ -513,7 +513,7 @@ impl Checker<'_, '_> {
     /// (`checker-notes-narrow.md` §28): a number-like index into `Array<T>`
     /// answers `T` (`| undefined` under `noUncheckedIndexedAccess`); into a
     /// tuple, the element union.
-    fn array_or_tuple_element_access(
+    pub(crate) fn array_or_tuple_element_access(
         &mut self,
         object_type: TypeId,
         index_type: TypeId,
