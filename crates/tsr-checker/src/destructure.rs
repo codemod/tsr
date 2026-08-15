@@ -430,13 +430,40 @@ impl Checker<'_, '_> {
                     // may be contextually typed upstream, and the implied
                     // `any` there measured 90 G->W
                     // (`coAndContraVariantInferences3`).
-                    if self.nodes.parent(holder).is_some_and(|f| {
-                        matches!(
-                            self.nodes.kind(f),
-                            SyntaxKind::FunctionDeclaration | SyntaxKind::MethodDeclaration
-                        )
-                    }) {
-                        return self.get_widened_type_for_variable_like_declaration(holder);
+                    // §563: an ARROW or FUNCTION EXPRESSION too, where §94's
+                    // predicate can SHOW there is no contextual type — §561's
+                    // refinement applied to the fourth and last gate of this
+                    // shape. The recorded reason here is the same one
+                    // (90 G->W on `coAndContraVariantInferences3`) and it is
+                    // the same claim about CONTEXTUALLY TYPED arrows.
+                    //
+                    // §561's lesson carried across: the implied type is
+                    // consulted, and a BARE `any` result means the computation
+                    // could not spell the pattern (a rest-only or
+                    // optional-element shape). §136's arm would then hand every
+                    // element that `any` — a confident wrong answer where a gap
+                    // stood. So the bare-`any` case keeps the gap for the
+                    // newly-admitted containers, exactly as `parameter_of` does.
+                    let container = self.nodes.parent(holder);
+                    let admitted = container.is_some_and(|f| match self.nodes.kind(f) {
+                        SyntaxKind::FunctionDeclaration | SyntaxKind::MethodDeclaration => true,
+                        SyntaxKind::ArrowFunction | SyntaxKind::FunctionExpression => {
+                            self.has_no_contextual_type(f)
+                        }
+                        _ => false,
+                    });
+                    if admitted {
+                        let implied = self.get_widened_type_for_variable_like_declaration(holder);
+                        let expression_container = container.is_some_and(|f| {
+                            matches!(
+                                self.nodes.kind(f),
+                                SyntaxKind::ArrowFunction | SyntaxKind::FunctionExpression
+                            )
+                        });
+                        if expression_container && implied == self.intrinsics.any {
+                            return error;
+                        }
+                        return implied;
                     }
                     return error;
                 }

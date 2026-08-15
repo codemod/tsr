@@ -2120,3 +2120,41 @@ one shape. Worth a third look elsewhere — any gate matching
 `FunctionDeclaration | MethodDeclaration` is a candidate, and there is one more
 at `signatures.rs`'s `declaration_takes_no_contextual_return` which §28.1
 already fenced for its own reason.
+
+---
+
+## 30. §563 — the fourth and last gate of §29.3's shape (+2 lines, 0 adverse, +0 cases)
+
+§29.3 predicted that any gate matching `FunctionDeclaration | MethodDeclaration`
+is a candidate. Grepping found four; §561 fixed two, §28.1 fenced one for its
+own reason, and this is the fourth — `destructure.rs`'s ELEMENT road, which
+decides what `x` is inside `([x]) => x`.
+
+Same recorded reason (*90 G→W on `coAndContraVariantInferences3`*), same claim
+about contextually typed arrows, same refinement — and §561's lesson carried
+across without having to be relearned: the implied type is consulted, and a bare
+`any` means the computation could not spell the pattern, so §136's arm would
+hand every element that `any`. The newly-admitted containers keep the gap there.
+
+```
+GAP->RIGHT: 2   arrowFunctionExpressions, emitArrowFunctionES6
+no adverse transition of any kind
+checker_types 5,914 (+0 cases), gradient 90.49%
+```
+
+**+0 cases and landed anyway**, on the same footing as §551: two lines moved
+right, nothing moved wrong, and it removes an asymmetry that had no upstream
+justification. The gate sweep §29.3 called for is now complete.
+
+### 30.1 A gap this exposed, NOT fixed, and not to be confused with the gate
+
+```ts
+function r([x]) { return x; }   // x : any     works
+function t({m}) { return m; }   // m : error   gaps — and this is a DECLARATION
+```
+
+The **object**-pattern element road gaps even for a `function` declaration,
+where the array-pattern one answers. That is not §29.3's shape — the gate admits
+both — so it is a separate defect in the element lookup, sized by nothing yet
+and recorded here rather than guessed at. It is the natural next probe in this
+file.
