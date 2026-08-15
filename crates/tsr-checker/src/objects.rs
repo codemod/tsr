@@ -490,6 +490,13 @@ impl Checker<'_, '_> {
             ComputedNameKey::Index("symbol")
         } else if flags.intersects(TypeFlags::STRING_LIKE) {
             ComputedNameKey::Index("string")
+        } else if flags.intersects(TypeFlags::TYPE_PARAMETER) {
+            // §652. `{ [t]: 0 }` where `t: T` contributes a STRING index rather
+            // than nothing: upstream prints `{ [x: string]: number; }` for both
+            // an unconstrained `T` and a `U extends string`
+            // (`computedPropertyNames51_ES5`/`_ES6`, `computedPropertyNames8_ES6`).
+            // Dropping the property instead printed `{}`.
+            ComputedNameKey::Index("string")
         } else {
             ComputedNameKey::Nothing
         }
