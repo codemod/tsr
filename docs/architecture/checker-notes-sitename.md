@@ -2741,3 +2741,40 @@ recording rather than leaving in the dump is the shape:
 
 Recorded with its population so the next session does not have to re-derive the
 five case names from a fresh dump.
+
+### 39.1 The `collisionThisExpression*` family — probed, does NOT reproduce
+
+The other repeated shape in the re-dump was the `want any / got error` bucket
+(15 cases). Its one coherent sub-family is
+`collisionThisExpressionAndLocalVarIn{Constructor,Lambda,Method,Property}` plus
+`AndParameter` — five cases sharing a fixture shape — whose first failing line is
+
+```
+collisionThisExpressionAndLocalVarInLambda:0:0
+  want { (message?: any): void; (message?: any): void; }
+  got  (message?: any) => void
+```
+
+i.e. a `declare function alert` merging with the lib's `alert` should print
+**both** signatures. **The probe answers correctly:**
+
+```ts
+declare function alert(message?: any): void;
+var a = alert;   // >a : { (message?: any): void; (message?: any): void; }
+declare function f(x: number): void;
+declare function f(x: string): void;
+var b = f;       // >b : { (x: number): void; (x: string): void; }
+```
+
+So merged-declaration signature collection is **not** the defect, and whatever
+these five share is environment- or fixture-specific rather than mechanical.
+
+> **This is §35.1's inversion and the pair completes the rule.** There, a probe
+> showed *nothing* while the corpus moved nine lines; here, a probe shows
+> *correct* while the corpus is wrong. **A probe can only ever confirm the shape
+> you wrote under the lib you mounted.** It is an excellent instrument for
+> localising a defect you have already measured, and worthless as evidence that
+> one does or does not exist.
+
+Not built, and specifically **not** filed as "merged signatures are broken",
+because they are not.
