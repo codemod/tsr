@@ -2745,6 +2745,47 @@ the ~62 nested cases (`symbols.rs:2273` bakes type text at creation). It does
 answers correctly for one spelling of the same symbol, which makes this a bug in
 one arm rather than an architectural decision.
 
+### §674 — the remaining flat-naming cases, and where the next one is blocked
+
+After §673 the flat subset is **10 cases** (was 11). Four are enum
+freshness/widening (`computedEnumTypeWidening`,
+`declarationEmitEnumReadonlyProperty`, `importElisionEnum`,
+`logicalAndOperatorWithEveryType` — all *want the MEMBER spelling `E.A` and get
+the enum name `E`*, i.e. §55.1's divergent twins choosing the regular twin where
+upstream keeps the fresh one). The rest are separate shapes.
+
+**Probed `TwoInternalModulesWithTheSameNameAndSameCommonRoot` with §672's
+call-count technique.** `symbol_chain` computes the right answer:
+
+```
+QN2 printed="Point"   name="Point"  split=Some(5)  chain=Some("A.")   x2
+QN2 printed="Point"   name="Point"  split=Some(5)  chain=None         x1
+QN2 printed="A.Point" name="Point"  split=None     chain=Some("A.")   x2
+```
+
+Two references get `chain=Some("A.")` and still print bare, so **the qualifier is
+computed and then discarded**.
+
+**Where.** Reading the baseline settles which references those are — upstream
+prints `Origin : Point` **inside** `namespace A` (bare, correct: `Point` is
+accessible there) and `A.Origin : A.Point` in `part3.ts`, **outside** `A`. So the
+two that must qualify are the part3 references, and the guard that cancels them
+is **§509** (`checker.rs:1836`): *"no qualifier where the bare name RESOLVES to
+this very symbol at the site."*
+
+**That guard is right in principle and its input is suspect here.** At a `part3.ts`
+site, `Point` should NOT resolve — it is a member of `namespace A`, not a global.
+If `binder.resolve_name` answers with it anyway, the guard correctly suppresses a
+qualifier on a wrong premise, and the defect is namespace members leaking into
+the global scope rather than anything in the naming road.
+
+**NEXT VALUE TO PRINT:** at a `part3.ts` reference, what
+`binder.resolve_name(reference, "Point", TYPE|VALUE)` returns and whether
+`same_spelling` is true. **Do not change the §509 guard on this evidence** — if
+the resolver is the leak, editing the naming road would paper over a binder bug
+and §509 exists because removing it cost measured regressions
+(`interMixingModulesInterfaces2-5`).
+
 ### §673 — the enum's OWN type never reached the qualifier: +2 CASES, 16 W→R
 
 **LANDED. +2 cases (6,029 → 6,031), 16 WRONG→RIGHT, zero adverse, zero regressed
