@@ -3196,6 +3196,50 @@ stale doc implied.
 answered `false`; nobody updated it when the gate changed. **A "not ported" note
 is only true as of its writing, and this session found five that had expired.**
 
+### §705 — `typeof C` in an extends clause: 13 cases, blocked on EWTA typing
+
+Re-cut deficit-1 after 42 landings (**502 cases**) and found a shape worth 13 of
+them: **we print `typeof X` where upstream prints `X`**, mostly in class
+`extends` clauses — `extendNonClassSymbol1`,
+`emitClassDeclarationWithPropertyAccessInHeritageClause`,
+`awaitClassExpression_es6`/`_es2017`, `classDeclaredBeforeClassFactory`,
+`extendClassExpressionFromModule`, and more.
+
+**Upstream handles this in the baseline writer, unconditionally**
+(`type_symbol_baseline.go:371`):
+
+```go
+// Workaround to ensure we output 'C' instead of 'typeof C' for base class expressions
+if ast.IsExpressionWithTypeArgumentsInClassExtendsClause(node.Parent) {
+    t = fileChecker.GetTypeAtLocation(node.Parent)
+}
+```
+
+This port has an arm for it (`types_producer.rs:571`) but a **narrower** one: it
+resolves a base SYMBOL and requires a class declaration, so a heritage expression
+that is a property access, a class expression, or a non-class symbol falls
+through and prints `typeof C`.
+
+**Built upstream's unconditional fallback — take the EWTA's own type — and it
+measured EXACTLY ZERO.** Printed why:
+
+```
+EWTA parent-type="error" is_error=true
+```
+
+**This port does not type `ExpressionWithTypeArguments` nodes at all.** Upstream's
+one-line workaround reads `GetTypeAtLocation(EWTA)`; here that answers
+`errorType`, so there is nothing to fall back to.
+
+**REOPENS ON: giving `ExpressionWithTypeArguments` a type** — the instantiated
+base type it denotes. Then the existing narrow arm can be deleted in favour of
+upstream's unconditional one, and 13 deficit-1 cases follow. **Note the
+interaction with §247**, which measured that *making a heritage EWTA visited*
+cost 458 cases: typing the node is not the same as emitting a line for it, and
+the two must stay separate.
+
+Reverted; no code change retained.
+
 ### §704 — evolving arrays as a walk-and-collect: BUILT, −357 LINES, REVERTED
 
 §703 said the two hard parts were already built and what remained was
