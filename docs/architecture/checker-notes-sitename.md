@@ -2926,3 +2926,31 @@ a root by design, and the alias still does not resolve.
 Everything outside those two is eliminated and each elimination is cited above.
 **Not built.** The synthesis §39.2 specified is written, correct, and reverted
 unlanded, waiting on whichever of these two answers first.
+
+### 39.5 The last elimination — the resolver admits `.json`, so the suspect is the BINDER
+
+`Extensions::JSON` exists in `tsr-module` and `resolver.rs:314` sets
+`state.extensions = Extensions::JSON`, so the resolver's own extension machinery
+admits a `.json` specifier. Suspect 1 of §39.4 is therefore unlikely to be the
+blocker on its own.
+
+That leaves one, and it is a sharper question than §39.4's second bullet:
+
+> **Does a JSON source file get a MODULE SYMBOL at all?**
+>
+> A JSON file has one expression statement and no `export` of any kind. This
+> binder routes a file's top level to `exports` only when `is_export_context`
+> holds, which *requires `self.is_module`* — and a JSON file is not an ES
+> module by that test. If the binder mints no module symbol for it,
+> `resolve_external_module_name` finds the FILE and finds no SYMBOL, and
+> `resolve_alias` answers `None` exactly as traced in §39.3.
+
+That hypothesis explains every observation in §39.3–§39.5 without contradicting
+any of them, and it is one `eprintln` in the binder from being confirmed or
+killed. **It is a hypothesis, labelled as one** — §37's lesson, and this item has
+already cost two published claims that were inferred rather than run.
+
+**The item's shape, finally:** upstream gives a JSON source file a module symbol
+whose single export is its value; this port gives it a parsed file and, probably,
+nothing else. The type synthesis §39.2 wrote is the *last* step of three, not the
+only one.
