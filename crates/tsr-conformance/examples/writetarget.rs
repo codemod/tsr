@@ -137,6 +137,21 @@ fn main() {
         .flatten()
         .collect();
 
+    // A write-target line is only EVIDENCE for the narrowing hypothesis when the
+    // printed type looks like a NARROWING of the wanted one: a constituent of
+    // the wanted union, or a member of the wanted enum. Everything else is a
+    // write target that happens to be wrong for an unrelated reason —
+    // `parserRealSource12`'s 108 lines want `IAstWalkChildren` and print `any`,
+    // which is name resolution, not narrowing. Without this split the headline
+    // number is a ceiling that reads like a forecast.
+    let looks_narrowed = |want: &str, got: &str| -> bool {
+        if want == got {
+            return false;
+        }
+        want.split(" | ").any(|constituent| constituent.trim() == got)
+            || got.starts_with(&format!("{want}."))
+    };
+
     let writes = rows.iter().filter(|r| r.0).count();
     println!("non-right aligned lines:        {}", rows.len());
     println!("  on a WRITE TARGET:            {writes}");
@@ -155,4 +170,20 @@ fn main() {
         println!("  {n:>4}  {case}");
     }
     println!("\ncases with at least one:        {}", ranked.len());
+
+    let narrowed: Vec<_> =
+        rows.iter().filter(|(is_write, _, w, g)| *is_write && looks_narrowed(w, g)).collect();
+    let mut narrowed_cases: std::collections::BTreeMap<&str, usize> =
+        std::collections::BTreeMap::new();
+    for (_, case, _, _) in &narrowed {
+        *narrowed_cases.entry(case.as_str()).or_default() += 1;
+    }
+    println!("\n-- of those, the ones that look OVER-NARROWED (the actual hypothesis) --");
+    println!("lines:                          {}", narrowed.len());
+    println!("cases:                          {}", narrowed_cases.len());
+    let mut ranked_narrowed: Vec<_> = narrowed_cases.into_iter().collect();
+    ranked_narrowed.sort_by_key(|entry| std::cmp::Reverse(entry.1));
+    for (case, n) in ranked_narrowed.iter().take(10) {
+        println!("  {n:>4}  {case}");
+    }
 }
