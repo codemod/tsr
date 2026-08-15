@@ -3163,6 +3163,47 @@ the global scope rather than anything in the naming road.
 > invocations before reading the implementation.** Two of the three defects found
 > this way were callers, not the roads themselves.
 
+### §689 — the primitive←any cut after §687/§688, and its next entry is blocked
+
+**61 cases remain** in the cut that produced §687 and §688 (cases whose every
+wrong line is one `number`/`string`/`boolean` ← `any` shape). Ranked by lines,
+the head is:
+
+```
+ 16  inferentialTypingWithFunctionTypeSyntacticScenarios   want=string
+ 12  callGenericFunctionWithIncorrectNumberOfTypeArguments want=number
+ 10  lateBoundDestructuringImplicitAnyError                want=string
+  6  logicalNotOperatorWithAnyOtherType                    want=boolean
+  6  controlFlowForIndexSignatures / indexSignaturesInferentialTyping / …
+```
+
+**`logicalNotOperatorWithAnyOtherType` traced and found already REFUSED — §257.**
+Worth recording how, because it is §646's lesson working as intended. The six
+lines are `!(null + undefined)` and friends: upstream types `null + undefined` as
+`any` (`checker.go:12455`, `return c.anyType` after reporting), so `!any` is
+`boolean`; this port answers `errorType` from `check_addition`'s fallthrough and
+the negation gaps.
+
+Porting that one line is **§257, attempted twice and reverted**, with the numbers
+in `binary.rs:355`:
+
+| cut | cases | adverse |
+|---|---|---|
+| whole fallback → `any` | +4 | **GAP→WRONG 57** |
+| narrowed to non-literal operands | +0 | **GAP→WRONG 32** |
+
+The adverse population is literal and enum-literal arithmetic. **REOPENS ON
+literal arithmetic landing**, per §257's own condition.
+
+**I found this by reading `binary.rs` before building**, and §257 is correctly
+indexed in §5 — so the refusal cost one read instead of a build-and-measure
+cycle. That is the payoff §646 predicted when it moved eight comment-only
+refusals into §5.
+
+**The cut is still the most productive instrument on the board** — two landings
+in one session hour (§687 +2, §688 +3) — and 61 entries remain unworked. The
+three largest are untouched.
+
 ### §688 — the same arm for STATIC blocks: +3 CASES, 21 W→R
 
 **LANDED. +3 cases (6,033 → 6,036), 21 WRONG→RIGHT, zero adverse, zero regressed
