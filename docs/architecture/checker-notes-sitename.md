@@ -2954,3 +2954,36 @@ already cost two published claims that were inferred rather than run.
 whose single export is its value; this port gives it a parsed file and, probably,
 nothing else. The type synthesis §39.2 wrote is the *last* step of three, not the
 only one.
+
+### 39.6 SETTLED — `resolve_external_module_name("./test.json")` answers `None`
+
+§39.5's hypothesis was labelled as one and is now measured. A trace on
+`resolve_external_module_name`'s own return:
+
+```
+[jsonres] "./test.json" -> None
+```
+
+**The module symbol does not exist.** Every downstream road — `resolve_alias`,
+`getTargetOfNamespaceImport`, and the type synthesis §39.2 wrote — is
+unreachable, and the five `requireOfJsonFile*` cases gap for that one reason.
+
+**§39's item, correctly ordered at last:**
+
+| step | state |
+|---|---|
+| 1. a `.json` file becomes a MODULE SYMBOL | **ABSENT — the blocker** |
+| 2. `getTargetOfNamespaceImport` reaches it | untested, unreachable until 1 |
+| 3. the module symbol takes its value's TYPE | **written, correct, reverted unlanded** |
+
+The trace does not separate *"the binder mints no module symbol for a
+non-ES-module file"* from *"the host lookup never returns the file"* — both
+produce this `None` — and that is the next single question, one `eprintln`
+further in.
+
+> **Three published claims on this item were wrong before this trace ran**:
+> *"the missing half is only the TYPE"* (§39, corrected), *"ZERO unknowns"*
+> (§39.2, corrected), and the implicit ordering that put the synthesis first.
+> Each was assembled from reading code rather than running it. The item is worth
+> less than the lesson: **on this codebase, an inference about what is built is
+> worth about one trace, and the trace costs a minute.**
