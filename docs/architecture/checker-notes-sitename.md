@@ -2355,3 +2355,47 @@ showed the same failure with nothing to do with primitives.
 Five landings now share §32.1's sentence (§559, §561, §567a, §567b, §569), and
 this is the first where fixing the *gate* rather than the *case* multiplied the
 result by ninety.
+
+---
+
+## 34. §571 — the same gate, third site (+2 lines, 0 adverse)
+
+§33.1 said: *when a gate turns out to reject one thing it should admit, ask what
+ELSE it rejects.* Asked, and `declares_symbol_iterator` had a third caller —
+the DESTRUCTURING positional read (`destructure.rs`), which decides what `a` is
+in `var [a] = …`.
+
+```ts
+var [c1] = new SymbolIterator;   // symbol   works (§317)
+var [c2] = g();                  // error
+```
+
+Same cause, same fix: the syntactic gate asks whether the receiver's own
+declarations spell `[Symbol.iterator]`, and a lib iterable never does.
+`for_of_element_type` declines safely, so dropping the gate can only turn a gap
+into an answer the for-of road already trusts.
+
+```
+WRONG->RIGHT: 2   generatorAssignability
+no adverse transition of any kind
+checker_types 5,921 (+0 cases), gradient 90.52%
+```
+
+**+0 cases and landed**, on §551's and §563's footing. The three callers of that
+gate are now consistent: §547 built the rest arm without it, §569 dropped it on
+the spread road, §571 drops it here.
+
+### 34.1 The sweep's remaining rows, recorded not guessed
+
+The same probe pair surfaced two more, neither touched:
+
+```ts
+var a1 = Array.from(g());              // error   — a CALL, signature resolution
+for (const d of new Set([1])) { d }    // any     — want number
+```
+
+`for_of_element_type` answers `any` for a `Set` where it answers `number` for a
+`Generator`, so the iterated-type computation is partial in a way this landing
+does not address and no probe here has sized. `Array.from` is a different road
+again — overload resolution over an iterable argument. **Both are recorded so
+the next reader does not mistake §571 for having covered them.**

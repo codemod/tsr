@@ -277,9 +277,17 @@ impl Checker<'_, '_> {
                     // `var [a, b] = new SymbolIterator` reads `symbol` from
                     // `next()`'s return (`iterableArrayPattern1/2`). A
                     // receiver neither road answers stays the gap it was.
-                    if self.declares_symbol_iterator(parent_type)
-                        && let Some(element) = self.for_of_element_type(parent_type)
-                    {
+                    // §571: the syntactic gate is DROPPED, exactly as §569
+                    // dropped it on the spread road. `declares_symbol_iterator`
+                    // asks whether the receiver's OWN declarations spell
+                    // `[Symbol.iterator]`, which a LIB iterable never does —
+                    // `Generator`, `Set`, `Map` carry it on the interface — so
+                    // `var [a] = new SymbolIterator` read `symbol` while
+                    // `var [a] = g()` gapped. `for_of_element_type` answers
+                    // `Option` and declines where it cannot decide, so removing
+                    // the gate can only turn a gap into an answer the for-of
+                    // road already trusts.
+                    if let Some(element) = self.for_of_element_type(parent_type) {
                         element
                     } else {
                         error
