@@ -674,7 +674,14 @@ fn typeof_function_narrows_a_union_to_its_callable_member() {
              declare var x: string | (() => void);\n\
              if (typeof x === \"function\") { x; }"
         ),
-        "() => void & Function"
+        // §594 CORRECTED the PARENTHESES here, not the residue. A function type
+        // is below `Intersection` on the precedence ladder, so upstream prints
+        // `(() => void) & Function`; this port omitted the parentheses on the
+        // intersection road and the assertion pinned that. The MEMBERS gap this
+        // test is really about — the first rung of `narrowTypeByTypeFacts`
+        // failing, so the third rung intersects instead of narrowing — is
+        // unchanged and still the reason an intersection is printed at all.
+        "(() => void) & Function"
     );
 }
 

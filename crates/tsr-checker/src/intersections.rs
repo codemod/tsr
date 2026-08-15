@@ -13,11 +13,20 @@
 //! prints `C1 & M1` — both spellings appear in the baselines, which is what a
 //! sort would make impossible.
 //!
-//! A **union constituent is parenthesised**: `T & ({} | null)`. Nothing else in
-//! the corpus needs parentheses inside an intersection — there is not one
-//! baseline line with a function type as an intersection constituent — so only
-//! the union case is ported, rather than a general precedence table that would
-//! be a guess everywhere it was not exercised.
+//! A **union constituent is parenthesised**: `T & ({} | null)`. This paragraph
+//! used to continue *"Nothing else in the corpus needs parentheses inside an
+//! intersection — there is not one baseline line with a function type as an
+//! intersection constituent"*. **That claim was false and is corrected here:**
+//! §594 measured **47** such lines (`typeof ErrImpl & (<T>() => T)`,
+//! `T & (new (...args: any[]) => { … })`), and a further 10 where this port
+//! ADDED parentheses upstream omits, around a union a type alias names.
+//!
+//! Both are now handled at the constituent, and the rule is stated as what it
+//! is rather than as a corpus observation: `emitTypeNode` parenthesises a
+//! constituent whose precedence is below `Intersection`
+//! (`ast/precedence.go:425`–`:480`). Restricting the port to "only the case the
+//! corpus exercises" was the reasonable-sounding move that hid a 57-line defect
+//! — the corpus had been consulted for the union case and never for the others.
 //!
 //! # The reduction that needs no assignability, and the one that does
 //!
@@ -76,19 +85,40 @@ fn create_intersection(
             .map(|&id| {
                 let constituent = store.get(id);
                 let printed = printing::type_to_string(constituent);
-                // A union binds less tightly than an intersection, so it is
-                // parenthesised: `T & ({} | null)`. `boolean` is exempt: it
-                // carries UNION (it *is* `false | true`) but prints as the
-                // keyword — upstream's node builder tests BOOLEAN before its
-                // union branch (`nodebuilderimpl.go:3255`), so it never
-                // reaches the parenthesiser (§89.1's I4).
-                if constituent.flags.contains(TypeFlags::UNION)
+                // `emitTypeNode(node, TypePrecedenceIntersection)`
+                // (`printer.go:2274`) parenthesises every constituent whose own
+                // precedence is BELOW `Intersection` on the ladder
+                // (`ast/precedence.go:425`–`:480`, ascending: `Conditional`,
+                // `JSDoc`, `Function`, `Union`, `Intersection`, …). That is two
+                // kinds this port can produce, and only one was here.
+                //
+                // A union binds less tightly: `T & ({} | null)`. `boolean` is
+                // exempt — it carries UNION (it *is* `false | true`) but prints
+                // as the keyword, and upstream tests BOOLEAN before its union
+                // branch (`nodebuilderimpl.go:3255`), so it never reaches the
+                // parenthesiser (§89.1's I4).
+                //
+                // §594, the two corrections:
+                //
+                // - a union a type ALIAS names prints as that name, which the
+                //   node builder emits as a `TypeReferenceNode` at the HIGHEST
+                //   precedence — so `Options & { kind: K; }`, never
+                //   `(Options) & { kind: K; }`. This is the identical
+                //   distinction `unions.rs`'s `parenthesised` records getting
+                //   wrong on its first run at 19 lines; the union road learned
+                //   it and the intersection road did not.
+                // - a FUNCTION or CONSTRUCTOR type sits below `Intersection`
+                //   too, and was never parenthesised here at all:
+                //   `typeof ErrImpl & (<T>() => T)` and
+                //   `T & (new (...args: any[]) => { … })`.
+                let needs = if constituent.flags.contains(TypeFlags::UNION)
                     && !constituent.flags.contains(TypeFlags::BOOLEAN)
                 {
-                    format!("({printed})")
+                    !printing::prints_as_a_single_token(constituent)
                 } else {
-                    printed
-                }
+                    matches!(&constituent.data, TypeData::Anonymous { signature, .. } if *signature)
+                };
+                if needs { format!("({printed})") } else { printed }
             })
             .collect::<Vec<_>>()
             .join(" & "),

@@ -8373,3 +8373,50 @@ baseline cited, so the next reader can check the claim instead of trusting it.
 That is the second hand-written expectation this window found pinning a defect
 (the first was §583's contextual gate). Both were written as controls for real
 work and both encoded an assumption the corpus had never been asked about.
+
+### §594 — intersection constituents get upstream's precedence rule, both directions (+2 cases, +29 lines)
+
+The fourth find from §590's question, and the largest in lines. `create_intersection`
+(`intersections.rs`) parenthesised a constituent when it carried `UNION` and was
+not `boolean`. That is one rung of a ladder, applied without its exemption.
+
+`emitTypeNode(node, TypePrecedenceIntersection)` (`printer.go:2274`)
+parenthesises any constituent whose precedence is **below** `Intersection`
+(`ast/precedence.go:425`–`:480`, ascending `Conditional`, `JSDoc`, `Function`,
+`Union`, `Intersection`, …). Two corrections fall out, and the corpus had 57
+lines of them:
+
+| | lines | example |
+|---|---:|---|
+| we OMITTED parens upstream writes, around a FUNCTION or CONSTRUCTOR type | 47 | want `typeof ErrImpl & (<T>() => T)`, got `typeof ErrImpl & <T>() => T` |
+| we ADDED parens upstream omits, around a union a type ALIAS names | 10 | want `Options & { kind: K; }`, got `(Options) & { kind: K; }` |
+
+The second is the *identical* distinction `unions.rs`'s `parenthesised` records
+getting wrong on its own first run at 19 lines — a named union prints as a
+`TypeReferenceNode` at the highest precedence. **The union road learned it and
+the intersection road never did**, because the two were written apart and only
+one of them had a corpus behind it.
+
+```
+WRONG->RIGHT: 29   returnTypeInferenceContextualTypeIgnoreAnyUnknown1 5,
+                   typeVariableConstraintIntersections 4, inKeywordAndIntersection 3, …
+(no adverse transition of any kind)     checker_types 5,960 -> 5,962
+```
+
+### The module doc was the defect's hiding place
+
+`intersections.rs`'s header said, in as many words, *"Nothing else in the corpus
+needs parentheses inside an intersection — there is not one baseline line with a
+function type as an intersection constituent — so only the union case is
+ported, rather than a general precedence table that would be a guess everywhere
+it was not exercised."*
+
+**The measurement is 47 such lines.** The reasoning was the right instinct —
+don't port a table you cannot score — applied to a corpus claim nobody
+re-checked. It then sat in the header as justification, which is worse than
+having no comment: a reader looking for exactly this defect would have read that
+sentence and moved on. Corrected in place, with the number, per the
+"correct the record" rule in `CLAUDE.md`.
+
+This is §11.3's fifth instance and the first where the un-printed population was
+asserted **in a doc comment** rather than in a board estimate.
