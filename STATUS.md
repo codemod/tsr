@@ -2599,6 +2599,48 @@ version of bare `any`.
 ### §598 CORRECTED BY §599, 2026-08-14 — **the diagnosis below was WRONG; the gate is `noImplicitAny`, and the arm has since LANDED (+7 cases)**
 
 
+### §647 — §65.1's "undecoded fourth key" is decoded, and it is not a key
+
+§646 indexed §65.1 as live: the null twin of the `autoType` widening, refused at
+**2.4:1**, with the note *"a fourth key exists and is not yet decoded"*. Reading
+the population rather than the note decodes it.
+
+§65.1 framed the tension as `var arg0 = null` wanting to KEEP `null` in
+`implicitAnyFunctionInvocationWithAnyArguements` while `controlFlowNoImplicitAny`
+carried *"null-wants-any lines"*. **That second half is wrong.** The eight wrong
+lines in `controlFlowNoImplicitAny` do not want `any`:
+
+```
+want=string | number | undefined   got=any     (x4)
+want=string | number | null        got=any     (x4)
+want=null                          got=any     (x2, implicitAnyFunctionInvocation…)
+```
+
+They want the **flow-evolved union**. So there is no fourth axis separating two
+populations that both want `any` — `any` is the **declaration-site** answer, and
+every one of these lines is a **reference**, where upstream finalises the auto
+type through `getFlowTypeOfReference` into the union of what was assigned.
+`implicitAnyFunctionInvocationWithAnyArguements` wants `null` for the same
+reason: nothing assigns to it, so the evolved type is just the initialiser's.
+
+**This is why §65.1 measured 2.4:1** — widening `null` to `any` at the
+declaration is right for the declaration and wrong for every reference, and
+references outnumber declarations. The ratio was measuring the missing
+finalisation, not a missing key.
+
+**REOPENS ON: finalising the scalar auto type at each reference.** The scalar
+half of the mechanism *is* ported (`flow.rs:236`, `is_auto_typed_declaration`,
+`get_type_at_flow_assignment`); the array half is not, and
+`controlFlowArrays`'s **80** wrong lines are that separate hole. So this is
+narrower than §65.1 implies: not a new axis, one finalisation step on machinery
+already present.
+
+**Caveat, stated rather than buried:** the 2 `want=null` lines sit in a case that
+§599 (this session) touched, and §599 was measured at zero adverse *per case*.
+Whether those 2 lines were already wrong before §599 or are line-level fallout
+under a case that was already failing is **not established here** — it needs a
+line-level diff against the pre-§599 baseline, and I did not run one.
+
 ### §646 — the refusals that live only in source comments (INDEX)
 
 §645 found §216/§217 recorded nowhere but the file that would implement it, and
