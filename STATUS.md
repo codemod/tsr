@@ -2599,6 +2599,54 @@ version of bare `any`.
 ### §598 CORRECTED BY §599, 2026-08-14 — **the diagnosis below was WRONG; the gate is `noImplicitAny`, and the arm has since LANDED (+7 cases)**
 
 
+### §649 — `isYieldExpression`'s context half: BUILT, MEASURED −5 CASES, REVERTED
+
+**Population.** `YieldStarExpression1_es6` / `2_es6`, both deficit-1, both `pos 0`,
+want `number` and print `any`. The diagnosis was right and is worth keeping:
+top-level `yield * []` is **not a generator construct at all**. Outside a
+`[Yield]` context `yield` is an ordinary identifier, so upstream parses a
+*multiplication* — `yield : any`, `[] : never[]`, and `yield * [] : number`,
+because `check_arithmetic_operation` already answers `number` for any operands
+(that arm is correct and was not the defect). This port's
+`parse_assignment_expression` entered `parse_yield_expression` on the token
+alone, which `parser.rs:183` had already recorded as unported (§193).
+
+**Built** upstream's `isYieldExpression` (`parser.go:4150`): context bit, else
+`lookAhead(nextTokenIsIdentifierOrKeywordOrLiteralOnSameLine)`. The context half
+is not optional — lookahead alone parses `yield* inner()` as a multiplication and
+would have regressed §642. Added `in_yield_context` with save-and-restore and a
+combined `with_function_context(is_async, is_generator, …)` so each boundary kept
+its existing closure; arrows deliberately inherit, per the grammar's `[Yield]`.
+
+**Measured, and it is negative:**
+
+| | baseline | with §649 |
+|---|---|---|
+| checker_types cases | **6,007** | **6,002** (−5) |
+| right lines | 434,822 | 434,809 (−13) |
+| GAP→WRONG | — | 2 (`generatorTypeCheck28`, `generatorTypeCheck46`) |
+
+**Note the shape of the loss:** scorepair reported only **2** transitions while
+`right` fell **13**. The missing 11 are §247's hazard — re-parsing changed the
+assertion COUNT in some files, so those rows stopped aligning and left the
+comparison set rather than transitioning. `binder_symbols` total moved
+8,498 → 8,487 for the same reason (still 100%). **A parser change cannot be
+judged by its transition list alone**; the count-shift is invisible there, and
+here it was most of the damage.
+
+**Reverted.** R→W and a case loss in one change is revert-or-gate, and there is
+no gate that separates these.
+
+**REOPENS ON: the boundary audit.** `generatorTypeCheck28` names the miss —
+`*[Symbol.iterator]() { … }`, a computed-name generator method in an **object
+literal**, which parses through a site the five wrapped boundaries
+(function declaration, function expression, class method, constructor, accessor)
+do not cover. Whoever retries should **enumerate every function-like parse site
+first** and wrap all of them, then re-measure; a partial boundary set makes the
+context bit wrong in exactly the nested cases the corpus is dense in. The two
+target cases were never the point — the mechanism is right and the boundary set
+was incomplete.
+
 ### §647 — §65.1's "undecoded fourth key" is decoded, and it is not a key
 
 §646 indexed §65.1 as live: the null twin of the `autoType` widening, refused at
