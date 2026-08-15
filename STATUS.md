@@ -1198,12 +1198,30 @@ cases, and the code already keeps the aggregate. The remaining defect is one
 level up: the CYCLE, not the error.
 
 **TS7023 is unported** (`grep` finds no 7023 in `tsr-checker` or
-`tsr-diagnostics`), and porting the diagnostic is not what these five need —
-they need the cycle's ANSWER to be `any` at the return-type slot rather than
-`error` at the symbol. Whoever takes it should print where the resolution frame
-fails for `templateStringWithEmbeddedFunctionExpression` first; §641 cost a
-build-and-measure cycle for skipping exactly that step, and §642 recovered it
-with one printed value.
+`tsr-diagnostics`).
+
+> **§644 ran the trace this section asked for, and it REFUTES the mechanism
+> above.** Instrumenting `get_type_of_func_class_enum_module`'s resolution frame
+> for `templateStringWithEmbeddedFunctionExpression`:
+>
+> ```
+> FN name=y computed=() => any popped=true
+> ```
+>
+> The symbol road is **correct** — it computes `() => any` and pops cleanly, so
+> "this port's resolution stack answers `errorType` for the whole symbol" is
+> wrong. The failing line is **position 4**, which is the `y` reference INSIDE
+> `return y`, not the function expression (position 2) and not its name
+> (position 3); both of those are already right.
+>
+> So the defect is in what a reference resolves to *while its own signature is
+> being computed*, and it is one node, not the symbol. **Print what position 4's
+> `type_at_location` receives** — that is the next value, and it is a different
+> question from the one this section originally posed.
+>
+> Third diagnosis corrected by its own trace this window (§630→§631,
+> §632→§633, §643→§644). In all three the POPULATION was right and the
+> MECHANISM was invented; the trace cost one run each time.
 
 ### 4.-2d THE PRICED CAUSE BOARD, 2026-08-14 (§604) — **369 cases are blocked by a SINGLE cause**
 
