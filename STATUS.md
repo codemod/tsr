@@ -2959,8 +2959,44 @@ the global scope rather than anything in the naming road.
 > declarations that **merge**. A merge that produces two type objects instead of
 > one is a binder/declared-type question.
 >
-> **NEXT STEP: compare the two TypeIds' owning symbols and declarations.** Not
-> another naming probe.
+> **§682 did that, and the chain is now COMPLETE:**
+>
+> ```
+> TID ref=105 type=TypeId(25) baked="Point"   sym=None
+> TID ref=106 type=TypeId(25) baked="Point"   sym=None
+> TID ref=122 type=TypeId(37) baked="A.Point" sym=Some(27415) parent=Some(27413) decls=[NodeId(10)]
+> TID ref=128 type=TypeId(37) baked="A.Point" sym=Some(27415) parent=Some(27413) decls=[NodeId(10)]
+> ```
+>
+> **`TypeId(25)` carries NO SYMBOL.** `TypeId(37)` is the real declared type of
+> the interface, with its parent namespace and declaration attached.
+>
+> **That closes the causal chain, and it explains every negative probe in
+> §670–§681:**
+>
+> 1. Something mints `TypeId(25)` for `Point` **without attaching the interface
+>    symbol**, baking the text `Point`.
+> 2. `qualified_name_at` (`checker.rs:1687`) extracts the symbol from
+>    `TypeData::Named { members }` → `None` for 25, so it takes the
+>    `let Some(symbol) = symbol else { … }` path, which handles only
+>    `enum_member_owners` and otherwise **returns the baked text unchanged**
+>    (`:1757`).
+> 3. The baked text is `Point`, so the line prints `Point`.
+>
+> **This is why refs 105/106 never appeared in any probe past `:1701`** — they
+> exit before `needs_qualification`, `symbol_chain`, §509 and the TYPE mask are
+> ever consulted. Nine probes searched code those references never execute.
+>
+> **THE FIX IS AT THE MINT SITE, not in naming:** find what creates a symbol-less
+> `Named` type for an interface reference and give it the declared type (or the
+> symbol). A `Named` type with `members: None` cannot be qualified by
+> construction, so **any type minted without its symbol is permanently
+> unqualifiable** — worth auditing beyond this fixture.
+>
+> **Thread closed at thirteen probes, one landing (§673, +2), five framings
+> retired.** The correct opening move is recorded above: print the BAKED text and
+> the SYMBOL at the output boundary. Both were one build away from the start and
+> together they identify the defect immediately.
 >
 > **Final tally, §670–§681: twelve probes, ONE landing (§673, +2 cases), FIVE
 > framings retired.** The thread is a case study in the cost of reasoning from a
