@@ -2538,3 +2538,48 @@ not from this arm at all. So ungating does not "evaluate a deferred type" — it
 > computed name — arriving here from the other direction, and it means any
 > future attempt should start by asking what the printed form is today rather
 > than what the type is.
+
+---
+
+## 37. §579's candidate — `Array.prototype.concat`, narrowed to four probes and NOT built
+
+A paired sweep found two failing array methods; one is priced territory and one
+is not:
+
+```ts
+[1,2].reduce((p,c) => p+c)   // error — CALLBACK contextual typing, priced/refused
+[1,2].concat([3])            // error — no callback anywhere
+```
+
+`concat` narrowed by probe, and each step eliminates a suspect:
+
+| probe | result | eliminates |
+|---|---|---|
+| `[1,2].slice(0)`, `.indexOf(1)`, `.push(3)`, `.map(x=>x)` | all correct | member lookup on `Array<T>`; rest parameters; `T` from the instantiation |
+| `declare var a: ConcatArray<number>` | `ConcatArray<number>` | the lib interface resolving |
+| `a.length` | `number` | its members |
+| `function f(...xs: ConcatArray<number>[])`, `f([1])` | `ConcatArray<number>[]` | a rest parameter OF that type, and assigning an array literal to it |
+
+Everything `concat` is made of works in isolation. What is left, and it is a
+**hypothesis not a measurement**: `concat` is the only OVERLOADED member tested,
+and its two signatures
+
+```ts
+concat(...items: ConcatArray<T>[]): T[];
+concat(...items: (T | ConcatArray<T>)[]): T[];
+```
+
+both carry the *enclosing interface's* type parameter in a rest position.
+`push(...items: T[])` has the same `T` and works — but is not overloaded — so
+the suspect is **overload resolution over signatures instantiated from the
+receiver**, not the rest parameter and not `T`.
+
+**Not built.** Confirming the hypothesis costs one trace and the fix is an
+overload-resolution change, which needs a bar registered before it and a full
+pair after; recorded here at the point where the next session can start from the
+four eliminations rather than repeat them.
+
+Also unresolved from the same sweep and NOT the same thing: `[1,2].reduce(…)`
+and `[1,2].find(…)` / `.filter(…)` fail through the callback's contextual type,
+which `checker-notes-fnexpr.md` §10 measured at 86% entangled and refused.
+Do not bundle them with `concat`.
