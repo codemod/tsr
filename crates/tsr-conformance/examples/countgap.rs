@@ -86,6 +86,58 @@ fn main() {
         println!("  {n:>4}  {delta:+}");
     }
 
+    // §638: for a file short by exactly ONE, name the missing assertion. The
+    // first position where the expression differs is where the walk skipped a
+    // node, and its expected text identifies the node kind.
+    if std::env::var("TSR_COUNT_MISSING").is_ok() {
+        println!("\n-- files short by exactly 1: the first divergent expected line --");
+        let mut misses: Vec<String> = cases
+            .par_iter()
+            .filter_map(|case| {
+                if case.has_varied_types() || case.has_known_divergence() {
+                    return None;
+                }
+                let text = case.expected_types()?;
+                let expected = types_baseline::parse(&text);
+                if types_baseline::assertion_count(&expected) == 0 {
+                    return None;
+                }
+                let parsed = case.load().ok()?;
+                let arena = tsr_core::Arena::new();
+                let (_p, ours, _i) =
+                    types_producer::assertions_for_case_with_ids(&arena, &parsed, &expected);
+                let mut out = Vec::new();
+                for (index, expected_file) in expected.iter().enumerate() {
+                    let got = ours.get(index).map_or(0, Vec::len);
+                    if expected_file.assertions.len() != got + 1 {
+                        continue;
+                    }
+                    let Some(our_file) = ours.get(index) else { continue };
+                    for (position, want) in expected_file.assertions.iter().enumerate() {
+                        let ours_here = our_file
+                            .get(position)
+                            .map(tsr_conformance::types_producer::Assertion::line);
+                        let same = ours_here
+                            .as_deref()
+                            .zip(want.split())
+                            .is_some_and(|(line, (we, _))| line.starts_with(&format!("{we} : ")));
+                        if !same {
+                            out.push(format!("{}\t{}", case.name, want.text));
+                            break;
+                        }
+                    }
+                }
+                Some(out)
+            })
+            .flatten()
+            .collect();
+        misses.sort();
+        for m in &misses {
+            println!("  {m}");
+        }
+        println!("  ({} listed)", misses.len());
+    }
+
     println!("\nlargest shortfalls:");
     let mut worst = rows.clone();
     // Largest shortfall first: `want - got`, saturating so the too-many side
