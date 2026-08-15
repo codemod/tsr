@@ -2854,10 +2854,41 @@ the global scope rather than anything in the naming road.
 > arm, the TYPE mask, `symbol_chain`, `resolve_name`, §509, and the producer's
 > entry point.
 >
-> **NEXT VALUE TO PRINT:** `type_to_string_at`'s RETURN value for those two
-> references, compared against `qualified_name_at`'s. The block containing
-> `checker.rs:1461` returns into an enclosing expression; whatever consumes it is
-> the last unexamined step and the only one left.
+> **§678 printed it at the producer boundary, and the answer overturns the whole
+> framing.** Instrumenting `render` (`types_producer.rs:1349`), the point where
+> the string becomes a `.types` line:
+>
+> ```
+>   3 RENDER -> Some("{ tl: A.Point; br: A.Point; }")
+>   2 RENDER -> Some("<T extends A.Point>(p: T) => { x: number; y: number; }")
+>   1 RENDER -> Some("<T extends Point>(p: T) => { x: number; y: number; }")
+>   2 RENDER -> Some("A.Point")
+>   5 RENDER -> Some("Point")
+> ```
+>
+> **The producer receives `A.Point` twice.** The naming road is not merely
+> correct in isolation — it delivers the qualified string all the way to the
+> line writer, for exactly as many lines as want it.
+>
+> **So this was never a naming defect.** Nothing between the enum owner and the
+> producer discards anything. The two `A.Point` strings are produced and the two
+> verdict rows that want `A.Point` still read `Point`, which means the qualified
+> renders are landing on **different lines** than the ones that need them — a
+> render-to-position mapping question, not a qualification question.
+>
+> Note also `<T extends A.Point>` ×2 against upstream's bare
+> `<T extends Point>` in `part1.ts`: this port qualifies where upstream does not,
+> in the same fixture, at the same time as failing to qualify elsewhere. That is
+> the signature of positions being paired with the wrong references.
+>
+> **NEXT VALUE TO PRINT:** for each render, the reference NodeId **and** the
+> verdict position it is written to, side by side. The defect is in that pairing.
+>
+> **Eight components cleared by measurement across §670–§678**, and the last
+> print invalidated the premise all eight shared. **The lane is not
+> `getAccessibleSymbolChain` at all for these cases** — §664's classification put
+> them there on the strength of the want/got text, and the text was
+> circumstantial.
 >
 > **Six probes, one landing (§673), and five hypotheses killed by measurement.**
 > Recorded in full because the value here is the elimination: the next session
