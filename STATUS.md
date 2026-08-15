@@ -1170,6 +1170,41 @@ history describes a blocker that the code no longer obviously has.
 > **The rule that keeps surviving: a row is a population worth printing, and
 > printing means the ROWS, not the label.**
 
+### 4.-2i CIRCULAR RETURN-TYPE INFERENCE (TS7023), 2026-08-15 (§643) — 5 deficit-1 cases
+
+Five single-transition cases share the exact pair `want () => any / got any`:
+
+```
+compiler/recursiveNamedLambdaCall
+conformance/MemberFunctionDeclaration5_es6
+conformance/parserEqualsGreaterThanAfterFunction1
+conformance/templateStringWithEmbeddedFunctionExpression
+conformance/templateStringWithEmbeddedFunctionExpressionES6
+```
+
+The two checked are SELF-REFERENTIAL function expressions —
+`var x = \`abc${ function y() { return y; } }def\`` records
+`>function y() { return y; } : () => any` and `>y : () => any`. Computing `y`'s
+type needs its own signature, which needs its return type, which needs `y`:
+upstream breaks the cycle with **TS7023** (*"implicitly has return type 'any'
+because it does not have a return type annotation and is referenced directly or
+indirectly in one of its return expressions"*) and answers `any` for the RETURN
+TYPE, keeping the signature. This port's resolution stack answers `errorType`
+for the whole symbol, so the line prints `any` instead of `() => any`.
+
+**This is NOT §272/§437's population.** That refusal — an errored return
+AGGREGATE building `() => any` anyway — was flipped and landed at §437 for +29
+cases, and the code already keeps the aggregate. The remaining defect is one
+level up: the CYCLE, not the error.
+
+**TS7023 is unported** (`grep` finds no 7023 in `tsr-checker` or
+`tsr-diagnostics`), and porting the diagnostic is not what these five need —
+they need the cycle's ANSWER to be `any` at the return-type slot rather than
+`error` at the symbol. Whoever takes it should print where the resolution frame
+fails for `templateStringWithEmbeddedFunctionExpression` first; §641 cost a
+build-and-measure cycle for skipping exactly that step, and §642 recovered it
+with one printed value.
+
 ### 4.-2d THE PRICED CAUSE BOARD, 2026-08-14 (§604) — **369 cases are blocked by a SINGLE cause**
 
 Built by joining both per-line dumps (§6: `TSR_ANY_DUMP=1` and
