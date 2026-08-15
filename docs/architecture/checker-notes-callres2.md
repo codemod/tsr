@@ -2102,3 +2102,47 @@ passes — the passes whose earlier drafts turned 34 gaps into wrong answers
 still gaps, then the blocker is neither arity nor pairing but the relater's
 handling of `ConcatArray<T> | T`, and this section should be superseded by the
 row dump that shows it.
+
+### §589 REFUSED — rest-aware pairing, built and measured at 3 R→W
+
+§588 named part 2 of `concat`'s corrected condition: *rest-aware pairing at
+`:1436`, `:1887`, `:2084`, extracting the element type from the rest parameter's
+array type*. It was built the same session — a `getTypeAtPosition`
+(`checker.go:10547`) reduction answering the rest parameter's **element** type at
+its own position and every position after it, `None` (undecidable) when the rest
+type is not a one-argument `Array<…>` reference — and it measures:
+
+```
+TOTAL 474196  right 433965  gap 8448  wrong 31783        (net ZERO lines)
+RIGHT->WRONG: 3  ⚠  emitSkipsThisWithRestParameter, dependentDestructuredVariables,
+                    staticAnonymousTypeNotReferencingTypeParameter
+WRONG->RIGHT: 3     invalidSplice 2, staticAnonymousTypeNotReferencingTypeParameter 1
+```
+
+**Three R→W, and two of them are §588's own conversions going back out.**
+Reverted on `docs/conventions.md`'s rule — an R→W in a passing case is
+revert-or-gate — and there is nothing to gate for, because the net is zero.
+
+### Why it fails, which is the part worth keeping
+
+§588 landed clean *because* rest candidates could not be selected: pairing an
+argument against the rest parameter's ARRAY type fails assignability, so the
+candidate declines and the failure direction is a gap. Element-aware pairing
+removes exactly that accidental protection — rest candidates become
+**selectable**, and this port then selects them where upstream does not.
+
+So the two changes are not two steps of one build. §588's win and §589's loss
+have the **same cause**, and taking the second undoes the first. What is missing
+is not the element type: it is everything upstream consults once a rest
+signature is genuinely in play — `getSpreadArgumentIndex`, the
+`hasEffectiveRestParameter` interaction in `hasCorrectArity` (`:9158`), and the
+subtype pass's ordering over a candidate set that now has more members in it.
+
+**Corrected again, and this is the third version of this condition:** `concat`
+does not reopen on arity (§38.2 said so, §588 disproved it), and it does not
+reopen on pairing (§588 said so, §589 disproves it). It reopens on **spread
+argument handling**, of which the element type is one part. Anyone taking it
+should expect the §273 measurement burden — the subtype and assignability passes
+over a widened candidate set — and should not expect an incremental path, since
+the only clean intermediate state measured so far is the one where rest
+candidates cannot be picked at all.
