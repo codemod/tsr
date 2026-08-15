@@ -3387,16 +3387,34 @@ parameter into the printed text.
 
 `indexSignatureInOtherFile` and `indexSignatureInOtherFile1`, one line each.
 
-**Same rule family as §690**, which landed the surplus half of the call-site
-arity mismatch and refused the missing half because `TypeParameter` carries no
-default. Here the fill is unconditionally `any` (there are no arguments at all to
-pair), so the default problem does not arise — **this half may be reachable where
-§690's was not.**
+**§715 CORRECTS this entry, written minutes earlier.** I filed it as a
+type-reference arity gap in the same family as §690, and said the fill being
+unconditionally `any` might make it reachable where §690's missing half was not.
+**Both claims are wrong.**
 
-**NOT ATTEMPTED.** `get_type_from_type_reference` (`declared.rs:675`) is long and
-its arity handling is not where the alias branches are; locating the right point
-is the first step, and it should be done with a printed value (which branch
-answers for `Array1`) rather than by reading, per §670–§685's record.
+Reading the baseline rather than the source: the failing line is **position 1**,
+which is
+
+```
+>Test : Test
+>Array1 : Array1<any>      <- this one
+```
+
+— the **heritage expression** of `class Test extends Array1`, not a type
+annotation. It never goes through `get_type_from_type_reference`'s arity branch
+(`declared.rs:886`, which returns `errorType` on a mismatch and would print a
+gap, not `Array1<T>`). It goes through the heritage road.
+
+**So §714 is the SAME blocker as §705/§706** — `base_type_of_heritage_entry` and
+the missing `ExpressionWithTypeArguments` type — and not a separate cheap item.
+It should be counted with those 13 cases, not against §690.
+
+**I wrote §714 from the fixture source and the want/got text, without checking
+which node the failing position was.** That is the exact failure §707 named one
+hour earlier and §664 named before that. Three occurrences now; the rule is not
+"read the rows instead of the fixture" but **"resolve the failing POSITION to a
+node before naming the lane"**, which is stricter and is what would have caught
+all three.
 
 ### §710 — EVOLVING ARRAY TYPES, LANDED: +2 CASES, 39 W→R, zero regressed
 
