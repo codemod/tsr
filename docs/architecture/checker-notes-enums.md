@@ -606,3 +606,40 @@ graph.
 **First step for whoever takes it: print which twin `E.B` resolves to at an
 access site.** One trace answers it, and it decides whether this is a one-line
 fix or a model change.
+
+### §611 REFUSED — the initial flow type is NOT simply the declared type (83 R→W, and it confirms §610)
+
+§610 localised the eight wrong lines to the flow's initial type. The obvious
+mechanism was upstream's own comment on `getTypeOfInitializer`
+(`flow.go:2260`): *"Return the cached type if one is available. If the type of
+the variable was inferred from its initializer, we'll already have cached the
+type."* Read as "an unannotated declaration starts flow at its WIDENED declared
+type", which is exactly what `incrementAndDecrement` records.
+
+Built that way — for a `VariableDeclaration` with no annotation, answer
+`get_type_of_symbol` instead of `check_expression(initializer)`:
+
+```
+WRONG->RIGHT:  8  ⚠ conformance/incrementAndDecrement — the ENTIRE target, exactly
+RIGHT->WRONG: 83  ⚠ expr 39, invalidBooleanAssignments 13, assignFromBooleanInterface2 4,
+                    extendBooleanInterface 4, validBooleanAssignments 4, …
+```
+
+Reverted. **But the 8 are the whole target and nothing else**, which is the
+useful half: §610's localisation is confirmed by construction — the defect is in
+`get_initial_or_assigned_type`, and widening the initial type does fix
+`incrementAndDecrement`.
+
+**What it is not** is "use the declared type". The 83 losses cluster in boolean
+and compound-assignment fixtures, where flow must start at the INITIALISER's own
+type (a fresh literal or a `boolean` constituent) for later narrowing to have
+anything to narrow. Upstream's cache is not a synonym for the declared type: it
+holds whatever `checkExpressionCached` stored for that expression node, which
+coincides with the widened type only for the enum-like case.
+
+**Next step, and it is a reading rather than an experiment:** find what upstream
+actually caches on the initializer node during
+`getTypeOfVariableOrParameterOrProperty` — `widenTypeInferredFromInitializer` is
+the suspect, and whether it writes back to the node's links is the whole
+question. Three experiments have now been spent guessing at it (§609's twin,
+§611's declared type); the fourth should be a read of that write.
