@@ -2599,6 +2599,56 @@ version of bare `any`.
 ### §598 CORRECTED BY §599, 2026-08-14 — **the diagnosis below was WRONG; the gate is `noImplicitAny`, and the arm has since LANDED (+7 cases)**
 
 
+### §655 — narrowing an element access with a literal key: TWO defects, both PRINTED (SIZED)
+
+Population: 5 cases whose *every* wrong line is exactly `want` vs
+`want | undefined` — `narrowedImports` (10 lines),
+`typeGuardNarrowsIndexedAccessOfKnownProperty2` (2) and `4` (1),
+`typePredicatesOptionalChaining1`/`2` (4 each). The wider shape is **135 lines
+across 33 cases**, but most of those cases carry other failures too, so 5 is the
+convertible count and the rest is the `narrowing`/`controlFlow`/`truthiness`
+lane, not this.
+
+```ts
+const foo: { key?: number } = {};
+const key = 'key' as const;
+if (foo[key]) { foo[key]; /* number */  foo.key; /* number */ }
+```
+
+Instrumented `is_matching_reference` and printed the answers rather than reading
+the code and inferring them. **Two separate defects, and the first one is not
+where I would have guessed:**
+
+```
+MATCHREF ref=ElementAccessExpression  node=ElementAccessExpression  -> true
+MATCHREF ref=PropertyAccessExpression node=ElementAccessExpression  -> false
+```
+
+1. **`foo[key]` against the guard `foo[key]` already MATCHES** (`true`). Reference
+   matching is not the problem there — the const-identifier arm
+   (`flow.rs:2592`) works. Yet the line still prints `number | undefined`, so
+   the defect is downstream of matching: the truthiness narrowing does not
+   remove `undefined` from the declared type of an element access. **That is
+   still unlocated** and is the next thing to print.
+
+2. **`foo.key` against the guard `foo[key]` does NOT match** (`false`), and this
+   one is located. `accessed_property_name` (`flow.rs:5646`) reads element
+   access **syntactically** — it answers only for a `StringLiteral` argument, so
+   a const identifier gives `None`, the pair falls to `(Some, None)` and then to
+   `_ => false`. Upstream's `getAccessedPropertyName` keys on the argument's
+   **type** being a string/number literal, which matches `foo.key` and
+   `foo[key]` to the same name.
+
+**Why this is sized and not attempted.** Each of these cases needs *both* lines
+right, so fixing only defect 2 converts nothing — and defect 1 has no located
+cause yet. Defect 2's fix also needs `accessed_property_name` to become a method
+(it is a free function with no checker access, called from several sites), which
+is a refactor to do deliberately rather than at the end of a session.
+
+**NEXT VALUE TO PRINT:** for `typeGuardNarrowsIndexedAccessOfKnownProperty2`,
+the declared type the truthiness narrowing starts from for `foo[key]` and the
+type it produces. Defect 1 is between those two values.
+
 ### §653/§654 — array literal contextually typed by a tuple RETURN annotation: +4 CASES
 
 Third family from §651's name-stem cut, and the one I stopped at rather than
