@@ -1116,6 +1116,41 @@ available of them, which is the opposite of what its size suggests — and is wh
 a priced board row must be printed before it is worked (the third time this
 window: §584's, §618's, and now this).
 
+### 4.-2h THE `alias target is any` ROW, PRINTED, 2026-08-15 (§630) — 43 cases, and `bd tsr-e2u` looks LANDED while its population stands
+
+The board's *"declaration name -> alias target is `any`"* row, printed: **43
+cases** where it is the only defect — larger than the row's earlier count and
+the biggest single-mechanism population left on the board.
+
+It is dominated by MODULE-alias shapes:
+
+```
+14  contextuallyTypedJsxChildren   typeof React      }
+ 5  jsxPartialSpread               typeof React      }  ~5 cases, `bd tsr-e2u`'s
+ 5  tsxUnionMemberChecksFilterData typeof React      }  own head population
+ 2  tsxElementResolution19 / controlFlowOptionalChain3               }
+16  declarationEmitAliasInlineing  (v: string, p: Omit<…>)   }
+ 8  declarationEmitExportAssignedNamespaceNoDefault  () => import("react").Component
+ 5  declarationEmitNoInvalidCommentReuse1/2  { foo: import("./id.js").Id<{}>; }
+15  ambientDeclarationsPatterns    (s: string) => void
+ 8  requireOfJsonFileWithEmptyObject  {}          <- §40/§581's JSON refusal
+```
+
+**The open question this raises, which is worth more than the count.**
+`bd tsr-e2u` is recorded as *"worth ~11 cases and cannot be half-taken"*, with a
+resolution half (follow `export =`) and a naming half. **Both now appear
+present**: §501 landed the naming half, §503 reopened the
+`NamespaceExportDeclaration` arm on that basis, and `module_object_of`
+(`symbols.rs:2003`) already returns the `export =` target unconditionally. Yet
+the `typeof React` population is still here, attributed to *the alias target
+typing as `any`* rather than to naming.
+
+So either the issue moved to `get_type_of_alias` — a third half nobody has
+named — or the two landed halves do not compose on this road. **Start by
+printing what `get_type_of_alias` answers for `React` in
+`contextuallyTypedJsxChildren`**, not by re-reading `bd tsr-e2u`'s history: the
+history describes a blocker that the code no longer obviously has.
+
 ### 4.-2d THE PRICED CAUSE BOARD, 2026-08-14 (§604) — **369 cases are blocked by a SINGLE cause**
 
 Built by joining both per-line dumps (§6: `TSR_ANY_DUMP=1` and
