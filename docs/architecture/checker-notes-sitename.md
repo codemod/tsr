@@ -2899,3 +2899,30 @@ this) — and the first where the conclusion it corrected was one **I had
 published two commits earlier**. §39.2's confident *"ZERO unknowns"* was itself
 the error: a table of *built* rows assembled from inference rather than from a
 run.
+
+### 39.4 One more elimination — the harness is not the cause either
+
+The natural next suspect after §39.3 was the conformance harness: if the `.json`
+unit never reached the program, `resolve_alias` answering `None` would be
+explained and the item would be a harness bug rather than a checker one.
+
+**It is not.** `types_producer.rs:1806-1828` pushes **every** unit into the VFS
+(`files.push(...)` runs over `case.files` unconditionally) and only the *root*
+list is filtered — with a comment saying exactly why: *"`.json` and
+`.tsbuildinfo` are never roots"*, matching `harnessutil`'s own heuristic. A
+non-root file is still resolvable; that is what non-root files are.
+
+So `./test.json` is present in the file system the program is built over, is not
+a root by design, and the alias still does not resolve.
+
+**Remaining suspects, now down to two roads inside the checker:**
+
+1. `resolveExternalModuleName` / the loader's module resolution for a `.json`
+   specifier under `moduleResolution: bundler` — does it produce a source file
+   and a module symbol?
+2. `getTargetOfNamespaceImport` (`checker.go:14724`) — does the port's
+   equivalent handle a namespace import whose target is a JSON module?
+
+Everything outside those two is eliminated and each elimination is cited above.
+**Not built.** The synthesis §39.2 specified is written, correct, and reverted
+unlanded, waiting on whichever of these two answers first.
