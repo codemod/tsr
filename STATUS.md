@@ -2666,15 +2666,43 @@ tables. `GetMeaningFromDeclaration` (`ast/utilities.go:2205`) and this port's
 | 3 | `parse_property_name` diverges from upstream | §662 — the tails are the same code |
 | 4 | the VALUE-meaning table diverges | §662 — the two lists are identical |
 
-**This family is now a genuine open question, not a lead.** Something makes
-upstream emit no line for the missing `PropertyAssignment` name in
-`var x = { `a`: 321 }` while emitting one for the missing `BindingElement` name
-in `var { "while" } = …`, and it is in none of the four places checked. **The
-next step is to instrument upstream directly** — build `typescript-go` and print
-what `writeTypeOrSymbol` returns for that node — rather than to read more of it;
-four reads have now produced four wrong answers, which is the signal to stop
-reading. Producer-side and parser-side guesses have each been measured and
-reverted; do not try a fifth from inspection.
+> **§663 instrumented upstream and SETTLED it.** Go 1.25 is available and
+> `vendor/typescript-go` builds, so rather than read a fifth time I compiled a
+> throwaway program against upstream's own `parser` and `ast` packages and
+> printed the nodes its baseline walk selects (`tmpdbg`, deleted after the run;
+> the submodule is clean):
+>
+> ```
+> === var x = { `a`: 321 }
+>   SEL KindIdentifier                     pos=3  end=5   declName=true
+>   SEL KindTaggedTemplateExpression       pos=7  end=17
+>   SEL KindObjectLiteralExpression        pos=7  end=9
+>   SEL KindNoSubstitutionTemplateLiteral  pos=9  end=17
+>   SEL KindNumericLiteral                 pos=18 end=22
+> ```
+>
+> **Upstream parses it as a TAGGED TEMPLATE.** The object literal closes empty at
+> `{` (pos 7–9), and `` `a` `` becomes the *tag* of a `TaggedTemplateExpression`
+> spanning 7–17. There is **no missing identifier and no `PropertyAssignment` at
+> all** — and those five selected nodes are exactly the baseline's five lines
+> (`x`, the tagged template, `{`, `` `a` ``, `321`).
+>
+> So the eliminations were right and the question was mis-framed: **this was
+> never a writer rule.** It is a parse-recovery divergence — this port builds a
+> `PropertyAssignment` with a missing name where upstream closes the object
+> literal and reads a tagged template. The extra empty-text line is a symptom.
+>
+> The same run confirms the contrast case honestly: `var { "while" } = …` really
+> does select a **zero-width `KindIdentifier`** (`pos=13 end=13`,
+> `declName=true`), which upstream emits. So width does not gate emission, as
+> §659 measured the hard way.
+>
+> **REOPENS ON: object-literal error recovery**, not on the producer. Whoever
+> takes it should price it as a parser change with §247/§649's position-shift
+> hazard, not as an arm. **Method note worth keeping: four reads of upstream
+> produced four wrong answers, and one 40-line Go program settled it in a single
+> run.** When upstream's behaviour is the question and upstream compiles,
+> instrument it rather than read it.
 
 ### §659 — the missing-node skip: BUILT, MEASURED −76 CASES, REVERTED
 
