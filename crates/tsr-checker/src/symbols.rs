@@ -3723,30 +3723,49 @@ impl<'a> Checker<'a, '_> {
         declaration: NodeId,
         name: &str,
     ) -> Option<Vec<TypeId>> {
-        // A STATIC property is not what `this.<name> = …` assigns — that is the
-        // instance side. `class Square { static sideLength; constructor(n: number)
-        // { this.sideLength = n; } }` keeps `any` upstream
-        // (`staticVisibility2`, the single regression this gate removes).
-        if let Some(Node::PropertyDeclaration(property)) = self.node_map.get(declaration)
-            && property.modifiers.iter().any(|modifier| {
-                matches!(modifier, tsr_ast::ModifierLike::Token(token)
-                    if token.kind == SyntaxKind::StaticKeyword)
-            })
-        {
-            return None;
-        }
+        // `this` means the INSTANCE in a constructor and the CLASS in a static
+        // block, so each side reads its own bodies. A static property is not
+        // what a constructor's `this.<name> = …` assigns —
+        // `class Square { static sideLength; constructor(n: number)
+        // { this.sideLength = n; } }` keeps `any` upstream (`staticVisibility2`,
+        // the single regression the first cut of §687 measured) — while
+        // `static accessor x; static { this.x = 1; }` DOES infer `number`
+        // (`classStaticBlockUseBeforeDef4`). §688.
+        let is_static = matches!(self.node_map.get(declaration), Some(Node::PropertyDeclaration(property))
+        if property.modifiers.iter().any(|modifier| {
+            matches!(modifier, tsr_ast::ModifierLike::Token(token)
+                if token.kind == SyntaxKind::StaticKeyword)
+        }));
         let class = self.nodes.parent(declaration)?;
         let members = match self.node_map.get(class)? {
             Node::ClassDeclaration(node) => node.members,
             Node::ClassExpression(node) => node.members,
             _ => return None,
         };
-        let constructor = members.iter().find_map(|member| match member {
-            tsr_ast::ClassElement::ConstructorDeclaration(node) => node.node_id,
-            _ => None,
-        })?;
+        let bodies: Vec<NodeId> = if is_static {
+            members
+                .iter()
+                .filter_map(|member| match member {
+                    tsr_ast::ClassElement::ClassStaticBlockDeclaration(node) => node.node_id,
+                    _ => None,
+                })
+                .collect()
+        } else {
+            members
+                .iter()
+                .filter_map(|member| match member {
+                    tsr_ast::ClassElement::ConstructorDeclaration(node) => node.node_id,
+                    _ => None,
+                })
+                .collect()
+        };
+        if bodies.is_empty() {
+            return None;
+        }
         let mut assignments = Vec::new();
-        self.collect_this_assignments(constructor, name, &mut assignments);
+        for body in bodies {
+            self.collect_this_assignments(body, name, &mut assignments);
+        }
         let mut types = Vec::new();
         for expression in assignments {
             let checked = self.check_expression(expression);
