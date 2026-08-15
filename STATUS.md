@@ -2599,6 +2599,51 @@ version of bare `any`.
 ### §598 CORRECTED BY §599, 2026-08-14 — **the diagnosis below was WRONG; the gate is `noImplicitAny`, and the arm has since LANDED (+7 cases)**
 
 
+### §656 — a non-generic alias printing its own name: BUILT THREE WAYS, REFUSED
+
+`type IStringContainer = Container<string>` records `>IStringContainer :
+IStringContainer`; this port prints `Container<string>`
+(`recursiveGenericUnionType1`/`2`, 2 lines each). Upstream gets it from the alias
+symbol attached to the type created during resolution.
+
+Three placements, all measured against the §654 baseline (right 434,876):
+
+| placement | right | GAP→WRONG | RIGHT→WRONG | cases |
+|---|---|---|---|---|
+| checker, `get_declared_type_of_type_alias`, body = reference with args | 435,104 | 131 | 85 | **+9** (10 gained, **1 regressed**) |
+| producer, alias NAME node, any non-generic alias | 434,859 | 241 | **398** | not taken |
+| producer, alias NAME node, body = reference with args | 434,997 | 128 | 51 | not taken |
+
+**Each placement refuted a premise, and the last one refuted the whole idea.**
+
+- The checker placement names the alias at **use sites** too, which is wrong:
+  `declare const x: NotArray` prints `Mappy<number[]>`, the reference form
+  (`mappedTypeWithNameClauseAppliedToArrayType` — the single regression, found by
+  diffing the passing-case sets rather than reading the transition list).
+- Moving to the name node and dropping the body gate cost **398 RIGHT→WRONG**:
+  `type A = { x: number }` prints its expansion upstream, not `A`.
+- With both gates it still carries **128 GAP→WRONG and 51 RIGHT→WRONG**. I
+  first blamed skipped resolution side effects, resolved-then-named to test it,
+  and **the numbers were byte-identical** — so that was wrong too. Those G→W are
+  other alias name nodes now printing a name where upstream prints the
+  expansion.
+
+**So the premise is false as stated: upstream does not prefer the alias name at
+the declaration name node either.** The rule that fits both fixtures is
+narrower — `Container<T> = T | { [i: string]: Container<T> }` is **recursive**,
+so upstream cannot expand it and falls back to the name, while
+`Mappy<number[]>` is not and expands.
+
+**REOPENS ON: detecting a recursive alias expansion**, which is the real
+condition and was not what any of these three built. Do not retry on the
+reference-with-arguments shape; it has now been measured twice and carries
+adverse transitions both times.
+
+**Method note.** The +9 in row 1 would have passed a transition-list reading —
+I only found the regression by diffing the passing-case *sets* before and after.
+For any change with RIGHT→WRONG lines, the case-set diff is the measurement that
+decides, not the net.
+
 ### §655 — narrowing an element access with a literal key: TWO defects, both PRINTED (SIZED)
 
 Population: 5 cases whose *every* wrong line is exactly `want` vs
