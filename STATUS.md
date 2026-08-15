@@ -2881,8 +2881,46 @@ the global scope rather than anything in the naming road.
 > in the same fixture, at the same time as failing to qualify elsewhere. That is
 > the signature of positions being paired with the wrong references.
 >
-> **NEXT VALUE TO PRINT:** for each render, the reference NodeId **and** the
-> verdict position it is written to, side by side. The defect is in that pairing.
+> **§679 printed the reference beside each render, and the mapping is FINE — the
+> split is real and intra-file.** Ordered by NodeId:
+>
+> ```
+>  15  <T extends Point>(p: T) => …     part1, inside A   correct bare
+>  47  Point                            part2, inside A   correct bare
+>  66  Point                            part2, inside A   correct bare
+>  71  Point                            part2, inside A   correct bare
+> 105  Point                            part3             ** WRONG — wants A.Point
+> 106  Point                            part3             ** WRONG — wants A.Point
+> 114  <T extends A.Point>(p: T) => …   part3             qualified
+> 115  <T extends A.Point>(p: T) => …   part3             qualified
+> 121  { tl: A.Point; br: A.Point; }    part3             qualified
+> 122  A.Point                          part3             qualified
+> 128  A.Point                          part3             qualified
+> 138  { tl: A.Point; br: A.Point; }    part3             qualified
+> 148  { tl: A.Point; br: A.Point; }    part3             qualified
+> ```
+>
+> **So §678's "wrong pairing" reading was wrong too.** Positions are not
+> mismatched: every render lands where it should. The truth is simpler and
+> narrower — **within `part3.ts`, two references (105, 106) fail to qualify while
+> seven others qualify correctly.**
+>
+> That also retires the over-qualification worry: `<T extends A.Point>` at 114/115
+> is in **part3**, where qualifying is right; the bare `<T extends Point>` at 15
+> is part1, where it is also right. Both correct.
+>
+> **NEXT VALUE TO PRINT:** what distinguishes references 105 and 106 from 122 and
+> 128 — same file, same symbol, same wanted qualifier, opposite outcomes. Print
+> `needs_qualification` and the parent node kind for those four. This is now a
+> two-reference question in one file, which is as small as this gets.
+>
+> **Running tally for this thread: §670–§679, one landing (§673, +2 cases), and
+> THREE successive framings retired by measurement** — "the module arm declines"
+> (§671–§676), "the caller never asks" (§677), "the pairing is wrong" (§678).
+> Each was retired by a probe one step further downstream than the last. **The
+> lesson, stated for the next session: start at the output boundary and walk
+> BACKWARD.** Every framing here was built from the symptom end and every one was
+> wrong.
 >
 > **Eight components cleared by measurement across §670–§678**, and the last
 > print invalidated the premise all eight shared. **The lane is not
