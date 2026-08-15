@@ -4064,11 +4064,17 @@ impl<'a> Checker<'a, '_> {
         // Upstream's condition (`checker.go:16696`) is `noImplicitAny &&
         // IsVariableDeclaration && !IsBindingPattern(name) && no export modifier
         // && not ambient`. The three syntactic guards are ported below.
-        // `noImplicitAny` is **not**: this port models no compiler options and
-        // assumes strict throughout, the same assumption `array_literals.rs`
-        // and `unions.rs` already state for `strictNullChecks`. A case compiled
-        // with `noImplicitAny` off would take upstream down a different path,
-        // and that is a known divergence rather than an oversight.
+        //
+        // **This comment used to continue "`noImplicitAny` is *not* [ported]:
+        // this port models no compiler options and assumes strict throughout".
+        // That is stale** — ADR-0042 gave the checker real compiler options and
+        // `Checker::no_implicit_any` has been a wired field since. §599 gates
+        // the sibling arm below on it, and the gate is load-bearing:
+        // `initializersWidened` writes `// @noImplicitAny: false` and expects
+        // `var x1 = null` to keep `null`. Ungated, that arm cost a PASSING case.
+        //
+        // The empty-array arm here is left ungated because changing it is a
+        // separate measurement, not because the option is unavailable.
         if self.nodes.kind(declaration) == SyntaxKind::VariableDeclaration
             && !self.has_binding_pattern_name(declaration)
             && !self.is_exported_variable(declaration)
@@ -4078,6 +4084,39 @@ impl<'a> Checker<'a, '_> {
         {
             let any = self.intrinsics.any;
             return Some(self.create_type_reference(target, vec![any]));
+        }
+
+        // §599: the arm BESIDE the empty-array one, under the same four guards
+        // (`checker.go:16697`–`:16704`). A non-`const` variable whose
+        // initialiser is `null` or `undefined` takes the **control-flow tracked
+        // `any`** — upstream's `autoType`, which prints `any`:
+        //
+        // ```ts
+        // var a = null;          // variableDeclarationInnerCommentEmit — `a : any`
+        // ```
+        //
+        // `autoType` and `autoArrayType` are siblings in one `if`; this port
+        // ported the array half and not the scalar one, so the guards were
+        // already here and only the arm was missing.
+        //
+        // **The `const` test is upstream's and load-bearing**: `const x = null`
+        // is NOT auto-typed and keeps `null`, because a `const` can never be
+        // reassigned and so has nothing to evolve into.
+        //
+        // §598 recorded this population as blocked by the `strictNullChecks`
+        // default and **that diagnosis was wrong** — the gate upstream writes
+        // is `noImplicitAny`, which this port assumes on (the comment above
+        // says so), not `strictNullChecks`. The record is corrected in
+        // STATUS §5.
+        if self.no_implicit_any
+            && self.nodes.kind(declaration) == SyntaxKind::VariableDeclaration
+            && !self.has_binding_pattern_name(declaration)
+            && !self.is_exported_variable(declaration)
+            && !self.combined_node_flags(declaration).intersects(NodeFlags::AMBIENT)
+            && !self.combined_node_flags(declaration).intersects(NodeFlags::CONSTANT)
+            && self.is_null_or_undefined_expression(initializer)
+        {
+            return Some(self.intrinsics.any);
         }
 
         let initializer_type = self.check_expression(initializer);
@@ -4096,6 +4135,46 @@ impl<'a> Checker<'a, '_> {
     /// baseline: `const x = "a"` is `"a"` and `let x = "a"` is `string`, from the
     /// same initialiser expression. A `const` keeps the literal; anything else
     /// widens it.
+    /// `isNullOrUndefined` (`checker.go:17667`) — the `null` keyword, or an
+    /// identifier that resolves to the global `undefined`.
+    ///
+    /// The identifier half really does need RESOLUTION and not a text match:
+    /// `var undefined = null; var x = undefined;` binds a local, and upstream's
+    /// test is `getResolvedSymbol(expr) == c.undefinedSymbol`. A name check
+    /// would auto-type `x` off a shadowing local
+    /// (`undefinedTypeAssignment3` writes exactly that shadow).
+    fn is_null_or_undefined_expression(&mut self, expression: tsr_ast::Expression<'a>) -> bool {
+        let Some(mut id) = expression.node_id() else { return false };
+        // `ast.SkipParentheses`.
+        while self.nodes.kind(id) == SyntaxKind::ParenthesizedExpression {
+            let Some(Node::ParenthesizedExpression(paren)) = self.node_map.get(id) else {
+                return false;
+            };
+            let Some(inner) = paren.expression.and_then(|inner| inner.node_id()) else {
+                return false;
+            };
+            id = inner;
+        }
+        match self.nodes.kind(id) {
+            SyntaxKind::NullKeyword => true,
+            SyntaxKind::Identifier => {
+                let Some(Node::Identifier(name)) = self.node_map.get(id) else { return false };
+                name.text == "undefined"
+                    && self
+                        .binder
+                        .resolve_name(
+                            self.nodes,
+                            self.node_map,
+                            id,
+                            "undefined",
+                            SymbolFlags::VALUE,
+                        )
+                        .is_none()
+            }
+            _ => false,
+        }
+    }
+
     pub(crate) fn get_widened_literal_type_for_initializer(
         &mut self,
         declaration: NodeId,

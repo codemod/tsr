@@ -432,3 +432,67 @@ The generalisable form, and it is a variant of `docs/conventions.md`'s
 "pre-register on the most direct bucket your instrument produces": **an
 instrument sited where the code is convenient measures the code; site it where
 the answer is observed, and it measures the answer.**
+
+---
+
+## §599 — `autoType`: a variable initialised to `null`/`undefined` is `any` (+7 cases, 5,971 → 5,978)
+
+`getTypeForVariableLikeDeclaration` (`checker.go:16697`) has ONE `if` holding
+TWO arms, and this port had ported only the second:
+
+```go
+if c.noImplicitAny && IsVariableDeclaration && !IsBindingPattern(name) &&
+   no export modifier && not ambient {
+    if !const && (initializer == nil || c.isNullOrUndefined(initializer)) {
+        return c.autoType        // <- unported: prints `any`
+    }
+    if initializer != nil && isEmptyArrayLiteral(initializer) {
+        return c.autoArrayType   // <- ported
+    }
+}
+```
+
+So `var a = null` records `a : any` (`variableDeclarationInnerCommentEmit`) and
+this port answered `null`. **The guards were already written** — the empty-array
+arm sits under the same four — and only the arm was missing.
+
+```
+WRONG->RIGHT: 27   controlFlowNoImplicitAny 6, variableDeclarationInnerCommentEmit 4,
+                   ifDoWhileStatements 4, …
+RIGHT->WRONG:  7 ⚠ json.stringify 5, implicitAnyFunctionInvocationWithAnyArguements 2
+GAP->WRONG:    1 ⚠ controlFlowArrays
+— every adverse line in a case that was ALREADY FAILING; no passing case damaged
+```
+
+### The two guards that are load-bearing, both found by measurement
+
+- **`noImplicitAny`.** Ungated, the arm cost `conformance/initializersWidened`,
+  a **passing** case, whose fixture opens `// @noImplicitAny: false` and expects
+  `var x1 = null` to keep `null`. The comment above this block asserted
+  `noImplicitAny` *"is not [ported]: this port models no compiler options"* —
+  **stale since ADR-0042**, which gave the checker real options and a wired
+  `no_implicit_any`. Corrected in place.
+- **`!const`.** `const x = null` is not auto-typed and keeps `null`: a `const`
+  can never be reassigned, so it has nothing to evolve into.
+
+### `isNullOrUndefined` needs RESOLUTION, not a text match
+
+`undefined` is an ordinary identifier. `undefinedTypeAssignment3` writes
+`var undefined = null`, which BINDS a local of that name — so upstream's test is
+`getResolvedSymbol(expr) == c.undefinedSymbol` and a name comparison would
+auto-type off a shadowing local. Ported as "resolves to nothing", which is what
+the global `undefined` does in this port.
+
+### What §598 got wrong, and why it is worth recording
+
+§598 measured this same population (109 lines / 27 cases / 15 convertible),
+built a `strictNullChecks` widening rule for it, measured zero, removed the gate
+to prove the arm worked, and concluded **the blocker was the `strictNullChecks`
+default**. The population was right; the cause was wrong. The give-away was
+available and unread: the ungated experiment's 216 adverse lines were
+concentrated in `logicalAndOperatorStrictMode` — a *strict-mode* fixture — which
+is what a wrong-option diagnosis looks like from the outside, and the fixture
+that settles it (`initializersWidened`) names its own option in line 2.
+
+**"I found the population" and "I found the cause" are different claims.** §598
+published the second holding only the first.
