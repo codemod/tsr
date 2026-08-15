@@ -79,6 +79,9 @@ pub(crate) enum NonNullKind {
 }
 
 struct FlowState {
+    /// Element types seen at `ARRAY_MUTATION` nodes while walking an auto-array
+    /// reference. §710's `addEvolvingArrayElementType`.
+    array_elements: Vec<TypeId>,
     /// The reference node the question is about.
     reference: NodeId,
     /// What that reference resolves to, when it is an identifier.
@@ -282,6 +285,7 @@ impl Checker<'_, '_> {
             return parent_union;
         };
         let mut state = FlowState {
+            array_elements: Vec::new(),
             reference,
             symbol: None,
             declared_type: parent_union,
@@ -358,6 +362,7 @@ impl Checker<'_, '_> {
         // type whatever the flow says.
         let is_auto = symbol.is_some_and(|symbol| self.is_auto_typed_declaration(symbol));
         let mut state = FlowState {
+            array_elements: Vec::new(),
             reference,
             symbol,
             declared_type,
@@ -615,6 +620,28 @@ impl Checker<'_, '_> {
                 // walk skips the node iteratively, so the recursion is
                 // accounted for explicitly — one depth step per mutation.
                 if flags.contains(FlowFlags::ARRAY_MUTATION) && state.is_auto_array {
+                    // §710: `addEvolvingArrayElementType` — `x.push(a)`
+                    // contributes each argument, `x[i] = e` the right-hand side.
+                    if let Some(mutation) = binder.flow().node(flow) {
+                        let contributed: Vec<TypeId> = match self.node_map.get(mutation) {
+                            Some(Node::CallExpression(call)) => {
+                                call.arguments.iter().map(|&a| self.check_expression(a)).collect()
+                            }
+                            Some(Node::BinaryExpression(binary)) => binary
+                                .right
+                                .map(|right| vec![self.check_expression(right)])
+                                .unwrap_or_default(),
+                            _ => Vec::new(),
+                        };
+                        for element in contributed {
+                            let widened = self.get_base_type_of_literal_type(element);
+                            if widened != self.intrinsics.error
+                                && !state.array_elements.contains(&widened)
+                            {
+                                state.array_elements.push(widened);
+                            }
+                        }
+                    }
                     state.depth += 1;
                     if state.depth >= MAX_FLOW_DEPTH {
                         if let Some(container) =
@@ -646,6 +673,25 @@ impl Checker<'_, '_> {
             }
         };
 
+        // §710's `finalizeEvolvingArrayType`, under upstream's gate
+        // `!isEvolvingArrayOperationTarget(reference)` (`checker.go:11182`).
+        let answer = if state.is_auto_array
+            && !state.array_elements.is_empty()
+            && answer.t == state.declared_type
+            && !self.is_evolving_array_operation_target(state.reference)
+        {
+            let elements = state.array_elements.clone();
+            let element = self.get_union_type(&elements);
+            match self.global_type_symbol("Array") {
+                Some(array) => {
+                    let evolved = self.create_type_reference(array, vec![element]);
+                    FlowType { t: evolved, incomplete: answer.incomplete }
+                }
+                None => answer,
+            }
+        } else {
+            answer
+        };
         if let Some(id) = shared {
             self.shared_flows.push((id, answer));
         }
@@ -1761,6 +1807,21 @@ impl Checker<'_, '_> {
     /// machinery): a variable declared with no annotation and an empty
     /// array-literal initializer. Only the §14 depth accounting asks.
     fn is_auto_array_declaration(&self, symbol: SymbolId) -> bool {
+        // §710: `autoArrayType` lives in the SAME `noImplicitAny` block as the
+        // scalar auto type (`checker.go:16697` — *"in noImplicitAny mode or a
+        // .js file"*, then `isEmptyArrayLiteral(initializer)` →
+        // `c.autoArrayType`). Without the flag, `var x = []` is an ordinary
+        // `any[]` and never evolves.
+        //
+        // This is why `typedArrays` (no `@noImplicitAny`) records
+        // `typedArrays : any[]` on every line while `controlFlowArrays`
+        // (`@noImplicitAny: true`) evolves to `(string | number | boolean)[]`
+        // from the SAME `x[0] = …` element-assignment form. §708 read that
+        // difference as a missing gate in `getTypeAtFlowArrayMutation`; it is
+        // this flag, one level earlier.
+        if !self.no_implicit_any {
+            return false;
+        }
         let Some(declaration) = self.binder.symbols().get(symbol).value_declaration else {
             return false;
         };
@@ -2474,6 +2535,37 @@ impl Checker<'_, '_> {
             // literal's text.
             TypeData::StringLiteral(text) | TypeData::NumberLiteral(text) => Some(text.clone()),
             _ => None,
+        }
+    }
+
+    /// `isEvolvingArrayOperationTarget` (`flow.go:1542`): the receiver of
+    /// `.length`, `.push`/`.unshift`, or a numeric `x[i] = …` keeps the
+    /// **unfinalized** evolving array, which prints `any[]`. §710.
+    fn is_evolving_array_operation_target(&mut self, node: NodeId) -> bool {
+        let Some(parent) = self.nodes.parent(node) else { return false };
+        match self.node_map.get(parent) {
+            Some(Node::PropertyAccessExpression(access)) => {
+                let Some(tsr_ast::MemberName::Identifier(name)) = access.name else {
+                    return false;
+                };
+                name.text == "length"
+                    || (matches!(name.text, "push" | "unshift")
+                        && self.nodes.parent(parent).is_some_and(|call| {
+                            self.nodes.kind(call) == SyntaxKind::CallExpression
+                        }))
+            }
+            Some(Node::ElementAccessExpression(access)) => {
+                if access.expression.and_then(|e| e.node_id()) != Some(node) {
+                    return false;
+                }
+                let Some(owner) = self.nodes.parent(parent) else { return false };
+                let Some(Node::BinaryExpression(binary)) = self.node_map.get(owner) else {
+                    return false;
+                };
+                binary.operator_token.is_some_and(|t| t.kind == SyntaxKind::EqualsToken)
+                    && binary.left.and_then(|l| Node::from(l).node_id()) == Some(parent)
+            }
+            _ => false,
         }
     }
 
@@ -3367,6 +3459,7 @@ impl Checker<'_, '_> {
         assume_true: bool,
     ) -> TypeId {
         let mut state = FlowState {
+            array_elements: Vec::new(),
             reference,
             symbol,
             declared_type: declared,
