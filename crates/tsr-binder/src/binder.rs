@@ -4615,11 +4615,25 @@ fn classify(node: Node<'_>) -> Option<(SymbolFlags, Destination)> {
         // `ValueModule` and occupies value space. This port mapped every module
         // to `VALUE_MODULE`, which is why §94's excludes fix over-reported on
         // ambient and augmentation declarations — `checker-notes-diag2.md` §95.
+        //
+        // §601: the test is **`!= NonInstantiated`**, not `== Instantiated`.
+        // `ModuleInstanceState` has THREE values, and `declareModuleSymbol`
+        // (`binder.go:815`) writes
+        // `instantiated := state != ModuleInstanceStateNonInstantiated` — so
+        // **`ConstEnumOnly` is a `ValueModule`**, which is the whole point of
+        // that third state: `namespace N { const enum E { … } }` emits code
+        // when `preserveConstEnums` is on and therefore occupies value space.
+        // Testing `== Instantiated` put it in the namespace bucket and cost 44
+        // lines in `constEnums` alone. Measured: +44, zero adverse,
+        // `binder_symbols` unmoved at 100%.
         Node::ModuleDeclaration(_) => (
-            if tsr_ast::module_instance_state(node) == tsr_ast::ModuleInstanceState::Instantiated {
-                S::VALUE_MODULE
-            } else {
+            if matches!(
+                tsr_ast::module_instance_state(node),
+                tsr_ast::ModuleInstanceState::NonInstantiated
+            ) {
                 S::NAMESPACE_MODULE
+            } else {
+                S::VALUE_MODULE
             },
             D::Locals,
         ),
@@ -4799,6 +4813,18 @@ fn declaration_name<'a>(
         // rather than attempted because the merge path is the real dependency
         // and it has not been read.
         //
+        // # §600 CORRECTED: §234's reference half was ALREADY FIXED, by §265
+        //
+        // §600 (below) recorded that the two halves must be measured together
+        // because a change satisfying one would move the other. **That is
+        // wrong, and the fix it worried about is thirty lines up in this file.**
+        // §265 already refuses a `global` REFERENCE in `resolve_name`, and
+        // `spellingSuggestionGlobal1`/`2`/`3`/`4` all PASS at the §599 baseline
+        // (0 non-right of 5, 9, 7 and 5 lines). The filter is independent of the
+        // declaration's type, so the declaration half is **independently
+        // attemptable** — §600 argued from §234's text without re-reading the
+        // code §234 asked for.
+        //
         // # §600: the DECLARATION half, which §234 does not cover, and it is wrong the other way
         //
         // §234 is about a REFERENCE to `global`. At the **declaration name** the
@@ -4812,13 +4838,16 @@ fn declaration_name<'a>(
         // `moduleAugmentationGlobal6`/`6_1`/`7`/`7_1` and
         // `duplicatePackage_globalMerge`.
         //
-        // **Not attempted here.** The two halves want opposite answers for the
-        // same symbol, so a change that satisfies one by adjusting the symbol's
-        // flags or name will move the other, and §234 already measured what
-        // that costs: 0 won and 5 LOST. Whoever takes it should price BOTH
-        // halves in one measurement — the reference half is `spellingSuggestionGlobal1`/`2`/`4`,
-        // the declaration half is the five above — and should expect to need
-        // the merge path §234 names, not a flag tweak.
+        // **Not attempted here**, but not for §600's original reason. The
+        // reference half is already correct (see the correction above), so this
+        // is a standalone item. What stops it is that upstream's own answer is
+        // not yet understood: `declare global { interface … }` is
+        // NonInstantiated, so upstream binds it `NamespaceModule` too and
+        // `getTypeOfSymbol` has no arm for that — yet the baseline records
+        // `typeof global` rather than the `any` a rendered `errorType` would
+        // give. **The declaration-name road upstream takes has not been read**,
+        // and guessing a flag here is exactly what §234 measured at 0 won / 5
+        // lost. Read `getTypeOfNode`'s declaration-name arm first.
         Node::ModuleDeclaration(n) => n.name.map(|name| match name {
             tsr_ast::ModuleName::StringLiteral(literal) => quoted_module_name(arena, literal.text),
             tsr_ast::ModuleName::Identifier(identifier) => identifier.text,
