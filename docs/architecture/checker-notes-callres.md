@@ -1976,3 +1976,49 @@ genuine contextual types. The remaining recursive kinds
 (`ConditionalExpression`, `SpreadAssignment`) delegate to their own parent and
 would need the whole dispatch ported to answer honestly — that is the shape of
 the next slice here, and it is not a kind-by-kind job much longer.
+
+---
+
+## §606 REFUSED — the NEXT slot from an ANNOTATED declaration (0 converted, 2 G→W)
+
+§583 ported the contextual positions where upstream answers **nil** and stated
+plainly that the positions where it answers a **type** were not ported. §606
+attempted the first of those: `getContextualTypeForVariableLikeDeclaration`
+(`checker.go:29438`) opens `if typeNode != nil { return getTypeFromTypeNode(typeNode) }`,
+so an ANNOTATED variable-like declaration has a computable contextual type, and
+`function* g3() { const value: string = yield; }` wants
+`() => Generator<undefined, void, string>` (`generatorImplicitAny`) — the very
+fixture §583 cited for the nil half.
+
+Built as upstream builds it: a `next_types` aggregate beside the yield aggregate,
+`nextType = getIntersectionType(nextTypes)` when non-empty and `unknown`
+otherwise (`checker.go:20161`, `:20242`). Measured:
+
+```
+GAP->WRONG: 2  ⚠  generatorReturnTypeFallback.3, generatorReturnTypeFallback.4
+(nothing converted — `g3` did not move)
+```
+
+**Zero won, two lost.** Reverted.
+
+### What it got wrong, for whoever takes it next
+
+The target did not move and two neighbours broke, which means the arm is firing
+where the *annotation* is not the whole answer and not firing where it is. Two
+candidates, and this measurement does not separate them:
+
+- **`g3` never reaches the arm.** Its `yield` is bare, and the bare-yield
+  contribution and the contextual gate interact in an order §135/§220 tuned by
+  measurement; the gate may be answering before the annotation is consulted.
+- **`generatorReturnTypeFallback.3`/`4` want the slot from the RETURN
+  ANNOTATION, not from a declaration.** They write
+  `function* g(): IterableIterator<number, void, string>`, so their NEXT slot
+  comes from `getIterationTypeOfGeneratorFunctionReturnType` (§225's road, which
+  this port already has), and feeding a declaration-derived type into the same
+  slot overwrites it.
+
+The second is the likelier and is the useful warning: **the NEXT slot has more
+than one source, and they are not additive.** Anyone porting the type-answering
+half should establish which source wins before writing the aggregate — upstream
+resolves that at `:20242` by consulting the contextual ITERATION type only when
+`nextTypes` is empty, which is precisely the ordering §606 inverted.
