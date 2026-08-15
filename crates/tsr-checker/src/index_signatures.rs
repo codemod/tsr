@@ -398,6 +398,17 @@ impl<'a> Checker<'a, '_> {
         // member as its own `TypeFlags::ENUM` type, so the literal test above
         // could not see it and `E[E.A]` gapped while the identical `E[0]`
         // answered `string`.
+        // §694: `isApplicableIndexType` opens with
+        // `isTypeAssignableTo(source, target)` (`checker.go:19057`), and `any`
+        // is assignable to everything — so an `any`-typed key reads whichever
+        // index signature the type has. `bar[id]++` on
+        // `{ [id: string]: number }` with `id` used before its declaration
+        // (`typeGuardNarrowsIndexedAccessOfKnownProperty10`) records `number`;
+        // the structural tests below could not see it because `any` is neither
+        // a literal nor `string`/`number`.
+        if self.store.get(source).flags.intersects(crate::TypeFlags::ANY) {
+            return true;
+        }
         let source_is_number = source == number
             || matches!(self.store.get(source).data, TypeData::NumberLiteral(_))
             || self.store.get(source).flags.contains(crate::TypeFlags::ENUM);
