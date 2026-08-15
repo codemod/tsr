@@ -3185,15 +3185,39 @@ STRING key against a NUMBER index) correctly stays `any`, with no extra gating.
 It also converted 5 GAP→RIGHT outside the target — `computedPropertyNameWithImportedKey`,
 `crashInGetTextOfComputedPropertyName`, `controlFlowParameter`.
 
-**Why the case did not convert: 4 of its 10 lines remain**, all
-`{ [numed]: propN } = strIndexed` — a NUMBER-like key that must fall back to the
-**string** index signature, which `get_applicable_index_info` does not do. That
-is shared machinery used by every element access, so it is a separate change with
-its own blast radius, not an extension of this arm.
+**Why the case did not convert: 4 of its 10 lines remain** — and **§692 corrects
+what I first wrote here.** I recorded the remainder as *"`{ [numed]: propN } =
+strIndexed`, a NUMBER-like key needing the string fallback"*. That was wrong on
+both counts: the numeric fallback **already exists and already works**
+(`is_applicable_index_type`, `index_signatures.rs:406-410`, *"a `string` index
+signature applies to types assignable to `string` **or `number`**"*), and the
+numeric lines converted.
 
-**REOPENS ON: numeric-key fallback to the string index signature** in
-`get_applicable_index_info`. Measure it against the whole corpus, not this
-fixture.
+Reading the post-change baseline, the four survivors are **SYMBOL-keyed**:
+
+```ts
+const symed = Symbol();               // unique symbol
+let   symed2 = Symbol();              // symbol
+let { [symed]:  prop7 } = strIndexed; // upstream: string   ← we answer any
+let { [symed2]: prop9 } = strIndexed; // upstream: string   ← we answer any
+let { [symed]:  prop6 } = numIndexed; // upstream: any      ← we agree
+```
+
+So a **symbol key against a STRING index signature resolves to the string
+index**, while the same key against a NUMBER index does not. That does not follow
+from `isApplicableIndexType` as written upstream
+(`checker.go:19054`) — `isTypeAssignableTo(symbol, string)` is false and the
+`number` disjunct does not apply either — so upstream must reach it by another
+road, and **which road is the open question**.
+
+**REOPENS ON: finding how upstream resolves a symbol-keyed access against a
+string index signature.** Do NOT touch `is_applicable_index_type` on the strength
+of this fixture; the numeric half of it is correct and load-bearing.
+
+**Method note:** I wrote the original reopening condition from the *source text*
+of the fixture rather than from the post-change verdict rows, and named the wrong
+population. Same failure as §664's classifier and §683's — **read the rows, not
+the fixture.**
 
 ### §690 — surplus type arguments instantiate instead of gapping: 9 W→R, +0 cases
 
