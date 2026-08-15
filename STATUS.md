@@ -2644,11 +2644,37 @@ residue:
    its property-name parse consumes the template literal, while this port
    produces a missing identifier **and** the literal, one node too many.
 
-**REOPENS ON: `parse_property_name`.** Check whether a
-`NoSubstitutionTemplateLiteral` in property-name position is consumed as the name
-rather than leaving a missing identifier beside it. That is a parser question,
-not a producer one, and both producer-side attempts (§659, §661) have now been
-measured and reverted. Do not try a third.
+**§662 checked `parse_property_name` and it is NOT that either.** This port's
+tail is `_ => PropertyName::Identifier(self.parse_identifier_name())`
+(`expression.rs:2202`), which is exactly upstream's
+`parsePropertyNameWorker` tail (`return p.parseIdentifierName()`,
+`parser.go:3464`). Both create the missing identifier; both keep the template
+literal as a node. The parse shapes agree.
+
+I then checked the last standing candidate — upstream's third drop, *"an
+identifier whose parent declares no VALUE gets no line"* — by diffing the meaning
+tables. `GetMeaningFromDeclaration` (`ast/utilities.go:2205`) and this port's
+`meaning_from_declaration` (`predicates.rs:437`) list **the same sixteen kinds**,
+`PropertyAssignment` among them, in the same order. Identical.
+
+**Four hypotheses eliminated with evidence, none of them right:**
+
+| # | hypothesis | killed by |
+|---|---|---|
+| 1 | the writer skips zero-width nodes | §659, −76 cases |
+| 2 | it skips zero-width *declaration names* | §661's own regression on a `BindingElement` name |
+| 3 | `parse_property_name` diverges from upstream | §662 — the tails are the same code |
+| 4 | the VALUE-meaning table diverges | §662 — the two lists are identical |
+
+**This family is now a genuine open question, not a lead.** Something makes
+upstream emit no line for the missing `PropertyAssignment` name in
+`var x = { `a`: 321 }` while emitting one for the missing `BindingElement` name
+in `var { "while" } = …`, and it is in none of the four places checked. **The
+next step is to instrument upstream directly** — build `typescript-go` and print
+what `writeTypeOrSymbol` returns for that node — rather than to read more of it;
+four reads have now produced four wrong answers, which is the signal to stop
+reading. Producer-side and parser-side guesses have each been measured and
+reverted; do not try a fifth from inspection.
 
 ### §659 — the missing-node skip: BUILT, MEASURED −76 CASES, REVERTED
 
