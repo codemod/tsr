@@ -320,17 +320,22 @@ fn sort_order_flags(flags: TypeFlags) -> u32 {
 /// The name a type sorts under: `getTypeNameSymbol` (`utilities.go:608`).
 ///
 /// Upstream returns the type's alias symbol or its own symbol and compares
-/// `Symbol.Name`. This port compares the **printed form** instead, because a
-/// [`TypeData::Named`] carries its name as text and not as a symbol.
+/// `Symbol.Name`.
 ///
-/// The two agree for every plain named type, where the printed form *is* the
-/// symbol name. They part company for two references to the same generic:
-/// upstream compares the symbol names (equal), then the type-argument lists by
-/// `CompareTypes`, so `C<string> | C<number>` keeps `string` before `number`;
-/// this compares `"C<number>"` against `"C<string>"` and orders them the other
-/// way. Recorded rather than fixed, because fixing it means giving
-/// `TypeData::Named` a symbol and an argument list, which is a reshape of a type
-/// two workstreams share. `bd tsr-bgz`.
+/// **This comment used to say the port compares the printed form instead, and
+/// that `C<string> | C<number>` therefore came out backwards (`bd tsr-bgz`,
+/// "recorded rather than fixed, because fixing it means giving
+/// `TypeData::Named` a symbol and an argument list"). §591 and §596 fixed it
+/// without that reshape**, and the reshape was never needed: a REFERENCE
+/// already carries its target symbol and arguments in
+/// `type_reference_targets`, so two references to the same generic compare
+/// their symbols (equal) and then their argument lists by `compare_type_lists`,
+/// exactly as upstream does.
+///
+/// Re-measured at the §597 baseline: **zero** remaining non-right lines whose
+/// union constituents are the same generic with different arguments. The
+/// numbers that justified deferring it were describing a road this port no
+/// longer takes.
 /// The name a NON-reference type sorts under — its **symbol's** name where it
 /// has one, and only otherwise its printed text.
 ///

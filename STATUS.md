@@ -1130,15 +1130,33 @@ parens          23 lines / 10 cases   (2 convertible)  <- several distinct rules
 quotes          24 lines /  7 cases   (2 convertible)  <- likely `bd tsr-a2c`'s written-node reuse
 ```
 
+**`bd tsr-bgz` is CLOSED by measurement, not by work aimed at it.** It recorded
+that `C<string> | C<number>` came out backwards because the comparator used
+printed text, and deferred the fix as *"a reshape of a type two workstreams
+share"*. §591/§596 fixed it without any reshape — a REFERENCE already carries
+its target symbol and arguments, so two references to the same generic compare
+symbols then argument lists, as upstream does. Re-measured at the §597 baseline:
+**zero** remaining lines of that shape. The comment justifying the deferral has
+been corrected in place.
+
 Two named leftovers worth a line each: `stringEnumLiteralTypes1`/`2` still want
 `Choice.Yes | Choice.No` after §597 — a STRING enum member carries the string
 literal's own data and reaches a different arm, so it looks identical to §597's
 population in the row dump and is not. And `thisTypeInInterfaces` (`this | Date`)
 plus `noInferUnionExcessPropertyCheck1` (`(() => NoInfer<T>) | NoInfer<T>`) are
-the two convertible union-order rows left; both put a type upstream considers
-UNNAMED ahead of a named one, which the current `(None, Some) => Greater` rule
-(`utilities.go:614`) forbids — so one of those two readings is wrong and a trace
-would say which.
+the two convertible union-order rows left.
+
+**Traced, and they are not comparator bugs.** `getSortOrderFlags`
+(`utilities.go:581`) sorts by RAW FLAG BITS before any name is consulted, and
+this port's `TypeFlags` bit assignments match upstream's exactly
+(`TYPE_PARAMETER = 1 << 19`, `OBJECT = 1 << 20`). So `T | Directive`
+(`generatorYieldContextualType`) requires `Directive` — an enum type — to carry
+`UNION`, because `getSortOrderFlags` collapses an enum to `TypeFlagsEnum`
+(`1 << 16`, sorting FIRST) only when it is *not* a union. Upstream models an
+enum type as the union of its members; if this port does not, the flag arrives
+different and every comparator above it is innocent. **The remaining union-order
+rows are a TYPE-MODELLING question, not a printing one** — which is where this
+seam stops being cheap, and the right place to hand it over.
 
 **Re-run the sweep after any printing change** — it is thirty lines of Python
 over `target/verdict_baseline.tsv` and needs no build. The remaining paren rows
