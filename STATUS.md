@@ -3073,12 +3073,43 @@ the global scope rather than anything in the naming road.
 > session, a measured baseline, and the case-set diff — not an end-of-session
 > patch.**
 >
-> **What it is worth:** unknown, and deliberately not guessed. `resolve_name`
-> feeds naming, type resolution and the unresolved-mint fallback, so the
-> population is at least the qualified-name lane plus an unknown share of the 71
-> `any`/`error` cases §664 counted. **Size it by instrumenting how often the walk
-> reaches a container whose symbol has >1 declaration and finds nothing** — that
-> count is the population, and it is one probe.
+> **§686 BUILT IT THREE WAYS AND ALL THREE MEASURED NEGATIVE. REFUSED.**
+> Rather than size it, I built it — the measurement answers more than the count
+> would have. Against the §673 baseline (right 434,970):
+>
+> | cut | right | RIGHT→WRONG | WRONG→RIGHT |
+> |---|---|---|---|
+> | sibling `locals`, any multi-declaration symbol | 434,921 (−49) | 49 | **0** |
+> | …gated to `ModuleDeclaration` | 434,960 (−10) | 10 | **0** |
+> | …reading the merged symbol's `exports` instead | 434,962 (−8) | 8 | **0** |
+>
+> **Not one WRONG→RIGHT in any cut.** The change never reaches the defect it was
+> built for — `Point` in part2 is not resolved by any of these paths — while
+> each cut breaks something real:
+>
+> - The first leaked **function overload** parameters and type parameters between
+>   declarations (`overloadResolution`,
+>   `taggedTemplateStringsWithOverloadResolution3`, `underscoreTest1`): every
+>   overloaded function also has >1 declaration.
+> - The second leaked **non-exported** namespace members across declarations,
+>   which is exactly what
+>   `TwoInternalModulesThatMergeEachWithExportedAndNonExportedClassesOfTheSameName`
+>   exists to forbid.
+> - The third still breaks `cloduleStaticMembers`, `mergedDeclarations2` and
+>   `staticsNotInScopeInClodule` — class/namespace *clodule* merges, where the
+>   static side and the namespace side must not see each other.
+>
+> **So §685's root cause is right and its FIX IS NOT "widen the scope walk".**
+> Each widening is a different over-approximation of upstream's merged table, and
+> upstream's version is not a lookup fallback at all — it merges the tables at
+> bind time, so shadowing, exportedness and clodule boundaries are resolved once,
+> structurally, rather than re-decided at every lookup.
+>
+> **REOPENS ON: merging the locals tables in the BINDER**, at the point the
+> namespace symbols merge, so `resolve_name` keeps its single-table walk. That is
+> the shape upstream has and the only one where these three regressions cannot
+> arise. **Do not retry a lookup-side fallback; three cuts have now measured
+> negative with zero upside.**
 >
 > **Consequence for §664's sizing, which must not be inherited uncorrected:** the
 > 145 "qualified name" cases were split 74 naming / 71 unresolved on the strength
