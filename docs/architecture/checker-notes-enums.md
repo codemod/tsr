@@ -675,3 +675,38 @@ structure (§612). What is left is small and named. **The 8 lines are one case
 and this is four sessions' worth of note for them** — recorded at this length
 only because each ruled-out mechanism was the obvious next guess, and a future
 reader would otherwise spend the same three experiments.
+
+### §613 — the target is a WRITE, not an enum: all eight positions are assignment targets
+
+The probe §612 asked for is now executable
+(`tests/narrowing.rs::an_enum_initialised_var_narrows_to_the_member_at_a_read`),
+and writing it surfaced what four sections of reading had missed.
+
+**All eight of `incrementAndDecrement`'s wrong positions are `e++`, `e--`,
+`++e`, `--e`** — every one an assignment TARGET — and the fixture contains **no
+plain read of `e` at all**. The 8 lines were never evidence about enum
+narrowing at a reference; they are evidence about narrowing at a reference that
+is being WRITTEN, where upstream answers the declared type because narrowing a
+write target is meaningless.
+
+That also dissolves the puzzle §612 could not close. Upstream's
+`getAssignmentReducedType` *does* reduce `E` by `E.B` — §612's reading of the
+code was right — and it is never consulted for these positions, because the
+`.types` entry for a write target does not come from the narrowed flow type at
+all. **The give-up branch was a red herring; there was no branch.**
+
+**Consequences worth carrying:**
+
+- The pinned test asserts a plain READ, and this port's `E.B` there may be
+  correct — upstream's baseline has no such line, so it is pinned as *current
+  behaviour of unknown correctness*, not as a defect. Pinning it as a defect
+  would have been the fifth wrong claim in this chain.
+- The real item is **"a reference that is an assignment target is not
+  narrowed"**, which is not enum-specific and should be sized across the corpus
+  before it is built — increments, compound assignments and plain `x = …`
+  targets all qualify.
+- §609–§612 spent three experiments and four readings on a case whose defining
+  feature — every failing position is an increment — was visible in the first
+  row dump. **The rows were printed and not read.** §11.3 says distrust an
+  aggregate whose rows you have not seen; this is its complement, and it is the
+  more embarrassing failure: seen and not looked at.

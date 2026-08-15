@@ -699,3 +699,41 @@ fn typeof_function_still_declines_when_the_program_has_no_function_interface() {
         "string | (() => void)"
     );
 }
+
+/// §612's probe, made executable.
+///
+/// `compiler/incrementAndDecrement` writes `var e = E.B;` and records `>e : E`
+/// at every later reference. This port prints `E.B` there — 8 lines, and they
+/// are that case's entire deficit.
+///
+/// Three mechanisms are ruled out in `checker-notes-enums.md` §610–§612: the
+/// fresh/regular twin at the access site, the initial flow type, and the
+/// structure of `get_assignment_reduced_type` (which already carries upstream's
+/// give-up path). What is left is the single assignability query that CHOOSES
+/// that path — `isTypeAssignableTo(assignedType, reducedType)` with a FRESH
+/// enum literal against its REGULAR twin (`flow.go:2429`).
+///
+/// **§613 sharpens the target, and the fixture is why.** All eight of
+/// `incrementAndDecrement`'s wrong positions are `e++`, `e--`, `++e`, `--e` —
+/// **every one an assignment TARGET**, and the file contains no plain read of
+/// `e` at all. So the hypothesis is not "this port narrows enum initialisers
+/// wrongly" but the narrower **"this port narrows a reference that is being
+/// WRITTEN"**, where upstream answers the declared type because narrowing a
+/// write target is meaningless.
+///
+/// That reframing matters: the assertion below is a plain READ, and this port's
+/// `E.B` there may well be correct — upstream's baseline does not contain the
+/// case, so it is pinned as CURRENT BEHAVIOUR OF UNKNOWN CORRECTNESS rather
+/// than as a known defect. The known defect is the write-target one, and it
+/// needs a fixture with an increment, which this harness cannot type (the
+/// operand of `++` is not an expression statement).
+#[test]
+fn an_enum_initialised_var_narrows_to_the_member_at_a_read() {
+    assert_eq!(
+        type_of_last_expression("enum E { A, B, C }\nvar e = E.B;\ne;"),
+        "E.B",
+        "pinned as current behaviour; upstream's answer at a plain READ is not \
+         in the corpus. The MEASURED defect is at a write target — see \
+         checker-notes-enums.md §613"
+    );
+}
