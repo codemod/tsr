@@ -2399,3 +2399,48 @@ for (const d of new Set([1])) { d }    // any     — want number
 does not address and no probe here has sized. `Array.from` is a different road
 again — overload resolution over an iterable argument. **Both are recorded so
 the next reader does not mistake §571 for having covered them.**
+
+---
+
+## 35. §573 — `Set` was missing from the lib-iterable list (+9 lines, 0 adverse)
+
+§34.1's second row. `for_of_element_type`'s §251 arm shortcuts *"the lib types
+whose first type argument IS their iteration type"* and named three:
+`Iterable`, `IterableIterator`, `Generator`. `Set<T>` satisfies the same
+property — `interface Set<T> { [Symbol.iterator](): IterableIterator<T> }` — and
+was simply absent, so `for (const d of new Set([1]))` answered `any` where the
+identical `Generator` answered `number`.
+
+Added `Set` and `ReadonlySet`.
+
+**`Map` is deliberately NOT added.** `Map<K, V>` iterates `[K, V]`, a tuple of
+both arguments, so reading `arguments[0]` would answer `K` and be confidently
+wrong. The rule the list encodes is *the first argument is the iteration type*,
+and `Map` does not satisfy it — the same reason `Array` has its own arm above
+rather than a place in this list.
+
+```
+WRONG->RIGHT: 9   esNextWeakRefs_IterableWeakMap
+no adverse transition of any kind
+checker_types 5,921 (+0 cases), gradient 90.52%
+```
+
+### 35.1 The probe said nothing and the corpus said nine
+
+Worth recording because it is §20.1's rule from the other side. The probe
+
+```ts
+for (const d of new Set([1])) { d }   // still `any` after the change
+```
+
+showed **no movement**, and on the evidence of §555 the instinct is *"the edit
+did not apply"*. It had. The corpus moved nine lines in
+`esNextWeakRefs_IterableWeakMap`, a case whose `Set` arrives through a different
+construction than a bare `new Set([1])` in a probe file with the default lib
+mount.
+
+> **A probe that shows nothing is not a measurement either.** It is one fixture
+> under one lib configuration; the corpus is 9,538. §20.1 said check whether the
+> arm fired before believing a zero — the corpus IS that check, and it is the
+> one that counts. Had this been reverted on the probe's word, nine correct
+> lines would have gone with it.

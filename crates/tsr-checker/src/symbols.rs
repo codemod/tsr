@@ -3700,10 +3700,24 @@ impl<'a> Checker<'a, '_> {
             // fired. Measured that way first: +0 cases and zero line
             // transitions, which is conventions corollary 27's first face and
             // is why the fire check came before the conclusion.
-            let is_lib_iterable = ["Iterable", "IterableIterator", "Generator"]
-                .into_iter()
-                .filter_map(|name| self.binder.globals().get(name).copied())
-                .any(|symbol| self.binder.merged_symbol(symbol) == target);
+            // §573: `Set` and `ReadonlySet` belong to the same population and
+            // were simply missing. `interface Set<T> { [Symbol.iterator]():
+            // IterableIterator<T> }` — the first type argument IS the
+            // iteration type, exactly as for the three above, so
+            // `for (const d of new Set([1]))` answered `any` where the
+            // identical `Generator` answered `number`.
+            //
+            // **`Map` is deliberately NOT here**: `Map<K, V>` iterates
+            // `[K, V]`, a TUPLE of both arguments, so reading `arguments[0]`
+            // would answer `K` and be confidently wrong. The rule this list
+            // encodes is *the first argument is the iteration type*, and `Map`
+            // does not satisfy it — the same reason `Array` is handled by its
+            // own arm above rather than being added here.
+            let is_lib_iterable =
+                ["Iterable", "IterableIterator", "Generator", "Set", "ReadonlySet"]
+                    .into_iter()
+                    .filter_map(|name| self.binder.globals().get(name).copied())
+                    .any(|symbol| self.binder.merged_symbol(symbol) == target);
             if is_lib_iterable {
                 return Some(first);
             }
