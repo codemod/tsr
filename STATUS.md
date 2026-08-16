@@ -3867,6 +3867,43 @@ discriminator — that was checked.
 > have now failed to approximate it. Either port `isAccessible` or leave the 13
 > cases.
 
+### §727 — §242's falsifier was ALREADY ANSWERED; its "NOT BUILT" note is stale
+
+§726 pointed at §242's refusal, whose comment reads *"REFUSED TODAY… This port
+has no 'call signatures of an arbitrary type' query"* and names the falsifier:
+*"implement `call_signatures_of_type` for the interface/object case."*
+
+I built it — a declarations-based `call_signature_count` — and then found the
+work already done, **twenty lines below the comment that says it is not**:
+
+```rust
+// signatures.rs:3805
+fn argument_context_has_no_call_signature(&mut self, declaration: NodeId) -> bool {
+    …
+    declarations.iter().all(|&id| {
+        matches!(self.nodes.kind(id), InterfaceDeclaration | TypeLiteral)
+            && !self.declaration_has_call_signature_member(id)
+    })
+}
+```
+
+`declaration_has_call_signature_member` lives at `flow.rs:4870`, and the gate is
+**wired in** at `signatures.rs:3691`. So §242's query exists, answers from the
+declarations exactly as its falsifier prescribed, and is in use.
+
+Reverted; no code retained.
+
+**This is the FOURTH stale "not built / not ported" note this session** — §648
+(the `autoArrayType` declaration arm, §711), §703 (the evolving-array flow gate),
+§705's implied EWTA claim, and now §242. **Every one was written truthfully and
+never revised when the thing landed.**
+
+**The pattern is now strong enough to state as a rule:** a refusal that says
+*"not built"* must be re-checked against the code before it is acted on, because
+this codebase's refusals are dated and its notes are not revised on landing.
+§711 recorded that lesson once and §727 is it recurring — which means the rule
+needs to be a HABIT (grep the named function first), not a note.
+
 ### §726 — `awaitCallExpression4` is NOT an awaited-type gap (corrects my own reading)
 
 Re-cut deficit 2–5 same-shape and took `want=void got=error`:
