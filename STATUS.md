@@ -3867,6 +3867,41 @@ discriminator — that was checked.
 > have now failed to approximate it. Either port `isAccessible` or leave the 13
 > cases.
 
+### §728 — §216/§217 re-measured: the ratio has NOT moved. Refusal confirmed.
+
+§722 found a refusal whose upside had **doubled** since it was written (26:130 →
+59:130) and concluded *"a refusal's ratio is not static"*. That cuts both ways, so
+§216/§217 got the same treatment — its four-line arm rebuilt and re-measured
+after ~145 landings.
+
+```rust
+// binder/nameresolver.go:233-244 — a named function expression's own name
+if let Some(Node::FunctionExpression(function)) = node_map.get(node)
+    && meaning.intersects(SymbolFlags::FUNCTION)
+    && function.name.is_some_and(|w| w.text == name) { … }
+```
+
+| | §217 (original) | §728 (now) |
+|---|---|---|
+| cases | +1 | **+1** |
+| lines | −10 | **−13** |
+| adverse | — | 10 RIGHT→GAP, 4 RIGHT→WRONG |
+
+**Essentially unchanged.** `functionExpressionWithResolutionOfTypeOfSameName01`,
+`namedFunctionExpressionCall` and `functionExpressionReturningItself` lose lines
+to the cycle exactly as §216 described, and
+`contextuallyTypedParametersWithQuestionToken` loses 4 more.
+
+**REFUSAL CONFIRMED, and its stated blocker is still the blocker:** this port
+builds each signature's return type eagerly inside
+`get_type_of_func_class_enum_module`, so the self-reference re-enters at
+`(symbol, Type)` before any return-type guard can see it. Upstream computes
+returns on demand. Reopening still needs lazy signature returns, not the arm.
+
+**What §722 and §728 together establish:** re-measuring a refusal is worth doing
+and the answer is not predictable — one had doubled, one had not moved at all.
+**The cost is one build each; the value is that neither is now a guess.**
+
 ### §727 — §242's falsifier was ALREADY ANSWERED; its "NOT BUILT" note is stale
 
 §726 pointed at §242's refusal, whose comment reads *"REFUSED TODAY… This port
