@@ -3904,8 +3904,27 @@ rails forward with no R→W.
 **The 67 are the same rule at sites this arm does not reach**, and they name
 themselves: `<F extends Target>` where `Target` is an ALIAS whose right-hand side
 is a `keyof` (upstream prints the alias name), and `(keyof MyAPI)[]` where the
-operator sits under an array/parenthesised node. **Each is another
-`written_type_text_flags` arm**, not a new mechanism.
+operator sits under an array/parenthesised node.
+
+> **§731 tried the general version of that — "a type parameter's constraint
+> prints AS WRITTEN, always" — and it is REFUSED at −1 case / 17 RIGHT→WRONG.**
+>
+> The builder already answers `Target` for a bare reference; only the
+> reuse-admission gate drops it. Bypassing that gate for constraints measured
+> **+26 right lines and 43 WRONG→RIGHT**, but **17 RIGHT→WRONG**
+> (`propTypeValidatorInference` 10, `declFileGenericType` 3) and the case count
+> fell to 6,068.
+>
+> **So the gate is load-bearing for the general case and only the `keyof` arm is
+> safe to force.** That is consistent with the comment beside it — a broad
+> written-text reuse measured **+323/−270** historically. §730's early return
+> works precisely because it is narrow: the written operator is the answer for
+> `keyof` and is NOT the answer for every constraint.
+>
+> **REOPENS ON: per-kind admission, not a blanket bypass.** The two remaining
+> shapes each need their own arm — an alias whose RHS is a `keyof`, and a
+> parenthesised/array-wrapped `keyof` — added the way §730's was, one at a time
+> with its own measurement.
 
 Gates: clippy 0 errors, 657 tests / 64 suites to completion, case-set diff clean,
 baseline accepted.
