@@ -3867,6 +3867,42 @@ discriminator — that was checked.
 > have now failed to approximate it. Either port `isAccessible` or leave the 13
 > cases.
 
+### §733 — the module-name bake, and why §668's lane cannot be fixed at the mint
+
+Took the render-at-reference thread at its cheapest point: `symbols.rs:2273`
+bakes a `VALUE_MODULE`'s type as `typeof {name}`, and a FILE module's name is the
+stripped virtual path, so a nested occurrence prints `typeof /moduleA`. Upstream's
+`getSpecifierForModuleSymbol` gives the relative form, which
+`checker.rs:1511` already produces on the reference-sensitive road.
+
+Baked that spelling at the mint instead. **It fires — traced:**
+
+```
+MOD name="/aliasUsageInObjectLiteral_moduleA" decls=[SourceFile]
+    printed="typeof import(\"./aliasUsageInObjectLiteral_moduleA\")"
+```
+
+**And it measured EXACTLY ZERO**, because upstream wants neither spelling: it
+prints `typeof moduleA`, the LOCAL ALIAS. Both the old path form and the new
+specifier form are wrong, so no line transitions — strictly more faithful, wholly
+unmeasurable. Reverted rather than landed as speculative fidelity.
+
+**That is §668's diagnosis confirmed from the other end, and it closes the cheap
+option.** The correct name at a nested position is not a property of the module
+symbol at all — it depends on which alias is in scope AT THE REFERENCE. No value
+baked at creation can be right, so this lane cannot be fixed at the mint site by
+any spelling.
+
+**What remains is the real change, and it is now scoped:** re-render an object
+type's MEMBER types at the reference, the way `reference_text_at`
+(`checker.rs:1603`) already re-renders a generic reference's ARGUMENT slots. The
+pieces exist — `property_names_of` (`relater.rs:1058`),
+`get_type_of_property_of_type`, `type_to_string_at` — and the risk is exact
+format reproduction: optional/readonly flags, index signatures, and
+method-vs-property spelling all have to come out byte-identical, and
+`Member::Property` stores **printed text**, not a `TypeId`, so the rebuild cannot
+reuse it.
+
 ### §730 — a written `keyof X` prints as written: +2 CASES, +99 right lines
 
 **LANDED. +2 cases (6,067 → 6,069), 48 WRONG→RIGHT + 51 GAP→RIGHT, ZERO
