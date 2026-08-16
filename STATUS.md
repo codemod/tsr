@@ -3780,6 +3780,53 @@ sides — short-by-one by missing content (§699), too-many by extra content her
 and no part of it remains merely "a grind". The largest single remaining
 mechanism is list-abort recovery, worth at least the 3 `ClassElement` cases.
 
+### §722 — the local `import =` alias rename: +6 cases for 130 WRONG lines. REFUSED, numbers updated
+
+`best_name` excludes a **local** `import b = a.I` alias unless
+`admit_local_import_equals`, and `qualified_name_at`'s rename arm passes `false`
+(`checker.rs:1780`). So `namespace c { import b = a.I; export var x: b }` prints
+`x : a.I` where upstream prints `x : b`.
+
+**The population is larger than the note beside it suggests: 13 deficit-1 cases**
+— `internalAliasInterface` ×3, `importDeclWith*` ×3, `classExtendingQualifiedName2`,
+`classImplementsImportedInterface`, `importAliasInModuleAugmentation`,
+`classDeclarationMergedInModuleWithContinuation`, and others.
+
+**Measured the widening (pass `true` at that one site):**
+
+| | baseline | widened |
+|---|---|---|
+| checker_types | 6,067 | **6,072 (+5)** |
+| right lines | 435,314 | 435,243 (**−71**) |
+| WRONG→RIGHT | — | 59 |
+| RIGHT→WRONG | — | **130** |
+| regressed CASES | — | **0** |
+
+**REFUSED, and the case-set diff is why this needed thought rather than a rule.**
+Zero cases regress — every one of the 130 lost lines sits in a case that was
+already failing (`privacyImport` 52, `privacyImportParseErrors` 52,
+`privacyGloImport` 13, `privacyGloImportParseErrors` 13). By the letter of
+"R→W in a PASSING case is revert-or-gate", this passes.
+
+It is still wrong to take. Those 130 lines become **knowingly incorrect output** —
+`typeof m1_im1_private` where upstream writes `typeof m1_M1_public` — and they
+only look free because their cases fail for other reasons today. When those
+reasons are fixed, the 130 become the blocker. **§10.9 refused this on
+correctness and its falsifier is named in the code; it fired exactly as
+written.**
+
+**What IS new, and updates §10.16's record:** that section measured the widened
+filter's population at **26 lines**. It is now **59 WRONG→RIGHT and 6 cases** —
+the upside has more than doubled as other work landed, while the §10.9 cost is
+unchanged at 130. **A refusal's ratio is not static; this one has moved from
+26:130 to 59:130.**
+
+**REOPENS ON: a per-alias accessibility test.** Upstream's `trySymbolTable`
+qualifies the alias by `isAccessible`, which is what separates
+`internalAliasInterface`'s `b` from `privacyImport`'s `m1_im1_private`. Neither
+is exported, so exportedness is NOT the discriminator — that was checked. Finding
+the real one is the work.
+
 ### §721 — `throw` + newline is ASI: +1 CASE
 
 **LANDED. +1 case (6,066 → 6,067), zero adverse, zero regressed.**
