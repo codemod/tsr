@@ -3867,6 +3867,43 @@ discriminator — that was checked.
 > have now failed to approximate it. Either port `isAccessible` or leave the 13
 > cases.
 
+### §726 — `awaitCallExpression4` is NOT an awaited-type gap (corrects my own reading)
+
+Re-cut deficit 2–5 same-shape and took `want=void got=error`:
+`awaitCallExpression4_es2017`/`_es6`, 2 lines each.
+
+```ts
+declare var pfn: Promise<{ (arg0: boolean, arg1: boolean, arg2: boolean): void }>;
+var b = (await pfn)(a, a, a);      // upstream: void
+```
+
+**My first reading was that `await` fails to unwrap the Promise** — §640 records
+`getAwaitedType` as unported, and the surrounding population looked large (35
+failing cases name await/async; **1,238 failing lines mention `Promise` in the
+want**).
+
+**That reading is wrong.** `awaited_type_no_alias` (`expressions.rs:2545`) is
+substantially implemented: it maps unions, passes primitives, declines the
+deferred kinds, and **unwraps `Promise<T>`/`PromiseLike<T>` through
+`type_reference_targets`** (`:2573-2584`). The await here resolves to the
+anonymous object type.
+
+**The actual blocker is CALLING that object type** — an anonymous type carrying a
+bare call signature — which is **§191/§197's refusal**: `call_signatures_of_type`
+is unimplemented for the interface/object case, and §191 refused a stand-in
+because *"a wrong `(a: any) => void` is worse than the gap it replaces"*.
+
+**So this pair belongs to the call-signature lane, not the await lane**, and
+§191/§197's falsifier is the cheap next step it already names: *implement
+`call_signatures_of_type` for the interface/object case and check it against
+`interface F { (): void }` — if that answers 1 where `Applicable` answers 0, the
+ambiguity is gone.*
+
+**The 1,238 Promise-mentioning lines are therefore NOT evidence for an awaited-type
+lane** — I counted them as such before reading the function. Sizing a lane by
+what its fixtures *mention* is the same error as sizing by output text (§664,
+§707, §715).
+
 ### §725 — the too-many board after §720/§721, content-grouped (SIZED)
 
 Count-only failures are now **123** (from 135 at §658). Re-surveyed the
