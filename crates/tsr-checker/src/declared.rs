@@ -241,7 +241,17 @@ impl<'a> Checker<'a, '_> {
             // print and the error fall-through keep their old answers.
             TypeNode::TypeOperatorNode(node)
                 if node.operator.kind == SyntaxKind::KeyOfKeyword
-                    && !self.alias_evaluation_bindings.is_empty() =>
+                    && (!self.alias_evaluation_bindings.is_empty()
+                        // §730: a CONCRETE operand's key set is final, so the
+                        // operator may be evaluated. §729 measured this predicate
+                        // at 23 WRONG→RIGHT and ZERO RIGHT→WRONG; its 90
+                        // GAP→WRONG were the PRINTED form, which the written-text
+                        // arm in `signatures.rs` now supplies.
+                        || node.r#type.is_some_and(|inner| {
+                            let target = self.get_type_from_type_node(inner);
+                            target != self.intrinsics.error
+                                && !self.mentions_any_type_parameter(target, 4)
+                        })) =>
             {
                 let Some(inner) = node.r#type else { return self.intrinsics.error };
                 let target = self.get_type_from_type_node(inner);

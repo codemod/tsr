@@ -3015,6 +3015,20 @@ impl<'a> Checker<'a, '_> {
     /// lost. The admission-flag walk below (§77/§77.1/§108.1/§137) is the
     /// gate's home; `bd tsr-5o2`'s 9-line family stays recorded.
     pub(crate) fn written_annotation_text(&mut self, annotation: TypeNode<'a>) -> Option<String> {
+        // §730: a written `keyof X` is returned unconditionally — the
+        // single-quote / array-head / void-union gate below is about REUSING a
+        // fresh render, a different question. Here the written operator IS the
+        // answer: upstream prints `<C extends keyof Elements>` where an
+        // evaluated render would print `<C extends "bar" | "foo">`.
+        if let TypeNode::TypeOperatorNode(operator) = annotation
+            && operator.operator.kind == SyntaxKind::KeyOfKeyword
+            && let Some(inner) = operator.r#type
+        {
+            let (mut q, mut a, mut v) = (false, false, false);
+            if let Some(text) = Self::written_type_text_flags(inner, &mut q, &mut a, &mut v) {
+                return Some(format!("keyof {text}"));
+            }
+        }
         if let Some(text) = Self::type_query_written_text(annotation) {
             return Some(text);
         }
@@ -3174,6 +3188,25 @@ impl<'a> Checker<'a, '_> {
         void_union: &mut bool,
     ) -> Option<String> {
         match annotation {
+            // §730: a written `keyof X` prints AS WRITTEN. §729 measured that
+            // evaluating the operator recovers 23 WRONG→RIGHT but turns 90 gaps
+            // into the evaluated union where upstream shows the operator
+            // (`<C extends keyof Elements>` vs `<C extends "bar" | "foo">`), and
+            // concluded the axis is *"was it written as `keyof X`"* rather than
+            // *"is the operand concrete"*. This is that rule, in the mechanism
+            // the port already prefers over rendering
+            // (`written_constraint`, `signatures.rs:4062`).
+            TypeNode::TypeOperatorNode(operator)
+                if operator.operator.kind == SyntaxKind::KeyOfKeyword =>
+            {
+                let inner = Self::written_type_text_flags(
+                    operator.r#type?,
+                    single_quoted,
+                    array_headed,
+                    void_union,
+                )?;
+                Some(format!("keyof {inner}"))
+            }
             TypeNode::KeywordTypeNode(keyword) => match keyword.kind {
                 SyntaxKind::StringKeyword => Some("string".to_string()),
                 SyntaxKind::NumberKeyword => Some("number".to_string()),
