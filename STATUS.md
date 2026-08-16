@@ -3925,6 +3925,20 @@ operator sits under an array/parenthesised node.
 > shapes each need their own arm — an alias whose RHS is a `keyof`, and a
 > parenthesised/array-wrapped `keyof` — added the way §730's was, one at a time
 > with its own measurement.
+>
+> **§732 built the array/parenthesis half and it measured EXACTLY ZERO.** The
+> admission now looks through `ArrayTypeNode` and `ParenthesizedTypeNode` for a
+> written `keyof`, and the builder composes `(keyof MyAPI)[]` correctly — but
+> nothing moved, because **`written_annotation_text` is only consulted for type
+> parameter constraints and parameter annotations**, and the
+> `(keyof MyAPI)[]` lines are neither. Reverted as inert.
+>
+> **That relocates the remaining 67.** They are not blocked on the text builder
+> at all; they are at rendering sites that never ask for written text. Extending
+> the builder further is wasted work — **the question is which sites consult
+> `written_annotation_text`**, and §731 measured that widening that consultation
+> costs 17 RIGHT→WRONG. Both halves of the obvious approach are now measured and
+> closed.
 
 Gates: clippy 0 errors, 657 tests / 64 suites to completion, case-set diff clean,
 baseline accepted.
