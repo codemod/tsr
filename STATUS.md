@@ -3895,13 +3895,29 @@ any spelling.
 
 **What remains is the real change, and it is now scoped:** re-render an object
 type's MEMBER types at the reference, the way `reference_text_at`
-(`checker.rs:1603`) already re-renders a generic reference's ARGUMENT slots. The
-pieces exist — `property_names_of` (`relater.rs:1058`),
-`get_type_of_property_of_type`, `type_to_string_at` — and the risk is exact
-format reproduction: optional/readonly flags, index signatures, and
-method-vs-property spelling all have to come out byte-identical, and
-`Member::Property` stores **printed text**, not a `TypeId`, so the rebuild cannot
-reuse it.
+(`checker.rs:1603`) already re-renders a generic reference's ARGUMENT slots.
+
+**§734 scoped it concretely, and the shape is worse than "add a function".**
+
+- `Member::Property` stores **printed text**, not a `TypeId`, so a rebuild cannot
+  reuse the existing member list.
+- `spread_members_of` (`objects.rs:1563`) *does* recover structured members from
+  a type — but only for `TypeData::Named { members: Some(owner) }`, i.e. a
+  DECLARATION-backed type, and it returns `None` for instantiated references by
+  design.
+- **§668's population is object LITERAL types**, which are `Anonymous` and carry
+  no member symbol. `spread_members_of` does not apply to them at all.
+
+So the work is not "call an existing recovery at the reference". It is
+**threading a `reference: NodeId` through the object-literal text builder in
+`objects.rs`**, so each member's type is rendered with `type_to_string_at`
+instead of `type_to_string` — a signature change on a hot path, with byte-exact
+output required for optional/readonly flags, index signatures, and
+method-versus-property spelling.
+
+**That is the honest price of the render-at-reference decision**, and it is the
+same price for all three lanes (§668, §705, §729's remainder). Sized here so the
+decision is made on the real number rather than on "the pieces exist".
 
 ### §730 — a written `keyof X` prints as written: +2 CASES, +99 right lines
 
