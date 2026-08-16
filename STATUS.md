@@ -3822,10 +3822,30 @@ unchanged at 130. **A refusal's ratio is not static; this one has moved from
 26:130 to 59:130.**
 
 **REOPENS ON: a per-alias accessibility test.** Upstream's `trySymbolTable`
-qualifies the alias by `isAccessible`, which is what separates
-`internalAliasInterface`'s `b` from `privacyImport`'s `m1_im1_private`. Neither
-is exported, so exportedness is NOT the discriminator — that was checked. Finding
-the real one is the work.
+qualifies the alias by `isAccessible`. Neither `internalAliasInterface`'s `b` nor
+`privacyImport`'s `m1_im1_private` is exported, so exportedness is NOT the
+discriminator — that was checked.
+
+> **§723 found the right discriminator and implemented it wrongly. −58 cases.**
+>
+> Reading `privacyImport`'s baseline shows the regressed lines are the alias's
+> **own declaration**: `import m1_im1_private = m1_M1_public;` records
+> `m1_im1_private : typeof m1_M1_public` — the TARGET's name. Upstream cannot
+> reach a symbol through an alias whose declaration *is* the site being named.
+> `internalAliasInterface`'s failing line, by contrast, is a reference
+> **elsewhere** (`export var x: b`). **That is the discriminator, and it is a
+> better one than accessibility** — it is syntactic and local.
+>
+> Implemented as "skip a candidate whose declaration is an ancestor of the
+> reference", it measured **−58 cases / 252 RIGHT→WRONG** — far worse than the
+> unguarded widening. The exclusion fired on **every** alias kind, including the
+> external `import = require` and ES-import forms that were already working
+> (`es6ImportNamedImportDts` 14, `es6ImportDefaultBindingFollowedWithNamedImportDts`
+> 6 are collateral, not part of the target population).
+>
+> **The fix must scope the exclusion to the SAME candidate being considered for
+> the rename, not to every alias in the table** — that is what broke it. The
+> discriminator stands; the placement was wrong. Reverted.
 
 ### §721 — `throw` + newline is ASI: +1 CASE
 
