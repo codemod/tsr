@@ -3867,6 +3867,53 @@ discriminator — that was checked.
 > have now failed to approximate it. Either port `isAccessible` or leave the 13
 > cases.
 
+### §729 — §36.2's reopening condition is MIS-FRAMED (built, +2 cases, 90 G→W, reverted)
+
+The briefing ranked §36.2's keyof gate third, at *"23 W→R"*, and §36.1 named the
+predicate to reopen it: *"does `keys_of` see a complete members table that cannot
+change under instantiation"* — concrete versus deferred. `mentions_any_type_parameter`
+is exactly that predicate, so I admitted the eager arm for operands mentioning no
+type parameter.
+
+| | measured |
+|---|---|
+| cases | **+2** (0 regressed) |
+| right lines | +51 |
+| **RIGHT→WRONG** | **0** — the 177 the ungated form cost are GONE |
+| WRONG→RIGHT | **23** — exactly the number §36.1 predicted |
+| **GAP→WRONG** | **90** |
+
+**The predicate WORKS for what §36.1 claimed.** It eliminates the entire 177-line
+R→W population and recovers the 23 W→R. That half of the reopening condition is
+answered.
+
+**But the condition is mis-framed, and the 90 losses show why:**
+
+```
+want=keyof Thing                    got="a" | "b" | "c"
+want=<C extends keyof Elements>(…)  got=<C extends "bar" | "foo">(…)
+want=<K extends keyof RecordMap>(…) got=<K extends "b" | "n" | "s">(…)
+```
+
+**`Thing`, `Elements` and `RecordMap` are all CONCRETE** — they pass the
+predicate. Upstream still prints the **written operator**, not the evaluated
+union. So the axis is not *"can this be evaluated"* but *"was it WRITTEN as
+`keyof X`"* — a printing question, not an evaluation one. §35's deferred print is
+what actually governs, and it governs concrete operands too.
+
+**REFUSED**, consistent with §722: 90 gaps become confidently wrong output to buy
+51 right lines and 2 cases, and *"a wrong answer is worse than the gap it
+replaces"* is this project's standing direction (§191, ADR-0038).
+
+**REOPENS ON: printing a written `keyof X` as written**, independent of whether
+the operand is concrete. That is a rendering rule in the same family as §705's
+EWTA question — evaluate for semantics, print what was written — and it would
+take the 23 W→R without the 90.
+
+**Correcting the record:** §36.1's *"reopen when the arm can distinguish a
+CONCRETE operand from a deferred one"* is now measured and insufficient. The
+reopening condition above replaces it.
+
 ### §728 — §216/§217 re-measured: the ratio has NOT moved. Refusal confirmed.
 
 §722 found a refusal whose upside had **doubled** since it was written (26:130 →
