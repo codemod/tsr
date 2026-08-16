@@ -3846,6 +3846,26 @@ discriminator — that was checked.
 > **The fix must scope the exclusion to the SAME candidate being considered for
 > the rename, not to every alias in the table** — that is what broke it. The
 > discriminator stands; the placement was wrong. Reverted.
+>
+> **§724 scoped it to `ImportEqualsDeclaration` only — and the discriminator is
+> wrong too. −48 cases, 193 RIGHT→WRONG, and `privacyImport` STILL loses 44.**
+>
+> That is the decisive fact: if the regressions were the alias's own declaration,
+> excluding exactly that case would have removed them. It did not. So
+> `privacyImport`'s 44 lines are renamed at ordinary REFERENCES, and
+> `internalAliasInterface`'s wanted rename is at an ordinary reference too —
+> **the two are not separated by where the reference sits.**
+>
+> **Three attempts, three different discriminators, all wrong**: exportedness
+> (checked, doesn't separate), own-declaration (§723, wrong placement AND wrong
+> premise), import-equals-scoped own-declaration (§724). The refusal in §10.9
+> stands and its 130-line cost is real.
+>
+> **What the next attempt should NOT do:** guess another syntactic
+> discriminator. Upstream's separation is `isAccessible` — a semantic
+> accessibility test over the symbol's containers — and three syntactic proxies
+> have now failed to approximate it. Either port `isAccessible` or leave the 13
+> cases.
 
 ### §721 — `throw` + newline is ASI: +1 CASE
 
