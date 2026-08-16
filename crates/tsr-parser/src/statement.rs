@@ -845,7 +845,25 @@ impl<'a> Parser<'a> {
     fn parse_throw_statement(&mut self) -> Statement<'a> {
         let start = self.pos();
         self.next_token();
-        let expression = self.parse_expression();
+        // §721: ASI. `throw` followed by a LINE BREAK cannot take the next
+        // line's expression — the semicolon is inserted at the newline — so
+        // upstream mints a MISSING identifier and lets the following line parse
+        // as its own statement (`parser.go:1458`):
+        //
+        // ```text
+        // throw
+        // a;          upstream:  > : any      then  >a : any
+        // ```
+        //
+        // This port called `parse_expression` unconditionally, swallowing `a`
+        // into the throw and emitting one assertion fewer
+        // (`throwWithoutNewLine2`).
+        let expression = if self.token.flags.contains(tsr_scanner::TokenFlags::PRECEDING_LINE_BREAK)
+        {
+            Expression::Identifier(self.missing_identifier())
+        } else {
+            self.parse_expression()
+        };
         self.parse_semicolon();
         let node = self.finish_node(
             ThrowStatement::new(Some(expression)),
