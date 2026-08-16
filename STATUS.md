@@ -3867,6 +3867,34 @@ discriminator — that was checked.
 > have now failed to approximate it. Either port `isAccessible` or leave the 13
 > cases.
 
+### §725 — the too-many board after §720/§721, content-grouped (SIZED)
+
+Count-only failures are now **123** (from 135 at §658). Re-surveyed the
+**too-many** side: 30 cases emit exactly one line too many. Dumping them groups
+into two named mechanisms plus a tail:
+
+| extra line | cases | mechanism |
+|---|---|---|
+| `class : any` | **4** — `parserErrorRecovery_ClassElement1`/`2`/`3`, `nestedClassDeclaration` | **list-abort** (§700). `class D {` inside `class C {` is taken as a member NAME; upstream abandons the member list and re-parses it as a source-unit element |
+| `private : any` | 1 — `moduleProperty1` | `private y = x;` in a `namespace`: upstream consumes `private` as a MODIFIER (an error it reports) so no assertion is emitted; this port parses it as an expression statement |
+| tail | ~25 | one shape each — `decoratorOn*` (2), `parserEnum4`, `invalidUnicodeEscapeSequance4`, … |
+
+**`isClassMemberStart` does not exist in typescript-go** — grepping finds it only
+in a *comment* (`parser.go:1896`). That settles §700's reading: upstream has no
+per-member predicate to port; the behaviour comes from the parsing-context list
+machinery (`isListElement` / `abortParsingListOrMoveToNextToken`), which asks
+whether the token would be valid in an ENCLOSING context. **There is no narrow
+version of this** — it is one mechanism serving every list.
+
+**Both remaining named mechanisms are therefore parser-wide changes**, in §247's
+position-shift territory. Sized, not attempted.
+
+**What DID come out of this lane, for the record:** §698 (+5), §701 (+3), §720
+(+4), §721 (+1) — **13 cases**, every one found by grouping on the CONTENT of the
+differing line rather than on fixture names, and every one an instance of the
+same underlying divergence: **upstream mints a MISSING node where this port
+returns `None` or consumes greedily.**
+
 ### §721 — `throw` + newline is ASI: +1 CASE
 
 **LANDED. +1 case (6,066 → 6,067), zero adverse, zero regressed.**
