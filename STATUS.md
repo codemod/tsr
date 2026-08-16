@@ -3914,6 +3914,19 @@ take the 23 W→R without the 90.
 CONCRETE operand from a deferred one"* is now measured and insufficient. The
 reopening condition above replaces it.
 
+**And the replacement needs a mechanism this port does not have.** "Evaluate for
+semantics, print what was written" requires a type to carry a printed form
+independent of its structure. This port **bakes text into the type**
+(`TypeData::Named { text }`, `Anonymous { … }`), and there is no
+`TypeId → written text` side table — checked. So the fix is a
+rendering-representation change, the same family as §705's
+`ExpressionWithTypeArguments` question and §668's nested-name finding.
+
+**That is now three separate lanes blocked on the same thing** — §668 (nested
+module names baked at creation), §705 (EWTA has no type to render from), §729
+(written `keyof X` cannot survive evaluation). **Whoever takes on
+render-at-reference should count all three, not one.**
+
 ### §728 — §216/§217 re-measured: the ratio has NOT moved. Refusal confirmed.
 
 §722 found a refusal whose upside had **doubled** since it was written (26:130 →
