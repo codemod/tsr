@@ -1229,6 +1229,30 @@ impl<'a> Parser<'a> {
             };
         }
 
+        // §720: upstream captures `tokenIsIdentifier := p.isIdentifier()`
+        // BEFORE `parsePropertyName` (`parser.go:5642`) and keys the shorthand
+        // test on it. A RESERVED WORD is a valid property NAME but not a valid
+        // identifier, so `var v = { class };` is NOT a shorthand — upstream
+        // falls through to `parseExpected(':')` and parses a MISSING
+        // initializer, which the baseline records as a trailing `> : any`
+        // (`parserShorthandPropertyAssignment2`,
+        // `parserErrorRecovery_ObjectLiteral2`/`4`/`5`).
+        //
+        // Testing the PARSED name instead — as this port did — cannot see the
+        // difference, because `parse_property_name` accepts every keyword and
+        // hands back an `Identifier`.
+        // TEMPLATE literals are excluded from this strictness. Upstream does not
+        // reach the shorthand test for them at all: `var x = { `a`: 321 }` is
+        // parsed as an empty object literal TAGGED by the template (§683's
+        // instrumented finding, `KindTaggedTemplateExpression`), a divergence
+        // this port does not reproduce. Applying the identifier test to them
+        // changed their line counts and cost 6 cases with no gain; keeping them
+        // on the old path leaves §683's separate defect exactly as it was.
+        let token_is_identifier = self.is_binding_identifier()
+            || matches!(
+                self.token.kind,
+                SyntaxKind::NoSubstitutionTemplateLiteral | SyntaxKind::TemplateHead
+            );
         let name = self.parse_property_name();
 
         // `{ m() {} }` and `{ m<T>() {} }` are methods.
@@ -1293,7 +1317,7 @@ impl<'a> Parser<'a> {
         // reports there. A computed name has no shorthand spelling, because the
         // shorthand *is* the identifier.
         // `docs/architecture/checker-notes-diag2.md` §576.
-        if !matches!(name, tsr_ast::PropertyName::Identifier(_)) {
+        if !token_is_identifier || !matches!(name, tsr_ast::PropertyName::Identifier(_)) {
             self.expect(SyntaxKind::ColonToken);
             let initializer = self.parse_assignment_expression();
             let node = self.finish_node(
