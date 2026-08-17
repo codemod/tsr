@@ -1519,7 +1519,12 @@ impl<'a, 'n> Checker<'a, 'n> {
     /// same slots, same written-text precedence, every RENDERED slot through
     /// [`Checker::type_to_string_at`] with the baked text as the per-slot
     /// fallback — the §10.13 contract, member spelling.
-    fn signature_member_text_at(
+    /// §735 made this `pub(crate)`: the object-literal METHOD arm renders
+    /// through it too, so a method member's slots take the same site-rendering
+    /// the property members got. Slot-for-slot identical to
+    /// [`crate::objects::signature_member_text`] with the `_at` fallback, which
+    /// is what makes the swap a superset rather than a second spelling.
+    pub(crate) fn signature_member_text_at(
         &mut self,
         signature: &crate::signatures::Signature,
         reference: NodeId,

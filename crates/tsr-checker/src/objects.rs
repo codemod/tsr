@@ -593,6 +593,38 @@ impl<'a> Checker<'a, '_> {
 }
 
 impl Checker<'_, '_> {
+    /// §735: render one object-literal member's type **from the literal's own
+    /// site** rather than from its baked text.
+    ///
+    /// The render-at-reference cut §734 priced. A member type is minted
+    /// wherever its declaration is, and [`Checker::type_to_string`] replays the
+    /// text baked at that mint — the INSIDE view. Upstream never does that: it
+    /// builds the name through `symbolToTypeNode` → `lookupSymbolChain`
+    /// (`nodebuilderimpl.go:1061`), which walks the scope chain **from the
+    /// reference**, so a nested module's member prints qualified, an aliased
+    /// import prints under the alias in scope, and an embedded named type takes
+    /// its rename.
+    ///
+    /// # A decline keeps the baked text, and that is the safety property
+    ///
+    /// [`Checker::type_to_string_at`] answers `None` for *"this port cannot
+    /// name this type here"*. Falling back to `type_to_string` reproduces
+    /// exactly what this position printed before the cut existed, so the change
+    /// is structurally incapable of turning a right line wrong through a
+    /// decline — only through a *better* name that is nonetheless wrong, which
+    /// is what the score measures. Measured over the corpus at the first cut
+    /// (the plain-property site alone): **+48 W→R, zero adverse transitions**.
+    ///
+    /// The literal's own node is the reference. Upstream's reference is the
+    /// declaration whose `.types` line is being printed, which encloses this
+    /// literal — same scope chain, since a literal opens no scope of its own.
+    fn member_text_at(&mut self, id: TypeId, reference: Option<tsr_ast::NodeId>) -> String {
+        match reference.and_then(|reference| self.type_to_string_at(id, reference)) {
+            Some(text) => text,
+            None => self.type_to_string(id),
+        }
+    }
+
     pub(crate) fn check_object_literal(&mut self, node: &ObjectLiteralExpression<'_>) -> TypeId {
         let error = self.intrinsics.error;
         // §105 slice 2a (`checker-notes-narrow.md`): a literal in a const
@@ -868,10 +900,19 @@ impl Checker<'_, '_> {
                         );
                         continue;
                     }
+                    // §735: the method arm's slots render at the literal's site
+                    // too, through `signature_member_text_at` — the slot-for-slot
+                    // twin of `signature_member_text` with a per-slot fallback to
+                    // the baked text. No reference (a literal with no node id)
+                    // keeps the site-less spelling.
+                    let member_text = match node.node_id {
+                        Some(reference) => self.signature_member_text_at(&signature, reference),
+                        None => signature_member_text(self, &signature),
+                    };
                     let printed = if name == "new" {
-                        format!("\"new\"{}", signature_member_text(self, &signature))
+                        format!("\"new\"{member_text}")
                     } else {
-                        format!("{}{}", name, signature_member_text(self, &signature))
+                        format!("{name}{member_text}")
                     };
                     upsert_member(&mut members, Member::Signature { printed });
                     continue;
@@ -941,7 +982,7 @@ impl Checker<'_, '_> {
                                 continue;
                             }
                         }
-                        let printed = self.type_to_string(member_type);
+                        let printed = self.member_text_at(member_type, node.node_id);
                         upsert_member(
                             &mut members,
                             Member::Property {
@@ -970,7 +1011,7 @@ impl Checker<'_, '_> {
                             let Some(signature) = self.get_signature_from_declaration(id) else {
                                 return error;
                             };
-                            let printed = self.type_to_string(signature.r#type);
+                            let printed = self.member_text_at(signature.r#type, node.node_id);
                             if !unique {
                                 // A component-row getter: plain property, no
                                 // readonly, no merge (`symbolProperty1/2`).
@@ -1070,7 +1111,7 @@ impl Checker<'_, '_> {
                                 continue;
                             }
                         }
-                        let printed = self.type_to_string(member_type);
+                        let printed = self.member_text_at(member_type, node.node_id);
                         upsert_member(
                             &mut members,
                             Member::Property {
@@ -1110,7 +1151,7 @@ impl Checker<'_, '_> {
                                 .parameters
                                 .first()
                                 .map_or(self.intrinsics.any, |parameter| parameter.r#type);
-                            let printed = self.type_to_string(member_type);
+                            let printed = self.member_text_at(member_type, node.node_id);
                             if unique {
                                 accessor_members.push((name.clone(), members.len()));
                             }
@@ -1340,7 +1381,8 @@ impl Checker<'_, '_> {
                 {
                     format!("'{}'", literal.text)
                 }
-                _ => self.type_to_string(member_type),
+                // §735 — see [`Checker::member_text_at`].
+                _ => self.member_text_at(member_type, node.node_id),
             };
             if let Some(key) = pending_index_key {
                 index_values.push((key, member_type));
@@ -1478,7 +1520,7 @@ impl Checker<'_, '_> {
                     readonly: const_context,
                     name: "x".to_string(),
                     key: key.to_string(),
-                    value: self.type_to_string(value),
+                    value: self.member_text_at(value, node.node_id),
                 },
             );
             // §539: the same info, kept so the LOOKUP can consult it. Until

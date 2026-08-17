@@ -987,3 +987,97 @@ families. The 11 adverse sit in four already-failing cases — three want the
 WRITTEN specifier's spelling kept (`import("./a.ts")` under
 allowImportingTsExtensions, `dynamicImportsDeclaration`'s quoted forms),
 the written-specifier carriage this fallback cannot know.
+
+## §735 — render-at-reference in the object-literal builder: §668 closed (+2 cases, 6,069 → 6,071, 63.65%; +48 W→R, ZERO adverse)
+
+§668 named the last unreached population of this file's lane: a module object
+appearing as a **member of an object literal**, where the printed name is the
+literal's baked member text rather than a name resolved at the reference. §733
+proved the lane cannot be repaired at the mint site — no value baked when the
+type is created can be right, because the correct name depends on which alias is
+in scope AT THE REFERENCE — and §734 scoped the remaining work as a signature
+change on a hot path.
+
+**The mechanism, and it is four lines.** `Checker::member_text_at`
+(`objects.rs`) renders a member's type through `Checker::type_to_string_at` with
+the reference being the object literal's own `node.node_id`, falling back to
+`type_to_string` when the site-sensitive road declines:
+
+```rust
+fn member_text_at(&mut self, id: TypeId, reference: Option<tsr_ast::NodeId>) -> String {
+    match reference.and_then(|reference| self.type_to_string_at(id, reference)) {
+        Some(text) => text,
+        None => self.type_to_string(id),
+    }
+}
+```
+
+The population it moves is exactly this file's subject:
+
+```
+d : { m: { mod: typeof m1; }; mc: { cl: typeof m1.c; }; me: { en: typeof m1.e; }; mh: m1.e; }
+```
+
+`compiler/declFileTypeofInAnonymousType` (8 lines), `compiler/knockout` (9),
+`compiler/genericInference2` (8) — module objects reached through a literal
+member, each now named by the accessibility walk `type_to_string_at` already
+performs for a standalone position.
+
+### Why the literal's own node is the right reference
+
+Upstream's reference is the declaration whose `.types` line is being printed;
+`lookupSymbolChain` (`nodebuilderimpl.go:1061`) walks the scope chain from it. An
+object literal **opens no scope**, so its chain is the enclosing declaration's —
+the two are the same walk. That equivalence is the falsifiable claim: an R→W in a
+case whose literal member is a module object would say the enclosing declaration
+must be passed instead. Nothing in the corpus observed one.
+
+### The fallback is the safety property, and it is structural
+
+A decline reproduces byte-for-byte what the site printed before the cut, so no
+line can regress through *"this port cannot name this type here"*. The only
+available failure was a confidently better name that is nonetheless not
+upstream's, and the score says there were none: **zero R→W, zero G→W over
+474,243 lines**. Same contract as §10.13's composite-print twin, which is why
+this landed in one build with no gate.
+
+### What §734 over-priced, and the generalisable form of the error
+
+§734's facts are all correct — `Member::Property` stores printed text,
+`spread_members_of` declines anonymous literal types, byte-exact output is
+required. Its inference was that these force plumbing a `reference: NodeId` in
+from outside and rebuilding an existing member list. Neither is true:
+`check_object_literal` **already holds the reference**, and the fix renders
+correctly the first time, while the member's `TypeId` is still in hand and the
+string has not yet been made.
+
+> A scoping note that reasons about the data structure *downstream of the mint*
+> will price a rebuild it never has to do. The cheap question — *"does the
+> builder already have the reference?"* — was not asked, and it was the whole
+> answer.
+
+### Four sibling sites are inert, and were kept anyway
+
+The same helper on the accessor arms (identifier-named getter, identifier-named
+setter, both late-bound halves) and on the minted index signature's value
+measures **exactly zero** — the same 48 W→R with and without. The method arm
+routed through `Checker::signature_member_text_at` (made `pub(crate)` for it;
+slot-for-slot identical to `signature_member_text` with a per-slot fallback) is
+**also zero**.
+
+Kept rather than reverted, which departs from §732's precedent. §732's inert code
+was an *unproven rule* that happened not to fire, so keeping it would have banked
+an unverified claim. Here the rule is proven at the property site and these are
+sibling arms of it over a rarer population. Recorded as **uniformity, not as
+measured win** — the +48 is the property site alone.
+
+### §729's "three lanes are one" is corrected here
+
+§729 wrote that §668, §705 and §729 were *"three separate lanes blocked on the
+same thing"*. Render-at-reference is now built and it moved **one**. §729 needs a
+type to carry a WRITTEN form independent of its structure (a `TypeId → written
+text` side table this port does not have); §705 needs an
+`ExpressionWithTypeArguments` to have a type at all. Neither is *"name this type
+from here"*. §668 was the only genuine naming question of the three, and the
+shared framing came from describing all three in the same vocabulary rather than
+from a shared mechanism.
