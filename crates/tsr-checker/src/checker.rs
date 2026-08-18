@@ -129,6 +129,12 @@ pub struct Checker<'a, 'n> {
     /// ever-assigned memo (`checker-notes-narrow.md` §9.7), read by the flow
     /// START arm's outer-reference split.
     pub(crate) symbol_assignment_scan: FxHashMap<SymbolId, bool>,
+    /// §736: `symbol -> whether any assignment to it writes an empty array` — the
+    /// declaration-side stand-in for the second disjunct of upstream's
+    /// `isEmptyArrayAssignment` (`flow.go:283`), which this port must answer
+    /// before the flow walk starts rather than per flow node. See
+    /// [`Checker::is_auto_array_declaration`].
+    pub(crate) symbol_empty_array_assignment_scan: FxHashMap<SymbolId, bool>,
     /// Last assignment position per parameter/mutable-local, `i64::MAX` for
     /// nested-function assignments — upstream's `markedAssignmentSymbolLinks`
     /// (`flow.go:2668` family). 0 means "never assigned".
@@ -878,6 +884,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             diagnostics: Vec::new(),
             symbol_types,
             symbol_assignment_scan: FxHashMap::default(),
+            symbol_empty_array_assignment_scan: FxHashMap::default(),
             last_assignment_pos: FxHashMap::default(),
             enum_member_regular: FxHashMap::default(),
             alias_placeholders: FxHashMap::default(),

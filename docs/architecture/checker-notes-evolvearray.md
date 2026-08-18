@@ -416,3 +416,136 @@ item and unranked by anything.** They are not the evolving-array machinery: only
 
 None yet. When one on this page is corrected it gets a dated header here rather
 than a silent edit (`CLAUDE.md`).
+
+## §736 — the ASSIGNMENT half, built (+55 W→R, ZERO adverse, +0 cases)
+
+§710 built the declaration half (`let x = []`). §712 named the remaining entry
+point and §713 measured that the cheap version of it gains nothing. This is the
+whole of it, and the shape is worth recording because **no one of its pieces
+measures without the others**.
+
+### What upstream does, in three lines
+
+```go
+// flow.go:233 — getTypeAtFlowAssignment
+if f.declaredType == c.autoType || f.declaredType == c.autoArrayType {
+    if c.isEmptyArrayAssignment(node) {
+        return FlowType{t: c.getEvolvingArrayType(c.neverType)}
+    }
+    ...
+}
+
+// flow.go:283
+func (c *Checker) isEmptyArrayAssignment(node *ast.Node) bool {
+    return ast.IsVariableDeclaration(node) && node.Initializer() != nil && isEmptyArrayLiteral(node.Initializer()) ||
+        !ast.IsBindingElement(node) && ast.IsBinaryExpression(node.Parent) && isEmptyArrayLiteral(node.Parent.AsBinaryExpression().Right)
+}
+
+// flow.go:106 — the unfinalized print
+if evolvedType.objectFlags&ObjectFlagsEvolvingArray != 0 && c.isEvolvingArrayOperationTarget(reference) {
+    resultType = c.autoArrayType   // any[]
+}
+```
+
+`isEmptyArrayAssignment`'s **first** disjunct is the declaration half §710 built.
+Its **second** — *"the node's parent is a binary expression with `[]` on the
+right"* — is `let x; x = [];`, and it is a per-flow-NODE test.
+
+### Where this port has to answer earlier than upstream does
+
+`state.is_auto_array` decides whether the `ARRAY_MUTATION` arm accumulates into
+`state.array_elements`, and the walk meets the mutations on the way **back** to
+the assignment. So the flag must be set before the walk starts, and the port
+answers the node question with a declaration-shaped stand-in:
+
+> an auto-typed declaration (`let x;`) in whose control-flow container `x = []`
+> is written — `symbol_has_empty_array_assignment`, the same scan shape as
+> `symbol_has_any_assignment`, memoised per symbol with a pessimistic `false`
+> inserted before the scan so name resolution cannot re-enter into a cycle.
+
+### The pieces, and why §713 measured zero with only one of them
+
+1. The widened predicate above.
+2. `get_type_at_flow_assignment` returning the **evolving array** for an
+   empty-array assignment rather than the assigned `never[]`. This port has no
+   evolving-array type object (ADR-0003 keeps the accumulation in a side vector),
+   so the unfinalized array is spelled as `state.declared_type` — which is
+   exactly what §710's finalisation gate (`answer.t == state.declared_type`)
+   tests for. **Without this, the gate can never hold for `let x;`** and every
+   accumulated element is discarded. That is the entirety of §713's zero.
+3. `flow.go:106`'s `autoArrayType` branch at an operation target.
+
+### Piece 3 is the generalisable lesson
+
+§710 never needed it. In the declaration half `state.declared_type` already **is**
+`any[]` (`autoArrayType`, minted at `symbols.rs:4270`), so answering the declared
+type at an operation target was right **by coincidence of two values being
+equal**. In the assignment half the declared type is `any`, and the identical
+code answered `x : any`, so `x.push(…)` no longer resolved:
+
+```
+want=number  got=any        ×9 RIGHT→WRONG on the first cut
+```
+
+> **A stand-in that is correct because two values happen to coincide does not
+> announce itself.** It behaves perfectly until a caller arrives where they
+> differ, and then it fails as a regression in the new caller rather than as a
+> flaw in the old one. The port had one such coincidence here; the way it was
+> found was measurement, not reading.
+
+### Piece 5 — the same coincidence again, at the loop junction
+
+`while (cond()) { x.push("hello") }` answered `(number | boolean)[]` against
+upstream's `(string | number | boolean)[]`. This looked like the incomplete-type
+loop fixpoint (§12.6) and it was not.
+
+Upstream's loop-label antecedent walk ends with (`flow.go:1387`):
+
+```go
+// If the type at a particular antecedent path is the declared type there is no
+// reason to process more antecedents since the only possible outcome is subtypes
+// that will be removed in the final union type anyway.
+if flowType.t == f.declaredType {
+    break
+}
+```
+
+**That break cannot fire on the array track upstream** — the value flowing there
+is an evolving array, a distinct type object, never `==` `f.declaredType`. Here
+the unfinalized array is SPELLED as `state.declared_type`, so it was true, the
+antecedent loop broke before the back edge was walked, and the loop body's
+element never reached `state.array_elements`. Gating on `!state.is_auto_array`
+restores upstream's behaviour rather than departing from it.
+
+> **This is piece 3's coincidence a second time, and the general form is now
+> statable: making a stand-in value EQUAL to an existing one changes the meaning
+> of every `==` test that value takes part in.** Two of the three such tests in
+> the walk wanted the identity (both finalisation arms); the third did not, and
+> nothing distinguished them at the site. The file was audited for
+> `== state.declared_type` afterwards — three sites, all accounted for. **Re-run
+> that audit if a fourth is added**; it is the falsifier for this whole design.
+
+### A fourth piece the corpus named: `getReferenceRoot`
+
+`f16` writes `(x = [], x).push(5)`. `is_evolving_array_operation_target` tested
+the **node's** parent; upstream tests the parent of `getReferenceRoot(node)`
+(`flow.go:1876`), which climbs through parentheses, `=` left operands and comma
+right operands. Identical for every shape §710 met; wrong here, because the
+reference is a comma's right operand inside parentheses and `.push` is two levels
+out. Ported verbatim, and it took the last RIGHT→WRONG to zero.
+
+### What remains in `controlFlowArrays` — 21 lines, and NOT this lane
+
+- **`f7`'s `let x = null;`** (6 lines) — declared `null`, neither auto nor
+  auto-array. A different entry point.
+- **Branch-merge residue** (~13 lines) — `number[]` where upstream has
+  `(string | number)[]`, and `(number | boolean)[]` where upstream has
+  `(string | number | boolean)[]`.
+
+### Why a +0-case build was kept
+
+The case does not convert: `controlFlowArrays` still holds 21 wrong lines, so all
+53 conversions land inside cases that keep failing. Kept on the standing rule
+that a faithful arm with zero adverse transitions is worth its lines, and because
+it closes §712's stated reopening condition — leaving it out would send the next
+session at the same three-piece build with §713's zero as its only evidence.

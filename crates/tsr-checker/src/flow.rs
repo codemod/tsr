@@ -689,6 +689,40 @@ impl Checker<'_, '_> {
                 }
                 None => answer,
             }
+        } else if state.is_auto_array
+            && answer.t == state.declared_type
+            && self.is_evolving_array_operation_target(state.reference)
+        {
+            // §736 — upstream's OTHER branch of the same `if`, which §710 did
+            // not need and the assignment half does (`flow.go:106`):
+            //
+            // ```go
+            // if evolvedType.objectFlags&ObjectFlagsEvolvingArray != 0 &&
+            //         c.isEvolvingArrayOperationTarget(reference) {
+            //     resultType = c.autoArrayType
+            // }
+            // ```
+            //
+            // At `x.push(…)` the reference is given `any[]` outright, so `push`
+            // resolves and the call answers `number` — upstream's stated reason
+            // is that *"operations on empty arrays are possible without implicit
+            // any errors"*.
+            //
+            // **§710 got this for free and that hid the rule.** In the
+            // DECLARATION half the declared type already IS `any[]`
+            // (`autoArrayType`, minted at `symbols.rs:4270`), so returning
+            // `state.declared_type` was `any[]` by coincidence. In the
+            // ASSIGNMENT half (`let x;`) the declared type is `any`, and the
+            // same code answered `x : any` — which cost 9 RIGHT→WRONG on the
+            // first cut of this build, every one a `want=number got=any` at a
+            // `x.push(…)` call whose receiver had stopped being an array.
+            match self.global_type_symbol("Array") {
+                Some(array) => {
+                    let auto_array = self.create_type_reference(array, vec![self.intrinsics.any]);
+                    FlowType { t: auto_array, incomplete: answer.incomplete }
+                }
+                None => answer,
+            }
         } else {
             answer
         };
@@ -769,6 +803,30 @@ impl Checker<'_, '_> {
             });
         }
         if state.is_auto {
+            // §736 — `flow.go:233`, the line §712 named as the whole remaining
+            // entry point:
+            //
+            // ```go
+            // if c.isEmptyArrayAssignment(node) {
+            //     return FlowType{t: c.getEvolvingArrayType(c.neverType)}
+            // }
+            // ```
+            //
+            // An empty-array assignment to an auto variable does NOT answer
+            // `never[]` — it answers the EVOLVING array, which the mutations
+            // already met on the way here have been extending. This port has no
+            // evolving-array type object (ADR-0003 keeps the accumulation in
+            // `state.array_elements` instead), so the unfinalized evolving array
+            // is spelled as the declared type, which is precisely the value
+            // §710's finalisation gate at the end of the walk tests for.
+            //
+            // **Returning the assigned type here is what made §713 measure
+            // zero.** With `never[]` coming back, `answer.t == state.declared_type`
+            // never held and the accumulated elements were discarded however
+            // many `x.push(…)` had contributed.
+            if state.is_auto_array && self.is_empty_array_assignment(node) {
+                return Some(FlowType { t: state.declared_type, incomplete: false });
+            }
             // `flow.go:232`. Upstream then asks whether the assigned type is
             // assignable to the declared one and falls back to `any[]`; the
             // declared type here is `any`, to which everything is assignable, so
@@ -1803,10 +1861,39 @@ impl Checker<'_, '_> {
             && !self.combined_node_flags(declaration).intersects(tsr_ast::NodeFlags::CONSTANT)
     }
 
+    /// `isEmptyArrayAssignment` (`flow.go:283`), verbatim in both disjuncts:
+    /// a variable declaration whose initializer is `[]`, or a non-binding-element
+    /// node whose PARENT is a binary expression with `[]` on the right.
+    fn is_empty_array_assignment(&self, node: NodeId) -> bool {
+        let is_empty_array = |expression: Option<tsr_ast::Expression<'_>>| {
+            matches!(
+                expression,
+                Some(tsr_ast::Expression::ArrayLiteralExpression(array))
+                    if array.elements.is_empty()
+            )
+        };
+        match self.node_map.get(node) {
+            Some(Node::VariableDeclaration(declaration)) => {
+                return is_empty_array(declaration.initializer);
+            }
+            // Upstream's `!ast.IsBindingElement(node)` guard on the second
+            // disjunct: a binding element sits under a binary expression in
+            // destructuring form and must not read its `[]` as its own.
+            Some(Node::BindingElement(_)) => return false,
+            _ => {}
+        }
+        self.nodes.parent(node).is_some_and(|parent| {
+            matches!(
+                self.node_map.get(parent),
+                Some(Node::BinaryExpression(binary)) if is_empty_array(binary.right)
+            )
+        })
+    }
+
     /// Upstream's `autoArrayType` trigger (`checker.go`, the evolving-array
     /// machinery): a variable declared with no annotation and an empty
     /// array-literal initializer. Only the §14 depth accounting asks.
-    fn is_auto_array_declaration(&self, symbol: SymbolId) -> bool {
+    fn is_auto_array_declaration(&mut self, symbol: SymbolId) -> bool {
         // §710: `autoArrayType` lives in the SAME `noImplicitAny` block as the
         // scalar auto type (`checker.go:16697` — *"in noImplicitAny mode or a
         // .js file"*, then `isEmptyArrayLiteral(initializer)` →
@@ -1828,12 +1915,119 @@ impl Checker<'_, '_> {
         let Some(Node::VariableDeclaration(node)) = self.node_map.get(declaration) else {
             return false;
         };
-        node.r#type.is_none()
-            && matches!(
-                node.initializer,
-                Some(tsr_ast::Expression::ArrayLiteralExpression(array))
-                    if array.elements.is_empty()
-            )
+        if node.r#type.is_some() {
+            return false;
+        }
+        if matches!(
+            node.initializer,
+            Some(tsr_ast::Expression::ArrayLiteralExpression(array))
+                if array.elements.is_empty()
+        ) {
+            return true;
+        }
+        // §736 — the ASSIGNMENT half of the array track, §712's reopening
+        // condition. Upstream does not decide the track from the declaration at
+        // all: `isEmptyArrayAssignment` (`flow.go:283`) has TWO disjuncts, and
+        // the second is *"the node's parent is a binary expression whose right
+        // operand is `[]`"* — a per-flow-NODE test. `let x; x = [];` takes that
+        // second disjunct and never the first.
+        //
+        // This port has to answer earlier than upstream does. `is_auto_array`
+        // selects whether the ARRAY_MUTATION arm accumulates, and the mutations
+        // are met on the way BACK to the assignment, so the flag must be set
+        // before the walk starts. The declaration-shaped stand-in for upstream's
+        // node test is therefore: an auto-typed declaration (`let x;`) somewhere
+        // in whose container `x = []` is written.
+        //
+        // **This alone is not the fix, and §713 measured that** — it widened
+        // exactly this predicate, gained ZERO and lost 6. The other half is in
+        // [`Checker::get_type_at_flow_assignment`]: the assignment node must
+        // return the EVOLVING array rather than the assigned `never[]`, or
+        // §710's finalisation gate (`answer.t == state.declared_type`) can never
+        // hold. Neither half measures without the other.
+        self.is_auto_typed_declaration(symbol) && self.symbol_has_empty_array_assignment(symbol)
+    }
+
+    /// §736: does any assignment to this symbol write an empty array literal?
+    ///
+    /// The declaration-side stand-in for the second disjunct of upstream's
+    /// `isEmptyArrayAssignment` (`flow.go:283`), which this port must answer
+    /// before the flow walk starts — see [`Checker::is_auto_array_declaration`]
+    /// for why. Deliberately the same scan shape as
+    /// [`Checker::symbol_has_any_assignment`]: the declaration's control-flow
+    /// container, walked for `=` binaries whose target identifier resolves back
+    /// to this symbol, here additionally requiring the right operand to be `[]`.
+    fn symbol_has_empty_array_assignment(&mut self, symbol: SymbolId) -> bool {
+        if let Some(&cached) = self.symbol_empty_array_assignment_scan.get(&symbol) {
+            return cached;
+        }
+        // Inserted BEFORE the scan: `is_matching_reference` below resolves
+        // names, which can re-enter this predicate for the same symbol. A
+        // pessimistic `false` is the same answer the scan gives when it finds
+        // nothing, so the guard cannot invent a track.
+        self.symbol_empty_array_assignment_scan.insert(symbol, false);
+        let answer = (|| {
+            let declaration = self.binder.symbols().get(symbol).value_declaration?;
+            let name = self.binder.symbols().get(symbol).name;
+            let mut root = declaration;
+            while let Some(parent) = self.nodes.parent(root) {
+                root = parent;
+                if matches!(
+                    self.nodes.kind(root),
+                    tsr_ast::SyntaxKind::FunctionDeclaration
+                        | tsr_ast::SyntaxKind::FunctionExpression
+                        | tsr_ast::SyntaxKind::ArrowFunction
+                        | tsr_ast::SyntaxKind::MethodDeclaration
+                        | tsr_ast::SyntaxKind::GetAccessor
+                        | tsr_ast::SyntaxKind::SetAccessor
+                        | tsr_ast::SyntaxKind::Constructor
+                        | tsr_ast::SyntaxKind::SourceFile
+                ) {
+                    break;
+                }
+            }
+            let root_node = self.node_map.get(root)?;
+            let mut stack = vec![root_node];
+            let mut children = Vec::new();
+            while let Some(node) = stack.pop() {
+                if let Node::BinaryExpression(binary) = node
+                    && binary
+                        .operator_token
+                        .is_some_and(|t| t.kind == tsr_ast::SyntaxKind::EqualsToken)
+                    && matches!(
+                        binary.right,
+                        Some(tsr_ast::Expression::ArrayLiteralExpression(array))
+                            if array.elements.is_empty()
+                    )
+                    && let Some(tsr_ast::Expression::Identifier(target)) = binary.left
+                    && target.text == name
+                {
+                    // Name equality is not identity: an inner scope may shadow
+                    // the name. Resolve the target back to this symbol, exactly
+                    // as `symbol_has_any_assignment` does.
+                    if target.node_id.is_some_and(|id| {
+                        self.binder
+                            .resolve_name(
+                                self.nodes,
+                                self.node_map,
+                                id,
+                                name,
+                                tsr_binder::SymbolFlags::VALUE,
+                            )
+                            .is_some_and(|found| found == symbol)
+                    }) {
+                        return Some(true);
+                    }
+                }
+                children.clear();
+                tsr_ast::push_children(node, &mut children);
+                stack.extend(children.iter().copied());
+            }
+            Some(false)
+        })()
+        .unwrap_or(false);
+        self.symbol_empty_array_assignment_scan.insert(symbol, answer);
+        answer
     }
 
     /// The type an assignment flow node puts into the variable
@@ -2238,7 +2432,25 @@ impl Checker<'_, '_> {
             if !self.is_type_subset_of(flow_type.t, state.initial_type) {
                 subtype_reduction = true;
             }
-            if flow_type.t == state.declared_type {
+            // Upstream breaks here unconditionally (`flow.go:1387`), on the
+            // stated ground that *"the only possible outcome is subtypes that
+            // will be removed in the final union type anyway"*.
+            //
+            // §736: **that break cannot fire on the array track upstream, and
+            // it could here.** Upstream's flowing value on that track is an
+            // EVOLVING ARRAY — a distinct type object — so `flowType.t ==
+            // f.declaredType` is false however many antecedents agree. This
+            // port has no evolving-array object and spells the unfinalized
+            // array AS `state.declared_type`, which made the comparison true
+            // and broke out of the antecedent loop before the back edge was
+            // ever walked. The element pushed inside a loop body
+            // (`while (cond()) { x.push("hello") }`) was therefore never
+            // collected into `state.array_elements`.
+            //
+            // So this gate does not depart from upstream; it restores what
+            // upstream does, from which the stand-in had silently diverged.
+            // Worth +2 W→R over the corpus at zero adverse.
+            if flow_type.t == state.declared_type && !state.is_auto_array {
                 break;
             }
         }
@@ -2542,6 +2754,13 @@ impl Checker<'_, '_> {
     /// `.length`, `.push`/`.unshift`, or a numeric `x[i] = …` keeps the
     /// **unfinalized** evolving array, which prints `any[]`. §710.
     fn is_evolving_array_operation_target(&mut self, node: NodeId) -> bool {
+        // §736: upstream opens with `root := c.getReferenceRoot(node)` and
+        // tests the ROOT's parent, not the node's. The port tested the node's
+        // parent directly, which is the same thing for every shape §710 met and
+        // wrong for `f16`'s `(x = [], x).push(5)` — the reference is the right
+        // operand of a comma inside parentheses, so its parent is the comma and
+        // the `.push` is two levels further out.
+        let node = self.get_reference_root(node);
         let Some(parent) = self.nodes.parent(node) else { return false };
         match self.node_map.get(parent) {
             Some(Node::PropertyAccessExpression(access)) => {
@@ -2567,6 +2786,27 @@ impl Checker<'_, '_> {
             }
             _ => false,
         }
+    }
+
+    /// `getReferenceRoot` (`flow.go:1876`), verbatim: a reference wrapped in
+    /// parentheses, used as the LEFT operand of `=`, or used as the RIGHT
+    /// operand of a comma, is rooted at the wrapper — those three forms all
+    /// evaluate to the reference itself, so an operation on the wrapper is an
+    /// operation on the reference.
+    fn get_reference_root(&self, node: NodeId) -> NodeId {
+        let Some(parent) = self.nodes.parent(node) else { return node };
+        let climbs = match self.node_map.get(parent) {
+            Some(Node::ParenthesizedExpression(_)) => true,
+            Some(Node::BinaryExpression(binary)) => {
+                let operator = binary.operator_token.map(|t| t.kind);
+                let left = binary.left.and_then(|l| Node::from(l).node_id());
+                let right = binary.right.and_then(|r| Node::from(r).node_id());
+                (operator == Some(SyntaxKind::EqualsToken) && left == Some(node))
+                    || (operator == Some(SyntaxKind::CommaToken) && right == Some(node))
+            }
+            _ => false,
+        };
+        if climbs { self.get_reference_root(parent) } else { node }
     }
 
     fn is_matching_reference(&mut self, state: &FlowState, node: NodeId) -> bool {
