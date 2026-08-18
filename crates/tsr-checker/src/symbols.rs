@@ -4335,7 +4335,14 @@ impl<'a> Checker<'a, '_> {
     /// test is `getResolvedSymbol(expr) == c.undefinedSymbol`. A name check
     /// would auto-type `x` off a shadowing local
     /// (`undefinedTypeAssignment3` writes exactly that shadow).
-    fn is_null_or_undefined_expression(&mut self, expression: tsr_ast::Expression<'a>) -> bool {
+    /// §738 made this `pub(crate)`: the FLOW-side auto predicate
+    /// ([`Checker::is_auto_typed_declaration`]) needs the same test this
+    /// declared-type mint uses, because upstream writes it once
+    /// (`checker.go:16702`) and both roads read it.
+    pub(crate) fn is_null_or_undefined_expression(
+        &mut self,
+        expression: tsr_ast::Expression<'a>,
+    ) -> bool {
         let Some(mut id) = expression.node_id() else { return false };
         // `ast.SkipParentheses`.
         while self.nodes.kind(id) == SyntaxKind::ParenthesizedExpression {

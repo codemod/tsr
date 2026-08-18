@@ -1874,7 +1874,7 @@ impl Checker<'_, '_> {
     ///   are not excluded here, because modifier flags are not reachable from
     ///   this module. An exported `let x;` therefore evolves when upstream
     ///   leaves it `any`.
-    fn is_auto_typed_declaration(&self, symbol: SymbolId) -> bool {
+    fn is_auto_typed_declaration(&mut self, symbol: SymbolId) -> bool {
         let Some(declaration) = self.binder.symbols().get(symbol).value_declaration else {
             return false;
         };
@@ -1940,9 +1940,61 @@ impl Checker<'_, '_> {
                 return false;
             }
         }
-        node.r#type.is_none()
-            && node.initializer.is_none()
-            && !self.combined_node_flags(declaration).intersects(tsr_ast::NodeFlags::CONSTANT)
+        if node.r#type.is_some()
+            || self.combined_node_flags(declaration).intersects(tsr_ast::NodeFlags::CONSTANT)
+        {
+            return false;
+        }
+        // §738: upstream's condition is `initializer == nil ||
+        // c.isNullOrUndefined(initializer)` (`checker.go:16702`), and its own
+        // comment names all three words:
+        //
+        // ```go
+        // // use control flow tracked 'any' type for non-ambient, non-exported var or let variables
+        // // with no initializer or a 'null' or 'undefined' initializer.
+        // if c.getCombinedNodeFlagsCached(declaration)&ast.NodeFlagsConstant == 0 &&
+        //         (initializer == nil || c.isNullOrUndefined(initializer)) {
+        //     return c.autoType
+        // }
+        // ```
+        //
+        // This port had the no-initializer half only. **The DECLARED-type half
+        // was already complete** — `symbols.rs:4304` mints `any` for a
+        // null/undefined initialiser under the same guards — so `let x = null`
+        // already had the right declared type and the flow walk simply refused
+        // to treat it as auto. `controlFlowArrays`' `f7` is the shape:
+        //
+        // ```ts
+        // let x = null;
+        // if (cond()) { x = []; while (cond()) { x.push("hello"); } }
+        // return x;                                    // string[] | null
+        // ```
+        //
+        // The `const` test above is upstream's and load-bearing for the same
+        // reason it is at the mint site: a `const x = null` can never be
+        // reassigned, so it keeps `null` and has nothing to evolve into.
+        match node.initializer {
+            None => true,
+            // **The `no_implicit_any` gate belongs on THIS half only.**
+            // Upstream's whole block is guarded by it (`checker.go:16697`), and
+            // this port's own mint site carries the gate
+            // (`symbols.rs:4304`) — so without it here the two roads disagree:
+            // under `@strict: false` the mint gives `var arr = null` the
+            // widened `any` while the flow walk would take it down the auto
+            // road and answer the initial `null`. Measured, before the gate:
+            // **8 RIGHT→WRONG, `compiler/forIn` 7 and `compiler/null` 1, every
+            // one a `want=any got=null`** — both fixtures `@strict: false`.
+            //
+            // The NO-INITIALIZER half above is deliberately left ungated. It
+            // has been unconditional since §9.7 and is measured that way;
+            // upstream gates both, so this is a **known asymmetry** rather than
+            // a claim that the gate does not apply — closing it is its own
+            // build with its own blast radius, and nothing in the corpus
+            // currently asks for it.
+            Some(initializer) => {
+                self.no_implicit_any && self.is_null_or_undefined_expression(initializer)
+            }
+        }
     }
 
     /// `isEmptyArrayAssignment` (`flow.go:283`), verbatim in both disjuncts:

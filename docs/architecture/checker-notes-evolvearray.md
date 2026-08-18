@@ -637,3 +637,77 @@ zero** — 435,531 with the gate and 435,531 without — so it was reverted.
   item in the lane**, and it is a declaration-side question rather than a flow
   one.
 - **One line in `f10`** (`0:185`) — wants `(string | number)[]`, gives `any[]`.
+
+## §738 — the THIRD entry onto the auto road: `let x = null` (+1 case, +17 W→R, ZERO adverse)
+
+§737 left 7 wrong lines in `controlFlowArrays`, 6 of them `f7`:
+
+```ts
+function f7() {
+    let x = null;
+    if (cond()) { x = []; while (cond()) { x.push("hello"); } }
+    return x;  // string[] | null
+}
+```
+
+Upstream names all three entries in one comment (`checker.go:16697-16704`):
+
+```go
+// use control flow tracked 'any' type for non-ambient, non-exported var or let variables
+// with no initializer or a 'null' or 'undefined' initializer.
+if c.getCombinedNodeFlagsCached(declaration)&ast.NodeFlagsConstant == 0 &&
+        (initializer == nil || c.isNullOrUndefined(initializer)) {
+    return c.autoType
+}
+// Use control flow tracked 'any[]' type for non-ambient, non-exported variables with an empty array
+// literal initializer.
+if initializer != nil && isEmptyArrayLiteral(initializer) {
+    return c.autoArrayType
+}
+```
+
+- no initializer — §736 (flow side), long-standing (declared side)
+- `[]` initializer — §710
+- `null`/`undefined` initializer — **this item**
+
+### Why it hid: the declared half was already correct
+
+`symbols.rs:4304` already mints `any` for a null/undefined initialiser, under the
+same guards, and cites the same upstream line. So `let x = null` **had the right
+declared type all along**; the FLOW predicate
+(`is_auto_typed_declaration`) was the short one, requiring
+`initializer.is_none()`. One upstream condition, two spellings in this port, and
+only one of them complete.
+
+> **Diff a predicate against its sibling before measuring it, not after.** When
+> two spellings of one upstream condition disagree, the corpus reports it as a
+> regression in whichever moved last — which reads as *"my change broke this"*
+> rather than *"these two never agreed"*.
+
+### The gate, located by 8 regressions
+
+First cut: **+17 W→R against 8 RIGHT→WRONG** — `compiler/forIn` 7,
+`compiler/null` 1, all `want=any got=null`. Both fixtures are `@strict: false`,
+so **`noImplicitAny` is off**, and upstream's entire block is guarded by
+`if c.noImplicitAny`. Ungated, the port sent `var arr = null` down the auto road
+and answered the walk's initial `null`; upstream never enters the block and takes
+the widened `any`.
+
+The gate is already present at the port's own mint site (`symbols.rs:4304`).
+Adding it to the flow predicate **removed all 8 regressions and kept all 17
+gains**.
+
+### A known asymmetry, recorded rather than closed
+
+The **no-initializer** half is left ungated by `no_implicit_any`. It has been
+unconditional since §9.7 and is measured that way; upstream gates both. Recorded
+as a stated asymmetry rather than a claim the gate does not apply — closing it is
+its own build with its own blast radius, and no corpus case currently asks for
+it. **If a future build widens the no-initializer half, this is the first thing
+to check.**
+
+### Lane status
+
+`controlFlowArrays`: **21 → 7 → 1** wrong lines across §736, §737, §738. All
+three entry points onto the auto road are built. The single remaining line is
+`0:185` — `(string | number)[]` wanted, `any[]` given, inside `f10`.
