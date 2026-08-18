@@ -298,7 +298,8 @@ impl Checker<'_, '_> {
             shared_flow_start: self.shared_flows.len(),
             depth: 0,
         };
-        let result = self.get_type_at_flow_node(&mut state, flow).t;
+        let answer = self.get_type_at_flow_node(&mut state, flow);
+        let result = self.finalize_evolving_array(&mut state, answer).t;
         self.shared_flows.truncate(state.shared_flow_start);
         result
     }
@@ -464,9 +465,145 @@ impl Checker<'_, '_> {
             shared_flow_start: self.shared_flows.len(),
             depth: 0,
         };
-        let result = self.get_type_at_flow_node(&mut state, flow).t;
+        let answer = self.get_type_at_flow_node(&mut state, flow);
+        let result = self.finalize_evolving_array(&mut state, answer).t;
         self.shared_flows.truncate(state.shared_flow_start);
         result
+    }
+
+    /// `getUnionOrEvolvingArrayType` (`flow.go:1314`), the junction rule:
+    ///
+    /// ```go
+    /// // At flow control branch or loop junctions, if the type along every antecedent code path
+    /// // is an evolving array type, we construct a combined evolving array type. Otherwise we
+    /// // finalize all evolving array types.
+    /// if isEvolvingArrayTypeList(types) {
+    ///     return c.getEvolvingArrayType(c.getUnionType(core.Map(types, c.getElementTypeOfEvolvingArrayType)))
+    /// }
+    /// result := ... core.SameMap(types, c.finalizeEvolvingArrayType) ...
+    /// ```
+    ///
+    /// `None` means *"this junction is not on the array track"* and the caller
+    /// takes its ordinary union.
+    ///
+    /// # Why both halves are needed, with the two cases that force them
+    ///
+    /// This port spells an unfinalized evolving array as `state.declared_type`,
+    /// so *"is an evolving array"* reads as `t == state.declared_type`.
+    ///
+    /// ```ts
+    /// function f4() {                         // EVERY path evolving
+    ///     let x = [];
+    ///     if (cond()) { x.push(5); } else { x.push("hello"); }
+    ///     return x;                           // (string | number)[]
+    /// }
+    /// function f6() {                         // ONE path evolving, one not
+    ///     let x;
+    ///     if (cond()) { x = 5; } else { x = []; x.push("hello"); }
+    ///     return x;                           // number | string[]
+    /// }
+    /// ```
+    ///
+    /// **`f4` needs the junction to stay evolving** so the single finalisation
+    /// at the query's end sees both elements; finalising per-branch gave
+    /// `number[] | (string | number)[]`. **`f6` needs the junction to finalise
+    /// the evolving branch on the spot**, because the other branch is `number`
+    /// and a union with the unfinalized `any` stand-in collapses to `any` —
+    /// which then finalises whole and answers `string[]`, losing the `number`
+    /// arm. §737 measured both failures, one from each rule applied alone.
+    fn union_or_evolving_array(
+        &mut self,
+        state: &mut FlowState,
+        types: &[TypeId],
+    ) -> Option<TypeId> {
+        if types.is_empty() {
+            return None;
+        }
+        // `isEvolvingArrayTypeList`: every non-`never` constituent is evolving,
+        // and at least one is. `never` constituents are skipped by the caller
+        // already, so "at least one" is simply a non-empty list.
+        if types.iter().all(|&t| t == state.declared_type) {
+            return Some(state.declared_type);
+        }
+        if !types.contains(&state.declared_type) {
+            return None;
+        }
+        // `core.SameMap(types, c.finalizeEvolvingArrayType)` — finalise the
+        // evolving constituents, leave the rest, then union.
+        let finalized = self.finalized_array_type(state)?;
+        let mapped: Vec<TypeId> =
+            types.iter().map(|&t| if t == state.declared_type { finalized } else { t }).collect();
+        Some(self.get_union_type(&mapped))
+    }
+
+    /// `finalizeEvolvingArrayType`'s array half: `Array<union of the elements
+    /// collected so far>`, or `None` when the port cannot build it.
+    fn finalized_array_type(&mut self, state: &FlowState) -> Option<TypeId> {
+        let array = self.global_type_symbol("Array")?;
+        let elements = state.array_elements.clone();
+        // `createFinalArrayType` answers `autoArrayType` for a `never` element
+        // type (`flow.go:1582`), which is the no-elements-yet case here.
+        let element =
+            if elements.is_empty() { self.intrinsics.any } else { self.get_union_type(&elements) };
+        Some(self.create_type_reference(array, vec![element]))
+    }
+
+    /// `finalizeEvolvingArrayType` and its operation-target twin
+    /// (`flow.go:105-109`), applied **once per reference query**.
+    ///
+    /// # "Once" is the load-bearing word
+    ///
+    /// Upstream calls this in `getFlowTypeOfReference` — the OUTER function:
+    ///
+    /// ```go
+    /// var resultType *Type
+    /// if evolvedType.objectFlags&ObjectFlagsEvolvingArray != 0 && c.isEvolvingArrayOperationTarget(reference) {
+    ///     resultType = c.autoArrayType
+    /// } else {
+    ///     resultType = c.finalizeEvolvingArrayType(evolvedType)
+    /// }
+    /// ```
+    ///
+    /// §710 put it at the tail of [`Checker::get_type_at_flow_node`], which is
+    /// **recursive** — so every nested call finalised too, each against whatever
+    /// `state.array_elements` happened to hold at that moment. At a branch label
+    /// the two antecedent calls finalised at *different* accumulator states and
+    /// the join unioned the results:
+    ///
+    /// ```text
+    /// f4:  want (string | number)[]   got  number[] | (string | number)[]
+    /// ```
+    ///
+    /// That is the `X[] | Y[]` shape §736 recorded as "branch-merge residue" and
+    /// could not explain. It was never a merge problem: it is one finalisation
+    /// per recursion level where upstream has one per query. §737.
+    fn finalize_evolving_array(&mut self, state: &mut FlowState, answer: FlowType) -> FlowType {
+        if !state.is_auto_array || answer.t != state.declared_type {
+            return answer;
+        }
+        let Some(array) = self.global_type_symbol("Array") else { return answer };
+        if self.is_evolving_array_operation_target(state.reference) {
+            // The UNFINALIZED spelling: `any[]` outright, so `x.push(…)`
+            // resolves and *"operations on empty arrays are possible without
+            // implicit any errors"* (upstream's own comment, `flow.go:101`).
+            //
+            // §736: **§710 got this for free and that hid the rule.** In the
+            // DECLARATION half `state.declared_type` already IS `any[]`
+            // (`autoArrayType`, `symbols.rs:4270`), so answering the declared
+            // type here was `any[]` by coincidence. In the ASSIGNMENT half it is
+            // `any`, and the identical code answered `x : any` — 9 RIGHT→WRONG,
+            // every one a `want=number got=any` at an `x.push(…)` whose receiver
+            // had stopped being an array.
+            let auto_array = self.create_type_reference(array, vec![self.intrinsics.any]);
+            return FlowType { t: auto_array, incomplete: answer.incomplete };
+        }
+        if state.array_elements.is_empty() {
+            return answer;
+        }
+        let elements = state.array_elements.clone();
+        let element = self.get_union_type(&elements);
+        let evolved = self.create_type_reference(array, vec![element]);
+        FlowType { t: evolved, incomplete: answer.incomplete }
     }
 
     /// One step of the backwards walk (`getTypeAtFlowNode`, `flow.go:117`).
@@ -673,59 +810,6 @@ impl Checker<'_, '_> {
             }
         };
 
-        // §710's `finalizeEvolvingArrayType`, under upstream's gate
-        // `!isEvolvingArrayOperationTarget(reference)` (`checker.go:11182`).
-        let answer = if state.is_auto_array
-            && !state.array_elements.is_empty()
-            && answer.t == state.declared_type
-            && !self.is_evolving_array_operation_target(state.reference)
-        {
-            let elements = state.array_elements.clone();
-            let element = self.get_union_type(&elements);
-            match self.global_type_symbol("Array") {
-                Some(array) => {
-                    let evolved = self.create_type_reference(array, vec![element]);
-                    FlowType { t: evolved, incomplete: answer.incomplete }
-                }
-                None => answer,
-            }
-        } else if state.is_auto_array
-            && answer.t == state.declared_type
-            && self.is_evolving_array_operation_target(state.reference)
-        {
-            // §736 — upstream's OTHER branch of the same `if`, which §710 did
-            // not need and the assignment half does (`flow.go:106`):
-            //
-            // ```go
-            // if evolvedType.objectFlags&ObjectFlagsEvolvingArray != 0 &&
-            //         c.isEvolvingArrayOperationTarget(reference) {
-            //     resultType = c.autoArrayType
-            // }
-            // ```
-            //
-            // At `x.push(…)` the reference is given `any[]` outright, so `push`
-            // resolves and the call answers `number` — upstream's stated reason
-            // is that *"operations on empty arrays are possible without implicit
-            // any errors"*.
-            //
-            // **§710 got this for free and that hid the rule.** In the
-            // DECLARATION half the declared type already IS `any[]`
-            // (`autoArrayType`, minted at `symbols.rs:4270`), so returning
-            // `state.declared_type` was `any[]` by coincidence. In the
-            // ASSIGNMENT half (`let x;`) the declared type is `any`, and the
-            // same code answered `x : any` — which cost 9 RIGHT→WRONG on the
-            // first cut of this build, every one a `want=number got=any` at a
-            // `x.push(…)` call whose receiver had stopped being an array.
-            match self.global_type_symbol("Array") {
-                Some(array) => {
-                    let auto_array = self.create_type_reference(array, vec![self.intrinsics.any]);
-                    FlowType { t: auto_array, incomplete: answer.incomplete }
-                }
-                None => answer,
-            }
-        } else {
-            answer
-        };
         if let Some(id) = shared {
             self.shared_flows.push((id, answer));
         }
@@ -2539,6 +2623,14 @@ impl Checker<'_, '_> {
             if t != never && !types.contains(&t) {
                 types.push(t);
             }
+        }
+        // §737: `getUnionOrEvolvingArrayType` (`flow.go:1314`) runs at every
+        // junction, BEFORE the ordinary union — see
+        // [`Checker::union_or_evolving_array`].
+        if state.is_auto_array
+            && let Some(t) = self.union_or_evolving_array(state, &types)
+        {
+            return FlowType { t, incomplete: false };
         }
         let t = if types.is_empty() {
             never

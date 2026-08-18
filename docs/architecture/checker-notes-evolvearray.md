@@ -538,9 +538,8 @@ out. Ported verbatim, and it took the last RIGHT→WRONG to zero.
 
 - **`f7`'s `let x = null;`** (6 lines) — declared `null`, neither auto nor
   auto-array. A different entry point.
-- **Branch-merge residue** (~13 lines) — `number[]` where upstream has
-  `(string | number)[]`, and `(number | boolean)[]` where upstream has
-  `(string | number | boolean)[]`.
+- ~~**Branch-merge residue** (~13 lines)~~ — **diagnosed and fixed by §737
+  below; it was not a merge problem at all.**
 
 ### Why a +0-case build was kept
 
@@ -549,3 +548,92 @@ The case does not convert: `controlFlowArrays` still holds 21 wrong lines, so al
 that a faithful arm with zero adverse transitions is worth its lines, and because
 it closes §712's stated reopening condition — leaving it out would send the next
 session at the same three-piece build with §713's zero as its only evidence.
+
+
+## §737 — finalisation belongs at the QUERY, not at every recursion (+15 W→R, ZERO adverse)
+
+§736 left 13 lines in `controlFlowArrays` labelled *"branch-merge residue"* with
+a shape it could not explain:
+
+```
+f4:  want (string | number)[]     got  number[] | (string | number)[]
+```
+
+A union of two *different* finalisations of the same variable. That is not what a
+merge of two branches produces; it is what **two finalisations** produce.
+
+### The defect
+
+§710 placed `finalizeEvolvingArrayType` at the tail of
+`get_type_at_flow_node`. **That function is recursive.** Every nested call
+therefore finalised, each against whatever `state.array_elements` held at that
+moment in the walk. At a branch label, antecedent 1 finalised with `[number]` and
+antecedent 2 with `[number, string]`, and the join unioned `number[]` with
+`(string | number)[]`.
+
+Upstream calls it **once**, in the outer `getFlowTypeOfReference`
+(`flow.go:105-109`) — never inside `getTypeAtFlowNode`. Moving it there is the
+fix, and `finalize_evolving_array` is now called from the two reference-query
+entry points and nowhere else.
+
+### Moving it alone breaks the other case, and that is the interesting part
+
+With finalisation at the query, `f4` became exact and **`f6` regressed** — 2
+RIGHT→WRONG, `want=number | string[] got=string[]`:
+
+```ts
+function f4() {                         // EVERY path evolving
+    let x = [];
+    if (cond()) { x.push(5); } else { x.push("hello"); }
+    return x;                           // (string | number)[]
+}
+function f6() {                         // ONE path evolving, one not
+    let x;
+    if (cond()) { x = 5; } else { x = []; x.push("hello"); }
+    return x;                           // number | string[]
+}
+```
+
+- `f4` needs the junction to **stay evolving**, so the one finalisation at the
+  end sees both elements.
+- `f6` needs the junction to **finalise the evolving branch there**, because the
+  union of `number` with the unfinalized `any` stand-in collapses to `any`, which
+  then finalises whole and drops the `number` arm.
+
+Upstream distinguishes them in one function, `getUnionOrEvolvingArrayType`
+(`flow.go:1314`), whose comment states the rule outright:
+
+```go
+// At flow control branch or loop junctions, if the type along every antecedent code path
+// is an evolving array type, we construct a combined evolving array type. Otherwise we
+// finalize all evolving array types.
+```
+
+`isEvolvingArrayTypeList` is *"every non-`never` constituent is an evolving array,
+and at least one is"*. In this port *"is an evolving array"* reads as
+`t == state.declared_type`, the §736 stand-in.
+
+### A workaround was built first, then measured inert and dropped
+
+Before the recursion defect was found, the `SHARED` flow cache was gated off the
+array track: the cache returns **before** the walk, so a shared node visited a
+second time skips the element accumulation entirely. That is a real effect and
+the gate did move lines.
+
+**With the finalisation moved and the junction rule in place it measures exactly
+zero** — 435,531 with the gate and 435,531 without — so it was reverted.
+
+> **A workaround that stops measuring once the real cause is fixed is evidence
+> the real cause was found.** Re-measuring it is what turns that from a hope into
+> a fact, and it costs one build. The alternative — keeping both — would have
+> left a permanent unexplained gate on a hot path, and the next reader with no
+> way to tell which of the two was load-bearing.
+
+### What remains: 7 lines, 6 of them one entry point
+
+- **`f7`'s `let x = null;`** (6 lines) — wants `string[] | null`, gives `any`. A
+  `null`/`undefined` initialiser is a **third** way onto the auto road, beside
+  the no-initialiser form (§736) and the `[]`-initialiser form (§710). **Next
+  item in the lane**, and it is a declaration-side question rather than a flow
+  one.
+- **One line in `f10`** (`0:185`) — wants `(string | number)[]`, gives `any[]`.
