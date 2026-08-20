@@ -117,11 +117,15 @@ fn an_aggregate_this_slice_cannot_reduce_is_still_a_gap() {
 
     // A bare `return;` beside a valued one is the one configuration where
     // `strictNullChecks` changes the answer (`checker.go:20301` appends
-    // `undefinedType` under it and not otherwise). This port has no compiler
-    // options, so it declines to pick a spelling.
+    // `undefinedType` under it and not otherwise). The old pin here was
+    // `error` under the rationale "this port has no compiler options" —
+    // expired by ADR-0042 and cashed in by §741: `Checker::new` defaults
+    // `strict_null_checks` to `true`, so this harness takes the strict
+    // spelling, the appended `undefined` beside the unwidened literal —
+    // the same shape the `1 | 2` pin above records.
     assert_eq!(
         type_of_declaration("function f(c: boolean) { if (c) { return 1; } return; }", "f"),
-        "error"
+        "(c: boolean) => 1 | undefined"
     );
 
     // Async and generator returns wrap in `Promise`/`Generator`, which are

@@ -1897,6 +1897,56 @@ impl<'a> Checker<'a, '_> {
                 None => return None,
             }
         }
+        // §741: the strict-mode implicit-return `| undefined`
+        // (`checker.go:20301`), the plain arm's copy of what the async arm
+        // above has carried since §11 named it. `hasReturnWithNoExpression`
+        // starts as `functionHasImplicitReturn` (`:20261`) — the body's END
+        // is reachable — and a bare `return;` sets it too (`:20266`). The
+        // decline this replaces cited "this port has no compiler options",
+        // which ADR-0042 expired: `strict_null_checks` is real, so the
+        // non-strict half (ignore the bare return) and the strict half
+        // (append `undefinedType`) are both answerable now.
+        //
+        // The reachable-end test is a PAIR, and both halves are load-bearing
+        // — each alone was measured and each failed differently:
+        //
+        // - [`Checker::block_completes_normally`] ALONE (first cut): 3 R→W in
+        //   `typeParameterAsTypeArgument`. Its expression-statement arm
+        //   CHECKS calls to ask never-ness, and doing that
+        //   mid-signature-computation re-enters the very signature being
+        //   inferred — the self-call cycles and the whole function prints
+        //   `any`.
+        // - the binder's `NodeFacts::HAS_IMPLICIT_RETURN` ALONE (second cut):
+        //   22 R→W, `exhaustiveSwitchStatements1` and the
+        //   `enum/numeric/booleanLiteralTypes` families — the fact is set
+        //   whenever the end flow is not syntactically UNREACHABLE
+        //   (`binder.rs:1180`), and a switch whose every clause returns is
+        //   dead in a way only upstream's `isReachableFlowNode` (`:20308`)
+        //   sees.
+        //
+        // Paired, the fact SHORT-CIRCUITS first: a body whose end is
+        // provably dead never reaches the checking walk (which is what
+        // protects the self-call shape — its end sits after a `return`), and
+        // the walk's `None` (a switch, a loop, a try, a call in the way)
+        // declines the append rather than assuming either way. Residue, one
+        // line, recorded: a `typeof`-switch this port cannot prove
+        // exhaustive keeps one G→W in `narrowingByTypeofInSwitch` (0:214)
+        // against the same case's G→R — the `is_exhaustive_switch_statement`
+        // typeof arm's item, not this arm's.
+        if !types.is_empty() && self.strict_null_checks {
+            let implicit = has_bare_return
+                || (self
+                    .binder
+                    .facts(declaration)
+                    .contains(tsr_binder::NodeFacts::HAS_IMPLICIT_RETURN)
+                    && self.block_completes_normally(block, declaration) == Some(true));
+            if implicit {
+                let undefined = self.intrinsics.undefined;
+                if !types.contains(&undefined) {
+                    types.push(undefined);
+                }
+            }
+        }
         match types.as_slice() {
             [] if has_bare_return => {
                 // Every return is bare. `hasReturnWithNoExpression` is then true,
@@ -1908,26 +1958,14 @@ impl<'a> Checker<'a, '_> {
                 return Some(self.intrinsics.void);
             }
             [] => {}
-            // A bare `return;` *beside* a valued one is the one configuration
-            // where `strictNullChecks` changes the answer: `:20301` appends
-            // `undefinedType` to the aggregate under it and not otherwise, so
-            // `function f() { if (c) return 1; return; }` is `number | undefined`
-            // strict and `number` non-strict. This port has no compiler options
-            // and is uniformly non-strict (`crate::symbols`), and the corpus does
-            // set `@strict: true` on cases, so answering either spelling here
-            // would be a confident wrong answer on half of them. Gapped.
-            [_] if has_bare_return => return None,
             [single] => return self.inferred_return_type(declaration, *single),
             // Two or more distinct types: upstream reduces with
             // `UnionReductionSubtype` (`checker.go:20191`) — the §9
             // decidability-gated reduction, wired under
-            // `checker-notes-assign.md` §11 with the three declines its two
-            // refused measurements named: a bare `return;` beside the valued
-            // ones (`checker.go:20301`'s strict-mode `| undefined`), and a
-            // **JS file**, whose JSDoc `@overload` signatures this port does
-            // not model — 10 of §11.1's 26 wrong lines, excludable only once
-            // `JAVASCRIPT_FILE` was actually set by something.
-            _ if has_bare_return => return None,
+            // `checker-notes-assign.md` §11. The **JS file** decline stands:
+            // JSDoc `@overload` signatures this port does not model — 10 of
+            // §11.1's 26 wrong lines, excludable only once `JAVASCRIPT_FILE`
+            // was actually set by something.
             many => {
                 if self.in_js_file(declaration) {
                     return None;

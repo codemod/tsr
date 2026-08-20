@@ -2302,3 +2302,60 @@ it (§633 for the gate, §634 for the `continue`, §642 here), and the second ti
 refusal's own recorded next-step produced the landing within one run. **A
 refusal that names the value to print is worth more than one that names a
 hypothesis.**
+
+## §741 — the strict-mode implicit-return `| undefined` at the PLAIN arm (+8 cases, +29 W→R / +1 G→R vs 1 G→W, zero R→W)
+
+Upstream appends `undefinedType` to a non-empty return aggregate whenever
+`strictNullChecks` is on and the function has an implicit return
+(`checker.go:20301`): a bare `return;` beside a valued one, OR a body end
+that is reachable (`functionHasImplicitReturn`, `:20261`/`:20307`). The
+ASYNC arm of `return_type_from_body` has carried this since §11 named it;
+the PLAIN arm both missed the reachable-end half entirely and DECLINED the
+bare-return-beside-valued shape whole, on the rationale *"this port has no
+compiler options and is uniformly non-strict"* — which ADR-0042 expired and
+nobody had cashed in. The near-miss board's `| undefined` cluster (15 lines:
+`typeGuardsDefeat`, `narrowedConstInMethod`, `TypeGuardWithArrayUnion`,
+`enumLiteralsSubtypeReduction`, …) was this arm.
+
+### The reachable-end test took three cuts, and the pair is the finding
+
+1. **`block_completes_normally` alone: 3 R→W.** Its expression-statement arm
+   CHECKS calls to ask never-ness, and doing that mid-signature-computation
+   re-enters the very signature being inferred — the self-call in
+   `typeParameterAsTypeArgument` (`foo<U,U>(y,y); return new C<U,T>()`)
+   cycled and the whole function printed `any`. **A reachability stand-in
+   that types expressions is not a read-only probe, and inside signature
+   inference that distinction is load-bearing.**
+2. **The binder's `NodeFacts::HAS_IMPLICIT_RETURN` alone: 22 R→W.** The fact
+   is set whenever the end flow is not syntactically UNREACHABLE
+   (`binder.rs:1180`); a switch whose every clause returns is dead in a way
+   only upstream's `isReachableFlowNode` (`:20308`) sees —
+   `exhaustiveSwitchStatements1`, the `enum/numeric/booleanLiteralTypes`
+   families.
+3. **Paired — fact short-circuits, then the walk confirms: zero R→W.** A
+   body whose end is provably dead never reaches the checking walk (which
+   protects the self-call shape: its end sits after a `return`), and the
+   walk's `None` (switch, loop, try, call in the way) declines the append
+   rather than assuming either way.
+
+### Measured (full scorepair pair, baseline freshly accepted on clean HEAD)
+
+```
+cases    6,075 → 6,083   (+8)
+right    435,590 → 435,620  (+29 W→R, +1 G→R)
+adverse  1 G→W — narrowingByTypeofInSwitch 0:214, beside the same case's
+         G→R; a typeof-switch this port cannot prove exhaustive
+         (`is_exhaustive_switch_statement`'s typeof arm, recorded there)
+```
+
+`controlFlowForFunctionLike1` 8, `capturedLetConstInLoop8`(+`_ES6`) 4 lead
+the gains. Two expired-rationale pins updated with the build:
+`return_inference.rs`'s bare-return `error` pin (now `1 | undefined` — the
+harness defaults strict) — the eighteenth stand-in pair to come due.
+
+### Residue
+
+The `None`-declining walk still misses implicit returns behind a call in
+the body (`if (c) return 1; console.log(x);` — upstream appends, this port
+keeps today's answer). Converting those needs `isReachableFlowNode`, the
+reachability walk `flow.rs` records as unported.
