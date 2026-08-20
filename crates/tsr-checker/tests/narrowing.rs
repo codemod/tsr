@@ -32,6 +32,17 @@ fn type_of_last_expression(source: &str) -> String {
         tsr_binder::FileInfo { name: "test.ts", text: source },
     );
     let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+    // §740: the auto road (`let x;` → evolving `undefined`/assigned types)
+    // exists only under `noImplicitAny` (`checker.go:16697`), and the flow
+    // predicate now reads the flag. These fixtures pin auto behaviour, so
+    // the harness states the flag rather than inheriting the optionless
+    // default (off), matching the corpus fixtures they mirror
+    // (`@noImplicitAny: true` / `@strict: true`).
+    let options = tsr_core::CompilerOptions {
+        no_implicit_any: tsr_core::Tristate::True,
+        ..Default::default()
+    };
+    checker.apply_compiler_options(&options);
 
     let last = last_expression_statement(parsed.source_file.statements)
         .expect("the fixture must end with an expression statement");

@@ -772,3 +772,60 @@ junction rule built (§737), finalise-at-query built (§737), and the cache
 made element-aware (this item). Known remaining asymmetry: the
 no-initializer half is still ungated by `no_implicit_any` (§738, recorded
 there).
+
+## §740 — the no-initializer auto entry gains upstream's `noImplicitAny` gate (+2 cases, +41 W→R, ZERO adverse)
+
+§738 recorded the asymmetry and declined to close it in the same build:
+upstream gates the ENTIRE auto block on `c.noImplicitAny`
+(`checker.go:16697`), and this port carried the gate on the
+null/undefined-initializer half (§738) and the array half (§710,
+`is_auto_array_declaration`) but not on the no-initializer half, which had
+been unconditional since §9.7. This is that build.
+
+### Measured
+
+```
+cases    6,073 → 6,075   (+2)
+right    435,549 → 435,590  (+41)
+W→R 41 — parserRegularExpressionDivideAmbiguity6 15, controlFlowCaching 9,
+         typeofOperatorWithAnyOtherType 6
+R→W 0 | G→W 0 — after the rider below; the first cut measured 1 R→W
+```
+
+Every gain is a `@strict: false` fixture where `let x;` references printed a
+narrowed type (`undefined`, or an assigned type) while upstream — never
+entering the auto block — answers the widened implicit `any` everywhere.
+
+### The rider: the self-referential for-in arm must BYPASS the gate
+
+The first cut regressed `parserForOfStatement19` (`for (var of in of) { }`,
+`@strict: false`, wants `any` twice). Upstream's `any` there is **not the
+auto road** — it is CIRCULARITY: the for-in declared-type arm
+(`checker.go:16657`) checks the head expression, which resolves the same
+symbol mid-computation, `popTypeResolution` fails, and
+`reportCircularityError` answers `anyType`. The §345 arm uses the auto road
+as this port's *stand-in* for that mechanism, so the stand-in must survive
+the gate — it now returns `true` before the gated match. A stand-in for a
+DIFFERENT upstream mechanism must not inherit the gates of the mechanism it
+borrows.
+
+### Two unit-test harness pins moved, both in the predicted direction
+
+- `element_access_any.rs`'s marker test said outright it pins current
+  answers "and they change when `crate::flow` grows the auto type". It
+  fired: the optionless harness has `no_implicit_any = false`, so `var a;`
+  and ambient `declare let a;` now index as plain implicit `any` — which IS
+  upstream's answer with the flag off (and for the ambient one, in every
+  mode: upstream excludes ambient from the auto block outright).
+- `export_assignment_reference.rs` and `narrowing.rs` pin auto behaviour
+  measured with the road ACTIVE, so those harnesses now state
+  `noImplicitAny: true` explicitly instead of inheriting the optionless
+  default. A pin taken under specific compiler options must name them.
+
+### What this leaves
+
+The auto block's remaining unported guards are the **export** and
+**ambient** exclusions (`is_auto_typed_declaration`'s doc lists them): an
+exported or ambient `let x;` still takes the auto road here under
+`noImplicitAny`. No corpus case currently asks; same shape as this item was
+before it — a recorded asymmetry awaiting its own build.

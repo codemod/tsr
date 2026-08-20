@@ -46,6 +46,17 @@ fn type_of_identifier_under(source: &str, name: &str, parent_kind: SyntaxKind) -
         tsr_binder::FileInfo { name: "t.ts", text: source },
     );
     let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+    // §740: the upstream probe both pins were taken from ran with the auto
+    // road ACTIVE — `>x : undefined` at the plain reference is the auto
+    // initial, which exists only under `noImplicitAny`
+    // (`checker.go:16697`). The flow predicate now reads the flag (§740's
+    // gate), so this harness must state the conditions the pins were
+    // measured under rather than inherit the optionless default (off).
+    let options = tsr_core::CompilerOptions {
+        no_implicit_any: tsr_core::Tristate::True,
+        ..Default::default()
+    };
+    checker.apply_compiler_options(&options);
     let found = (0..u32::try_from(parsed.nodes.len()).expect("fits"))
         .map(NodeId::new)
         .filter(|&id| parsed.nodes.kind(id) == SyntaxKind::Identifier)

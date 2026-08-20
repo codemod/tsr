@@ -110,8 +110,21 @@ fn an_unannotated_variable_does_not_reach_this_arm_and_that_is_flow_not_indexing
     // they are a marker for a narrowing gap, and they change when `crate::flow`
     // grows the auto type — at which point this arm starts answering them for
     // free, which is the point of recording it here.
-    assert_eq!(type_of_last("declare let a;\nconst x = a[0];"), "error");
-    assert_eq!(type_of_last("var a;\nconst x = a[0];"), "error");
+    //
+    // §740: the marker FIRED, in the direction the comment above predicted.
+    // This harness constructs `Checker::new` with no options, so
+    // `no_implicit_any` is `false` — and §740 gated the no-initializer auto
+    // entry on it (upstream's own gate, `checker.go:16697`). `var a;` no
+    // longer takes the auto road here: it is an ordinary implicit `any`, and
+    // indexing it answers `any` — which IS upstream's answer with the flag
+    // off. The ambient `declare let a;` moves the same way, and for a
+    // second reason stacked on the first: upstream excludes ambient
+    // declarations from the auto block outright, so `any` is its answer in
+    // EVERY mode — the old pinned `error` was the auto road wrongly
+    // swallowing an ambient declaration (the exclusion
+    // `is_auto_typed_declaration` documents as unported).
+    assert_eq!(type_of_last("declare let a;\nconst x = a[0];"), "any");
+    assert_eq!(type_of_last("var a;\nconst x = a[0];"), "any");
 }
 
 #[test]

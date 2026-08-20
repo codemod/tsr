@@ -1957,6 +1957,17 @@ impl Checker<'_, '_> {
             if !self_referential {
                 return false;
             }
+            // §740: this arm must BYPASS the `no_implicit_any` gate below.
+            // Upstream's `any` for `for (var of in of) { }` is not the auto
+            // road at all — it is CIRCULARITY: the for-in arm
+            // (`checker.go:16657`) checks the head expression, which resolves
+            // the same symbol mid-computation, `popTypeResolution` fails, and
+            // `reportCircularityError` answers `anyType`. The auto road is
+            // this port's STAND-IN for that mechanism, and the fixture
+            // (`parserForOfStatement19`) is `@strict: false` — gating the
+            // stand-in on `noImplicitAny` re-broke the case the §345 arm was
+            // built for (1 R→W, measured).
+            return true;
         }
         if node.r#type.is_some()
             || self.combined_node_flags(declaration).intersects(tsr_ast::NodeFlags::CONSTANT)
@@ -1991,24 +2002,17 @@ impl Checker<'_, '_> {
         // The `const` test above is upstream's and load-bearing for the same
         // reason it is at the mint site: a `const x = null` can never be
         // reassigned, so it keeps `null` and has nothing to evolve into.
+        // §740: upstream's whole block is guarded by `c.noImplicitAny`
+        // (`checker.go:16697`) — with the flag off, `let x;` is an ordinary
+        // implicit `any` and NOTHING evolves; every reference answers `any`.
+        // §738 gated the null/undefined-initializer half (8 R→W without it)
+        // and recorded the no-initializer half as a known asymmetry —
+        // unconditional since §9.7, measured that way, its own build. This is
+        // that build. The array half (`is_auto_array_declaration`) has carried
+        // the same gate since §710, so this closes the LAST ungated entry
+        // onto the auto road.
         match node.initializer {
-            None => true,
-            // **The `no_implicit_any` gate belongs on THIS half only.**
-            // Upstream's whole block is guarded by it (`checker.go:16697`), and
-            // this port's own mint site carries the gate
-            // (`symbols.rs:4304`) — so without it here the two roads disagree:
-            // under `@strict: false` the mint gives `var arr = null` the
-            // widened `any` while the flow walk would take it down the auto
-            // road and answer the initial `null`. Measured, before the gate:
-            // **8 RIGHT→WRONG, `compiler/forIn` 7 and `compiler/null` 1, every
-            // one a `want=any got=null`** — both fixtures `@strict: false`.
-            //
-            // The NO-INITIALIZER half above is deliberately left ungated. It
-            // has been unconditional since §9.7 and is measured that way;
-            // upstream gates both, so this is a **known asymmetry** rather than
-            // a claim that the gate does not apply — closing it is its own
-            // build with its own blast radius, and nothing in the corpus
-            // currently asks for it.
+            None => self.no_implicit_any,
             Some(initializer) => {
                 self.no_implicit_any && self.is_null_or_undefined_expression(initializer)
             }
