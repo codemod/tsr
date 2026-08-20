@@ -587,9 +587,15 @@ impl Checker<'_, '_> {
                 ka.cmp(&kb).then_with(|| self.compare_types(a, b))
             });
             Some(entries)
-        } else if includes.named_union && !unprinted {
-            return self.intrinsics.error;
         } else {
+            // §742: a NAMED constituent inside an ALIASED union
+            // (`symbol.is_some()`) reaches here and proceeds — the union
+            // prints its own alias name, so upstream's `origin`
+            // denormalisation (the reason the unaliased road above exists)
+            // never comes into play. This arm used to answer `errorType` for
+            // that shape (`type T = S[] | S` DECLARED error and silenced
+            // every rule gating on the declared type, TS2454 first), which
+            // was the §42.1/§76 printing guard applied one road too wide.
             None
         };
 

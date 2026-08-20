@@ -8903,3 +8903,45 @@ than judgement.
 **A refusal with an executable reopening condition is worth more than a landing
 without one.** Every step here was reopened by the previous step's recorded
 number, and the total is +51 lines and a case that had resisted five attempts.
+
+## §742 — an ALIASED union with a named constituent is not the origin problem (+2 cases +1 diagnostics case, +102 right, ZERO R→W)
+
+`type S = "a" | "b"; type T = S[] | S;` **declared `errorType`**, and every
+rule gating on the declared type was silenced on it — TS2454 first
+(`stringLiteralMatchedInSwitch01`, both lines), found by tracing why a
+convert-alone diagnostics case reported nothing.
+
+### The over-wide guard
+
+`union_type_worker`'s error arm fired for `includes.named_union &&
+!unprinted` with **any** symbol. The guard exists for the PRINTING problem:
+an unaliased union with a named constituent needs upstream's `origin`
+denormalisation to print (`E | undefined`, not `E.a | E.b | undefined`),
+and §53 built exactly that road — for `symbol.is_none()`. But the two
+conditions were spelled so that the aliased case fell into the error arm,
+**and an aliased union prints its own alias name** — the origin machinery
+never comes into play. `type T = S[] | S` errored for a printing reason
+that cannot arise. First arm and error arm had IDENTICAL guards except the
+symbol test nobody had written down; the fix deletes the error arm (the
+first arm already catches the only genuinely unprintable shape).
+
+### Measured (full pair, clean-base baseline)
+
+```
+checker_types  6,083 → 6,085 (+2) · right 435,620 → 435,722 (+102)
+               G→R 56 (enumLiteralUnionNotWidened 10, arrayDestructuringInSwitch1 9)
+               W→R 46 (stringLiteralTypeAssertion01 18, partiallyDiscriminantedUnions 9)
+               G→W 19, R→W 0 — every G→W in a still-failing case, three shapes:
+                 - subtype-reduction over alias entries ("a" | "b" | S[] where
+                   upstream re-collapses to S) — the §53 entry reduction's
+                   next refinement
+                 - a strict-optional `| undefined` dropped where the union now
+                   builds (weakTypesAndLiterals01)
+                 - an alias name lost through spread (spreadBooleanRespectsFreshness)
+diagnostics    2,595 → 2,596 (+1: stringLiteralMatchedInSwitch01, both TS2454 lines)
+```
+
+The unlocked population is wider than the diagnostics case: every
+annotation `var x: T` where `T` aliases a union containing a named type now
+declares a real type, and TS2454's remaining convert-alone cases
+(`stringLiteralTypeAssertion01` among the +18) ride the same road.
