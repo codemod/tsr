@@ -711,3 +711,64 @@ to check.**
 `controlFlowArrays`: **21 → 7 → 1** wrong lines across §736, §737, §738. All
 three entry points onto the auto road are built. The single remaining line is
 `0:185` — `(string | number)[]` wanted, `any[]` given, inside `f10`.
+
+## §739 — the loop-label cache starves every query after the first (+1 case, +1 W→R, ZERO adverse)
+
+§738 left one wrong line in the lane, `f10`'s post-loop reference —
+`want=(string | number)[] got=any[]`. The cause was not accumulation and not
+finalisation; both were already correct. It was **the flow-loop cache**.
+
+### The defect, from the trace
+
+`TSR_TRACE_LOOP` showed the query order plainly: the `return x` query runs
+FIRST (it computed the loop label with full accumulation — elements
+`[number, boolean, string]` — and cached the label's result), and the
+post-loop `x;` query then HIT the cache, skipped the entire antecedent walk,
+accumulated nothing, and finalised over an empty list — `any[]`.
+
+Upstream cannot have this defect **by representation**: its `flowLoopCache`
+(`flow.go:1336`) stores the label's *type*, and on the array track that type
+is an EVOLVING ARRAY carrying its element union — the cache hit hands the
+next query the elements along with the verdict. This port's unfinalized
+stand-in is `state.declared_type`, which carries nothing, so a bare-`TypeId`
+cache was faithful for every track except the one where the cached value has
+state.
+
+### The fix: cache the label's element slice beside its result
+
+`flow_loop_cache` becomes `key → (TypeId, Vec<TypeId>)`, the second field the
+`array_elements` slice contributed while computing the label (marked at
+entry, taken at insert). A hit replays the slice into the querying state —
+exactly the accumulation the skipped walk would have done. Off the array
+track the slice is empty and nothing changes.
+
+### The rider: dedupe must be scoped, or the slice lies
+
+The `ARRAY_MUTATION` arm deduped against the WHOLE accumulator. An element
+already seen *downstream* of the label (between the reference and the label —
+`f10`'s `x.push(99)` contributes `number` before the walk reaches the label)
+would suppress the same element's contribution *inside* the label, and the
+cached slice would silently miss it — wrong for every later query, invisible
+to the query that cached it. `state.element_dedupe_mark` scopes the dedupe to
+the innermost in-flight label's region, making each label's slice
+self-contained; outside any label it is `0`, which is §710's original
+whole-accumulator behaviour. Union construction dedupes anyway, so the only
+cost is a possible duplicate in the accumulator across regions.
+
+### Measured
+
+```
+cases    6,072 → 6,073   (+1: compiler/controlFlowArrays, PASS whole)
+right    435,548 → 435,549  (+1 W→R, the f10 line)
+R→W 0 | G→W 0 — zero adverse, full-corpus scorepair over a baseline
+freshly accepted on clean 3ffc5857
+```
+
+### Lane status
+
+`controlFlowArrays`: **21 → 7 → 1 → 0**. The evolving-array lane's flagship
+case passes whole; all three auto-road entries built (§736/§737/§738), the
+junction rule built (§737), finalise-at-query built (§737), and the cache
+made element-aware (this item). Known remaining asymmetry: the
+no-initializer half is still ungated by `no_implicit_any` (§738, recorded
+there).

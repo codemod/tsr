@@ -178,7 +178,18 @@ pub struct Checker<'a, 'n> {
     pub(crate) definitely_assigned: rustc_hash::FxHashSet<SymbolId>,
     /// Converged loop-label types, keyed by (flow node, reference key).
     /// Upstream's `flowLoopCache` (`internal/checker/flow.go:1325` family).
-    pub(crate) flow_loop_cache: FxHashMap<(usize, u64), TypeId>,
+    ///
+    /// §739: the second field is the label's evolving-array ELEMENT
+    /// contribution — the `array_elements` slice accumulated while computing
+    /// the label. Upstream needs no such field because its cached value on the
+    /// array track IS an evolving array type carrying its element union; this
+    /// port's unfinalized stand-in (`state.declared_type`) carries nothing, so
+    /// a bare-`TypeId` cache hit skipped the antecedent walk AND its
+    /// accumulation, and every query after the first finalised over an empty
+    /// list (`controlFlowArrays` f10, `want=(string | number)[] got=any[]`).
+    /// A hit replays the slice into the querying state; empty off the array
+    /// track.
+    pub(crate) flow_loop_cache: FxHashMap<(usize, u64), (TypeId, Vec<TypeId>)>,
     /// In-process loop-label computations with their so-far unions —
     /// upstream's `flowLoopKeys`/`flowLoopTypes` stacks. Non-empty means the
     /// checker is in a transient fixpoint pass, and `check_expression` must

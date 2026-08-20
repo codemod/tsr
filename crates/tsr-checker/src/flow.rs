@@ -129,6 +129,16 @@ struct FlowState {
     flow_container: Option<NodeId>,
     /// Where this invocation's entries in `shared_flows` begin.
     shared_flow_start: usize,
+    /// §739: the start of the innermost in-flight loop-label's element region
+    /// in `array_elements`. The `ARRAY_MUTATION` arm dedupes against
+    /// `array_elements[element_dedupe_mark..]` only, so a label's contribution
+    /// slice is SELF-CONTAINED — an element already accumulated downstream of
+    /// the label (between the reference and the label) must not suppress the
+    /// same element's contribution inside the label, or the slice cached for
+    /// that label misses it and every later query replaying the cache misses
+    /// it too. `0` outside any loop-label computation, i.e. dedupe against the
+    /// whole accumulator, which is §710's original behaviour.
+    element_dedupe_mark: usize,
     /// Recursion depth, against the 2,000 cap.
     depth: u32,
 }
@@ -296,6 +306,7 @@ impl Checker<'_, '_> {
             outer_reference: false,
             flow_container: self.control_flow_container(reference),
             shared_flow_start: self.shared_flows.len(),
+            element_dedupe_mark: 0,
             depth: 0,
         };
         let answer = self.get_type_at_flow_node(&mut state, flow);
@@ -463,6 +474,7 @@ impl Checker<'_, '_> {
             outer_reference: self.is_outer_reference(reference, symbol),
             flow_container: self.extended_flow_container(reference, symbol),
             shared_flow_start: self.shared_flows.len(),
+            element_dedupe_mark: 0,
             depth: 0,
         };
         let answer = self.get_type_at_flow_node(&mut state, flow);
@@ -772,8 +784,14 @@ impl Checker<'_, '_> {
                         };
                         for element in contributed {
                             let widened = self.get_base_type_of_literal_type(element);
+                            // §739: dedupe against the innermost loop-label
+                            // region only — see `element_dedupe_mark`. An
+                            // element already seen DOWNSTREAM of the label must
+                            // still enter the label's own slice, or the cached
+                            // slice is incomplete for every later query.
                             if widened != self.intrinsics.error
-                                && !state.array_elements.contains(&widened)
+                                && !state.array_elements[state.element_dedupe_mark..]
+                                    .contains(&widened)
                             {
                                 state.array_elements.push(widened);
                             }
@@ -2515,7 +2533,9 @@ impl Checker<'_, '_> {
                 None => (1 << 63) | u64::from(state.reference.as_u32()),
             },
         );
-        if let Some(&cached) = self.flow_loop_cache.get(&key) {
+        if let Some((cached, elements)) = self.flow_loop_cache.get(&key) {
+            let (cached, elements) = (*cached, elements.clone());
+            Self::replay_loop_elements(state, &elements);
             return FlowType { t: cached, incomplete: false };
         }
         // The on-stack answer requires a NON-EMPTY so-far list — an empty one
@@ -2535,6 +2555,12 @@ impl Checker<'_, '_> {
         let antecedents: Vec<FlowId> = self.binder.flow().antecedents(flow).collect();
         let stack_index = self.flow_loop_stack.len();
         self.flow_loop_stack.push((key, Vec::new()));
+        // §739: everything the antecedent walks contribute to `array_elements`
+        // from here on is THIS label's element region — the slice a cache hit
+        // must replay for queries that never walk the antecedents at all.
+        let element_mark = state.array_elements.len();
+        let outer_dedupe_mark = state.element_dedupe_mark;
+        state.element_dedupe_mark = element_mark;
         let mut subtype_reduction = false;
         let mut first: Option<FlowType> = None;
         for antecedent in antecedents {
@@ -2547,9 +2573,15 @@ impl Checker<'_, '_> {
                 let shared_mark = self.shared_flows.len();
                 let back = self.get_type_at_flow_node(state, antecedent);
                 self.shared_flows.truncate(shared_mark);
-                if let Some(&cached) = self.flow_loop_cache.get(&key) {
+                if let Some((cached, elements)) = self.flow_loop_cache.get(&key) {
+                    let (cached, elements) = (*cached, elements.clone());
                     state.depth = depth_mark;
                     self.flow_loop_stack.truncate(stack_index);
+                    state.element_dedupe_mark = outer_dedupe_mark;
+                    // The restarted analysis completed elsewhere; its slice is
+                    // a superset of what this partial walk accumulated, and
+                    // the replay dedupes.
+                    Self::replay_loop_elements(state, &elements);
                     return FlowType { t: cached, incomplete: false };
                 }
                 back
@@ -2592,6 +2624,7 @@ impl Checker<'_, '_> {
         }
         let types = self.flow_loop_stack[stack_index].1.clone();
         self.flow_loop_stack.truncate(stack_index);
+        state.element_dedupe_mark = outer_dedupe_mark;
         let result = if types.is_empty() {
             self.intrinsics.never
         } else if subtype_reduction {
@@ -2611,8 +2644,22 @@ impl Checker<'_, '_> {
         if incomplete {
             return FlowType { t: result, incomplete: true };
         }
-        self.flow_loop_cache.insert(key, result);
+        let contributed = state.array_elements[element_mark..].to_vec();
+        self.flow_loop_cache.insert(key, (result, contributed));
         FlowType { t: result, incomplete: false }
+    }
+
+    /// §739: merge a cached loop label's element slice into the querying
+    /// state — the accumulation the skipped antecedent walk would have done.
+    fn replay_loop_elements(state: &mut FlowState, elements: &[TypeId]) {
+        if !state.is_auto_array {
+            return;
+        }
+        for &element in elements {
+            if !state.array_elements[state.element_dedupe_mark..].contains(&element) {
+                state.array_elements.push(element);
+            }
+        }
     }
 
     fn is_type_subset_of(&mut self, sub: TypeId, superset: TypeId) -> bool {
@@ -3854,6 +3901,7 @@ impl Checker<'_, '_> {
             discriminant_pattern: None,
             flow_container: None,
             shared_flow_start: self.shared_flows.len(),
+            element_dedupe_mark: 0,
             depth: 0,
         };
         self.narrow_type(&mut state, initial, condition, assume_true)
