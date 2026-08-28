@@ -321,7 +321,8 @@ impl Checker<'_, '_> {
         let answer = self.get_type_at_flow_node(&mut state, flow);
         let result = self.finalize_evolving_array(&mut state, answer).t;
         self.shared_flows.truncate(state.shared_flow_start);
-        result
+        // `resultType == c.unreachableNeverType → declaredType` (`flow.go:111`).
+        if result == self.intrinsics.unreachable_never { parent_union } else { result }
     }
 
     /// `getFlowTypeOfReferenceEx`'s `initialType` parameter, which the caller
@@ -489,7 +490,8 @@ impl Checker<'_, '_> {
         let answer = self.get_type_at_flow_node(&mut state, flow);
         let result = self.finalize_evolving_array(&mut state, answer).t;
         self.shared_flows.truncate(state.shared_flow_start);
-        result
+        // `resultType == c.unreachableNeverType → declaredType` (`flow.go:111`).
+        if result == self.intrinsics.unreachable_never { declared_type } else { result }
     }
 
     /// `getUnionOrEvolvingArrayType` (`flow.go:1314`), the junction rule:
@@ -2354,7 +2356,15 @@ impl Checker<'_, '_> {
     /// forms outside these shapes decline (the walk then skips, today's
     /// behaviour).
     fn callee_declares_asserts(&mut self, callee: tsr_ast::Expression<'_>) -> bool {
-        let Some(callee_id) = callee.node_id() else { return false };
+        let Some(mut callee_id) = callee.node_id() else { return false };
+        // §744: `((Debug).fail)()` — `getTypeOfDottedName` sees through
+        // parentheses on the callee and on the base (`checker.go`).
+        while let Some(Node::ParenthesizedExpression(wrapper)) = self.node_map.get(callee_id) {
+            match wrapper.expression.and_then(|e| e.node_id()) {
+                Some(inner) => callee_id = inner,
+                None => return false,
+            }
+        }
         let symbol = match self.node_map.get(callee_id) {
             Some(Node::Identifier(identifier)) => self.binder.resolve_name(
                 self.nodes,
@@ -2371,7 +2381,11 @@ impl Checker<'_, '_> {
                     Some(tsr_ast::MemberName::Identifier(name)) => Some(name.text),
                     _ => None,
                 };
-                match access.expression {
+                let mut base = access.expression;
+                while let Some(tsr_ast::Expression::ParenthesizedExpression(wrapper)) = base {
+                    base = wrapper.expression;
+                }
+                match base {
                     Some(tsr_ast::Expression::Identifier(base)) => self
                         .binder
                         .resolve_name(
@@ -2438,6 +2452,15 @@ impl Checker<'_, '_> {
                     }
                     _ => false,
                 },
+                // §744: a PARAMETER annotated with a function type —
+                // `fail: (message?: string) => never` (`neverReturningFunctions1`
+                // f11–f13).
+                Some(Node::ParameterDeclaration(parameter)) => match parameter.r#type {
+                    Some(tsr_ast::TypeNode::FunctionTypeNode(function)) => {
+                        asserts_return(function.r#type)
+                    }
+                    _ => false,
+                },
                 _ => false,
             }
         })
@@ -2473,15 +2496,20 @@ impl Checker<'_, '_> {
             Some(call.arguments),
             !call.type_arguments.is_empty(),
         )?;
-        // §128 second attempt: a never-returning call truncates flow, and
-        // the OBSERVABLE at an unreachable read is the DECLARED type —
-        // upstream's `unreachableNeverType` is a sentinel converted at the
-        // walk's exit (`flow.go:111`, `resultType == c.unreachableNeverType
-        // → return declaredType`). The first attempt returned plain `never`
-        // and measured 4:13 against wants that were all declared types.
+        // §128 second attempt returned the DECLARED type here, reasoning
+        // that the observable at an unreachable read is the declared type
+        // (upstream converts its sentinel at the walk's exit, `flow.go:111`).
+        // That was right at a read and WRONG at a junction: `if (x ===
+        // undefined) fail(); x.length` joins the cut-off path with the live
+        // one, and the declared `string | undefined` re-entered the union
+        // where upstream's `unreachableNeverType` drops out as `never`
+        // (`neverReturningFunctions1`, 8 false TS18048/TS2532). §744 ports
+        // the sentinel: [`Intrinsics::unreachable_never`], dropped by every
+        // join through its `NEVER` flag and converted to the declared type
+        // only at the two walk exits.
         if signature.predicate.is_none() {
             if self.store.get(signature.r#type).flags.contains(TypeFlags::NEVER) {
-                return Some(FlowType { t: state.declared_type, incomplete: false });
+                return Some(FlowType { t: self.intrinsics.unreachable_never, incomplete: false });
             }
             return None;
         }
@@ -2610,7 +2638,7 @@ impl Checker<'_, '_> {
                 );
             }
             let live = &mut self.flow_loop_stack[stack_index].1;
-            if flow_type.t != self.intrinsics.never && !live.contains(&flow_type.t) {
+            if !live.contains(&flow_type.t) {
                 live.push(flow_type.t);
             }
             if !self.is_type_subset_of(flow_type.t, state.initial_type) {
@@ -2641,6 +2669,22 @@ impl Checker<'_, '_> {
         let types = self.flow_loop_stack[stack_index].1.clone();
         self.flow_loop_stack.truncate(stack_index);
         state.element_dedupe_mark = outer_dedupe_mark;
+        // §744: the same lone-sentinel rule as the branch label — see there.
+        if let [only] = types.as_slice()
+            && self.store.get(*only).flags.contains(TypeFlags::NEVER)
+        {
+            let result = *only;
+            let incomplete = first.is_some_and(|f| f.incomplete);
+            if !incomplete {
+                let contributed = state.array_elements[element_mark..].to_vec();
+                self.flow_loop_cache.insert(key, (result, contributed));
+            }
+            return FlowType { t: result, incomplete };
+        }
+        let types: Vec<TypeId> = types
+            .into_iter()
+            .filter(|&t| !self.store.get(t).flags.contains(TypeFlags::NEVER))
+            .collect();
         let result = if types.is_empty() {
             self.intrinsics.never
         } else if subtype_reduction {
@@ -2735,10 +2779,26 @@ impl Checker<'_, '_> {
             // `never` from a path means that path cannot reach here, so it
             // contributes nothing — which is what makes `if (x) {} else { throw }`
             // narrow after the `if`.
-            if t != never && !types.contains(&t) {
+            if !types.contains(&t) {
                 types.push(t);
             }
         }
+        // §744: upstream appends EVERY antecedent type and hands the list to
+        // `getUnionType`, which returns a lone type unchanged and drops
+        // `never`-flagged members from a longer list. That is what lets a
+        // join whose every path is cut off (`f30`'s trailing `x` in
+        // `neverReturningFunctions1`) answer the `unreachableNeverType`
+        // sentinel — converted to the declared type at the exit — instead
+        // of a bare `never`.
+        if let [only] = types.as_slice()
+            && self.store.get(*only).flags.contains(TypeFlags::NEVER)
+        {
+            return FlowType { t: *only, incomplete: false };
+        }
+        let types: Vec<TypeId> = types
+            .into_iter()
+            .filter(|&t| !self.store.get(t).flags.contains(TypeFlags::NEVER))
+            .collect();
         // §737: `getUnionOrEvolvingArrayType` (`flow.go:1314`) runs at every
         // junction, BEFORE the ordinary union — see
         // [`Checker::union_or_evolving_array`].

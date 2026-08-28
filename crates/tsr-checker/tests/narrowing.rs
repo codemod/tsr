@@ -748,3 +748,25 @@ fn an_enum_initialised_var_narrows_to_the_member_at_a_read() {
          checker-notes-enums.md §613"
     );
 }
+
+/// §744: upstream's `unreachableNeverType` sentinel. A `never`-returning
+/// call cuts its path off; at a JOIN the cut path contributes nothing (so the
+/// guard's other arm survives), while a read that is itself unreachable
+/// answers the declared type (`flow.go:111`).
+#[test]
+fn a_never_call_drops_its_path_at_a_join_and_reads_declared_when_unreachable() {
+    assert_eq!(
+        type_of_last_expression(
+            "declare function fail(m?: string): never;\ndeclare let x: string | undefined;\nif (x === undefined) fail();\nx;"
+        ),
+        "string"
+    );
+    // §128's observable, kept: the read AFTER the call is unreachable and
+    // prints the declared type, not `never`.
+    assert_eq!(
+        type_of_last_expression(
+            "declare function fail(m?: string): never;\ndeclare let x: string | undefined;\nfail();\nx;"
+        ),
+        "string | undefined"
+    );
+}

@@ -10449,12 +10449,19 @@ impl Checker<'_, '_> {
         // An unreachable statement *inside* an unreachable one is the same run:
         // upstream's `currentFlow` is still `reportedUnreachableFlow` all the
         // way down.
-        if self
-            .nodes
-            .ancestors(node)
-            .any(|ancestor| self.binder.facts(ancestor).contains(NodeFacts::UNREACHABLE))
-        {
-            return;
+        //
+        // §744: upstream's `withinUnreachableCode` (`checker.go:2264`) is set
+        // when an ancestor REPORTED, which since the flow-typed arm landed in
+        // [`Checker::is_unreachable_run_member`] includes an ancestor the
+        // binder did not flag — a block after a `never`-returning call. The
+        // ancestor test asks the same predicate the report does.
+        let ancestors: Vec<NodeId> = self.nodes.ancestors(node).collect();
+        for ancestor in ancestors {
+            if self.binder.facts(ancestor).contains(NodeFacts::UNREACHABLE)
+                || self.is_unreachable_run_member(ancestor)
+            {
+                return;
+            }
         }
         // …and so is a statement whose **immediately preceding sibling** is
         // itself part of the run. Upstream reports once per *run*, not once per
@@ -10503,11 +10510,24 @@ impl Checker<'_, '_> {
     /// at the node it might report on and at every node it scans forward over.
     /// One predicate, because they are the same question — see
     /// `checker-notes-diag2.md` §89.
-    fn is_unreachable_run_member(&self, node: NodeId) -> bool {
-        if !self.binder.facts(node).contains(NodeFacts::UNREACHABLE)
-            || !Self::is_reportable_unreachable_kind(self.nodes.kind(node))
-        {
+    ///
+    /// §744: the `else` half of `isSourceElementUnreachable`
+    /// (`checker.go:2466`) — "for code the binder doesn't know is
+    /// unreachable, use control flow / types": a statement the binder gave a
+    /// flow node reports when [`Checker::is_reachable_flow_node`] says
+    /// control cannot reach it, which is what a `never`-returning call in
+    /// the path means (`neverReturningFunctions1`). The walk's CALL arm sees
+    /// only callees that VISIBLY declare `never`/`asserts` (§127's
+    /// pre-gate), so a `never` that has to be inferred still reads reachable.
+    fn is_unreachable_run_member(&mut self, node: NodeId) -> bool {
+        if !Self::is_reportable_unreachable_kind(self.nodes.kind(node)) {
             return false;
+        }
+        if !self.binder.facts(node).contains(NodeFacts::UNREACHABLE) {
+            return match self.binder.flow_of(node) {
+                Some(flow) => !self.is_reachable_flow_node(flow),
+                None => false,
+            };
         }
         // `isSourceElementUnreachable`'s per-kind switch (`checker.go:2458`):
         // an enum or a namespace that emits no JavaScript is not unreachable

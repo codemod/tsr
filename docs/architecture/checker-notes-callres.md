@@ -2463,3 +2463,80 @@ missing lines), recorded in STATUS §5 as waiting on exactly this walk.
 - The unreachable-assignment `unreachableNeverType` arm (`flow.go:256`) is
   still not asked; the sentinel converts to the declared type at the exit
   anyway.
+
+## §744 — TS7027 over `never`-returning calls, and the `unreachableNeverType` sentinel (+0 cases / +17 W→R, +3 `diagnostics` cases, ZERO adverse)
+
+§743's walk had one consumer. This section wires the second — the one §5
+had recorded against exactly this walk since the twelfth `diagnostics`
+session — and in doing so replaces §128's stand-in for upstream's
+`unreachableNeverType` with the sentinel itself.
+
+### The consumer: `isSourceElementUnreachable`'s `else` half
+
+`checker.go:2466`: *"for code the binder doesn't know is unreachable, use
+control flow / types"* — a statement the binder did not flag but gave a
+flow node reports TS7027 when `isReachableFlowNode` says control cannot
+reach it. This binder records a flow node on every statement
+(`binder.rs:1291`, the `FIRST_STATEMENT..=LAST_STATEMENT` range), so the
+port is one arm in `is_unreachable_run_member`: no `UNREACHABLE` fact →
+ask the walk. The ancestor test in `check_unreachable` asks the same
+predicate, which is upstream's `withinUnreachableCode` (`:2264`) — set
+when an ancestor REPORTED, and an ancestor cut off by a call is one the
+binder never flagged.
+
+Two widenings of §127's syntactic pre-gate were needed for the fixture's
+shapes and are faithful to `getTypeOfDottedName`: a PARAMETER annotated
+with a function type (`fail: (message?: string) => never`, f11–f13) and
+parentheses on the callee or its base (`((Debug).fail)()`, f24).
+
+All **22** of `neverReturningFunctions1`'s expected TS7027 lines land
+exactly. The case still fails on 4 unexpected TS2532 at `this.data` under
+`ThisType<T & Component>` — contextual `this`, a different arm.
+
+### The sentinel: §128 was right at a read and wrong at a join
+
+Before this build the case ALSO reported 8 false TS18048/TS2532, and they
+are §128's: a `never`-returning call answered the DECLARED type at the
+CALL flow node, on the correct observation that an unreachable read prints
+the declared type. But `if (x === undefined) fail(); x.length` is a
+JOIN: the cut-off path re-entered the union as `string | undefined` where
+upstream's `unreachableNeverType` — flagged `Never` — drops out. The
+observable §128 matched was the EXIT conversion (`flow.go:111`), applied
+one node too early.
+
+Ported now: `Intrinsics::unreachable_never`, a second `NEVER`-flagged
+intrinsic; the call arm returns it; the two walk exits convert it to the
+declared type; both joins drop it through its flag like any `never`. And
+one rule that was not in the first cut and cost 2 R→W: upstream appends
+EVERY antecedent type and `getUnionType` returns a LONE type unchanged —
+so a join whose every path is cut off (`f30`'s trailing `x`) answers the
+sentinel, and the exit prints the declared type, where the first cut's
+empty list printed bare `never`. Both joins now return a lone
+`never`-flagged antecedent as-is before filtering.
+
+That rule is what the +10 in `staticAnonymousTypeNotReferencingTypeParameter`
+is: a join this port had been answering `never` for, where upstream's lone
+antecedent survived.
+
+### Measured (full scorepair pair over a baseline accepted on clean §743 HEAD)
+
+```
+checker_types  6,088 → 6,088 · right 435,726 → 435,743 (+17 W→R; G→W 0, R→W 0, R→G 0)
+               staticAnonymousTypeNotReferencingTypeParameter 10,
+               neverReturningFunctions1 6, assertionTypePredicates1 1
+diagnostics    2,596 → 2,599 (+3: reachabilityChecks8,
+               unreachableSwitchTypeofAny, unreachableSwitchTypeofUnknown;
+               0 lost — the full case-list diff shows only these and two
+               still-failing cases moving closer)
+```
+
+### Residue
+
+- `getEffectsSignature` proper (`flow.go:2047`) — resolving the callee's
+  TYPE and testing `hasTypePredicateOrNeverReturnType` — is still the
+  syntactic pre-gate. A `never` that has to be inferred (a function with
+  no annotation whose body always throws) reads reachable here.
+- The `asserts x` with a literally-`false` argument arm of
+  `narrowTypeByAssertion` (`flow.go:339`) still narrows through
+  `narrow_type` rather than answering the sentinel.
+- The unreachable-assignment sentinel (`flow.go:226`/`:257`) is not asked.

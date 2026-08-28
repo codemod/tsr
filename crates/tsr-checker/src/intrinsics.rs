@@ -72,6 +72,12 @@ pub struct Intrinsics {
     pub void: TypeId,
     /// `neverType` — `checker.go:1005`.
     pub never: TypeId,
+    /// `unreachableNeverType` — `checker.go`, the flow walk's SENTINEL for a
+    /// path a `never`-returning call (or an unreachable assignment) cuts
+    /// off. Flagged `NEVER` so every junction drops it like `never`, and
+    /// distinct from [`Intrinsics::never`] so the walk's EXIT
+    /// (`flow.go:111`) can recognise it and answer the declared type. §744.
+    pub unreachable_never: TypeId,
     /// `nonPrimitiveType` — `checker.go:1009`, spelled `object`.
     pub non_primitive: TypeId,
     /// `trueType` — the **fresh** `true`, which is what a `true` *expression*
@@ -136,6 +142,7 @@ impl Intrinsics {
             es_symbol: store.new_intrinsic(TypeFlags::ES_SYMBOL, "symbol"),
             void: store.new_intrinsic(TypeFlags::VOID, "void"),
             never: store.new_intrinsic(TypeFlags::NEVER, "never"),
+            unreachable_never: store.new_intrinsic(TypeFlags::NEVER, "never"),
             non_primitive: store.new_intrinsic(TypeFlags::NON_PRIMITIVE, "object"),
             regular_true,
             regular_false,
