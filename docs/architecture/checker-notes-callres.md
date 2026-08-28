@@ -2540,3 +2540,56 @@ diagnostics    2,596 → 2,599 (+3: reachabilityChecks8,
   `narrowTypeByAssertion` (`flow.go:339`) still narrows through
   `narrow_type` rather than answering the sentinel.
 - The unreachable-assignment sentinel (`flow.go:226`/`:257`) is not asked.
+
+## §745 — `narrowTypeByAssertion` ported, and `filterType`'s `never` pass-through (ZERO movement, ZERO adverse)
+
+§744's residue, second item: a bare `asserts x` narrowed through
+`narrow_type(arg, assumeTrue)` for every argument shape. Upstream's
+`narrowTypeByAssertion` (`flow.go:339`) has three arms in front of that
+call — a literal `false` answers `unreachableNeverType`, `&&` asserts the
+left then the right, `||` unions the two — and this section ports them,
+arm for arm, as `narrow_type_by_assertion`.
+
+### What the first pair found: the port's `filterType` dropped the sentinel
+
+The first scorepair measured **0 W→R and 1 R→W**: `assertionTypePredicates1`
+row 122, `x; // Unreachable` after `assert(false && x === undefined)`,
+`unknown` → `never`. The `&&` arm is right — the left half answers the
+sentinel, the right half narrows the sentinel by `x === undefined` — and
+the divergence was one layer down. Upstream's `filterType`
+(`checker.go:26588`) reads
+
+```go
+if t.flags&TypeFlagsNever != 0 || f(t) { return t }
+return c.neverType
+```
+
+so a `never`-flagged NON-union passes through UNCHANGED, sentinel included,
+and the walk exit converts it to the declared `unknown`. This port's
+`filter_type` non-union arm was `if predicate(t) { t } else { never }` —
+it answered bare `never` because `getTypeFacts` of a `never` type is
+`None`, and bare `never` is not the sentinel at the exit. Ported the
+pass-through. That is the whole fix; the `||` arm drops `never`-flagged
+halves the way `addTypeToUnion` does and returns a lone survivor
+unchanged, the rule §744 found load-bearing at the branch-label join.
+
+### Measured (full scorepair pair, baseline accepted on clean §744 HEAD)
+
+```
+checker_types  right 435,743 → 435,743 · no transitions vs baseline
+diagnostics    casequery --list before/after: identical
+```
+
+**Zero movement, and it is landed anyway**: `assert(false)` printed the
+declared type before this build only because `narrow_type` of a `false`
+keyword returns its input, which is an accident the `&&` shape exposed
+(the first pair's R→W is what the accident would have cost the first time
+anyone asserted `false && …`). The `filter_type` divergence was real and
+independent of assertions — any road that filters a `never`-flagged
+non-union now answers upstream's type rather than bare `never`.
+
+### Residue (unchanged from §744, minus the assertion arm)
+
+- `getEffectsSignature` proper (`flow.go:2047`) is still the syntactic
+  pre-gate; an inferred `never` return reads reachable.
+- The unreachable-assignment sentinel (`flow.go:226`/`:257`) is not asked.

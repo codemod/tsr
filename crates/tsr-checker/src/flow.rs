@@ -2538,9 +2538,72 @@ impl Checker<'_, '_> {
         }
         let narrowed = match predicate_type {
             Some(predicate_type) => self.narrow_by_predicate_type(incoming.t, predicate_type, true),
-            None => self.narrow_type(state, incoming.t, argument_id, true),
+            None => self.narrow_type_by_assertion(state, incoming.t, argument_id),
         };
         Some(FlowType { t: narrowed, incomplete: incoming.incomplete })
+    }
+
+    /// `narrowTypeByAssertion` (`flow.go:339`): a bare `asserts x` narrows
+    /// by its argument as a TRUE condition — except that a literal `false`
+    /// (`assert(false)`) answers the `unreachableNeverType` sentinel, `&&`
+    /// asserts both halves in sequence and `||` joins the two. §744 sent
+    /// every shape through `narrow_type`, which answers the DECLARED type
+    /// for `false` and so re-entered a cut-off path at the next join; §745
+    /// ports the three arms.
+    ///
+    /// The `||` join drops `never`-flagged halves the way upstream's
+    /// `addTypeToUnion` does (the sentinel included), and returns a LONE
+    /// type unchanged — the same rule §744 found load-bearing at the
+    /// branch-label join.
+    fn narrow_type_by_assertion(
+        &mut self,
+        state: &mut FlowState,
+        t: TypeId,
+        expression: NodeId,
+    ) -> TypeId {
+        let mut id = expression;
+        // `ast.SkipParentheses`.
+        while let Some(Node::ParenthesizedExpression(wrapper)) = self.node_map.get(id) {
+            match wrapper.expression.and_then(|e| e.node_id()) {
+                Some(inner) => id = inner,
+                None => break,
+            }
+        }
+        match self.node_map.get(id) {
+            Some(Node::KeywordExpression(keyword)) if keyword.kind == SyntaxKind::FalseKeyword => {
+                return self.intrinsics.unreachable_never;
+            }
+            Some(Node::BinaryExpression(binary)) => {
+                if let (Some(left), Some(right), Some(operator)) =
+                    (binary.left, binary.right, binary.operator_token)
+                    && let (Some(left), Some(right)) = (left.node_id(), right.node_id())
+                {
+                    match operator.kind {
+                        SyntaxKind::AmpersandAmpersandToken => {
+                            let after_left = self.narrow_type_by_assertion(state, t, left);
+                            return self.narrow_type_by_assertion(state, after_left, right);
+                        }
+                        SyntaxKind::BarBarToken => {
+                            let by_left = self.narrow_type_by_assertion(state, t, left);
+                            let by_right = self.narrow_type_by_assertion(state, t, right);
+                            if by_left == by_right {
+                                return by_left;
+                            }
+                            let live: Vec<TypeId> = [by_left, by_right]
+                                .into_iter()
+                                .filter(|&member| {
+                                    !self.store.get(member).flags.contains(TypeFlags::NEVER)
+                                })
+                                .collect();
+                            return self.get_union_type(&live);
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            _ => {}
+        }
+        self.narrow_type(state, t, id, true)
     }
 
     fn get_type_at_flow_condition(&mut self, state: &mut FlowState, flow: FlowId) -> FlowType {
@@ -6317,7 +6380,16 @@ impl Checker<'_, '_> {
             // §53: an origin-carrying union projects its entries.
             return self.rebuild_union_subset(t, &kept);
         }
-        if predicate(self, t) { t } else { self.intrinsics.never }
+        // `checker.go:26588`: a `never`-flagged type passes through UNCHANGED
+        // — which is what carries the `unreachableNeverType` sentinel across
+        // `x === undefined` (§745, `assertionTypePredicates1`'s
+        // `assert(false && x === undefined)`): the walk exit prints the
+        // declared type only if the sentinel is still the sentinel.
+        if self.store.get(t).flags.contains(TypeFlags::NEVER) || predicate(self, t) {
+            t
+        } else {
+            self.intrinsics.never
+        }
     }
 
     /// What is knowable about a type without narrowing it
