@@ -491,3 +491,35 @@ fn the_contextual_gate_declines_where_upstream_has_an_arm_that_answers() {
         "() => Generator<number, void, unknown>"
     );
 }
+
+/// §743: `functionHasImplicitReturn` reads the flow graph, so a body whose
+/// end is dead only through an EXHAUSTIVE switch gets no `| undefined`.
+#[test]
+fn an_exhaustive_switch_leaves_no_implicit_return() {
+    // The literal arm. (The enum-member spelling of the same shape —
+    // `stringEnumLiteralTypes1` f10 — is exercised by the corpus; this
+    // harness has no lib and types `Choice.Yes` as a case expression to
+    // `error`, which declines the clause-type list before the predicate.)
+    assert_eq!(
+        type_of_declaration(
+            "function f10(x: \"yes\" | \"no\") { switch (x) { case \"yes\": return \"true\"; case \"no\": return \"false\"; } }",
+            "f10"
+        ),
+        "(x: \"yes\" | \"no\") => \"false\" | \"true\""
+    );
+    assert_eq!(
+        type_of_declaration(
+            "function f(x: string | number | boolean) { switch (typeof x) { case 'string': return 1; case 'number': return 2; case 'boolean': return 3; } }",
+            "f"
+        ),
+        "(x: string | number | boolean) => 1 | 2 | 3"
+    );
+    // A call after the last `return` does not kill the end (§741's residue).
+    assert_eq!(
+        type_of_declaration(
+            "declare function log(s: string): void;\nfunction f(c: boolean) { if (c) { return 1; } log(\"x\"); }",
+            "f"
+        ),
+        "(c: boolean) => 1 | undefined"
+    );
+}

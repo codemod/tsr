@@ -1933,13 +1933,18 @@ impl<'a> Checker<'a, '_> {
         // exhaustive keeps one G→W in `narrowingByTypeofInSwitch` (0:214)
         // against the same case's G→R — the `is_exhaustive_switch_statement`
         // typeof arm's item, not this arm's.
+        //
+        // §743 replaces the pair with upstream's own test:
+        // `functionHasImplicitReturn` is `endFlowNode != nil &&
+        // isReachableFlowNode(endFlowNode)` (`checker.go:20307`), and the
+        // reachability walk is now ported (`flow.rs`,
+        // [`Checker::is_reachable_flow_node`]). The self-call protection the
+        // pair bought is kept by construction — a body ending in `return`
+        // has no end flow node, so the walk is never entered — and the
+        // residue the pair declined (a call after the last `return`) is
+        // answered by the CALL arm instead of `None`.
         if !types.is_empty() && self.strict_null_checks {
-            let implicit = has_bare_return
-                || (self
-                    .binder
-                    .facts(declaration)
-                    .contains(tsr_binder::NodeFacts::HAS_IMPLICIT_RETURN)
-                    && self.block_completes_normally(block, declaration) == Some(true));
+            let implicit = has_bare_return || self.function_has_implicit_return(declaration);
             if implicit {
                 let undefined = self.intrinsics.undefined;
                 if !types.contains(&undefined) {
@@ -2459,6 +2464,16 @@ impl<'a> Checker<'a, '_> {
             stack.extend(children.iter().copied());
         }
         found
+    }
+
+    /// `functionHasImplicitReturn` (`checker.go:20307`): the body's end flow
+    /// node exists (the binder drops it when the end is syntactically
+    /// unreachable, `binder.rs:1181`) and control can reach it. §743.
+    pub(crate) fn function_has_implicit_return(&mut self, function: NodeId) -> bool {
+        match self.binder.end_flow(function) {
+            Some(end) => self.is_reachable_flow_node(end),
+            None => false,
+        }
     }
 
     /// Whether the end of a block is reachable — `Some(true)` yes, `Some(false)`

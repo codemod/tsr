@@ -2359,3 +2359,107 @@ The `None`-declining walk still misses implicit returns behind a call in
 the body (`if (c) return 1; console.log(x);` — upstream appends, this port
 keeps today's answer). Converting those needs `isReachableFlowNode`, the
 reachability walk `flow.rs` records as unported.
+
+## §743 — `isReachableFlowNode` ported; `functionHasImplicitReturn` reads the flow graph (+3 cases, +4 W→R, ZERO adverse)
+
+§741's residue, taken in the next session exactly as recorded. The strict
+implicit-return `| undefined` (`checker.go:20301`) asks
+`functionHasImplicitReturn` (`:20307`), which is two facts: the body has an
+end flow node (the binder drops it when the end is syntactically dead,
+`binder.rs:1181`, the same condition that sets `HAS_IMPLICIT_RETURN`) and
+`isReachableFlowNode(endFlowNode)` says control can reach it. §741 stood in
+for the second fact with the statement-shaped `block_completes_normally`
+walk, whose `None` at every switch, loop, try and call declined the append.
+
+### What was ported
+
+`isReachableFlowNodeWorker` (`flow.go:2522`), arm for arm, in `flow.rs`:
+
+- the SHARED-node cache (`flowNodeReachable`, a new `Checker` map keyed by
+  flow index like `flow_loop_cache`) with upstream's `noCacheCheck` dance;
+- ASSIGNMENT / CONDITION / ARRAY_MUTATION step to the antecedent;
+- CALL asks the effects signature. The port's `getEffectsSignature` is
+  §127's syntactic pre-gate (`callee_declares_asserts`: a callee whose
+  declaration VISIBLY returns `asserts …` or `never`) followed by
+  resolution — the same road `get_type_at_flow_call` takes. That gate is
+  what keeps this walk a read-only probe inside signature inference: a
+  callee that declares its return type is never the signature being
+  inferred, so §741's self-call re-entry (3 R→W from typing calls
+  mid-inference) cannot recur. The `asserts x` with a literally-false
+  argument arm is ported too, with `isFalseExpression` (`flow.go:2589`);
+- BRANCH_LABEL any-antecedent, through `getBranchLabelAntecedents` with the
+  REDUCE_LABEL stack (the narrowing walk still skips reduce labels; this
+  walk honours them because it was free to);
+- LOOP_LABEL follows the entry edge; SWITCH_CLAUSE asks
+  `bypass_of_exhaustive_switch`; default answers `!UNREACHABLE`.
+
+Upstream's `lastFlowNode`/`lastFlowNodeReachable` one-entry memo is not
+ported — a memo over the answer the map already holds.
+
+### The first scorepair: +4 W→R, 3 R→W — and both R→W were the exhaustiveness predicate's recorded holes
+
+`stringEnumLiteralTypes1/2` f10 (`switch (x)` over `type YesNo = Choice.Yes
+| Choice.No`, string enum) and `narrowingByTypeofInSwitch`'s
+`switchOrdering` (`switch (typeof x)`) each gained a `| undefined` upstream
+does not print. Neither is the walk's fault: both switches ARE exhaustive
+upstream, and `is_exhaustive_switch_statement` answered `false` for reasons
+its own doc comment had named — the `typeof` arm was declined whole, and
+the literal arm compares type identities that a port-side stand-in breaks.
+§741's `None` had hidden both, because a `None` at a switch never asked.
+
+**A predicate that was only ever consulted where `false` was the safe
+answer has never been measured in the direction where `false` is wrong.**
+The reachability walk is the first consumer for which non-exhaustive is an
+active claim, and it exposed both holes in one run.
+
+1. **The `typeof` arm** (`flow.go:1950-1966`) is now ported:
+   `getSwitchClauseTypeOfWitnesses`, `getNotEqualFactsFromTypeofSwitch`,
+   `typeofNEFacts` and `TypeFactsAllTypeofNE` (which, checked against
+   `checker.go:476`, does NOT include the host-object bit — the first draft
+   had it). `getBaseConstraintOrType` is a constrained type parameter's
+   constraint and otherwise the type itself (`type_parameter_constraint`),
+   and now serves the literal arm too, which had declined type-parameter
+   discriminants.
+2. **The string-enum mint.** `Choice.Yes` written in TYPE position is a
+   named `OBJECT` mint carrying the member symbol (`declared.rs`, the
+   `qualified_type_reference` string-valued arm — kept deliberately, for
+   `discriminatedUnionTypes4`'s 3 R→W / 7 R→G when the literal types were
+   handed out), while `Choice.Yes` as a case EXPRESSION is the enum literal
+   type. `eachTypeContainedIn` compares identities, so the trace read
+   constituents `#28/#29 OBJECT` against clauses `#20/#22 ENUM` and
+   answered `false`. The exhaustiveness test now un-spells a mint to the
+   member type it stands for (`enum_member_behind_mint`) before comparing.
+   Local to this predicate on purpose: the mint's reason is the printing
+   and narrowing roads, and this test is neither.
+
+The traced cause is worth a line of method: the unit harness (no lib)
+types the case expression to `error` and declines the clause list, so the
+first trace there was uninformative; tracing the CORPUS case
+(`TSR_FILTER=… verdictdump`) showed the ids in one run.
+
+### Measured (full scorepair pair over a baseline freshly accepted on clean HEAD; the committed baseline pre-dated §742 and reproduced its 56 G→R exactly, which is how that was noticed)
+
+```
+checker_types  6,085 → 6,088 (+3) · right 435,722 → 435,726 (+4 W→R)
+               G→W 0, R→W 0, R→G 0
+               classPropertyErrorOnNameOnly 2, enumLiteralsSubtypeReduction 1,
+               narrowByClauseExpressionInSwitchTrue3 1
+diagnostics    2,596 → 2,596
+```
+
+Small on purpose: §741 had already taken the population its stand-in
+could reach; this is the residue plus two predicate repairs. What the
+port gains beyond the lines is a reachability primitive upstream uses in
+five places — the next reachable one is **TS7027 over never-returning
+calls** (`checker.go:2466`, `neverReturningFunctions1`, 25 of TS7027's 29
+missing lines), recorded in STATUS §5 as waiting on exactly this walk.
+
+### Residue
+
+- The narrowing walk (`get_type_at_flow_node`) still skips REDUCE_LABEL
+  nodes to their antecedent; the reachability walk honours them.
+- `getBaseConstraintOrType` is one level deep (a type parameter's written
+  constraint); upstream resolves the base constraint recursively.
+- The unreachable-assignment `unreachableNeverType` arm (`flow.go:256`) is
+  still not asked; the sentinel converts to the declared type at the exit
+  anyway.

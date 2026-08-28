@@ -190,6 +190,9 @@ pub struct Checker<'a, 'n> {
     /// A hit replays the slice into the querying state; empty off the array
     /// track.
     pub(crate) flow_loop_cache: FxHashMap<(usize, u64), (TypeId, Vec<TypeId>)>,
+    /// `isReachableFlowNode`'s cache over SHARED flow nodes — upstream's
+    /// `flowNodeReachable` (`checker.go`, keyed by `*ast.FlowNode`). §743.
+    pub(crate) flow_node_reachable: FxHashMap<usize, bool>,
     /// In-process loop-label computations with their so-far unions —
     /// upstream's `flowLoopKeys`/`flowLoopTypes` stacks. Non-empty means the
     /// checker is in a transient fixpoint pass, and `check_expression` must
@@ -907,6 +910,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             assignments_marked: rustc_hash::FxHashSet::default(),
             definitely_assigned: rustc_hash::FxHashSet::default(),
             flow_loop_cache: FxHashMap::default(),
+            flow_node_reachable: FxHashMap::default(),
             flow_loop_stack: Vec::new(),
             declared_types: FxHashMap::default(),
             this_types: FxHashMap::default(),

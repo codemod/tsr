@@ -2132,8 +2132,10 @@ impl<'a> Checker<'a, '_> {
     /// asking it about a member symbol *first* would cache `errorType` against
     /// that member and this function would then return it. Nothing reaches that
     /// today — `E.A` in type position is a qualified name and unported — but the
-    /// order is load-bearing rather than incidental.
-    fn get_declared_type_of_enum_member(&mut self, symbol: SymbolId) -> TypeId {
+    /// order is load-bearing rather than incidental. (§743's exhaustiveness
+    /// un-spelling reaches this only for a symbol the qualified-reference
+    /// road has already resolved, whose enum is therefore already computed.)
+    pub(crate) fn get_declared_type_of_enum_member(&mut self, symbol: SymbolId) -> TypeId {
         if let Some(&cached) = self.declared_types.get(&symbol) {
             return cached;
         }

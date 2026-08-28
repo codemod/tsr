@@ -43,7 +43,7 @@
 //!   a wrong number.
 
 use tsr_ast::{Node, NodeId, SyntaxKind};
-use tsr_binder::{FlowFlags, FlowId, SymbolFlags, SymbolId};
+use tsr_binder::{FlowFlags, FlowId, ReduceLabel, SymbolFlags, SymbolId};
 
 use crate::{
     checker::Checker,
@@ -207,6 +207,15 @@ bitflags::bitflags! {
         const TYPEOF_NE_FUNCTION = 1 << 14;
         /// `typeof x` can be something other than a host-object string.
         const TYPEOF_NE_HOST_OBJECT = 1 << 15;
+        /// `TypeFactsAllTypeofNE` (`checker.go`): every `typeof x !== …` bit.
+        const ALL_TYPEOF_NE = Self::TYPEOF_NE_STRING.bits()
+            | Self::TYPEOF_NE_NUMBER.bits()
+            | Self::TYPEOF_NE_BIG_INT.bits()
+            | Self::TYPEOF_NE_BOOLEAN.bits()
+            | Self::TYPEOF_NE_SYMBOL.bits()
+            | Self::TYPEOF_NE_OBJECT.bits()
+            | Self::TYPEOF_NE_FUNCTION.bits()
+            | Self::NE_UNDEFINED.bits();
         /// The type can compare equal to `undefined`.
         const EQ_UNDEFINED = 1 << 16;
         /// The type can compare equal to `null`.
@@ -884,8 +893,11 @@ impl Checker<'_, '_> {
             // direction, which produces a confident wrong line.
             //
             // Upstream additionally returns `unreachableNeverType` for an
-            // unreachable assignment (`flow.go:256`); `isReachableFlowNode` is
-            // not ported, so the declared type is the whole of this arm.
+            // unreachable assignment (`flow.go:256`). `isReachableFlowNode`
+            // is ported (§743, [`Checker::is_reachable_flow_node`]) but this
+            // arm does not ask it yet: the sentinel is converted to the
+            // declared type at the walk's exit anyway (`flow.go:111`), so
+            // the declared type is the whole of this arm.
             if self.contains_matching_reference(state, node) {
                 return Some(FlowType { t: state.declared_type, incomplete: false });
             }
@@ -2772,14 +2784,198 @@ impl Checker<'_, '_> {
         FlowType { t, incomplete: false }
     }
 
+    /// `isReachableFlowNode` (`flow.go:2513`): can control reach this flow
+    /// node at all? §743.
+    ///
+    /// The first consumer is `functionHasImplicitReturn` (`checker.go:20307`,
+    /// [`Checker::function_has_implicit_return`]), whose §741 stand-in was the
+    /// statement-shaped [`Checker::block_completes_normally`] walk — a walk
+    /// that answers `None` at every switch, loop, try and call in the way and
+    /// so declined the strict-mode `| undefined` on every body with a call
+    /// after its last `return`. Upstream reads the flow graph the binder
+    /// already built; so does this.
+    ///
+    /// Upstream also keeps a one-entry `lastFlowNode`/`lastFlowNodeReachable`
+    /// pair in front of the map. Not ported: it is a memo over the same
+    /// answer the map holds, and the map is keyed on every SHARED node.
+    pub(crate) fn is_reachable_flow_node(&mut self, flow: FlowId) -> bool {
+        let mut reduce_labels: Vec<ReduceLabel> = Vec::new();
+        self.is_reachable_flow_node_worker(&mut reduce_labels, flow, false)
+    }
+
+    /// `isReachableFlowNodeWorker` (`flow.go:2522`), arm for arm.
+    fn is_reachable_flow_node_worker(
+        &mut self,
+        reduce_labels: &mut Vec<ReduceLabel>,
+        mut flow: FlowId,
+        mut no_cache_check: bool,
+    ) -> bool {
+        let binder = self.binder;
+        loop {
+            let flags = binder.flow().flags(flow);
+            if flags.contains(FlowFlags::SHARED) {
+                if !no_cache_check {
+                    let key = tsr_core::index::Idx::index(flow);
+                    if let Some(&reachable) = self.flow_node_reachable.get(&key) {
+                        return reachable;
+                    }
+                    let reachable = self.is_reachable_flow_node_worker(reduce_labels, flow, true);
+                    self.flow_node_reachable.insert(key, reachable);
+                    return reachable;
+                }
+                no_cache_check = false;
+            }
+            if flags.intersects(
+                FlowFlags::ASSIGNMENT | FlowFlags::CONDITION | FlowFlags::ARRAY_MUTATION,
+            ) {
+                match binder.flow().antecedent(flow) {
+                    Some(next) => flow = next,
+                    None => return false,
+                }
+            } else if flags.contains(FlowFlags::CALL) {
+                if self.flow_call_ends_reachability(flow) {
+                    return false;
+                }
+                match binder.flow().antecedent(flow) {
+                    Some(next) => flow = next,
+                    None => return false,
+                }
+            } else if flags.contains(FlowFlags::BRANCH_LABEL) {
+                // A branching point is reachable if any branch is reachable.
+                let antecedents = self.branch_label_antecedents(flow, reduce_labels);
+                for antecedent in antecedents {
+                    if self.is_reachable_flow_node_worker(reduce_labels, antecedent, false) {
+                        return true;
+                    }
+                }
+                return false;
+            } else if flags.contains(FlowFlags::LOOP_LABEL) {
+                // A loop is reachable if the control flow path that leads to
+                // the top is reachable.
+                match binder.flow().antecedents(flow).next() {
+                    Some(entry) => flow = entry,
+                    None => return false,
+                }
+            } else if flags.contains(FlowFlags::SWITCH_CLAUSE) {
+                // The control flow path representing an unmatched value in a
+                // switch statement with no default clause is unreachable if
+                // the switch statement is exhaustive.
+                if self.bypass_of_exhaustive_switch(flow) {
+                    return false;
+                }
+                match binder.flow().antecedent(flow) {
+                    Some(next) => flow = next,
+                    None => return false,
+                }
+            } else if flags.contains(FlowFlags::REDUCE_LABEL) {
+                let Some(reduce) = binder.flow().reduce_label(flow) else { return false };
+                let Some(antecedent) = binder.flow().antecedent(flow) else { return false };
+                reduce_labels.push(reduce);
+                let result = self.is_reachable_flow_node_worker(reduce_labels, antecedent, false);
+                reduce_labels.pop();
+                return result;
+            } else {
+                return !flags.contains(FlowFlags::UNREACHABLE);
+            }
+        }
+    }
+
+    /// `getBranchLabelAntecedents` (`flow.go`): a label whose antecedents an
+    /// in-flight `REDUCE_LABEL` replaces reads the replacement list.
+    fn branch_label_antecedents(&self, flow: FlowId, reduce_labels: &[ReduceLabel]) -> Vec<FlowId> {
+        let store = self.binder.flow();
+        for reduce in reduce_labels.iter().rev() {
+            if reduce.target == flow {
+                return store.reduced_antecedents(*reduce).collect();
+            }
+        }
+        store.antecedents(flow).collect()
+    }
+
+    /// The CALL arm of `isReachableFlowNodeWorker` (`flow.go:2541`): a call
+    /// whose effects signature returns `never`, or asserts an argument that
+    /// is literally false, ends every path through it.
+    ///
+    /// `getEffectsSignature` is entered through §127's syntactic pre-gate
+    /// ([`Checker::callee_declares_asserts`]) for the reason it was written:
+    /// typing an arbitrary callee mid-walk perturbs creation-order-sensitive
+    /// prints, and inside signature inference can re-enter the signature
+    /// being inferred (§741's first cut). A callee that VISIBLY declares
+    /// `asserts` or `never` has a declared return type, so resolving it never
+    /// re-enters an inference.
+    fn flow_call_ends_reachability(&mut self, flow: FlowId) -> bool {
+        let binder = self.binder;
+        let Some(call_node) = binder.flow().node(flow) else { return false };
+        let Some(Node::CallExpression(call)) = self.node_map.get(call_node) else { return false };
+        let Some(callee) = call.expression else { return false };
+        if !self.callee_declares_asserts(callee) {
+            return false;
+        }
+        let callee_type = self.check_expression(callee);
+        if callee_type == self.intrinsics.error {
+            return false;
+        }
+        let Some(signature) = self.resolve_call_signature_with_type_arguments(
+            callee_type,
+            Some(call.arguments),
+            !call.type_arguments.is_empty(),
+        ) else {
+            return false;
+        };
+        if let Some(predicate) = signature.predicate.as_ref()
+            && predicate.asserts
+            && predicate.r#type.is_none()
+            && let Some(name) = predicate.parameter_name.as_deref()
+            && let Some(index) = signature.parameters.iter().position(|p| p.name == name)
+            && let Some(argument) = call.arguments.get(index)
+            && self.is_false_expression(*argument)
+        {
+            return true;
+        }
+        self.store.get(signature.r#type).flags.contains(TypeFlags::NEVER)
+    }
+
+    /// `isFalseExpression` (`flow.go:2589`): `false`, `a && false`,
+    /// `false && a`, `false || false`, through parentheses.
+    fn is_false_expression(&self, expression: tsr_ast::Expression<'_>) -> bool {
+        let Some(mut id) = expression.node_id() else { return false };
+        // `ast.SkipParentheses`.
+        while let Some(Node::ParenthesizedExpression(wrapper)) = self.node_map.get(id) {
+            match wrapper.expression.and_then(|e| e.node_id()) {
+                Some(inner) => id = inner,
+                None => return false,
+            }
+        }
+        match self.node_map.get(id) {
+            Some(Node::KeywordExpression(keyword)) => keyword.kind == SyntaxKind::FalseKeyword,
+            Some(Node::BinaryExpression(binary)) => {
+                let (Some(left), Some(right), Some(operator)) =
+                    (binary.left, binary.right, binary.operator_token)
+                else {
+                    return false;
+                };
+                match operator.kind {
+                    SyntaxKind::AmpersandAmpersandToken => {
+                        self.is_false_expression(left) || self.is_false_expression(right)
+                    }
+                    SyntaxKind::BarBarToken => {
+                        self.is_false_expression(left) && self.is_false_expression(right)
+                    }
+                    _ => false,
+                }
+            }
+            _ => false,
+        }
+    }
+
     /// Is this antecedent the **unmatched** edge of a `switch` that in fact
     /// covers every case?
     ///
     /// `data.ClauseStart == data.ClauseEnd && c.isExhaustiveSwitchStatement(…)`,
     /// which upstream asks in two places for the same reason —
     /// `getTypeAtFlowBranchLabel` (`flow.go:1292`) when joining, and
-    /// `isReachableFlowNodeWorker` (`:2572`) when asking reachability. Only the
-    /// join is ported; the reachability walk has no counterpart here.
+    /// `isReachableFlowNodeWorker` (`:2572`) when asking reachability. Both
+    /// ask through this since §743 ported the walk.
     fn bypass_of_exhaustive_switch(&mut self, antecedent: FlowId) -> bool {
         let Some(clause) = self.binder.flow().switch_clause(antecedent) else { return false };
         // `is_empty()` is `ClauseStart == ClauseEnd` — the binder's own name for
@@ -2800,14 +2996,17 @@ impl Checker<'_, '_> {
     /// return c.eachTypeContainedIn(c.mapType(t, c.getRegularTypeOfLiteralType), switchTypes)
     /// ```
     ///
-    /// # The `typeof` arm is not ported, and it fails the wrong way
+    /// # The `typeof` arm (§743)
     ///
     /// `switch (typeof x)` has its own road (`flow.go:1950-1966`) through
-    /// `getNotEqualFactsFromTypeofSwitch` and the type-facts table. Omitting it
-    /// means such a switch reads as **non**-exhaustive, so this rule keeps
-    /// reporting where upstream is silent — a remaining false positive rather
-    /// than a new one, and the direction is named here so the next reading of
-    /// TS2454's wrong column starts with it.
+    /// `getNotEqualFactsFromTypeofSwitch` and the type-facts table. It was
+    /// declined until the reachability walk started asking this predicate
+    /// on every switch bypass edge, where "non-exhaustive" turned from a
+    /// silent false positive into an appended `| undefined`
+    /// (`narrowingByTypeofInSwitch`'s `switchOrdering`). Ported arm for arm;
+    /// `getBaseConstraintOrType` is [`Checker::base_constraint_or_type`],
+    /// which reads a constrained type parameter's constraint and nothing
+    /// deeper.
     ///
     /// # Re-entrancy is guarded; the ANSWER is deliberately not memoised
     ///
@@ -2856,25 +3055,57 @@ impl Checker<'_, '_> {
             return false;
         };
         let Some(expression) = statement.expression else { return false };
-        // The `typeof` arm, declined whole — see above.
-        if expression
-            .node_id()
-            .is_some_and(|id| self.nodes.kind(id) == SyntaxKind::TypeOfExpression)
+        // §743: the `typeof` arm (`flow.go:1950-1966`), ported now that
+        // `isReachableFlowNode` asks this predicate on every switch bypass
+        // edge — a `typeof` switch that answered `false` here read as
+        // "end reachable" and appended `| undefined` to `switchOrdering`
+        // (`narrowingByTypeofInSwitch`, 1 R→W in the first scorepair).
+        if let Some(Node::TypeOfExpression(typeof_node)) =
+            expression.node_id().and_then(|id| self.node_map.get(id))
         {
-            return false;
+            let Some(witnesses) = self.switch_clause_typeof_witnesses(statement) else {
+                return false;
+            };
+            let Some(operand) = typeof_node.expression else { return false };
+            let checked = self.check_expression(operand);
+            let operand_constraint = self.base_constraint_or_type(checked);
+            // Get the not-equal flags for all handled cases.
+            let not_equal_facts = Self::not_equal_facts_from_typeof_switch(0, 0, &witnesses);
+            if self.store.get(operand_constraint).flags.intersects(TypeFlags::ANY_OR_UNKNOWN) {
+                // We special case the top types to be exhaustive when all
+                // cases are handled.
+                return (TypeFacts::ALL_TYPEOF_NE & not_equal_facts) == TypeFacts::ALL_TYPEOF_NE;
+            }
+            // A missing not-equal flag indicates that the type wasn't
+            // handled by some case.
+            let constituents: Vec<TypeId> = match &self.store.get(operand_constraint).data {
+                TypeData::Union { types, .. } => types.clone(),
+                _ => vec![operand_constraint],
+            };
+            return !constituents
+                .into_iter()
+                .any(|t| (self.get_type_facts(t) & not_equal_facts) == not_equal_facts);
         }
-        let discriminant = self.check_expression(expression);
-        // `getBaseConstraintOrType` is **not** ported: a type parameter
-        // discriminant declines below instead of being constrained first, so a
-        // generic `switch (k)` over `K extends "a" | "b"` reads as
-        // non-exhaustive and keeps reporting. Same direction as the `typeof`
-        // decline, and named for the same reason.
+        let checked = self.check_expression(expression);
+        let discriminant = self.base_constraint_or_type(checked);
         //
         // `isLiteralType` — every constituent is a unit type.
+        //
+        // §743: a STRING-enum member written in TYPE position is a named
+        // `OBJECT` mint carrying the member symbol (`declared.rs`, the
+        // `qualified_type_reference` string-valued arm, kept for
+        // `discriminatedUnionTypes4`'s sake), so `type YesNo = Choice.Yes |
+        // Choice.No` declares two mints where upstream declares two enum
+        // literal types — and the case expressions `Choice.Yes` ARE the
+        // literal types. This test compares identities, so the mint is
+        // un-spelled to the member type it stands for before the comparison
+        // (`stringEnumLiteralTypes1/2` f10, 2 R→W in the first scorepair).
         let constituents: Vec<TypeId> = match &self.store.get(discriminant).data {
             TypeData::Union { types, .. } => types.clone(),
             _ => vec![discriminant],
         };
+        let constituents: Vec<TypeId> =
+            constituents.into_iter().map(|t| self.enum_member_behind_mint(t)).collect();
         if constituents.is_empty()
             || !constituents.iter().all(|&t| self.type_of(t).flags.intersects(TypeFlags::UNIT))
         {
@@ -2896,6 +3127,99 @@ impl Checker<'_, '_> {
             let regular = self.get_regular_type_of_literal_type(constituent);
             clause_types.contains(&regular)
         })
+    }
+
+    /// `getBaseConstraintOrType` (`checker.go`) reduced to what this port can
+    /// answer: a constrained type parameter reads its constraint, everything
+    /// else reads itself. §743.
+    fn base_constraint_or_type(&mut self, t: TypeId) -> TypeId {
+        self.type_parameter_constraint(t).unwrap_or(t)
+    }
+
+    /// The enum member type behind a string-enum qualified-reference mint,
+    /// or the type unchanged. See the §743 note in
+    /// [`Checker::compute_exhaustive_switch_statement`].
+    fn enum_member_behind_mint(&mut self, t: TypeId) -> TypeId {
+        let ty = self.store.get(t);
+        if !ty.flags.contains(TypeFlags::OBJECT) {
+            return t;
+        }
+        let TypeData::Named { members: Some(symbol), .. } = ty.data else { return t };
+        if !self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::ENUM_MEMBER) {
+            return t;
+        }
+        let declared = self.get_declared_type_of_enum_member(symbol);
+        if declared == self.intrinsics.error {
+            return t;
+        }
+        self.get_regular_type_of_literal_type(declared)
+    }
+
+    /// `getSwitchClauseTypeOfWitnesses` (`flow.go:1989`): one entry per
+    /// clause — the string a `case` compares `typeof x` against, `None` for a
+    /// `default` or a repeated string; the whole answer is `None` when any
+    /// `case` is not a string literal.
+    fn switch_clause_typeof_witnesses(
+        &self,
+        switch: &tsr_ast::SwitchStatement<'_>,
+    ) -> Option<Vec<Option<String>>> {
+        let case_block = switch.case_block?;
+        let mut witnesses: Vec<Option<String>> = Vec::with_capacity(case_block.clauses.len());
+        for clause in case_block.clauses {
+            if clause.kind.kind != SyntaxKind::CaseKeyword {
+                witnesses.push(None);
+                continue;
+            }
+            let text = match clause
+                .expression
+                .and_then(|e| e.node_id())
+                .and_then(|id| self.node_map.get(id))
+            {
+                Some(Node::StringLiteral(literal)) => literal.text,
+                Some(Node::NoSubstitutionTemplateLiteral(literal)) => literal.text,
+                _ => return None,
+            };
+            if witnesses.iter().any(|w| w.as_deref() == Some(text)) {
+                witnesses.push(None);
+            } else {
+                witnesses.push(Some(text.to_owned()));
+            }
+        }
+        Some(witnesses)
+    }
+
+    /// `getNotEqualFactsFromTypeofSwitch` (`flow.go:2012`): the combined
+    /// not-equal facts for every witness outside `start..end`.
+    fn not_equal_facts_from_typeof_switch(
+        start: usize,
+        end: usize,
+        witnesses: &[Option<String>],
+    ) -> TypeFacts {
+        let mut facts = TypeFacts::empty();
+        for (i, witness) in witnesses.iter().enumerate() {
+            if (i < start || i >= end)
+                && let Some(witness) = witness
+            {
+                facts |= Self::typeof_ne_facts(witness);
+            }
+        }
+        facts
+    }
+
+    /// `typeofNEFacts` (`flow.go:635`), with `TypeofNEHostObject` for any
+    /// string outside the table.
+    fn typeof_ne_facts(witness: &str) -> TypeFacts {
+        match witness {
+            "string" => TypeFacts::TYPEOF_NE_STRING,
+            "number" => TypeFacts::TYPEOF_NE_NUMBER,
+            "bigint" => TypeFacts::TYPEOF_NE_BIG_INT,
+            "boolean" => TypeFacts::TYPEOF_NE_BOOLEAN,
+            "symbol" => TypeFacts::TYPEOF_NE_SYMBOL,
+            "undefined" => TypeFacts::NE_UNDEFINED,
+            "object" => TypeFacts::TYPEOF_NE_OBJECT,
+            "function" => TypeFacts::TYPEOF_NE_FUNCTION,
+            _ => TypeFacts::TYPEOF_NE_HOST_OBJECT,
+        }
     }
 
     /// The declared type, or `never` when a junction has no way in at all.
