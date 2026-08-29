@@ -2536,6 +2536,10 @@ diagnostics    2,596 → 2,599 (+3: reachabilityChecks8,
   TYPE and testing `hasTypePredicateOrNeverReturnType` — is still the
   syntactic pre-gate. A `never` that has to be inferred (a function with
   no annotation whose body always throws) reads reachable here.
+  **[Corrected in §746: the second sentence was wrong about upstream —
+  `hasTypePredicateOrNeverReturnType` reads `getReturnTypeFromAnnotation`,
+  so an inferred `never` reads reachable upstream too. The first sentence
+  stood; §746 ported the function.]**
 - The `asserts x` with a literally-`false` argument arm of
   `narrowTypeByAssertion` (`flow.go:339`) still narrows through
   `narrow_type` rather than answering the sentinel.
@@ -2591,5 +2595,81 @@ non-union now answers upstream's type rather than bare `never`.
 ### Residue (unchanged from §744, minus the assertion arm)
 
 - `getEffectsSignature` proper (`flow.go:2047`) is still the syntactic
-  pre-gate; an inferred `never` return reads reachable.
+  pre-gate; an inferred `never` return reads reachable. **[Corrected in
+  §746: the inferred-`never` half is upstream's behaviour too; the
+  pre-gate half is ported.]**
 - The unreachable-assignment sentinel (`flow.go:226`/`:257`) is not asked.
+
+## §746 — `getEffectsSignature` proper: the §127 syntactic pre-gate retired (+4 W→R / 1 R→W, `diagnostics` unchanged)
+
+§744's residue, first item — and its note was WRONG about upstream, which
+this section corrects: `hasTypePredicateOrNeverReturnType` (`flow.go:2211`)
+reads `getReturnTypeFromAnnotation`, never the inferred return. A function
+whose body only throws does not truncate flow at its callers upstream
+either. What the pre-gate was actually missing was every callee shape
+outside its two declaration forms: a variable annotated with an ALIAS of a
+predicate function type (`const b: Test`), a class property, a `this`- or
+`super`-based member, a property chain deeper than one, and every
+non-statement call.
+
+### Ported
+
+- `get_effects_signature` (`flow.go:2047`): a statement-level call types
+  its callee through `get_type_of_dotted_name`; any other call through
+  `check_expression` (upstream's `checkNonNullExpression`); `super` callees
+  decline. Call signatures of the apparent type: a lone non-generic
+  signature is the answer, otherwise a set with SOME predicate-or-`never`
+  member resolves the call. The `[Symbol.hasInstance]` binary arm is not
+  ported (this binder mints no `instanceof` flow-call nodes).
+- `get_type_of_dotted_name` (`:2122`) and `get_explicit_type_of_symbol`
+  (`:2154`): identifiers through `resolve_name` + merged symbol,
+  `this`/`super` through the checker's own expressions, property access
+  through `get_property_of_type` on the base's EXPLICIT type,
+  parentheses. Functions/methods/classes/namespaces answer their type; a
+  variable or property only with an annotation
+  (`isDeclarationWithExplicitTypeAnnotation`). Not ported: the
+  mapped-symbol origin arm, the `for..of` arm, the related-info diagnostic.
+- `has_type_predicate_or_never_return`: a predicate, or an annotated
+  return whose type is `never` (the annotation's TYPE, so `type N = never`
+  counts, as upstream's `getReturnTypeFromAnnotation` does).
+- Both consumers — `get_type_at_flow_call` and the reachability walk's
+  call arm — enter through it. `callee_declares_asserts` is deleted.
+
+### Measured (full scorepair pair, baseline accepted on clean §745 HEAD)
+
+```
+checker_types  right 435,743 → 435,746 (+4 W→R: assertionTypePredicates1 3,
+               controlFlowFunctionLikeCircular1 1; 1 R→W: the same case's
+               `b() : boolean` → `any`, file _8 row 7)
+diagnostics    casequery --list identical
+```
+
+### The R→W, and why it is the port's eager predicate and not this arm
+
+`controlFlowFunctionLikeCircular_8`: `b();` then `type First = typeof arg;
+type Test = (arg: unknown) => arg is First; const b: Test = whatever`.
+Upstream resolves a function TYPE's predicate lazily
+(`getTypePredicateOfSignature`), so `b`'s type is fully resolved before
+anything asks `First`; `First`'s `typeof arg` walk then re-enters `b()`'s
+effects signature, which re-asks `First`, and the cycle breaks THERE —
+TS2456, `First : any`, `b : (arg: unknown) => arg is any`, `b() : boolean`.
+This port resolves the predicate WITH the signature (`Signature::predicate`'s
+own doc records the choice), so `b`'s resolution itself reaches the walk,
+the walk re-enters `b`, and the cycle breaks one level higher: `b : any`,
+`b() : any`. Before this build the line was right only because nothing
+probed `b` mid-resolution. The four `b : …` rows in the same file were
+already wrong for the same reason. Taken at 4:1 with the cause named; the
+fix is lazy predicate resolution, which is a signatures-module change, not
+a flow one.
+
+**Falsifier:** any R→W outside a circularity fixture on a callee this
+port types differently mid-walk than at its own check — that would mean
+`get_type_of_dotted_name` is not the read-only probe upstream's is.
+
+### Residue
+
+- Lazy `getTypePredicateOfSignature` (the R→W above).
+- `getExplicitThisType` proper: a `this`-parameter WITHOUT an annotation
+  should decline; `check_this_expression` answers it.
+- The unreachable-assignment sentinel (`flow.go:226`/`:257`) is not asked.
+- `neverReturningFunctions1` still fails on `ThisType<…>` contextual `this`.

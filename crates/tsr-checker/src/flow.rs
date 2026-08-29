@@ -2349,121 +2349,174 @@ impl Checker<'_, '_> {
 
     /// The type after a condition is known to have gone one way
     /// (`getTypeAtFlowCondition`, `flow.go:340`).
-    /// §127's syntactic pre-gate: the callee is an identifier whose resolved
-    /// symbol has a declaration visibly returning `asserts ...` — a
-    /// `FunctionDeclaration`'s return `TypePredicate`, or a variable annotated
-    /// with a `FunctionTypeNode` whose return is one. Overloaded/expression
-    /// forms outside these shapes decline (the walk then skips, today's
-    /// behaviour).
-    fn callee_declares_asserts(&mut self, callee: tsr_ast::Expression<'_>) -> bool {
-        let Some(mut callee_id) = callee.node_id() else { return false };
-        // §744: `((Debug).fail)()` — `getTypeOfDottedName` sees through
-        // parentheses on the callee and on the base (`checker.go`).
-        while let Some(Node::ParenthesizedExpression(wrapper)) = self.node_map.get(callee_id) {
-            match wrapper.expression.and_then(|e| e.node_id()) {
-                Some(inner) => callee_id = inner,
-                None => return false,
-            }
+    /// `getEffectsSignature` (`flow.go:2047`): the signature whose EFFECTS
+    /// (an `asserts` predicate or a `never` return) a CALL flow node
+    /// carries, or `None` when the call has none.
+    ///
+    /// Upstream caches this per node in `signatureLinks.effectsSignature`;
+    /// this port recomputes — the walk memoises per flow node already.
+    /// The `[Symbol.hasInstance]` binary-expression arm is not ported (no
+    /// `instanceof` flow-call nodes in this binder).
+    fn get_effects_signature(
+        &mut self,
+        call_node: NodeId,
+        call: &tsr_ast::CallExpression<'_>,
+    ) -> Option<crate::signatures::Signature> {
+        let callee = call.expression?;
+        let callee_id = callee.node_id()?;
+        let parent_is_statement = self
+            .nodes
+            .parent(call_node)
+            .is_some_and(|parent| self.nodes.kind(parent) == SyntaxKind::ExpressionStatement);
+        let func_type = if parent_is_statement {
+            self.get_type_of_dotted_name(callee_id)?
+        } else if self.nodes.kind(callee_id) == SyntaxKind::SuperKeyword {
+            return None;
+        } else {
+            // `checkNonNullExpression(node.Expression())`. The optional-chain
+            // arm (`getOptionalExpressionType`) is not split out: this
+            // port's `check_expression` of a chain already answers the
+            // non-optional type at the callee position.
+            self.check_expression(callee)
+        };
+        if func_type == self.intrinsics.error {
+            return None;
         }
-        let symbol = match self.node_map.get(callee_id) {
-            Some(Node::Identifier(identifier)) => self.binder.resolve_name(
-                self.nodes,
-                self.node_map,
-                callee_id,
-                identifier.text,
-                SymbolFlags::VALUE,
-            ),
-            // `Debug.assert(x)`: an identifier base resolved by name, the
-            // member read from its exports; `this.fail()`: the enclosing
-            // class's members table — both syntactic, no receiver typing.
-            Some(Node::PropertyAccessExpression(access)) => {
-                let member = match access.name {
-                    Some(tsr_ast::MemberName::Identifier(name)) => Some(name.text),
-                    _ => None,
-                };
-                let mut base = access.expression;
-                while let Some(tsr_ast::Expression::ParenthesizedExpression(wrapper)) = base {
-                    base = wrapper.expression;
-                }
-                match base {
-                    Some(tsr_ast::Expression::Identifier(base)) => self
-                        .binder
-                        .resolve_name(
-                            self.nodes,
-                            self.node_map,
-                            callee_id,
-                            base.text,
-                            SymbolFlags::VALUE,
-                        )
-                        .zip(member)
-                        .and_then(|(base, member)| {
-                            let merged = self.binder.merged_symbol(base);
-                            self.binder.symbols().get(merged).exports.get(member).copied()
-                        }),
-                    Some(tsr_ast::Expression::KeywordExpression(keyword))
-                        if keyword.kind == SyntaxKind::ThisKeyword =>
-                    {
-                        let mut current = callee_id;
-                        let class = loop {
-                            let Some(parent) = self.nodes.parent(current) else { break None };
-                            if matches!(
-                                self.nodes.kind(parent),
-                                SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
-                            ) {
-                                break Some(parent);
-                            }
-                            current = parent;
-                        };
-                        class.and_then(|class| self.binder.symbol_of(class)).zip(member).and_then(
-                            |(class, member)| {
-                                let merged = self.binder.merged_symbol(class);
-                                self.binder.symbols().get(merged).members.get(member).copied()
-                            },
-                        )
-                    }
-                    _ => None,
-                }
+        let apparent = self.apparent_type(func_type);
+        let signatures = self.call_signatures_of_type(apparent)?;
+        let signature = if signatures.len() == 1 && signatures[0].type_parameters.is_empty() {
+            signatures.into_iter().next()?
+        } else if signatures.iter().any(|s| self.has_type_predicate_or_never_return(s)) {
+            self.resolve_call_signature_with_type_arguments(
+                func_type,
+                Some(call.arguments),
+                !call.type_arguments.is_empty(),
+            )?
+        } else {
+            return None;
+        };
+        if !self.has_type_predicate_or_never_return(&signature) {
+            return None;
+        }
+        Some(signature)
+    }
+
+    /// `hasTypePredicateOrNeverReturnType` (`flow.go:2211`): a predicate, or
+    /// an ANNOTATED return that is `never`. Upstream reads the annotation
+    /// (`getReturnTypeFromAnnotation`), never the inferred return — a
+    /// function whose body only throws does not truncate flow at its
+    /// callers upstream either, which corrects §744's residue note.
+    fn has_type_predicate_or_never_return(&self, signature: &crate::signatures::Signature) -> bool {
+        if signature.predicate.is_some() {
+            return true;
+        }
+        let annotated = match self.node_map.get(signature.declaration) {
+            Some(Node::FunctionDeclaration(f)) => f.r#type.is_some(),
+            Some(Node::MethodDeclaration(m)) => m.r#type.is_some(),
+            Some(Node::FunctionExpression(f)) => f.r#type.is_some(),
+            Some(Node::ArrowFunction(f)) => f.r#type.is_some(),
+            Some(Node::FunctionTypeNode(f)) => f.r#type.is_some(),
+            Some(Node::MethodSignatureDeclaration(m)) => m.r#type.is_some(),
+            Some(Node::CallSignatureDeclaration(c)) => c.r#type.is_some(),
+            _ => false,
+        };
+        annotated && self.store.get(signature.r#type).flags.contains(TypeFlags::NEVER)
+    }
+
+    /// `getSignaturesOfType(t, SignatureKindCall)` over the two shapes this
+    /// port keeps signatures in: an anonymous function type reads its
+    /// symbol's declarations, a named type its interface members.
+    fn call_signatures_of_type(&mut self, t: TypeId) -> Option<Vec<crate::signatures::Signature>> {
+        match self.store.get(t).data {
+            TypeData::Anonymous { symbol, .. } => {
+                let signatures = self.get_signatures_of_symbol(symbol)?;
+                Some(
+                    signatures
+                        .into_iter()
+                        .filter(|s| s.kind == crate::signatures::SignatureKind::Call)
+                        .collect(),
+                )
+            }
+            TypeData::Named { .. } => {
+                self.signature_candidates_of_named_type(t, crate::signatures::SignatureKind::Call)
             }
             _ => None,
-        };
-        let Some(symbol) = symbol else { return false };
-        let declarations: Vec<_> =
-            self.binder.symbols().get(symbol).declarations.iter().copied().collect();
-        declarations.into_iter().any(|declaration| {
-            let asserts_return = |annotation: Option<tsr_ast::TypeNode<'_>>| {
-                match annotation {
-                    Some(tsr_ast::TypeNode::TypePredicateNode(predicate)) => {
-                        predicate.asserts_modifier.is_some()
-                    }
-                    // §128: a visible `: never` return — the call truncates
-                    // flow and unreachable reads answer the declared type.
-                    Some(tsr_ast::TypeNode::KeywordTypeNode(keyword)) => {
-                        keyword.kind == SyntaxKind::NeverKeyword
-                    }
-                    _ => false,
-                }
-            };
-            match self.node_map.get(declaration) {
-                Some(Node::FunctionDeclaration(function)) => asserts_return(function.r#type),
-                Some(Node::MethodDeclaration(method)) => asserts_return(method.r#type),
-                Some(Node::VariableDeclaration(variable)) => match variable.r#type {
-                    Some(tsr_ast::TypeNode::FunctionTypeNode(function)) => {
-                        asserts_return(function.r#type)
-                    }
-                    _ => false,
-                },
-                // §744: a PARAMETER annotated with a function type —
-                // `fail: (message?: string) => never` (`neverReturningFunctions1`
-                // f11–f13).
-                Some(Node::ParameterDeclaration(parameter)) => match parameter.r#type {
-                    Some(tsr_ast::TypeNode::FunctionTypeNode(function)) => {
-                        asserts_return(function.r#type)
-                    }
-                    _ => false,
-                },
-                _ => false,
+        }
+    }
+
+    /// `getTypeOfDottedName` (`flow.go:2122`): the type of a dotted name
+    /// WITHOUT flow analysis — identifiers and property chains through
+    /// their EXPLICIT types only, so that resolving an assertion's callee
+    /// inside the walk cannot re-enter the walk. `this` goes through
+    /// `check_this_expression` (an approximation of `getExplicitThisType`:
+    /// a class `this` is explicit by construction; a `this`-parameter
+    /// without an annotation is not, and is the recorded gap). Private
+    /// names and `with` statements decline.
+    fn get_type_of_dotted_name(&mut self, node: NodeId) -> Option<TypeId> {
+        match self.node_map.get(node) {
+            Some(Node::Identifier(identifier)) => {
+                let symbol = self.binder.resolve_name(
+                    self.nodes,
+                    self.node_map,
+                    node,
+                    identifier.text,
+                    SymbolFlags::VALUE,
+                )?;
+                // `getExportSymbolOfValueSymbolIfExported`.
+                let symbol = self.binder.merged_symbol(symbol);
+                self.get_explicit_type_of_symbol(symbol)
             }
-        })
+            Some(Node::KeywordExpression(keyword)) => match keyword.kind {
+                SyntaxKind::ThisKeyword => Some(self.check_this_expression(node)),
+                SyntaxKind::SuperKeyword => Some(self.check_super_expression(node)),
+                _ => None,
+            },
+            Some(Node::PropertyAccessExpression(access)) => {
+                let base = access.expression?.node_id()?;
+                let t = self.get_type_of_dotted_name(base)?;
+                let tsr_ast::MemberName::Identifier(name) = access.name? else { return None };
+                let property = self.get_property_of_type(t, name.text)?;
+                self.get_explicit_type_of_symbol(property)
+            }
+            Some(Node::ParenthesizedExpression(wrapper)) => {
+                let inner = wrapper.expression?.node_id()?;
+                self.get_type_of_dotted_name(inner)
+            }
+            _ => None,
+        }
+    }
+
+    /// `getExplicitTypeOfSymbol` (`flow.go:2154`): functions, methods,
+    /// classes and namespaces answer their type; a variable or property
+    /// only when its declaration carries an annotation. Not ported: the
+    /// mapped-symbol origin arm, the `for..of` iterated-type arm, and the
+    /// related-info diagnostic (this caller passes `nil`).
+    fn get_explicit_type_of_symbol(&mut self, symbol: SymbolId) -> Option<TypeId> {
+        let symbol = self.resolve_alias_fully(symbol);
+        let flags = self.binder.symbols().get(symbol).flags;
+        if flags.intersects(
+            SymbolFlags::FUNCTION
+                | SymbolFlags::METHOD
+                | SymbolFlags::CLASS
+                | SymbolFlags::VALUE_MODULE,
+        ) {
+            return Some(self.get_type_of_symbol(symbol));
+        }
+        if flags.intersects(SymbolFlags::VARIABLE | SymbolFlags::PROPERTY) {
+            let declaration = self.binder.symbols().get(symbol).value_declaration?;
+            // `isDeclarationWithExplicitTypeAnnotation`.
+            let explicit = match self.node_map.get(declaration) {
+                Some(Node::VariableDeclaration(v)) => v.r#type.is_some(),
+                Some(Node::PropertyDeclaration(p)) => p.r#type.is_some(),
+                Some(Node::PropertySignatureDeclaration(p)) => p.r#type.is_some(),
+                Some(Node::ParameterDeclaration(p)) => p.r#type.is_some(),
+                _ => false,
+            };
+            if explicit {
+                return Some(self.get_type_of_symbol(symbol));
+            }
+        }
+        None
     }
 
     /// `getTypeAtFlowCall` (`flow.go`), the assertion half: a CALL flow
@@ -2478,24 +2531,13 @@ impl Checker<'_, '_> {
         let Some(Node::CallExpression(call)) = self.node_map.get(call_node) else {
             return None;
         };
-        let callee = call.expression?;
-        // Syntactic pre-gate: typing an arbitrary callee mid-walk perturbs
-        // creation-order-sensitive prints elsewhere (the first pair's
-        // controlFlowFunctionLikeCircular1 6 adverse — `typeof Date` minted
-        // as `DateConstructor`); only a callee whose resolvable declaration
-        // VISIBLY declares an `asserts` return enters resolution.
-        if !self.callee_declares_asserts(callee) {
-            return None;
-        }
-        let callee_type = self.check_expression(callee);
-        if callee_type == self.intrinsics.error {
-            return None;
-        }
-        let signature = self.resolve_call_signature_with_type_arguments(
-            callee_type,
-            Some(call.arguments),
-            !call.type_arguments.is_empty(),
-        )?;
+        // §746: `getEffectsSignature` proper replaces §127's syntactic
+        // pre-gate. The callee of a statement-level call is typed through
+        // `getTypeOfDottedName` — EXPLICIT types only, no flow — which is
+        // what keeps the walk a read-only probe (§741's load-bearing
+        // property, and the reason §127's iteration 3 needed a gate at all:
+        // it had typed the callee through `checkExpression`).
+        let signature = self.get_effects_signature(call_node, call)?;
         // §128 second attempt returned the DECLARED type here, reasoning
         // that the observable at an unreachable read is the declared type
         // (upstream converts its sentinel at the walk's exit, `flow.go:111`).
@@ -3019,32 +3061,17 @@ impl Checker<'_, '_> {
     /// whose effects signature returns `never`, or asserts an argument that
     /// is literally false, ends every path through it.
     ///
-    /// `getEffectsSignature` is entered through §127's syntactic pre-gate
-    /// ([`Checker::callee_declares_asserts`]) for the reason it was written:
-    /// typing an arbitrary callee mid-walk perturbs creation-order-sensitive
-    /// prints, and inside signature inference can re-enter the signature
-    /// being inferred (§741's first cut). A callee that VISIBLY declares
-    /// `asserts` or `never` has a declared return type, so resolving it never
-    /// re-enters an inference.
+    /// §746: `getEffectsSignature` proper decides which calls enter — the
+    /// callee typed through `getTypeOfDottedName` (explicit types, no flow)
+    /// for a statement-level call, which is what keeps this walk a
+    /// read-only probe inside signature inference (§741's first cut
+    /// re-entered the signature being inferred by typing the callee through
+    /// `checkExpression`).
     fn flow_call_ends_reachability(&mut self, flow: FlowId) -> bool {
         let binder = self.binder;
         let Some(call_node) = binder.flow().node(flow) else { return false };
         let Some(Node::CallExpression(call)) = self.node_map.get(call_node) else { return false };
-        let Some(callee) = call.expression else { return false };
-        if !self.callee_declares_asserts(callee) {
-            return false;
-        }
-        let callee_type = self.check_expression(callee);
-        if callee_type == self.intrinsics.error {
-            return false;
-        }
-        let Some(signature) = self.resolve_call_signature_with_type_arguments(
-            callee_type,
-            Some(call.arguments),
-            !call.type_arguments.is_empty(),
-        ) else {
-            return false;
-        };
+        let Some(signature) = self.get_effects_signature(call_node, call) else { return false };
         if let Some(predicate) = signature.predicate.as_ref()
             && predicate.asserts
             && predicate.r#type.is_none()

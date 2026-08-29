@@ -1509,7 +1509,7 @@ impl Checker<'_, '_> {
     ///   this gaps instead.
     /// - **`extends null`**, whose answer is the null-widening type
     ///   (`checker.go:7930`).
-    fn check_super_expression(&mut self, node: NodeId) -> TypeId {
+    pub(crate) fn check_super_expression(&mut self, node: NodeId) -> TypeId {
         let error = self.intrinsics.error;
         // `isCallExpression` (`checker.go:7855`): this `super` is its own call's
         // callee. Read before the walk, because it overrides the container's
