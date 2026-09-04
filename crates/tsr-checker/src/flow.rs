@@ -880,6 +880,24 @@ impl Checker<'_, '_> {
     ) -> Option<FlowType> {
         let node = self.binder.flow().node(flow)?;
         if !self.is_matching_reference(state, node) {
+            // `flow.go:267`: `for (const _ in ref)` acts as a non-null on
+            // `ref`. §747. The `optionalChainContainsReference` half is
+            // deferred: this port's helper of that name (§51.2) walks
+            // `?.` tokens rather than the OPTIONAL_CHAIN flag and is not
+            // yet upstream's shape — §748's item.
+            if self.nodes.kind(node) == SyntaxKind::VariableDeclaration
+                && let Some(list) = self.nodes.parent(node)
+                && let Some(statement) = self.nodes.parent(list)
+                && self.nodes.kind(statement) == SyntaxKind::ForInStatement
+                && let Some(Node::ForInOrOfStatement(for_in)) = self.node_map.get(statement)
+                && let Some(expression) = for_in.expression.and_then(|e| e.node_id())
+                && self.is_matching_reference(state, expression)
+            {
+                let antecedent = self.binder.flow().antecedent(flow)?;
+                let prior = self.get_type_at_flow_node(state, antecedent);
+                let t = self.get_non_nullable_type(prior.t);
+                return Some(FlowType { t, incomplete: prior.incomplete });
+            }
             // `flow.go:255`: the assignment may be to a **left-hand part** of
             // the reference — for `x.y.z` we may be at an assignment to `x.y`
             // or to `x` — and any such assignment invalidates everything
@@ -894,16 +912,24 @@ impl Checker<'_, '_> {
             // that replaces the object it was narrowed on — the over-narrowing
             // direction, which produces a confident wrong line.
             //
-            // Upstream additionally returns `unreachableNeverType` for an
-            // unreachable assignment (`flow.go:256`). `isReachableFlowNode`
-            // is ported (§743, [`Checker::is_reachable_flow_node`]) but this
-            // arm does not ask it yet: the sentinel is converted to the
-            // declared type at the walk's exit anyway (`flow.go:111`), so
-            // the declared type is the whole of this arm.
+            // `flow.go:256`: an UNREACHABLE assignment answers the sentinel
+            // (§747) — at a read the exit converts it to the declared type,
+            // which is what this arm answered before; at a JOIN it drops
+            // out, which the declared type did not (§744's lesson).
             if self.contains_matching_reference(state, node) {
+                if !self.is_reachable_flow_node(flow) {
+                    return Some(FlowType {
+                        t: self.intrinsics.unreachable_never,
+                        incomplete: false,
+                    });
+                }
                 return Some(FlowType { t: state.declared_type, incomplete: false });
             }
             return None;
+        }
+        // `flow.go:226` (§747), the same sentinel on the direct match.
+        if !self.is_reachable_flow_node(flow) {
+            return Some(FlowType { t: self.intrinsics.unreachable_never, incomplete: false });
         }
         // `flow.go:229`: a COMPOUND assignment does not narrow — the walk
         // skips its effect and answers the antecedent's type at the

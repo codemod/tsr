@@ -2673,3 +2673,40 @@ port types differently mid-walk than at its own check — that would mean
   should decline; `check_this_expression` answers it.
 - The unreachable-assignment sentinel (`flow.go:226`/`:257`) is not asked.
 - `neverReturningFunctions1` still fails on `ThisType<…>` contextual `this`.
+
+## §747 — the unreachable-assignment sentinel and the `for..in` non-null arm (+1 W→R, ZERO adverse)
+
+§744's third residue item, plus the one arm of `getTypeAtFlowAssignment`
+the port had left at `None`.
+
+- `flow.go:226` and `:256`: an assignment the walk cannot reach — direct
+  match or a left-hand part of a dotted reference — answers
+  `unreachableNeverType`. The old comment at the dotted arm argued the
+  declared type was equivalent because the exit converts the sentinel;
+  §744 showed that argument is right at a read and wrong at a join, and
+  the same reasoning applies here. Both arms now ask
+  `is_reachable_flow_node` first.
+- `flow.go:267`: `for (const _ in ref)` acts as a non-null on `ref` — a
+  `VariableDeclaration` whose grandparent is a `ForInStatement` whose
+  expression matches the reference answers the antecedent's type through
+  `get_non_nullable_type`. The `optionalChainContainsReference` half is
+  deferred to §748: this port HAS a helper of that name (§51.2), but it
+  walks `?.` tokens with a sticky flag rather than upstream's
+  `IsOptionalChain` flag walk, and the two disagree on `a.b?.c` against
+  reference `a`; `finalizeEvolvingArrayType` is a no-op on this port's
+  representation (evolving arrays live in `state.array_elements`, §736).
+  CORRECTED before commit: the first draft of this note said no such
+  helper existed.
+
+### Measured (scorepair over the §745 baseline, so cumulative with §746)
+
+```
+checker_types  right 435,746 → 435,747 (+1 W→R: forInStrictNullChecksNoError;
+               G→W 0, R→W 0 beyond §746's one)
+diagnostics    casequery --list identical to §746's
+```
+
+The sentinel arms measured zero on their own — no corpus line sits on a
+join fed by an unreachable assignment that this port also narrows — and
+are landed for the same reason §745 was: the declared-type stand-in was
+the exact shape §744 had to replace at the call arm.
