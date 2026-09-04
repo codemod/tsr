@@ -9689,10 +9689,11 @@ impl Checker<'_, '_> {
         };
         let spine = self.skip_reference_spine(target, skip_assertions);
         // `node.Flags&ast.NodeFlagsOptionalChain != 0` is upstream's *second*
-        // arm and carries its own code (TS2779). This parser does not set
-        // `NodeFlags::OPTIONAL_CHAIN`, so the syntax the flag is derived from
-        // stands in for it and the rule declines rather than emitting the
-        // wrong code. §181.
+        // arm and carries its own code (TS2779). When §181 wrote this the
+        // parser did not set `NodeFlags::OPTIONAL_CHAIN`, so the syntax the
+        // flag is derived from stood in for it and the rule declines rather
+        // than emitting the wrong code. The flag IS set since §748; porting
+        // the TS2779 arm over it is that section's named follow-up.
         if self.spine_has_optional_chain(target) {
             return;
         }
@@ -9746,8 +9747,10 @@ impl Checker<'_, '_> {
         node
     }
 
-    /// Whether the spine contains a `?.`, which is what
-    /// `NodeFlags::OPTIONAL_CHAIN` would record if this parser set it.
+    /// Whether the spine contains a `?.`. Written (§181) when
+    /// `NodeFlags::OPTIONAL_CHAIN` was never set; the flag exists since
+    /// §748 and this walk is retained unchanged until the TS2779 arm is
+    /// ported over it (through parentheses this walk and the flag differ).
     fn spine_has_optional_chain(&self, mut node: NodeId) -> bool {
         for _ in 0..64 {
             let next = match self.node_map.get(node) {

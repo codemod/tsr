@@ -43,9 +43,11 @@
 //!   export binds as a module; upstream also counts a file that mentions
 //!   `import.meta`, which needs a full-tree walk under module settings the binder
 //!   does not have. See [`binder::is_external_module`].
-//! - **Optional chains.** The flow shapes are ported in full, but the parser does
-//!   not set [`tsr_ast::NodeFlags::OPTIONAL_CHAIN`], so `a?.b` currently gets the
-//!   graph of `a.b` and loses the narrowing that the `?.` implies.
+//! - **Optional chains.** The flow shapes are ported in full and LIVE since
+//!   §748 (`checker-notes-callres.md`), when the parser began setting
+//!   [`tsr_ast::NodeFlags::OPTIONAL_CHAIN`] as upstream's
+//!   `tryReparseOptionalChain` does. Before that `a?.b` got the graph of
+//!   `a.b`.
 //! - **Strict-mode and contextual-identifier diagnostics.** Upstream's binder
 //!   reports `with` in strict mode, `eval`/`arguments` misuse, and octal
 //!   literals; none of that is ported.

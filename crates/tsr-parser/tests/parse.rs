@@ -2040,3 +2040,70 @@ fn an_ordinary_parameter_list_still_parses() {
         assert_eq!(parameters, expected, "{source:?}");
     }
 }
+
+/// The kinds down an expression's receiver spine, each with whether
+/// `NodeFlags::OPTIONAL_CHAIN` is set on it.
+fn chain_spine(parsed: &tsr_parser::ParsedSourceFile<'_>) -> Vec<(SyntaxKind, bool)> {
+    let Some(Statement::ExpressionStatement(statement)) = parsed.source_file.statements.first()
+    else {
+        panic!("expected an expression statement");
+    };
+    let mut out = Vec::new();
+    let mut current = statement.expression.expect("an expression");
+    loop {
+        let id = current.node_id().expect("expression nodes are registered");
+        let flagged = parsed.nodes.flags(id).contains(tsr_ast::NodeFlags::OPTIONAL_CHAIN);
+        out.push((parsed.nodes.kind(id), flagged));
+        let next = match current {
+            Expression::PropertyAccessExpression(node) => node.expression,
+            Expression::ElementAccessExpression(node) => node.expression,
+            Expression::CallExpression(node) => node.expression,
+            Expression::NonNullExpression(node) => node.expression,
+            Expression::ParenthesizedExpression(node) => node.expression,
+            Expression::TaggedTemplateExpression(node) => node.tag,
+            _ => break,
+        };
+        let Some(next) = next else { break };
+        current = next;
+    }
+    out
+}
+
+/// §748 (`checker-notes-callres.md`). The parser stamps
+/// `NodeFlags::OPTIONAL_CHAIN` exactly as `parser.go:5399-5521` does: on the
+/// link carrying `?.` and on every link OUTWARD from it, retroactively on a
+/// run of non-null expressions once a further link follows, never through
+/// parentheses, and never on the receiver BELOW the `?.`.
+#[test]
+fn optional_chain_flag_follows_upstreams_reparse() {
+    use SyntaxKind::{
+        CallExpression as Call, ElementAccessExpression as Elem, Identifier as Id,
+        NonNullExpression as Bang, ParenthesizedExpression as Paren,
+        PropertyAccessExpression as Prop, TaggedTemplateExpression as Tag,
+    };
+    let arena = Arena::new();
+    let cases: &[(&str, &[(SyntaxKind, bool)])] = &[
+        // Outward from the `?.`.
+        ("a?.b.c;", &[(Prop, true), (Prop, true), (Id, false)]),
+        ("a?.b[0]();", &[(Call, true), (Elem, true), (Prop, true), (Id, false)]),
+        ("a?.();", &[(Call, true), (Id, false)]),
+        ("a?.[0];", &[(Elem, true), (Id, false)]),
+        // Not inward: `a.b` under `a.b?.c` is not a chain link.
+        ("a.b?.c;", &[(Prop, true), (Prop, false), (Id, false)]),
+        // A non-null run is stamped only once a further link follows.
+        ("a?.b!.c;", &[(Prop, true), (Bang, true), (Prop, true), (Id, false)]),
+        ("a?.b!!.c;", &[(Prop, true), (Bang, true), (Bang, true), (Prop, true), (Id, false)]),
+        ("a?.b!;", &[(Bang, false), (Prop, true), (Id, false)]),
+        // Parentheses end the chain.
+        ("(a?.b).c;", &[(Prop, false), (Paren, false), (Prop, true), (Id, false)]),
+        // A tagged template inherits the tag's flag (`parser.go:5520`).
+        ("a?.b`x`;", &[(Tag, true), (Prop, true), (Id, false)]),
+        // No `?.` at all: nothing is stamped.
+        ("a.b().c;", &[(Prop, false), (Call, false), (Prop, false), (Id, false)]),
+    ];
+    for (source, expected) in cases {
+        let parsed = parse(&arena, source);
+        assert!(parsed.diagnostics.is_empty(), "{source:?} must parse clean");
+        assert_eq!(chain_spine(&parsed), *expected, "spine of {source:?}");
+    }
+}

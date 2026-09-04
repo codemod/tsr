@@ -2259,8 +2259,9 @@ impl<'a, 'n> Binder<'a, 'n> {
     // ---- optional chains ----
     //
     // `a?.b` behaves like `a && a.b`, so its graph is a logical expression's.
-    // Every function below is a direct port; they are unreachable until the
-    // parser sets `NodeFlags::OPTIONAL_CHAIN` (see `narrowing::is_optional_chain`).
+    // Every function below is a direct port; they became reachable at §748,
+    // when the parser began setting `NodeFlags::OPTIONAL_CHAIN` (see
+    // `narrowing::is_optional_chain`).
 
     fn bind_optional_chain_flow(&mut self, node: Node<'a>) {
         if self.is_top_level_logical_expression(node) {

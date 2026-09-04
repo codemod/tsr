@@ -377,10 +377,11 @@ pub(crate) fn skip_parentheses(node: Node<'_>) -> Node<'_> {
 
 /// Upstream: `ast.IsOptionalChain`.
 ///
-/// **Inert today.** It reads [`NodeFlags::OPTIONAL_CHAIN`], which the parser
-/// records the `?.` token for but does not yet set — so every optional-chain
-/// path in the binder is currently unreachable and `a?.b` gets the flow graph of
-/// `a.b`. That is a narrowing gap, not a crash, and it is filed as `tsr-y4u.7`.
+/// Live since §748 (`checker-notes-callres.md`): the parser sets
+/// [`NodeFlags::OPTIONAL_CHAIN`] exactly as upstream's
+/// `tryReparseOptionalChain` does (`parser.go:5414`). Before that the flag
+/// was never set, every optional-chain path in the binder was unreachable,
+/// and `a?.b` got the flow graph of `a.b` (the gap `tsr-y4u.7` recorded).
 #[must_use]
 pub(crate) fn is_optional_chain(node: Node<'_>, nodes: &NodeTable) -> bool {
     has_flag(node, nodes, NodeFlags::OPTIONAL_CHAIN)

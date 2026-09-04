@@ -520,11 +520,13 @@ impl<'a> Parser<'a> {
                     } else {
                         self.parse_member_name()
                     };
+                    let is_chain = self.try_reparse_optional_chain(expression);
                     let node = self.finish_node(
                         PropertyAccessExpression::new(Some(expression), None, Some(name)),
                         SyntaxKind::PropertyAccessExpression,
                         start,
                     );
+                    self.mark_optional_chain(node.node_id(), is_chain);
                     expression = Expression::PropertyAccessExpression(node);
                 }
                 SyntaxKind::QuestionDotToken => {
@@ -550,6 +552,7 @@ impl<'a> Parser<'a> {
                             SyntaxKind::CallExpression,
                             start,
                         );
+                        self.mark_optional_chain(node.node_id(), true);
                         expression = Expression::CallExpression(node);
                     } else if self.at(SyntaxKind::OpenBracketToken) {
                         self.next_token();
@@ -564,6 +567,7 @@ impl<'a> Parser<'a> {
                             SyntaxKind::ElementAccessExpression,
                             start,
                         );
+                        self.mark_optional_chain(node.node_id(), true);
                         expression = Expression::ElementAccessExpression(node);
                     } else {
                         let name = self.parse_member_name();
@@ -576,6 +580,7 @@ impl<'a> Parser<'a> {
                             SyntaxKind::PropertyAccessExpression,
                             start,
                         );
+                        self.mark_optional_chain(node.node_id(), true);
                         expression = Expression::PropertyAccessExpression(node);
                     }
                 }
@@ -583,21 +588,25 @@ impl<'a> Parser<'a> {
                     self.next_token();
                     let argument = self.parse_expression();
                     self.expect(SyntaxKind::CloseBracketToken);
+                    let is_chain = self.try_reparse_optional_chain(expression);
                     let node = self.finish_node(
                         ElementAccessExpression::new(Some(expression), None, Some(argument)),
                         SyntaxKind::ElementAccessExpression,
                         start,
                     );
+                    self.mark_optional_chain(node.node_id(), is_chain);
                     expression = Expression::ElementAccessExpression(node);
                 }
                 SyntaxKind::OpenParenToken => {
                     let arguments = self.parse_arguments();
                     let arguments = self.arena.alloc_slice(&arguments);
+                    let is_chain = self.try_reparse_optional_chain(expression);
                     let node = self.finish_node(
                         CallExpression::new(Some(expression), None, &[], arguments),
                         SyntaxKind::CallExpression,
                         start,
                     );
+                    self.mark_optional_chain(node.node_id(), is_chain);
                     expression = Expression::CallExpression(node);
                 }
                 // `f<T>(x)`. `<` is also less-than, so the type arguments are
@@ -635,11 +644,13 @@ impl<'a> Parser<'a> {
                     }
                     let arguments = self.parse_arguments();
                     let arguments = self.arena.alloc_slice(&arguments);
+                    let is_chain = self.try_reparse_optional_chain(expression);
                     let node = self.finish_node(
                         CallExpression::new(Some(expression), None, type_arguments, arguments),
                         SyntaxKind::CallExpression,
                         start,
                     );
+                    self.mark_optional_chain(node.node_id(), is_chain);
                     expression = Expression::CallExpression(node);
                 }
                 // `` tag`…` `` — a tagged template. The template is an operand of
@@ -653,6 +664,9 @@ impl<'a> Parser<'a> {
                         ),
                         _ => (expression, &[] as &[TypeNode<'a>]),
                     };
+                    // `parser.go:5520`: the flag is inherited from the tag
+                    // directly, without the non-null reparse.
+                    let is_chain = self.has_optional_chain_flag(tag);
                     let node = self.finish_node(
                         TaggedTemplateExpression::new(
                             Some(tag),
@@ -663,6 +677,7 @@ impl<'a> Parser<'a> {
                         SyntaxKind::TaggedTemplateExpression,
                         start,
                     );
+                    self.mark_optional_chain(node.node_id(), is_chain);
                     expression = Expression::TaggedTemplateExpression(node);
                 }
                 SyntaxKind::ExclamationToken if !self.token.has_preceding_line_break() => {
@@ -678,6 +693,50 @@ impl<'a> Parser<'a> {
             }
         }
         expression
+    }
+
+    /// `parser.go:5414` `tryReparseOptionalChain`: is `node` already part of
+    /// an optional chain? A `NonNullExpression` (or a run of them) over a
+    /// chain is stamped as a chain member here, retroactively, exactly as
+    /// upstream mutates `node.Flags` — `a?.b!.c` makes `a?.b!` a chain link
+    /// only once `.c` follows. §748.
+    fn try_reparse_optional_chain(&mut self, node: Expression<'a>) -> bool {
+        if self.has_optional_chain_flag(node) {
+            return true;
+        }
+        if let Expression::NonNullExpression(_) = node {
+            let mut expr = node;
+            while let Expression::NonNullExpression(non_null) = expr
+                && !self.has_optional_chain_flag(expr)
+            {
+                let Some(inner) = non_null.expression else { return false };
+                expr = inner;
+            }
+            if self.has_optional_chain_flag(expr) {
+                let mut current = node;
+                while let Expression::NonNullExpression(non_null) = current {
+                    self.mark_optional_chain(current.node_id(), true);
+                    let Some(inner) = non_null.expression else { break };
+                    current = inner;
+                }
+                return true;
+            }
+        }
+        false
+    }
+
+    fn has_optional_chain_flag(&self, node: Expression<'a>) -> bool {
+        node.node_id()
+            .is_some_and(|id| self.nodes.flags(id).contains(tsr_ast::NodeFlags::OPTIONAL_CHAIN))
+    }
+
+    /// Stamp [`tsr_ast::NodeFlags::OPTIONAL_CHAIN`] when `is_chain`, the
+    /// `core.IfElse(isOptionalChain, ast.NodeFlagsOptionalChain, …)` of every
+    /// member-rest constructor in `parser.go:5399-5521`.
+    fn mark_optional_chain(&mut self, id: Option<tsr_ast::NodeId>, is_chain: bool) {
+        if is_chain && let Some(id) = id {
+            self.nodes.add_flags(id, tsr_ast::NodeFlags::OPTIONAL_CHAIN);
+        }
     }
 
     fn parse_new_expression(&mut self) -> Expression<'a> {

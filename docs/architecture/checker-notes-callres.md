@@ -2710,3 +2710,87 @@ The sentinel arms measured zero on their own — no corpus line sits on a
 join fed by an unreachable assignment that this port also narrows — and
 are landed for the same reason §745 was: the declared-type stand-in was
 the exact shape §744 had to replace at the call arm.
+
+## §748 — `NodeFlags::OPTIONAL_CHAIN` set by the parser; `optionalChainContainsReference` becomes the flag walk; the binder's chain flow goes live (+1 case / +17 W→R, ZERO adverse)
+
+§747's deferred half, and the thing underneath it.
+
+### The forcing constraint
+
+`flow.go:1851`'s `optionalChainContainsReference` loops `for
+ast.IsOptionalChain(source)`, and `ast.IsOptionalChain` is a NODE FLAG test
+(`ast/utilities.go:344`): `NodeFlagsOptionalChain` on a property access,
+element access, call, or non-null expression. This parser recorded the `?.`
+token on the node but never set the flag (`crates/tsr-binder/src/narrowing.rs`
+carried an "inert today" note and `tsr-y4u.7` recorded the gap). So:
+
+- the checker's §51.2 helper of that name walked `?.` TOKENS with a sticky
+  bit, which is not the same predicate — it answers `true` for `a.b?.c`
+  against reference `a` (upstream stops at `a.b`, which is not a chain
+  link), and it cannot see a `NonNullExpression` link at all;
+- every optional-chain path in the binder (`bind_optional_chain_flow` and
+  below, `binder.rs:2259`) was unreachable — `a?.b` got the flow graph of
+  `a.b` — and the checker had grown a family of syntactic stand-ins
+  (SS150/SS151/SS154, §51.4) over a graph that lacked the `?.` branch.
+
+### What landed
+
+1. **Parser** (`crates/tsr-parser/src/expression.rs`): every member-rest
+   constructor in the call/member loop stamps the flag exactly as
+   `parser.go:5399-5521` does — `questionDotToken != nil ||
+   tryReparseOptionalChain(expression)` for property/element access and
+   call; `tag.Flags & OptionalChain` for a tagged template.
+   `try_reparse_optional_chain` is ported whole, including the retroactive
+   stamp on a run of non-null expressions over a chain (`a?.b!.c` makes
+   `a?.b!` a link only once `.c` follows). The decorator loop
+   (`parse_decorator_expression`) has no `?.` arm and is left alone: no
+   chain can begin there.
+2. **Checker** (`flow.rs`): `optional_chain_contains_reference` is now the
+   flag walk, with `is_optional_chain` (`ast.IsOptionalChain`) beside it.
+   The §747 `for..in` arm gets its second disjunct, and its answer no
+   longer carries the antecedent's `incomplete` — upstream's
+   `FlowType{t: …}` does not (corrected here).
+3. **Binder**: nothing changed in code; the ported chain-flow functions
+   became reachable. The three "inert" comments are updated to say so.
+
+### Measured
+
+```
+scorepair over the §747 baseline (435,747):
+  right 435,747 → 435,764   +17 W→R, ZERO adverse
+    controlFlowOptionalChain 16, nonNullableTypes1 1
+coverage (all sixteen suites):
+  checker_types 6,088 → 6,089
+  diagnostics   2,600 → 2,600 by casequery; controlFlowOptionalChain's
+                FAIL reason 9 unexpected / 6 missing → 5 / 2
+  every other suite identical (parser_typescript 5,031, binder_symbols
+                8,497, printer_round_trip 11,805 unmoved)
+```
+
+The binder's chain flow going live cost nothing measurable — the
+checker's stand-ins and the real graph agree everywhere the corpus looks.
+
+**Snapshot drift, recorded rather than claimed.** The committed
+`diagnostics.snap` read 2,599 and was last written at §744; the §747 tree
+already scores 2,600 by casequery, so the +1 in this landing's snapshot
+diff belongs to the §745–§747 window, not to §748. A `casequery
+diagnostics --list` from a §744 worktree names it:
+`compiler/forInStrictNullChecksNoError`, FAIL at §744, PASS at §747 — the
+very case §747's `for..in` arm converted in `checker_types`, so §747's
+"`diagnostics` unchanged" was wrong (its comparison ran against §746's
+list, which this run shows was itself not re-taken). Corrected in §7.
+
+### Follow-ups named, not built
+
+- **TS2779** (`check.rs`, §181's decline): the flag now exists, so the
+  "optional property access as assignment target" arm can be ported over
+  it instead of declining. `spine_has_optional_chain` walks through
+  parentheses, which the flag does not; the two differ exactly there.
+- The checker's other `?.` stand-ins (`spells_question_dot_chain` at the
+  equality arm, SS151) still key on the token. Each is a candidate for
+  the flag, one measured landing at a time.
+- `optionalChainContainsReference`'s remaining upstream call sites not yet
+  in this port: the predicate arm (`flow.go:324`), the equality
+  containment pair (`:490`/`:492`, `narrowTypeByOptionalChainContainment`),
+  `instanceof` (`:814`), the switch pair (`:1073`/`:1077`), and
+  `hasMatchingArgument` (`:1888`).

@@ -42,7 +42,7 @@
 //!   without it, so the walk is exponential on branchy code. That is a hang, not
 //!   a wrong number.
 
-use tsr_ast::{Node, NodeId, SyntaxKind};
+use tsr_ast::{Node, NodeFlags, NodeId, SyntaxKind};
 use tsr_binder::{FlowFlags, FlowId, ReduceLabel, SymbolFlags, SymbolId};
 
 use crate::{
@@ -881,22 +881,23 @@ impl Checker<'_, '_> {
         let node = self.binder.flow().node(flow)?;
         if !self.is_matching_reference(state, node) {
             // `flow.go:267`: `for (const _ in ref)` acts as a non-null on
-            // `ref`. §747. The `optionalChainContainsReference` half is
-            // deferred: this port's helper of that name (§51.2) walks
-            // `?.` tokens rather than the OPTIONAL_CHAIN flag and is not
-            // yet upstream's shape — §748's item.
+            // `ref`. §747; the `optionalChainContainsReference` half §748.
+            // Upstream answers `FlowType{t: …}` — the antecedent's
+            // `incomplete` is NOT carried (§748 corrected §747's carrying
+            // it).
             if self.nodes.kind(node) == SyntaxKind::VariableDeclaration
                 && let Some(list) = self.nodes.parent(node)
                 && let Some(statement) = self.nodes.parent(list)
                 && self.nodes.kind(statement) == SyntaxKind::ForInStatement
                 && let Some(Node::ForInOrOfStatement(for_in)) = self.node_map.get(statement)
                 && let Some(expression) = for_in.expression.and_then(|e| e.node_id())
-                && self.is_matching_reference(state, expression)
+                && (self.is_matching_reference(state, expression)
+                    || self.optional_chain_contains_reference(state, expression))
             {
                 let antecedent = self.binder.flow().antecedent(flow)?;
                 let prior = self.get_type_at_flow_node(state, antecedent);
                 let t = self.get_non_nullable_type(prior.t);
-                return Some(FlowType { t, incomplete: prior.incomplete });
+                return Some(FlowType { t, incomplete: false });
             }
             // `flow.go:255`: the assignment may be to a **left-hand part** of
             // the reference — for `x.y.z` we may be at an assignment to `x.y`
@@ -5061,43 +5062,51 @@ impl Checker<'_, '_> {
         }
     }
 
-    /// §51.2: does `node` spell an optional chain whose BASE (behind at
-    /// least one `?.`) is the matching reference? Walks receivers through
-    /// property/element accesses and call expressions.
+    /// `flow.go:1851` `optionalChainContainsReference`: walk `source`
+    /// inward while it IS an optional chain (`ast.IsOptionalChain` — the
+    /// [`NodeFlags::OPTIONAL_CHAIN`] flag on a property/element access,
+    /// call, or non-null expression) and answer whether any receiver on
+    /// that walk is the matching reference.
+    ///
+    /// §748 replaced the §51.2 form, which walked `?.` TOKENS with a sticky
+    /// bit: that form answered `true` for `a.b?.c` against reference `a`
+    /// (the flag stops at `a.b`, which carries no `?.` and is not a chain
+    /// link) and could not see a `NonNullExpression` link at all. The flag
+    /// is set by the parser since §748 (`parser.go:5414`'s reparse).
     fn optional_chain_contains_reference(&mut self, state: &FlowState, node: NodeId) -> bool {
-        let mut current = node;
-        let mut saw_question = false;
-        loop {
-            match self.node_map.get(current) {
-                Some(Node::PropertyAccessExpression(access)) => {
-                    saw_question |= access.question_dot_token.is_some();
-                    let Some(receiver) = access.expression.and_then(|e| e.node_id()) else {
-                        return false;
-                    };
-                    if saw_question && self.is_matching_reference(state, receiver) {
-                        return true;
-                    }
-                    current = receiver;
-                }
-                Some(Node::ElementAccessExpression(access)) => {
-                    saw_question |= access.question_dot_token.is_some();
-                    let Some(receiver) = access.expression.and_then(|e| e.node_id()) else {
-                        return false;
-                    };
-                    if saw_question && self.is_matching_reference(state, receiver) {
-                        return true;
-                    }
-                    current = receiver;
-                }
-                Some(Node::CallExpression(call)) => {
-                    let Some(callee) = call.expression.and_then(|e| e.node_id()) else {
-                        return false;
-                    };
-                    current = callee;
-                }
-                _ => return false,
+        let mut source = node;
+        while self.is_optional_chain(source) {
+            let Some(inner) = self.expression_of_chain_link(source) else { return false };
+            if self.is_matching_reference(state, inner) {
+                return true;
             }
+            source = inner;
         }
+        false
+    }
+
+    /// `ast.IsOptionalChain`: the flag AND one of the four link kinds.
+    fn is_optional_chain(&self, node: NodeId) -> bool {
+        self.nodes.flags(node).contains(NodeFlags::OPTIONAL_CHAIN)
+            && matches!(
+                self.nodes.kind(node),
+                SyntaxKind::PropertyAccessExpression
+                    | SyntaxKind::ElementAccessExpression
+                    | SyntaxKind::CallExpression
+                    | SyntaxKind::NonNullExpression
+            )
+    }
+
+    /// `node.Expression()` for the four chain-link kinds.
+    fn expression_of_chain_link(&self, node: NodeId) -> Option<NodeId> {
+        match self.node_map.get(node)? {
+            Node::PropertyAccessExpression(access) => access.expression,
+            Node::ElementAccessExpression(access) => access.expression,
+            Node::CallExpression(call) => call.expression,
+            Node::NonNullExpression(non_null) => non_null.expression,
+            _ => None,
+        }
+        .and_then(|e| e.node_id())
     }
 
     /// §51.3: keep constituents whose MEMBER admits the assumed
