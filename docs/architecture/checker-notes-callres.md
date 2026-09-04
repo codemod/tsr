@@ -2794,3 +2794,74 @@ list, which this run shows was itself not re-taken). Corrected in §7.
   containment pair (`:490`/`:492`, `narrowTypeByOptionalChainContainment`),
   `instanceof` (`:814`), the switch pair (`:1073`/`:1077`), and
   `hasMatchingArgument` (`:1888`).
+
+## §749 — `hasMatchingArgument` whole, the `this is T` predicate argument, the two remaining chain strips, and the branch label's `UnionReductionSubtype` (+2 cases / +50 W→R / +9 G→R, ZERO adverse)
+
+§748's follow-up list, taken in order of upstream distance.
+
+### What was wrong
+
+`narrow_type_by_call_expression` gated the predicate road on *"some
+argument IS the reference"*. Upstream's gate is `hasMatchingArgument`
+(`flow.go:1886`): an argument that is, CONTAINS (`isFoo(x.y)` for `x`), or
+optionally chains onto the reference — or a callee that is a property
+access whose receiver is or contains it. That last clause is the `this is
+T` road: `b.isLeader()` narrows `b`, and `getTypePredicateArgument`
+(`flow.go:2451`) answers the RECEIVER of the invoked access for a
+`TypePredicateKindThis`. This port's predicate struct spells the `this`
+form as `parameter_name: None`, and the arm returned `t` for it — so every
+`this`-predicate method call narrowed nothing. `typeGuardFunctionOfFormThis`
+was 41 lines from passing on that alone.
+
+### What landed
+
+- `has_matching_argument`, `is_or_contains_matching_reference`,
+  `skip_parentheses`, `every_type`, `is_nullable_type` — ported by name.
+  `is_nullable_type` is `hasTypeFacts(t, IsUndefinedOrNull)` upstream;
+  this port's facts carry `IS_UNDEFINED` but no `IS_NULL`, so it reads
+  the `NULLABLE | ANY` flags instead (`any`'s facts are `All`; `unknown`
+  masks the bit out). Recorded as a stand-in, not a transcription.
+- `get_type_predicate_argument`'s `this` half, inline in the call arm.
+- `narrow_type_by_type_predicate` (`flow.go:315`): the matching arm, and
+  the chain strip (`:324`) — `isFoo(o?.x)` proves `o` non-null on the true
+  branch when the predicate type cannot be `undefined`, and on the false
+  branch when every constituent of it is nullable. **Not ported**: the
+  `getDiscriminantPropertyAccess` → `narrowTypeByDiscriminant` road,
+  which this port has never factored out of its arms (each arm carries
+  its own inline discriminant test). Named residue.
+- The `assumeTrue || !isCallChain(call)` guard: a `?.()` call answers no
+  predicate on the false branch.
+- `instanceof` (`flow.go:814`): `o?.x instanceof C` strips the base.
+- **The branch label's subtype reduction** (`flow.go:1298`). The first
+  pair read 2 R→W in the same case: after `if (b.isLeader()) … else if
+  (b.isFollower()) …` the join of `LeadGuard | FollowerGuard |
+  GuardInterface` printed all three where upstream prints
+  `GuardInterface`. Upstream's branch label sets `subtypeReduction` when
+  an antecedent is not a SUBSET of the initial type and hands the list to
+  `getUnionType(…, UnionReductionSubtype)`; this port's loop label already
+  did exactly that through the decidability-gated
+  `union_with_subtype_reduction` (`checker-notes-assign.md` §9), and the
+  branch label ran only the declared-heritage slice (SS203) — which
+  cannot see that a class is a structural subtype of an interface that
+  merely `extends` its base. Mirrored; the heritage slice stays as the
+  fallback when the gated reducer declines. The 2 R→W became 2 W→R.
+
+### Measured
+
+```
+scorepair over the §748 baseline (435,764):
+  first cut (no branch-label change)  +45 W→R / +9 G→R / 2 R→W
+  landed                              +50 W→R / +9 G→R / 0 adverse
+    typeGuardFunctionOfFormThis 32+9, typePredicatesOptionalChaining2 4,
+    assertionTypePredicates1 3, tail 11
+coverage: checker_types 6,089 → 6,091; diagnostics 2,600 unmoved;
+          every other suite identical
+```
+
+### Residue
+
+- The discriminant road inside `narrowTypeByTypePredicate` (above).
+- `is_nullable_type` as a flag test; an `IS_NULL` fact would retire it.
+- The port still runs the `hasOwnProperty` arm BEFORE the predicate arm
+  (upstream: after). No corpus line distinguishes the orders; noted so a
+  future disagreement is recognisable.

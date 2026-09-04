@@ -2885,6 +2885,7 @@ impl Checker<'_, '_> {
         let antecedents: Vec<FlowId> = self.binder.flow().antecedents(flow).collect();
         let mut types: Vec<TypeId> = Vec::with_capacity(antecedents.len());
         let never = self.intrinsics.never;
+        let mut subtype_reduction = false;
         for antecedent in antecedents {
             // `!c.isExhaustiveSwitchStatement(bypassFlow.…SwitchStatement)`
             // (`flow.go:1292`). The **bypass** antecedent is the path where the
@@ -2914,6 +2915,14 @@ impl Checker<'_, '_> {
             if !types.contains(&t) {
                 types.push(t);
             }
+            // `flow.go:1280`/`:1298` (§749): an antecedent type that is not a
+            // SUBSET of the initial type — a "foreign" type narrowed for the
+            // reference, `LeadGuard` joining a declared `GuardInterface` —
+            // switches the join to `UnionReductionSubtype`, exactly as the
+            // loop label already does.
+            if !self.is_type_subset_of(t, state.initial_type) {
+                subtype_reduction = true;
+            }
         }
         // §744: upstream appends EVERY antecedent type and hands the list to
         // `getUnionType`, which returns a lone type unchanged and drops
@@ -2941,6 +2950,17 @@ impl Checker<'_, '_> {
         }
         let t = if types.is_empty() {
             never
+        } else if subtype_reduction && let Some(reduced) = self.union_with_subtype_reduction(&types)
+        {
+            // §749: the decidability-gated `removeSubtypes` the loop label
+            // runs (`checker-notes-assign.md` §9); the heritage slice below
+            // is the fallback when it declines.
+            match &self.store.get(reduced).data {
+                TypeData::Union { types: members, symbol: None, .. } => {
+                    self.named_union_by_members.get(members).copied().unwrap_or(reduced)
+                }
+                _ => reduced,
+            }
         } else {
             // §58 (`checker-notes-narrow.md`): a join re-forming a NAMED
             // union's exact member set answers the named type.
@@ -4572,6 +4592,14 @@ impl Checker<'_, '_> {
                 if operator.kind == SyntaxKind::InstanceOfKeyword {
                     let Some(left_id) = left.node_id() else { return t };
                     if !self.is_matching_reference(state, left_id) {
+                        // `flow.go:814` (§749): `o?.x instanceof C` proves
+                        // the chain BASE non-null on the true branch.
+                        if assume_true
+                            && self.strict_null_checks
+                            && self.optional_chain_contains_reference(state, left_id)
+                        {
+                            return self.get_type_with_facts(t, TypeFacts::NE_UNDEFINED_OR_NULL);
+                        }
                         return t;
                     }
                     let callee_type = self.check_expression(right);
@@ -5340,13 +5368,20 @@ impl Checker<'_, '_> {
             let facts = if assume_true { TypeFacts::NE_UNDEFINED } else { TypeFacts::EQ_UNDEFINED };
             return self.get_type_with_facts(t, facts);
         }
-        // `hasMatchingArgument`: some argument is the reference.
-        let matching_index = call.arguments.iter().position(|argument| {
-            tsr_ast::Node::from(*argument)
-                .node_id()
-                .is_some_and(|id| self.is_matching_reference(state, id))
-        });
-        let Some(_) = matching_index else { return t };
+        // `flow.go:445`: `hasMatchingArgument` (§749 — ported whole; the
+        // first cut accepted only an argument that IS the reference).
+        if !self.has_matching_argument(state, call) {
+            return t;
+        }
+        // `assumeTrue || !isCallChain(callExpression)`: on the false branch
+        // a `?.()` call answers no predicate — the chain may have short-
+        // circuited. §749.
+        if !assume_true
+            && let Some(call_id) = call.node_id
+            && self.is_optional_chain(call_id)
+        {
+            return t;
+        }
         let Some(callee) = call.expression else { return t };
         let callee_type = self.check_expression(callee);
         if callee_type == self.intrinsics.error {
@@ -5360,28 +5395,136 @@ impl Checker<'_, '_> {
             return t;
         };
         let Some(predicate) = &signature.predicate else { return t };
+        // `TypePredicateKindThis || TypePredicateKindIdentifier`.
         if predicate.asserts {
             return t;
         }
-        let (Some(name), Some(predicate_type)) = (&predicate.parameter_name, predicate.r#type)
-        else {
-            return t;
+        let Some(predicate_type) = predicate.r#type else { return t };
+        // `getTypePredicateArgument` (`flow.go:2451`): the argument at the
+        // predicate parameter's position (recovered by name — this port's
+        // predicate carries no index), or for `this is T` the RECEIVER of
+        // the invoked access, parentheses skipped on both sides. §749
+        // added the `this` half.
+        let argument = if let Some(name) = &predicate.parameter_name {
+            let Some(index) =
+                signature.parameters.iter().position(|parameter| parameter.name == *name)
+            else {
+                return t;
+            };
+            let Some(argument) = call.arguments.get(index) else { return t };
+            let Some(id) = tsr_ast::Node::from(*argument).node_id() else { return t };
+            id
+        } else {
+            let Some(callee_id) = callee.node_id() else { return t };
+            let invoked = self.skip_parentheses(callee_id);
+            let Some(receiver) = (match self.node_map.get(invoked) {
+                Some(Node::PropertyAccessExpression(access)) => access.expression,
+                Some(Node::ElementAccessExpression(access)) => access.expression,
+                _ => None,
+            })
+            .and_then(|e| e.node_id()) else {
+                return t;
+            };
+            self.skip_parentheses(receiver)
         };
-        // `getTypePredicateArgument`: the argument at the predicate
-        // parameter's position (recovered by name — this port's predicate
-        // carries no index).
-        let Some(index) = signature.parameters.iter().position(|parameter| parameter.name == *name)
-        else {
-            return t;
-        };
-        let Some(argument) = call.arguments.get(index) else { return t };
-        if !tsr_ast::Node::from(*argument)
-            .node_id()
-            .is_some_and(|id| self.is_matching_reference(state, id))
-        {
-            return t;
+        self.narrow_type_by_type_predicate(state, t, predicate_type, argument, assume_true)
+    }
+
+    /// `narrowTypeByTypePredicate` (`flow.go:315`), less the discriminant
+    /// road (`getDiscriminantPropertyAccess` → `narrowTypeByDiscriminant`,
+    /// which this port has not factored out of its arms — §749's named
+    /// residue). The any-vs-global-`Object`/`Function` guard lives in
+    /// [`Checker::narrow_by_predicate_type`].
+    fn narrow_type_by_type_predicate(
+        &mut self,
+        state: &FlowState,
+        t: TypeId,
+        predicate_type: TypeId,
+        predicate_argument: NodeId,
+        assume_true: bool,
+    ) -> TypeId {
+        if self.is_matching_reference(state, predicate_argument) {
+            return self.narrow_by_predicate_type(t, predicate_type, assume_true);
         }
-        self.narrow_by_predicate_type(t, predicate_type, assume_true)
+        // `flow.go:324`: `isFoo(o?.x)` — the chain BASE is non-null on the
+        // true branch when the predicate type cannot be `undefined`, and on
+        // the false branch when every constituent of it is nullable.
+        if self.strict_null_checks
+            && self.optional_chain_contains_reference(state, predicate_argument)
+        {
+            let strips = if assume_true {
+                !self.get_type_facts(predicate_type).intersects(TypeFacts::EQ_UNDEFINED)
+            } else {
+                self.every_type(predicate_type, |checker, part| checker.is_nullable_type(part))
+            };
+            if strips {
+                return self.get_type_with_facts(t, TypeFacts::NE_UNDEFINED_OR_NULL);
+            }
+        }
+        t
+    }
+
+    /// `hasMatchingArgument` (`flow.go:1886`): some argument is, contains,
+    /// or optionally chains onto the reference; or the callee is a property
+    /// access whose receiver is or contains it (`x.isFoo()` for a `this is`
+    /// predicate). §749.
+    fn has_matching_argument(
+        &mut self,
+        state: &FlowState,
+        call: &tsr_ast::CallExpression<'_>,
+    ) -> bool {
+        for argument in call.arguments {
+            let Some(id) = tsr_ast::Node::from(*argument).node_id() else { continue };
+            if self.is_or_contains_matching_reference(state, id)
+                || self.optional_chain_contains_reference(state, id)
+            {
+                return true;
+            }
+        }
+        if let Some(Node::PropertyAccessExpression(access)) =
+            call.expression.and_then(|e| e.node_id()).and_then(|id| self.node_map.get(id))
+            && let Some(receiver) = access.expression.and_then(|e| e.node_id())
+            && self.is_or_contains_matching_reference(state, receiver)
+        {
+            return true;
+        }
+        false
+    }
+
+    /// `isOrContainsMatchingReference` (`flow.go:1898`).
+    fn is_or_contains_matching_reference(&mut self, state: &FlowState, node: NodeId) -> bool {
+        self.is_matching_reference(state, node) || self.contains_matching_reference(state, node)
+    }
+
+    /// `ast.SkipParentheses`.
+    fn skip_parentheses(&self, mut node: NodeId) -> NodeId {
+        while let Some(Node::ParenthesizedExpression(inner)) = self.node_map.get(node)
+            && let Some(next) = inner.expression.and_then(|e| e.node_id())
+        {
+            node = next;
+        }
+        node
+    }
+
+    /// `everyType` (`checker.go:26544`): every union constituent, or the
+    /// type itself.
+    fn every_type(&mut self, t: TypeId, f: impl Fn(&mut Self, TypeId) -> bool) -> bool {
+        match &self.store.get(t).data {
+            TypeData::Union { types, .. } => {
+                let parts = types.clone();
+                parts.into_iter().all(|part| f(self, part))
+            }
+            _ => f(self, t),
+        }
+    }
+
+    /// `IsNullableType` (`checker.go:18670`): `hasTypeFacts(t,
+    /// TypeFactsIsUndefinedOrNull)`. This port's facts carry `IS_UNDEFINED`
+    /// but no `IS_NULL`, so the flag test stands in: a nullable-flagged
+    /// type, or `any` (whose facts are `All` upstream). `unknown` is not
+    /// (`TypeFactsUnknownFacts` masks the bit out).
+    fn is_nullable_type(&self, t: TypeId) -> bool {
+        self.store.get(t).flags.intersects(TypeFlags::NULLABLE | TypeFlags::ANY)
     }
 
     /// §111: the PREDICATE a callee's `[Symbol.hasInstance]` method
