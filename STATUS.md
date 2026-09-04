@@ -1043,6 +1043,47 @@ fresh run at `7cecc02` (fourth session; every row within noise). Two lists, beca
 project's ordering rule has two halves: **rank by the conversion, and where the
 conversion is unknown, rank by how cheap it is to find out.**
 
+### 4.-4 THE DISCRIMINANT ROAD, 2026-09-03 (§749's residue) — a subsystem, sized before it is started
+
+Upstream reaches discriminant narrowing through ONE pair of functions,
+`getDiscriminantPropertyAccess` (`flow.go:1436`) and `narrowTypeByDiscriminant`
+(`flow.go:725`), called from five arms (truthiness `:434`, equality `:496`,
+typeof `:623`, switch `:1229`, type predicate `:327`). This port has the
+five arms but not the pair: each arm carries its own inline test
+(`filter_union_by_member_literal`, `filter_union_by_member_truthiness`,
+`narrow_union_by_member_switch`), and the predicate arm (§749) has none, so
+`isFoo(x.kind)` narrows nothing.
+
+**What the pair needs that the port does not have** (measured by grep, not
+guessed):
+
+- `isDiscriminantProperty` (`relater.go:1087`) reads the SYNTHETIC union
+  property's check flags — `HasNonUniformType | HasLiteralType`, set by
+  `createUnionOrIntersectionProperty` (`checker.go:21452`). This port has no
+  synthetic union property and no `CheckFlags`; `get_type_of_property_of_type`
+  projects across a union ad hoc (§49).
+- `narrowTypeByDiscriminant` filters by `areTypesComparable(narrowedPropType,
+  discriminantType)`. `crates/tsr-checker/src/relater.rs` has no `Comparable`
+  relation at all; the arms use `comparable_ternary` (`flow.rs`, §50/§666), a
+  Kleene stand-in over unit/primitive/enum types that DECLINES anything
+  structural.
+- `isGenericType`, `getTypeOfPropertyOrIndexSignatureOfType`, `isNonNullAccess`,
+  the `getCandidateDiscriminantPropertyAccess` alias forms (`const x = obj.kind`,
+  `const { kind: x } = obj`) — small, but each is a separate upstream item.
+
+**Order that pays first**: (1) the comparable relation in the relater — it is
+also what `narrow_type_by_equality`'s unported half ("`x === 3` returns the
+type unchanged", `flow.rs`) waits on; (2) `is_discriminant_property` computed
+from constituent property types (non-uniform AND some literal-typed AND not
+generic — the three flag conditions, without building the symbol); (3) the
+pair itself, consumed FIRST at the predicate arm (a new road, nothing
+removed, so the pair is measured alone), THEN swapped into the four arms one
+landing each against their inline forms.
+
+**How you would know this is wrong**: if `TSR_ANY_DUMP`/`gapdump` show fewer
+than ~20 cases blocked on discriminant shapes, the subsystem is not worth its
+five landings and the predicate arm should get an inline test like the others.
+
 ### 4.-3 THE SHAPE OF WHAT IS LEFT, 2026-08-14 (§588) — **measured, and it is a long tail, not a wall**
 
 A goal of "+~2% `checker_types`" (≈+191 cases) was set and **not met: +28**. The
