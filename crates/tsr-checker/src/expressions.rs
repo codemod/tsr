@@ -206,6 +206,20 @@ impl Checker<'_, '_> {
         answer
     }
 
+    /// `GetRootDeclaration` (`ast/utilities.go:1173`). §765.
+    ///
+    /// Walk out of every enclosing binding pattern to the declaration that
+    /// owns the whole destructuring — a parameter or a variable declaration.
+    fn root_declaration_of(&self, node: NodeId) -> NodeId {
+        let mut at = node;
+        while self.nodes.kind(at) == SyntaxKind::BindingElement {
+            let Some(pattern) = self.nodes.parent(at) else { break };
+            let Some(owner) = self.nodes.parent(pattern) else { break };
+            at = owner;
+        }
+        at
+    }
+
     /// The §50 shape test + pseudo-narrow + re-projection
     /// (`getNarrowedTypeOfSymbol`'s binding-element case,
     /// `checker.go:13751`). `None` hands back to the ordinary flow road.
@@ -233,12 +247,20 @@ impl Checker<'_, '_> {
         if pattern.elements.len() < 2 {
             return None;
         }
+        // `parent := declaration.Parent.Parent` (`checker.go:13760`) — the
+        // holder of the IMMEDIATE pattern, which is what the parent type is
+        // read from. For a nested pattern that is itself a binding element.
         let holder = self.nodes.parent(pattern_id)?;
-        // Const-like roots only: a parameter, or a `const` variable.
-        let root_ok = match self.nodes.kind(holder) {
+        // §765 (`checker.go:13752`/`:13761`): the const-like test is on the
+        // ROOT declaration, not on the immediate holder. `GetRootDeclaration`
+        // walks out of every enclosing binding pattern, so
+        // `const { a: { b, c } } = x` reaches the variable declaration where a
+        // one-hop test found a `BindingElement` and declined.
+        let root = self.root_declaration_of(declaration);
+        let root_ok = match self.nodes.kind(root) {
             SyntaxKind::Parameter => true,
             SyntaxKind::VariableDeclaration => {
-                self.combined_node_flags(holder).intersects(tsr_ast::NodeFlags::CONSTANT)
+                self.combined_node_flags(root).intersects(tsr_ast::NodeFlags::CONSTANT)
             }
             _ => return None,
         };
@@ -251,8 +273,7 @@ impl Checker<'_, '_> {
         // of a single parent, so discriminating them against each other is
         // unsound. The guard is on the ROOT, and it asks about every symbol
         // the root's name binds, not just the one being read.
-        if self.nodes.kind(holder) == SyntaxKind::Parameter && self.is_some_symbol_assigned(holder)
-        {
+        if self.nodes.kind(root) == SyntaxKind::Parameter && self.is_some_symbol_assigned(root) {
             return None;
         }
         let parent_type = self.get_type_for_binding_element_parent(holder);

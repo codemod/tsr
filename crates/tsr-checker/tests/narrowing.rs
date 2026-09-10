@@ -1158,3 +1158,27 @@ fn a_reassigned_destructured_parameter_does_not_discriminate() {
         "string | number"
     );
 }
+
+/// §765 (`checker.go:13752`/`:13761`): the const-like test is on the ROOT
+/// declaration, reached by `GetRootDeclaration`, not on the pattern's
+/// immediate holder.
+///
+/// For a NESTED pattern the immediate holder is a `BindingElement`, which is
+/// neither a parameter nor a variable declaration, so a one-hop test declined
+/// and the whole pseudo-reference road was unreachable for nested
+/// destructuring. This moved ZERO on the corpus — it holds no nested
+/// discriminated destructuring — so this test is the only thing that pins it.
+///
+/// Reddened by: testing `holder` instead of `root`.
+#[test]
+fn a_nested_destructuring_still_reaches_the_discriminant_road() {
+    let union = "type A = { p: { kind: \"a\"; v: string } };\n\
+                 type B = { p: { kind: \"b\"; v: number } };\n\
+                 declare let x: A | B;\n";
+    assert_eq!(
+        type_of_last_expression(&format!(
+            "{union}const {{ p: {{ kind, v }} }} = x;\nif (kind === \"a\") {{ v; }}"
+        )),
+        "string"
+    );
+}

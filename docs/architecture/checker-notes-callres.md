@@ -4065,3 +4065,59 @@ coverage: checker_types 6,100 unmoved, gradient 91.10% unmoved;
   does.
 
 None of the three is a soundness gap — each declines rather than mis-narrows.
+
+## §765 — `GetRootDeclaration` at the entry, so nested destructuring reaches the road (ZERO movement, ZERO adverse)
+
+§764's residue, first item. It measures **zero** and is landed on the strength
+of a test, under the rule §764 wrote down.
+
+### The bug
+
+`getNarrowedTypeOfSymbol` uses two different nodes and this port conflated
+them:
+
+- **`parent := declaration.Parent.Parent`** (`checker.go:13760`) — the holder
+  of the IMMEDIATE pattern, which is what `getTypeForBindingElementParent`
+  reads the parent type from.
+- **`rootDeclaration := GetRootDeclaration(declaration)`** (`:13752`) — the
+  declaration owning the WHOLE destructuring, which is what the const/parameter
+  test at `:13761` and the `isSomeSymbolAssigned` guard at `:13772` are asked
+  about.
+
+For a flat pattern these are the same node, which is why one node served both
+for as long as it did. For a NESTED one — `const { p: { kind, v } } = x` — the
+immediate holder is a `BindingElement`, which is neither a parameter nor a
+variable declaration, so the const-like test fell to its `_ => return None` arm
+and **the entire pseudo-reference road was unreachable for nested
+destructuring**.
+
+Both uses are now correct: `holder` still reads the parent type, `root` takes
+the const test and the assignment guard.
+
+### Zero, and landed anyway
+
+```
+scorepair over the §764 baseline (436,224):
+  no transitions vs baseline
+```
+
+The corpus holds no nested discriminated destructuring, so it cannot see this
+either way. §764's rule applies — **a change that measures zero needs a test or
+it is indistinguishable from dead code** — and the test
+(`a_nested_destructuring_still_reaches_the_discriminant_road`) reddens to
+`string | number` when `root` is put back to `holder`. Checked, not assumed.
+
+This is the third change in two sections whose value is invisible to the
+corpus. That is itself worth noticing: **the entry guards are a region where
+the corpus has stopped being the measuring instrument**, and sections here
+should be expected to land on tests rather than on scores.
+
+### Residue
+
+Two entry guards remain, both declining rather than mis-narrowing:
+
+- the root-initializer circularity check (`:13755`-`:13759`), which needs
+  `IsNodeDescendantOf` and `getControlFlowContainer` agreement;
+- `mapType(parentType, getBaseConstraintOrType)` (`:13768`), so a type
+  PARAMETER constrained to a union reaches the road where only a written union
+  does today.
