@@ -3,7 +3,7 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
 Passed         : 6100/9538 (63.95%)
-Assertion lines: 436220/478855 (91.10%)  — a gradient, not a pass rate
+Assertion lines: 436224/478855 (91.10%)  — a gradient, not a pass rate
 Failed         : 3438
 Skipped        : 2906 (excluded from the denominator)
 
@@ -152,7 +152,7 @@ compiler/arrayConstructors1
 compiler/arrayDestructuringInSwitch1
   arrayDestructuringInSwitch1.ts: >operator : error — expected >operator : "and" | "not"
 compiler/arrayDestructuringInSwitch2
-  arrayDestructuringInSwitch2.ts: >n : 1 | undefined — expected >n : never
+  arrayDestructuringInSwitch2.ts: >n : any — expected >n : never
 compiler/arrayEvery
   arrayEvery.ts: >foo[0].slice(0) : error — expected >foo[0].slice(0) : string
 compiler/arrayFakeFlatNoCrashInferenceDeclarations

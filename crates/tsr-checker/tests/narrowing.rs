@@ -1123,3 +1123,38 @@ fn a_switch_on_typeof_a_chain_strips_the_base() {
         "{ x: string; } | undefined"
     );
 }
+
+/// §764: two of `getNarrowedTypeOfSymbol`'s entry guards
+/// (`checker.go:13772`, `:13775`) that §762 left unported.
+///
+/// The `isSomeSymbolAssigned` guard moved ZERO lines on the corpus and is
+/// kept for SOUNDNESS: once any symbol the parameter's pattern binds is
+/// reassigned, the siblings stop being projections of a single parent value,
+/// so discriminating them against each other would be a WRONG answer rather
+/// than a missing one. This test is the only thing that pins it.
+///
+/// Note the guard asks about EVERY symbol the root's name binds, not the one
+/// being read — assigning `kind` is what withdraws the narrowing for `v`.
+///
+/// Reddened by: removing the guard.
+#[test]
+fn a_reassigned_destructured_parameter_does_not_discriminate() {
+    let union = "type A = { kind: \"a\"; v: string };\n\
+                 type B = { kind: \"b\"; v: number };\n";
+    // The control: an un-reassigned destructured parameter DOES discriminate.
+    assert_eq!(
+        type_of_last_expression(&format!(
+            "{union}function f({{ kind, v }}: A | B) {{ if (kind === \"a\") {{ v; }} }}"
+        )),
+        "string"
+    );
+    // Assigning a SIBLING withdraws the pseudo-reference: `v` keeps its whole
+    // declared type rather than being discriminated by `kind`.
+    assert_eq!(
+        type_of_last_expression(&format!(
+            "{union}function f({{ kind, v }}: A | B) {{ kind = \"b\"; \
+             if (kind === \"a\") {{ v; }} }}"
+        )),
+        "string | number"
+    );
+}

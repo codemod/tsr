@@ -3996,3 +3996,72 @@ arms over the real relation**. The scaffolding removed along the way:
 None for this road. `Relation::Comparable` is now the only comparability
 answer in `flow.rs`, and the remaining unported narrowing items are the
 `getNarrowedTypeOfSymbol` entry guards §762 listed.
+
+## §764 — two `getNarrowedTypeOfSymbol` entry guards, one worth +4 and one worth 0 (ZERO adverse)
+
+§762 changed the pseudo-reference CANDIDATE road and said plainly that it left
+the ENTRY guards (`checker.go:13751`-`:13775`) as §50 had made them. Two of
+those are ported here, and they are worth recording separately because **they
+measure completely differently and only one of them is a conformance item.**
+
+### The `never` guard — +4
+
+`checker.go:13775`: when the pseudo-reference walk narrows the PARENT to
+`never`, the element is `never`. Upstream answers that directly rather than
+projecting a binding element out of an empty union. This port fell through to
+the projection, which cannot produce the right answer from nothing.
+
+**Measured alone: +4 W→R, ZERO adverse** — `arrayDestructuringInSwitch2` 2,
+`dependentDestructuredVariables` 2.
+
+### The `isSomeSymbolAssigned` guard — 0, and kept anyway
+
+`checker.go:13772`: `!(IsParameterDeclaration(root) && isSomeSymbolAssigned(root))`.
+Once any symbol the parameter's pattern binds is reassigned, the siblings stop
+being projections of a single parent value, and discriminating them against
+each other stops being sound.
+
+**Measured alone: ZERO.** The corpus does not contain the shape. It is kept
+because it prevents a **wrong answer, not a missing one** — the failure mode is
+`f({ kind, v }: A | B) { kind = "b"; if (kind === "a") { v } }` answering
+`string` where `v` is `string | number`. A unit test pins it, and removing the
+guard reddens that test; the test says in its own doc comment that it is the
+only thing pinning the guard, because the corpus number cannot.
+
+`isSomeSymbolAssignedWorker` (`checker.go:31475`) recurses over a pattern's
+elements, so the guard asks about EVERY symbol the root's name binds rather
+than the one being read — assigning `kind` is what withdraws the narrowing for
+`v`. That is the detail a simplified version would get wrong.
+
+### Why the split measurement matters
+
+Landed together these read as "+4, zero adverse", which would have credited the
+soundness guard with movement it did not produce and hidden that it is
+unfalsifiable by the corpus. Splitting cost one extra run. **A guard that
+measures zero needs a test or it is indistinguishable from dead code**, and
+that is the rule this section is really for.
+
+### Measured
+
+```
+scorepair over the §763 baseline (436,220):
+  the `never` guard alone:        +4 W→R, ZERO adverse
+  + isSomeSymbolAssigned:         unchanged
+  right 436,220 → 436,224
+    arrayDestructuringInSwitch2 2, dependentDestructuredVariables 2
+coverage: checker_types 6,100 unmoved, gradient 91.10% unmoved;
+          diagnostics 2,600 unmoved; every other suite identical
+```
+
+### Residue — the guards still unported
+
+- `GetRootDeclaration` on the declaration (`:13752`): this port takes ONE hop
+  from the pattern to its holder, so a NESTED pattern
+  (`const { a: { b, c } } = x`) finds a `BindingElement` where it wants a
+  parameter or variable declaration, and declines. Upstream walks to the root.
+- The root-initializer circularity check (`:13755`-`:13759`).
+- `mapType(parentType, getBaseConstraintOrType)` (`:13768`): a type PARAMETER
+  constrained to a union does not reach this road here, only a written union
+  does.
+
+None of the three is a soundness gap — each declines rather than mis-narrows.

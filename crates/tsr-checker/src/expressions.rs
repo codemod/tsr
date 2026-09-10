@@ -245,6 +245,16 @@ impl Checker<'_, '_> {
         if !root_ok {
             return None;
         }
+        // §764 (`checker.go:13772`): `!(IsParameterDeclaration(root) &&
+        // isSomeSymbolAssigned(root))`. A PARAMETER the body reassigns is no
+        // longer one destructured value — its siblings stop being projections
+        // of a single parent, so discriminating them against each other is
+        // unsound. The guard is on the ROOT, and it asks about every symbol
+        // the root's name binds, not just the one being read.
+        if self.nodes.kind(holder) == SyntaxKind::Parameter && self.is_some_symbol_assigned(holder)
+        {
+            return None;
+        }
         let parent_type = self.get_type_for_binding_element_parent(holder);
         if parent_type == self.intrinsics.error
             || !self.store.get(parent_type).flags.intersects(crate::flags::TypeFlags::UNION)
@@ -252,6 +262,12 @@ impl Checker<'_, '_> {
             return None;
         }
         let narrowed = self.narrow_destructured_parent(reference, pattern_id, parent_type);
+        // §764 (`checker.go:13775`): a parent narrowed to `never` makes the
+        // ELEMENT `never` — upstream answers that directly rather than
+        // projecting out of an empty union.
+        if self.store.get(narrowed).flags.contains(crate::flags::TypeFlags::NEVER) {
+            return Some(self.intrinsics.never);
+        }
         if narrowed == parent_type {
             // Nothing narrowed: the ordinary projection road answers, and
             // taking it keeps this arm invisible when no discriminant fired.

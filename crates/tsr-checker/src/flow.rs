@@ -1668,6 +1668,49 @@ impl Checker<'_, '_> {
 
     /// `ensureAssignmentsMarked` (`flow.go:2674`): one marking walk per
     /// enclosing function/source-file root.
+    /// `isSomeSymbolAssigned` (`checker.go:31471`). §764.
+    ///
+    /// Whether ANY symbol bound by `root_declaration`'s name is assigned
+    /// anywhere — for a plain identifier that is the one symbol, for a binding
+    /// pattern it recurses over the elements. Upstream uses it to refuse the
+    /// pseudo-reference narrowing on a PARAMETER that the body reassigns: the
+    /// destructured siblings are then no longer projections of one parent
+    /// value, so discriminating them against each other is unsound.
+    pub(crate) fn is_some_symbol_assigned(&mut self, root_declaration: NodeId) -> bool {
+        let name = match self.node_map.get(root_declaration) {
+            Some(Node::ParameterDeclaration(node)) => node.name,
+            Some(Node::VariableDeclaration(node)) => node.name,
+            Some(Node::BindingElement(node)) => node.name,
+            _ => None,
+        };
+        let Some(name) = name else { return false };
+        self.is_some_symbol_assigned_worker(name)
+    }
+
+    /// `isSomeSymbolAssignedWorker` (`checker.go:31475`). §764.
+    fn is_some_symbol_assigned_worker(&mut self, name: tsr_ast::BindingName<'_>) -> bool {
+        match name {
+            tsr_ast::BindingName::Identifier(identifier) => {
+                let Some(id) = identifier.node_id else { return false };
+                // `getSymbolOfDeclaration(node.Parent)` — the symbol is the
+                // DECLARATION's, and the name node is how it is reached.
+                let Some(declaration) = self.nodes.parent(id) else { return false };
+                let Some(symbol) = self.binder.symbol_of(declaration) else {
+                    return false;
+                };
+                self.ensure_assignments_marked(symbol);
+                self.last_assignment_pos.contains_key(&symbol)
+            }
+            tsr_ast::BindingName::BindingPattern(pattern) => pattern
+                .elements
+                .iter()
+                .filter_map(|element| element.name)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .any(|inner| self.is_some_symbol_assigned_worker(inner)),
+        }
+    }
+
     fn ensure_assignments_marked(&mut self, symbol: SymbolId) {
         if self.last_assignment_pos.contains_key(&symbol) {
             return;
