@@ -4177,3 +4177,86 @@ declaration whose own initializer contains the location from recursing — and
 this port has its own circularity protection on the type road, so porting it
 without measuring what it would break is not obviously right. Left with the
 reason recorded rather than as a bare TODO.
+
+## §767 — `depend.rs` gets five step arms, and the board's second-largest root turns out to have been INVISIBLE (instrument only, ZERO checker change)
+
+No checker code. `scorepair` reads `no transitions vs baseline`, and the walk
+population is unchanged at **8,009 gap lines** — only ATTRIBUTION moved.
+
+### Why this was worth a section
+
+§766's handoff re-ran `depend.rs` and the board's top rows read:
+
+```
+CallExpression            1191  14.9%   the dependency types — the root is here
+ArrowFunction              993  12.4%   NO STEP ARM for this kind — not a finding
+PropertyAccessExpression   736   9.2%   the dependency types — the root is here
+ObjectLiteralExpression    430   5.4%   NO STEP ARM for this kind — not a finding
+...
+MappedType 256, ArrayLiteralExpression 214, FunctionExpression 212 — all NO STEP ARM
+```
+
+**Roughly 2,100 lines — 26% of the board — were the instrument, not the port.**
+`has_step_arm` is doing exactly its job there (§ its own doc comment: without
+it, "no further dependency" conflates a real finding with a probe that cannot
+walk), but a bucket that says nothing about the compiler still occupies the
+rank a real row wants. A session that ranks by raw line count picks
+`ArrowFunction` and finds nothing to port.
+
+### The arms
+
+Five, all on the `BinaryExpression` arm's shape — follow the first CONSTITUENT
+that gaps; nothing gapping means the arm refused and the root really is here:
+
+- `ObjectLiteralExpression` → each property's VALUE (a shorthand's value is its
+  own name, which the identifier arm then resolves);
+- `ArrayLiteralExpression` → each element;
+- `ArrowFunction` → parameters, then the CONCISE body expression;
+- `FunctionExpression` → parameters;
+- `ParameterDeclaration` → the annotation, else the initializer.
+
+### What it found
+
+```
+CallExpression   1218  15.2%   the dependency types — the root is here
+Parameter        1059  13.2%   no further dependency         249 cases
+                                 top case: conformance/contextuallyTypedIife
+```
+
+**The second-largest root on the gap board is an un-annotated PARAMETER with no
+annotation and no initializer — i.e. CONTEXTUAL PARAMETER TYPING — and it was
+completely invisible before**, hidden inside `ArrowFunction`'s "not a finding".
+1,059 lines across 249 cases.
+
+That is a nameable subsystem with a named head case, sitting at #2, that no
+previous board could point at. It is the single most useful output of this
+session's instrument work, and it cost five match arms.
+
+The residual `NO STEP ARM` bucket is now **`MappedType` 272 (3.4%)** and
+nothing else above 1%. It is left because a mapped type is a TYPE node and this
+probe's `type_id_at_location` is an expression road; giving it an arm is a
+different piece of work, recorded rather than guessed at.
+
+### The freeze that held
+
+`depend.rs`'s C1 is that its walked population matches the gap suite's.
+**8,009 before and after** — the arms re-attribute, they do not widen the walk.
+If a later arm changes that total, it has changed what is being counted and
+nothing it prints is comparable to this board.
+
+### How you would know this was wrong
+
+An arm that follows a constituent which is NOT actually the dependency would
+move lines to a root that cannot fix them. The check is the one §4.-2g used:
+print the row before working it — which was done here rather than promised.
+`contextuallyTypedIife` is **immediately-invoked function expressions**:
+`(jake => { })("build")`, `((a, b, c) => { })("foo", 101, false)`, plus the
+default/optional/rest parameter variants. So the root is un-annotated
+parameters whose type comes from the CALL's arguments, which is precisely what
+the arm claims. (An earlier draft of this paragraph guessed "callbacks passed
+to generic functions" — that is a different and narrower population, and
+reading the fixture is what corrected it.)
+
+The row is 249 cases wide, so the head case is not the whole of it; the next
+session should print more of the row before sizing the subsystem. But the arm
+is attributing to the right KIND of root.

@@ -178,8 +178,99 @@ fn step<'a>(
             }
             None
         }
+        // §767: the four largest `NO STEP ARM` kinds, on `BinaryExpression`'s
+        // shape — follow the first CONSTITUENT that gaps; none gapping means
+        // the arm itself refused and the root really is here.
+        //
+        // Before this, these four answered `no further dependency` and were
+        // relabelled `NO STEP ARM — not a finding`, which is honest but puts
+        // ~1,850 lines (23% of the board) in a bucket that says nothing about
+        // the compiler. They are now attributed or genuinely rooted here.
+        Node::ObjectLiteralExpression(object) => {
+            // `checkObjectLiteral` types each property's VALUE; a shorthand's
+            // value is its own name, which the identifier arm then resolves.
+            first_gapping(
+                checker,
+                binder,
+                nodes,
+                map,
+                object.properties.iter().filter_map(|property| match property {
+                    tsr_ast::ObjectLiteralElementLike::PropertyAssignment(assignment) => {
+                        assignment.initializer.and_then(|e| e.node_id())
+                    }
+                    tsr_ast::ObjectLiteralElementLike::ShorthandPropertyAssignment(short) => {
+                        short.name.node_id()
+                    }
+                    other => other.node_id(),
+                }),
+            )
+        }
+        Node::ArrayLiteralExpression(array) => first_gapping(
+            checker,
+            binder,
+            nodes,
+            map,
+            array.elements.iter().filter_map(tsr_ast::Expression::node_id),
+        ),
+        // A function's TYPE is its signature: the parameters, then the return.
+        // The concise-body arrow is the one return expression this probe can
+        // reach without a statement walk; a block body's returns are left, and
+        // that limit is why a `FunctionExpression` root is still weaker
+        // evidence than an `ObjectLiteralExpression` one.
+        Node::ArrowFunction(function) => first_gapping(
+            checker,
+            binder,
+            nodes,
+            map,
+            function
+                .parameters
+                .iter()
+                .filter_map(|parameter| parameter.node_id)
+                .chain(function.body.and_then(concise_body_expression)),
+        ),
+        Node::FunctionExpression(function) => first_gapping(
+            checker,
+            binder,
+            nodes,
+            map,
+            function.parameters.iter().filter_map(|parameter| parameter.node_id),
+        ),
+        // §767: a PARAMETER's type is its annotation, else its initializer,
+        // else CONTEXTUAL — and the contextual road is the one this port is
+        // weakest on, so a parameter with neither is a real root and should
+        // say so rather than hide behind a missing arm.
+        Node::ParameterDeclaration(parameter) => parameter
+            .r#type
+            .and_then(|annotation| annotation.node_id())
+            .or_else(|| parameter.initializer.and_then(|e| e.node_id())),
         _ => None,
     }
+}
+
+/// The expression of an arrow's CONCISE body (`x => e`), or `None` for a block
+/// body — whose returns need a statement walk this probe does not do. §767.
+fn concise_body_expression(body: tsr_ast::ConciseBody<'_>) -> Option<NodeId> {
+    match body {
+        tsr_ast::ConciseBody::Block(_) => None,
+        other => other.node_id(),
+    }
+}
+
+/// The first of `candidates` whose type gaps, in source order — the same
+/// "follow the operand that gapped" rule the `BinaryExpression` arm uses, and
+/// the same meaning when nothing gaps: the arm refused, so the root is here.
+/// §767.
+fn first_gapping<'a>(
+    checker: &mut tsr_checker::Checker<'a, '_>,
+    binder: &tsr_binder::BindResult<'a>,
+    nodes: &NodeTable,
+    map: &NodeMap<'a>,
+    candidates: impl Iterator<Item = NodeId>,
+) -> Option<NodeId> {
+    candidates.into_iter().find(|&candidate| {
+        types_producer::type_id_at_location(checker, binder, nodes, map, candidate)
+            == checker.intrinsics().error
+    })
 }
 
 /// Whether [`step`] has an arm for this kind at all.
@@ -204,6 +295,12 @@ fn has_step_arm(node: Node<'_>, is_declaration_name: bool) -> bool {
                 | Node::TypeReferenceNode(_)
                 | Node::Identifier(_)
                 | Node::BinaryExpression(_)
+                // §767
+                | Node::ObjectLiteralExpression(_)
+                | Node::ArrayLiteralExpression(_)
+                | Node::ArrowFunction(_)
+                | Node::FunctionExpression(_)
+                | Node::ParameterDeclaration(_)
         )
 }
 
