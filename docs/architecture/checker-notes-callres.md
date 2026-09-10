@@ -3770,3 +3770,47 @@ three were ported inline under other names (instanceof §83, the two
 containments §51.4/SS154), and two were genuinely absent — §759 and §760. The
 sweep is spent, and it was worth **+79 right lines and +3 cases** for two
 functions totalling about 150 lines.
+
+## §761 — the switch typeof-chain containment, §754's residue closed (+2 W→R, ZERO adverse)
+
+`flow.go:1077`-`:1080`. `getTypeAtSwitchClause`'s default arm has **two**
+optional-chain containments, not one, and §754 ported only the direct form and
+recorded the other as residue. This closes it.
+
+### Why it is a separate arm and not a flag
+
+The two variants differ in their CLAUSE CHECK, and the difference is not
+cosmetic:
+
+| variant | expression | clause check |
+|---|---|---|
+| direct (`:1074`) | `switch (o?.kind)` | no clause type is nullish |
+| typeof (`:1078`) | `switch (typeof o?.x)` | no clause type is `never` or the **string literal `"undefined"`** |
+
+Under `switch (typeof o?.x)` every clause type is a string literal, so the
+direct form's nullish test can never fire — reusing it would strip the base
+unconditionally, including for `case "undefined":` where the chain is *not*
+proved defined. The test asserts exactly that case, and swapping in
+`switch_clause_range_covers_nullish` reddens it. Checked, not assumed.
+
+### Measured
+
+```
+scorepair over the §760 baseline (436,206):
+  right 436,206 → 436,208   +2 W→R, ZERO adverse
+    controlFlowOptionalChain 2
+coverage: checker_types 6,098 unmoved, gradient 91.09% unmoved;
+          diagnostics 2,600 unmoved; every other suite identical
+```
+
+Two lines. It is landed because it is upstream's shape and because the residue
+note that named it would otherwise stay on the page indefinitely — but it is
+also a fair illustration of where this seam now is: **the arms are ported, and
+what is left of them is worth single digits.**
+
+### `getTypeAtSwitchClause`, complete
+
+All four arms and both containments are now ported. The one thing this port
+does not have is the pseudo-reference road (§50's `discriminant_pattern` model
+versus upstream's binding-pattern-as-reference), which is unchanged by this and
+remains the subsystem's last open item.

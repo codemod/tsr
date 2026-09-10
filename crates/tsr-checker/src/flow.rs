@@ -3844,13 +3844,28 @@ impl Checker<'_, '_> {
             // proves the chain result defined, so the BASE strips
             // undefined/null (`narrowTypeBySwitchOptionalChainContainment`,
             // `flow.go:1223`).
-            if self.strict_null_checks
-                && expr
+            if self.strict_null_checks {
+                if expr
                     .node_id()
                     .is_some_and(|id| self.optional_chain_contains_reference(state, id))
-                && !self.switch_clause_range_covers_nullish(switch, &clause)
-            {
-                t = self.get_type_with_facts(t, TypeFacts::NE_UNDEFINED_OR_NULL);
+                {
+                    if !self.switch_clause_range_covers_nullish(switch, &clause) {
+                        t = self.get_type_with_facts(t, TypeFacts::NE_UNDEFINED_OR_NULL);
+                    }
+                } else if let tsr_ast::Expression::TypeOfExpression(type_of) = expr
+                    && type_of
+                        .expression
+                        .and_then(|e| e.node_id())
+                        .is_some_and(|id| self.optional_chain_contains_reference(state, id))
+                    && !self.switch_clause_range_spells_undefined(switch, &clause)
+                {
+                    // §761 (`flow.go:1077`-`:1080`), §754's residue: the
+                    // SECOND containment variant. `switch (typeof o?.x)`
+                    // proves the chain defined when no clause in the range is
+                    // the STRING `"undefined"` — a different clause check from
+                    // the direct form's, which looks for a nullish clause TYPE.
+                    t = self.get_type_with_facts(t, TypeFacts::NE_UNDEFINED_OR_NULL);
+                }
             }
             // `flow.go:1083`-`:1086`: `switch (s.kind)` through the pair,
             // replacing §51's inline property-access test. The inner
@@ -4083,6 +4098,35 @@ impl Checker<'_, '_> {
         slice
             .iter()
             .any(|&clause_type| self.store.get(clause_type).flags.intersects(TypeFlags::NULLABLE))
+    }
+
+    /// The clause check of `narrowTypeBySwitchOptionalChainContainment`'s
+    /// TYPEOF variant (`flow.go:1078`-`:1079`). §761.
+    ///
+    /// Upstream's predicate is `!(never || the string literal "undefined")`
+    /// applied to EVERY clause type in the range; this answers its negation —
+    /// "some clause could be undefined" — so the caller reads the same way the
+    /// direct variant's [`Checker::switch_clause_range_covers_nullish`] does.
+    /// An empty range is upstream's implicit-fallthrough case and declines.
+    fn switch_clause_range_spells_undefined(
+        &mut self,
+        switch: &tsr_ast::SwitchStatement<'_>,
+        clause: &tsr_binder::SwitchClause,
+    ) -> bool {
+        let Some(clause_types) = self.switch_clause_types(switch) else {
+            return true;
+        };
+        let (start, end) = (clause.clause_start as usize, clause.clause_end as usize);
+        let slice = &clause_types[start.min(clause_types.len())..end.min(clause_types.len())];
+        if start == end {
+            return true;
+        }
+        slice.iter().any(|&clause_type| {
+            let ty = self.store.get(clause_type);
+            ty.flags.contains(TypeFlags::NEVER)
+                || (ty.flags.intersects(TypeFlags::STRING_LITERAL)
+                    && matches!(&ty.data, TypeData::StringLiteral(text) if text == "undefined"))
+        })
     }
 
     fn narrow_type_by_switch_on_discriminant(

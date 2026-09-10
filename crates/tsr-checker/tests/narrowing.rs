@@ -1098,3 +1098,28 @@ fn a_constructor_comparison_narrows_the_union() {
         "number | C1"
     );
 }
+
+/// §761 (`flow.go:1077`-`:1080`), §754's residue: the SECOND switch
+/// optional-chain containment variant.
+///
+/// `switch (typeof o?.x)` proves the chain defined when no clause in the range
+/// is the string `"undefined"`. The clause check differs from the direct
+/// form's, which looks for a nullish clause TYPE — here every clause type is a
+/// string literal, so a nullish test would never fire and the base would never
+/// be stripped.
+///
+/// Reddened by: removing the `else if` variant, or reusing
+/// `switch_clause_range_covers_nullish` for it.
+#[test]
+fn a_switch_on_typeof_a_chain_strips_the_base() {
+    let d = "declare let o: { x: string } | undefined;\n";
+    assert_eq!(
+        type_of_last_expression(&format!("{d}switch (typeof o?.x) {{ case \"string\": o; }}")),
+        "{ x: string; }"
+    );
+    // A clause that IS `"undefined"` proves nothing, so the base survives.
+    assert_eq!(
+        type_of_last_expression(&format!("{d}switch (typeof o?.x) {{ case \"undefined\": o; }}")),
+        "{ x: string; } | undefined"
+    );
+}
