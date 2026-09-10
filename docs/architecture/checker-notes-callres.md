@@ -3814,3 +3814,108 @@ All four arms and both containments are now ported. The one thing this port
 does not have is the pseudo-reference road (§50's `discriminant_pattern` model
 versus upstream's binding-pattern-as-reference), which is unchanged by this and
 remains the subsystem's last open item.
+
+## §762 — the pseudo-reference road, reconciled (+2 W→R, ZERO adverse, +1 case, −226 lines)
+
+The discriminant subsystem's last open item, carried as residue since §754 and
+priced as a "model reconciliation, not a transcription". It was the second
+thing, but the reconciliation turned out to be one function.
+
+### The two models were isomorphic all along
+
+Upstream makes the binding pattern **the reference**: `getNarrowedTypeOfSymbol`
+(`checker.go:13723`) calls `getFlowTypeOfReferenceEx(pattern, …)`, and
+`getCandidateDiscriminantPropertyAccess`'s first arm (`flow.go:1459`) fires on
+`IsBindingPattern(f.reference)`.
+
+This port already had that walk — `narrow_destructured_parent` (§50) — but kept
+the LOCATION as the reference and carried the pattern beside it in
+`state.discriminant_pattern`. The same information, spelled differently. So
+there was nothing to reconcile in the flow model at all: the join is one arm in
+`get_candidate_discriminant_property_access` that reads
+`state.discriminant_pattern` where upstream reads `f.reference`.
+
+**The residue note was right that this was the open item and wrong about why it
+was hard.** It was priced as a subsystem because the two models *looked*
+different in the STATUS summary. Reading both put the estimate at one function.
+
+### What made it cheap was already built
+
+The arm returns the **declaration** — a binding element or a parameter — and
+everything downstream needs `getAccessedPropertyName` to name it:
+
+- the **binding-element** arm (`getDestructuringPropertyName`, `flow.go:1792`)
+  landed at §756 for the `const { kind } = u` alias;
+- the **parameter** arm (`flow.go:1735`-`:1737`, the parameter's INDEX in its
+  list) is added here, and it is exactly §50.3's tuple-by-position rule moved
+  from an inline site onto upstream's function.
+
+So §756 had already paid most of this bill without either section knowing.
+
+### Three inline arms deleted, not rewritten
+
+With the candidate arm in place, §50 (equality), §84 (truthiness) and §50.1
+(switch) each became a worse-gated duplicate of the pair, and each was removed
+whole. Their four helpers went with them:
+
+```
+sibling_member_of_pattern            40 lines
+narrow_union_by_member_switch        79
+filter_union_by_member_truthiness    60
+filter_union_by_member_literal       47
+                                    226 lines deleted
+```
+
+Each removal was measured on its own and each was a **wash** — the pair answers
+everything the inline arms answered, and answers it through
+`isDiscriminantProperty` and the comparable relation rather than through
+`comparable_ternary`.
+
+One behavioural improvement rides along that the inline form could not have:
+`sibling_member_of_pattern` returned the identifier's OWN text, so
+`const { kind: k } = u` discriminated on `k`. `getBindingElementPropertyName` is
+`PropertyNameOrName()`, so the pair discriminates on `kind` — §756's lesson,
+now applied to the pseudo-reference road as well.
+
+### Measured
+
+```
+scorepair over the §761 baseline (436,208):
+  the candidate arm alone:            +2 W→R, ZERO adverse
+  + the equality site removed:        unchanged (wash)
+  + truthiness and switch removed:    unchanged (wash)
+  + the four helpers deleted:         unchanged
+  right 436,208 → 436,210
+    dependentDestructuredVariablesWithExport 2
+coverage: checker_types 6,098 → 6,099 (63.93% → 63.94%),
+          gradient 91.09% unmoved at this rounding;
+          diagnostics 2,600 unmoved; every other suite identical
+```
+
+**+1 case and −226 lines.** The line count is the result worth quoting: this
+landing is mostly a deletion, and the deletion is the point — four bespoke
+filters replaced by the one upstream road that now serves all five arms.
+
+### `comparable_ternary` is NOT retired — correcting the expectation
+
+§754 and §755 both said retiring `comparable_ternary` waits on this road. That
+was too optimistic and is corrected here: the §50 family was **four of its
+callers, not all of them**. Four remain:
+
+```
+narrow_type_by_switch_on_discriminant   flow.rs:4032, :4080
+narrow_type_by_equality (§52's filter)  flow.rs:6767, :6794
+```
+
+Those are the SWITCH clause filter and the equality comparable-filter — both on
+the ordinary reference road, both unrelated to pseudo-references. Retiring the
+stand-in means moving those two onto `Relation::Comparable`, which is its own
+item and is not blocked by anything now.
+
+### Residue
+
+- The four `comparable_ternary` call sites above.
+- `getNarrowedTypeOfSymbol`'s own guards (`checker.go:13751`-`:13772`) — the
+  `>= 2` element count, the root-initializer circularity check, the
+  `isSomeSymbolAssigned` parameter test — are still whatever §50 made them;
+  this landing changed the candidate road, not the entry conditions.

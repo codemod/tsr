@@ -3813,15 +3813,6 @@ impl Checker<'_, '_> {
             let narrowed = self.narrow_type_by_switch_on_true(state, incoming.t, switch, &clause);
             return FlowType { t: narrowed, incomplete: incoming.incomplete };
         }
-        // §50.1: the switch expression is a SIBLING element of the
-        // pseudo-reference pattern — the clause narrows the walked union
-        // by that member.
-        if let Some(member) = state.discriminant_pattern.and_then(|pattern| {
-            expr.node_id().and_then(|id| self.sibling_member_of_pattern(pattern, id))
-        }) {
-            let narrowed = self.narrow_union_by_member_switch(incoming.t, &member, switch, &clause);
-            return FlowType { t: narrowed, incomplete: incoming.incomplete };
-        }
         let narrowed = if expr.node_id().is_some_and(|id| self.is_matching_reference(state, id)) {
             self.narrow_type_by_switch_on_discriminant(incoming.t, switch, &clause)
         } else if let tsr_ast::Expression::TypeOfExpression(type_of) = expr
@@ -3883,127 +3874,6 @@ impl Checker<'_, '_> {
             t
         };
         FlowType { t: narrowed, incomplete: incoming.incomplete }
-    }
-
-    /// §50's sibling test, shared by the equality arm and the switch arm
-    /// (§50.1): is `id` an identifier bound to a sibling element of
-    /// `pattern`? The value declaration may be the element OR its name
-    /// node — walk up to two hops to the pattern.
-    fn sibling_member_of_pattern(&self, pattern: NodeId, id: NodeId) -> Option<String> {
-        let Some(Node::Identifier(identifier)) = self.node_map.get(id) else {
-            return None;
-        };
-        let symbol = self.binder.resolve_name(
-            self.nodes,
-            self.node_map,
-            id,
-            identifier.text,
-            SymbolFlags::VALUE,
-        )?;
-        let declaration = self.binder.symbols().get(symbol).value_declaration?;
-        let mut current = Some(declaration);
-        for _ in 0..2 {
-            let node = current?;
-            if self.nodes.parent(node) == Some(pattern) {
-                // §50.3: a PARAMETER sibling of a pseudo-pattern FUNCTION
-                // discriminates the tuple union by ELEMENT INDEX — tuples
-                // answer numeric member names (tuple §8), so the filters
-                // compose unchanged.
-                if self.nodes.kind(node) == SyntaxKind::Parameter {
-                    let parameters = match self.node_map.get(pattern)? {
-                        Node::ArrowFunction(function) => function.parameters,
-                        Node::FunctionExpression(function) => function.parameters,
-                        _ => return Some(identifier.text.to_string()),
-                    };
-                    let index =
-                        parameters.iter().position(|parameter| parameter.node_id == Some(node))?;
-                    return Some(index.to_string());
-                }
-                return Some(identifier.text.to_string());
-            }
-            current = self.nodes.parent(node);
-        }
-        None
-    }
-
-    /// §50.1's switch half: filter the walked union's constituents by
-    /// whether the named sibling MEMBER admits any clause-range literal.
-    /// Default clauses and every undecidable pair decline whole
-    /// (`checker-notes-narrow.md` §50.1).
-    fn narrow_union_by_member_switch(
-        &mut self,
-        t: TypeId,
-        member: &str,
-        switch: &tsr_ast::SwitchStatement<'_>,
-        clause: &tsr_binder::SwitchClause,
-    ) -> TypeId {
-        let Some(clause_types) = self.switch_clause_types(switch) else { return t };
-        if clause_types.is_empty() {
-            return t;
-        }
-        let (start, end) = (clause.clause_start as usize, clause.clause_end as usize);
-        let slice = &clause_types[start.min(clause_types.len())..end.min(clause_types.len())];
-        // SS199: the DEFAULT clause's half, which the discriminant twin of
-        // this function already has (`flow.go:1139`) and this one declined
-        // whole. Upstream filters away every constituent some OTHER clause
-        // handles, so a switch covering every member literal leaves `never`
-        // in its default — `discriminantsAndNullOrUndefined` records
-        // `>c : never` at `default: never(c)`. The clause LIST for the
-        // filter is every clause's type, not this clause's range.
-        let is_default = start == end || slice.contains(&self.intrinsics.never);
-        let clause_list: Vec<TypeId> =
-            if is_default { clause_types.clone() } else { slice.to_vec() };
-        let constituents: Vec<TypeId> = match &self.store.get(t).data {
-            TypeData::Union { types, .. } => types.clone(),
-            _ => vec![t],
-        };
-        let constituents_len = constituents.len();
-        let mut kept = Vec::new();
-        for constituent in constituents {
-            // SS189 CANDIDATE for checker-1's SS204 sub-shape (a reason that
-            // is TRUE but blunter than the fact it protects). This decline is
-            // per-constituent in POSITION but whole in EFFECT: one
-            // constituent lacking the member abandons the narrowing for all
-            // of them. Upstream's `narrowTypeByDiscriminant` asks
-            // `getTypeOfPropertyOfType` on the WHOLE type once, so its nil
-            // answers a different question. **Unjudged** — deciding whether
-            // our loop should DROP such a constituent instead needs one read
-            // of `narrowTypeByDiscriminant`/`filterType` and one
-            // measurement. Recorded rather than guessed: the induced version
-            // of exactly this reasoning is what SS153, SS157, SS162 and
-            // SS177 each cost.
-            let Some(member_type) = self.get_type_of_property_of_type(constituent, member) else {
-                return t;
-            };
-            let mut admits = false;
-            // In the default clause, "admitted by a clause" means REMOVED.
-            for &clause_type in &clause_list {
-                let regular = self.get_regular_type_of_literal_type(clause_type);
-                match self.comparable_ternary(regular, member_type) {
-                    Some(true) => {
-                        admits = true;
-                        break;
-                    }
-                    Some(false) => {}
-                    None => return t,
-                }
-            }
-            // SS199: the default keeps exactly what no clause handles.
-            if admits != is_default {
-                kept.push(constituent);
-            }
-        }
-        if kept.is_empty() {
-            // SS198's rule at the third filter: an emptied set is `never`.
-            return self.intrinsics.never;
-        }
-        // §51: keeping EVERY constituent is the identity — rebuilding the
-        // union would lose an alias-named type's name (`numericLiteralTypes1`
-        // wants `Item`, not the re-formed constituent list).
-        if kept.len() == constituents_len {
-            return t;
-        }
-        self.rebuild_union_subset(t, &kept)
     }
 
     /// `narrowTypeBySwitchOnTrue` (`flow.go:1129` region): prior clauses
@@ -4596,17 +4466,6 @@ impl Checker<'_, '_> {
                         checker.get_type_with_facts(prop, facts)
                     });
                 }
-                // §84 (`checker-notes-narrow.md`): a SIBLING element as the
-                // truthiness condition — `const { kind, isA } = foo; if
-                // (isA) kind` discriminates the pseudo-reference union by
-                // the sibling's member truthiness (`dependentDestructured
-                // Variables`' f30), the §50 equality/switch arms' third
-                // form.
-                if let Some(pattern) = state.discriminant_pattern
-                    && let Some(member) = self.sibling_member_of_pattern(pattern, condition)
-                {
-                    return self.filter_union_by_member_truthiness(t, &member, assume_true);
-                }
                 // §82 (`checker-notes-narrow.md`): the ALIASED CONDITION —
                 // `const isFoo = obj.kind === 'foo'; if (isFoo)` narrows as
                 // the condition itself would (`narrowType`'s identifier arm,
@@ -5034,40 +4893,6 @@ impl Checker<'_, '_> {
                     }
                     return self.narrow_type_by_typeof_literal(t, literal, assume_true != negated);
                 }
-                // §50: a condition on a SIBLING element of the pseudo-
-                // reference pattern discriminates the walked union
-                // (`checker-notes-narrow.md`).
-                if let Some(pattern) = state.discriminant_pattern {
-                    let pair = self
-                        .sibling_member_of_pattern(pattern, left)
-                        .map(|name| (name, right))
-                        .or_else(|| {
-                            self.sibling_member_of_pattern(pattern, right).map(|name| (name, left))
-                        });
-                    if let Some((member, literal_node)) = pair {
-                        let literal_type = self
-                            .node_map
-                            .get(literal_node)
-                            .and_then(|node| tsr_ast::Expression::try_from(node).ok())
-                            .map(|expression| self.check_expression(expression));
-                        if let Some(literal_type) = literal_type
-                            && literal_type != self.intrinsics.error
-                        {
-                            let negated = matches!(
-                                operator.kind,
-                                SyntaxKind::ExclamationEqualsToken
-                                    | SyntaxKind::ExclamationEqualsEqualsToken
-                            );
-                            let keep_match = assume_true != negated;
-                            return self.filter_union_by_member_literal(
-                                t,
-                                &member,
-                                literal_type,
-                                keep_match,
-                            );
-                        }
-                    }
-                }
                 // §51.4 (`checker-notes-narrow.md`): the WHOLE containment
                 // table (`flow.go:1032`), replacing §51.2's one quadrant —
                 // facts NE_UNDEFINED_OR_NULL, loose operators included.
@@ -5262,115 +5087,6 @@ impl Checker<'_, '_> {
             _ => None,
         }
         .and_then(|e| e.node_id())
-    }
-
-    /// §51.3: keep constituents whose MEMBER admits the assumed
-    /// truthiness. Every member must be truthiness-DECIDABLE — a unit
-    /// literal or boolean-family type — or the whole filter declines.
-    fn filter_union_by_member_truthiness(
-        &mut self,
-        t: TypeId,
-        member: &str,
-        assume_true: bool,
-    ) -> TypeId {
-        let constituents: Vec<TypeId> = match &self.store.get(t).data {
-            TypeData::Union { types, .. } => types.clone(),
-            _ => vec![t],
-        };
-        let total = constituents.len();
-        let facts = if assume_true { TypeFacts::TRUTHY } else { TypeFacts::FALSY };
-        let mut kept = Vec::new();
-        for constituent in constituents {
-            // SS189 CONFIRMED and built (checker-1's SS204 sub-shape: a true
-            // reason applied more bluntly than the fact it protects).
-            // Upstream's `filterType` predicate reads
-            // `getTypeOfPropertyOrIndexSignatureOfType(t, propName)`
-            // **OrElse unknownType** (flow.go:744-747): a constituent LACKING
-            // the member becomes `unknown` and is TESTED, never a reason to
-            // abandon the narrowing for its siblings. The outer whole-decline
-            // stays - that one is upstream's too, on
-            // `getTypeOfPropertyOfType(nonNullType, ...)` at flow.go:736.
-            let Some(member_type) = self.get_type_of_property_of_type(constituent, member) else {
-                kept.push(constituent);
-                continue;
-            };
-            let decidable = {
-                let flags = self.store.get(member_type).flags;
-                flags.intersects(TypeFlags::UNIT | TypeFlags::BOOLEAN)
-                    || matches!(&self.store.get(member_type).data, TypeData::Union { types, .. }
-                    if types.iter().all(|&part| {
-                        self.store.get(part).flags.intersects(TypeFlags::UNIT)
-                    }))
-            };
-            if !decidable {
-                return t;
-            }
-            let faceted = self.get_type_with_facts(member_type, facts);
-            if !self.store.get(faceted).flags.intersects(TypeFlags::NEVER) {
-                kept.push(constituent);
-            }
-        }
-        if kept.is_empty() {
-            // SS198 (second call site, found by checker-1's SS210 pre-flight:
-            // `grep` the name before measuring). The TRUTHINESS twin of the
-            // member filter carried the identical emptied-set defect —
-            // answering `t` where upstream's `filterType` answers the empty
-            // union, which is `never`. Fixed with its sibling rather than
-            // after it.
-            return self.intrinsics.never;
-        }
-        if kept.len() == total {
-            return t;
-        }
-        self.rebuild_union_subset(t, &kept)
-    }
-
-    /// The §50/§51.1 shared discriminant filter: keep constituents whose
-    /// MEMBER admits (or refutes) the literal. Declines whole — answers `t`
-    /// — on a missing member, a Kleene unknown, an emptied set, or a
-    /// kept-ALL set (the §51 alias-name identity).
-    fn filter_union_by_member_literal(
-        &mut self,
-        t: TypeId,
-        member: &str,
-        literal_type: TypeId,
-        keep_match: bool,
-    ) -> TypeId {
-        let constituents: Vec<TypeId> = match &self.store.get(t).data {
-            TypeData::Union { types, .. } => types.clone(),
-            _ => vec![t],
-        };
-        let total = constituents.len();
-        let regular = self.get_regular_type_of_literal_type(literal_type);
-        let mut kept = Vec::new();
-        for constituent in constituents {
-            let Some(member_type) = self.get_type_of_property_of_type(constituent, member) else {
-                return t;
-            };
-            match self.comparable_ternary(regular, member_type) {
-                Some(admits) => {
-                    if admits == keep_match {
-                        kept.push(constituent);
-                    }
-                }
-                None => return t,
-            }
-        }
-        if kept.is_empty() {
-            // SS198: an EMPTIED filter is `never`, on both branches —
-            // upstream's `filterType` builds the union of what survived and
-            // the empty union IS `never`. Answering `t` here kept a
-            // constituent every clause had already returned:
-            // `discriminantsAndTypePredicates` narrows to `never` after both
-            // `x.type === ...` arms return, and we answered `B`. Same defect
-            // SS155 fixed in the equality filter; this is its member-literal
-            // twin, and the two were written from one another.
-            return self.intrinsics.never;
-        }
-        if kept.len() == total {
-            return t;
-        }
-        self.rebuild_union_subset(t, &kept)
     }
 
     /// `Checker.narrowTypeByEquality` (`flow.go:556`), **nullable-operand half
@@ -5868,6 +5584,41 @@ impl Checker<'_, '_> {
         ) && binary.left.and_then(|e| e.node_id()) == Some(node)
     }
 
+    /// `getCandidateDiscriminantPropertyAccess`'s first arm (`flow.go:1459`).
+    /// §762.
+    ///
+    /// An identifier bound to a BINDING ELEMENT or PARAMETER declared directly
+    /// in `pattern`, with no initializer of its own and no `...`. Upstream's
+    /// test is `f.reference == declaration.Parent`, one hop — a binding
+    /// element's parent IS the pattern, and a parameter's parent is the
+    /// function that stands as the pseudo-reference.
+    fn pseudo_reference_candidate(&mut self, pattern: NodeId, expr: NodeId) -> Option<NodeId> {
+        let Some(Node::Identifier(identifier)) = self.node_map.get(expr) else {
+            return None;
+        };
+        let symbol = self.binder.resolve_name(
+            self.nodes,
+            self.node_map,
+            expr,
+            identifier.text,
+            SymbolFlags::VALUE,
+        )?;
+        let declaration = self.binder.symbols().get(symbol).value_declaration?;
+        if self.nodes.parent(declaration) != Some(pattern) {
+            return None;
+        }
+        let (initializer, rest) = match self.node_map.get(declaration)? {
+            Node::BindingElement(element) => {
+                (element.initializer.is_some(), element.dot_dot_dot_token.is_some())
+            }
+            Node::ParameterDeclaration(parameter) => {
+                (parameter.initializer.is_some(), parameter.dot_dot_dot_token.is_some())
+            }
+            _ => return None,
+        };
+        (!initializer && !rest).then_some(declaration)
+    }
+
     /// `getCandidateDiscriminantPropertyAccess` (`flow.go:1457`). §755.
     ///
     /// Upstream's identifier arm is now ported WHOLE; of its three top-level
@@ -5898,6 +5649,17 @@ impl Checker<'_, '_> {
         state: &FlowState,
         expr: NodeId,
     ) -> Option<NodeId> {
+        // §762 (`flow.go:1459`-`:1467`): the PSEUDO-REFERENCE arm. Upstream
+        // tests `IsBindingPattern(f.reference)` — it makes the pattern itself
+        // the reference. This port carries the pattern in
+        // `state.discriminant_pattern` instead (§50) and keeps the location as
+        // the reference; the two models hold the same information, and this is
+        // the join between them. The candidate returned is the DECLARATION,
+        // which `getAccessedPropertyName` reads through its binding-element
+        // arm (§756) or its parameter arm (above).
+        if let Some(pattern) = state.discriminant_pattern {
+            return self.pseudo_reference_candidate(pattern, expr);
+        }
         if let Some(receiver) = self.expression_of_access(expr) {
             return self.is_matching_reference(state, receiver).then_some(expr);
         }
@@ -6011,6 +5773,26 @@ impl Checker<'_, '_> {
                     Node::NumericLiteral(literal) => Some(literal.text.to_string()),
                     _ => None,
                 }
+            }
+            // §762: `getAccessedPropertyName`'s PARAMETER arm
+            // (`flow.go:1735`-`:1737`) — the parameter's INDEX in its
+            // function's parameter list, as a string. Tuples answer numeric
+            // member names, so a tuple union destructured across a parameter
+            // list discriminates by position. This is §50.3's rule, moved from
+            // its inline site onto upstream's function.
+            Node::ParameterDeclaration(_) => {
+                let function = self.nodes.parent(access)?;
+                let parameters = match self.node_map.get(function)? {
+                    Node::ArrowFunction(node) => node.parameters,
+                    Node::FunctionExpression(node) => node.parameters,
+                    Node::FunctionDeclaration(node) => node.parameters,
+                    Node::MethodDeclaration(node) => node.parameters,
+                    _ => return None,
+                };
+                parameters
+                    .iter()
+                    .position(|parameter| parameter.node_id == Some(access))
+                    .map(|index| index.to_string())
             }
             Node::ElementAccessExpression(node) => {
                 let argument = node.argument_expression.and_then(|e| e.node_id())?;
