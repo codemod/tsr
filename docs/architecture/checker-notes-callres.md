@@ -3295,3 +3295,82 @@ was never triggered.
   `flow.go:1457`), which is the natural successor item to this road.
 - `getKeyPropertyName` / `getConstituentTypeForKeyType` remain unported, now
   wanted by two call sites rather than one.
+
+## §755 — the const-alias discriminant (`const k = u.kind`) (+32 W→R / +14 G→R, ZERO adverse)
+
+§754's named successor, and the first item on the PSEUDO-REFERENCE road. It is
+also the cheapest thing on that road, which is why it went first.
+
+### The shape
+
+`getDiscriminantPropertyAccess` (`flow.go:1436`) does two things: find a
+CANDIDATE access, then check the property is a discriminant. §750 ported the
+second half properly and inlined a one-arm version of the first. §755 splits
+`getCandidateDiscriminantPropertyAccess` (`:1457`) out to match upstream, which
+is what let a second arm be added beside the first rather than bolted onto the
+caller.
+
+Upstream has three arms; two are now ported:
+
+- **The access arm** (`:1468`-`:1472`) — an access whose receiver is the
+  reference. What §750 had.
+- **The alias arm** (`:1473`-`:1482`, first half) — an identifier bound to a
+  CONST whose initializer is an access on the reference. `const k = u.kind`,
+  then `if (k === "a")` narrows `u`.
+
+The alias arm returns the **initializer**, not the identifier. That is the
+detail that makes it cheap: everything downstream —
+`getAccessedPropertyName`, `isDiscriminantProperty`, `narrowTypeByDiscriminant`
+— receives an ordinary access expression and needs no new arm. All four of
+§4.-4's swapped arms picked the alias up for free, which is why one 40-line
+change moves 46 lines.
+
+### The annotation guard is load-bearing
+
+`getCandidateVariableDeclarationInitializer` (`flow.go:1495`) returns the
+initializer only of an **unannotated** declaration. `const k: "a" | "b" =
+u.kind` is typed by its annotation, not by the access, so treating `k` as an
+alias for `u.kind` would narrow on a relationship the annotation may have
+broken. The test asserts the annotated form does NOT narrow, and removing the
+`declaration.r#type.is_some()` check reddens exactly that assertion — verified,
+not assumed.
+
+`isConstantVariable` does the other half: a `let` alias can be reassigned
+between the alias and the guard, so it is not an alias.
+
+### Still not ported
+
+- The binding-pattern/function pseudo-reference arm (`:1459`-`:1467`). This
+  port models that road through `state.discriminant_pattern` (§50) rather than
+  by letting a binding pattern stand as the reference, so the arm has no
+  counterpart to test against. Retiring `comparable_ternary` still waits on
+  reconciling those two models — §754's residue stands.
+- The `const { kind: x } = obj` half (`:1483`-`:1489`). It returns a BINDING
+  ELEMENT as the candidate, so it needs `getAccessedPropertyName`'s
+  binding-element arm (`flow.go:1727`), which belongs to the same
+  pseudo-reference road. This is the next cheapest item on it.
+
+### Measured
+
+```
+scorepair over the §754 baseline (436,009):
+  right 436,009 → 436,055   +32 W→R / +14 G→R, ZERO adverse
+    controlFlowAliasing2 26+14, controlFlowAliasing 6
+coverage: checker_types 6,093 unmoved, gradient 91.05% → 91.06%;
+          diagnostics 2,600 unmoved; every other suite identical
+```
+
+Both cases are named for the mechanism, which is the cleanest attribution any
+landing in this block got. **+0 cases**: `controlFlowAliasing2` moves 40 of its
+lines and still does not pass, so the rest of it is blocked elsewhere —
+`casequery` would name it, and that is the natural probe for whoever takes the
+binding-element half.
+
+### How you would know this was wrong
+
+An alias narrowing where the alias and the guard straddle an assignment to the
+receiver would be a wrong answer, not a missing one. `isConstantVariable` only
+proves the ALIAS is constant, not the receiver; upstream relies on the flow
+walk to catch the receiver's assignment, and this port's
+`an_assignment_to_the_receiver_resets_the_property_narrowing` test covers the
+non-alias form. If that test's alias twin ever reds, this arm is the suspect.

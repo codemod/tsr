@@ -5486,13 +5486,9 @@ impl Checker<'_, '_> {
         t
     }
 
-    /// `getDiscriminantPropertyAccess` (`flow.go:1436`). §750.
-    ///
-    /// `getCandidateDiscriminantPropertyAccess` (`:1457`) is ported for its
-    /// ACCESS arm only — an access expression whose receiver is the
-    /// reference. Its binding-pattern/parameter pseudo-reference arm and the
-    /// two `const x = obj.kind` / `const { kind: x } = obj` alias arms are
-    /// not ported; each declines here (no candidate), never mis-narrows.
+    /// `getDiscriminantPropertyAccess` (`flow.go:1436`). §750, with
+    /// `getCandidateDiscriminantPropertyAccess` split out at §755 to match
+    /// upstream's shape.
     fn get_discriminant_property_access(
         &mut self,
         state: &FlowState,
@@ -5506,17 +5502,81 @@ impl Checker<'_, '_> {
         if !declared_is_union && !computed_is_union {
             return None;
         }
-        let receiver = self.expression_of_access(expr)?;
-        if !self.is_matching_reference(state, receiver) {
-            return None;
-        }
-        let name = self.get_accessed_property_name(expr)?;
+        let access = self.get_candidate_discriminant_property_access(state, expr)?;
+        let name = self.get_accessed_property_name(access)?;
         let t = if declared_is_union && self.is_type_subset_of(computed_type, state.declared_type) {
             state.declared_type
         } else {
             computed_type
         };
-        self.is_discriminant_property(t, &name).then_some(expr)
+        self.is_discriminant_property(t, &name).then_some(access)
+    }
+
+    /// `getCandidateDiscriminantPropertyAccess` (`flow.go:1457`). §755.
+    ///
+    /// Two of upstream's three arms are ported:
+    ///
+    /// - **The access arm** (`:1468`-`:1472`): an access expression whose
+    ///   receiver is the matching reference. This is the whole of what §750
+    ///   had, inlined into the caller; splitting it out is what let the alias
+    ///   arm be added beside it rather than bolted onto the caller.
+    /// - **The `const x = obj.kind` alias arm** (`:1473`-`:1482`, first half):
+    ///   an identifier bound to a CONST whose initializer is an access on the
+    ///   reference. The candidate returned is the INITIALIZER, so everything
+    ///   downstream — `getAccessedPropertyName`, `narrowTypeByDiscriminant` —
+    ///   sees an ordinary access and needs no new arm.
+    ///
+    /// Not ported, and each declines here rather than mis-narrowing:
+    ///
+    /// - The binding-pattern/function pseudo-reference arm (`:1459`-`:1467`).
+    ///   This port models that road through `state.discriminant_pattern`
+    ///   (§50) rather than through a binding pattern standing as the
+    ///   reference, so the arm has no counterpart to test.
+    /// - The `const { kind: x } = obj` half (`:1483`-`:1489`), which returns a
+    ///   BINDING ELEMENT as the candidate and so needs
+    ///   `getAccessedPropertyName`'s binding-element arm (`flow.go:1727`) —
+    ///   itself part of the pseudo-reference road above.
+    fn get_candidate_discriminant_property_access(
+        &mut self,
+        state: &FlowState,
+        expr: NodeId,
+    ) -> Option<NodeId> {
+        if let Some(receiver) = self.expression_of_access(expr) {
+            return self.is_matching_reference(state, receiver).then_some(expr);
+        }
+        let Some(Node::Identifier(identifier)) = self.node_map.get(expr) else {
+            return None;
+        };
+        let symbol = self.binder.resolve_name(
+            self.nodes,
+            self.node_map,
+            expr,
+            identifier.text,
+            SymbolFlags::VALUE,
+        )?;
+        if !self.is_constant_variable(symbol) {
+            return None;
+        }
+        let declaration = self.binder.symbols().get(symbol).value_declaration?;
+        // `getCandidateVariableDeclarationInitializer` (`flow.go:1495`): the
+        // initializer of an UNANNOTATED variable declaration, parentheses
+        // skipped. The annotation check matters — `const x: Kind = obj.kind`
+        // is typed by its annotation, so the alias would be unsound.
+        let initializer = self.unannotated_declaration_initializer(declaration)?;
+        let receiver = self.expression_of_access(initializer)?;
+        self.is_matching_reference(state, receiver).then_some(initializer)
+    }
+
+    /// `getCandidateVariableDeclarationInitializer` (`flow.go:1495`). §755.
+    fn unannotated_declaration_initializer(&self, node: NodeId) -> Option<NodeId> {
+        let Some(Node::VariableDeclaration(declaration)) = self.node_map.get(node) else {
+            return None;
+        };
+        if declaration.r#type.is_some() {
+            return None;
+        }
+        let initializer = declaration.initializer.and_then(|e| e.node_id())?;
+        Some(self.skip_parentheses(initializer))
     }
 
     /// `node.Expression()` of a property or element access.

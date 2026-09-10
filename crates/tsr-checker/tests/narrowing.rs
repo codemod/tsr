@@ -882,3 +882,45 @@ fn a_switch_on_a_discriminant_property_narrows_the_union() {
         "A"
     );
 }
+
+/// §755: `getCandidateDiscriminantPropertyAccess`'s alias arm
+/// (`flow.go:1473`-`:1482`) — given `const k = u.kind`, `k` narrows `u`.
+///
+/// The candidate returned is the INITIALIZER, so everything downstream sees
+/// an ordinary access. The annotation check is the soundness half: a
+/// declaration with a type annotation is typed by that annotation, not by the
+/// access, so it must NOT alias.
+///
+/// Reddened by: dropping the identifier arm, or dropping the
+/// `declaration.r#type.is_some()` guard (which reddens the third assertion).
+#[test]
+fn a_const_alias_of_a_discriminant_narrows_through_the_alias() {
+    let union = "type A = { kind: \"a\"; a: string };\n\
+                 type B = { kind: \"b\"; b: number };\n\
+                 declare let u: A | B;\n";
+    assert_eq!(
+        type_of_last_expression(&format!("{union}const k = u.kind;\nif (k === \"a\") {{ u; }}")),
+        "A"
+    );
+    // The switch arm reaches the same alias, through the same candidate.
+    assert_eq!(
+        type_of_last_expression(&format!(
+            "{union}const k = u.kind;\nswitch (k) {{ case \"b\": u; }}"
+        )),
+        "B"
+    );
+    // ANNOTATED: `k` is typed by the annotation rather than by the access, so
+    // upstream's `getCandidateVariableDeclarationInitializer` declines and the
+    // union is left whole.
+    assert_eq!(
+        type_of_last_expression(&format!(
+            "{union}const k: \"a\" | \"b\" = u.kind;\nif (k === \"a\") {{ u; }}"
+        )),
+        "A | B"
+    );
+    // A `let` alias is not constant, so it is not an alias either.
+    assert_eq!(
+        type_of_last_expression(&format!("{union}let k = u.kind;\nif (k === \"a\") {{ u; }}")),
+        "A | B"
+    );
+}
