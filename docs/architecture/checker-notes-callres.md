@@ -3070,7 +3070,10 @@ Inside the pair the strip has already happened, on the receiver, in
 
 **The key-property fast path (`:703`-`:719`) is not ported.** It needs
 `getKeyPropertyName` and `getConstituentTypeForKeyType`, and this port interns
-no key-property index for a union. Declining it is upstream's own behaviour for
+no key-property index for a union. (**§757 refuses it outright and corrects
+this paragraph**: the path is gated at TEN constituents, so upstream itself
+takes the general road for every union the corpus's discriminated shapes have.
+Nothing is lost here.) Declining it is upstream's own behaviour for
 every union whose `keyPropertyName` is empty; for a union that has one, the
 general filter reaches the same constituent by comparability instead of by
 lookup. What is actually given up is the `removeType` shortcut on the negative
@@ -3244,7 +3247,9 @@ order, which is what makes drift trackable.
 ### Not ported
 
 - `narrowTypeBySwitchOnDiscriminantProperty`'s key-property fast path
-  (`flow.go:1232`-`:1245`), for the reason §752 records.
+  (`flow.go:1232`-`:1245`), for the reason §752 records — **and refused
+  outright at §757**, which reads the ≥10-constituent gate that makes it a
+  large-union index rather than a narrowing rule.
 - The second containment variant, `typeof`-of-a-chain (`flow.go:1077`-`:1080`),
   whose clause check is `!(never || the string literal "undefined")` rather
   than `!(undefined || never)`. It declines here; it is a separate small item.
@@ -3294,7 +3299,8 @@ was never triggered.
   (`getCandidateDiscriminantPropertyAccess`'s binding-pattern and alias arms,
   `flow.go:1457`), which is the natural successor item to this road.
 - `getKeyPropertyName` / `getConstituentTypeForKeyType` remain unported, now
-  wanted by two call sites rather than one.
+  wanted by two call sites rather than one. **Closed at §757: refused, with the
+  ≥10-constituent gate as the number.**
 
 ## §755 — the const-alias discriminant (`const k = u.kind`) (+32 W→R / +14 G→R, ZERO adverse)
 
@@ -3457,3 +3463,63 @@ destructured consts at four call sites that never saw them before. The corpus
 says none of those four is reached differently today. If a later landing makes
 one of them reachable — anything that widens what counts as a reference — the
 suspects are `flow.rs:1131` and `:1157`, not this arm.
+
+## §757 — the key-property fast path, REFUSED with a number, and a correction to §752/§754
+
+§752 and §754 each declined `narrowTypeByDiscriminantProperty`'s and
+`narrowTypeBySwitchOnDiscriminantProperty`'s key-property fast path
+(`getKeyPropertyName` / `getConstituentTypeForKeyType`), and each described it
+as "an optimisation with one behavioural edge". **That description was too
+generous, and it invited a future session to port it.** It is read now, and it
+is refused with a number.
+
+### The number
+
+`computeKeyPropertyNameAndMap` (`relater.go:1139`) answers
+`InternalSymbolNameMissing` — i.e. the fast path does not run — unless **all**
+of these hold:
+
+- the union has **at least 10 constituents** (`:1141`);
+- at least 10 of them are object or instantiable-non-primitive (`:1141`);
+- every constituent's key property is a **literal** type, or the map is
+  abandoned entirely (`:1182`-`:1184`);
+- at least **10** constituents have a UNIQUE key, and those are at least
+  **50%** of the union (`:1200`).
+
+So `getKeyPropertyName` returns `""` for every union of fewer than ten
+constituents, and `narrowTypeByDiscriminantProperty` falls through to
+`narrowTypeByDiscriminant` — **which is exactly what this port already does, at
+every call site, for every union the corpus's discriminated shapes actually
+have.** It is a lookup table built to keep large unions off an O(n) walk, not a
+narrowing rule.
+
+### What this port gives up by refusing it
+
+Two things, both bounded:
+
+- **Performance on 10+-constituent discriminated unions.** This port walks and
+  compares where upstream would index. It has not been measured as a problem
+  and there is no benchmark asking the question.
+- **One behavioural edge**: on the NEGATIVE `===` branch, upstream's fast path
+  does `removeType(t, candidate)` when the candidate's key property is a unit
+  type (`flow.go:712`-`:714`), where the general filter re-tests every
+  constituent for comparability. These agree whenever the key property really
+  is a unique unit discriminant — which the ≥10/50% gate has already proved
+  before the shortcut is reachable.
+
+### The correction
+
+§752's and §754's sections say the fast path is "not ported" and give the
+reason as the missing helpers. That is true but incomplete: **a reader could
+come away thinking a case is being lost.** None is. The right summary, and the
+one those two sections should be read with, is: *upstream takes the general
+path this port takes, for every union smaller than ten constituents; the fast
+path is a large-union index and porting it is a performance task with a
+benchmark attached, not a conformance task.*
+
+**Refused. Do not port it as part of the discriminant subsystem.** Reopen it
+only with a profile showing the general walk is hot on a real program — and
+note that this port's `union_property_type_for_discriminant` and
+`discriminant_keeps` would each need the same index to benefit, so the item is
+larger than the two functions it names.
+

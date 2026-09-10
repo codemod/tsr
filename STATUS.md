@@ -2647,6 +2647,56 @@ version of bare `any`.
 
 ## 5. Refused, with the number that refused it
 
+### §757 — the key-property fast path, 2026-09-10 — **refused at a gate of TEN constituents**
+
+`getKeyPropertyName` / `getConstituentTypeForKeyType` (`relater.go:1118`/`:1131`),
+wanted by `narrowTypeByDiscriminantProperty` (`flow.go:702`) and
+`narrowTypeBySwitchOnDiscriminantProperty` (`:1231`), both of which this port
+declined at §752 and §754.
+
+`computeKeyPropertyNameAndMap` (`relater.go:1139`) refuses to build the index
+unless the union has **≥10 constituents**, ≥10 of them object-or-instantiable,
+every key property is a literal, and **≥10 constituents have a unique key
+covering ≥50% of the union** (`:1141`, `:1182`, `:1200`). Below that gate
+upstream returns `""` and falls through to `narrowTypeByDiscriminant` — **which
+is what this port already does at every call site.**
+
+It is a large-union index, not a narrowing rule. The only behavioural edge is
+`removeType(t, candidate)` on the negative `===` branch (`flow.go:712`), and
+the ≥10/50% gate has already proved the key unique before that is reachable.
+
+**§752's and §754's notes called it "an optimisation with one behavioural edge"
+without the gate, which reads as though cases were being lost. None are.**
+`checker-notes-callres.md` §757 carries the correction. **Reopen only with a
+profile** showing the general walk is hot on a real program — and note the item
+is larger than the two functions it names, since
+`union_property_type_for_discriminant` and `discriminant_keeps` would each need
+the same index to benefit.
+
+### §719 ADDENDUM, 2026-09-10 (§751 session) — **do not try to fix it with `bd init` / `bd sync`; they damage tracked files**
+
+A session tried to make §719's gate green and made things worse. Recorded so
+the next one does not repeat it:
+
+- The installed `bd` is **0.44.0**; the repo's `.beads/` is set up for a
+  Dolt-backed bd (latest **1.2.2**). The version gap is the whole problem.
+- **`bd init` mutates tracked files**: it shrinks `.beads/.gitignore`, strips
+  `backend`/`dolt_mode`/`dolt_database`/`project_id` out of
+  `.beads/metadata.json`, appends boilerplate to `AGENTS.md`, and creates
+  `.gitattributes`.
+- **`bd sync` commits those changes and pushes them**, unprompted. It did; the
+  commit had to be reverted and the revert pushed (`8e35252e`).
+- It creates a legacy SQLite `.beads/beads.db`, not a Dolt database, and then
+  reports all **190** cited ids as dangling rather than SKIPPED — a *worse*
+  answer, because it looks like a real failure.
+
+**A local database IS required to commit at all** — the repo's pre-commit hook
+fails with *"Failed to flush bd changes to JSONL"* without one. So the working
+procedure is: `bd init`, then immediately
+`git checkout -- .beads/.gitignore .beads/metadata.json AGENTS.md && rm -f .gitattributes`,
+and **never `bd sync`**. Check `git status` after any `bd` command. The gate
+itself stays unverifiable until the CLI is upgraded; §719 stands.
+
 ### §598 CORRECTED BY §599, 2026-08-14 — **the diagnosis below was WRONG; the gate is `noImplicitAny`, and the arm has since LANDED (+7 cases)**
 
 
@@ -8204,3 +8254,4 @@ that were true of a different population than the one they were quoted about.
 | 2026-09-10 | `041825d3` | **63.88%** | **6,093** | **§754 — the SWITCH arm swapped onto the discriminant pair (`flow.go:1083`-`:1086`), closing §4.-4's road (+60 W→R / +16 G→R, ZERO adverse, +1 case, gradient 91.05%).** `typeGuardNarrowsIndexedAccessOfKnownProperty1` 27+12 — the largest single-case movement of the four landings, and an ELEMENT-access case, the road §51's `PropertyAccessExpression`-only test could not reach; `discriminantElementAccessCheck` 12+4, `controlFlowOptionalChain` 9. **The compose bug's THIRD sighting**: upstream's default arm ASSIGNS the optional-chain containment and falls through, this port RETURNED, so `switch (o?.kind)` stripped the `undefined` and then declined to discriminate. §51.5 found it at the value-equality arm, §753 at the typeof arm, §754 here — **three of the four arms that could have had it did**. Stated as a rule for the next narrowing arm: upstream's arms accumulate into `t` and fall through; an early `return` from any intermediate step silently drops every later step. The discriminant road also moved into the DEFAULT arm where upstream has it. **§4.-4 CLOSED: +145 right lines, +2 cases, four landings.** `checker-notes-callres.md` §754. checker session |
 | 2026-09-10 | `e6e419fd` | **63.88%** | **6,093** | **§755 — `getCandidateDiscriminantPropertyAccess` split out to upstream's shape (`flow.go:1457`) and its CONST-ALIAS arm ported (`:1473`-`:1482`): `const k = u.kind` then `if (k === "a")` narrows `u` (+32 W→R / +14 G→R, ZERO adverse, +0 cases, gradient 91.06%).** `controlFlowAliasing2` 26+14, `controlFlowAliasing` 6 — both cases named for the mechanism, the cleanest attribution in this block. The arm returns the **initializer**, not the identifier, so everything downstream sees an ordinary access and needs no new arm — which is why one ~40-line change moves 46 lines across all four of §4.-4's swapped arms at once. **The annotation guard is load-bearing and was verified, not assumed**: `const k: "a" | "b" = u.kind` is typed by its annotation, so it must NOT alias; removing the check reddens exactly that assertion. Still unported: the binding-pattern arm and the `const { kind: x } = obj` half. `checker-notes-callres.md` §755. checker session |
 | 2026-09-10 | `d89b636e` | **63.89%** | **6,094** | **§756 — the destructuring alias arm (`flow.go:1483`-`:1489`), `const { kind } = u` narrowing `u`, plus `getDestructuringPropertyName`'s object arm (`:1792`) (+51 W→R / +14 G→R, ZERO adverse, +1 case, gradient 91.08%).** `controlFlowAliasing` 25, `controlFlowAliasing2` 26+14. **Two shared predicates were wrong and were repaired first, at ZERO movement** — recorded because that zero is the control making the arm's +65 attributable to the arm. (a) `combined_node_flags` was missing `GetRootDeclaration` (`ast/utilities.go:1181`/`:1173`), so a binding element never reached its declaration list and a destructured const never saw CONST; the walk already existed privately in `unused.rs`. (b) `is_constant_variable` reimplemented the flag lookup by hand and got it wrong three ways — one parent instead of the combined flags, `CONST` instead of `CONSTANT` (so `using` was missed), and no `SymbolFlags::VARIABLE` check at all; it has five call sites and fixing it moved nothing. The property name discriminates, not the local: `PropertyNameOrName()` makes `{ kind }` and `{ kind: k }` answer the same. `checker-notes-callres.md` §756. checker session |
+| 2026-09-10 | HEAD | **63.89%** | **6,094** | **§757 — documentation only, no code. The key-property fast path REFUSED with a number, and §752/§754 corrected.** `computeKeyPropertyNameAndMap` (`relater.go:1139`) refuses to build its index below **TEN constituents** (plus ≥10 unique keys and ≥50% coverage), so `getKeyPropertyName` answers `""` and upstream falls through to `narrowTypeByDiscriminant` — **exactly what this port already does** — for every union the corpus's discriminated shapes actually have. It is a large-union index, not a narrowing rule. §752 and §754 had each called it "an optimisation with one behavioural edge" WITHOUT the gate, which reads as though cases were being lost; none are, and both notes now say so. **Also §719 ADDENDUM**: the `issue-ids` gate is a KNOWN refusal that this session rediscovered and made worse by trying to fix — `bd init` mutates tracked files and `bd sync` commits AND pushes them unprompted (reverted at `8e35252e`). Working procedure and the never-`bd sync` rule recorded in §5. `checker-notes-callres.md` §757. checker session |
