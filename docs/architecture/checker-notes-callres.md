@@ -3017,3 +3017,101 @@ documents why. A single-member enum's access spells the ENUM (§55.1's
   fractional or negative member value compares against the literal's
   printed text, which is the same spelling for the values the corpus holds
   but is not a proven identity.
+
+## §752 — the equality arm onto the discriminant pair (+56 W→R / +9 G→R, ZERO adverse)
+
+§4.-4's second swap, and the first one that moved. §750 built the pair
+(`getDiscriminantPropertyAccess` / `narrowTypeByDiscriminant`) and swapped the
+TRUTHINESS arm onto it at zero movement; §751 gave the relater its enum simple
+arms, which is what the equality arm's inner `narrowTypeByEquality` needed
+before the swap could be anything but a downgrade.
+
+### What was there, and why it was replaced whole
+
+§51.1 (`checker-notes-narrow.md`) carried its own inline test: find an operand
+that is a `PropertyAccessExpression` whose receiver `is_matching_reference`,
+take the identifier name, check the other operand types to a UNIT, then filter
+with `filter_union_by_member_literal` over `comparable_ternary`. Upstream has
+no such function. It has `flow.go:496`-`:503` — two calls to
+`getDiscriminantPropertyAccess`, one per operand order, each feeding
+`narrowTypeByDiscriminantProperty`.
+
+The inline form is not a smaller version of that; it is a different predicate
+that happens to agree on the common case. Three things it could not do:
+
+- **Element access.** `u["kind"] === "a"` is an `ElementAccessExpression`, so
+  the match failed and the union was left whole.
+  `getAccessedPropertyName` (`flow.go:1727`) takes both forms, and
+  `compiler/discriminantElementAccessCheck` is the corpus case that wants it.
+- **The receiver's nullable strip.** `narrowTypeByDiscriminant` removes
+  `undefined`/`null` from the RECEIVER when the access is an optional chain or
+  a non-null assertion, before reading the property.
+  `conformance/controlFlowOptionalChain2` wants that.
+- **A non-UNIT comparand.** The inline test required
+  `literal_type.intersects(UNIT)`; the pair hands the property type to
+  `narrowTypeByEquality`, which decides for itself.
+
+It also gated on nothing resembling `isDiscriminantProperty`, so it would
+narrow on a uniform property where upstream declines. That direction cost
+nothing measurable here, but it is the reason the swap is a *replacement* and
+not an *addition*: running both would keep the looser predicate alive.
+
+### The port
+
+`narrow_type_by_discriminant_property` (`flow.go:702`), and at the arm, the two
+operand orders in upstream's order — `leftAccess` then `rightAccess`, the OTHER
+operand as the value.
+
+The inner closure passes `chain_strips_nullable: false`. Upstream's
+`narrowTypeByEquality` has no such parameter; it is this port's SS151 addition,
+correct at the TOP-level equality arm where the reference itself is the chain.
+Inside the pair the strip has already happened, on the receiver, in
+`narrow_type_by_discriminant` — passing it again would strip twice.
+
+**The key-property fast path (`:703`-`:719`) is not ported.** It needs
+`getKeyPropertyName` and `getConstituentTypeForKeyType`, and this port interns
+no key-property index for a union. Declining it is upstream's own behaviour for
+every union whose `keyPropertyName` is empty; for a union that has one, the
+general filter reaches the same constituent by comparability instead of by
+lookup. What is actually given up is the `removeType` shortcut on the negative
+`===` branch and the O(1) — an optimisation with one behavioural edge, not a
+mechanism the arm depends on.
+
+`filter_union_by_member_literal` stays: the §50 sibling-pattern arm is its
+other caller, and that arm is a pseudo-reference road the pair does not serve.
+
+### Measured
+
+```
+scorepair over the §751 baseline (435,864):
+  right 435,864 → 435,929   +56 W→R / +9 G→R, ZERO adverse
+    staticAnonymousTypeNotReferencingTypeParameter 15,
+    controlFlowOptionalChain2 12+2, discriminantElementAccessCheck 10+4,
+    typeGuardIntersectionTypes 2
+coverage: checker_types 6,091 → 6,092 (63.86% → 63.87%),
+          gradient 91.02% → 91.04%; diagnostics 2,600 unmoved;
+          every other suite identical
+```
+
+**A note on the baseline.** `target/verdict_baseline.tsv` was found at §750,
+not §751 — the previous session landed without `--accept`. A control run on the
+clean §751 tree reproduced §751's published matrix exactly (+25 W→R / +16 G→R),
+which both confirmed §751's numbers independently and stopped §752 from being
+measured against a stale reference and reported as +81. `conventions.md`
+records this failure mode; it is the second time it has been met.
+
+### How you would know this was wrong
+
+A case that narrowed under §51.1's looser predicate and stops narrowing under
+`isDiscriminantProperty` would show as R→W or R→G. None did at this corpus. If
+one appears after a later change makes `is_discriminant_property` stricter, the
+suspect is the `has_literal`/`non_uniform` pair, not this arm.
+
+### Residue
+
+- `comparable_ternary`'s enum half (§666) is now redundant with the relater in
+  the EQUALITY road but still live in the §50 sibling arm and the switch arm;
+  it can go when those two are swapped.
+- The typeof arm (`flow.go:623`) and the switch arm (`:1229`) are the two swaps
+  left in §4.-4's road, in that order.
+- The key-property fast path, above, remains unported.

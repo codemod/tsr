@@ -2238,6 +2238,20 @@ already decides those; R→W would say otherwise.
 this arm's) and a `this`-member loop-antecedent pair. `checker_types`
 right 399,212 → **399,406 (83.39%)**.
 
+> **SUPERSEDED at §752 (2026-09-10), by the pair rather than by a better
+> inline test.** The arm above stayed as written for 700-odd sections and was
+> replaced wholesale when
+> `getDiscriminantPropertyAccess`/`narrowTypeByDiscriminant` landed (§750) and
+> the relater's enum arms cleared its precondition (§751). Its score stands as
+> measured — the +196 was real and this section is not corrected, only ended.
+> What the inline form could not reach, and the pair does: an ELEMENT access
+> (`u["kind"]`, which `getAccessedPropertyName` accepts and the
+> `PropertyAccessExpression`-only match did not), the optional-chain and
+> non-null nullable strip on the receiver, and a non-UNIT comparand. What it
+> gave up: nothing measurable — §752 ran ZERO adverse. See
+> `checker-notes-callres.md` §752.
+
+
 ## §51.2 — optional-chain containment at an equality
 
 `controlFlowOptionalChain` (59+ WRONG `Thing | undefined`):

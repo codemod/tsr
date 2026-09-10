@@ -770,3 +770,33 @@ fn a_never_call_drops_its_path_at_a_join_and_reads_declared_when_unreachable() {
         "string | undefined"
     );
 }
+
+/// §752: the equality arm reaches discriminant narrowing through
+/// `getDiscriminantPropertyAccess`/`narrowTypeByDiscriminant` (`flow.go:496`)
+/// rather than through §51.1's inline property-access test.
+///
+/// The inline form matched a `PropertyAccessExpression` only, so `u["kind"]`
+/// narrowed nothing. `getAccessedPropertyName` (`flow.go:1727`) accepts the
+/// ELEMENT access with a string-literal argument too, which is what
+/// `compiler/discriminantElementAccessCheck` wants.
+///
+/// Reddened by: restoring the inline `access_pair` test.
+#[test]
+fn a_discriminant_equality_narrows_through_a_property_or_element_access() {
+    let union = "type A = { kind: \"a\"; a: string };\n\
+                 type B = { kind: \"b\"; b: number };\n\
+                 declare let u: A | B;\n";
+    // The property-access road §51.1 already had — a regression guard on the
+    // swap, not a new capability.
+    assert_eq!(type_of_last_expression(&format!("{union}if (u.kind === \"a\") {{ u; }}")), "A");
+    // The element-access road, which the inline form could not reach.
+    assert_eq!(
+        type_of_last_expression(&format!("{union}if (u[\"kind\"] === \"a\") {{ u; }}")),
+        "A"
+    );
+    // The negative branch drops the matched constituent, both ways round.
+    assert_eq!(type_of_last_expression(&format!("{union}if (u.kind !== \"a\") {{ u; }}")), "B");
+    // The reference may sit on either side of the operator (upstream's
+    // `leftAccess` then `rightAccess`).
+    assert_eq!(type_of_last_expression(&format!("{union}if (\"b\" === u.kind) {{ u; }}")), "B");
+}

@@ -5052,50 +5052,19 @@ impl Checker<'_, '_> {
                 // `o?.kind === 'a'` composes nullish removal WITH the
                 // discriminant filter below.
                 let t = containment_narrowed.unwrap_or(t);
-                // §51.1 (`checker-notes-narrow.md`): `s.kind === 0` — a
-                // property access whose RECEIVER is the reference
-                // discriminates by the member, the §50 filter with the
-                // member from the access (`narrowTypeByDiscriminantProperty`).
-                let access_pair =
-                    [(left, right), (right, left)].into_iter().find_map(|(candidate, value)| {
-                        match self.node_map.get(candidate) {
-                            Some(Node::PropertyAccessExpression(access))
-                                if access
-                                    .expression
-                                    .and_then(|receiver| receiver.node_id())
-                                    .is_some_and(|id| self.is_matching_reference(state, id)) =>
-                            {
-                                match access.name {
-                                    Some(tsr_ast::MemberName::Identifier(name)) => {
-                                        Some((name.text.to_string(), value))
-                                    }
-                                    _ => None,
-                                }
-                            }
-                            _ => None,
-                        }
-                    });
-                if let Some((member, literal_node)) = access_pair {
-                    let literal_type = self
-                        .node_map
-                        .get(literal_node)
-                        .and_then(|node| tsr_ast::Expression::try_from(node).ok())
-                        .map(|expression| self.check_expression(expression));
-                    if let Some(literal_type) = literal_type
-                        && literal_type != self.intrinsics.error
-                        && self.store.get(literal_type).flags.intersects(TypeFlags::UNIT)
+                // §752 (`flow.go:496`-`:503`): the discriminant pair,
+                // replacing §51.1's inline access test. Both operand orders,
+                // reference-side access first — upstream's `leftAccess` then
+                // `rightAccess`, with the OTHER operand as the value.
+                for (candidate, value) in [(left, right), (right, left)] {
+                    if let Some(access) = self.get_discriminant_property_access(state, candidate, t)
                     {
-                        let negated = matches!(
-                            operator.kind,
-                            SyntaxKind::ExclamationEqualsToken
-                                | SyntaxKind::ExclamationEqualsEqualsToken
-                        );
-                        let keep_match = assume_true != negated;
-                        return self.filter_union_by_member_literal(
+                        return self.narrow_type_by_discriminant_property(
                             t,
-                            &member,
-                            literal_type,
-                            keep_match,
+                            access,
+                            operator.kind,
+                            value,
+                            assume_true,
                         );
                     }
                 }
@@ -5633,6 +5602,35 @@ impl Checker<'_, '_> {
             return types.iter().all(|&c| self.store.get(c).flags.intersects(TypeFlags::UNIT));
         }
         ty.flags.intersects(TypeFlags::UNIT)
+    }
+
+    /// `narrowTypeByDiscriminantProperty` (`flow.go:702`). §752 — the
+    /// equality arm's swap onto the pair, replacing §51.1's inline test.
+    ///
+    /// The key-property fast path (`:703`-`:719`) is **not ported**: it needs
+    /// `getKeyPropertyName` and `getConstituentTypeForKeyType`, and this port
+    /// interns no key-property index for a union. Declining it is upstream's
+    /// own behaviour for every union whose `keyPropertyName` is empty, which
+    /// is the general case; for a union that HAS one, the filter below
+    /// reaches the same constituent by comparability instead of by lookup,
+    /// losing only the `removeType` shortcut on the negative `===` branch and
+    /// the O(1). It is an optimisation with one behavioural edge, not a
+    /// mechanism the arm depends on.
+    fn narrow_type_by_discriminant_property(
+        &mut self,
+        t: TypeId,
+        access: NodeId,
+        operator: SyntaxKind,
+        value: NodeId,
+        assume_true: bool,
+    ) -> TypeId {
+        // Upstream passes `narrowTypeByEquality` with no chain flag: the
+        // optional-chain strip belongs to `narrowTypeByDiscriminant`, which
+        // does it on the RECEIVER before reading the property, so passing it
+        // again on the property type would strip twice.
+        self.narrow_type_by_discriminant(t, access, |checker, prop| {
+            checker.narrow_type_by_equality(prop, operator, value, assume_true, false)
+        })
     }
 
     /// `narrowTypeByDiscriminant` (`flow.go:725`). §750.
