@@ -392,6 +392,19 @@ pub enum Relation {
     /// relate to `unknown`, and an object source's relation to `object` is
     /// freshness-gated upstream).
     StrictSubtype,
+    /// Upstream's `c.comparableRelation` — what `narrowTypeByDiscriminant`
+    /// (`flow.go:746`) and `narrowTypeByEquality` (`flow.go:589`) filter
+    /// with. §750 (`checker-notes-callres.md`). Comparability is *mostly*
+    /// bidirectional: the simple arms are tried in BOTH directions
+    /// (`relater.go:181`), a source UNION needs only SOME constituent related
+    /// (`relater.go:2870`), and it shares the assignable-only simple arms
+    /// (`relater.go:261`). Upstream's further comparable carve-outs — the
+    /// type-parameter constraint rule (`:3435`), template-literal
+    /// definite-unrelatedness (`:3574`), the intersection-into-primitive
+    /// constraint hoist (`:2886`), mapped-type modifier leniency (`:3973`)
+    /// — sit on shapes this relater does not decide at all, so they stay
+    /// gaps rather than divergences.
+    Comparable,
 }
 
 /// One relation check, carrying the cache and the depth cap.
@@ -458,6 +471,20 @@ impl Checker<'_, '_> {
         self.is_type_related_to(source, target, Relation::StrictSubtype)
     }
 
+    /// Whether `source` is comparable to `target` (`isTypeComparableTo`,
+    /// `relater.go:162`). §750.
+    #[must_use]
+    pub fn is_type_comparable_to(&mut self, source: TypeId, target: TypeId) -> bool {
+        self.is_type_related_to(source, target, Relation::Comparable)
+    }
+
+    /// `areTypesComparable` (`relater.go:166`): comparable in either
+    /// direction. §750.
+    #[must_use]
+    pub fn are_types_comparable(&mut self, type1: TypeId, type2: TypeId) -> bool {
+        self.is_type_comparable_to(type1, type2) || self.is_type_comparable_to(type2, type1)
+    }
+
     /// Whether `source` and `target` stand in `relation`.
     ///
     /// Ported from `Checker.isTypeRelatedTo` (`internal/checker/relater.go`).
@@ -513,6 +540,15 @@ impl Relater<'_, '_, '_> {
         let source = self.checker.get_regular_type_of_literal_type(source);
         let target = self.checker.get_regular_type_of_literal_type(target);
         if source == target {
+            return Ternary::Related;
+        }
+        // `relater.go:181`/`:2661`: under the comparable relation the simple
+        // arms are also tried REVERSED (target against source) first, unless
+        // the target is `never`. §750.
+        if matches!(self.relation, Relation::Comparable)
+            && !self.checker.type_of(target).flags.intersects(TypeFlags::NEVER)
+            && self.is_simple_type_related_to(target, source) == Some(true)
+        {
             return Ternary::Related;
         }
         match self.is_simple_type_related_to(source, target) {
@@ -734,9 +770,16 @@ impl Relater<'_, '_, '_> {
         // `narrowTypeByTypeFacts` counts on the difference to leave an `any`
         // constituent alone.
         //
-        // The enum arms in the same upstream block are not ported — there are no
-        // enum types in this crate — so `number -> E` is a gap.
-        if matches!(self.relation, Relation::Assignable) && s.intersects(TypeFlags::ANY) {
+        // The enum arms in the same upstream block (`relater.go:266-270`,
+        // `number -> E` and a matching-value numeric literal -> enum literal)
+        // are not ported, so `number -> E` is a gap. (§750 corrects the
+        // reason this comment used to give — "there are no enum types in
+        // this crate" — which stopped being true at §55; `flow.rs`'s
+        // `comparable_ternary` carries the enum-literal half inline
+        // meanwhile.)
+        if matches!(self.relation, Relation::Assignable | Relation::Comparable)
+            && s.intersects(TypeFlags::ANY)
+        {
             return Some(true);
         }
         None
@@ -786,10 +829,16 @@ impl Relater<'_, '_, '_> {
     fn structured_type_related_to(&mut self, source: TypeId, target: TypeId) -> Ternary {
         if let Some(constituents) = self.union_constituents(source) {
             // Every constituent of a source union must be related.
-            // Upstream's `eachTypeRelatedToType`.
+            // Upstream's `eachTypeRelatedToType` — except under the
+            // comparable relation, where SOME constituent suffices
+            // (`relater.go:2870`, `someTypeRelatedToType`). §750.
             let parts: Vec<_> =
                 constituents.iter().map(|&c| self.is_related_to(c, target)).collect();
-            return Ternary::all(parts);
+            return if matches!(self.relation, Relation::Comparable) {
+                Ternary::any(parts)
+            } else {
+                Ternary::all(parts)
+            };
         }
         if let Some(constituents) = self.intersection_constituents(target) {
             // Related to every constituent of a target intersection.

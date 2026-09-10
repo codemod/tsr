@@ -4488,20 +4488,17 @@ impl Checker<'_, '_> {
                 } else {
                     t
                 };
-                // §51.3 (`checker-notes-narrow.md`): `if (s.done)` — an
-                // access whose RECEIVER is the reference discriminates by
-                // the member's truthiness (`narrowTypeByDiscriminant` with
-                // the truthy facts as the member transform). Decidable
-                // members only; any opaque one declines whole.
-                if let Node::PropertyAccessExpression(access) = node
-                    && access
-                        .expression
-                        .and_then(|receiver| receiver.node_id())
-                        .is_some_and(|id| self.is_matching_reference(state, id))
-                    && let Some(tsr_ast::MemberName::Identifier(name)) = access.name
-                {
-                    let member = name.text.to_string();
-                    return self.filter_union_by_member_truthiness(t, &member, assume_true);
+                // `flow.go:434`: `if (s.done)` — the discriminant road,
+                // `getDiscriminantPropertyAccess` + `narrowTypeByDiscriminant`
+                // with the truthy/falsy facts as the member transform. §750
+                // swapped this in for §51.3's inline
+                // `filter_union_by_member_truthiness` (kept for the §84
+                // sibling arm below).
+                if let Some(access) = self.get_discriminant_property_access(state, condition, t) {
+                    let facts = if assume_true { TypeFacts::TRUTHY } else { TypeFacts::FALSY };
+                    return self.narrow_type_by_discriminant(t, access, |checker, prop| {
+                        checker.get_type_with_facts(prop, facts)
+                    });
                 }
                 // §84 (`checker-notes-narrow.md`): a SIBLING element as the
                 // truthiness condition — `const { kind, isA } = foo; if
@@ -5438,7 +5435,7 @@ impl Checker<'_, '_> {
     fn narrow_type_by_type_predicate(
         &mut self,
         state: &FlowState,
-        t: TypeId,
+        mut t: TypeId,
         predicate_type: TypeId,
         predicate_argument: NodeId,
         assume_true: bool,
@@ -5458,10 +5455,329 @@ impl Checker<'_, '_> {
                 self.every_type(predicate_type, |checker, part| checker.is_nullable_type(part))
             };
             if strips {
-                return self.get_type_with_facts(t, TypeFacts::NE_UNDEFINED_OR_NULL);
+                t = self.get_type_with_facts(t, TypeFacts::NE_UNDEFINED_OR_NULL);
             }
         }
+        // `flow.go:327`: `isFoo(x.kind)` — the discriminant road. §750.
+        if let Some(access) = self.get_discriminant_property_access(state, predicate_argument, t) {
+            return self.narrow_type_by_discriminant(t, access, |checker, prop| {
+                checker.narrow_by_predicate_type(prop, predicate_type, assume_true)
+            });
+        }
         t
+    }
+
+    /// `getDiscriminantPropertyAccess` (`flow.go:1436`). §750.
+    ///
+    /// `getCandidateDiscriminantPropertyAccess` (`:1457`) is ported for its
+    /// ACCESS arm only — an access expression whose receiver is the
+    /// reference. Its binding-pattern/parameter pseudo-reference arm and the
+    /// two `const x = obj.kind` / `const { kind: x } = obj` alias arms are
+    /// not ported; each declines here (no candidate), never mis-narrows.
+    fn get_discriminant_property_access(
+        &mut self,
+        state: &FlowState,
+        expr: NodeId,
+        computed_type: TypeId,
+    ) -> Option<NodeId> {
+        let declared_is_union =
+            matches!(self.store.get(state.declared_type).data, TypeData::Union { .. });
+        let computed_is_union =
+            matches!(self.store.get(computed_type).data, TypeData::Union { .. });
+        if !declared_is_union && !computed_is_union {
+            return None;
+        }
+        let receiver = self.expression_of_access(expr)?;
+        if !self.is_matching_reference(state, receiver) {
+            return None;
+        }
+        let name = self.get_accessed_property_name(expr)?;
+        let t = if declared_is_union && self.is_type_subset_of(computed_type, state.declared_type) {
+            state.declared_type
+        } else {
+            computed_type
+        };
+        self.is_discriminant_property(t, &name).then_some(expr)
+    }
+
+    /// `node.Expression()` of a property or element access.
+    fn expression_of_access(&self, node: NodeId) -> Option<NodeId> {
+        match self.node_map.get(node)? {
+            Node::PropertyAccessExpression(access) => access.expression,
+            Node::ElementAccessExpression(access) => access.expression,
+            _ => None,
+        }
+        .and_then(|e| e.node_id())
+    }
+
+    /// `getAccessedPropertyName` (`flow.go:1727`), the access-expression
+    /// arms: a property access's name, or an element access whose argument is
+    /// a string/numeric literal. The binding-element and parameter arms
+    /// belong to the pseudo-reference road, not ported. §750.
+    fn get_accessed_property_name(&self, access: NodeId) -> Option<String> {
+        match self.node_map.get(access)? {
+            Node::PropertyAccessExpression(node) => match node.name? {
+                tsr_ast::MemberName::Identifier(name) => Some(name.text.to_string()),
+                tsr_ast::MemberName::PrivateIdentifier(name) => Some(name.text.to_string()),
+            },
+            Node::ElementAccessExpression(node) => {
+                let argument = node.argument_expression.and_then(|e| e.node_id())?;
+                match self.node_map.get(argument)? {
+                    Node::StringLiteral(literal) => Some(literal.text.to_string()),
+                    Node::NumericLiteral(literal) => Some(literal.text.to_string()),
+                    Node::NoSubstitutionTemplateLiteral(literal) => Some(literal.text.to_string()),
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// `isDiscriminantProperty` (`relater.go:1087`), computed from the
+    /// constituents rather than read off a synthetic union property — this
+    /// port builds no `createUnionOrIntersectionProperty` symbol and carries
+    /// no `CheckFlags`. The three conditions it encodes are transcribed:
+    /// the property exists in SOME constituent (`singleProp != nil`), its
+    /// types are NON-UNIFORM across the constituents that have it
+    /// (`HasNonUniformType`), and at least one of them is a literal type
+    /// (`HasLiteralType`), and the union property's type is not generic.
+    /// §750.
+    ///
+    /// Not transcribed: the `ContainsPrivate | ContainsProtected` mismatch
+    /// rule (`checker.go:21556`, answers nil) and `isPatternLiteralType`
+    /// (this port has no template-literal types to be one). A constituent
+    /// lacking the property makes the synthetic property partial upstream
+    /// but does not stop it from being a discriminant, and does not here.
+    fn is_discriminant_property(&mut self, t: TypeId, name: &str) -> bool {
+        let constituents: Vec<TypeId> = match &self.store.get(t).data {
+            TypeData::Union { types, .. } => types.clone(),
+            _ => return false,
+        };
+        let mut first: Option<TypeId> = None;
+        let mut non_uniform = false;
+        let mut has_literal = false;
+        for constituent in constituents {
+            let flags = self.store.get(constituent).flags;
+            if constituent == self.intrinsics.error || flags.contains(TypeFlags::NEVER) {
+                continue;
+            }
+            let Some(prop_type) = self.get_type_of_property_of_type(constituent, name) else {
+                continue;
+            };
+            if prop_type == self.intrinsics.error {
+                // A property this port cannot type is not evidence either way.
+                return false;
+            }
+            match first {
+                None => first = Some(prop_type),
+                Some(f) if f != prop_type => non_uniform = true,
+                Some(_) => {}
+            }
+            if self.is_literal_type(prop_type) {
+                has_literal = true;
+            }
+            if self.store.get(prop_type).flags.intersects(TypeFlags::TYPE_PARAMETER) {
+                // `!isGenericType(getTypeOfSymbol(prop))`, reduced to the
+                // shape this port can see.
+                return false;
+            }
+        }
+        first.is_some() && non_uniform && has_literal
+    }
+
+    /// `isLiteralType` (`checker.go:25393`).
+    fn is_literal_type(&self, t: TypeId) -> bool {
+        let ty = self.store.get(t);
+        if ty.flags.intersects(TypeFlags::BOOLEAN) {
+            return true;
+        }
+        if let TypeData::Union { types, .. } = &ty.data {
+            if ty.flags.intersects(TypeFlags::ENUM_LITERAL) {
+                return true;
+            }
+            return types.iter().all(|&c| self.store.get(c).flags.intersects(TypeFlags::UNIT));
+        }
+        ty.flags.intersects(TypeFlags::UNIT)
+    }
+
+    /// `narrowTypeByDiscriminant` (`flow.go:725`). §750.
+    ///
+    /// The filter is `areTypesComparable(narrowedPropType, discriminantType)`
+    /// over [`Relation::Comparable`]. Where that relation answers `Unknown`
+    /// in BOTH directions for some constituent, the whole narrowing declines
+    /// (answers `t`): a dropped constituent is a confident wrong answer and
+    /// this relater's negatives are decidable only on the domains
+    /// `checker-notes-assign.md` §2 lists.
+    fn narrow_type_by_discriminant(
+        &mut self,
+        t: TypeId,
+        access: NodeId,
+        narrow: impl Fn(&mut Self, TypeId) -> TypeId,
+    ) -> TypeId {
+        let Some(prop_name) = self.get_accessed_property_name(access) else { return t };
+        let optional_chain = self.is_optional_chain(access);
+        let non_null_access = self
+            .expression_of_access(access)
+            .is_some_and(|e| self.nodes.kind(e) == SyntaxKind::NonNullExpression);
+        let remove_nullable = self.strict_null_checks
+            && (optional_chain || non_null_access)
+            && self.maybe_type_of_kind(t, TypeFlags::NULLABLE);
+        let non_null_type = if remove_nullable {
+            self.get_type_with_facts(t, TypeFacts::NE_UNDEFINED_OR_NULL)
+        } else {
+            t
+        };
+        let Some(mut prop_type) =
+            self.union_property_type_for_discriminant(non_null_type, &prop_name)
+        else {
+            return t;
+        };
+        if prop_type == self.intrinsics.error {
+            return t;
+        }
+        if remove_nullable && optional_chain {
+            prop_type = self.get_optional_type(prop_type, false);
+        }
+        let narrowed_prop_type = narrow(self, prop_type);
+        let narrowed_is_never = self.store.get(narrowed_prop_type).flags.contains(TypeFlags::NEVER);
+        // `filterType` by hand: the predicate needs `&mut self`.
+        let TypeData::Union { types: constituents, .. } = &self.store.get(t).data else {
+            // A non-union survives whole or becomes `never`; a `never`
+            // passes through (`checker.go:26588`); a declined verdict keeps `t`.
+            if self.store.get(t).flags.contains(TypeFlags::NEVER) {
+                return t;
+            }
+            return if self.discriminant_keeps(t, &prop_name, narrowed_prop_type, narrowed_is_never)
+                == Some(false)
+            {
+                self.intrinsics.never
+            } else {
+                t
+            };
+        };
+        let constituents = constituents.clone();
+        let mut kept = Vec::with_capacity(constituents.len());
+        for constituent in &constituents {
+            match self.discriminant_keeps(
+                *constituent,
+                &prop_name,
+                narrowed_prop_type,
+                narrowed_is_never,
+            ) {
+                Some(true) => kept.push(*constituent),
+                Some(false) => {}
+                None => return t,
+            }
+        }
+        if kept.len() == constituents.len() {
+            return t;
+        }
+        self.rebuild_union_subset(t, &kept)
+    }
+
+    /// One constituent of `narrowTypeByDiscriminant`'s filter
+    /// (`flow.go:745`): `discriminantType` is the constituent's property or
+    /// index-signature type (`unknown` when it has neither), and it keeps
+    /// when neither side is `never` and the two are comparable. `None` is
+    /// the relater declining both directions.
+    fn discriminant_keeps(
+        &mut self,
+        constituent: TypeId,
+        prop_name: &str,
+        narrowed_prop_type: TypeId,
+        narrowed_is_never: bool,
+    ) -> Option<bool> {
+        use crate::relater::{Relation, Ternary};
+        if narrowed_is_never {
+            return Some(false);
+        }
+        let discriminant_type = self
+            .get_type_of_property_or_index_signature_of_type(constituent, prop_name)
+            .unwrap_or(self.intrinsics.unknown);
+        if discriminant_type == self.intrinsics.error {
+            return None;
+        }
+        if self.store.get(discriminant_type).flags.contains(TypeFlags::NEVER) {
+            return Some(false);
+        }
+        let forward =
+            self.relate_ternary(narrowed_prop_type, discriminant_type, Relation::Comparable);
+        if forward == Ternary::Related {
+            return Some(true);
+        }
+        let backward =
+            self.relate_ternary(discriminant_type, narrowed_prop_type, Relation::Comparable);
+        match (forward, backward) {
+            (_, Ternary::Related) => Some(true),
+            (Ternary::NotRelated, Ternary::NotRelated) => Some(false),
+            _ => None,
+        }
+    }
+
+    /// `getTypeOfPropertyOfType(nonNullType, propName)` as `narrowTypeByDiscriminant`
+    /// reads it (`flow.go:736`): on a union that is the SYNTHETIC union
+    /// property's type (`createUnionOrIntersectionProperty`, `checker.go:21452`)
+    /// — each constituent's property type, or its applicable index signature's
+    /// value type, or `undefined` for an object-literal type lacking both
+    /// (`WritePartial`); a constituent with none of those makes the property
+    /// `ReadPartial`, which `getPropertyOfUnionOrIntersectionType` answers `nil`
+    /// for, so `None` here. §750. This port's general
+    /// [`Checker::get_type_of_property_of_type`] (§49) declines on ANY missing
+    /// constituent, which is what failed `discriminatedUnionTypes2`'s f30
+    /// (`{ tag: true } | { tag: false } | { [x: string]: string }`) on the
+    /// first pair.
+    fn union_property_type_for_discriminant(&mut self, t: TypeId, name: &str) -> Option<TypeId> {
+        let TypeData::Union { types, .. } = &self.store.get(t).data else {
+            return self.get_type_of_property_of_type(t, name);
+        };
+        let constituents = types.clone();
+        let mut parts = Vec::with_capacity(constituents.len());
+        for constituent in constituents {
+            let flags = self.store.get(constituent).flags;
+            if constituent == self.intrinsics.error || flags.contains(TypeFlags::NEVER) {
+                continue;
+            }
+            let apparent = self.apparent_type(constituent);
+            if let Some(prop) = self.get_type_of_property_of_type(apparent, name) {
+                parts.push(prop);
+                continue;
+            }
+            let name_type = self.store.intern_literal(
+                TypeFlags::STRING_LITERAL,
+                TypeData::StringLiteral(name.to_string()),
+                false,
+            );
+            if let Some(info) = self.get_applicable_index_info(apparent, name_type) {
+                parts.push(info.value);
+            } else if self.is_object_literal_type(apparent) {
+                parts.push(self.intrinsics.undefined);
+            } else {
+                return None;
+            }
+        }
+        if parts.is_empty() {
+            return None;
+        }
+        Some(self.get_union_type(&parts))
+    }
+
+    /// `getTypeOfPropertyOrIndexSignatureOfType` (`checker.go`): the named
+    /// property's type, else the value type of an index signature applicable
+    /// to the name.
+    fn get_type_of_property_or_index_signature_of_type(
+        &mut self,
+        t: TypeId,
+        name: &str,
+    ) -> Option<TypeId> {
+        if let Some(prop) = self.get_type_of_property_of_type(t, name) {
+            return Some(prop);
+        }
+        let name_type = self.store.intern_literal(
+            TypeFlags::STRING_LITERAL,
+            TypeData::StringLiteral(name.to_string()),
+            false,
+        );
+        self.get_applicable_index_info(t, name_type).map(|info| info.value)
     }
 
     /// `hasMatchingArgument` (`flow.go:1886`): some argument is, contains,

@@ -2258,7 +2258,7 @@ impl<'a> Checker<'a, '_> {
 
     /// `maybeTypeOfKind` (`checker.go`): the type or any constituent of a
     /// union/intersection carries one of `kind`'s flags.
-    fn maybe_type_of_kind(&self, id: TypeId, kind: crate::flags::TypeFlags) -> bool {
+    pub(crate) fn maybe_type_of_kind(&self, id: TypeId, kind: crate::flags::TypeFlags) -> bool {
         let ty = self.store.get(id);
         if ty.flags.intersects(kind) {
             return true;

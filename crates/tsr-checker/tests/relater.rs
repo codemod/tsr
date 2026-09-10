@@ -534,3 +534,62 @@ fn the_binary_relation_is_the_ternary_projected() {
         );
     }
 }
+
+/// `isTypeComparableTo` in one direction (§750).
+fn comparable(source: &str) -> bool {
+    with_checker(source, |checker, statements| {
+        let a = annotation_type(checker, statements, 0);
+        let b = annotation_type(checker, statements, 1);
+        checker.is_type_comparable_to(a, b)
+    })
+}
+
+/// §750. Comparability tries the simple arms in BOTH directions
+/// (`relater.go:181`): `string` is comparable to `"a"` although it is not
+/// assignable to it.
+///
+/// Reddened by: removing the reversed simple-arm test in `is_related_to`.
+#[test]
+fn a_primitive_is_comparable_to_its_own_literal_in_both_directions() {
+    assert!(comparable("let a: string; let b: \"a\";"));
+    assert!(comparable("let a: \"a\"; let b: string;"));
+    assert_eq!(both_ways("let a: string; let b: \"a\";"), (false, true));
+}
+
+/// §750. Two distinct literals of one base are NOT comparable — the reversed
+/// arm relates a literal to its base, never one literal to another.
+#[test]
+fn two_distinct_literals_are_not_comparable() {
+    assert!(!comparable("let a: \"a\"; let b: \"b\";"));
+    assert!(!comparable("let a: 1; let b: 2;"));
+    assert!(!comparable("let a: string; let b: number;"));
+}
+
+/// §750. A source UNION is comparable when SOME constituent is
+/// (`relater.go:2870`), where assignability needs EVERY constituent.
+///
+/// Reddened by: dropping the `Comparable` branch in the source-union arm.
+#[test]
+fn a_source_union_needs_only_one_comparable_constituent() {
+    let fixture = "let a: \"a\" | \"b\"; let b: \"a\";";
+    assert!(comparable(fixture));
+    assert!(!assignable(fixture));
+}
+
+/// §750. `never` is never a comparable TARGET through the reversed arm: the
+/// reversal is gated on the target not being `never` (`relater.go:181`), so
+/// `string` against `never` stays unrelated even though `never` relates to
+/// `string`.
+#[test]
+fn never_does_not_become_comparable_through_the_reversed_arm() {
+    assert!(!comparable("let a: string; let b: never;"));
+    assert!(comparable("let a: never; let b: string;"));
+}
+
+/// §750. `any` is comparable in both directions (the assignable-only simple
+/// arms are shared with the comparable relation, `relater.go:261`).
+#[test]
+fn any_is_comparable_to_everything_both_ways() {
+    assert!(comparable("let a: any; let b: string;"));
+    assert!(comparable("let a: string; let b: any;"));
+}

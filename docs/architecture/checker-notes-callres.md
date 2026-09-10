@@ -2865,3 +2865,86 @@ coverage: checker_types 6,089 → 6,091; diagnostics 2,600 unmoved;
 - The port still runs the `hasOwnProperty` arm BEFORE the predicate arm
   (upstream: after). No corpus line distinguishes the orders; noted so a
   future disagreement is recognisable.
+
+## §750 — the comparable relation, `isDiscriminantProperty`, and the `getDiscriminantPropertyAccess`/`narrowTypeByDiscriminant` pair (ZERO movement, ZERO adverse — a fidelity swap)
+
+STATUS §4.-4's first three steps, in its order.
+
+### 1. `Relation::Comparable` (`relater.rs`)
+
+Three comparable-specific rules the port's shapes can reach, each anchored:
+the simple arms tried REVERSED first unless the target is `never`
+(`relater.go:181`/`:2661`); a source union needs only SOME constituent
+(`:2870`); the assignable-only simple arms are shared (`:261`).
+`is_type_comparable_to` / `are_types_comparable` (`:162`/`:166`). Five
+unit tests in `tests/relater.rs`, each naming the mutation that reddens it.
+Upstream's further carve-outs (type parameters `:3435`, template literals
+`:3574`, the intersection-into-primitive hoist `:2886`, mapped-type
+modifiers `:3973`) sit on shapes this relater does not decide; gaps, not
+divergences. Corpus: no consumer yet, no transitions.
+
+### 2. `is_discriminant_property` (`relater.go:1087`)
+
+Computed from constituents rather than read off a synthetic union property
+— this port builds no `createUnionOrIntersectionProperty` symbol and has no
+`CheckFlags`. The three conditions are transcribed: some constituent has
+the property, the types are non-uniform across those that do, at least one
+is a literal type (`isLiteralType`, `checker.go:25393`, ported), and the
+type is not generic (reduced to "not a type parameter"). Not transcribed:
+the private/protected mismatch rule and `isPatternLiteralType`.
+
+### 3. The pair (`flow.go:1436`, `:725`)
+
+`get_discriminant_property_access` — candidate arm for an ACCESS whose
+receiver is the reference only; the binding-pattern pseudo-reference arm
+and the two `const` alias arms are not ported and decline.
+`narrow_type_by_discriminant` — `filterType` by hand (the predicate needs
+`&mut self`) over `are_types_comparable(narrowedPropType, discriminantType)`;
+a constituent the relater declines in BOTH directions declines the WHOLE
+narrowing, per `checker-notes-assign.md` §2's rule on acting on negatives.
+
+**The first pair read 2 R→W** — `discriminatedUnionTypes2` f30,
+`{ tag: true } | { tag: false } | { [x: string]: string }` under `if
+(foo.tag)`. Upstream's `getTypeOfPropertyOfType(union, "tag")` is the
+SYNTHETIC union property's type, which includes an index-signature
+constituent's value type (`WritePartial`, `checker.go:21530`); this port's
+§49 helper declines on any constituent lacking the name. Added
+`union_property_type_for_discriminant` with the three upstream arms
+(property / applicable index signature / `undefined` for an object literal)
+and `None` for the `ReadPartial` case. 2 R→W → 0.
+
+### Consumers
+
+- The predicate arm (`flow.go:327`) — consumed, and DORMANT here: `tsc
+  5.5.4` on `if (isCircleKind(o.kind)) o` does not narrow `o` (TS2339 on
+  `o.r`), because `hasMatchingArgument` walks the REFERENCE for the
+  argument, not the argument for the reference. The road fires only for
+  the binding-pattern pseudo-reference (`getNarrowedTypeOfSymbol`), which
+  this port lacks. Recorded so the next reader does not "fix" §749's
+  `has_matching_argument` into the wrong direction.
+- The truthiness arm (`flow.go:434`) — SWAPPED from §51.3's inline
+  `filter_union_by_member_truthiness`. **Zero transitions over the corpus**:
+  the pair reproduces the inline arm exactly. The inline function stays
+  for the §84 sibling-of-pattern arm, which is the pseudo-reference road's
+  stand-in.
+
+### Measured
+
+```
+scorepair over the §749 baseline (435,823):
+  step 1 alone         no transitions
+  steps 1-3 + swap     first pair 2 R→W (discriminatedUnionTypes2), then
+                       no transitions after the union-property fix
+coverage               below (§7 row)
+```
+
+### Residue
+
+- The equality (`:496`), typeof (`:623`) and switch (`:1229`) arms still
+  run their inline forms; each is one swap-and-measure landing, and the
+  equality one is where `comparable_ternary`'s enum arms (§666) must be
+  carried by the relater's simple arms first (`relater.go:266-270`, the
+  `number → enum` pair — not ported, the relater comment "there are no
+  enum types in this crate" is stale).
+- `is_nullable_type` / `is_discriminant_property` as flag computations
+  rather than fact/CheckFlags reads.
