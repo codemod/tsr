@@ -3609,3 +3609,75 @@ file should not imply otherwise.
   adjusted from unadjusted. §85's mint machinery sits inside the unadjusted
   one, which is why the two kept drifting; separating them is the real fix and
   is not attempted here.
+
+## §759 — `narrowTypeByBooleanComparison`, a whole arm that was missing (+13 W→R / +1 G→R, ZERO adverse)
+
+The §758 sweep's second finding. Comparing upstream's `narrowTypeBy*` list
+against this port's function names, five had no counterpart:
+`narrowTypeByConstructor`, `narrowTypeByBooleanComparison`,
+`narrowTypeByPrivateIdentifierInInExpression`, `narrowTypeByInstanceof`,
+`narrowTypeByOptionalChainContainment`. Three of those turned out to be
+**ported inline under different names** (instanceof at §83, the containments at
+§51.4 and SS154). Two were genuinely absent. This is one of them.
+
+### What it does
+
+`flow.go:510`-`:515`, the last two arms of the equality dispatch:
+
+```go
+if ast.IsBooleanLiteral(right) && !ast.IsAccessExpression(left) {
+    return c.narrowTypeByBooleanComparison(f, t, left, right, operator, assumeTrue)
+}
+```
+
+and the function itself (`:806`) is three lines: fold the literal's polarity
+and the operator's negation into `assumeTrue`, then **re-enter `narrowType` on
+the other operand**. So any condition that narrows on its own keeps narrowing
+when it is compared to a boolean literal — `isA(x) === true` narrows exactly as
+`isA(x)` does, and `isA(x) === false` as `!isA(x)`.
+
+Without it, `if (isA(x) !== true)` narrowed nothing at all.
+
+### Two details that are easy to get wrong
+
+**The fold is a three-way XOR**, transcribed rather than simplified:
+
+```
+assumeTrue = (assumeTrue != isTrueKeyword) != (operator is an equality operator)
+```
+
+Four combinations, and getting one backwards is this arm's failure mode — so
+the test asserts all four plus a loose operator, and flipping either sign in
+the expression reddens it. That was checked, not assumed.
+
+**The other operand must not be an access expression** (`!IsAccessExpression`).
+An access beside a boolean literal is a DISCRIMINANT comparison — `o.flag ===
+true` — and has already been offered to the §752 pair earlier in the dispatch.
+Without that guard this arm would take it back and narrow the wrong thing.
+
+**And the operand must not be the matching reference**: `x === true` is
+answered by `narrowTypeByEquality` at `:483`, before this arm ever runs, and
+filters by comparability. The port's order already matched upstream's here, but
+the first draft of the test asserted the wrong shape and was corrected against
+`compiler/narrowByBooleanComparison` rather than against intuition.
+
+### Measured
+
+```
+scorepair over the §758 baseline (436,127):
+  right 436,127 → 436,141   +13 W→R / +1 G→R, ZERO adverse
+    narrowByBooleanComparison 13+1
+coverage: checker_types 6,095 unmoved, gradient 91.08% unmoved at this
+          rounding; diagnostics 2,600 unmoved; every other suite identical
+```
+
+Every moved line is in the one case named for the mechanism, and that case does
+not convert — so this is a +0-case landing, recorded as such.
+
+### Residue
+
+`narrowTypeByConstructor` (`flow.go:760`) is the other genuinely-absent arm:
+`x.constructor === C`. It needs `isMatchingConstructorReference`
+(`getReferenceCandidate` on a `.constructor` access whose receiver is the
+reference) and `getNarrowedTypeOfSymbol`'s class-instance handling. Not
+attempted here; it is the next item on this sweep and is bigger than this one.

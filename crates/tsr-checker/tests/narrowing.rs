@@ -1031,3 +1031,35 @@ fn a_type_parameter_under_a_non_null_fact_spells_the_nonnullable_utility() {
         "NonNullable<T>"
     );
 }
+
+/// §759: `narrowTypeByBooleanComparison` (`flow.go:806`), reached from the
+/// equality dispatch's last two arms (`:510`-`:515`).
+///
+/// `isA(x) === true` re-enters `narrowType` on the NON-boolean operand with
+/// the assumption folded in, so a condition that narrows on its own — here a
+/// type-predicate call — keeps narrowing when it is compared to a boolean
+/// literal. The fold is a three-way XOR of the assumption, the literal's
+/// polarity and the operator's negation; all four combinations are asserted,
+/// because getting one of them backwards is this arm's failure mode.
+///
+/// The operand must not itself be the matching reference — `x === true` is
+/// answered by `narrowTypeByEquality` at `flow.go:483`, before this arm, and
+/// filters by comparability instead. That is upstream's order and the port's.
+///
+/// Reddened by: any single sign flip in the fold.
+#[test]
+fn a_comparison_against_a_boolean_literal_narrows_the_other_operand() {
+    // `compiler/narrowByBooleanComparison`, reduced to two constituents.
+    let d = "type A = { type: \"A\" };\n\
+             type B = { type: \"B\" };\n\
+             declare function isA(x: A | B): x is A;\n\
+             declare let x: A | B;\n";
+    assert_eq!(type_of_last_expression(&format!("{d}if (isA(x) === true) {{ x; }}")), "A");
+    assert_eq!(type_of_last_expression(&format!("{d}if (isA(x) === false) {{ x; }}")), "B");
+    assert_eq!(type_of_last_expression(&format!("{d}if (isA(x) !== true) {{ x; }}")), "B");
+    assert_eq!(type_of_last_expression(&format!("{d}if (isA(x) !== false) {{ x; }}")), "A");
+    // Loose operators fold the same way.
+    assert_eq!(type_of_last_expression(&format!("{d}if (isA(x) != true) {{ x; }}")), "B");
+    // The boolean may sit on either side.
+    assert_eq!(type_of_last_expression(&format!("{d}if (true === isA(x)) {{ x; }}")), "A");
+}

@@ -5112,6 +5112,38 @@ impl Checker<'_, '_> {
                 } else if self.is_matching_reference(state, right) {
                     (left, right)
                 } else {
+                    // §759 (`flow.go:510`-`:515`): `narrowTypeByBooleanComparison`.
+                    // `x === true` / `x !== false` re-enters `narrowType` on the
+                    // NON-boolean operand with the assumption folded in, so a
+                    // condition that narrows on its own — a type-predicate call,
+                    // a `typeof`, another comparison — keeps narrowing when it is
+                    // compared to a boolean literal. Upstream requires the other
+                    // operand NOT be an access expression, because an access
+                    // beside a boolean literal is a DISCRIMINANT comparison and
+                    // has already been offered to the pair above.
+                    let boolean_pair =
+                        [(right, left), (left, right)].into_iter().find(|&(boolean, other)| {
+                            self.is_boolean_literal(boolean) && !self.is_access_expression(other)
+                        });
+                    if let Some((boolean, other)) = boolean_pair {
+                        // `flow.go:807`. Upstream spells it
+                        //   (assumeTrue != isTrue) != (op is an equality op)
+                        // and `op is an equality op` is `!negated` here, so
+                        // `x != !y` reduces to `x == y` — clippy's
+                        // `nonminimal_bool` requires the reduced form. The
+                        // upstream spelling is kept HERE so the
+                        // correspondence stays checkable by eye; the two are
+                        // the same truth table, and the test asserts all four
+                        // combinations.
+                        let is_true_keyword = self.nodes.kind(boolean) == SyntaxKind::TrueKeyword;
+                        let negated = matches!(
+                            operator.kind,
+                            SyntaxKind::ExclamationEqualsToken
+                                | SyntaxKind::ExclamationEqualsEqualsToken
+                        );
+                        let folded = (assume_true != is_true_keyword) == negated;
+                        return self.narrow_type(state, t, other, folded);
+                    }
                     return t;
                 };
                 // SS151: `o?.foo === value` - the chain result's undefined
@@ -5530,6 +5562,19 @@ impl Checker<'_, '_> {
             computed_type
         };
         self.is_discriminant_property(t, &name).then_some(access)
+    }
+
+    /// `ast.IsBooleanLiteral` — the `true` and `false` keywords. §759.
+    fn is_boolean_literal(&self, node: NodeId) -> bool {
+        matches!(self.nodes.kind(node), SyntaxKind::TrueKeyword | SyntaxKind::FalseKeyword)
+    }
+
+    /// `ast.IsAccessExpression` — a property or element access. §759.
+    fn is_access_expression(&self, node: NodeId) -> bool {
+        matches!(
+            self.nodes.kind(node),
+            SyntaxKind::PropertyAccessExpression | SyntaxKind::ElementAccessExpression
+        )
     }
 
     /// `narrowTypeByOptionality` (`flow.go:415`). §758.
