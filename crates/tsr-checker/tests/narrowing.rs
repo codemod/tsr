@@ -1182,3 +1182,24 @@ fn a_nested_destructuring_still_reaches_the_discriminant_road() {
         "string"
     );
 }
+
+/// §766 (`checker.go:13768`): `mapType(parentType, getBaseConstraintOrType)`.
+///
+/// The union test at the pseudo-reference entry is on the CONSTRAINT, not on
+/// the written type. A destructured parameter typed `T extends A | B` has a
+/// written type that is a TYPE PARAMETER, so testing it declined every
+/// generic destructuring.
+///
+/// Reddened by: testing `parent_type` instead of `parent_constraint`.
+#[test]
+fn a_generic_destructured_parameter_discriminates_through_its_constraint() {
+    let union = "type A = { kind: \"a\"; v: string };\n\
+                 type B = { kind: \"b\"; v: number };\n";
+    assert_eq!(
+        type_of_last_expression(&format!(
+            "{union}function f<T extends A | B>({{ kind, v }}: T) \
+             {{ if (kind === \"a\") {{ v; }} }}"
+        )),
+        "string"
+    );
+}

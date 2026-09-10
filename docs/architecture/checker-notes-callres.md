@@ -4121,3 +4121,59 @@ Two entry guards remain, both declining rather than mis-narrowing:
 - `mapType(parentType, getBaseConstraintOrType)` (`:13768`), so a type
   PARAMETER constrained to a union reaches the road where only a written union
   does today.
+
+## §766 — the base-constraint map at the entry (+16 W→R, ZERO adverse)
+
+§765's residue, and the last of `getNarrowedTypeOfSymbol`'s three entry
+guards that this port could reach. It is the largest of the three, and it was
+listed last in §764's residue — which is worth noting, because the ordering
+there was written from how each guard LOOKED, not from any measurement.
+
+### The guard
+
+`checker.go:13768`: `parentTypeConstraint = mapType(parentType, getBaseConstraintOrType)`,
+and the union test at `:13772` is on the CONSTRAINT.
+
+This port tested the written type. A destructured parameter typed
+`T extends A | B` has a written type that is a TYPE PARAMETER, not a union, so
+the test declined — **every generic destructuring missed the road**, however
+plainly discriminated its constraint was.
+
+`conformance/dependentDestructuredVariables` is full of them: 16 lines.
+
+### The three entry guards, priced
+
+```
+§764  the `never` result            +4
+§765  GetRootDeclaration             0   (nested patterns; test-only)
+§766  the base-constraint map      +16
+```
+
+**+20 lines from three guards on one function**, none of which changes what the
+road DOES — each only changes whether the road is reached. That is the shape of
+this region: the pseudo-reference mechanism was built at §50 and correct, and
+what was missing for a dozen sections was the entry conditions letting real
+programs in.
+
+### Measured
+
+```
+scorepair over the §765 baseline (436,224):
+  right 436,224 → 436,240   +16 W→R, ZERO adverse
+    dependentDestructuredVariables 16
+coverage: checker_types 6,100 unmoved, gradient 91.10% unmoved at this
+          rounding; diagnostics 2,600 unmoved; every other suite identical
+```
+
++0 cases: all 16 lines are in one case that does not convert.
+
+### `getNarrowedTypeOfSymbol`'s entry, complete for this port
+
+One guard is left unported and it is not reachable here: the root-initializer
+circularity check (`:13755`-`:13759`), which needs `IsNodeDescendantOf` on the
+root initializer AND `getControlFlowContainer` agreement between the
+declaration and the location. It is a CIRCULARITY guard — it stops a
+declaration whose own initializer contains the location from recursing — and
+this port has its own circularity protection on the type road, so porting it
+without measuring what it would break is not obviously right. Left with the
+reason recorded rather than as a bare TODO.

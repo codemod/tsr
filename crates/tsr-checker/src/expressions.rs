@@ -277,11 +277,27 @@ impl Checker<'_, '_> {
             return None;
         }
         let parent_type = self.get_type_for_binding_element_parent(holder);
-        if parent_type == self.intrinsics.error
-            || !self.store.get(parent_type).flags.intersects(crate::flags::TypeFlags::UNION)
-        {
+        if parent_type == self.intrinsics.error {
             return None;
         }
+        // §766 (`checker.go:13768`): `mapType(parentType, getBaseConstraintOrType)`.
+        // The union test is on the CONSTRAINT, so a destructured parameter
+        // typed `T extends A | B` reaches the road — the constraint is the
+        // union, the written type is a type parameter, and testing the written
+        // type declined every generic destructuring.
+        let parent_constraint = {
+            let constituents: Vec<TypeId> = match &self.store.get(parent_type).data {
+                crate::types::TypeData::Union { types, .. } => types.clone(),
+                _ => vec![parent_type],
+            };
+            let mapped: Vec<TypeId> =
+                constituents.iter().map(|&c| self.base_constraint_or_type(c)).collect();
+            if mapped == constituents { parent_type } else { self.get_union_type(&mapped) }
+        };
+        if !self.store.get(parent_constraint).flags.intersects(crate::flags::TypeFlags::UNION) {
+            return None;
+        }
+        let parent_type = parent_constraint;
         let narrowed = self.narrow_destructured_parent(reference, pattern_id, parent_type);
         // §764 (`checker.go:13775`): a parent narrowed to `never` makes the
         // ELEMENT `never` — upstream answers that directly rather than

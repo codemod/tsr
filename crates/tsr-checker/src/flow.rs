@@ -3382,7 +3382,7 @@ impl Checker<'_, '_> {
     /// `getBaseConstraintOrType` (`checker.go`) reduced to what this port can
     /// answer: a constrained type parameter reads its constraint, everything
     /// else reads itself. §743.
-    fn base_constraint_or_type(&mut self, t: TypeId) -> TypeId {
+    pub(crate) fn base_constraint_or_type(&mut self, t: TypeId) -> TypeId {
         self.type_parameter_constraint(t).unwrap_or(t)
     }
 
