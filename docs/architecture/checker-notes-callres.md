@@ -3523,3 +3523,89 @@ note that this port's `union_property_type_for_discriminant` and
 `discriminant_keeps` would each need the same index to benefit, so the item is
 larger than the two functions it names.
 
+
+## §758 — `narrowTypeByOptionality`, and the §85 divergence it exposed (+7 W→R, ZERO adverse)
+
+Acting on §754's own instruction — *read the remaining narrowing arms rather
+than wait for them* — a sweep of upstream's `narrowTypeBy*` list against the
+port found one function missing **entirely**, and porting it surfaced a latent
+bug in a different subsystem.
+
+### The missing arm
+
+`narrowType` (`flow.go:377`) has a branch BEFORE its kind dispatch
+(`:378`-`:381`): for `a?.b`'s chain root and for `a ?? b`'s left operand,
+upstream emulates a synthetic `a !== null && a !== undefined` condition and
+calls `narrowTypeByOptionality` (`:415`). This port had **no such branch and no
+such function** — those expressions fell through to the ordinary truthiness
+road.
+
+The distinction is real: truthiness also removes `""`, `0` and `false`, and the
+nullish operators do not. Both halves of the function are ported — the matching
+reference, and the discriminant property through the §750 pair.
+
+### The divergence it exposed
+
+The first measurement was **+1 W→R against 1 R→W** — a net zero with an
+adverse, which is a refusal under this project's rules. The adverse was
+`compiler/nonNullableTypes1:0:32`: `obj` in `if (obj?.x === "hello")` went from
+`NonNullable<T>` to `T & {}`.
+
+Cause: the port's `get_type_with_facts` spells the `NonNullable<T>` utility for
+`TRUTHY` only, and the intersection mint `T & {}` for the NE-family — §85.1's
+explicit claim. **Upstream does not split them.**
+`getAdjustedTypeWithFacts` (`checker.go:31159`) maps surviving constituents
+through `getGlobalNonNullableTypeInstantiation` for `NEUndefinedOrNull` **and**
+`Truthy`. §758 was the first thing to route a type parameter through the
+NE-family at that position, so the divergence had been latent.
+
+Corrected for TYPE PARAMETERS only. Measured **alone**, on a clean tree without
+the new arm: **+6 W→R, ZERO adverse** (`unknownControlFlow` 4,
+`nonNullableTypes1` 2). `unknown` is untouched and keeps the filter road —
+`narrowingTruthyObject`'s 15 R→G still gates it, and that half of §85.1 stands.
+`checker-notes-narrow.md` §85.1 is half-superseded in place.
+
+**This is the second time this session that an "adverse transition" was a
+correct change meeting a pre-existing bug rather than a defect in the change.**
+The habit worth keeping: when a faithful transcription produces exactly one
+adverse, read the adverse before pricing the transcription.
+
+### Measured
+
+```
+scorepair over the §756 baseline (436,120):
+  the §85 correction alone:   +6 W→R, ZERO adverse
+  + narrowTypeByOptionality:  right 436,120 → 436,127
+                              +7 W→R, ZERO adverse
+    unknownControlFlow 4, nonNullableTypes1 2,
+    nullishCoalescingOperator11 1
+coverage: checker_types 6,094 → 6,095 (63.89% → 63.90%),
+          gradient 91.08% unmoved at this rounding;
+          diagnostics 2,600 unmoved; every other suite identical
+```
+
+### What the unit tests do and do not pin
+
+The type-parameter spelling has a real test that reddens on revert. **The
+optionality arm does not, and its test says so.** The arm's only
+corpus-visible effect is the `??` left operand narrowed inside the RIGHT
+operand to its NULLISH part rather than its falsy part
+(`nullishCoalescingOperator11`, 1 line), and `type_of_last_expression` cannot
+see a sub-expression. A fixture that would expose it needs overload resolution
+the port currently answers `error` for. The corpus case is the guard; the test
+pins the chain-root answers the arm must not break, and is labelled as a
+fidelity pin rather than a behaviour test.
+
+That is worth stating rather than quietly shipping a green test: **a test that
+passes both with and without the change is not a regression guard**, and this
+file should not imply otherwise.
+
+### Residue
+
+- `getAdjustedTypeWithFacts`'s OTHER extra — recombining `unknown` into
+  `unknownUnionType` before filtering — is still unported, and is still
+  described accurately at `flow.rs`'s `narrow_type_by_call_expression` note.
+- The port still has one `get_type_with_facts` where upstream distinguishes
+  adjusted from unadjusted. §85's mint machinery sits inside the unadjusted
+  one, which is why the two kept drifting; separating them is the real fix and
+  is not attempted here.

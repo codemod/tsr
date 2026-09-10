@@ -66,6 +66,14 @@ fn last_expression_statement<'a>(statements: &[Statement<'a>]) -> Option<tsr_ast
                     found = last_expression_statement(std::slice::from_ref(&branch)).or(found);
                 }
             }
+            // §758: a function body, so a fixture can introduce a TYPE
+            // PARAMETER — which needs a generic signature and therefore
+            // cannot be written at the top level.
+            Statement::FunctionDeclaration(node) => {
+                if let Some(tsr_ast::FunctionBody::Block(block)) = node.body {
+                    found = last_expression_statement(block.statements).or(found);
+                }
+            }
             // §754: a switch clause's body, so a fixture can put the
             // reference under test inside `case "a":`.
             Statement::SwitchStatement(node) => {
@@ -973,5 +981,53 @@ fn a_destructured_alias_of_a_discriminant_narrows_through_the_alias() {
             "{union}let {{ kind }} = u;\nif (kind === \"a\") {{ u; }}"
         )),
         "A | B"
+    );
+}
+
+/// §758: `narrowTypeByOptionality` (`flow.go:415`), reached from
+/// `narrowType`'s pre-dispatch branch (`:378`-`:381`). For `a?.b` and for
+/// `a ?? b`'s left operand, upstream emulates a synthetic
+/// `a !== null && a !== undefined` condition rather than a truthiness one.
+///
+/// **This test does NOT redden when the branch is removed, and it is not
+/// claimed to.** It pins the chain-root answers the branch must preserve —
+/// SS151/SS152 already reach those through the chain-containment strip, so
+/// the branch is a fidelity change there, not a behaviour change.
+///
+/// The branch's ONE observable effect on this corpus is the narrowing of a
+/// `??` left operand inside the RIGHT operand, to the NULLISH part rather
+/// than the falsy part (`conformance/nullishCoalescingOperator11`, 1 line).
+/// This harness cannot see it: the effect is on a sub-expression, and
+/// `type_of_last_expression` types the whole statement. Making it visible
+/// needs overload resolution the port answers `error` for today. **That case
+/// is the regression guard, not this test.**
+#[test]
+fn a_nullish_operand_narrows_by_presence_and_not_by_truth() {
+    assert_eq!(
+        type_of_last_expression("declare let o: { a: string } | undefined;\nif (o?.a) { o; }"),
+        "{ a: string; }"
+    );
+    assert_eq!(
+        type_of_last_expression("declare let s: string | undefined;\ns ?? \"d\";\ns;"),
+        "string | undefined"
+    );
+}
+
+/// §758's other half: `getAdjustedTypeWithFacts` (`checker.go:31159`) maps
+/// surviving constituents through `getGlobalNonNullableTypeInstantiation` for
+/// **`NEUndefinedOrNull` as well as `Truthy`**. §85 had spelled the utility
+/// for `Truthy` only, so a type parameter under a non-null fact printed
+/// `T & {}` where upstream prints `NonNullable<T>`.
+///
+/// Reddened by: restoring `NonNullKind::Both` for a `TYPE_PARAMETER` under
+/// `NE_UNDEFINED_OR_NULL`.
+#[test]
+fn a_type_parameter_under_a_non_null_fact_spells_the_nonnullable_utility() {
+    assert_eq!(
+        type_of_last_expression(
+            "function g<T extends { x: string } | undefined>(obj: T) {\n\
+             if (obj != null) { obj; }\n}"
+        ),
+        "NonNullable<T>"
     );
 }

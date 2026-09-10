@@ -4481,6 +4481,16 @@ impl Checker<'_, '_> {
         condition: NodeId,
         assume_true: bool,
     ) -> TypeId {
+        // §758 (`flow.go:378`-`:381`), BEFORE the kind dispatch: for `a?.b`
+        // and for `a ?? b`'s left operand, upstream emulates a synthetic
+        // `a !== null && a !== undefined` condition rather than a truthiness
+        // one. The distinction is observable — truthiness would also remove
+        // `""`, `0` and `false`, which a chain root does not.
+        if self.is_expression_of_optional_chain_root(condition)
+            || self.is_left_operand_of_nullish_coalesce(condition)
+        {
+            return self.narrow_type_by_optionality(state, t, condition, assume_true);
+        }
         let Some(node) = self.node_map.get(condition) else { return t };
         match node {
             // `narrowTypeByCallExpression` (`flow.go:444`), the
@@ -5520,6 +5530,75 @@ impl Checker<'_, '_> {
             computed_type
         };
         self.is_discriminant_property(t, &name).then_some(access)
+    }
+
+    /// `narrowTypeByOptionality` (`flow.go:415`). §758.
+    ///
+    /// The chain-root and `??`-left roads narrow by PRESENCE, not by truth:
+    /// `NEUndefinedOrNull` / `EQUndefinedOrNull` rather than `Truthy` /
+    /// `Falsy`. Both halves are ported — the matching reference, and the
+    /// discriminant property through the §750 pair.
+    fn narrow_type_by_optionality(
+        &mut self,
+        state: &mut FlowState,
+        t: TypeId,
+        expr: NodeId,
+        assume_present: bool,
+    ) -> TypeId {
+        let facts = if assume_present {
+            TypeFacts::NE_UNDEFINED_OR_NULL
+        } else {
+            TypeFacts::EQ_UNDEFINED_OR_NULL
+        };
+        if self.is_matching_reference(state, expr) {
+            return self.get_type_with_facts(t, facts);
+        }
+        if let Some(access) = self.get_discriminant_property_access(state, expr, t) {
+            return self.narrow_type_by_discriminant(t, access, |checker, prop| {
+                checker.get_type_with_facts(prop, facts)
+            });
+        }
+        t
+    }
+
+    /// `IsExpressionOfOptionalChainRoot` (`ast/utilities.go:383`): the parent
+    /// is an optional-chain ROOT (`:362` — a chain that is not a non-null
+    /// expression and carries its own `?.`) and this node is its expression.
+    fn is_expression_of_optional_chain_root(&self, node: NodeId) -> bool {
+        let Some(parent) = self.nodes.parent(node) else { return false };
+        if !self.is_optional_chain(parent)
+            || self.nodes.kind(parent) == SyntaxKind::NonNullExpression
+            || !self.has_question_dot_token(parent)
+        {
+            return false;
+        }
+        self.expression_of_chain_link(parent) == Some(node)
+    }
+
+    /// `getQuestionDotToken` (`ast/utilities.go`), the three chain-link kinds
+    /// that can carry one.
+    fn has_question_dot_token(&self, node: NodeId) -> bool {
+        match self.node_map.get(node) {
+            Some(Node::PropertyAccessExpression(access)) => access.question_dot_token.is_some(),
+            Some(Node::ElementAccessExpression(access)) => access.question_dot_token.is_some(),
+            Some(Node::CallExpression(call)) => call.question_dot_token.is_some(),
+            _ => false,
+        }
+    }
+
+    /// The second half of `flow.go:379`'s condition: this node is the LEFT
+    /// operand of a `??` or `??=`, whose short-circuit is nullish and not
+    /// falsy.
+    fn is_left_operand_of_nullish_coalesce(&self, node: NodeId) -> bool {
+        let Some(parent) = self.nodes.parent(node) else { return false };
+        let Some(Node::BinaryExpression(binary)) = self.node_map.get(parent) else {
+            return false;
+        };
+        let Some(operator) = binary.operator_token else { return false };
+        matches!(
+            operator.kind,
+            SyntaxKind::QuestionQuestionToken | SyntaxKind::QuestionQuestionEqualsToken
+        ) && binary.left.and_then(|e| e.node_id()) == Some(node)
     }
 
     /// `getCandidateDiscriminantPropertyAccess` (`flow.go:1457`). §755.
@@ -6997,7 +7076,15 @@ impl Checker<'_, '_> {
                 // (`narrowingTruthyObject` measured 15 R→G against it).
                 flags.intersects(TypeFlags::TYPE_PARAMETER).then_some(NonNullKind::NonNull)
             } else if facts.contains(TypeFacts::NE_UNDEFINED_OR_NULL) {
-                Some(NonNullKind::Both)
+                // PROBE: upstream's `getAdjustedTypeWithFacts` maps through
+                // `getGlobalNonNullableTypeInstantiation` for NEUndefinedOrNull
+                // as well as Truthy, so a TYPE PARAMETER should spell the
+                // utility here too, not `T & {}`.
+                if flags.intersects(TypeFlags::TYPE_PARAMETER) {
+                    Some(NonNullKind::NonNull)
+                } else {
+                    Some(NonNullKind::Both)
+                }
             } else if facts.contains(TypeFacts::NE_UNDEFINED) {
                 Some(NonNullKind::NoUndefined)
             } else if facts.contains(TypeFacts::NE_NULL) {

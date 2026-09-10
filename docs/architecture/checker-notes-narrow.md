@@ -3243,6 +3243,32 @@ gate). **+16 W→R against 3 R→W, net +12 at 5.3:1.**
 
 **§85.1 score — LANDED.** right 404,411 → **404,423 (84.45%)**.
 
+> **HALF-SUPERSEDED at §758 (2026-09-10).** The sentence above — *"TRUTHY on a
+> TYPE PARAMETER spells the utility … where the NE-family spells the
+> intersection"* — was **wrong about upstream**, and §85's own residue had
+> already half-seen it (*"`NonNullable<T>` spellings — some positions want the
+> utility name — 28 W→G now honest gaps"*).
+>
+> `getAdjustedTypeWithFacts` (`checker.go:31159`) maps surviving constituents
+> through `getGlobalNonNullableTypeInstantiation` for **`NEUndefinedOrNull` AND
+> `Truthy`** — the same treatment, not two. So a TYPE PARAMETER under
+> `!= null` spells `NonNullable<T>` upstream, where this port minted `T & {}`.
+>
+> Corrected at §758, TYPE PARAMETERS only: **+6 W→R, ZERO adverse**
+> (`unknownControlFlow` 4, `nonNullableTypes1` 2). `unknown` is untouched and
+> keeps the filter road — `narrowingTruthyObject`'s 15 R→G still gates it, and
+> that half of §85.1 stands. The refinement lattice, the JOIN reduction and
+> the mint machinery are all unchanged; only which `NonNullKind` a type
+> parameter asks for under the NE-family moved.
+>
+> **How this was found**: not by reading §85, but as the adverse transition of
+> an unrelated landing. §758's `narrowTypeByOptionality` routed a chain root
+> through `NEUndefinedOrNull` for the first time, which turned
+> `nonNullableTypes1`'s `obj` from `NonNullable<T>` into `T & {}` — 1 R→W. The
+> divergence had been latent because nothing reached that fact with a type
+> parameter. See `checker-notes-callres.md` §758.
+
+
 ## §86 — rest-tuple contextual parameters expand positionally
 
 `(...args: ['A', number] | ['B', string]) => void` as a contextual
