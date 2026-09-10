@@ -3681,3 +3681,92 @@ not convert — so this is a +0-case landing, recorded as such.
 (`getReferenceCandidate` on a `.constructor` access whose receiver is the
 reference) and `getNarrowedTypeOfSymbol`'s class-instance handling. Not
 attempted here; it is the next item on this sweep and is bigger than this one.
+
+## §760 — `narrowTypeByConstructor`, and two symbol-vs-type-road traps (+65 W→R, ZERO adverse, +3 cases)
+
+The §758 sweep's last genuinely-absent arm, and the largest single landing of
+this block. `x.constructor === C` keeps the constituents CONSTRUCTED BY `C`.
+
+### Sized before it was written
+
+The sweep named the arm; `casequery` priced it. All five
+`typeGuardConstructor*` fixtures were failing, with line deficits of 4, 40, 6,
+12 and 11 — about 73 lines available. That is why this arm was worth writing
+where §759's (one case, 14 lines) was borderline. **Price the fixtures before
+transcribing the function**; the two arms came out of the same sweep and are an
+order of magnitude apart in value.
+
+### The two traps
+
+The first draft measured **+13 and left 52 lines on the table** — the two CLASS
+fixtures did not move at all while the primitive ones did. Both causes were the
+same mistake in different clothes: **reaching for a symbol where this port
+keeps a type.**
+
+- **`prototype` is synthetic here.** §117 slice 2 (`members.rs:956`) mints a
+  class's static `.prototype` **on the type road only**
+  (`get_type_of_property_of_type`); there is no symbol for it. The draft used
+  `get_property_of_type(...).map(get_type_of_symbol)`, which answers `None` for
+  exactly the class case the arm is most wanted for. The §83 instanceof arm
+  takes the symbol road and survives only because it has an
+  erased-construct-return fallback that `narrowTypeByConstructor` does not.
+- **A class's constructor type is `Anonymous`, not `Named`.** The
+  `isFunctionType || isConstructorType` guard was transcribed through
+  `signature_candidates_of_named_type`, which — as its name says — answers only
+  for `Named` types. So the guard rejected every class. A class's static side
+  IS a constructor type upstream, and the guard now says so.
+
+Neither was visible from the corpus number alone; both were found by writing
+the unit test, watching the class assertion fail, and bisecting the guards.
+**A +13 that should have been +65 looks exactly like a +13.**
+
+### `isConstructedBy` and the ObjectFlags gap
+
+`isConstructedBy` (`flow.go:793`) checks **symbol identity, not structure**,
+when either side is a class: two classes with identical members are the same
+type structurally, but `instanceOfA.constructor === B` is false. Upstream tests
+`ObjectFlagsClass`; this port carries no `ObjectFlags`, so `class_symbol_of`
+stands in — a `Named` type whose owning symbol has `SymbolFlags::CLASS`. That
+is the same question asked of the data this port does keep, and
+`typeGuardConstructorDerivedClass` (12 lines, a base/derived pair that must NOT
+collapse) is what would catch it being wrong.
+
+### Inequality does not narrow
+
+`flow.go:762` declines unless the operator is `==`/`===` in the true branch or
+`!=`/`!==` in the false one — `x.constructor !== C` does not prove the
+constituent is not a SUBCLASS of `C`. Asserted in the test.
+
+### Measured
+
+```
+scorepair over the §759 baseline (436,141):
+  first draft (symbol road):  +13 W→R  — both class fixtures unmoved
+  corrected (type road):      right 436,141 → 436,206
+                              +65 W→R, ZERO adverse
+    typeGuardConstructorClassAndNumber 40,
+    typeGuardConstructorDerivedClass 12,
+    typeGuardConstructorNarrowAny 6, PrimitiveTypes 6,
+    NarrowPrimitivesInUnion 1
+coverage: checker_types 6,095 → 6,098 (63.90% → 63.93%),
+          gradient 91.08% → 91.09%; diagnostics 2,600 unmoved;
+          every other suite identical
+```
+
+**+3 cases**, the largest case movement of this block.
+
+### The harness limit, again
+
+The unit test asserts the CLASS road only. The primitive road needs `String`
+and `Number` from the lib and this harness builds no program — the same
+limitation §751 recorded for `let a: E.A`. The test says so rather than
+quietly covering half the arm, and the corpus carries the primitive road
+(`typeGuardConstructorPrimitiveTypes`, `typeGuardConstructorNarrowAny`).
+
+### The sweep, closed
+
+Of the five upstream `narrowTypeBy*` functions with no counterpart NAME here:
+three were ported inline under other names (instanceof §83, the two
+containments §51.4/SS154), and two were genuinely absent — §759 and §760. The
+sweep is spent, and it was worth **+79 right lines and +3 cases** for two
+functions totalling about 150 lines.

@@ -1063,3 +1063,38 @@ fn a_comparison_against_a_boolean_literal_narrows_the_other_operand() {
     // The boolean may sit on either side.
     assert_eq!(type_of_last_expression(&format!("{d}if (true === isA(x)) {{ x; }}")), "A");
 }
+
+/// §760: `narrowTypeByConstructor` (`flow.go:760`), dispatched at `:504`.
+///
+/// Only the CLASS road is asserted here. The primitive road needs `String`,
+/// `Number` and friends from the lib, and this harness builds no program — the
+/// same limitation §751 recorded for `let a: E.A`. The corpus carries the
+/// primitive road (`typeGuardConstructorPrimitiveTypes`,
+/// `typeGuardConstructorNarrowAny`).
+#[test]
+fn a_constructor_comparison_narrows_the_union() {
+    assert_eq!(
+        type_of_last_expression(
+            "class C1 { p!: string }\ndeclare let x: C1 | number;\n\
+             if (x.constructor === C1) { x; }"
+        ),
+        "C1"
+    );
+    // The element-access spelling is the same reference.
+    assert_eq!(
+        type_of_last_expression(
+            "class C1 { p!: string }\ndeclare let x: C1 | number;\n\
+             if (x[\"constructor\"] === C1) { x; }"
+        ),
+        "C1"
+    );
+    // INEQUALITY does not narrow: `x.constructor !== C1` does not prove the
+    // constituent is not a subclass (`flow.go:762`).
+    assert_eq!(
+        type_of_last_expression(
+            "class C1 { p!: string }\ndeclare let x: C1 | number;\n\
+             if (x.constructor !== C1) { x; }"
+        ),
+        "number | C1"
+    );
+}

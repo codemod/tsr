@@ -5112,6 +5112,21 @@ impl Checker<'_, '_> {
                 } else if self.is_matching_reference(state, right) {
                     (left, right)
                 } else {
+                    // §760 (`flow.go:504`-`:509`): `x.constructor === C`.
+                    // Upstream places these arms BEFORE the boolean ones and
+                    // after the discriminant pair, which is the order here.
+                    let constructor_pair =
+                        [(left, right), (right, left)].into_iter().find(|&(candidate, _)| {
+                            self.is_matching_constructor_reference(state, candidate)
+                        });
+                    if let Some((_, identifier)) = constructor_pair {
+                        return self.narrow_type_by_constructor(
+                            t,
+                            operator.kind,
+                            identifier,
+                            assume_true,
+                        );
+                    }
                     // §759 (`flow.go:510`-`:515`): `narrowTypeByBooleanComparison`.
                     // `x === true` / `x !== false` re-enters `narrowType` on the
                     // NON-boolean operand with the assumption folded in, so a
@@ -5562,6 +5577,169 @@ impl Checker<'_, '_> {
             computed_type
         };
         self.is_discriminant_property(t, &name).then_some(access)
+    }
+
+    /// `isMatchingConstructorReference` (`flow.go:750`). §760.
+    ///
+    /// A property access named `constructor`, or an element access whose
+    /// argument is the string `"constructor"`, whose RECEIVER is the matching
+    /// reference.
+    fn is_matching_constructor_reference(&mut self, state: &FlowState, expr: NodeId) -> bool {
+        let named_constructor = match self.node_map.get(expr) {
+            Some(Node::PropertyAccessExpression(access)) => {
+                matches!(access.name, Some(tsr_ast::MemberName::Identifier(name)) if name.text == "constructor")
+            }
+            Some(Node::ElementAccessExpression(access)) => access
+                .argument_expression
+                .and_then(|e| e.node_id())
+                .and_then(|id| self.node_map.get(id))
+                .is_some_and(|node| {
+                    matches!(node, Node::StringLiteral(literal) if literal.text == "constructor")
+                }),
+            _ => false,
+        };
+        named_constructor
+            && self
+                .expression_of_access(expr)
+                .is_some_and(|receiver| self.is_matching_reference(state, receiver))
+    }
+
+    /// `narrowTypeByConstructor` (`flow.go:760`). §760.
+    ///
+    /// `x.constructor === C` keeps the constituents CONSTRUCTED BY `C` — the
+    /// type of `C`'s `prototype` property. Only the equality operators narrow;
+    /// upstream declines inequality outright (`:762`), because
+    /// `x.constructor !== C` does not prove the constituent is not a subclass.
+    fn narrow_type_by_constructor(
+        &mut self,
+        t: TypeId,
+        operator: SyntaxKind,
+        identifier: NodeId,
+        assume_true: bool,
+    ) -> TypeId {
+        // `flow.go:762`, transcribed: narrow only on `==`/`===` in the true
+        // branch and on `!=`/`!==` in the false branch.
+        let equals =
+            matches!(operator, SyntaxKind::EqualsEqualsToken | SyntaxKind::EqualsEqualsEqualsToken);
+        let not_equals = matches!(
+            operator,
+            SyntaxKind::ExclamationEqualsToken | SyntaxKind::ExclamationEqualsEqualsToken
+        );
+        if (assume_true && !equals) || (!assume_true && !not_equals) {
+            return t;
+        }
+        let Some(expression) =
+            self.node_map.get(identifier).and_then(|node| tsr_ast::Expression::try_from(node).ok())
+        else {
+            return t;
+        };
+        let identifier_type = self.check_expression(expression);
+        if identifier_type == self.intrinsics.error {
+            return t;
+        }
+        // `isFunctionType || isConstructorType` (`:767`), read through the
+        // signature road this port already uses for the instanceof arm (§83):
+        // a type with a call or construct signature.
+        let has_signature =
+            [crate::signatures::SignatureKind::Call, crate::signatures::SignatureKind::Construct]
+                .into_iter()
+                .any(|kind| {
+                    self.signature_candidates_of_named_type(identifier_type, kind)
+                        .is_some_and(|candidates| !candidates.is_empty())
+                });
+        // A CLASS's static side is a constructor type upstream, but this
+        // port's `signature_candidates_of_named_type` answers only for NAMED
+        // types and a class constructor is `Anonymous`. Without this second
+        // disjunct the guard rejected exactly the class case — measured: the
+        // two class fixtures stayed put while the primitive ones moved.
+        let is_class_constructor = matches!(
+            self.store.get(identifier_type).data,
+            TypeData::Anonymous { symbol, .. }
+                if self
+                    .binder
+                    .symbols()
+                    .get(self.binder.merged_symbol(symbol))
+                    .flags
+                    .contains(SymbolFlags::CLASS)
+        );
+        if !has_signature && !is_class_constructor {
+            return t;
+        }
+        // The `prototype` property's type is the candidate (`:772`-`:781`).
+        // `any` declines, and so do the global `Object` and `Function` types —
+        // every object is constructed by those, so they narrow nothing.
+        // Read through [`Checker::get_type_of_property_of_type`], NOT through
+        // `get_property_of_type` + `get_type_of_symbol`: a class's static
+        // `prototype` is SYNTHETIC in this port (§117 slice 2, `members.rs`)
+        // and exists only on the type road, so the symbol road answers `None`
+        // for exactly the class case this arm is most wanted for. The §83
+        // instanceof arm takes the symbol road and survives it only because it
+        // has an erased-construct-return fallback that upstream's
+        // `narrowTypeByConstructor` does not.
+        let Some(candidate) = self
+            .get_type_of_property_of_type(identifier_type, "prototype")
+            .filter(|&c| c != self.intrinsics.error && c != self.intrinsics.any)
+        else {
+            return t;
+        };
+        let is_global = ["Object", "Function"].iter().any(|name| {
+            self.global_type_symbol_with_arity(name, 0).is_some_and(|symbol| {
+                matches!(
+                    self.store.get(candidate).data,
+                    TypeData::Named { members: Some(owner), .. } if owner == symbol
+                )
+            })
+        });
+        if is_global {
+            return t;
+        }
+        // `if IsTypeAny(t) { return candidate }` (`:785`).
+        if t == self.intrinsics.any {
+            return candidate;
+        }
+        let constituents: Vec<TypeId> = match &self.store.get(t).data {
+            TypeData::Union { types, .. } => types.clone(),
+            _ => vec![t],
+        };
+        let total = constituents.len();
+        let mut kept = Vec::with_capacity(total);
+        for constituent in constituents {
+            if self.is_constructed_by(constituent, candidate) {
+                kept.push(constituent);
+            }
+        }
+        if kept.len() == total {
+            return t;
+        }
+        if kept.is_empty() {
+            return self.intrinsics.never;
+        }
+        self.get_union_type(&kept)
+    }
+
+    /// `isConstructedBy` (`flow.go:793`). §760.
+    ///
+    /// If EITHER side is a class type the check is symbol identity, not
+    /// structure: two classes with identical members are structurally the same
+    /// type, but `instanceOfA.constructor === B` is false. Everything else is
+    /// the subtype relation.
+    fn is_constructed_by(&mut self, source: TypeId, target: TypeId) -> bool {
+        let source_symbol = self.class_symbol_of(source);
+        let target_symbol = self.class_symbol_of(target);
+        if source_symbol.is_some() || target_symbol.is_some() {
+            return source_symbol.is_some() && source_symbol == target_symbol;
+        }
+        self.is_type_subtype_of(source, target)
+    }
+
+    /// The declaring symbol of a type that came from a CLASS declaration —
+    /// this port's stand-in for `ObjectFlagsClass`, which it does not carry.
+    /// §760.
+    fn class_symbol_of(&self, t: TypeId) -> Option<SymbolId> {
+        let TypeData::Named { members: Some(symbol), .. } = self.store.get(t).data else {
+            return None;
+        };
+        self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::CLASS).then_some(symbol)
     }
 
     /// `ast.IsBooleanLiteral` — the `true` and `false` keywords. §759.
