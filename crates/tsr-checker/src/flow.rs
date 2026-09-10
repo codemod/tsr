@@ -3765,11 +3765,13 @@ impl Checker<'_, '_> {
     /// a property access. That is the largest bound on what any guard here can
     /// convert, and it is measured — `docs/architecture/checker-notes-narrow.md`
     /// §4.
-    /// `getTypeAtSwitchClause` (`flow.go:1059`), the two matching arms —
-    /// identifier discriminant and `typeof` witness. Every other shape
-    /// (`switch (true)`, optional chains, discriminant property access)
-    /// passes the antecedent's type through unchanged, which is today's
-    /// answer, not a wrong one. See `checker-notes-narrow.md` §16.
+    /// `getTypeAtSwitchClause` (`flow.go:1059`). All four of upstream's arms
+    /// are ported: the identifier discriminant and the `typeof` witness (§16),
+    /// `switch (true)` (§59), and the DEFAULT arm's optional-chain containment
+    /// plus discriminant-property road (§754, through the §750 pair). The one
+    /// containment variant not transcribed is the `typeof`-of-a-chain form
+    /// (`flow.go:1077`-`:1080`), whose clause check differs; it declines here.
+    /// See `checker-notes-narrow.md` §16 and `checker-notes-callres.md` §754.
     fn get_type_at_switch_clause(&mut self, state: &mut FlowState, flow: FlowId) -> FlowType {
         let binder = self.binder;
         let Some(antecedent) = binder.flow().antecedent(flow) else {
@@ -3810,32 +3812,6 @@ impl Checker<'_, '_> {
             let narrowed = self.narrow_union_by_member_switch(incoming.t, &member, switch, &clause);
             return FlowType { t: narrowed, incomplete: incoming.incomplete };
         }
-        // §51 (`checker-notes-narrow.md`): `switch (s.kind)` — a property
-        // access whose RECEIVER is the reference narrows by the member,
-        // through §50.1's filter (`narrowTypeBySwitchOnDiscriminantProperty`).
-        if let tsr_ast::Expression::PropertyAccessExpression(access) = expr
-            && access
-                .expression
-                .and_then(|receiver| receiver.node_id())
-                .is_some_and(|id| self.is_matching_reference(state, id))
-            && let Some(tsr_ast::MemberName::Identifier(name)) = access.name
-        {
-            let member = name.text.to_string();
-            let narrowed = self.narrow_union_by_member_switch(incoming.t, &member, switch, &clause);
-            // SS154: `switch (o?.foo)` - when the access reads through `?.`
-            // and this clause range excludes undefined (and any default),
-            // the BASE strips undefined/null, COMPOSED with the member
-            // discrimination (the switch twin of SS51.5's assignment).
-            let narrowed = if self.strict_null_checks
-                && access.question_dot_token.is_some()
-                && !self.switch_clause_range_covers_nullish(switch, &clause)
-            {
-                self.get_type_with_facts(narrowed, TypeFacts::NE_UNDEFINED_OR_NULL)
-            } else {
-                narrowed
-            };
-            return FlowType { t: narrowed, incomplete: incoming.incomplete };
-        }
         let narrowed = if expr.node_id().is_some_and(|id| self.is_matching_reference(state, id)) {
             self.narrow_type_by_switch_on_discriminant(incoming.t, switch, &clause)
         } else if let tsr_ast::Expression::TypeOfExpression(type_of) = expr
@@ -3845,20 +3821,41 @@ impl Checker<'_, '_> {
                 .is_some_and(|id| self.is_matching_reference(state, id))
         {
             self.narrow_type_by_switch_on_typeof(incoming.t, switch, &clause)
-        } else if self.strict_null_checks
-            && expr.node_id().is_some_and(|id| self.optional_chain_contains_reference(state, id))
-        {
-            // SS154: `switch (o?.foo) { case "abc": ... }` - the clause
-            // range excluding undefined (and any default) proves the chain
-            // result defined, so the BASE strips undefined/null
-            // (upstream's switch containment twin of the SS51.4 table).
-            if self.switch_clause_range_covers_nullish(switch, &clause) {
-                incoming.t
-            } else {
-                self.get_type_with_facts(incoming.t, TypeFacts::NE_UNDEFINED_OR_NULL)
-            }
         } else {
-            incoming.t
+            // §754 (`flow.go:1071`-`:1087`), upstream's DEFAULT arm. The
+            // optional-chain containment ASSIGNS and falls through to the
+            // discriminant road — it does not return. This port returned,
+            // which is the third arm found with that shape (§51.5 at the
+            // value-equality arm, §753 at the typeof arm), and it is why
+            // `switch (o?.kind)` stripped the `undefined` and then declined
+            // to discriminate.
+            let mut t = incoming.t;
+            // SS154: the clause range excluding undefined (and any default)
+            // proves the chain result defined, so the BASE strips
+            // undefined/null (`narrowTypeBySwitchOptionalChainContainment`,
+            // `flow.go:1223`).
+            if self.strict_null_checks
+                && expr
+                    .node_id()
+                    .is_some_and(|id| self.optional_chain_contains_reference(state, id))
+                && !self.switch_clause_range_covers_nullish(switch, &clause)
+            {
+                t = self.get_type_with_facts(t, TypeFacts::NE_UNDEFINED_OR_NULL);
+            }
+            // `flow.go:1083`-`:1086`: `switch (s.kind)` through the pair,
+            // replacing §51's inline property-access test. The inner
+            // narrowing is `narrowTypeBySwitchOnDiscriminant` applied to the
+            // PROPERTY type. `narrowTypeBySwitchOnDiscriminantProperty`'s
+            // key-property fast path (`flow.go:1232`-`:1245`) is not ported,
+            // for the reason §752 records.
+            if let Some(id) = expr.node_id()
+                && let Some(access) = self.get_discriminant_property_access(state, id, t)
+            {
+                t = self.narrow_type_by_discriminant(t, access, |checker, prop| {
+                    checker.narrow_type_by_switch_on_discriminant(prop, switch, &clause)
+                });
+            }
+            t
         };
         FlowType { t: narrowed, incomplete: incoming.incomplete }
     }

@@ -3196,3 +3196,102 @@ would start declining where it used to narrow — visible as R→W on
   left where an inline test still stands (`narrow_union_by_member_switch`).
 - `comparable_ternary`'s enum half (§666) survives in the §50 sibling arm and
   the switch arm; the switch swap is what retires it.
+
+## §754 — the switch arm onto the pair, and the compose bug's third sighting (+60 W→R / +16 G→R, ZERO adverse)
+
+The last of §4.-4's five swaps, and the largest. `getTypeAtSwitchClause`
+(`flow.go:1059`) now has all four of upstream's arms.
+
+### Two changes, not one
+
+**The swap.** §51's inline test — a `PropertyAccessExpression` whose receiver
+is the reference, then `narrow_union_by_member_switch` — is replaced by
+`getDiscriminantPropertyAccess` + `narrowTypeByDiscriminant` with
+`narrowTypeBySwitchOnDiscriminant` as the inner narrowing
+(`flow.go:1083`-`:1086`). The gain is the same shape §752 measured at the
+equality arm: element access, the receiver's nullable strip, and the
+`isDiscriminantProperty` gate in place of a looser ad-hoc one.
+
+**The compose bug, for the third time.** Upstream's default arm ASSIGNS the
+optional-chain containment result and falls through to the discriminant road:
+
+```go
+if c.strictNullChecks { ... t = c.narrowTypeBySwitchOptionalChainContainment(...) }
+access := c.getDiscriminantPropertyAccess(f, expr, t)
+if access != nil { t = c.narrowTypeBySwitchOnDiscriminantProperty(t, access, data) }
+```
+
+This port had the containment in an `else if` chain that RETURNED. So
+`switch (o?.kind)` stripped the `undefined` and then declined to discriminate.
+
+**That is the third arm with this exact shape** — §51.5 found it at the
+value-equality arm, §753 at the typeof arm, §754 here. §753's note said the
+remaining arms should be READ for it rather than waited on; they were, and it
+was there. The pattern is worth stating plainly for whoever ports the next
+narrowing arm: **upstream's narrowing arms accumulate into `t` and fall
+through; a port that returns early from any intermediate step silently drops
+every later step.** Three of the four arms that could have had this defect did
+have it.
+
+### Placement
+
+The discriminant road moved from BEFORE the matching-reference arm (where §51
+had put it) into the DEFAULT arm, where upstream has it. That reordering is
+behaviour-neutral in practice — a property access whose receiver is the
+reference is not itself the reference — but the port now reads in upstream's
+order, which is what makes drift trackable.
+
+### Not ported
+
+- `narrowTypeBySwitchOnDiscriminantProperty`'s key-property fast path
+  (`flow.go:1232`-`:1245`), for the reason §752 records.
+- The second containment variant, `typeof`-of-a-chain (`flow.go:1077`-`:1080`),
+  whose clause check is `!(never || the string literal "undefined")` rather
+  than `!(undefined || never)`. It declines here; it is a separate small item.
+
+`narrow_union_by_member_switch` stays: §50.1's sibling-pattern arm is its other
+caller, exactly as `filter_union_by_member_literal` survived §752.
+
+### Measured
+
+```
+scorepair over the §753 baseline (435,933):
+  right 435,933 → 436,009   +60 W→R / +16 G→R, ZERO adverse
+    typeGuardNarrowsIndexedAccessOfKnownProperty1 27+12,
+    discriminantElementAccessCheck 12+4, controlFlowOptionalChain 9
+coverage: checker_types 6,092 → 6,093 (63.87% → 63.88%),
+          gradient 91.04% → 91.05%; diagnostics 2,600 unmoved;
+          every other suite identical
+```
+
+`typeGuardNarrowsIndexedAccessOfKnownProperty1` at 39 lines is the largest
+single-case movement of the four landings, and it is an ELEMENT-access case —
+the road §51's inline test could not reach at all.
+
+### The road, closed
+
+§4.-4 is complete. Five arms, four landings, one shared pair:
+
+| arm | landed | movement |
+|---|---|---|
+| type predicate | §750 | new road, 0 |
+| truthiness | §750 | 0 |
+| equality | §752 | +65 |
+| typeof | §753 | +4 |
+| switch | §754 | +76 |
+
+**+145 right lines and +2 cases for the subsystem**, against §4.-4's own
+forecast that it would need five landings to pay for itself. It needed four,
+and the falsifier it set (fewer than ~20 cases blocked on discriminant shapes)
+was never triggered.
+
+### Residue
+
+- `comparable_ternary`'s enum half (§666) is now redundant everywhere the pair
+  runs, but §50/§50.1's sibling-pattern arms still use `comparable_ternary`
+  through `filter_union_by_member_literal` and `narrow_union_by_member_switch`.
+  Retiring it means porting the pseudo-reference road
+  (`getCandidateDiscriminantPropertyAccess`'s binding-pattern and alias arms,
+  `flow.go:1457`), which is the natural successor item to this road.
+- `getKeyPropertyName` / `getConstituentTypeForKeyType` remain unported, now
+  wanted by two call sites rather than one.

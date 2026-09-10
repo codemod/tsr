@@ -66,6 +66,13 @@ fn last_expression_statement<'a>(statements: &[Statement<'a>]) -> Option<tsr_ast
                     found = last_expression_statement(std::slice::from_ref(&branch)).or(found);
                 }
             }
+            // §754: a switch clause's body, so a fixture can put the
+            // reference under test inside `case "a":`.
+            Statement::SwitchStatement(node) => {
+                for clause in node.case_block.iter().flat_map(|block| block.clauses) {
+                    found = last_expression_statement(clause.statements).or(found);
+                }
+            }
             _ => {}
         }
     }
@@ -832,6 +839,45 @@ fn a_typeof_on_a_discriminant_property_narrows_the_union() {
     assert_eq!(
         type_of_last_expression(&format!(
             "{union}declare let u: A | B | undefined;\nif (typeof u?.kind === \"string\") {{ u; }}"
+        )),
+        "A"
+    );
+}
+
+/// §754: the SWITCH arm swapped onto the discriminant pair
+/// (`flow.go:1083`-`:1086`), the last of §4.-4's five.
+///
+/// `switch (u.kind)` narrowed through §51's inline property-access test
+/// before; the pair also takes an ELEMENT access, and — because upstream's
+/// default arm ASSIGNS the optional-chain containment and falls through
+/// rather than returning — composes the nullish strip WITH the
+/// discrimination.
+///
+/// Reddened by: restoring §51's inline block, or returning after the
+/// containment strip instead of assigning.
+#[test]
+fn a_switch_on_a_discriminant_property_narrows_the_union() {
+    let union = "type A = { kind: \"a\"; a: string };\n\
+                 type B = { kind: \"b\"; b: number };\n";
+    assert_eq!(
+        type_of_last_expression(&format!(
+            "{union}declare let u: A | B;\nswitch (u.kind) {{ case \"a\": u; }}"
+        )),
+        "A"
+    );
+    // The element-access road, which §51's `PropertyAccessExpression`-only
+    // test could not reach.
+    assert_eq!(
+        type_of_last_expression(&format!(
+            "{union}declare let u: A | B;\nswitch (u[\"kind\"]) {{ case \"b\": u; }}"
+        )),
+        "B"
+    );
+    // The chain form: the clause range excludes `undefined`, so the base
+    // strips it AND the union is discriminated, in one clause.
+    assert_eq!(
+        type_of_last_expression(&format!(
+            "{union}declare let u: A | B | undefined;\nswitch (u?.kind) {{ case \"a\": u; }}"
         )),
         "A"
     );
