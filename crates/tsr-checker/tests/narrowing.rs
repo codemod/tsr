@@ -800,3 +800,39 @@ fn a_discriminant_equality_narrows_through_a_property_or_element_access() {
     // `leftAccess` then `rightAccess`).
     assert_eq!(type_of_last_expression(&format!("{union}if (\"b\" === u.kind) {{ u; }}")), "B");
 }
+
+/// §753: the DISCRIMINANT half of `narrowTypeByTypeof` (`flow.go:624`-`:629`),
+/// the third and last of that function's three halves to be ported.
+///
+/// `typeof u.kind === "string"` discriminates a union whose `kind` types are
+/// literals in different typeof domains — `compiler/narrowingTypeofDiscriminant`'s
+/// `f1`. Its `f2` is the chain form, which needs upstream's ASSIGN-and-fall-through
+/// at `flow.go:622` rather than the early return this port had: the nullish
+/// removal has to COMPOSE with the discriminant filter.
+///
+/// Reddened by: returning `t` after the chain strip instead of assigning.
+#[test]
+fn a_typeof_on_a_discriminant_property_narrows_the_union() {
+    let union = "type A = { kind: \"a\"; data: string };\n\
+                 type B = { kind: 1; data: number };\n";
+    assert_eq!(
+        type_of_last_expression(&format!(
+            "{union}declare let u: A | B;\nif (typeof u.kind === \"string\") {{ u; }}"
+        )),
+        "A"
+    );
+    assert_eq!(
+        type_of_last_expression(&format!(
+            "{union}declare let u: A | B;\nif (typeof u.kind === \"number\") {{ u; }}"
+        )),
+        "B"
+    );
+    // The chain form: `undefined` is removed by the containment strip AND the
+    // union is filtered by the discriminant, in one branch.
+    assert_eq!(
+        type_of_last_expression(&format!(
+            "{union}declare let u: A | B | undefined;\nif (typeof u?.kind === \"string\") {{ u; }}"
+        )),
+        "A"
+    );
+}

@@ -4911,11 +4911,10 @@ impl Checker<'_, '_> {
                 // upstream's dispatch order in `narrowTypeByBinaryExpression`
                 // (`flow.go:500` region): a `TypeOfExpression` on either side
                 // with a string literal on the other reaches
-                // `narrowTypeByTypeof` (`flow.go:614`). Only the
-                // matching-reference half is ported; the discriminant and
-                // optional-chain halves of that function stay unported and
-                // answer the type unchanged (`bd tsr-q9g`,
-                // `checker-notes-narrow.md` §6).
+                // `narrowTypeByTypeof` (`flow.go:614`). §753 ports the last
+                // of its three halves — the matching-reference half (SS-era)
+                // and the optional-chain half (SS152) were already here; the
+                // DISCRIMINANT half now goes through the pair.
                 let typeof_pair = match (self.node_map.get(left), self.node_map.get(right)) {
                     (
                         Some(Node::TypeOfExpression(typeof_expr)),
@@ -4945,11 +4944,30 @@ impl Checker<'_, '_> {
                         let effective = assume_true != negated;
                         let result_not_undefined = (effective && literal != "undefined")
                             || (!effective && literal == "undefined");
+                        // §753: upstream ASSIGNS here and falls through
+                        // (`flow.go:622`) — it does not return — so a
+                        // `typeof o?.kind === "string"` composes the nullish
+                        // removal WITH the discriminant filter below, the
+                        // same composition §51.5 restored at the equality
+                        // arm.
+                        let mut t = t;
                         if self.strict_null_checks
                             && result_not_undefined
                             && self.optional_chain_contains_reference(state, target)
                         {
-                            return self.get_type_with_facts(t, TypeFacts::NE_UNDEFINED_OR_NULL);
+                            t = self.get_type_with_facts(t, TypeFacts::NE_UNDEFINED_OR_NULL);
+                        }
+                        // `flow.go:624`-`:629`: the discriminant half, whose
+                        // inner narrowing is `narrowTypeByLiteralExpression`
+                        // — the same typeof filter, applied to the PROPERTY
+                        // type rather than to the reference's.
+                        if let Some(access) =
+                            self.get_discriminant_property_access(state, target, t)
+                        {
+                            let literal = literal.to_string();
+                            return self.narrow_type_by_discriminant(t, access, |checker, prop| {
+                                checker.narrow_type_by_typeof_literal(prop, &literal, effective)
+                            });
                         }
                         return t;
                     }

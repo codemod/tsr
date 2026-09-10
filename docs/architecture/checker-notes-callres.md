@@ -3115,3 +3115,84 @@ suspect is the `has_literal`/`non_uniform` pair, not this arm.
 - The typeof arm (`flow.go:623`) and the switch arm (`:1229`) are the two swaps
   left in §4.-4's road, in that order.
 - The key-property fast path, above, remains unported.
+
+## §753 — the typeof arm's discriminant half (+4 W→R, ZERO adverse)
+
+§4.-4's third swap. Unlike §752 this one is an ADDITION, not a replacement:
+the port had no inline discriminant test at the typeof arm at all, so nothing
+was removed and the measurement is the mechanism's own.
+
+### The three halves of `narrowTypeByTypeof`
+
+`flow.go:614` has one dispatch and three outcomes, and this port acquired them
+in the wrong order over three separate sessions:
+
+| half | upstream | ported at |
+|---|---|---|
+| the target IS the reference | `:632` | the SS-era arm |
+| the target reaches it through a `?.` chain | `:621`-`:623` | SS152 |
+| the target is a discriminant property access | `:624`-`:629` | **§753** |
+
+The comment above the arm claimed the second and third were both unported
+(`bd tsr-q9g`) — the second had in fact landed at SS152 and the comment was
+never corrected. It is corrected now.
+
+### The composition bug the swap also fixed
+
+Upstream's chain half **assigns** and falls through:
+
+```go
+if c.strictNullChecks && c.optionalChainContainsReference(...) && ... {
+    t = c.getAdjustedTypeWithFacts(t, TypeFactsNEUndefinedOrNull)
+}
+propertyAccess := c.getDiscriminantPropertyAccess(f, target, t)
+```
+
+This port **returned**. So `typeof o?.kind === "string"` stripped the
+`undefined` and stopped, where upstream strips it and THEN filters the union by
+the discriminant. This is the same composition §51.5 had already restored at
+the value-equality arm (`flow.go:491`), met a second time at a second arm — a
+sign worth noting: an early `return` where upstream assigns is a *shape* this
+port has now got wrong twice, and the remaining arms should be read for it
+rather than waited on.
+
+`compiler/narrowingTypeofDiscriminant` holds both forms as `f1` (plain access)
+and `f2` (chain), which is why the case moves by 4 and not by 2.
+
+### The port
+
+The inner narrowing is `narrowTypeByLiteralExpression` — the SAME typeof filter
+the matching-reference half uses, applied to the PROPERTY type instead of the
+reference's. That is the whole content of the half; everything else is the pair,
+already built at §750.
+
+### Measured
+
+```
+scorepair over the §752 baseline (435,929):
+  right 435,929 → 435,933   +4 W→R, ZERO adverse
+    narrowingTypeofDiscriminant 4
+coverage: checker_types 6,092 unmoved (the case has other defects),
+          gradient 91.04% unmoved at this rounding;
+          diagnostics 2,600 unmoved; every other suite identical
+```
+
+**+0 cases is the honest headline.** The four lines are all in one case, and
+that case does not convert — `casequery` would name what else blocks it. This
+is §4.-3's tail behaving exactly as §4.-3 says it does, and the swap is worth
+landing anyway because it is upstream's shape and because the composition bug
+it removes is not confined to the case that exposed it.
+
+### How you would know this was wrong
+
+The chain half now runs `is_discriminant_property` on a type it has already
+stripped. If a later change makes the strip lossy, a `typeof o?.kind` guard
+would start declining where it used to narrow — visible as R→W on
+`narrowingTypeofDiscriminant`'s `f2` lines specifically.
+
+### Residue
+
+- The SWITCH arm (`flow.go:1229`) is the last of §4.-4's five, and the only one
+  left where an inline test still stands (`narrow_union_by_member_switch`).
+- `comparable_ternary`'s enum half (§666) survives in the §50 sibling arm and
+  the switch arm; the switch swap is what retires it.
