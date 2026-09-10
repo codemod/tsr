@@ -4234,87 +4234,35 @@ impl Checker<'_, '_> {
         }
     }
 
-    fn enum_member_matches_literal(&mut self, member: TypeId, literal: TypeId) -> Option<bool> {
-        if !self.store.get(member).flags.intersects(TypeFlags::ENUM) {
-            return None;
-        }
-        let owner = *self.enum_member_owners.get(&member)?;
-        let flags = self.store.get(literal).flags;
-        let text = crate::printing::type_to_string(self.store.get(literal));
-        let key = if flags.intersects(TypeFlags::NUMBER_LITERAL) {
-            format!("n:{text}")
-        } else if flags.intersects(TypeFlags::STRING_LITERAL) {
-            format!("s:{}", text.trim_matches('"'))
-        } else {
-            return None;
-        };
-        let matched = self.enum_value_types.get(&(owner, key)).copied();
-        Some(matched.is_some_and(|found| {
-            found == member || self.enum_member_regular.get(&member).copied() == Some(found)
-        }))
-    }
-
+    /// `areTypesComparable` (`relater.go`) as a Kleene answer. §763.
+    ///
+    /// Upstream is `isTypeComparableTo(a, b) || isTypeComparableTo(b, a)`, and
+    /// since §750 this port HAS [`Relation::Comparable`] — so this is that
+    /// query, not a stand-in for it. `None` is the relater declining in both
+    /// directions, which the callers turn into "decline the whole narrowing":
+    /// a dropped constituent is a confident wrong answer, and this relater's
+    /// negatives are decidable only on the domains `checker-notes-assign.md`
+    /// §2 lists.
+    ///
+    /// What this replaced (§50/§666's hand-rolled table — an identity check,
+    /// an enum-member/literal lookup, and a same-base-primitive test over a
+    /// hardcoded `simple` flag set) is now the relater's job, including the
+    /// enum arms §751 gave it.
     fn comparable_ternary(&mut self, discriminant: TypeId, constituent: TypeId) -> Option<bool> {
+        use crate::relater::{Relation, Ternary};
         if discriminant == constituent {
             return Some(true);
         }
-        // §666: an ENUM member is comparable to the literal holding its VALUE.
-        // `function f1(v: E1) { if (v !== 1) { v; } }` narrows to `E1.b`
-        // upstream (`equalityWithEnumTypes`); this answered `Some(false)` for
-        // `(E1.a, 1)` and so filtered nothing, leaving `E1` unnarrowed.
-        //
-        // The value is already recorded: `get_declared_type_of_enum` interns
-        // `enum_value_types[(enum symbol, canonical value)] -> member type`
-        // (`declared.rs`, §55's folder), and `enum_member_owners` gives the
-        // symbol back. So this is a lookup, not a re-fold.
-        if let Some(answer) = self.enum_member_matches_literal(discriminant, constituent) {
-            return Some(answer);
+        let forward = self.relate_ternary(discriminant, constituent, Relation::Comparable);
+        if forward == Ternary::Related {
+            return Some(true);
         }
-        if let Some(answer) = self.enum_member_matches_literal(constituent, discriminant) {
-            return Some(answer);
+        let backward = self.relate_ternary(constituent, discriminant, Relation::Comparable);
+        match (forward, backward) {
+            (_, Ternary::Related) => Some(true),
+            (Ternary::NotRelated, Ternary::NotRelated) => Some(false),
+            _ => None,
         }
-        let simple = TypeFlags::UNIT
-            | TypeFlags::STRING
-            | TypeFlags::NUMBER
-            | TypeFlags::BIG_INT
-            | TypeFlags::BOOLEAN
-            | TypeFlags::ENUM_LIKE
-            | TypeFlags::NULL
-            | TypeFlags::UNDEFINED;
-        let discriminant_constituents: Vec<TypeId> = match &self.store.get(discriminant).data {
-            TypeData::Union { types, .. } => types.clone(),
-            _ => vec![discriminant],
-        };
-        for &d in &discriminant_constituents {
-            let d_flags = self.store.get(d).flags;
-            let c_flags = self.store.get(constituent).flags;
-            if !d_flags.intersects(simple) || !c_flags.intersects(simple) {
-                return None;
-            }
-            // Comparable in either direction: same type, a literal against
-            // its own base primitive — but two DISTINCT literals of one base
-            // are NOT comparable (`'A'` vs `'B'`), the §50 measurement's
-            // fired leg.
-            let d_unit = d_flags.intersects(TypeFlags::UNIT);
-            let c_unit = c_flags.intersects(TypeFlags::UNIT);
-            if d == constituent {
-                return Some(true);
-            }
-            if d_unit && c_unit {
-                let d_regular = self.get_regular_type_of_literal_type(d);
-                let c_regular = self.get_regular_type_of_literal_type(constituent);
-                if d_regular == c_regular {
-                    return Some(true);
-                }
-                continue;
-            }
-            if self.get_base_type_of_literal_type(d)
-                == self.get_base_type_of_literal_type(constituent)
-            {
-                return Some(true);
-            }
-        }
-        Some(false)
     }
 
     /// `replacePrimitivesWithLiterals` (`flow.go:1907`), the string/number

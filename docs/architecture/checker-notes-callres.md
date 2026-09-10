@@ -3919,3 +3919,80 @@ item and is not blocked by anything now.
   `>= 2` element count, the root-initializer circularity check, the
   `isSomeSymbolAssigned` parameter test — are still whatever §50 made them;
   this landing changed the candidate road, not the entry conditions.
+
+## §763 — `comparable_ternary` becomes `areTypesComparable` (+10 W→R, ZERO adverse, +1 case)
+
+§762's residue, and the last piece of the discriminant subsystem's scaffolding.
+Ten lines of new code; the rest is deletion.
+
+### What it was
+
+`comparable_ternary` was a **stand-in** written before this port had a
+comparable relation: a hand-rolled table over a hardcoded `simple` flag set —
+identity, an enum-member/literal lookup (§666's `enum_member_matches_literal`),
+literal-vs-own-base, and same-base-primitive — returning `None` for anything
+outside those domains. §750 gave the relater `Relation::Comparable` and §751
+gave it the enum arms, at which point the stand-in was strictly weaker than the
+thing it stood in for, and only inertia kept it.
+
+### What it is
+
+`areTypesComparable` is `isTypeComparableTo(a, b) || isTypeComparableTo(b, a)`,
+so the body is now that query in both directions with the same Kleene contract
+the callers already expect — identical in shape to `discriminant_keeps`, which
+has run this way since §750:
+
+```rust
+forward == Related                     -> Some(true)
+backward == Related                    -> Some(true)
+both NotRelated                        -> Some(false)
+anything else                          -> None   (decline the narrowing)
+```
+
+`None` stays "decline the whole narrowing" for the same reason it always was: a
+dropped constituent is a confident wrong answer, and this relater's negatives
+are decidable only on the domains `checker-notes-assign.md` §2 lists.
+
+### Measured
+
+```
+scorepair over the §762 baseline (436,210):
+  right 436,210 → 436,220   +10 W→R, ZERO adverse
+    equalityWithIntersectionTypes01 10
+coverage: checker_types 6,099 → 6,100 (63.94% → 63.95%),
+          gradient 91.09% → 91.10%; diagnostics 2,600 unmoved;
+          every other suite identical
+```
+
+The moved case is the tell: `equalityWithIntersectionTypes01` is an
+INTERSECTION comparison, and intersections were never in the stand-in's `simple`
+flag set — it declined them all. The relater has structural walks; the stand-in
+had a flag test.
+
+### `enum_member_matches_literal` deleted
+
+§666's enum lookup was `comparable_ternary`'s only caller and went with it — 19
+lines. §751's residue predicted exactly this ("`comparable_ternary`'s enum half
+is now redundant with the relater and can go when the equality arm is
+swapped"); it took until the last caller moved rather than the first, but the
+prediction held.
+
+### The subsystem, closed
+
+Between §750 and §763 the discriminant road went from five arms with four
+bespoke inline filters and a hand-rolled comparability table to **one pair
+(`getDiscriminantPropertyAccess` / `narrowTypeByDiscriminant`) serving all five
+arms over the real relation**. The scaffolding removed along the way:
+
+```
+§762  sibling_member_of_pattern, narrow_union_by_member_switch,
+      filter_union_by_member_truthiness, filter_union_by_member_literal   226
+§763  enum_member_matches_literal, comparable_ternary's table              ~80
+                                                                    ~306 lines
+```
+
+### Residue
+
+None for this road. `Relation::Comparable` is now the only comparability
+answer in `flow.rs`, and the remaining unported narrowing items are the
+`getNarrowedTypeOfSymbol` entry guards §762 listed.
