@@ -3374,3 +3374,86 @@ proves the ALIAS is constant, not the receiver; upstream relies on the flow
 walk to catch the receiver's assignment, and this port's
 `an_assignment_to_the_receiver_resets_the_property_narrowing` test covers the
 non-alias form. If that test's alias twin ever reds, this arm is the suspect.
+
+## §756 — the destructuring alias (`const { kind } = u`), and two predicates that were wrong (+51 W→R / +14 G→R, ZERO adverse)
+
+§755's named next item, and it needed two fidelity repairs first. Both repairs
+measured **ZERO** on their own; the +65 is the arm's.
+
+### The two predicates
+
+**`combined_node_flags` was missing `GetRootDeclaration`.** Upstream's
+`getCombinedFlags` (`ast/utilities.go:1181`) *begins* by walking a binding
+element out through its pattern to the owning declaration (`:1173`). This port
+started at the node itself, so a destructured `const { kind } = u` never saw
+the CONST flag — the binding element's parent is the pattern, not the
+declaration list. The walk existed in the port already, privately, in
+`unused.rs`; the shared helper simply did not have it.
+
+**`is_constant_variable` reimplemented the flag lookup by hand, and got it
+wrong three ways.** Upstream is
+`symbol.Flags&Variable != 0 && getDeclarationNodeFlagsFromSymbol(symbol)&Constant != 0`
+(`utilities.go:1040`), where the lookup is `getCombinedNodeFlags` on the value
+declaration. This port walked exactly one parent, demanded a
+`VariableDeclarationList`, and tested `NodeFlags::CONST`. So it answered
+`false` for every destructured const, missed `using` (upstream's `Constant` is
+`CONST | USING`, and this port's `NodeFlags::CONSTANT` already spelled that),
+and never checked the symbol was a VARIABLE at all.
+
+`is_constant_variable` has five call sites. **Fixing it moved nothing** — the
+full corpus reported `no transitions vs baseline`. That is worth recording
+rather than skipping: it is the control that makes the arm's +65 attributable
+to the arm, and it says the other four call sites were not being reached with
+destructured consts.
+
+### The arm
+
+`flow.go:1483`-`:1489`. Where §755's half matched an access's RECEIVER against
+the reference, this one matches the variable declaration's RHS **whole** — the
+reference is `u` in `const { kind } = u`, not the receiver of anything. The
+candidate returned is the binding **element**, not an access, which is why this
+half needs `getAccessedPropertyName`'s binding-element arm and §755's did not.
+
+`getDestructuringPropertyName` (`flow.go:1792`) is ported for its OBJECT-pattern
+arm: the name is `getBindingElementPropertyName` = `PropertyNameOrName()`
+(`utilities.go:1081`), so the shorthand `{ kind }` and the renamed
+`{ kind: k }` both answer `kind` — **the property name discriminates, not the
+local name**. The ARRAY-pattern arm (`:1800`), which answers the element's
+index, is left with the parameter arm on the pseudo-reference road.
+
+### Measured
+
+```
+scorepair over the §755 baseline (436,055):
+  the two predicate fixes alone:  no transitions vs baseline
+  + the binding-element arm:      right 436,055 → 436,120
+                                  +51 W→R / +14 G→R, ZERO adverse
+    controlFlowAliasing 25, controlFlowAliasing2 26+14
+coverage: checker_types 6,093 → 6,094 (63.88% → 63.89%),
+          gradient 91.06% → 91.08%; diagnostics 2,600 unmoved;
+          every other suite identical
+```
+
+### The pseudo-reference road, as it now stands
+
+One arm left: the binding-pattern/function pseudo-reference arm
+(`flow.go:1459`-`:1467`). It is **not** a transcription job. Upstream lets a
+binding pattern or arrow function stand as `f.reference` and narrows a
+pseudo-reference in `getNarrowedTypeOfSymbol`; this port carries
+`state.discriminant_pattern` (§50) and its own sibling test instead. The two
+models have to be reconciled before the arm has anything to be checked
+against, and that reconciliation is also what retiring `comparable_ternary`
+waits on — §50/§50.1's arms are its last callers.
+
+**So the cheap half of this road is now spent.** §755 and §756 took +111 right
+lines and +1 case between them for about eighty lines of code; what remains is
+a model-reconciliation task and should be priced as one, not as a third alias
+arm.
+
+### How you would know this was wrong
+
+`is_constant_variable` now answers `true` for `using` declarations and for
+destructured consts at four call sites that never saw them before. The corpus
+says none of those four is reached differently today. If a later landing makes
+one of them reachable — anything that widens what counts as a reference — the
+suspects are `flow.rs:1131` and `:1157`, not this arm.

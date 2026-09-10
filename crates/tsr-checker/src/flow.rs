@@ -1545,13 +1545,23 @@ impl Checker<'_, '_> {
     }
 
     fn is_constant_variable(&self, symbol: SymbolId) -> bool {
-        let Some(declaration) = self.binder.symbols().get(symbol).value_declaration else {
+        // §756: `isConstantVariable` (`utilities.go:1040`) is
+        // `symbol.Flags&Variable != 0 && getDeclarationNodeFlagsFromSymbol(symbol)&Constant != 0`,
+        // and that flag lookup is `getCombinedNodeFlags` on the value
+        // declaration (`checker.go:18681`). This port had walked exactly ONE
+        // parent and demanded a `VariableDeclarationList`, which answers
+        // `false` for a destructured `const { kind: x } = obj` — the binding
+        // element's parent is the pattern. It also missed `using`
+        // ([`NodeFlags::CONSTANT`] is `CONST | USING`, as upstream's is) and
+        // did not check the symbol is a VARIABLE at all.
+        let symbol_data = self.binder.symbols().get(symbol);
+        if !symbol_data.flags.intersects(SymbolFlags::VARIABLE) {
+            return false;
+        }
+        let Some(declaration) = symbol_data.value_declaration else {
             return false;
         };
-        self.nodes.parent(declaration).is_some_and(|list| {
-            self.nodes.kind(list) == tsr_ast::SyntaxKind::VariableDeclarationList
-                && self.nodes.flags(list).intersects(tsr_ast::NodeFlags::CONST)
-        })
+        self.combined_node_flags(declaration).intersects(tsr_ast::NodeFlags::CONSTANT)
     }
 
     /// `isMutableLocalVariableDeclaration` (`utilities.go:1053`), faithfully:
@@ -5514,28 +5524,29 @@ impl Checker<'_, '_> {
 
     /// `getCandidateDiscriminantPropertyAccess` (`flow.go:1457`). §755.
     ///
-    /// Two of upstream's three arms are ported:
+    /// Upstream's identifier arm is now ported WHOLE; of its three top-level
+    /// arms only the pseudo-reference one is missing:
     ///
     /// - **The access arm** (`:1468`-`:1472`): an access expression whose
     ///   receiver is the matching reference. This is the whole of what §750
     ///   had, inlined into the caller; splitting it out is what let the alias
-    ///   arm be added beside it rather than bolted onto the caller.
-    /// - **The `const x = obj.kind` alias arm** (`:1473`-`:1482`, first half):
-    ///   an identifier bound to a CONST whose initializer is an access on the
-    ///   reference. The candidate returned is the INITIALIZER, so everything
-    ///   downstream — `getAccessedPropertyName`, `narrowTypeByDiscriminant` —
-    ///   sees an ordinary access and needs no new arm.
+    ///   arms be added beside it rather than bolted onto the caller.
+    /// - **The `const x = obj.kind` alias arm** (`:1473`-`:1482`, first half,
+    ///   §755): an identifier bound to a CONST whose initializer is an access
+    ///   on the reference. The candidate returned is the INITIALIZER, so
+    ///   everything downstream sees an ordinary access.
+    /// - **The `const { kind: x } = obj` alias arm** (`:1483`-`:1489`, §756):
+    ///   the declaration is a BINDING ELEMENT with no initializer, and the RHS
+    ///   two parents up is matched WHOLE against the reference. The candidate
+    ///   returned is the binding ELEMENT, which is why this half needs
+    ///   `getAccessedPropertyName`'s binding-element arm and the first did not.
     ///
-    /// Not ported, and each declines here rather than mis-narrowing:
-    ///
-    /// - The binding-pattern/function pseudo-reference arm (`:1459`-`:1467`).
-    ///   This port models that road through `state.discriminant_pattern`
-    ///   (§50) rather than through a binding pattern standing as the
-    ///   reference, so the arm has no counterpart to test.
-    /// - The `const { kind: x } = obj` half (`:1483`-`:1489`), which returns a
-    ///   BINDING ELEMENT as the candidate and so needs
-    ///   `getAccessedPropertyName`'s binding-element arm (`flow.go:1727`) —
-    ///   itself part of the pseudo-reference road above.
+    /// Not ported, and it declines here rather than mis-narrowing: the
+    /// binding-pattern/function pseudo-reference arm (`:1459`-`:1467`). This
+    /// port models that road through `state.discriminant_pattern` (§50)
+    /// rather than through a binding pattern standing as the reference, so
+    /// the arm has no counterpart to test until the two models are
+    /// reconciled.
     fn get_candidate_discriminant_property_access(
         &mut self,
         state: &FlowState,
@@ -5562,9 +5573,42 @@ impl Checker<'_, '_> {
         // initializer of an UNANNOTATED variable declaration, parentheses
         // skipped. The annotation check matters — `const x: Kind = obj.kind`
         // is typed by its annotation, so the alias would be unsound.
-        let initializer = self.unannotated_declaration_initializer(declaration)?;
-        let receiver = self.expression_of_access(initializer)?;
-        self.is_matching_reference(state, receiver).then_some(initializer)
+        if let Some(initializer) = self.unannotated_declaration_initializer(declaration) {
+            if let Some(receiver) = self.expression_of_access(initializer) {
+                return self.is_matching_reference(state, receiver).then_some(initializer);
+            }
+            return None;
+        }
+        // §756 (`flow.go:1483`-`:1489`): `const { kind: x } = obj` — the
+        // declaration is a BINDING ELEMENT with no initializer of its own,
+        // and the thing to match is the RHS of the variable declaration two
+        // parents up. The candidate returned is the binding ELEMENT, which is
+        // why this half needs `getAccessedPropertyName`'s binding-element arm
+        // and the first half did not.
+        if self.nodes.kind(declaration) != SyntaxKind::BindingElement {
+            return None;
+        }
+        let Some(Node::BindingElement(element)) = self.node_map.get(declaration) else {
+            return None;
+        };
+        if element.initializer.is_some() {
+            return None;
+        }
+        let pattern = self.nodes.parent(declaration)?;
+        let owner = self.nodes.parent(pattern)?;
+        let initializer = self.unannotated_declaration_initializer(owner)?;
+        // `IsIdentifier(initializer) || IsAccessExpression(initializer)` —
+        // the RHS is matched WHOLE here, not through its receiver.
+        let is_candidate_shape = matches!(
+            self.nodes.kind(initializer),
+            SyntaxKind::Identifier
+                | SyntaxKind::PropertyAccessExpression
+                | SyntaxKind::ElementAccessExpression
+        );
+        if !is_candidate_shape {
+            return None;
+        }
+        self.is_matching_reference(state, initializer).then_some(declaration)
     }
 
     /// `getCandidateVariableDeclarationInitializer` (`flow.go:1495`). §755.
@@ -5599,6 +5643,29 @@ impl Checker<'_, '_> {
                 tsr_ast::MemberName::Identifier(name) => Some(name.text.to_string()),
                 tsr_ast::MemberName::PrivateIdentifier(name) => Some(name.text.to_string()),
             },
+            // §756: `getDestructuringPropertyName` (`flow.go:1792`), the
+            // OBJECT-pattern arm — `getBindingElementPropertyName`
+            // (`utilities.go:1081`) is `PropertyNameOrName()`, so
+            // `{ kind: x }` answers `kind` and the shorthand `{ kind }`
+            // answers `kind` too. The ARRAY-pattern arm (`:1800`) is the
+            // element's INDEX, which belongs with the parameter arm on the
+            // pseudo-reference road; it declines here.
+            Node::BindingElement(node) => {
+                let parent = self.nodes.parent(access)?;
+                if self.nodes.kind(parent) != SyntaxKind::ObjectBindingPattern {
+                    return None;
+                }
+                let name = match node.property_name {
+                    Some(property_name) => property_name.node_id()?,
+                    None => node.name.and_then(|n| n.node_id())?,
+                };
+                match self.node_map.get(name)? {
+                    Node::Identifier(identifier) => Some(identifier.text.to_string()),
+                    Node::StringLiteral(literal) => Some(literal.text.to_string()),
+                    Node::NumericLiteral(literal) => Some(literal.text.to_string()),
+                    _ => None,
+                }
+            }
             Node::ElementAccessExpression(node) => {
                 let argument = node.argument_expression.and_then(|e| e.node_id())?;
                 match self.node_map.get(argument)? {

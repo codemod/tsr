@@ -2861,8 +2861,19 @@ impl<'a, 'n> Checker<'a, 'n> {
     /// reason [ADR-0033](../../../docs/adr/0033-the-parser-fills-the-node-map.md)
     /// insisted the lookup answer parent ids rather than only declarations.
     pub(crate) fn combined_node_flags(&self, declaration: NodeId) -> NodeFlags {
-        let mut flags = self.nodes.flags(declaration);
+        // §756: `getCombinedFlags` starts at `GetRootDeclaration(node)`
+        // (`ast/utilities.go:1181`/`:1173`) — a binding element walks out
+        // through its pattern to the owning declaration. Without this step a
+        // destructured `const { kind: x } = obj` never sees the CONST flag,
+        // because the binding element's parent is the pattern and not the
+        // declaration list.
         let mut node = declaration;
+        while self.nodes.kind(node) == SyntaxKind::BindingElement {
+            let Some(pattern) = self.nodes.parent(node) else { break };
+            let Some(owner) = self.nodes.parent(pattern) else { break };
+            node = owner;
+        }
+        let mut flags = self.nodes.flags(node);
         if self.nodes.kind(node) == SyntaxKind::VariableDeclaration {
             let Some(parent) = self.nodes.parent(node) else { return flags };
             node = parent;

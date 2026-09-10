@@ -924,3 +924,54 @@ fn a_const_alias_of_a_discriminant_narrows_through_the_alias() {
         "A | B"
     );
 }
+
+/// §756: the destructuring alias arm (`flow.go:1483`-`:1489`) — given
+/// `const { kind } = u`, `kind` narrows `u`.
+///
+/// The candidate returned is the BINDING ELEMENT, so this half also needs
+/// `getAccessedPropertyName`'s binding-element arm
+/// (`getDestructuringPropertyName`, `flow.go:1792`), whose name is
+/// `PropertyNameOrName()` — the shorthand and the renamed form answer the
+/// same property.
+///
+/// It also needs `isConstantVariable` to see the CONST through a binding
+/// pattern, which is §756's other half: `getCombinedNodeFlags` starts at
+/// `GetRootDeclaration`, and this port had walked one parent.
+///
+/// Reddened by: dropping the root-declaration walk from
+/// `combined_node_flags` (the whole test), or the binding-element arm of
+/// `get_accessed_property_name`.
+#[test]
+fn a_destructured_alias_of_a_discriminant_narrows_through_the_alias() {
+    let union = "type A = { kind: \"a\"; a: string };\n\
+                 type B = { kind: \"b\"; b: number };\n\
+                 declare let u: A | B;\n";
+    // Shorthand: `PropertyNameOrName()` falls back to the name.
+    assert_eq!(
+        type_of_last_expression(&format!(
+            "{union}const {{ kind }} = u;\nif (kind === \"a\") {{ u; }}"
+        )),
+        "A"
+    );
+    // Renamed: the PROPERTY name is what discriminates, not the local.
+    assert_eq!(
+        type_of_last_expression(&format!(
+            "{union}const {{ kind: k }} = u;\nif (k === \"b\") {{ u; }}"
+        )),
+        "B"
+    );
+    // The switch arm reaches it through the same candidate.
+    assert_eq!(
+        type_of_last_expression(&format!(
+            "{union}const {{ kind }} = u;\nswitch (kind) {{ case \"a\": u; }}"
+        )),
+        "A"
+    );
+    // A `let` destructuring is not constant, so it is not an alias.
+    assert_eq!(
+        type_of_last_expression(&format!(
+            "{union}let {{ kind }} = u;\nif (kind === \"a\") {{ u; }}"
+        )),
+        "A | B"
+    );
+}
