@@ -4278,6 +4278,41 @@ impl Checker<'_, '_> {
     /// relation is not ported; this is its unit-type fragment.
     /// `true`/`false` when `member` is an enum member type and `literal` is a
     /// unit literal, `None` when the pair is not that shape. §666.
+    /// §751: the `(enum symbol, value key)` an enum MEMBER type was interned
+    /// under (`enum_value_types`, §55), read back through the fresh→regular
+    /// twin map. `None` for anything that is not a member. Keys are `n:<text>`
+    /// / `s:<text>`, the same spelling [`Checker::plain_literal_key`] gives a
+    /// plain literal, so the two compare directly. Linear in the map — enums
+    /// are small and the relater's simple arms are the only caller.
+    pub(crate) fn enum_member_value(&self, member: TypeId) -> Option<(SymbolId, String)> {
+        if !self.store.get(member).flags.intersects(TypeFlags::ENUM) {
+            return None;
+        }
+        let regular = self.enum_member_regular.get(&member).copied().unwrap_or(member);
+        let owner = *self.enum_member_owners.get(&regular)?;
+        self.enum_value_types
+            .iter()
+            .find(|(key, value)| key.0 == owner && **value == regular)
+            .map(|((symbol, key), _)| (*symbol, key.clone()))
+    }
+
+    /// §751: a plain (non-enum) literal's value in `enum_value_types`' key
+    /// spelling. `None` for anything else.
+    pub(crate) fn plain_literal_key(&self, literal: TypeId) -> Option<String> {
+        let ty = self.store.get(literal);
+        if ty.flags.intersects(TypeFlags::ENUM) {
+            return None;
+        }
+        let text = crate::printing::type_to_string(ty);
+        if ty.flags.intersects(TypeFlags::NUMBER_LITERAL) {
+            Some(format!("n:{text}"))
+        } else if ty.flags.intersects(TypeFlags::STRING_LITERAL) {
+            Some(format!("s:{}", text.trim_matches('"')))
+        } else {
+            None
+        }
+    }
+
     fn enum_member_matches_literal(&mut self, member: TypeId, literal: TypeId) -> Option<bool> {
         if !self.store.get(member).flags.intersects(TypeFlags::ENUM) {
             return None;

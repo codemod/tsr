@@ -2948,3 +2948,72 @@ coverage               below (§7 row)
   enum types in this crate" is stale).
 - `is_nullable_type` / `is_discriminant_property` as flag computations
   rather than fact/CheckFlags reads.
+
+## §751 — the relater's enum simple arms, on this port's member model (+25 W→R / +16 G→R, ZERO adverse)
+
+§750's residue and §4.-4's precondition for the equality-arm swap.
+
+### The model gap
+
+Upstream's enum member is a literal type carrying `NumberLiteral |
+EnumLiteral` (or `StringLiteral | EnumLiteral`) with its value on the type;
+its simple arms compare `source.AsLiteralType().value`. This port mints a
+member as a `Named` type flagged `ENUM` (§55, `declared.rs`) and keeps the
+value only as the KEY it was interned under (`enum_value_types[(enum symbol,
+"n:1" | "s:x")]`). So the arms are transcribed against two adapters:
+`enum_member_value(member)` reads the key back (fresh→regular twin first,
+then a linear scan of the map — enums are small and the relater's simple
+arms are the sole caller), and `plain_literal_key(literal)` spells a plain
+literal the same way, so the two compare directly.
+
+### The arms (`relater.rs`, `is_simple_type_related_to`)
+
+Placed BEFORE the `NumberLike → number` arm — that arm's `ENUM` bit
+(upstream's `TypeFlagsNumberLike` includes `Enum`) would otherwise relate a
+STRING-valued member to `number`, which the test
+`a_string_enum_member_is_a_string_and_not_a_number` reddens on reorder.
+
+- `:219`/`:225` — an enum literal relates to the PLAIN literal of its value.
+- `NumberLike → number` / `StringLike → string` — by the member's actual
+  domain (`n:` / `s:`), decided both ways.
+- `:236-243` — two members of one enum relate only by identity; members of
+  two enums with different names are decided unrelated; the same name
+  (`isEnumTypeRelatedTo`, merged declarations) is `None`, explicitly.
+- `:266-270`, assignable and comparable only — `number` relates to a numeric
+  member, and a non-enum numeric literal to the member holding its value.
+  The enum's UNION type reaches these through the composite dispatch, one
+  member at a time, exactly as upstream's `typeRelatedToSomeType` does.
+- `FLAG_DECIDABLE` gains `ENUM`: a non-firing arm on a member is now an
+  answer. Its doc comment is rewritten; the old one listed the enum arms
+  among the unported.
+
+### Measured
+
+```
+scorepair over the §750 baseline (435,823):
+  right 435,823 → 435,864   +25 W→R / +16 G→R, ZERO adverse
+    enumAssignabilityInInheritance 19, enumLiteralTypes1 8,
+    enumLiteralTypes2 8, typeAliases 4, genericCallWithGenericSignatureArguments3 2
+coverage: checker_types 6,091 unmoved (gradient 91.01 → 91.02);
+          diagnostics 2,600 unmoved; every other suite identical
+```
+
+### The harness finding
+
+`tests/relater.rs`'s bare harness (parse → bind → `Checker::new`, no
+program) resolves `let a: E.A` to `errorType`: the qualified type-reference
+road resolves its namespace root only once the enum's declared type exists,
+and nothing in the harness asks for it first. The corpus pipeline never
+meets that order (the probe prints `E.A`), so the tests read the member
+through `const a = E.A`'s initializer instead — `declaration_type`, which
+documents why. A single-member enum's access spells the ENUM (§55.1's
+`enum_access_spelling`), so the string fixture carries two members.
+
+### Residue
+
+- `comparable_ternary`'s enum half (§666) is now redundant with the relater
+  and can go when the equality arm is swapped.
+- `n:{n}` formatting: `MemberValue::Num` prints through `Display`; a
+  fractional or negative member value compares against the literal's
+  printed text, which is the same spelling for the values the corpus holds
+  but is not a proven identity.

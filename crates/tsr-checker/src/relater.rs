@@ -179,12 +179,16 @@ impl Ternary {
 ///
 /// Pinned to upstream's `isSimpleTypeRelatedTo` (`internal/checker/relater.go`)
 /// rather than to a summary of it: a flag belongs here when every upstream arm
-/// mentioning it is ported. The four upstream arms this port omits — `EnumLike`
-/// source against an enum target, `UniqueESSymbol`, the wildcard type, and the
-/// enum-literal pairings — are exactly why [`TypeFlags::ENUM`],
-/// [`TypeFlags::ENUM_LITERAL`] and [`TypeFlags::UNIQUE_ES_SYMBOL`] are
-/// **absent** from this set despite being primitives: for them a non-firing
-/// simple arm means "unported", not "unrelated".
+/// mentioning it is ported. The upstream arms this port omits —
+/// `UniqueESSymbol`, the wildcard type — are why [`TypeFlags::UNIQUE_ES_SYMBOL`]
+/// is **absent** from this set despite being a primitive: for it a non-firing
+/// simple arm means "unported", not "unrelated". [`TypeFlags::ENUM`] — an enum
+/// MEMBER in this port's model — joined the set at §751, when every upstream
+/// enum arm (`relater.go:219`/`:225`/`:236-243`/`:266-270`) was ported through
+/// [`Checker::enum_member_value`]; the one arm left undecided (two same-named
+/// enums from different declarations, `isEnumTypeRelatedTo`) answers `None`
+/// explicitly. [`TypeFlags::ENUM_LITERAL`] marks the enum's UNION type, which
+/// the composite dispatch decomposes before any simple arm is asked of it.
 ///
 /// This is a strict superset of [`crate::calls`]'s `SELECTABLE`, which
 /// additionally excludes [`TypeFlags::NON_PRIMITIVE`]. Widening a caller from
@@ -202,6 +206,7 @@ const FLAG_DECIDABLE: TypeFlags = TypeFlags::ANY
     .union(TypeFlags::ES_SYMBOL)
     .union(TypeFlags::STRING_LITERAL)
     .union(TypeFlags::NUMBER_LITERAL)
+    .union(TypeFlags::ENUM)
     .union(TypeFlags::BIG_INT_LITERAL)
     .union(TypeFlags::BOOLEAN_LITERAL)
     .union(TypeFlags::NEVER)
@@ -728,6 +733,62 @@ impl Relater<'_, '_, '_> {
         if t.intersects(TypeFlags::NEVER) {
             return Some(false);
         }
+        // §751: the enum arms, on this port's member model — a member is a
+        // `Named` type flagged `ENUM` whose VALUE lives in the value-keyed
+        // intern map (`enum_value_types`), so "the literal's value" is read
+        // back through [`Checker::enum_member_value`] (`n:`/`s:` keys). They
+        // sit BEFORE the `NumberLike` arm because that arm's `ENUM` bit would
+        // otherwise relate a STRING-valued member to `number`.
+        let source_member = self.checker.enum_member_value(source);
+        let target_member = self.checker.enum_member_value(target);
+        let plain =
+            |flags: TypeFlags| !flags.intersects(TypeFlags::UNION | TypeFlags::INTERSECTION);
+        if let Some((source_owner, source_key)) = &source_member {
+            if let Some((target_owner, target_key)) = &target_member {
+                // `relater.go:236-243`: two members of ONE enum relate only
+                // by identity (caught above) — otherwise they are two
+                // literals and the structured walk finds nothing. Members of
+                // two enums relate through `isEnumTypeRelatedTo`, which
+                // requires the same NAME and member-by-member equal values;
+                // a different name is decided, the same name is not ported.
+                if source_owner == target_owner {
+                    return Some(source_key == target_key);
+                }
+                let same_name = self.checker.binder.symbols().get(*source_owner).name
+                    == self.checker.binder.symbols().get(*target_owner).name;
+                return if same_name { None } else { Some(false) };
+            }
+            let numeric = source_key.starts_with("n:");
+            // `relater.go:219`/`:225`: an enum literal relates to the PLAIN
+            // literal of its value.
+            if t.intersects(TypeFlags::LITERAL)
+                && plain(t)
+                && self.checker.plain_literal_key(target).as_deref() == Some(source_key.as_str())
+            {
+                return Some(true);
+            }
+            // `NumberLike -> number` / `StringLike -> string`, by the
+            // member's actual domain.
+            if plain(t) && t.intersects(TypeFlags::NUMBER | TypeFlags::STRING) {
+                return Some(numeric == t.intersects(TypeFlags::NUMBER));
+            }
+        } else if let Some((_, target_key)) = &target_member
+            && matches!(self.relation, Relation::Assignable | Relation::Comparable)
+            && target_key.starts_with("n:")
+        {
+            // `relater.go:266-270`, the bit-flag rules: `number` relates to a
+            // numeric enum member (and so, through the union dispatch, to a
+            // numeric enum), and a non-enum numeric literal to the member
+            // holding its value.
+            if s.intersects(TypeFlags::NUMBER) && plain(s) {
+                return Some(true);
+            }
+            if s.intersects(TypeFlags::NUMBER_LITERAL)
+                && self.checker.plain_literal_key(source).as_deref() == Some(target_key.as_str())
+            {
+                return Some(true);
+            }
+        }
         if s.intersects(TypeFlags::STRING_LIKE) && t.intersects(TypeFlags::STRING) {
             return Some(true);
         }
@@ -770,13 +831,8 @@ impl Relater<'_, '_, '_> {
         // `narrowTypeByTypeFacts` counts on the difference to leave an `any`
         // constituent alone.
         //
-        // The enum arms in the same upstream block (`relater.go:266-270`,
-        // `number -> E` and a matching-value numeric literal -> enum literal)
-        // are not ported, so `number -> E` is a gap. (§750 corrects the
-        // reason this comment used to give — "there are no enum types in
-        // this crate" — which stopped being true at §55; `flow.rs`'s
-        // `comparable_ternary` carries the enum-literal half inline
-        // meanwhile.)
+        // The enum arms of the same upstream block (`relater.go:266-270`)
+        // are ported above, at the member level (§751).
         if matches!(self.relation, Relation::Assignable | Relation::Comparable)
             && s.intersects(TypeFlags::ANY)
         {

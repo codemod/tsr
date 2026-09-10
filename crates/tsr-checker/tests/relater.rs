@@ -593,3 +593,90 @@ fn any_is_comparable_to_everything_both_ways() {
     assert!(comparable("let a: any; let b: string;"));
     assert!(comparable("let a: string; let b: any;"));
 }
+
+/// The type of the `index`th statement's first declaration: its annotation
+/// when it has one, else its initializer's REGULAR type. The initializer
+/// road is how an enum member is reached here — the bare harness has no
+/// program, and the qualified type-reference road (`E.A` in type position)
+/// resolves its namespace root only after the enum's declared type exists;
+/// the corpus pipeline never hits that order. §751.
+fn declaration_type<'a>(
+    checker: &mut Checker<'a, '_>,
+    statements: &[Statement<'a>],
+    index: usize,
+) -> TypeId {
+    let Statement::VariableStatement(statement) = statements[index] else {
+        panic!("statement {index} must be a variable statement");
+    };
+    let declaration = statement
+        .declaration_list
+        .and_then(|list| list.declarations.first().copied())
+        .expect("a declaration");
+    if let Some(annotation) = declaration.r#type {
+        return checker.get_type_from_type_node(annotation);
+    }
+    let initializer = declaration.initializer.expect("an annotation or an initializer");
+    let fresh = checker.check_expression(initializer);
+    checker.get_regular_type_of_literal_type(fresh)
+}
+
+/// Fixtures with a declaration ahead of the two `let`s: the two types are
+/// statements 1 and 2.
+fn related_after_decl(source: &str, ask: fn(&mut Checker<'_, '_>, TypeId, TypeId) -> bool) -> bool {
+    with_checker(source, |checker, statements| {
+        let a = declaration_type(checker, statements, 1);
+        let b = declaration_type(checker, statements, 2);
+        ask(checker, a, b)
+    })
+}
+
+/// §751 (`relater.go:225`/`:267`/`:268`). A numeric enum member is
+/// assignable to `number` and to the plain literal of its value; `number`
+/// and that literal are assignable BACK to it under the assignable relation
+/// (the bit-flag rules) and not under the subtype relation.
+#[test]
+#[allow(clippy::redundant_closure_for_method_calls)]
+fn a_numeric_enum_member_relates_to_number_and_its_value_literal() {
+    let to_number = "enum E { A, B } const a = E.A; let b: number;";
+    assert!(related_after_decl(to_number, |c, a, b| c.is_type_assignable_to(a, b)));
+    assert!(related_after_decl(to_number, |c, a, b| c.is_type_assignable_to(b, a)));
+    assert!(!related_after_decl(to_number, |c, a, b| c.is_type_subtype_of(b, a)));
+    let to_literal = "enum E { A, B } const a = E.B; let b: 1;";
+    assert!(related_after_decl(to_literal, |c, a, b| c.is_type_assignable_to(a, b)));
+    assert!(related_after_decl(to_literal, |c, a, b| c.is_type_assignable_to(b, a)));
+    let wrong_literal = "enum E { A, B } const a = E.B; let b: 0;";
+    assert!(!related_after_decl(wrong_literal, |c, a, b| c.is_type_assignable_to(a, b)));
+    assert!(!related_after_decl(wrong_literal, |c, a, b| c.is_type_assignable_to(b, a)));
+}
+
+/// §751. A STRING enum member is string-like, not number-like — the port's
+/// `ENUM` bit sits inside `NUMBER_LIKE`, which is exactly the misfire the
+/// enum arms are placed ahead of.
+///
+/// Reddened by: moving the enum block below the `NUMBER_LIKE` arm.
+#[test]
+#[allow(clippy::redundant_closure_for_method_calls)]
+fn a_string_enum_member_is_a_string_and_not_a_number() {
+    let to_string = "enum S { X = \"x\", Y = \"y\" } const a = S.X; let b: string;";
+    assert!(related_after_decl(to_string, |c, a, b| c.is_type_assignable_to(a, b)));
+    let to_number = "enum S { X = \"x\", Y = \"y\" } const a = S.X; let b: number;";
+    assert!(!related_after_decl(to_number, |c, a, b| c.is_type_assignable_to(a, b)));
+    let to_literal = "enum S { X = \"x\", Y = \"y\" } const a = S.X; let b: \"x\";";
+    assert!(related_after_decl(to_literal, |c, a, b| c.is_type_assignable_to(a, b)));
+}
+
+/// §751 (`relater.go:236-243`). Two members of one enum are unrelated, and
+/// that is DECIDED (`relate_ternary` reads `NotRelated`, not `Unknown`).
+#[test]
+#[allow(clippy::redundant_closure_for_method_calls)]
+fn two_members_of_one_enum_are_decidably_unrelated() {
+    use tsr_checker::relater::{Relation, Ternary};
+    let fixture = "enum E { A, B } const a = E.A; const b = E.B;";
+    assert!(!related_after_decl(fixture, |c, a, b| c.is_type_assignable_to(a, b)));
+    let verdict = with_checker(fixture, |checker, statements| {
+        let a = declaration_type(checker, statements, 1);
+        let b = declaration_type(checker, statements, 2);
+        checker.relate_ternary(a, b, Relation::Assignable)
+    });
+    assert_eq!(verdict, Ternary::NotRelated);
+}
