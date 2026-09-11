@@ -2647,6 +2647,53 @@ version of bare `any`.
 
 ## 5. Refused, with the number that refused it
 
+### §775 — the GENERIC object-rest `Omit` mint, 2026-09-11 — **written, measured three ways, best was 22:12, reverted**
+
+`getRestType`'s generic branch (`checker.go:17813`-`:17827`): when the
+destructured source is generic, upstream mints `Omit<source, omitKeyType>`
+through the global `Omit` alias instead of building a member list.
+`conformance/genericObjectRest` wants `Omit<T, "a">` and this port answered
+`error` — `object_rest_type` (`destructure.rs:732`) has the concrete branch
+only. **No code is in the tree; this entry is the record.**
+
+### The arm works; its OTHER half is the problem
+
+```
+variant                                              G→R  W→R   R→W  G→W    net
+1. mint Omit<T, boundKeys> for any TYPE_PARAMETER     12   10    30    2     -8
+2. …excluding the `this` type                         12   10    10    2    +12
+3. …plus declining when a member is non-Property       9    6    10    0     +5
+```
+
+Upstream does not omit only the BOUND names. It also omits every property that
+cannot be spread (`unspreadableToRestKeys`, `:17806`-`:17818`): a method, an
+accessor, and — the part that defeated variant 3 — a **private or protected**
+member, via
+`getDeclarationModifierFlagsFromSymbol(prop) & (Private|Protected)`.
+
+`compiler/destructuringUnspreadableIntoRest` is 30 lines of exactly that, and
+its name says so. Variant 2 removed 20 of them by excluding the `this` type
+(the class case, where the rule bites); variant 3 tried to decline whenever the
+source has a non-`Property` member and **could not see the remaining 10**,
+because private and protected members ARE `Member::Property` in this port and
+`Member` carries no modifier flags.
+
+### The prerequisite, named
+
+`isSpreadableProperty` (`checker.go:17830`) plus per-property MODIFIER FLAGS on
+the member enumeration. `crates/tsr-checker/src/objects.rs`'s `Member::Property`
+records name, optional, readonly and printed text — not visibility, and not
+whether the declaration was a method or an accessor. Until a property
+enumeration carries that, this arm can spell `Omit<T, boundKeys>` but not
+`Omit<T, boundKeys | unspreadable>`, and **half an omit list is a confidently
+wrong type where the gap was honest**.
+
+**Do not re-attempt §775 until that exists.** When it does, the arm is the ~25
+lines this entry describes plus the unspreadable union, and it should be
+re-measured rather than trusted from the +12 above — §769 measured 21:9,
+was refused, and came back at +43 with zero adverse once §770 landed its
+prerequisite.
+
 ### §769 — the IIFE REST arm, 2026-09-10 — **written, measured at 21:9 ADVERSE, reverted; the blocker is TUPLE APPARENT TYPE, not the arm**
 
 `getSpreadArgumentType` at the IIFE call site (`checker.go:29468`), §768's
@@ -8317,3 +8364,4 @@ that were true of a different population than the one they were quoted about.
 | 2026-09-10 | `4d366d50` | **63.98%** | **6,102** | **§772 — CORRECTING §770's residue: the three GAP→WRONG are NOT a this-type gap (documentation only, no code).** §770 attributed them to "a `this`-type threading gap" and **that attribution was wrong in the expensive direction** — it would have sent the next session into machinery that already works. `verdictdump` at §771 shows `t.slice` printing `{ (start?: number, end?: number): (string | number)[]; (): [number, string]; }` RIGHT, with the augmented `slice(): this` resolved to the TUPLE; §164's call-site rule (`calls.rs:703`) is doing its job and §770's fallback does not break it. **The real causes are two, and different**: (a) `thisTypeInTuples:0:5`/`:0:6` are the ZERO-argument call `t.slice()`, where both overloads are applicable and the answer is decided by candidate ORDER — upstream picks the augmentation's `(): this`, this port picks lib's — established from the baseline (`t.slice()` is `[number, string]`, `t.slice(1)` is `(string | number)[]`). **The MECHANISM is NOT established and is not claimed**: a first draft of this row asserted "a later declaration's overloads precede earlier ones", which was inferred from the answer, not read — and the source points against it, since signature order is `symbol.Declarations` order (`checker.go:19806`) and the binder appends with a plain `AppendIfUnique` (`binder.go:2519`). Withdrawn. **Narrowed by reading, then a hypothesis REFUTED by measurement.** Read: `chooseOverload` (`checker.go:9025`) is first-applicable-wins over `s.candidates`, and this port's `get_signatures_of_symbol` mirrors `getSignaturesOfSymbol` exactly. That suggested "upstream's candidate order cannot be its print order" — **tested by reversing the candidate list and running the corpus: −5,996 right lines.** Declaration order is overwhelmingly correct and must stay; the two `thisTypeInTuples` lines are a LOCAL exception, not an ordering difference. So the cause is whatever makes lib's `slice(start?, end?)` inapplicable or unreachable for THIS zero-argument call on a tuple — a much smaller search. **Three plausible causes have now died in this one item** (§770's this-types, §772's merge rule, §772's order inference); each was written the moment it explained the observation, and the two claims that were READ against the source survived. One corpus run refuted in forty seconds what three paragraphs had asserted. Measure the next hypothesis before writing it down. (b) `sliceResultCast:0:3` is a UNION receiver whose member should print the union of per-constituent signatures; the port collapses to one — union-property signature projection, not overloads and not this-types. **A wrong cause in a residue note is worse than no note**, and the project's own rule about correcting the record applies to attributions as much as to numbers — **including this row's own first draft, which replaced §770's wrong cause with a wrong mechanism. Twice in one section a plausible cause was written before it was checked; the failure mode is not ignorance, it is fluency.** `checker-notes-callres.md` §772. checker session |
 | 2026-09-10 | HEAD | **63.98%** | **6,102** | **§773 — the board re-measured at §772, and §770's reach CONFIRMED on it (instrument reading only, no code).** `depend.rs`: **7,957 gap lines** (8,009 at §766, 8,003 at §768), C3 arithmetic holds — root buckets sum to the walk. Roots: `CallExpression` 1,218 (15.2%, 298 cases), `Parameter` 1,059 (13.2%, 249 cases), `PropertyAccessExpression` 740 (9.2%, 196 cases), `NewExpression` 385, `ElementAccessExpression` 356, `TypeReference` 307; residual `NO STEP ARM` is `MappedType` 272 and `YieldExpression` 107, nothing else above 1%. **§770's reach confirmed by the instrument**: the §768-era board carried *"property access, the receiver has no such property: `[number, string]`"* at 12 lines — a TUPLE receiver — and it is **gone** from the §772 board. That row was read here first as evidence of a surviving SYMBOL-road gap (§770 fixed the TYPE road only); re-running the instrument before writing that up showed the log predated §770 and no such gap exists. **Fourth hypothesis this block killed by checking instead of asserting** — see §772. ~~The largest property-access refusal is now "the property has no type" at 259 lines, the best-evidenced unworked item on this page.~~ **WITHDRAWN by §774 before anyone acted on it**: `gaproot.rs` runs with `PROPERTY_DECLARATION_EDGE = true` and DESCENDS through that refusal to the property's own declaration — `property-declaration` is an EDGE taken 240 times, not a root. A one-step split figure is not a root figure, and `depend.rs`'s property-access table is a one-step split. See §774 for the properly ranked board. checker session |
 | 2026-09-11 | `02ea73f5` | **63.98%** | **6,102** | **§774 — the board re-measured for the 95% goal; three candidate levers priced, TWO REFUSED (measurement only, no code).** **Is 95% reachable?** `ceiling.rs`: **zero attributed unreachable lines** (408 unattributed, 0.09 points, the blind spot) — so 95% is a volume problem, not a bound problem. **But the shape matters**: 95% of 478,855 is 454,912 right, **+18,463 from today**, while the ENTIRE gap is **7,957 lines** — closing every gap line in the corpus reaches only **92.8%**. The remaining ~10,500 must come from WRONG lines (~29,900 available). **Any plan that ranks only gap rows is planning for at most +1.7 points.** **The gap is a LIST, not a tail**: 117 root rows, top 10 = 55.5%, top 30 = 81.65% — §4.-3's "long tail" was measured in CASES and both framings are right for different questions; a line-denominated goal wants this one. **§773's recommendation WITHDRAWN**: "property has no type" is not a root — `gaproot` runs `PROPERTY_DECLARATION_EDGE = true` and DESCENDS through it (`property-declaration` is an EDGE, 240 steps); a one-step split figure is not a root figure. **Lever 1, design P (qualified-name printing): REFUSED, third re-size 36 → 23 → 0** — strict net −6, loose net −710, and CP7 says why: design W landed and its **20,055** right lines ARE design P's former population. Spent; do not re-propose without a fresh CP7. **Lever 2, the class/enum alias leaf: REFUSED, re-measured.** §156 refused it at 58:34 then 33:34 *"until that print road exists"* — the print road is lever 1, now dead, so the prerequisite is void; re-measured rather than assumed (the §769→§771 lesson) and it is **12 gained : 26 lost**, refusal stands on a third independent measurement. Reopening needs a reason other than "the tree has moved" — that was tested. **Highest-`own` rows left** (conversion = lines, not a ceiling): `alias RHS TypeReference with arguments` 125/125 own, `decl name BINDING no type` 132/128, `annotation TypeReference qualified name` 109/101, `decl name FUNCTION no type` 100/100. `checker-notes-callres.md` §774. checker session |
+| 2026-09-11 | HEAD | **63.98%** | **6,102** | **§775 — the GENERIC object-rest `Omit` mint: written, measured THREE ways, best 22:12, REVERTED. No code in the tree.** `getRestType`'s generic branch (`checker.go:17813`-`:17827`) mints `Omit<source, keys>` where this port answered `error`; `conformance/genericObjectRest` wants `Omit<T, "a">`. Variants: (1) any TYPE_PARAMETER source → **−8** (30 R→W); (2) excluding the `this` type → **+12** at 22:12 (10 R→W); (3) plus declining on a non-`Property` member → **+5**, and it could not see the remaining 10. **Upstream omits more than the BOUND names**: also every unspreadable property — method, accessor, and the part that defeated variant 3, **private or protected**, via `getDeclarationModifierFlagsFromSymbol`. `destructuringUnspreadableIntoRest` is 30 lines of exactly that and its name says so. **Prerequisite named**: `isSpreadableProperty` plus per-property MODIFIER FLAGS on the member enumeration — this port's `Member::Property` carries name/optional/readonly/printed and not visibility, and private/protected members ARE `Property`, which is why the decline test was blind to them. **Half an omit list is a confidently wrong type where the gap was honest.** Do not re-attempt until that exists, and re-measure rather than trust the +12 — §769 was refused at 21:9 and returned at +43 with zero adverse once §770 landed ITS prerequisite. §5 carries the detail. checker session |
