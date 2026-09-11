@@ -133,6 +133,9 @@ struct CaseReport {
     replay_same: usize,
     replay_differs: usize,
     replay_is_right: usize,
+    wide_differs: usize,
+    wide_lost: usize,
+    wide_saved: usize,
     replay_examples: Vec<String>,
     /// Per-line attribution for the LOST lines, emitted only under
     /// `TSR_ANY_DUMP=1`. The key is `case:index:position`, byte-for-byte the
@@ -673,6 +676,7 @@ fn main() {
     assert!(corpus.is_available(), "corpus missing; run git submodule update --init --recursive");
     let cases = corpus.discover().expect("discovering cases");
     let dump = std::env::var("TSR_ANY_DUMP").is_ok_and(|v| !v.is_empty());
+    let wide_replay = std::env::var("TSR_ANY_REPLAY_WIDE").is_ok_and(|v| !v.is_empty());
 
     let reports: Vec<CaseReport> = cases
         .par_iter()
@@ -711,6 +715,32 @@ fn main() {
                     report.aligned += 1;
                     if want_type == got.type_string {
                         report.matched += 1;
+                    }
+                    // §783: the WIDE replay — §782's keyhole opened to EVERY
+                    // aligned line, not only the `any` disagreements. Asks the
+                    // producer's own function again and splits the divergence
+                    // by which answer the baseline wanted.
+                    if wide_replay
+                        && let Some(id) =
+                            our_ids.and_then(|line_ids| line_ids.get(position).copied())
+                    {
+                        let replay = types_producer::type_at_location(
+                            ctx.checker,
+                            ctx.binder,
+                            ctx.nodes,
+                            ctx.map,
+                            id,
+                        );
+                        if replay != got.type_string {
+                            report.wide_differs += 1;
+                            let rendered_right = got.type_string == want_type;
+                            let replay_right = replay == want_type;
+                            if replay_right && !rendered_right {
+                                report.wide_lost += 1;
+                            } else if rendered_right && !replay_right {
+                                report.wide_saved += 1;
+                            }
+                        }
                     }
                     if got.type_string != "any" {
                         continue;
@@ -901,6 +931,19 @@ fn main() {
         for (key, count) in rows.iter().take(15) {
             println!("  {count:7}  {key}");
         }
+    }
+    if wide_replay {
+        let differs: usize = reports.iter().map(|r| r.wide_differs).sum();
+        let lost: usize = reports.iter().map(|r| r.wide_lost).sum();
+        let saved: usize = reports.iter().map(|r| r.wide_saved).sum();
+        let aligned: usize = reports.iter().map(|r| r.aligned).sum();
+        println!("\nWIDE REPLAY over EVERY aligned line (§783):");
+        println!("  aligned lines replayed                    {aligned}");
+        println!("  producer answers DIFFERENTLY              {differs}");
+        println!(
+            "  ...replay RIGHT where rendered was wrong  {lost}   <- lines lost to walk order"
+        );
+        println!("  ...rendered RIGHT where replay is wrong   {saved}   <- lines the order saved");
     }
     if std::env::var("TSR_ANY_REPLAY").is_ok_and(|v| !v.is_empty()) {
         let same: usize = reports.iter().map(|r| r.replay_same).sum();

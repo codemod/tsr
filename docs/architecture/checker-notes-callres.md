@@ -5141,19 +5141,72 @@ number must not be quoted as it.
 ### Why it is worth recording anyway
 
 Because it converts §781 from an instrument curiosity into a checker defect
-with a cost. Before this, order-dependence was "the probe can't publish"; now
-it is "the port prints a wrong answer on lines where it already knows the right
-one, and at least 72 of them are in one keyhole".
-
-That changes what the determinism work IS. It is not instrument maintenance
-deferred behind the real work — it is a correctness item with its own
-conversion, and the honest way to size it is to widen the keyhole: replay every
-aligned line, not only the `any` disagreements, and count `replay == want &&
-rendered != want` across the corpus. `TSR_ANY_REPLAY=1` does the narrow version
-today; the wide one is a probe of its own and is not attempted here.
+with a cost — **and §783 then measured that cost corpus-wide and found this
+section's framing too optimistic by two orders of magnitude. Read §783 before
+acting on anything here.** The honest way to size it was always to widen the
+keyhole; §783 did, and the answer is 170 lines lost against 16,597 saved.
 
 ### Residue
 
 - The wide replay measurement above.
 - Which answer should be canonical, which is the actual design question and is
   untouched.
+
+## §783 — the wide replay: walk order is worth +16,427, not a defect to be fixed (instrument only)
+
+§782 measured order-dependence through a keyhole — `any` lines that a
+classifier branch disagreed about — found 72 lines where the replay was right,
+and said in its own text that the corpus-wide figure was unmeasured and **must
+not be quoted as this number**. This measures it, and the caution was
+warranted: the keyhole was misleading in the OPTIMISTIC direction.
+
+```
+WIDE REPLAY over EVERY aligned line:
+  aligned lines replayed                    474,229
+  producer answers DIFFERENTLY               29,676   (6.3%)
+  ...replay RIGHT where rendered was wrong      170   <- lines lost to walk order
+  ...rendered RIGHT where replay is wrong    16,597   <- lines the walk order SAVED
+```
+
+### The finding, which reverses the expected sign
+
+Order-dependence is real and large: **29,676 aligned lines — 6.3% of the corpus
+— answer differently when asked a second time.** But the walk's order is
+overwhelmingly *beneficial*. It saves 16,597 lines and costs 170, a ratio of
+about **98 to 1**, worth **+16,427 net**.
+
+§782 called this "a correctness item with its own conversion" and estimated the
+conversion from a keyhole. The conversion is **at most 170 lines**, and the
+naive repair — making the checker answer from a cold, order-independent state —
+would **lose roughly 16,597**.
+
+### What that means for the determinism work
+
+It is not a line-conversion opportunity and should not be scheduled as one.
+What the walk order is doing is supplying context that a cold ask does not
+have: a parameter typed after its enclosing call is checked, a reference typed
+after its declaration's initialiser. Upstream gets the same effect from
+deterministic memoisation that happens to be populated in a valid order;
+this port gets it from the order alone.
+
+So the real statement is: **this port's answers are correct largely BECAUSE of
+the walk order, and that dependency is undocumented and unenforced.** The risk
+is not the 170 lines; it is that any future change to walk order — a new probe,
+a reordered check, a parallel walk — silently moves 16,597 lines. That is worth
+a guard, not a repair.
+
+### The instrument consequence, restated
+
+`any_audit`'s control still cannot reach zero, and now the reason is precise:
+it is detecting a property the port RELIES ON. Splitting the control into
+classifier-fidelity and checker-determinism halves is the right move — and the
+determinism half should be reported as a standing figure to watch for movement,
+not as a defect count to drive to zero.
+
+### What is still not established
+
+Which of the 29,676 divergences are legitimate context-dependence and which are
+genuine cache bugs. This probe cannot tell them apart — it only knows the two
+answers differ and which one the baseline preferred. A cache bug and a
+correctly-context-sensitive answer look identical here.
+
