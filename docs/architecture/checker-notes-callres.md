@@ -5094,3 +5094,66 @@ The immediate work it implies is not a conversion arm: it is finding which cache
 or which road lets the second answer differ, and the replay probe is the tool
 for it — filter to one case, print both answers, and the divergent node names
 itself.
+
+## §782 — order-dependence costs REAL LINES: 72 where the second answer is the right one (instrument only)
+
+§781 established that `type_at_location` answers differently when asked twice.
+The obvious next question is whether either answer is better, and it has a
+number.
+
+```
+REPLAY of the producer on DISAGREEMENT lines:
+  producer answers the SAME as it recorded      87
+  producer answers DIFFERENTLY                 670
+  ...of which the REPLAY matches the baseline   72
+```
+
+### It cuts both ways, and that is the point
+
+```
+compiler/awaitedTypeJQuery:0:17   rendered=any   replay=null   want=null   <- replay RIGHT
+compiler/anyInferenceAnonymousFunctions:0:45  rendered=any  replay=T  want=any  <- render right
+compiler/capturedLetConstInLoop1:0:10  rendered=any  replay=never  want=any     <- render right
+```
+
+So this is not "the second answer is better". It is that **the checker holds
+two different answers for the same node and the walk decides which one the
+corpus sees** — and on **72 lines the one it does not see is the baseline's**.
+
+### What that does and does not license
+
+**Established**: on 72 lines in this sample, the information needed for the
+RIGHT answer already exists in the checker; the render walk asks too early and
+records a different one.
+
+**NOT established**: that a determinism fix converts 72 lines. Making the
+checker deterministic means choosing which answer becomes canonical, and
+nothing here says the replay answer wins — on `anyInferenceAnonymousFunctions`
+and `capturedLetConstInLoop1` the rendered one is correct and the replay is
+not. A fix that simply preferred the later answer would convert 72 and break an
+unknown number of the other 598.
+
+**And 72 is a floor on a narrow sample.** The population is pre-filtered twice
+— to lines printing `any`, and to lines where a classifier branch disagreed. It
+is a keyhole. The corpus-wide cost of order-dependence is unmeasured and this
+number must not be quoted as it.
+
+### Why it is worth recording anyway
+
+Because it converts §781 from an instrument curiosity into a checker defect
+with a cost. Before this, order-dependence was "the probe can't publish"; now
+it is "the port prints a wrong answer on lines where it already knows the right
+one, and at least 72 of them are in one keyhole".
+
+That changes what the determinism work IS. It is not instrument maintenance
+deferred behind the real work — it is a correctness item with its own
+conversion, and the honest way to size it is to widen the keyhole: replay every
+aligned line, not only the `any` disagreements, and count `replay == want &&
+rendered != want` across the corpus. `TSR_ANY_REPLAY=1` does the narrow version
+today; the wide one is a probe of its own and is not attempted here.
+
+### Residue
+
+- The wide replay measurement above.
+- Which answer should be canonical, which is the actual design question and is
+  untouched.

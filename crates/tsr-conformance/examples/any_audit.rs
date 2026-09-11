@@ -132,6 +132,8 @@ struct CaseReport {
     debug: Vec<String>,
     replay_same: usize,
     replay_differs: usize,
+    replay_is_right: usize,
+    replay_examples: Vec<String>,
     /// Per-line attribution for the LOST lines, emitted only under
     /// `TSR_ANY_DUMP=1`. The key is `case:index:position`, byte-for-byte the
     /// one `verdict.rs:70` writes, so this joins against
@@ -736,6 +738,15 @@ fn main() {
                                 report.replay_same += 1;
                             } else {
                                 report.replay_differs += 1;
+                                if replay == want_type {
+                                    report.replay_is_right += 1;
+                                }
+                                report.replay_examples.push(format!(
+                                    "{}:{index}:{position}\t{:?}\trendered={}\treplay={replay}\twant={want_type}",
+                                    case.name,
+                                    ctx.nodes.kind(id),
+                                    got.type_string,
+                                ));
                             }
                         }
                         if std::env::var("TSR_ANY_DEBUG").is_ok_and(|v| !v.is_empty()) {
@@ -897,6 +908,12 @@ fn main() {
         println!("\nREPLAY of the producer on DISAGREEMENT lines (§781):");
         println!("  producer answers the SAME as it recorded   {same}");
         println!("  producer answers DIFFERENTLY               {differs}");
+        let right: usize = reports.iter().map(|r| r.replay_is_right).sum();
+        println!("  ...of which the REPLAY matches the baseline  {right}");
+        println!("\n  first 12 divergences:");
+        for line in reports.iter().flat_map(|report| report.replay_examples.iter()).take(12) {
+            println!("    {line}");
+        }
     }
     println!("\nCONTROLS (must read zero):");
     println!("  UNCLASSIFIED, banked      {unclassified_banked}");
