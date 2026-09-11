@@ -4506,11 +4506,29 @@ parameters), so the answer is decided entirely by which candidate is tried
 first. Upstream answers `[number, string]`, i.e. it picks `(): this`; this port
 answers `(string | number)[]`, i.e. lib's.
 
-Note the print order is the OPPOSITE of the resolution order, and both ports
-agree on the print: the member prints lib's overload first (`:0:7` above is
-RIGHT) while upstream RESOLVES the augmentation's first. That is TypeScript's
-merged-interface rule — a later interface declaration's overloads precede
-earlier ones for resolution — and this port orders candidates by print order.
+Note the print order is the OPPOSITE of the apparent resolution order, and both
+ports agree on the print: the member prints lib's overload first (`:0:7` above
+is RIGHT) while upstream ANSWERS as if the augmentation's were chosen. The
+baseline is unambiguous — `let a = t.slice();` gives `a : [number, string]`
+while `t.slice(1)` gives `(string | number)[]`, so the zero-argument call takes
+`(): this` and the one-argument call takes lib's.
+
+**The MECHANISM behind that is not established, and this note does not claim
+one.** A first draft asserted "TypeScript's merged-interface rule: a later
+declaration's overloads precede earlier ones for resolution". That was an
+inference from the observed answer, not a reading, and the upstream code points
+against it: signature order is `symbol.Declarations` order
+(`getSignaturesOfSymbol`, `checker.go:19806`) and the binder appends with a
+plain `core.AppendIfUnique` (`binder.go:2519`) — no reordering anywhere on that
+path. So "later declarations come first" is unsupported, and it has been
+withdrawn rather than left standing.
+
+What IS established: upstream picks `(): this` for the zero-argument call and
+this port picks lib's `(start?, end?)`, both signatures are applicable to zero
+arguments, and the difference is therefore in candidate selection rather than
+in this-types. **Whoever takes this should find the rule first** — in
+`chooseOverload`/`resolveCall`, or in how the global `Array` augmentation
+merges — and should not assume it is declaration order.
 
 **(b) A UNION receiver's member signatures — `sliceResultCast:0:3`.**
 `declare var x: [number, string] | [number, string, string]; x.slice` should
@@ -4526,6 +4544,13 @@ would have opened `this`-type threading, found it working, and had to
 re-derive the real answer. The project's own rule — *correct the record when a
 number turns out to be wrong, and say it was corrected* — applies to
 attributions as much as to numbers.
+
+**And the correction needed correcting.** This section's own first draft
+replaced §770's wrong cause with a wrong MECHANISM, inferred from the answer
+rather than read from the source; the paragraph above now says so and withdraws
+it. That is twice in one section that a plausible-sounding cause was written
+before it was checked, which is worth leaving visible: the failure mode is not
+ignorance, it is fluency.
 
 Neither cause is cheap, and neither is a defect in §770's fallback. Both are
 now named precisely enough to be picked up or refused on their merits.
