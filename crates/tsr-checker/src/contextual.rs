@@ -205,11 +205,41 @@ impl<'a> Checker<'a, '_> {
             let Some(Node::CallExpression(call)) = self.node_map.get(iife) else {
                 return None;
             };
-            // The rest arm (`:29468`, `getSpreadArgumentType`) is not ported;
-            // it declines rather than taking the positional answer, which
-            // would be wrong for `(...numbers) => …`.
+            // §771 (`:29468`): the REST arm — `getSpreadArgumentType(args,
+            // index, len(args), anyType, …)`. The call site passes `anyType`
+            // as the rest type, which collapses most of that function: no
+            // const context, no tuple contextual element, and
+            // `maybeTypeOfKind(any, Primitive|…)` is false, so every remaining
+            // argument contributes its WIDENED type as a REQUIRED tuple
+            // element. `((...numbers) => …)(5, 6, 7)` is
+            // `[number, number, number]`, which the baseline states outright.
+            //
+            // This is §769 re-applied. §769 wrote the same arm, measured it at
+            // 21:9 adverse and REVERTED it: a tuple inherited no `Array<T>`
+            // members then, so giving a parameter its correct tuple type took
+            // `noNumbers.some(…)` from RIGHT to GAP. §770 fixed that, and
+            // STATUS §5 named this as the re-application.
+            //
+            // A SPREAD argument (`f(...xs)`) takes the variadic/rest legs at
+            // `:29504` and `:29528`; those are not ported and decline here, so
+            // the arm answers only for plain argument lists.
             if parameters[index].dot_dot_dot_token.is_some() {
-                return None;
+                if call
+                    .arguments
+                    .iter()
+                    .any(|argument| matches!(argument, tsr_ast::Expression::SpreadElement(_)))
+                {
+                    return None;
+                }
+                let mut elements = Vec::new();
+                for argument in call.arguments.iter().skip(index) {
+                    let argument_type = self.check_expression(*argument);
+                    if argument_type == self.intrinsics.error {
+                        return None;
+                    }
+                    elements.push(self.get_widened_literal_type(argument_type));
+                }
+                return Some(self.create_tuple_type(elements, false));
             }
             if let Some(argument) = call.arguments.get(index) {
                 let argument_type = self.check_expression(*argument);

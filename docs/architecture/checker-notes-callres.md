@@ -4424,3 +4424,52 @@ from its old number.
 - `this`-type threading for tuple methods (the 3 G→W above).
 - `ReadonlyArray` is selected by the tuple's own readonly flag, which is right,
   but no corpus line distinguished the two here.
+
+## §771 — §769 re-applied, now that its prerequisite exists (+43 W→R, ZERO adverse)
+
+The same arm §769 wrote, measured at **21:9 adverse**, and reverted. §770
+removed the blocker. Re-measured here: **+43 W→R, ZERO adverse.**
+
+```
+§769 (against the §768 baseline):   +21 W→R  vs  4 R→G + 5 R→W   — refused
+§770 (the prerequisite):            +87      vs  3 G→W           — landed
+§771 (the same arm, re-applied):    +43 W→R  vs  0               — landed
+```
+
+Nothing about the arm changed. What changed is that a tuple now inherits
+`Array<T>`'s members, so giving an IIFE rest parameter its correct tuple type
+no longer takes `noNumbers.some(…)` from RIGHT to GAP.
+
+### Why this is worth its own section rather than a footnote
+
+**The refusal was the productive step.** §769 could have been forced through —
+it was net-positive at +12 — or approximated as `number[]` to dodge the
+adverse. Either would have banked a smaller number and buried the real defect:
+that this port's tuples had no members at all. Instead the refusal named the
+prerequisite, §770 fixed it for the whole corpus (+87, and two cases that had
+nothing to do with IIFEs), and the arm then landed at nearly double its
+original score with no cost.
+
+The arithmetic across the three sections is **+151 right lines and +2 cases**,
+against §769-forced's +12 with nine adverse transitions carried forward.
+
+### Residue
+
+A SPREAD argument (`f(...xs)`) still declines — the variadic legs at `:29504`
+and `:29528` are not ported, and the test asserts that decline so it stays
+pinned as a gap.
+
+### Measured
+
+```
+scorepair over the §770 baseline (436,406):
+  right 436,406 → 436,449   +43 W→R, ZERO adverse
+    contextuallyTypedIife 19, contextuallyTypedIifeStrict 19,
+    emitDefaultParametersFunctionExpressionES6 2
+```
+
+§768's test asserted `any` for the rest case and described the arm as
+declining. That assertion is now false and has been updated to
+`[number, number]`, with the decline moved onto the spread-argument form that
+genuinely still declines — the same liability §768 itself flagged about
+"not ported" lists, met one section later on a test.

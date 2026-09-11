@@ -242,7 +242,11 @@ fn an_iife_parameter_takes_its_type_from_the_argument() {
     assert_eq!(type_of("((((zeta) => zeta))(\"!\"));", "zeta"), "string");
     // Past the arguments, with no initializer: `undefined`.
     assert_eq!(type_of("((kappa?) => kappa)();", "kappa"), "undefined");
-    // A REST parameter declines rather than taking the positional answer —
-    // it needs `getSpreadArgumentType`, which is not ported.
-    assert_eq!(type_of("((...omega) => omega)(5, 6);", "omega"), "any");
+    // §771: a REST parameter takes the TUPLE of the remaining arguments'
+    // widened types (`getSpreadArgumentType` with `anyType` as the rest type).
+    // §768 asserted `any` here and said the arm declined; that decline ended
+    // when §770 unblocked it.
+    assert_eq!(type_of("((...omega) => omega)(5, 6);", "omega"), "[number, number]");
+    // A SPREAD argument still declines — the variadic legs are not ported.
+    assert_eq!(type_of("((...sigma) => sigma)(...[5, 6]);", "sigma"), "any");
 }
