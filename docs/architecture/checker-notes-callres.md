@@ -5025,3 +5025,72 @@ But the residue is now small enough to characterise, which it was not at 40,384.
 A debug view (`TSR_ANY_DEBUG=1`) prints the remaining disagreements by
 node/parent kind and the first ten raw, which is how the four rows above were
 obtained.
+
+## §781 — the hypothesis tested: `type_at_location` is ORDER-DEPENDENT, 670 of 757 (instrument only)
+
+§780 recorded a hypothesis and said in its own text *"test it before believing
+it"*. This is the test, and it took one env-gated probe.
+
+### The test
+
+On every line the classifier still disagreed about, call the **producer's own
+function** — `types_producer::type_at_location`, the same function whose
+recorded answer the suite scores — a second time, and compare with what it
+recorded during the render walk.
+
+```
+REPLAY of the producer on DISAGREEMENT lines:
+  producer answers the SAME as it recorded    87
+  producer answers DIFFERENTLY               670    (88%)
+```
+
+**`type_at_location` is not a pure function of the node.** Asked twice about the
+same node in the same program, it answers differently 88% of the time on this
+population. The classifier was innocent for those 670: it was not drifting from
+the producer, it was asking a producer that had changed its mind.
+
+### What this establishes, and what it does not
+
+**Established**: on lines the producer printed `any` and the classifier's branch
+answered something else, re-asking the producer gives a different answer 670
+times out of 757.
+
+**NOT established**: that the checker is 88% order-dependent in general. This
+population is pre-filtered twice — to lines printing `any`, and to lines where a
+branch disagreed — which is exactly the population most likely to be
+order-sensitive. The corpus scores are stable because they come from ONE
+consistent walk; nothing here says a scored number is wrong.
+
+**What it does mean** is that a type in this port can depend on what has been
+checked before it. Upstream memoizes deterministically; `getTypeOfSymbol` on a
+symbol answers the same thing whenever it is asked. Somewhere this port's
+caching lets a later question see state an earlier one did not — the contextual
+parameter road is the natural suspect, since a parameter's type genuinely
+differs before and after its enclosing call is checked, but **that attribution
+is not tested and is not claimed.**
+
+### The consequence for the instrument
+
+`any_audit`'s control demands zero, and 670 of its remaining 757 are not
+classifier drift at all. **So the control as written cannot reach zero while the
+checker is order-dependent** — it is measuring two different things under one
+number: classifier fidelity (what it was built for) and checker determinism
+(what it accidentally detects).
+
+Not changed here. Splitting the control means deciding which of the two the
+probe is for, and that decision should be made by whoever repairs the
+determinism, not by the session that found it. The replay is left behind
+`TSR_ANY_REPLAY=1` so the split can be measured the moment it is wanted.
+
+### Why this is worth more than the 670 lines
+
+A checker whose answers depend on question order is one whose measurements are
+conditional on the walk. Every instrument on this project reads
+`type_at_location`; §767's step arms, §774's roots, §777's wrong board and
+§780's own repair all assume it answers the same thing twice. **It does not**,
+and that is now on the page with a number rather than an assumption.
+
+The immediate work it implies is not a conversion arm: it is finding which cache
+or which road lets the second answer differ, and the replay probe is the tool
+for it — filter to one case, print both answers, and the divergent node names
+itself.

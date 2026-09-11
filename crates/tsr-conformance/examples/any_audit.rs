@@ -130,6 +130,8 @@ struct CaseReport {
     lost_wants: HashMap<String, usize>,
     disagreement: usize,
     debug: Vec<String>,
+    replay_same: usize,
+    replay_differs: usize,
     /// Per-line attribution for the LOST lines, emitted only under
     /// `TSR_ANY_DUMP=1`. The key is `case:index:position`, byte-for-byte the
     /// one `verdict.rs:70` writes, so this joins against
@@ -718,6 +720,24 @@ fn main() {
                     let (bucket, reason) = ctx.classify(id);
                     if reason.starts_with("DISAGREEMENT") {
                         report.disagreement += 1;
+                        if std::env::var("TSR_ANY_REPLAY").is_ok_and(|v| !v.is_empty()) {
+                            // §781: ask the PRODUCER'S OWN function again, now.
+                            // If it answers differently from what it recorded
+                            // during the render walk, the checker is
+                            // order-dependent and the classifier is innocent.
+                            let replay = types_producer::type_at_location(
+                                ctx.checker,
+                                ctx.binder,
+                                ctx.nodes,
+                                ctx.map,
+                                id,
+                            );
+                            if replay == got.type_string {
+                                report.replay_same += 1;
+                            } else {
+                                report.replay_differs += 1;
+                            }
+                        }
                         if std::env::var("TSR_ANY_DEBUG").is_ok_and(|v| !v.is_empty()) {
                             report.debug.push(format!(
                                 "{}:{index}:{position}\t{:?}\tparent={:?}\twant={want_type}\t{reason}",
@@ -870,6 +890,13 @@ fn main() {
         for (key, count) in rows.iter().take(15) {
             println!("  {count:7}  {key}");
         }
+    }
+    if std::env::var("TSR_ANY_REPLAY").is_ok_and(|v| !v.is_empty()) {
+        let same: usize = reports.iter().map(|r| r.replay_same).sum();
+        let differs: usize = reports.iter().map(|r| r.replay_differs).sum();
+        println!("\nREPLAY of the producer on DISAGREEMENT lines (§781):");
+        println!("  producer answers the SAME as it recorded   {same}");
+        println!("  producer answers DIFFERENTLY               {differs}");
     }
     println!("\nCONTROLS (must read zero):");
     println!("  UNCLASSIFIED, banked      {unclassified_banked}");
