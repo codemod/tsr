@@ -212,3 +212,37 @@ fn a_string_literal_property_name_resolves_the_same_as_an_identifier() {
                   const obj: Known = { \"known\": yes => yes };";
     assert_eq!(type_of(source, "yes"), "string");
 }
+
+/// §768: `getContextuallyTypedParameterType`'s IIFE arm
+/// (`checker.go:29463`-`:29484`). An immediately-invoked function's
+/// parameters take their types from the CALL's arguments, widened — a road
+/// entirely separate from the contextual-signature one the tests above walk.
+///
+/// The "same name twice" trap this file warns about cannot fire here: an IIFE
+/// fixture has no annotation anywhere, so there is nothing for the walk to
+/// read the expected answer off.
+///
+/// Found by §767: after `depend.rs` grew step arms, an un-annotated parameter
+/// became the gap board's second-largest root, with `contextuallyTypedIife`
+/// at its head.
+///
+/// Reddened by: removing the IIFE arm.
+#[test]
+fn an_iife_parameter_takes_its_type_from_the_argument() {
+    assert_eq!(type_of("((jake) => jake)(\"build\");", "jake"), "string");
+    // Widened: the argument's literal type does not survive.
+    assert_eq!(type_of("((cats) => cats)(101);", "cats"), "number");
+    // Positional across several arguments.
+    let three = "((alpha, beta, gamma) => gamma)(\"foo\", 101, false);";
+    assert_eq!(type_of(three, "alpha"), "string");
+    assert_eq!(type_of(three, "beta"), "number");
+    assert_eq!(type_of(three, "gamma"), "boolean");
+    // Parentheses between the function and the call are looked through
+    // (`contextuallyTypedIife`'s "Lots of Irritating Superfluous Parentheses").
+    assert_eq!(type_of("((((zeta) => zeta))(\"!\"));", "zeta"), "string");
+    // Past the arguments, with no initializer: `undefined`.
+    assert_eq!(type_of("((kappa?) => kappa)();", "kappa"), "undefined");
+    // A REST parameter declines rather than taking the positional answer —
+    // it needs `getSpreadArgumentType`, which is not ported.
+    assert_eq!(type_of("((...omega) => omega)(5, 6);", "omega"), "any");
+}

@@ -4260,3 +4260,81 @@ reading the fixture is what corrected it.)
 The row is 249 cases wide, so the head case is not the whole of it; the next
 session should print more of the row before sizing the subsystem. But the arm
 is attributing to the right KIND of root.
+
+## §768 — the IIFE contextual-parameter arm (+73 W→R / +6 G→R, ZERO adverse)
+
+**The session's largest landing, and §767 is why it exists.**
+
+### The chain from instrument to arm
+
+§766 handed off with a re-ranked board. §767 noticed a quarter of that board
+was the instrument, added five step arms, and the second-largest root turned
+out to be an un-annotated PARAMETER — 1,059 lines, 249 cases, head case
+`contextuallyTypedIife`. Reading that fixture showed immediately-invoked
+function expressions. This section ports the arm that types them.
+
+Neither §767 nor this would have happened from the board as it stood: the row
+was inside `ArrowFunction / NO STEP ARM — not a finding`, which is a bucket
+that by construction says nothing about the compiler. **The instrument work
+paid for itself, in one section, at roughly 16× its own size.**
+
+### The arm
+
+`checker.go:29463`-`:29484`, and it runs BEFORE the contextual-signature road:
+an IIFE's parameters are typed from the ARGUMENTS of the call that invokes
+them, widened. `(jake => { })("build")` types `jake` as `string` — nothing in
+that program has a signature to be contextual from.
+
+`GetImmediatelyInvokedFunctionExpression` (`ast/utilities.go:1853`) looks
+through any number of parentheses, which is what the fixture's *"Lots of
+Irritating Superfluous Parentheses"* block (`((((function (y) { }))))("-")`)
+exists to check, and the test covers it.
+
+Three cases past the arguments (`:29477`-`:29480`), transcribed rather than
+collapsed:
+
+- an argument at the parameter's index → its widened type;
+- no argument but an initializer → `None`, so the ordinary road runs and the
+  initializer types it;
+- neither → `undefined`.
+
+### Not ported, and it declines rather than guessing
+
+A REST parameter needs `getSpreadArgumentType` (`:29468`). The positional arm
+would hand `((...numbers) => …)(5, 6, 7)` the type of argument 0, which is
+wrong — so it returns `None` and takes the implicit `any`. The test asserts
+that decline, so the gap is pinned as a gap.
+
+### A doc correction this landing forced
+
+`get_contextually_typed_parameter_type`'s own doc listed *"An immediately
+invoked function expression"* under **"Not ported, each answering `None`"**,
+with a population figure (28 of 925). That bullet is now false and has been
+rewritten to name the rest-parameter half as the remaining gap, and to say it
+was corrected when the arm landed. **A "not ported" list is a liability the
+moment one of its entries ships**, and this one would have gone on telling the
+next reader the mechanism was absent.
+
+### Measured
+
+```
+scorepair over the §766 baseline (436,240):
+  right 436,240 → 436,319   +73 W→R / +6 G→R, ZERO adverse
+    contextuallyTypedIifeStrict 30, contextuallyTypedIife 16+6,
+    destructuringArrayBindingPatternAndAssignment3 13
+coverage: checker_types 6,100 unmoved, gradient 91.10% → 91.12%;
+          diagnostics 2,600 unmoved; every other suite identical
+```
+
+**+0 cases on a +79-line landing.** The three head cases each keep other
+defects; `destructuringArrayBindingPatternAndAssignment3` moving 13 lines is
+the interesting one, because it is not an IIFE fixture — IIFE parameter types
+feed destructuring there, which is the sort of second-order reach a row's own
+name does not advertise.
+
+### How you would know this was wrong
+
+The widening is load-bearing: `((n) => n)(101)` is `number`, not `101`. If a
+later change makes IIFE parameters keep literal types, `contextuallyTypedIife`
+will move backwards and the `get_widened_literal_type` call here is the
+suspect.

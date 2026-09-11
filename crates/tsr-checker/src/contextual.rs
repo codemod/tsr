@@ -142,11 +142,12 @@ impl<'a> Checker<'a, '_> {
     ///
     /// Not ported, each answering `None`:
     ///
-    /// - **An immediately invoked function expression** (`(x => x)(1)`), which
-    ///   upstream types from the *argument expressions* rather than from a
-    ///   signature (`checker.go:29463`). It is a separate mechanism — the
-    ///   corpus's `contextuallyTypedIife` cases are 28 of the 925 — and folding
-    ///   it in here would share none of the code below.
+    /// - **A rest parameter of an IIFE** (`((...n) => n)(1, 2)`), which needs
+    ///   `getSpreadArgumentType` (`checker.go:29468`). The positional arm
+    ///   below would give it the wrong answer, so it declines. The rest of the
+    ///   IIFE road IS ported — see §768 and
+    ///   [`Checker::immediately_invoked_call`]; this bullet used to say the
+    ///   whole mechanism was unported and was corrected when it landed.
     /// - **Every context beyond the three above**: a `return`, a JSX attribute,
     ///   a binary operand, an array element, a parenthesised expression. Each
     ///   needs its own arm of `getContextualType` (`checker.go:29343`); the
@@ -185,6 +186,45 @@ impl<'a> Checker<'a, '_> {
             if accessor_type != self.intrinsics.error {
                 return Some(accessor_type);
             }
+        }
+        // §768 (`checker.go:29463`-`:29484`): the IIFE arm, which runs BEFORE
+        // the contextual-signature road below and is a different road
+        // entirely — the type comes from the ARGUMENTS of the call that
+        // immediately invokes this function, not from any contextual type the
+        // function itself has. `(jake => { })("build")` types `jake` as
+        // `string`.
+        //
+        // Found by §767: after `depend.rs` grew step arms, an un-annotated
+        // PARAMETER became the gap board's second-largest root (1,059 lines /
+        // 249 cases) with `contextuallyTypedIife` at its head, which is
+        // exactly this shape.
+        if let Some(iife) = self.immediately_invoked_call(function)
+            && let Some(parameters) = self.contextualisable_parameters(function)
+            && let Some(index) = parameters.iter().position(|p| p.node_id == Some(parameter))
+        {
+            let Some(Node::CallExpression(call)) = self.node_map.get(iife) else {
+                return None;
+            };
+            // The rest arm (`:29468`, `getSpreadArgumentType`) is not ported;
+            // it declines rather than taking the positional answer, which
+            // would be wrong for `(...numbers) => …`.
+            if parameters[index].dot_dot_dot_token.is_some() {
+                return None;
+            }
+            if let Some(argument) = call.arguments.get(index) {
+                let argument_type = self.check_expression(*argument);
+                if argument_type == self.intrinsics.error {
+                    return None;
+                }
+                return Some(self.get_widened_literal_type(argument_type));
+            }
+            // `:29477`-`:29480`: past the arguments, a parameter WITH an
+            // initializer takes its initializer's type (upstream answers nil
+            // and lets the ordinary road run); one without is `undefined`.
+            if parameters[index].initializer.is_some() {
+                return None;
+            }
+            return Some(self.intrinsics.undefined);
         }
         let parameters = self.contextualisable_parameters(function)?;
 
@@ -306,6 +346,32 @@ impl<'a> Checker<'a, '_> {
     /// holds by construction rather than by a check: the only caller reaches
     /// here for a parameter that has no type annotation, which is what makes a
     /// function context-sensitive in the first place.
+    /// `GetImmediatelyInvokedFunctionExpression` (`ast/utilities.go:1853`).
+    /// §768.
+    ///
+    /// The call that immediately invokes `function`, looking through any
+    /// number of parentheses — `((function (x) { }))("!")` counts, which is
+    /// what `contextuallyTypedIife`'s "Lots of Irritating Superfluous
+    /// Parentheses" block is there to check.
+    fn immediately_invoked_call(&self, function: NodeId) -> Option<NodeId> {
+        if !matches!(
+            self.nodes.kind(function),
+            tsr_ast::SyntaxKind::FunctionExpression | tsr_ast::SyntaxKind::ArrowFunction
+        ) {
+            return None;
+        }
+        let mut previous = function;
+        let mut parent = self.nodes.parent(function)?;
+        while self.nodes.kind(parent) == tsr_ast::SyntaxKind::ParenthesizedExpression {
+            previous = parent;
+            parent = self.nodes.parent(parent)?;
+        }
+        let Some(Node::CallExpression(call)) = self.node_map.get(parent) else {
+            return None;
+        };
+        (call.expression.and_then(|e| e.node_id()) == Some(previous)).then_some(parent)
+    }
+
     fn contextualisable_parameters(
         &self,
         function: NodeId,
