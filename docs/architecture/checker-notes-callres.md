@@ -4394,15 +4394,14 @@ that had no answer now have a wrong one, on cases that were already failing.
 
 ### What those three are, and why they are not a defect in this arm
 
-`thisTypeInTuples:0:5`/`:0:6` want `[number, string]` and get
-`(string | number)[]`; `sliceResultCast:0:3` is the same shape on `slice`.
-These are `this`-typed `Array` methods: upstream instantiates them with the
-TUPLE as `this`, so `slice()` on `[number, string]` answers the tuple. This
-port instantiates over `Array<union>` and loses the tuple identity.
-
-That is a `this`-type threading gap, not a mistake in the fallback — and it is
-**strictly better than the gap it replaced** for every other method, which is
-what the 87 says. Threading `this` is the residue.
+**This paragraph was WRONG and §772 corrects it.** It said the three were a
+`this`-type threading gap. They are not — this port threads `this` correctly,
+and §772 shows `t.slice` printing
+`{ (start?: number, end?: number): (string | number)[]; (): [number, string]; }`
+RIGHT, with the `this` resolved to the tuple. The three are two *different*
+causes, neither of them this-types, and neither a defect in the fallback. See
+§772 for what they actually are; the claim that they are strictly better than
+the gap they replaced stands.
 
 ### What the unit test does and does not pin
 
@@ -4421,7 +4420,9 @@ from its old number.
 
 ### Residue
 
-- `this`-type threading for tuple methods (the 3 G→W above).
+- The 3 G→W above, whose causes §772 names correctly (merged-interface
+  overload ORDER, and a union receiver's member signatures). **Not** this-type
+  threading, which works.
 - `ReadonlyArray` is selected by the tuple's own readonly flag, which is right,
   but no corpus line distinguished the two here.
 
@@ -4473,3 +4474,59 @@ declining. That assertion is now false and has been updated to
 `[number, number]`, with the decline moved onto the spread-argument form that
 genuinely still declines — the same liability §768 itself flagged about
 "not ported" lists, met one section later on a test.
+
+## §772 — correcting §770's residue: the three adverse are NOT a this-type gap
+
+Documentation only, no code. §770 landed +87 against 3 GAP→WRONG and attributed
+those three to "a `this`-type threading gap". **That attribution was wrong**,
+and it was wrong in the expensive direction: it would have sent the next
+session into `this`-type machinery that already works.
+
+### What the port actually does
+
+`verdictdump` on `thisTypeInTuples`, at §771:
+
+```
+:0:7   RIGHT  t.slice : { (start?: number, end?: number): (string | number)[]; (): [number, string]; }
+:0:9   RIGHT  slice   : { (start?: number, end?: number): (string | number)[]; (): [number, string]; }
+```
+
+The fixture augments `interface Array<T> { slice(): this; }`, and the port
+resolves that `this` to `[number, string]` — the TUPLE — and prints the whole
+merged member correctly. §164's call-site rule (`calls.rs:703`: a signature
+returning a minted this-type answers the RECEIVER) is doing its job, and §770's
+`Array<union>` fallback does not break it.
+
+### The two real causes
+
+**(a) Merged-interface overload ORDER — `thisTypeInTuples:0:5`/`:0:6`.**
+The failing lines are `let a = t.slice();` — the ZERO-argument call. Both
+overloads are applicable to it (`slice(start?, end?)` has all-optional
+parameters), so the answer is decided entirely by which candidate is tried
+first. Upstream answers `[number, string]`, i.e. it picks `(): this`; this port
+answers `(string | number)[]`, i.e. lib's.
+
+Note the print order is the OPPOSITE of the resolution order, and both ports
+agree on the print: the member prints lib's overload first (`:0:7` above is
+RIGHT) while upstream RESOLVES the augmentation's first. That is TypeScript's
+merged-interface rule — a later interface declaration's overloads precede
+earlier ones for resolution — and this port orders candidates by print order.
+
+**(b) A UNION receiver's member signatures — `sliceResultCast:0:3`.**
+`declare var x: [number, string] | [number, string, string]; x.slice` should
+print the UNION of the per-constituent signatures:
+`((start?: number, end?: number) => (string | number)[]) | ((…) => (string | number)[])`.
+This port collapses to one. That is union-property signature projection, not
+overloads and not this-types.
+
+### Why record a three-line correction at all
+
+Because a wrong cause in a residue note is worse than no note: §770's reader
+would have opened `this`-type threading, found it working, and had to
+re-derive the real answer. The project's own rule — *correct the record when a
+number turns out to be wrong, and say it was corrected* — applies to
+attributions as much as to numbers.
+
+Neither cause is cheap, and neither is a defect in §770's fallback. Both are
+now named precisely enough to be picked up or refused on their merits.
+
