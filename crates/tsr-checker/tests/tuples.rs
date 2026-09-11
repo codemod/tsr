@@ -181,3 +181,29 @@ fn a_tuple_element_access_answers_the_element() {
     // ported ones.
     assert_eq!(type_of_declaration(source, "e3"), "error");
 }
+
+/// §770: a tuple's non-numeric members come from `Array<T>`.
+///
+/// Upstream's tuple is a REFERENCE to a target whose base is
+/// `Array<union of the element types>` (`createNormalizedTupleType`,
+/// `checker.go:24148`), so array methods resolve through the ordinary
+/// base-member road. This port mints a tuple as a bare named object with an
+/// element list and no base, so it answered its numeric indices and nothing
+/// else — §769 found that by giving a parameter its correct tuple type and
+/// watching `.some(…)` go from RIGHT to GAP.
+///
+/// **This test does NOT redden when §770 is reverted, and is not claimed to.**
+/// This harness builds no program, so `global_type_symbol("Array")` is `None`
+/// and the fallback never fires here at all; what the assertion pins is that a
+/// tuple's `length` is its element COUNT, which is true with or without the
+/// fallback in this harness. §770's guard is the CORPUS, which is the right
+/// instrument for it: +44 W→R / +43 G→R, and the `length` exclusion is itself
+/// measured — letting `length` through the fallback took `tupleTypes`'
+/// `readonly [number?]` from `0 | 1` to `number`, 2 R→W.
+#[test]
+fn a_tuple_length_is_its_element_count() {
+    assert_eq!(
+        type_of_declaration("declare const t: [number, string];\nconst n = t.length;", "n"),
+        "2"
+    );
+}

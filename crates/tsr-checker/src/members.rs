@@ -1022,6 +1022,53 @@ impl Checker<'_, '_> {
         if let Some(member) = self.generic_heritage_member(id, name, &mut Vec::new()) {
             return Some(member);
         }
+        // §770: a TUPLE's non-numeric members come from `Array<T>`.
+        //
+        // Upstream's tuple is a REFERENCE to a target synthesised by
+        // `createNormalizedTupleType` (`checker.go:24148`) whose base is
+        // `Array<union of the element types>` (`ReadonlyArray` when readonly),
+        // so `.length`, `.some`, `.every` and the rest resolve through the
+        // ordinary base-member road. This port mints a tuple as a bare `Named`
+        // object carrying an element list (`create_tuple_type`,
+        // `declared.rs:1775`) with NO base at all, so it answered its numeric
+        // indices (§8, above) and nothing else.
+        //
+        // §769 is what found this: giving an IIFE rest parameter its correct
+        // TUPLE type turned `noNumbers.some(…)` from RIGHT to GAP, because the
+        // parameter had been `any[]` — a type that does have array members —
+        // and the tuple did not. That arm was reverted and this is its
+        // recorded prerequisite.
+        // `length` is NOT one of them. A tuple's own `length` is its element
+        // COUNT — a literal for a plain tuple (§117 slice 4, above), and a
+        // UNION of possible lengths when elements are optional, which §117
+        // declines. Upstream's tuple target declares its own `length` rather
+        // than inheriting `Array`'s `number`, so falling back here would
+        // replace a deliberate decline with a confidently wrong answer:
+        // measured at 2 R→W on `tupleTypes`' `readonly [number?]`, whose
+        // baseline wants `0 | 1` and got `number`.
+        if name != "length"
+            && let Some((elements, readonly)) = self.tuple_element_lists.get(&id)
+        {
+            let (elements, readonly) = (elements.clone(), *readonly);
+            let target = if readonly { "ReadonlyArray" } else { "Array" };
+            if let Some(target) = self.global_type_symbol(target) {
+                // The element type is the UNION of the tuple's elements, which
+                // is what upstream's target is instantiated over. An empty
+                // tuple has no elements and takes `never`, so `[].length` is
+                // still `number` and `[].some` still resolves.
+                let element = if elements.is_empty() {
+                    self.intrinsics.never
+                } else {
+                    self.get_union_type(&elements)
+                };
+                let array = self.create_type_reference(target, vec![element]);
+                if array != self.intrinsics.error
+                    && let Some(member) = self.get_type_of_property_of_type(array, name)
+                {
+                    return Some(member);
+                }
+            }
+        }
         self.property_type_via_shape(id, name)
     }
 

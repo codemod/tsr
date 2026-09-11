@@ -4344,3 +4344,83 @@ The widening is load-bearing: `((n) => n)(101)` is `number`, not `101`. If a
 later change makes IIFE parameters keep literal types, `contextuallyTypedIife`
 will move backwards and the `get_widened_literal_type` call here is the
 suspect.
+
+## §770 — a tuple inherits `Array<T>`'s members (+44 W→R / +43 G→R against 3 G→W, 29:1, +2 cases)
+
+§769's named prerequisite, landed. It is also §769's vindication: the refused
+arm was correct and this is what it was waiting on.
+
+### The gap
+
+Upstream's tuple is a REFERENCE to a target synthesised by
+`createNormalizedTupleType` (`checker.go:24148`) whose base is
+`Array<union of the element types>` — `ReadonlyArray` when readonly — so
+`.some`, `.every`, `.indexOf`, `.map` and the rest resolve through the ordinary
+base-member road.
+
+This port mints a tuple as a bare `Named` object carrying an element list
+(`create_tuple_type`, `declared.rs:1775`) with **no base at all**. It answered
+its numeric indices (§8) and nothing else. Every array method on every tuple in
+the corpus was a gap.
+
+### `length` is excluded, and the exclusion is measured
+
+A tuple's own `length` is its element COUNT — a literal for a plain tuple (§117
+slice 4), a UNION of possible lengths when elements are optional, which §117
+declines. Upstream's tuple target declares its own `length` rather than
+inheriting `Array`'s `number`.
+
+The first cut did not exclude it and measured **2 R→W** on `tupleTypes`'
+`declare const b1: readonly [number?]`, whose baseline wants `0 | 1` and got
+`number`. That is the shape this project keeps warning about: a deliberate
+decline replaced by a confident wrong answer. Excluding `length` removed both,
+and left **no RIGHT→anything transition at all**.
+
+### Measured
+
+```
+scorepair over the §768 baseline (436,319):
+  first cut:                 +87 against 2 R→W + 3 G→W
+  with `length` excluded:    right 436,319 → 436,406
+                             +44 W→R / +43 G→R against 3 G→W — 29:1
+    mapOnTupleTypes01 33+32, mapOnTupleTypes02 5+3, thisTypeInTuples 3+7
+coverage: checker_types 6,100 → 6,102 (63.95% → 63.98%),
+          gradient 91.12% → 91.14%; diagnostics 2,600 unmoved;
+          every other suite identical
+```
+
+**No RIGHT→WRONG and no RIGHT→GAP.** The three adverse are GAP→WRONG — lines
+that had no answer now have a wrong one, on cases that were already failing.
+
+### What those three are, and why they are not a defect in this arm
+
+`thisTypeInTuples:0:5`/`:0:6` want `[number, string]` and get
+`(string | number)[]`; `sliceResultCast:0:3` is the same shape on `slice`.
+These are `this`-typed `Array` methods: upstream instantiates them with the
+TUPLE as `this`, so `slice()` on `[number, string]` answers the tuple. This
+port instantiates over `Array<union>` and loses the tuple identity.
+
+That is a `this`-type threading gap, not a mistake in the fallback — and it is
+**strictly better than the gap it replaced** for every other method, which is
+what the 87 says. Threading `this` is the residue.
+
+### What the unit test does and does not pin
+
+`a_tuple_length_is_its_element_count` **does not redden when §770 is
+reverted**, and says so. This harness builds no program, so
+`global_type_symbol("Array")` is `None` and the fallback never fires in it at
+all. §770's guard is the CORPUS — which is the right instrument here, unlike
+§764/§765's entry guards where it was blind. The `length` exclusion's guard is
+the measured 2 R→W.
+
+### §769 is now unblocked
+
+The IIFE rest arm can be re-applied as STATUS §5 describes — roughly twenty
+lines — and should be re-measured against this baseline rather than trusted
+from its old number.
+
+### Residue
+
+- `this`-type threading for tuple methods (the 3 G→W above).
+- `ReadonlyArray` is selected by the tuple's own readonly flag, which is right,
+  but no corpus line distinguished the two here.
