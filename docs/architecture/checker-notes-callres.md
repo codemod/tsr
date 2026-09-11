@@ -4888,3 +4888,61 @@ the numbers are pre-inference.
 The honest next step for the goal is **repair `any_audit`**, because without it
 the largest single population in the corpus cannot be ranked, and every plan
 that touches it is planning blind.
+
+## §779 — an ambient `declare var` is `any`, not the auto road's `undefined` (+41 W→R, ZERO adverse, +3 cases)
+
+Found by working the WRONG board §777 established as the trustworthy one.
+`wrongflip`'s W2 (exact substitutions on ROOT lines) ranked `any -> undefined`
+at 43 lines with **69.8% in one case** — the most concentrated row on that
+board, and small enough to read whole.
+
+### The rule
+
+Upstream's `autoType` **is `any`** — `c.autoType = c.newIntrinsicTypeEx(TypeFlagsAny, "any", …)`
+(`checker.go:976`). A reference whose flow type is still auto goes through
+`convertAutoToAny` (`checker.go:11182`) and prints `any`.
+
+A `declare var a;` **can never be assigned**, so its flow type never leaves
+auto, and upstream prints `any` at every reference. This port's auto road
+answers its INITIAL `undefined` instead — correct for a `let x;` read before
+its first assignment, wrong for an ambient declaration that has none.
+
+`conformance/jsxEsprimaFbTestSuite` is thirty `declare var` lines
+(`declare var 日本語; declare var AbC_def; declare var x; declare var a;` …) and
+every one of them printed `undefined`.
+
+### The arm
+
+`is_auto_typed_declaration` excludes a declaration whose `VariableStatement`
+carries `declare`. Everything else about the auto road is untouched, and the
+test pins both sides of the distinction: `let b;` before assignment is still
+`undefined`, `let c; c = 1;` is still `number`.
+
+### Measured
+
+```
+scorepair over the §776 baseline (436,471):
+  right 436,471 → 436,512   +41 W→R, ZERO adverse
+    jsxEsprimaFbTestSuite 30, tsxReactEmit3 7, tsxExternalModuleEmit2 4
+coverage: checker_types 6,102 → 6,105 (63.98% → 64.01%),
+          gradient 91.15% → 91.16%; diagnostics 2,600 unmoved
+```
+
+**+3 cases, and the port crosses 64%.**
+
+### What this does not do
+
+It does not port `convertAutoToAny`. The general rule — *a flow type that is
+still auto at the reference is `any`* — would also cover a non-ambient
+declaration that happens to have no assignments anywhere, and this arm reaches
+only the ambient case, where "no assignments" is guaranteed by the grammar
+rather than by a walk. The general form needs the port's auto road to
+distinguish `autoType` from `undefinedType`, which it currently conflates by
+using `undefined` as the initial; that is a model change and is not attempted
+here.
+
+Worth noting for the 95% campaign: this row was 43 lines on a board whose
+largest ROOT substitution is 96. **There is no large lever left on either
+side** — §774 showed the gap is 117 rows with the top 30 at 82%, and §777 shows
+the wrong side's ROOT bucket is 4,113 lines spread thinner still. The route is
+many arms of this size.

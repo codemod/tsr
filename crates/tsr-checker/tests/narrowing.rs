@@ -1203,3 +1203,23 @@ fn a_generic_destructured_parameter_discriminates_through_its_constraint() {
         "string"
     );
 }
+
+/// §779: an AMBIENT `declare var` with no annotation is `any`, not the auto
+/// road's initial `undefined`.
+///
+/// Upstream's `autoType` IS `any` (`checker.go:976`), and a reference whose
+/// flow type is still auto converts through `convertAutoToAny`
+/// (`checker.go:11182`). A `declare var` can never be assigned, so its flow
+/// type never leaves auto — where a non-ambient `let x;` read BEFORE its first
+/// assignment genuinely is `undefined`, which is the distinction the auto road
+/// exists to make and which the test below it pins.
+///
+/// Reddened by: removing the ambient guard from `is_auto_typed_declaration`.
+#[test]
+fn an_ambient_var_with_no_annotation_is_any() {
+    assert_eq!(type_of_last_expression("declare var a;\na;"), "any");
+    // The non-ambient road is unchanged: still `undefined` before assignment.
+    assert_eq!(type_of_last_expression("let b;\nb;"), "undefined");
+    // And still evolving after one.
+    assert_eq!(type_of_last_expression("let c;\nc = 1;\nc;"), "number");
+}

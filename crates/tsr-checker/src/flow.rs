@@ -2005,6 +2005,21 @@ impl Checker<'_, '_> {
         {
             return false;
         }
+        // §779: an AMBIENT declaration (`declare var a;`) can never be
+        // assigned, so upstream's flow type stays `autoType` and
+        // `convertAutoToAny` (`checker.go:11182`) answers `any` — autoType IS
+        // `any` (`checker.go:976`). This port's auto road answers its INITIAL
+        // `undefined` instead.
+        if self.nodes.parent(declaration).and_then(|list| self.nodes.parent(list)).is_some_and(
+            |statement| match self.node_map.get(statement) {
+                Some(Node::VariableStatement(node)) => {
+                    crate::check::has_modifier(node.modifiers, tsr_ast::SyntaxKind::DeclareKeyword)
+                }
+                _ => false,
+            },
+        ) {
+            return false;
+        }
         // A binding pattern is excluded upstream: `let { a } = x` declares
         // through the pattern and the auto reduction never applies.
         if !matches!(node.name, Some(tsr_ast::BindingName::Identifier(_))) {
