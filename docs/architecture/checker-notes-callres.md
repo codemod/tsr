@@ -4946,3 +4946,82 @@ largest ROOT substitution is 96. **There is no large lever left on either
 side** — §774 showed the gap is 117 rows with the top 30 at 82%, and §777 shows
 the wrong side's ROOT bucket is 4,113 lines spread thinner still. The route is
 many arms of this size.
+
+## §780 — repairing `any_audit`'s classifier: 40,384 → 1,656 (instrument only, no checker change)
+
+§777 found `any_audit` failing its own control and §778 corrected §6 for having
+told readers to use it anyway. This is the repair. `scorepair` reads
+`no transitions vs baseline` — nothing about the checker moved.
+
+```
+control total (UNCLASSIFIED banked + lost + DISAGREEMENT)
+  before   40,384
+  after     1,656     — 96% of the drift closed
+```
+
+### The classifier had stopped mirroring the producer in three specific ways
+
+`classify` claims to mirror `type_at_location`'s branch order. It did — but
+mirroring a branch means mirroring **both of its exits**, and three of the
+producer's exits were missing.
+
+**1. SS183's error exit (`types_producer.rs:510`).** The right side of a
+property access prints `any` when the ACCESS ITSELF computes to `error`, not
+only when it computes to `any`. The classifier tested `any` alone, so every
+such name became a disagreement. Worth ~5,000.
+
+**2. The producer's error→`any` conversions.** Several producer branches
+(`:434`, `:467`, `:617`, `:630`) answer `any` where the checker held `errorType`
+— *"upstream holds `errorType` at"* those positions and the baseline records
+`any`. A classifier branch that answered `error` therefore **explains** the
+printed `any` rather than contradicting it. Calling that a disagreement buried
+a real origin under the control. Worth ~15,900, the largest of the three.
+
+**3. The rendering (`types_producer.rs:1355`).** The producer prints through
+`type_to_string_at(id, reference)`, which is reference-aware; the classifier
+used the context-free `type_to_string`. **Measured at zero** on this corpus and
+kept anyway, because the two printers can differ and a classifier that renders
+differently from the producer is drift waiting to happen.
+
+### What was deliberately NOT done
+
+`verdict` could have asked `type_at_location` for its own answer, which would
+satisfy the assertion **tautologically** — the control would then catch nothing,
+which is worse than failing loudly. §778 ruled that out in advance and this
+repair respects it: each fix copies a specific branch exit of the producer, and
+a branch that reaches a genuine non-`any`, non-`error` type **still disagrees**.
+
+### The 1,656 that remain, and a hypothesis marked as one
+
+```
+  264  Identifier  parent=VariableDeclaration
+  126  Identifier  parent=BinaryExpression
+   94  Identifier  parent=BindingElement
+   56  Identifier  parent=Parameter
+```
+
+Their reasons are things like *"declaration name -> implicit `any`: unannotated
+Parameter, container CONTEXTUALISABLE"* on a line the producer printed `any` —
+the classifier's branch and the producer's are the **same code**
+(`get_type_of_symbol` on the parent's symbol), and yet they answer differently.
+
+**Hypothesis, untested:** the port's contextual parameter typing is
+ORDER-DEPENDENT. The producer walks and renders every line of a file; the
+classifier re-asks afterwards, by which time the enclosing call has been checked
+and a contextual type exists that did not exist at render time. If so this is a
+checker defect worth ~1,656 lines, not a classifier one.
+
+It is written down as a hypothesis because today has killed five plausible
+causes that were written the moment they explained the observation (§772, §773,
+§777). **The next person on this should test it before believing it** — the
+cheap test is to render a file twice and compare, or to classify in the
+producer's own walk order.
+
+### Status of the instrument
+
+Still failing, still refusing to publish, and that is correct — 1,656 lines of
+drift is 1,656 too many for a table that ranks the corpus's largest population.
+But the residue is now small enough to characterise, which it was not at 40,384.
+A debug view (`TSR_ANY_DEBUG=1`) prints the remaining disagreements by
+node/parent kind and the first ten raw, which is how the four rows above were
+obtained.

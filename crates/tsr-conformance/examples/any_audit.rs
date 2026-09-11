@@ -129,6 +129,7 @@ struct CaseReport {
     /// What upstream printed on the lost lines.
     lost_wants: HashMap<String, usize>,
     disagreement: usize,
+    debug: Vec<String>,
     /// Per-line attribution for the LOST lines, emitted only under
     /// `TSR_ANY_DUMP=1`. The key is `case:index:position`, byte-for-byte the
     /// one `verdict.rs:70` writes, so this joins against
@@ -416,7 +417,11 @@ impl Ctx<'_, '_, '_> {
             && let Some(symbol) = self.binder.symbol_of(parent)
         {
             let declared = self.checker.get_declared_type_of_symbol(symbol);
-            return self.verdict(declared, "declared type of a type symbol is `any`".to_string());
+            return self.verdict(
+                declared,
+                "declared type of a type symbol is `any`".to_string(),
+                id,
+            );
         }
 
         // 2. The right side of a property access.
@@ -430,6 +435,20 @@ impl Ctx<'_, '_, '_> {
                 Some(expression) => self.checker.check_expression(expression),
                 None => self.checker.intrinsics().error,
             };
+            // §780: the producer's SS183 fast path (`types_producer.rs:510`)
+            // — a name whose parent IS a property access prints `any` when the
+            // ACCESS ITSELF computes to `error`, not only when it computes to
+            // `any`. This classifier tested `any` alone, so every such name
+            // became a DISAGREEMENT: the producer printed `any` and the
+            // classifier's own branch had answered `error`. Mirroring the
+            // branch means mirroring BOTH of its exits.
+            if self.is_error(ours) {
+                return (
+                    Bucket::Checker,
+                    "member name of an access that ANSWERED ERROR: SS183 prints `any`                      (types_producer.rs:510)"
+                        .to_string(),
+                );
+            }
             let reason = if self.is_any(receiver) {
                 format!(
                     "member name of an access on an `any` receiver (members.rs:99, checker.go:11314) <- {}",
@@ -438,7 +457,7 @@ impl Ctx<'_, '_, '_> {
             } else {
                 "member name: the property's own type is `any`".to_string()
             };
-            return self.verdict(ours, reason);
+            return self.verdict(ours, reason, id);
         }
 
         // 3. A declaration name.
@@ -448,7 +467,7 @@ impl Ctx<'_, '_, '_> {
         {
             let ours = self.checker.get_type_of_symbol(symbol);
             let arm = self.symbol_arm(symbol);
-            return self.verdict(ours, format!("declaration name -> {arm}"));
+            return self.verdict(ours, format!("declaration name -> {arm}"), id);
         }
 
         // 4. The base of an `extends` clause — falls through unless the base's
@@ -472,6 +491,7 @@ impl Ctx<'_, '_, '_> {
                 return self.verdict(
                     declared,
                     "base class expression: declared type is `any`".to_string(),
+                    id,
                 );
             }
         }
@@ -506,11 +526,15 @@ impl Ctx<'_, '_, '_> {
                     return self.verdict(
                         declared,
                         "import-equals entity name: declared type is `any`".to_string(),
+                        id,
                     );
                 }
                 let value = self.checker.get_type_of_symbol(symbol);
-                return self
-                    .verdict(value, "import-equals entity name: value type is `any`".to_string());
+                return self.verdict(
+                    value,
+                    "import-equals entity name: value type is `any`".to_string(),
+                    id,
+                );
             }
 
             if enclosing != Some(SyntaxKind::TypeQuery) {
@@ -578,7 +602,7 @@ impl Ctx<'_, '_, '_> {
         if let Ok(expression) = tsr_ast::Expression::try_from(node) {
             let ours = self.checker.check_expression(expression);
             let arm = self.expression_arm(id, expression);
-            return self.verdict(ours, arm);
+            return self.verdict(ours, arm, id);
         }
 
         (
@@ -589,13 +613,50 @@ impl Ctx<'_, '_, '_> {
 
     /// A branch this classifier took has a type; it must be `any`, or the
     /// classifier and the producer have diverged.
-    fn verdict(&self, ours: tsr_checker::TypeId, reason: String) -> (Bucket, String) {
+    fn verdict(
+        &mut self,
+        ours: tsr_checker::TypeId,
+        reason: String,
+        at: NodeId,
+    ) -> (Bucket, String) {
         if self.is_any(ours) {
             return (Bucket::Checker, reason);
         }
-        // A type whose printed *name* is `any` — `class any {}` — is not the
-        // `any` type and must not be counted as one in either direction.
-        if self.checker.type_to_string(ours) == "any" {
+        // §780: mirror the PRODUCER'S PRINTER, not a context-free one.
+        // `type_at_location` renders through `type_to_string_at(id, reference)`
+        // (`types_producer.rs:1355`), which is reference-aware: a type can
+        // print `any` at one position and something else out of context. This
+        // classifier used `type_to_string`, so every such line became a
+        // DISAGREEMENT — the producer printed `any` and the classifier's own
+        // branch, printed differently, disagreed with it.
+        //
+        // This is mirroring, not tautology: the branch's TYPE is still the
+        // classifier's own, and a branch that reaches a genuinely different
+        // type still disagrees. Only the rendering is made common.
+        let printed = self
+            .checker
+            .type_to_string_at(ours, at)
+            .unwrap_or_else(|| self.checker.type_to_string(ours));
+        // §780: the producer converts `error` to `any` on several branches
+        // (`types_producer.rs:434`, `:467`, `:617`, `:630`) — "upstream holds
+        // `errorType` at" those positions and the baseline records `any`. A
+        // classifier branch that answered `error` therefore EXPLAINS the
+        // printed `any` rather than contradicting it, and calling that a
+        // DISAGREEMENT buried a real origin under the control.
+        //
+        // Still not a tautology: a branch reaching a genuine non-any,
+        // non-error type continues to disagree, which is the drift the control
+        // exists to catch.
+        if self.is_error(ours) {
+            return (
+                Bucket::Checker,
+                format!("{reason} <- the branch answered ERROR; the producer prints `any` there"),
+            );
+        }
+        if printed == "any" {
+            // A type whose printed *name* is `any` — `class any {}` — is not
+            // the `any` type and must not be counted as one in either
+            // direction.
             return (Bucket::Named, "a declaration named `any` (`class any {}`)".to_string());
         }
         (Bucket::Unclassified, format!("DISAGREEMENT: {reason}"))
@@ -657,6 +718,16 @@ fn main() {
                     let (bucket, reason) = ctx.classify(id);
                     if reason.starts_with("DISAGREEMENT") {
                         report.disagreement += 1;
+                        if std::env::var("TSR_ANY_DEBUG").is_ok_and(|v| !v.is_empty()) {
+                            report.debug.push(format!(
+                                "{}:{index}:{position}\t{:?}\tparent={:?}\twant={want_type}\t{reason}",
+                                case.name,
+                                ctx.nodes.kind(id),
+                                ctx.nodes
+                                    .parent(id)
+                                    .map(|p| ctx.nodes.kind(p))
+                            ));
+                        }
                     }
                     let rows =
                         if want_type == "any" { &mut report.banked } else { &mut report.lost };
@@ -781,6 +852,25 @@ fn main() {
         pct(exposure, banked_total)
     );
 
+    if std::env::var("TSR_ANY_DEBUG").is_ok_and(|v| !v.is_empty()) {
+        let mut kinds: HashMap<String, usize> = HashMap::new();
+        for report in &reports {
+            for line in &report.debug {
+                let key = line.split('\t').skip(1).take(2).collect::<Vec<_>>().join(" ");
+                *kinds.entry(key).or_default() += 1;
+            }
+        }
+        let mut rows: Vec<(String, usize)> = kinds.into_iter().collect();
+        rows.sort_by_key(|row| std::cmp::Reverse(row.1));
+        println!("\nRAW disagreements (first 10):");
+        for line in reports.iter().flat_map(|report| report.debug.iter()).take(10) {
+            println!("  {line}");
+        }
+        println!("\nDISAGREEMENT by node kind x parent kind (TSR_ANY_DEBUG):");
+        for (key, count) in rows.iter().take(15) {
+            println!("  {count:7}  {key}");
+        }
+    }
     println!("\nCONTROLS (must read zero):");
     println!("  UNCLASSIFIED, banked      {unclassified_banked}");
     println!("  UNCLASSIFIED, lost        {unclassified_lost}");
