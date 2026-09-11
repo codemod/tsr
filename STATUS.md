@@ -61,7 +61,8 @@ fixes ride into the checker rows.
 
 | **`checker_types`** (superseded by the row below) | **4,979/9,538** | **52.20%** | measured at **`a4874675`** by `cargo run -p tsr-conformance --bin coverage`, one release run on the merged tree, 2026-08-11. Gradient **88.20%**. **The rows above are kept for their attributions and are NO LONGER the totals.** This window: 3,955 → 4,979, **+1,024 cases**, two lanes composing without a single collision. The `.types` lane's arms are §178–§192 (the baseline-writer guard chain, private-name lexical scope, nullable widening, the JS-literal element access); the parser/binder/scanner lane's are §190–§208. **The largest single arm was §180 (+299)** — `hadErrorBaseline`, the first condition of `writeTypeOrSymbol`'s guard chain, which revealed that the `want any, got error` cluster was a PRINTING split and not checker gaps at all |
 | **`checker_types`** (superseded by the §584 row below) | **5,921/9,538** | **62.08%** | **§579 (+307 lines, ZERO adverse, gradient 90.52% → 90.59% — the largest gradient move of the session)** — overload selection on an INSTANTIATED SIGNATURE TYPE. §37.1 localised it to *the overload path reads signatures without the receiver's instantiation*; following it one step further **corrected that**: `instantiate_signature_type` already loops over every signature, and the real limit is `resolve_call_signature`'s `is_instantiated_signature_type` block, which handles `[signature]` and gaps anything longer on the stated ground that *an overload set stays a gap for the same reason the symbol path's does* — **but the symbol path does NOT gap one** (`interface W { q(a:number):number; q(a:string):string }` resolves today). What was unhandled is exactly **overloaded AND generic**, which is `Array<T>.concat`'s shape. Fix: run the same `choose_overload` the symbol path runs. Lands in the promise families (`promisePermutations` 130+112+32), which §182's notes had priced as blocked on conditional-type evaluation — partly blocked on this instead. **§38.1: running the crate suite properly found SIX RED TESTS, the oldest red since §533, every one pinning a refusal a measured landing this session overturned (§533, §549, §551, §553, §565). Each was re-pointed at UPSTREAM'S BASELINE, not at what the port now prints. They went unnoticed because `cargo test` was TIMING OUT at 600 s and I graded a truncated log — `grep -c '^test result: ok'` counts suites that finished and sees no failure from suites that never ran. The whole crate is 64 suites; any earlier report quoting fewer was partial. Same class as §555 (scripted edit with no assertion) and §573 (probe too narrow) — three ways of believing an instrument that was not answering.** The corpus never regressed: every landing carried a full scorepair. `checker-notes-sitename.md` §38 | **§569 (+5 cases, 92 favorable, ZERO adverse, gradient 90.52%)** — the spread's iterator gate was SUFFICIENT, not necessary. `array_spread_element_type` gated its seam on `declares_symbol_iterator`, which asks whether the operand's OWN declarations spell `[Symbol.iterator]`; a LIB type never does from that side (`Generator`, `Set`, `Map` all carry it on the interface), so every lib iterable fell off the road `for..of` walks happily — `for (const x of g1())` read `number` while `[...g1()]` gapped. Falls through to the same `for_of_element_type`, **safe by construction** (it answers `Option` and declines), placed before the decidable-failure arm so a real element type beats that arm's `any`. `genericRestParameters1` 16, `callWithSpread3` 9, `readonlyRestParameters` 8, `spreadsAndContextualTupleTypes` 15 — almost entirely rest-parameter and call-spread families no probe aimed at. **§33.1: §567a had shaved the STRING case off this same gate one landing earlier for 1 line; the general form was worth 92. When a gate rejects one thing it should admit, ask what ELSE it rejects before writing the special case.** Fifth landing sharing §32.1's shape. `checker-notes-sitename.md` §33 | **§567 (+2 cases, 38 favorable, ZERO adverse)** — two halves of one broad sweep, both *the same road split two ways*. **The string spread**: `array_spread_element_type`'s iterator seam is gated on `declares_symbol_iterator`, a SYNTACTIC test a primitive cannot pass (`String`'s `[Symbol.iterator]` is on the lib interface), so `[..."ab"]` gapped while `for (const ch of "ab")` answered `string` through the very same `for_of_element_type`. **The enum index key**: §262 synthesised the reverse-mapping signature and `E[0]` reads it, but `is_applicable_index_type` tests for the `number` intrinsic or a `TypeData::NumberLiteral` and this port mints an enum member as its own `TypeFlags::ENUM` type — upstream carries `NumberLiteral | EnumLiteral` together, so the distinction never arises there. `propertyAccess` 9, `noImplicitAnyIndexing` 7, `noUncheckedIndexAccess` 8. **The string half alone was 1 line; the enum half took it to 38 — stopping at the first would have looked like a dead end.** **§32.1: four landings now share one sentence — TWO ENTRANCES TO ONE ROAD, ONLY ONE GATED CORRECTLY (§559 async, §561 arrow params, §567a/b). None was a missing subsystem. The probe is always the same: write the two spellings of one idea side by side and diff. Four landings, 111 lines, cheapest instrument in the file.** `checker-notes-sitename.md` §32 | **§561 (+1 case, 24 favorable, ZERO adverse — 62.00% crossed)** — §429's pattern-implied-type gate refined for UNCONTEXTUAL arrows. Every destructured-parameter shape worked for a `function` and gapped for an arrow; §429's recorded reason is *"expression/arrow parameters may be contextually typed upstream and the implied `any` there was 78 G→W"*, a claim about CONTEXTUALLY TYPED arrows that `has_no_contextual_type` already decides (§169's refinement, same shape). **§29.1: the first draft measured 25 favorable : 29 ADVERSE and the rows said why** — the gate was hiding shapes the implied-type computation cannot spell (a REST-ONLY pattern wants `Iterable<any, void, undefined>`, an OPTIONAL element wants `[number?]`), which fell through to a bare `any` and RENDERED where they used to gap. Adding the decline (a newly-admitted arrow whose implied type is bare `any` returns `None`) took it to 24:0 — **§549's rule in the other direction: a computation that cannot answer must DECLINE, not emit its fallback.** §429's named falsifier checked: `coAndContraVariantInferences3` shows zero movement. **§29.3: §559 and §561 are the same defect twice — a gate written for declarations excluding arrows wholesale where the reason only justified excluding contextually typed ones.** `checker-notes-sitename.md` §29 | **§559 (+3 cases, 47 favorable, ZERO adverse, gradient 90.49%)** — the async road only ever accepted a BLOCK body. `return_type_from_body`'s async arm opened `let Body::Block(block) = body else { return None }`, so `async () => 1` gapped while the identical DECLARATION worked; `getReturnTypeFromBody`'s first arm is `!ast.IsBlock(body)` (`checker.go:20135`) and the non-async road already takes it. Modelled as a one-element `returns` list so the `await` unwrap, never/bare-return handling and `Promise<T>` wrap below are unchanged; the block became `Option` and the two `block_completes_normally` questions answer *the end is not reachable* for a concise body by construction. `asyncMethodWithSuper_es6` 20, `asyncUnParenthesizedArrowFunction_*` 8, `jsxElementType` 7 unaimed-at. **Residue measured not guessed (§28.1)**: `{ async m() { … } }` still gaps on a DIFFERENT gate — `declaration_takes_no_contextual_return`, which §14 of `checker-notes-callres.md` sized and fenced. **§28.2: found by a BROAD PROBE SWEEP — nine unrelated one-liners — not by a row dump, in a subsystem no dump pointed at because its failing lines are spread thinly across cases with other blockers. Both instruments are needed: the dump ranks what is visible, the sweep finds what nothing has pointed at.** `checker-notes-sitename.md` §28 | **§557 (+1 case, 6 W→R, ZERO adverse)** — a NEGATIVE numeric computed name keeps the BRACKETED form: `{ [-1]: 1 }` is `{ [-1]: number; }`, not `{ -1: number; }`. A negative number is not spellable as a property name (a unary expression, not a numeric literal token), so upstream keeps the written form; a non-negative one still prints bare. Both witnesses are cases **§553 itself moved** — `computedPropertiesNarrowed.types` `>t6 : { [-1]: number; }` and `duplicateObjectLiteralProperty_computedName1`. **§27.1: §555 and §557 are both §553's own residues, +8 cases from one seam, each follow-up costing one probe. After landing an arm that makes new members exist, probe the shapes it newly reaches and diff against baselines — the arm's own conversions are where its residues hide, because those are the only places the new code runs.** `checker-notes-sitename.md` §27 | **§555 (+3 cases, 6 W→R, ZERO adverse)** — a late-bound LITERAL method keeps METHOD spelling: `{ ["m"]() { } }` is `{ m(): number; }`, not `{ m: () => number; }`. `late_bound_symbol_member_name`'s second return element is the method arm's *"keep the method spelling"* switch (SS323 named it for `UNIQUE_ES_SYMBOL` because that was all that reached it); §553's literal arms returned `false`. §413 had settled the rule already — `{ "foo"() { } }` is `{ foo(): void; }`. **§26.2 IS CORRECTED: its first attempt reported `no transitions` and I read that as "the branch is not the code path". It was. `cargo fmt` had collapsed the arm's if/else onto one line, the multi-line search string matched nothing, and the scripted replace SILENTLY DID NOTHING — no assertion. A scripted edit without an assertion is not an edit, and a zero measured over one is not a measurement.** Third distinct way a `no transitions` reading has been wrong this session (§541 unmet precondition, §543 WRONG→WRONG, §555 edit never applied). `checker-notes-sitename.md` §26.2 | **§553 (+4 cases, 126 favorable : 20 adverse, zero R→W, gradient 90.48%)** — the LITERAL halves of `StringOrNumberLiteralOrUnique`. `computed_member_index_key` implements upstream's guard (`checker.go:13317`) faithfully and routes a `STRING_LITERAL`/`NUMBER_LITERAL`/`UNIQUE_ES_SYMBOL` name to `LateBound`; `late_bound_symbol_member_name` only ever answered the SYMBOL half, so `{ [1]: 2 }` and `{ ["a"]: 2 }` reached a `None` and the caller gapped the whole literal. A late-bound literal name IS the member name and takes the written-property spelling rules (bare if identifier-valid, `printing::quote` otherwise, `normalise_number` for numbers). Reading the literal TYPE keeps `{ ["a"+""]: 1 }` on the index route. `literalsInComputedProperties1` 22, `dynamicNames` 17, `computedPropertiesNarrowed` 12. **§26.1: the guard and the speller were written in different sessions against the same upstream line and EACH WAS CORRECT ABOUT ITS OWN HALF — the defect lived in the seam, a classifier promising three kinds and a speller answering one. Third seam-shaped defect this session after §539 and §549, all three found by probing shapes rather than reading code.** `checker-notes-sitename.md` §26 | **§549 (+2 cases, 86 favorable : 12 adverse, zero R→W, gradient 90.45%)** — §23.1's residue closed: a DECLINED TUPLE CONTEXT was CONTAGIOUS. `tuple_from_array_literal` refuses a rest in the pattern, a spread in the literal, a pattern longer than the literal — **every refusal is about the tuple CONTEXT, not about the initializer having no type** — but it returned `error`, which poisoned the parent and gapped every element: `var [d, ...e] = [1,2,3]` gapped `e` AND `d`, whose positional read works fine on `number[]`. One change: the decline falls through to the plain `check_expression` + widening road already below it. `intraBindingPatternReferences` 14, `destructuringArrayBindingPatternAndAssignment3` 13, `…5SiblingInitializer` 13, `parserForStatement9` 8. The 12 adverse are all one already-failing case (6 wrong, 20 gap) that also gains 8 G→R. **§24.1 generalises it and is worth a sweep: `error` is this port's gap sentinel AND its "not applicable" answer, and those are different claims — any helper whose contract is "compute a better type if you can" and whose decline returns `error` is a candidate for the same bug.** `checker-notes-sitename.md` §24 | **§547 (+3 cases, 26 favorable : 1 adverse, zero R→W)** — the rest element of a NON-TUPLE array binding pattern. The gap was named in the arm's own comment (*"a non-tuple parent declines too (upstream builds `T[]` from the iterated type)"*) and never closed; `getTypeForBindingElement` (`checker.go:17797`) reaches `checkIteratedTypeOrElementType` and wraps the element in an array. §321 built the tuple half and declined the rest. Element from `for_of_element_type` (the §284/§285 seam), so a custom iterator and a plain array take one path; the arm is reached only when the parent is not a tuple at all, so §321's sliced-mask refusal is untouched. **Reach far past the family that surfaced it**: `noUncheckedIndexedAccessDestructuring` 10 lines, not in the deficit-1 dump at all — the fourth defect-keyed arm this session to pay more than its aimed-at rows. The 1 adverse is a GAP→WRONG in a case already failing (5 wrong, 1 gap). Residue named at §23.1: `var [d, ...e] = [1,2,3]` still gaps and so does `d`, because `tuple_from_array_literal` declines any pattern carrying a rest — a different blocker. `checker-notes-sitename.md` §23 | **§543 (+3 cases, 3 W→R, ZERO adverse)** — N spread arguments in one call. §341 decided the SINGLE-spread shape against a bare `...s: T[]`; two spreads gapped the whole call (`getSpreadArgumentType`, `checker.go:31285`, builds one type out of every spread). **Two drafts, and the first zero was not §515's**: `T := union of the elements` measured `no transitions vs baseline`, and the row dump showed the arm FIRING and the line moving `any` → `string | symbol` against a baseline wanting **`symbol`** — a different wrong answer, and WRONG→WRONG is not a transition. Upstream infers through the ordinary candidate machinery (`getInferredType` → `getCommonSupertype`) and with no common supertype the FIRST candidate wins. All-spread only; a mix carries its own literal-widening question and keeps its gap. **Together with §541 that is two zeros in one session, neither a refusal — `no transitions` means nothing SCORED moved, not that the code did not run. Dump a row before concluding a zero is a refusal.** `checker-notes-sitename.md` §21.1 | **§541 (+4 cases, 4 W→R, ZERO adverse, gradient 90.43%)** — an EMPTY array binding pattern is `Iterable<any, void, undefined>`, not the empty tuple. `getTypeFromArrayBindingPattern` (`checker.go:17964-17969`) short-circuits before building any tuple; §455 had added the empty pattern to this arm reading BOTH halves off the OBJECT rule, and the array half has its own upstream answer. **The lesson is §20.1**: the first version measured `no transitions` — §515's revert condition — and reverting would have been WRONG. `global_type_symbol` is arity-1 and the modern lib declares `Iterable<T, TReturn = void, TNext = undefined>`, arity **3**, so the lookup answered `None` and the arm never fired. **A zero-measuring arm is a revert OR a precondition that was never met, and those are not the same thing** — one grep was the difference between +4 cases and refusing a correct transcription. `checker-notes-sitename.md` §20 | **§539 (+2 cases, 19 favorable, ZERO adverse)** — an object literal's index signature was PRINTED but not CONSULTABLE: `check_object_literal` builds it (§206, `getObjectLiteralIndexInfo`) and pushes it into the members list it prints from, but the minted type is a `Named` over the binder's `__object` symbol and `get_index_infos_of_type` recovers infos from a symbol's DECLARATIONS, which a literal has none of — so `{ [this.bar()]: 1 }` printed `{ [x: number]: number; }` and `{ [this.bar()]: 1 }[0]` answered `errorType`. Side table keyed by type id per ADR-0003, matching the two declared beside it; `symbol` keys deliberately not recorded (`is_applicable_index_type` judges only `string`/`number`). Reach beyond the aimed-at pair: `checkJsObjectLiteralIndexSignatures` 8 lines. **§18.2 IS CORRECTED IN THE SAME LANDING**: it read §537's +0 cases as *the deficit-1 dump does not predict cases*, which was too strong — 6,015 cases are all-right in scorepair against 5,888 coverage passes, so the conversion rate is **~98%** and the 2.1% miss is concentrated in error-recovery fixtures (§537 drew four of them). §539 was picked on the corrected reading and converted **exactly the 2 cases predicted**. `checker-notes-sitename.md` §19 | **§537 lands +9 lines and +0 CASES** (gradient 90.42%, unmoved at this precision) — the fallback's first pick: `check_object_literal` put the parser's **missing-identifier recovery placeholder** (an `Identifier` with empty `text`, what `var x = { `a`: 321 }` produces) into the members list and printed **`{ : any; }`**, a shape no compiler emits. One arm ahead of the general `Identifier` arm, gated on the empty text; 9 W→R, **zero adverse**, and it caught `bigintPropertyName` (3) unpredicted because it is keyed on the defect rather than the fixture. **The +0 cases is the finding**: `scorepair` scores **474,196** assertion lines and `coverage` **478,855**, so a case one line from passing in `verdict_baseline.tsv` may be several from passing under coverage — the 563 deficit-1 cases are 563 cases one SCOREPAIR line short, which is not the same claim. §11.3's fourth instance and the first to catch an instrument rather than a ratio. `checker-notes-sitename.md` §18 | CORRECTED IN PLACE a ninety-seventh time (5,885 -> 5,888, gradient 90.42%, one release coverage run) at **§533 — WALL 2's slice 2: the ambiguity DECLINE becomes `compareSymbolChains`' total order. 120 W→R + 7 G→R against 2 G→W, zero R→W.** `module_alias_at` declined whenever two names in scope reached one module; upstream sorts the candidate chains and returns the first (`symbolaccessibility.go:582-586`), which reduces here to `compareSymbols`' first key — **earliest declaration position**. Sized before the code by a trace: **238 declines, 16 shapes**; the row that decided it is `compiler/importDecl`, which writes `import m4` at line 33 and `import multiImport_m4` at line 79 and whose baseline records `m4.d`. `importDecl` alone converts 54. **`checker-notes-nameres.md` §14's tie-break refusal is retired** — its "~96% coincidence" was measured when the tie-break was a guess, and it is a transcription. The 2 adverse are in an already-failing case and are **slice 3's population made visible**: `exportsAndImports4-es6` imports one module six ways, and `typeof c` / `typeof e2` are the alias bindings' OWN names, not a container qualifier — they were GAP and are now WRONG, which is the direction slice 3 can act on. `checker-notes-sitename.md` §14 |
-| **`checker_types`** (CURRENT — supersedes every row above) | **6,091/9,538** | **63.86%** | gradient **91.01%**, right **435,823/478,855**, measured at the §749 landing by one release `coverage` run over a scorepair baseline freshly accepted on clean `b8534ac9` (435,764). **§749 is +2 cases / +50 W→R / +9 G→R, ZERO adverse** — `hasMatchingArgument` ported whole, the `this is T` predicate argument (every `x.isFoo()` guard had narrowed nothing), two chain strips, and the branch label's `UnionReductionSubtype` through the same gated reducer the loop label runs. `diagnostics` 2,600 unmoved. |
+| **`checker_types`** (CURRENT — supersedes every row above) | **6,106/9,538** | **64.02%** | gradient **91.20%**, right **436,710/478,855**, measured at the §784 landing by one release `coverage` run, 2026-09-11. §784 is +198 W→R with **zero adverse of any kind** — the JS half of the §31 unresolved-identifier gate, gated off files carrying `CommonJS` machinery. The thirty-five landings between §749 and §784 are each a row in §7; this row is the run that closes them. checker session |
+| **`checker_types`** (superseded by the row above, §784) | **6,091/9,538** | **63.86%** | gradient **91.01%**, right **435,823/478,855**, measured at the §749 landing by one release `coverage` run over a scorepair baseline freshly accepted on clean `b8534ac9` (435,764). **§749 is +2 cases / +50 W→R / +9 G→R, ZERO adverse** — `hasMatchingArgument` ported whole, the `this is T` predicate argument (every `x.isFoo()` guard had narrowed nothing), two chain strips, and the branch label's `UnionReductionSubtype` through the same gated reducer the loop label runs. `diagnostics` 2,600 unmoved. |
 | **`checker_types`** (superseded by the row above, §749) | **6,089/9,538** | **63.84%** | gradient **91.00%**, right **435,764/478,855**, measured at the §748 landing by one release `coverage` run over a scorepair baseline freshly accepted on clean `f43e0d13` (435,747). **§748 is +1 case / +17 W→R, ZERO adverse** — the parser sets `NodeFlags::OPTIONAL_CHAIN` (`tryReparseOptionalChain` ported whole), `optionalChainContainsReference` becomes upstream's flag walk, and the binder's optional-chain flow goes live for the first time; `controlFlowOptionalChain` 16. The rows below carry §739–§747 in §7 only — this row was not re-taken between §738 and §748, and 6,088 at §747 is §7's number. `diagnostics` 2,600/5,488 (the committed snapshot's 2,599 was stale since §744). `dts_emit` 333/373, `dts_shape` 858/1006, `isolated_declarations` 13/15, unmoved. |
 | **`checker_types`** (superseded by the row above, §748) | **6,072/9,538** | **63.66%** | gradient **90.96%**, right **435,548/478,855**, measured at the §738 landing over a scorepair baseline freshly accepted on clean `38632d4e` (435,531). **§738 is +1 case / +17 W→R, ZERO adverse** — `let x = null` is the third entry onto the auto road (`checker.go:16702`), and the `noImplicitAny` gate on it is what took 8 R→W to zero. The rows below carry §737 (+15), §736 (+55) and §735 (+2 cases, closing §668). `dts_emit` 333/373, `dts_shape` 858/1006, `isolated_declarations` 13/15, unmoved by all four. |
 | **`checker_types`** (superseded by the row above, §738) | **6,071/9,538** | **63.65%** | gradient **90.95%**, right **435,531/478,855**, measured at the §737 landing over a scorepair baseline freshly accepted on clean `b40dd073` (435,516). **§737 is +15 W→R, ZERO adverse, +0 cases** — `finalizeEvolvingArrayType` moved from the recursive walker to the query, plus `getUnionOrEvolvingArrayType` at the junction. `controlFlowArrays` wrong lines 21 → 7. The rows below carry §736 (+55) and §735 (+2 cases, closing §668). `dts_emit` 333/373, `dts_shape` 858/1006, `isolated_declarations` 13/15, unmoved by all three. |
@@ -1043,6 +1044,285 @@ Measured at **`b00738d`** by `examples/depend.rs`, re-confirmed unchanged by a
 fresh run at `7cecc02` (fourth session; every row within noise). Two lists, because the
 project's ordering rule has two halves: **rank by the conversion, and where the
 conversion is unknown, rank by how cheap it is to find out.**
+
+### 4.-5 THE WRONG-LINE CONCENTRATION BOARD, 2026-09-11 (§784) — the lens the gap-root board cannot provide
+
+**Why this board exists.** §4.-3 and the `depend.rs`/`gaproot.rs` boards rank
+**gap** roots. That is the right lens for the gap — and the gap is 7,872 lines,
+which [ADR-0038](docs/adr/0038-errortype-prints-error-and-the-corpus-has-a-ceiling.md)'s
+arithmetic says reaches only ~92.8% even if converted **whole**. The 95% target
+needs roughly 10,500 lines out of the **29,661 WRONG** ones, and no instrument
+on §6 ranked those by where they sit.
+
+One line does:
+
+```
+awk -F'\t' '$2=="WRONG"{split($1,a,":"); c[a[1]]++} END{for(k in c) print c[k], k}' \
+  target/verdict_baseline.tsv | sort -rn | head -25
+```
+
+It found §784 immediately — `parsingDeepParenthensizedExpression` at **325**,
+one gate, 198 lines, zero adverse — so the lens is not theoretical.
+
+**The board it prints (at the §784 baseline, top 10 after §784's 198 land):**
+
+| wrong | case |
+|---:|---|
+| 339 | `compiler/temporal` |
+| 281 | `conformance/variadicTuples1` |
+| 221 | `compiler/complexRecursiveCollections` |
+| 207 | `compiler/genericFunctionInference1` |
+| 204 | `conformance/strictBindCallApply1` |
+| 180 | `compiler/setMethods` |
+| 176 | `conformance/restTuplesFromContextualTypes` |
+| 161 | `conformance/typeParameterConstModifiers` |
+| 161 | `conformance/genericRestParameters1` |
+| 151 | `conformance/mappedTypeRelationships` |
+| 137 | `compiler/parsingDeepParenthensizedExpression` (was 325) |
+
+**What the head of it is — and the first draft of this paragraph was WRONG,
+which is the whole lesson.** It said temporal's 339 was ONE root, on a sample
+of 15 lines drawn from a single block. Clustering the wrong indices
+(`sort -n`, split on a gap > 25) gives **35 separate blocks**, and splitting by
+what the two sides look like gives at least three causes:
+
+| lines | cause |
+|---:|---|
+| 117 | port answers `any` (the `Record<K,V>` element accesses are in here) |
+| 78 | **contextual literal widening** — oracle `{ largestUnit: "hour"; }`, port `{ largestUnit: string; }` |
+| 16 | optional-parameter printing — oracle `(compareFn?: (…) \| undefined)`, port drops the `\| undefined` |
+| 128 | unclassified by this split |
+
+So `compiler/temporal` is **not** a §784-shaped single root. It is a
+long-lived, heavily-`RIGHT` case (6,258 right) with a handful of independent
+residues, and **no arm should be priced at 339**.
+
+**The 78-line contextual-literal family, checked one level further.** The
+oracle records `>largestUnit : "hour"` (`temporal.types:573`) where the port
+says `string` — the fresh literal is not being kept under a contextual type.
+The obvious cause is refuted: `isLiteralOfContextualType` **is ported**
+(`signatures.rs:2190`, with callers at `:2133` and `:2168`). So the failure is
+upstream of it — the contextual type is not reaching the object literal's
+property at all. The argument is an object literal passed to an OVERLOADED
+method (`startOfMoonMission.until(…)`), which puts this family with the
+already-recorded residue on overload selection and union-receiver signature
+projection rather than with literal widening. **Unpriced, and it must not be
+priced at 78 without finding that mechanism first.**
+
+#### What the 29,859 wrong lines ARE, corpus-wide (same session, one awk pass)
+
+Ranking by case says WHERE. This says WHAT. Over the pre-§784 baseline
+(29,859 WRONG; §784 takes it to 29,661):
+
+| lines | share | shape |
+|---:|---:|---|
+| 17,921 | 60.0% | **the port answers `any`** |
+| 9,486 | 31.8% | neither side contains the other — a different type, not a wider one |
+| 1,106 | 3.7% | the port's answer CONTAINS the oracle's |
+| 866 | 2.9% | the oracle's answer contains the port's |
+| 480 | 1.6% | a literal widened (`"hour"` → `string`) |
+| 0 | 0% | the port answers `error` |
+
+The 60% `any` figure reproduces the §777-§783 number from a different
+direction, and **the zero is the load-bearing row**: the port never prints a
+bare `error` where the oracle wants a type. Every over-answer is `any`. So the
+whole 17,921 is reachable only by BUILDING types, never by relaxing a refusal.
+
+Splitting those 17,921 by what the ORACLE wanted:
+
+| lines | the oracle's answer is |
+|---:|---|
+| 7,983 | a plain name or something none of the below |
+| 4,826 | a function or signature type (`=>`) |
+| 1,593 | an object-literal type (`{ … }`) |
+| 1,392 | a generic reference (`F<…>`) |
+| 1,220 | a union |
+| 581 | an array |
+| 326 | a literal |
+
+**Read this as a map, not a queue.** It is a shape census of the oracle's side;
+it says nothing about how many share a root, and the temporal correction above
+is the standing warning against reading a row as an arm. Its use is to say
+which ROADS are worth probing — the 4,826 signature lines are one road
+(signature construction and call resolution), the 1,392 generic-reference lines
+another (instantiation), and those two together are a third of the `any` bucket.
+
+**The same census over the 9,486 outright-different lines gives the SAME
+profile** — 3,388 plain name, 2,748 function/signature, 1,343 object-literal
+type, 675 literal, 482 union, 426 generic reference, 424 array. That the two
+largest buckets have the same shape distribution is the useful finding: the
+`any`-vs-different split is about how far a road got, not about which road it
+was. Adding them:
+
+| road | wrong lines (both buckets) | share of all 29,859 |
+|---|---:|---:|
+| plain name / other | 11,371 | 38.1% |
+| **function / signature** | **7,574** | **25.4%** |
+| object-literal type | 2,936 | 9.8% |
+| union | 1,702 | 5.7% |
+| generic reference | 1,818 | 6.1% |
+| array | 1,005 | 3.4% |
+| literal | 1,001 | 3.4% |
+
+**The signature road at 7,574 lines is the single largest named road on this
+page**, and 95% needs ~10,500. That does not make it an arm — its head cases
+are all generic inference — but it does say where a subsystem-sized investment
+would have to pay off, and it is the first number this project has that sizes a
+road rather than a case.
+
+Crossing the two lenses (shape × case) localises each road:
+
+| road | head cases |
+|---|---|
+| signature (4,826) | `complexRecursiveCollections` 163, `genericFunctionInference1` 115, `strictBindCallApply1` 108, `subtypingWithCallSignatures2` 82, `subtypingWithConstructSignatures2` 80 |
+| plain name (7,983) | `parsingDeepParenthensizedExpression` 325 (**§784 converts 188 of these**), `variadicTuples1` 132, `genericRestParameters1` 96, `genericDefaults` 89 |
+
+The signature head is generic-inference territory in every one of its top five,
+which is a deep road and not a next arm. The plain-name head is where §784 came
+from, and its remainder after §784 is led by the variadic-tuple family — where
+the port prints `TV0<T>` for an oracle's `[string, ...T]`, i.e. an unported
+type-construction feature (variadic tuple elements), not an arm.
+
+#### What 95% actually requires, stated plainly
+
+Putting the census against the target, because no page here has yet said it:
+
+- gradient today **91.20%** (436,710 right of 478,855 scored lines, §784 landed)
+- 95% is **454,912** right — **+18,202 lines**
+- available: **7,872 gap** + **29,661 wrong** = 37,533
+- the gap is clean (ADR-0038: zero unreachable), but converting it **whole**
+  reaches only ~92.8%
+
+So **95% needs about 10,500 lines out of the 29,661 wrong ones on top of the
+entire gap** — i.e. roughly **35% of every wrong line in the corpus**, on top
+of a perfect gap conversion. Against the road sizes above, that is larger than
+the signature road (7,574) and the object-literal road (2,936) put together.
+
+**This is not reachable by arms of §784's size.** §784 was the most
+concentrated single lever on the board and it was worth 198 lines; 18,202 at
+that rate is ninety more of them, and the board shows the concentration falls
+off immediately after it. Reaching 95% means porting the signature/inference
+subsystem and the index-type subsystem properly — which is exactly what
+§4.-3's "long tail, not a wall" predicted, now with a number attached.
+
+**Recorded as arithmetic, not as pessimism.** Every arm this session landed was
+measured and adverse-free, and the rate is what it is; the honest planning
+number is that 95% is a subsystem-scale target, and any session plan that
+assumes otherwise is assuming a concentration this board says is not there.
+
+#### The JS/JSDoc road, sized — 1,823 wrong lines across 226 cases
+
+§784 came out of this road, so it is worth knowing how big the rest of it is.
+Selecting the cases whose `.types` baseline declares a `.js`/`.jsx` file:
+
+```
+awk -F'\t' '$2=="WRONG"{split($1,a,":"); c[a[1]]++} END{for(k in c) print c[k],k}' \
+  target/verdict_baseline.tsv | while read n case; do
+    f="vendor/typescript-go/testdata/baselines/reference/submodule/${case}.types"
+    [ -f "$f" ] && head -40 "$f" | grep -qE '^=== .*\.(js|jsx) ===' && echo "$n $case"
+  done
+```
+
+**1,823 lines, 226 cases** — 6.1% of all wrong lines. The head is §784's own
+case (325, of which 188 now convert); after it the road is **JSDoc**:
+
+| wrong | case |
+|---:|---|
+| 69 | `conformance/typedefOnStatements` — JSDoc `@typedef`, parameters typed `A`…`K` all read `any` |
+| 60 | `conformance/jsdocTemplateTag6` |
+| 59 | `compiler/modulePreserve4` |
+| 44 | `compiler/thisInFunctionCallJs` |
+| 41 | `conformance/jsdocTemplateTag8` |
+| 27 | `conformance/jsdocAccessibilityTags` |
+
+The road is real but **diffuse — 226 cases averaging 8 lines each**, so it is a
+subsystem's worth of small fixes rather than an arm, and §784 was its one
+concentrated head. Recorded so the next session does not re-derive its size.
+
+#### Two candidate arms this board turned up, both sized and neither started
+
+**(a) The deferred INDEXED ACCESS `T[K]` — 206 lines, concentrated.** Where the
+oracle prints an indexed-access type (`T[K]`, `Partial<T>[K]`, `T[keyof T]`)
+the port prints `any`:
+
+| lines | case |
+|---:|---|
+| 74 | `conformance/mappedTypeRelationships` (which is 277 RIGHT / 151 WRONG — half its wrong lines) |
+| 24 | `conformance/controlFlowGenericTypes` |
+| 14 | `conformance/typeParameterConstModifiers` |
+| 12 | `conformance/keyofAndIndexedAccessErrors` |
+| 10 | `conformance/mappedTypeConstraints2` |
+
+Upstream's `getIndexedAccessType` DEFERS — it builds an `IndexedAccessType`
+rather than resolving — when the object type or the index type is generic. This
+port resolves eagerly and falls to `any`. **206 is the population, not the
+conversion**, and the same caution as everywhere on this board applies: it must
+be measured, not priced from the count.
+
+**The mechanism is half-built already, which is what makes this a candidate
+rather than a subsystem.** `declared.rs:410`'s `IndexedAccessTypeNode` arm
+(§619–§621) already prints `T[K]` as written for a type-parameter index,
+through the §31 mint. What is missing is the EXPRESSION side: these 206 lines
+are `x[k]` where `x: T` and `k: keyof T`, so they come through
+`element_access_lookup` (`indexed.rs`), which falls through to `error`
+(printed `any`). The arm is to route the expression road to the mint the
+annotation road already uses.
+
+**The absence is verified, the conversion is not.** Reading
+`element_access_lookup` end to end (`indexed.rs:~330-425`): named lookup →
+index signatures → apparent-type index signatures → array/tuple element →
+the SS185 JS-literal `any` → `error`. There is **no generic-object arm
+anywhere in that chain**, so the `any` on these 206 lines is that final
+`error`, not a wrong computation. What is NOT established is that adding the
+arm converts them — the oracle's `T[K]` has to print identically, and the
+mint's printing is the §31 road's, not a fresh one. §773/§777 are what
+asserting the rest of this before measuring it looks like.
+
+**(b) The `Record<K, V>` index signature — §785, written and held.** A mapped
+type with a primitive key carries an index signature upstream
+(`resolveMappedTypeMembers` creates an index info for a key not usable as a
+property name); mapped-type member resolution is not ported, so `m[i]` over a
+`Record<number, V>` answers `any`. Probed and confirmed against the control:
+the plain `interface R { [k: number]: string }` spelling answers correctly, the
+`Record` spelling does not. Its size is whatever `scorepair` says.
+
+Both live in `indexed.rs`/`index_signatures.rs` and both are about an index
+type the port cannot carry — (a) defers it, (b) synthesises it.
+
+**The whole near-miss bucket sized, and it is NOT where 95% comes from.** The
+two "one side contains the other" rows are 1,972 lines together, and probing
+their heads finds no single rule:
+
+- *optionality* — oracle `X | undefined` where the port says `X` is **104**
+  lines (`elementAccessChain` 18, `methodSignaturesWithOverloads2` 14,
+  `propertyAccessChain` 9), but the OPPOSITE direction, port `X | undefined`
+  where the oracle says `X`, is **111**. Both directions at once is not one
+  missing rule; it is two different roads that happen to print the same token.
+- *`typeof` prefix* — see below.
+
+So the near-miss bucket is 6.6% of the wrong lines and has no concentration.
+**95% has to come from the 17,921 `any` lines and the 9,486 outright-different
+ones**, which is §4.-3's "long tail, not a wall" arriving from a second
+direction.
+
+**One near-miss family sized and found SMALL, so nobody chases it twice.** The
+`aliasUsageIn*` cases show the port printing `typeof Backbone.Model` where the
+oracle wants `Backbone.Model`, which looks like a systematic `typeof`-prefix
+bug. It is not systematic: corpus-wide the exact shape (oracle `X`, port
+`typeof X`) is **67 lines**, and its mirror (oracle `typeof X`, port `X`) is
+**19** — 86 together, spread two-at-a-time across ~40 cases. Diffuse, not a
+lever.
+
+**The caution this board needs, and it is the whole reason it is a board and
+not a to-do list.** A high count is a POPULATION, not a conversion — §0's rule,
+and the temporal paragraph above is this session's own violation of it, caught
+by clustering rather than by sampling. **Do not schedule any row below on its
+count**, and do not classify a case from a sample: cluster the indices first
+(`sort -n` on the third field, split on a gap), then split by what the two
+sides LOOK like. A case with 35 blocks has 35 chances to be several causes. The correct use is: take the top row, find the FIRST wrong
+line, read what precedes it, and price the actual cause — then measure. §784 is
+what that procedure looks like when it works; §773 and §777 are what asserting
+the cause first looks like when it does not.
 
 ### 4.-4 THE DISCRIMINANT ROAD, 2026-09-03 (§749's residue) — a subsystem, sized before it is started
 
@@ -8378,3 +8658,4 @@ that were true of a different population than the one they were quoted about.
 | 2026-09-11 | `60f46879` | **64.01%** | **6,105** | **§781 — §780's hypothesis TESTED and CONFIRMED: `type_at_location` is ORDER-DEPENDENT, 670 of 757 (instrument only; scorepair reads no transitions).** §780 recorded the hypothesis and said *"test it before believing it"*; this is the test, one env-gated probe. On every line the classifier still disagreed about, call **the producer's own function** — the same one whose recorded answer the suite scores — a second time: **it answers DIFFERENTLY 670 times out of 757 (88%)**. The classifier was innocent for those 670; it was asking a producer that had changed its mind. **Established**: on lines printing `any` where a branch disagreed, re-asking diverges 88% of the time. **NOT established**: that the checker is 88% order-dependent in general — this population is pre-filtered twice, to `any` lines and to disagreements, i.e. the population most likely to be order-sensitive; and **the corpus scores are stable** because they come from ONE consistent walk, so nothing here says a scored number is wrong. The contextual parameter road is the natural suspect and **that attribution is explicitly not tested and not claimed**. **Consequence for the instrument**: `any_audit`'s control demands zero and 670 of its 757 are not classifier drift, so **it cannot reach zero while the checker is order-dependent** — it measures classifier fidelity and checker determinism under one number. Not split here: that decision belongs to whoever repairs the determinism. **Why it matters beyond 670 lines**: every instrument on this project reads `type_at_location` and assumes it answers the same thing twice — §767's step arms, §774's roots, §777's wrong board, §780's own repair. It does not, and that is now on the page with a number. `TSR_ANY_REPLAY=1` is the tool for finding the cache that lets the second answer differ. `checker-notes-callres.md` §781. checker session |
 | 2026-09-11 | `00bf0913` | **64.01%** | **6,105** | **§782 — order-dependence costs REAL LINES: 72 where the SECOND answer is the right one (instrument only; scorepair reads no transitions).** §781 showed `type_at_location` answers differently when asked twice; this asks whether either answer is better. Of 670 divergences, **72 have the replay matching the baseline** — e.g. `awaitedTypeJQuery:0:17` renders `any`, replays `null`, and the baseline wants `null`. **It cuts both ways**: `anyInferenceAnonymousFunctions` and `capturedLetConstInLoop1` render the RIGHT answer and replay a wrong one. So the finding is not "the second answer is better" — it is that **the checker holds two answers for one node and the walk decides which the corpus sees**, and on 72 lines it picks the wrong one. **Established**: on those 72, the information for the right answer already exists in the checker and the walk asks too early. **NOT established**: that a determinism fix converts 72 — that means choosing which answer is canonical, and preferring the later one would convert 72 while breaking an unknown share of the other 598. **72 is a FLOOR on a keyhole**: the population is pre-filtered to `any` lines AND to classifier disagreements; the corpus-wide cost is unmeasured and **must not be quoted as this number**. **§783 MEASURED IT WIDE AND THIS FRAMING WAS TOO OPTIMISTIC BY TWO ORDERS OF MAGNITUDE — read §783 first.** Residue: the WIDE measurement (replay every aligned line, count `replay == want && rendered != want`), and the design question of which answer should be canonical. `checker-notes-callres.md` §782. checker session |
 | 2026-09-11 | `f6395e20` | **64.01%** | **6,105** | **§783 — the WIDE replay: walk order is worth +16,427 and is NOT a defect to be fixed (instrument only; scorepair reads no transitions).** §782 measured order-dependence through a keyhole, found 72 lines where the replay was right, and said the corpus-wide figure **must not be quoted as that number**. Measured: **474,229 aligned lines replayed; 29,676 (6.3%) answer DIFFERENTLY; 170 lines lost to walk order; 16,597 lines SAVED by it** — about **98:1, +16,427 net**. **The keyhole misled in the OPTIMISTIC direction**: §782 called this "a correctness item with its own conversion" and the conversion is **at most 170 lines**, while the naive repair — answering from a cold, order-independent state — would **lose ~16,597**. **What the walk order is actually doing** is supplying context a cold ask lacks: a parameter typed after its enclosing call is checked, a reference after its declaration's initialiser. Upstream gets that from deterministic memoisation populated in a valid order; this port gets it from the order alone. **So the real statement is that this port's answers are correct largely BECAUSE of the walk order, and that dependency is undocumented and unenforced** — the risk is not the 170 lines, it is that any future change to walk order (a new probe, a reordered check, a parallel walk) silently moves 16,597. **That is worth a guard, not a repair.** Instrument consequence restated: `any_audit`'s control cannot reach zero because it is detecting a property the port RELIES ON; split it, and report the determinism half as a standing figure to watch, not a defect count to drive to zero. **Still not established**: which of the 29,676 are legitimate context-dependence and which are cache bugs — this probe cannot tell them apart. `checker-notes-callres.md` §783. checker session |
+| 2026-09-11 | `PENDING` | **64.02%** | **6,106** | **§784 — the unresolved-identifier gate's missing JS half, with the CommonJS exception that makes it clean (+198 W→R, ZERO adverse, **+1 case**, gradient 91.20%).** `compiler/parsingDeepParenthensizedExpression` 188, `conformance/spellingUncheckedJS` 9, `compiler/jsFileCompilationDecoratorSyntax` 1. **Ranking the baseline's wrong lines by case put `parsingDeepParenthensizedExpression` first at 325** — the single most concentrated block on the board, an `allowJs` `.js` fixture whose undeclared `f`/`l`/`b`/`o` the oracle records as `error` and the port printed `any`. The §31 gate hedges to `any` for an unresolved name because THIS PORT's binding roads are incomplete, and escapes the hedge when the file carries import machinery — and the comment introducing that escape already names *"a JS/JSX file resolves through machinery with known port gaps — both stay honest gaps"* as a second case. **That sentence was never a condition.** Adding `|| self.in_js_file(id)` alone measured 198 W→R against **11 R→G and 32 W→G**, every one in a file binding names through **CommonJS**, which `file_has_import_machinery` cannot see: it matches `ImportDeclaration | ImportEqualsDeclaration | ExportDeclaration` and a CommonJS file has none of the three. That is not a counterexample but the argument itself — a `require`/`module.exports` file is precisely the file whose unresolved name may be the port's own miss. A sibling predicate `file_has_commonjs_machinery` (same walk, same per-root cache, same question over the other module system) takes both adverse populations to **zero**. **Broadening the existing predicate instead was rejected**: it would silently change TS files that name a variable `module` or `exports`, a different question with an unmeasured answer. **Falsifier recorded**: the predicate matches the three names ANYWHERE, including an unrelated local; that over-matches toward the pre-§784 answer, so its failure mode is lost conversions, not new wrong lines — narrow it to a `require(…)` call and a `module.exports`/`exports.x` assignment if a JS case is later found still printing `any`. `checker-notes-callres.md` §784. checker session |

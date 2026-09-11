@@ -165,6 +165,43 @@ impl Checker<'_, '_> {
         self.intrinsics.string
     }
 
+    /// Whether the node's source file carries COMMONJS module machinery — a
+    /// reference to `require`, `module` or `exports`. §784.
+    ///
+    /// The sibling [`Checker::file_has_import_machinery`] asks the same
+    /// question — *can an unresolved name here be this port's own binding gap
+    /// rather than the source's?* — but only over ES `import`/`export`
+    /// DECLARATIONS, so it answers `false` for every `CommonJS` file, which is
+    /// the shape `allowJs` corpora are written in.
+    pub(crate) fn file_has_commonjs_machinery(&mut self, node: NodeId) -> bool {
+        let mut root = node;
+        while let Some(parent) = self.nodes.parent(root) {
+            root = parent;
+        }
+        if let Some(&cached) = self.file_commonjs_machinery.get(&root) {
+            return cached;
+        }
+        let answer = self.node_map.get(root).is_none_or(|file| {
+            let mut stack = vec![file];
+            let mut children = Vec::new();
+            let mut found = false;
+            while let Some(current) = stack.pop() {
+                if let Node::Identifier(identifier) = current
+                    && matches!(identifier.text, "require" | "module" | "exports")
+                {
+                    found = true;
+                    break;
+                }
+                children.clear();
+                tsr_ast::push_children(current, &mut children);
+                stack.extend(children.iter().copied());
+            }
+            found
+        });
+        self.file_commonjs_machinery.insert(root, answer);
+        answer
+    }
+
     /// Whether the node's source file carries any import/export declaration
     /// — the §31 gate's structural half (`checker-notes-narrow.md`).
     pub(crate) fn file_has_import_machinery(&mut self, node: NodeId) -> bool {
@@ -691,6 +728,22 @@ impl Checker<'_, '_> {
                         if anywhere.is_some()
                             || node.text == "arguments"
                             || self.file_has_import_machinery(id)
+                            // §784: the JS half the §31 comment above already
+                            // argues for but the gate never tested. A `.js`
+                            // file is checked with `allowJs`, where upstream
+                            // still reports TS2304 on an unresolved name and
+                            // the oracle records `error` — so `any` is this
+                            // port's own over-answer, not upstream's. The
+                            // exception is a JS file carrying COMMONJS
+                            // machinery: `require`/`module.exports` bring
+                            // names into scope through roads this port only
+                            // partly has, so an unresolved name THERE may be
+                            // the port's miss, exactly as the ES-declaration
+                            // test above allows. The ES-only detector cannot
+                            // see them; measured at 11 RIGHT->GAP without
+                            // this second half.
+                            || (self.in_js_file(id)
+                                && !self.file_has_commonjs_machinery(id))
                         {
                             self.intrinsics.error
                         } else {

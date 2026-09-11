@@ -5210,3 +5210,94 @@ genuine cache bugs. This probe cannot tell them apart — it only knows the two
 answers differ and which one the baseline preferred. A cache bug and a
 correctly-context-sensitive answer look identical here.
 
+
+## §784 — the unresolved-identifier gate's missing JS half, and its CommonJS exception
+
+### The gate, and the sentence in it that was never code
+
+`checkIdentifier`'s unresolved arm in this port (`expressions.rs`, the §31
+gate) answers `any` rather than `errorType` for a name that does not resolve.
+The reasoning is not upstream's — upstream answers `errorType` and reports
+TS2304 — it is a hedge about *this port*: our binding roads are incomplete, so
+a confident `errorType` would sometimes be a lie about a name upstream can see
+and we cannot.
+
+The hedge has a structural escape. When the file carries import machinery, the
+port *does* have known gaps that could explain the miss, so it stops hedging
+and answers `errorType` — see [`Checker::file_has_import_machinery`]. The
+comment that introduced that escape names a **second** case of the same kind:
+"a JS/JSX file resolves through machinery with known port gaps — both stay
+honest gaps." That sentence was never a condition. The gate tested only for ES
+import/export declarations.
+
+### The forcing measurement
+
+Ranking the baseline's wrong lines by case:
+
+```
+awk -F'\t' '$2=="WRONG"{split($1,a,":"); c[a[1]]++} END{for(k in c) print c[k], k}' \
+  target/verdict_baseline.tsv | sort -rn | head
+```
+
+puts `compiler/parsingDeepParenthensizedExpression` first at **325 wrong
+lines** — the single most concentrated block in the corpus. It is an
+`allowJs` `.js` fixture (`@fileName: a.js`) whose `f`, `l`, `b` and `o` are
+undeclared; upstream reports TS2304 on each and the oracle records `error`.
+The port printed `any` on all 325. So the missing half of the gate's own
+comment was worth more than any other single wrong-line cluster on the board.
+
+### Why the naive arm cost 11 RIGHT→GAP
+
+Adding `|| self.in_js_file(id)` alone measured:
+
+```
+WRONG->RIGHT: 198   RIGHT->GAP: 11   WRONG->GAP: 32
+```
+
+Net still positive (+187) but with 11 regressions — and every one of them
+(`ensureNoCrashExportAssignmentDefinePropertyPotentialMerge`,
+`requireAssertsFromTypescript`, `commonJSImportClassTypeReference`, …) in a
+file that binds its names through **CommonJS**: `require(…)`, `module.exports`,
+`exports.x`.
+
+That is not a counterexample to the argument; it is the argument. The
+ES-declaration escape exists because a file whose names arrive through module
+machinery this port only partly has is a file where an unresolved name may be
+the *port's* miss. A CommonJS file is exactly that file.
+`file_has_import_machinery` cannot see it, because it looks for
+`ImportDeclaration | ImportEqualsDeclaration | ExportDeclaration` and a
+CommonJS file has none of the three.
+
+### The shape that landed
+
+A sibling predicate, [`Checker::file_has_commonjs_machinery`], asking the same
+question over the other module system: does the file reference `require`,
+`module` or `exports`? Same walk, same per-root cache, same "can an unresolved
+name here be our own gap?" semantics. The gate becomes
+
+```rust
+|| (self.in_js_file(id) && !self.file_has_commonjs_machinery(id))
+```
+
+and measures **198 WRONG→RIGHT with zero adverse of any kind** — the 11
+RIGHT→GAP and the 32 WRONG→GAP both disappear, because both were the same
+population.
+
+### The alternative rejected
+
+Broadening `file_has_import_machinery` itself to also match those three
+identifiers would have been one predicate instead of two. Rejected: it would
+silently change the answer for **TypeScript** files that happen to name a
+variable `module` or `exports`, which is a different question with a different
+(and unmeasured) answer. The two predicates share a meaning, not a call site.
+
+### How we would know this is wrong
+
+By name, not by shape: `file_has_commonjs_machinery` matches any identifier
+spelled `require`/`module`/`exports` anywhere in the file, including a local
+variable that has nothing to do with modules. That over-matches toward the
+*conservative* answer (`any`, the pre-§784 behaviour), so its failure mode is
+lost conversions rather than new wrong lines. If a later measurement shows a
+JS case still printing `any` where the oracle wants `error`, this predicate is
+the first thing to narrow — to a `require(…)` CALL and a `module.exports` /
+`exports.x` ASSIGNMENT, rather than a bare name.
