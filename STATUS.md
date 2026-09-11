@@ -2647,6 +2647,51 @@ version of bare `any`.
 
 ## 5. Refused, with the number that refused it
 
+### §769 — the IIFE REST arm, 2026-09-10 — **written, measured at 21:9 ADVERSE, reverted; the blocker is TUPLE APPARENT TYPE, not the arm**
+
+`getSpreadArgumentType` at the IIFE call site (`checker.go:29468`), §768's
+recorded residue. It was ported, measured, and **reverted** — the code is not
+in the tree and this entry is the record.
+
+**The arm is CORRECT.** The IIFE call site passes `anyType` as the rest type,
+which collapses most of `getSpreadArgumentType`: no const context, no tuple
+contextual element, and `maybeTypeOfKind(any, Primitive|…)` false, so every
+remaining argument contributes its WIDENED type as a REQUIRED tuple element.
+`((...numbers) => …)(5, 6, 7)` is `[number, number, number]`, which the
+baseline states outright. `verdictdump` confirms the port then prints
+`noNumbers : []` and `[number, number]` RIGHT where it printed `any[]` WRONG.
+
+**What it broke is downstream.** `noNumbers.some(n => n > 0)` went RIGHT →
+GAP, and the `.some`/`.every` signature lines with it:
+
+```
+before:  0:108  WRONG  []      any[]        0:109  RIGHT  …some(…) : boolean
+after:   0:108  RIGHT  []      []           0:109  GAP    boolean  error
+```
+
+A tuple in this port answers its NUMERIC properties from `tuple_element_lists`
+(`members.rs:927`, `bd tsr-5ll`) and **nothing else** — it does not inherit
+`Array<T>`'s members, which upstream gets from the synthesised tuple target.
+So the moment a parameter's type becomes a tuple instead of `any[]`, every
+array method on it stops resolving.
+
+```
+scorepair over the §768 baseline (436,319):
+  right 436,319 → 436,331   +21 W→R  against  4 R→G + 5 R→W
+  net +12 at 21:9 — a refusal under this project's bar
+```
+
+**The prerequisite is named and is not this arm**: a tuple's apparent type must
+include the members of `Array<union of its elements>`. That is a members-road
+change with corpus-wide reach, and it should be measured on its own before
+anything makes more tuples. **Do not re-attempt §769 until it lands** — the
+arm will then be a ~20-line re-application of code this entry describes.
+
+**Explicitly refused: answering `number[]` instead.** It would dodge the
+adverse by keeping array members working, but it pins an answer the baseline
+says is wrong (`[number, number, number]`), and §4's rule is that a wrong
+answer this port can print confidently is worse than a gap.
+
 ### §757 — the key-property fast path, 2026-09-10 — **refused at a gate of TEN constituents**
 
 `getKeyPropertyName` / `getConstituentTypeForKeyType` (`relater.go:1118`/`:1131`),
@@ -8266,3 +8311,4 @@ that were true of a different population than the one they were quoted about.
 | 2026-09-10 | `d82af663` | **63.95%** | **6,100** | **§766 — the base-constraint map at the pseudo-reference entry (`checker.go:13768`), the LARGEST of the three entry guards (+16 W→R, ZERO adverse, +0 cases).** `dependentDestructuredVariables` 16. The union test at the entry is on `mapType(parentType, getBaseConstraintOrType)`, not on the written type; this port tested the written type, so a destructured parameter typed `T extends A | B` — a TYPE PARAMETER, not a union — declined, and **every generic destructuring missed the road** however plainly discriminated its constraint was. **The three entry guards priced: §764's `never` +4, §765's `GetRootDeclaration` 0 (test-only), §766's constraint map +16 — and §764's residue had listed this one LAST, an ordering written from how each guard looked rather than from measurement.** None of the three changes what the road DOES; each only changes whether it is REACHED — the mechanism was built at §50 and correct, and what was missing for a dozen sections was the entry conditions letting real programs in. One guard remains unported with its reason recorded (the root-initializer circularity check), not as a bare TODO: it is a circularity guard and this port has its own protection on the type road, so porting it blind is not obviously right. `checker-notes-callres.md` §766. checker session |
 | 2026-09-10 | `b60c2a0d` | **63.95%** | **6,100** | **§767 — `depend.rs` gets five step arms; INSTRUMENT ONLY, no checker change (`scorepair`: no transitions; walk population unchanged at 8,009).** §766's handoff re-ran the board and **~2,100 lines — 26% — were the INSTRUMENT, not the port**: `ArrowFunction` 993, `ObjectLiteralExpression` 430, `MappedType` 256, `ArrayLiteralExpression` 214, `FunctionExpression` 212 all read `NO STEP ARM for this kind — not a finding`. `has_step_arm` was doing its job, but a bucket that says nothing about the compiler still occupies the rank a real row wants, and a session ranking by raw line count picks `ArrowFunction` and finds nothing to port. Five arms added on the `BinaryExpression` shape (follow the first constituent that gaps): object-literal property values, array elements, arrow parameters + concise body, function-expression parameters, and a parameter's annotation-else-initializer. **What it found: the gap board's SECOND-LARGEST root is an un-annotated PARAMETER — CONTEXTUAL PARAMETER TYPING — at 1,059 lines / 249 cases, head case `contextuallyTypedIife` — which was READ, not assumed: it is immediately-invoked function expressions (`(jake => { })("build")`), so the root is un-annotated parameters typed from the CALL's arguments, exactly what the arm claims — **and it was completely INVISIBLE before**, hidden inside `ArrowFunction`'s "not a finding". A nameable subsystem at #2 that no previous board could point at, for five match arms. Residual `NO STEP ARM` is now `MappedType` 272 (3.4%) and nothing else above 1% — left because a mapped type is a TYPE node and the probe's `type_id_at_location` is an expression road. **C1 held: 8,009 walked before and after** — the arms re-attribute, they do not widen the walk. `checker-notes-callres.md` §767. checker session |
 | 2026-09-10 | `56c5f932` | **63.95%** | **6,100** | **§768 — the IIFE contextual-parameter arm (`checker.go:29463`-`:29484`), the session's LARGEST landing (+73 W→R / +6 G→R, ZERO adverse, +0 cases, gradient 91.12%).** `contextuallyTypedIifeStrict` 30, `contextuallyTypedIife` 16+6, `destructuringArrayBindingPatternAndAssignment3` 13. **§767 is why this exists**: the row was inside `ArrowFunction / NO STEP ARM — not a finding` until the step arms landed, and that bucket by construction says nothing about the compiler — **the instrument work paid for itself in one section at roughly 16× its own size**. An IIFE's parameters are typed from the ARGUMENTS of the call that invokes them, widened; nothing in `(jake => { })("build")` has a signature to be contextual from, so this road is separate from the contextual-signature one and runs before it. Parentheses are looked through (`((((function (y) { }))))("-")`). The REST arm needs `getSpreadArgumentType` and DECLINES rather than taking the positional answer, which would be wrong; the test pins the decline. **A doc correction this forced**: the function's own "Not ported, each answering `None`" list had the IIFE mechanism on it with a population figure — now false, rewritten, and marked as corrected. **A "not ported" list is a liability the moment one of its entries ships.** `destructuringArrayBindingPatternAndAssignment3`'s 13 lines are the second-order reach: not an IIFE fixture, but IIFE parameter types feed destructuring there. `checker-notes-callres.md` §768. checker session |
+| 2026-09-10 | HEAD | **63.95%** | **6,100** | **§769 — the IIFE REST arm: written, measured, REVERTED. No code in the tree.** `getSpreadArgumentType` at the IIFE call site (`checker.go:29468`), §768's recorded residue. **The arm is correct** — `verdictdump` shows `noNumbers : []` and `[number, number]` printing RIGHT where they printed `any[]` WRONG — **but it measured +21 W→R against 4 R→G + 5 R→W, net +12 at 21:9, a refusal under this project's bar.** The break is downstream and precisely named: a tuple in this port answers its NUMERIC properties from `tuple_element_lists` and **nothing else**, so it does not inherit `Array<T>`'s members; the moment a parameter's type becomes a tuple instead of `any[]`, every array method on it stops resolving and `noNumbers.some(…)` goes RIGHT→GAP. **Prerequisite named: a tuple's apparent type must include `Array<union of elements>`'s members** — a members-road change with corpus-wide reach that should be measured alone before anything mints more tuples. Do not re-attempt §769 until it lands; the arm is then a ~20-line re-application. **Also explicitly refused: answering `number[]` instead** — it would dodge the adverse but pins an answer the baseline calls wrong, and a confident wrong answer is worse than a gap. §5 carries the detail. checker session |

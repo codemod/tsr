@@ -4305,6 +4305,12 @@ would hand `((...numbers) => …)(5, 6, 7)` the type of argument 0, which is
 wrong — so it returns `None` and takes the implicit `any`. The test asserts
 that decline, so the gap is pinned as a gap.
 
+**§769 ported that arm, measured it at 21:9 adverse, and reverted it.** The
+arm was correct; what broke was that a tuple in this port inherits no
+`Array<T>` members, so `noNumbers.some(…)` went RIGHT→GAP the moment the
+parameter stopped being `any[]`. STATUS §5 carries the record and names the
+prerequisite — tuple apparent type — which is not this arm's to fix.
+
 ### A doc correction this landing forced
 
 `get_contextually_typed_parameter_type`'s own doc listed *"An immediately
