@@ -228,3 +228,28 @@ fn the_refused_legs_stay_gaps() {
 for (var [f] of pairs) { }";
     assert_eq!(type_of_binding(for_of, "f"), "error");
 }
+
+/// §776: a GENERIC object rest mints `Omit<source, keys>`
+/// (`checker.go:17813`-`:17827`), and the omit list includes the UNSPREADABLE
+/// properties as well as the bound ones (`:17806`-`:17818`).
+///
+/// §775 wrote this arm with the bound names only and was refused: it took
+/// `destructuringUnspreadableIntoRest` 30 RIGHT→WRONG, because an omit list
+/// missing the private, protected, method and accessor members is a
+/// confidently wrong type where the gap was honest. The unspreadable half is
+/// what made it landable.
+///
+/// **Only the never-case is testable here.** The `Omit<…>` mint needs
+/// `getGlobalOmitSymbol`, and this harness builds no program, so the lib is
+/// absent and the arm answers `error` — the same limitation §751 recorded for
+/// `let a: E.A` and §760 for `String`. §776's guard for the mint is the CORPUS
+/// (+12 G→R / +10 W→R, zero RIGHT→anything).
+///
+/// What this DOES pin is the ORDER: upstream tests `omitKeyType.flags & Never`
+/// at `:17820`, BEFORE `getGlobalOmitSymbol` at `:17823`, so a rest that omits
+/// nothing answers the source even in a lib-less program. A first draft had
+/// the two the other way round and answered `error` here.
+#[test]
+fn a_generic_object_rest_that_omits_nothing_is_the_source() {
+    assert_eq!(type_of_binding("function f<T extends { a: string }>({ ...r }: T) {}", "r"), "T");
+}

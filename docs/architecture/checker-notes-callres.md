@@ -4713,3 +4713,82 @@ expression answered error: ArrowFunction           1101   464    207
 
 The first four are 100%-own rows: nothing downstream depends on them, so their
 `lines` figure is their conversion, not a ceiling.
+
+## §776 — the generic object-rest `Omit` mint, with the prerequisite §775 named (+12 G→R / +10 W→R against 2 G→W, ZERO RIGHT→anything)
+
+§775, refused hours earlier at 22:12, landed after its own prerequisite was
+built. Third time this pattern has run (§769→§770→§771, and now this), and the
+first time the prerequisite was small enough to build in the same session.
+
+### What §775 could not do
+
+`getRestType`'s generic branch mints `Omit<source, omitKeyType>`, and
+`omitKeyType` is NOT just the bound names: `unspreadableToRestKeys`
+(`checker.go:17806`-`:17818`) adds every property that cannot be spread — a
+method or accessor declared in a class, and a `private` or `protected` member.
+
+§775 omitted only the bound names and took
+`compiler/destructuringUnspreadableIntoRest` **30 RIGHT→WRONG**. Its variant 3
+tried to DECLINE whenever the source had an unspreadable member and could not
+see them: private and protected members are `Member::Property` in this port,
+and `Member` carries no visibility.
+
+### The prerequisite
+
+`is_spreadable_property` over SYMBOLS rather than over `Member`
+(`checker.go:17830`, joined with `getRestType`'s own private/protected test at
+`:17808`): a property is spreadable unless it carries `private`/`protected`, or
+is a METHOD/ACCESSOR whose declaration's parent is class-like.
+
+That needed modifier access for class-member kinds, which
+`member_declaration_has_modifier` supplies — deliberately separate from
+`merged_export_spaces.rs`'s `declaration_has_modifier`, which matches
+top-level kinds (interface, class, enum, function, module, `var`) and answers
+`false` for every member kind. Two disjoint node sets, two questions; merging
+them would make each caller carry the other's arms.
+
+**Constructor parameter properties are why `ParameterDeclaration` is in the
+list** — `destructuringUnspreadableIntoRest` declares all five of its
+members that way.
+
+### An ordering bug the unit test caught
+
+Upstream tests `omitKeyType.flags & Never` at `:17820`, **before**
+`getGlobalOmitSymbol` at `:17823`. A first draft had them the other way round,
+so `{ ...r } = obj` over a source with nothing to omit answered `error` in a
+lib-less program instead of the source. The corpus could not see it — every
+corpus program has a lib — and the unit test could, which is the reverse of the
+usual split on this page.
+
+### Measured
+
+```
+scorepair over the §771 baseline (436,449):
+  §775 variant 1 (bound names only)        +22  against 30 R→W + 2 G→W   -8
+  §775 variant 2 (excluding `this`)        +22  against 10 R→W + 2 G→W  +12
+  §775 variant 3 (decline on non-Property) +15  against 10 R→W           +5
+  §776 (the unspreadable half, ported)     right 436,449 → 436,471
+                                           +12 G→R / +10 W→R against 2 G→W
+                                           ZERO RIGHT→WRONG, ZERO RIGHT→GAP
+    genericObjectRest 4, genericObjectSpreadResultInSwitch 2+4,
+    genericIsNeverEmptyObject 2, objectRestNegative 3, restInvalidArgumentType 2
+coverage: checker_types 6,102 unmoved, gradient 91.14% → 91.15%
+```
+
+### The 2 G→W are a different unported mechanism
+
+`narrowingDestructuring:0:76`/`:0:77` want `{ a: string; }` — the NARROWED
+concrete type — and get `Omit<T, "kind">`. Upstream narrows the source by
+control flow first, at which point it is no longer generic and the concrete
+branch runs. That is `getFlowTypeOfDestructuring` (`checker.go:17743`), which
+`destructure.rs`'s own module doc already names as unported. Not a defect in
+this arm; it is an older gap becoming visible now that the generic branch
+answers at all.
+
+### Residue
+
+- `getFlowTypeOfDestructuring`, above.
+- `isGenericIndexType(omitKeyType)` (`:17813`): a COMPUTED key declines earlier,
+  at `binding_element_property_name`.
+- `isGenericObjectType` is reduced to a bare TYPE PARAMETER; a mapped or
+  indexed-access source keeps the gap.

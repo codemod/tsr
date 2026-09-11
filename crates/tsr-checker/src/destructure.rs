@@ -729,6 +729,72 @@ impl Checker<'_, '_> {
     /// that looks right. A sibling this port cannot name (a computed
     /// property) refuses too: subtracting an unknown name leaves a member
     /// upstream removed.
+    /// Whether a CLASS-MEMBER declaration carries `keyword`. §776.
+    ///
+    /// Deliberately separate from `merged_export_spaces.rs`'s
+    /// `declaration_has_modifier`, which covers TOP-LEVEL declaration kinds
+    /// (interface, class, enum, function, module, `var` via its statement) and
+    /// answers `false` for every member kind. The two match over disjoint node
+    /// sets for different questions; merging them would make each caller carry
+    /// the other's arms.
+    ///
+    /// Upstream reaches this through `getDeclarationModifierFlagsFromSymbol`
+    /// (`utilities.go`); this port has no `ModifierFlags`, so the keywords are
+    /// read off the node directly. `ParameterDeclaration` is in the list
+    /// because a constructor PARAMETER PROPERTY (`constructor(private x: T)`)
+    /// is how the corpus's private members are most often declared —
+    /// `destructuringUnspreadableIntoRest` declares all five that way.
+    fn member_declaration_has_modifier(&self, id: NodeId, keyword: SyntaxKind) -> bool {
+        let modifiers = match self.node_map.get(id) {
+            Some(Node::PropertyDeclaration(node)) => node.modifiers,
+            Some(Node::MethodDeclaration(node)) => node.modifiers,
+            Some(Node::GetAccessorDeclaration(node)) => node.modifiers,
+            Some(Node::SetAccessorDeclaration(node)) => node.modifiers,
+            Some(Node::ParameterDeclaration(node)) => node.modifiers,
+            _ => return false,
+        };
+        crate::check::has_modifier(modifiers, keyword)
+    }
+
+    /// `isSpreadableProperty` (`checker.go:17830`) together with
+    /// `getRestType`'s own private/protected test (`:17808`). §776.
+    ///
+    /// A property is spreadable into a rest element unless it is declared with
+    /// a private identifier, or is a METHOD/ACCESSOR declared in a class, or
+    /// carries `private` or `protected`. Upstream keeps the last of those at
+    /// the call site rather than in `isSpreadableProperty`; the two are joined
+    /// here because every caller wants both and separating them invites a
+    /// caller that checks one.
+    fn is_spreadable_property(&self, symbol: tsr_binder::SymbolId) -> bool {
+        let data = self.binder.symbols().get(symbol);
+        let declarations: Vec<NodeId> = data.declarations.iter().copied().collect();
+        let flags = data.flags;
+        for &declaration in &declarations {
+            if self.member_declaration_has_modifier(declaration, SyntaxKind::PrivateKeyword)
+                || self.member_declaration_has_modifier(declaration, SyntaxKind::ProtectedKeyword)
+            {
+                return false;
+            }
+        }
+        if !flags.intersects(
+            tsr_binder::SymbolFlags::METHOD
+                | tsr_binder::SymbolFlags::GET_ACCESSOR
+                | tsr_binder::SymbolFlags::SET_ACCESSOR,
+        ) {
+            return true;
+        }
+        // `!some(declarations, d => IsClassLike(d.Parent))` — a method on an
+        // OBJECT TYPE spreads; a method on a CLASS does not.
+        !declarations.iter().any(|&declaration| {
+            self.nodes.parent(declaration).is_some_and(|parent| {
+                matches!(
+                    self.nodes.kind(parent),
+                    SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
+                )
+            })
+        })
+    }
+
     fn object_rest_type(
         &mut self,
         parent_type: TypeId,
@@ -748,6 +814,73 @@ impl Checker<'_, '_> {
                 return error;
             };
             bound.push(name);
+        }
+        // §776 (`checker.go:17813`-`:17827`): a GENERIC source cannot be spread
+        // into a member list — upstream mints `Omit<source, omitKeyType>`
+        // through the global `Omit` alias, and the baselines print exactly that
+        // (`genericObjectRest` wants `Omit<T, "a">`).
+        //
+        // `isGenericObjectType` is reduced to a bare TYPE PARAMETER, the shape
+        // the corpus's generic rests have; a mapped or indexed-access source
+        // keeps the gap. The `isGenericIndexType(omitKeyType)` half is not
+        // ported: a computed key declines above, at
+        // `binding_element_property_name`.
+        if self.store.get(parent_type).flags.intersects(TypeFlags::TYPE_PARAMETER) {
+            let mut keys: Vec<TypeId> = Vec::new();
+            let push_key = |checker: &mut Self, name: &str, keys: &mut Vec<TypeId>| {
+                let key = checker.store.intern_literal(
+                    TypeFlags::STRING_LITERAL,
+                    TypeData::StringLiteral(name.to_string()),
+                    false,
+                );
+                if !keys.contains(&key) {
+                    keys.push(key);
+                }
+            };
+            // `getUnionType(map(properties, getLiteralTypeFromPropertyName))`
+            // (`:17802`) — the names BOUND by the sibling elements.
+            for name in &bound {
+                push_key(self, name, &mut keys);
+            }
+            // `unspreadableToRestKeys` (`:17806`-`:17818`): every property that
+            // CANNOT be spread is omitted too — a method or accessor declared
+            // in a class, and a `private` or `protected` member. §775 measured
+            // what happens without this: `destructuringUnspreadableIntoRest`
+            // went 30 RIGHT→WRONG, because an omit list missing them is a
+            // confidently wrong type where the gap was honest.
+            let apparent = self.apparent_type(parent_type);
+            if let TypeData::Named { members: Some(owner), .. } = self.store.get(apparent).data {
+                let properties: Vec<(String, tsr_binder::SymbolId)> = self
+                    .binder
+                    .symbols()
+                    .get(owner)
+                    .members
+                    .iter()
+                    .map(|(name, &symbol)| ((*name).to_string(), symbol))
+                    .collect();
+                let mut unspreadable: Vec<String> = properties
+                    .into_iter()
+                    .filter(|&(_, symbol)| !self.is_spreadable_property(symbol))
+                    .map(|(name, _)| name)
+                    .collect();
+                unspreadable.sort();
+                for name in &unspreadable {
+                    push_key(self, name, &mut keys);
+                }
+            }
+            if keys.is_empty() {
+                // `omitKeyType.flags & Never` (`:17820`) — `let { ...r } = obj`
+                // over a source with nothing to omit IS the source. Upstream
+                // tests this BEFORE `getGlobalOmitSymbol` (`:17823`), so the
+                // answer does not depend on the lib being present; the order is
+                // kept because it is observable in a lib-less program.
+                return parent_type;
+            }
+            let Some(omit) = self.global_type_symbol_with_arity("Omit", 2) else {
+                return error;
+            };
+            let omit_key = self.get_union_type(&keys);
+            return self.create_type_reference(omit, vec![parent_type, omit_key]);
         }
         let Some(members) = self.spread_members_of(parent_type) else {
             return error;
