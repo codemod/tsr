@@ -4535,17 +4535,37 @@ in this-types.
 There is no preference for fewer parameters, no arity tie-break, no second
 ranking pass. So the whole question reduces to **the ORDER of `s.candidates`**.
 
-And that yields a sharp, checkable claim: this port PRINTS the member
-identically to upstream (`:0:7` and `:0:9` are RIGHT, lib's overload first) and
-yet SELECTS differently. Since selection is first-applicable over the candidate
-list, **upstream's candidate order cannot be its print order** — or its
-candidate list for this member is not the one the print is built from.
+That suggested a claim — *"upstream's candidate order cannot be its print
+order"* — and **the claim was tested and REFUTED.**
 
-That is the thing to establish next, and it is a question about
-`getSignaturesOfType` on a method symbol merged across interface declarations —
-not about `chooseOverload`, which is now read and understood, and not about
-declaration order, which the binder evidence above rules out as a reordering
-step. The two orders differing is the finding; the reason is still open.
+The probe: reverse the candidate list in `get_signatures_of_symbol`
+(`signatures.rs:243`, which mirrors `getSignaturesOfSymbol` exactly — the same
+declarations order, the same overload-implementation skip) and run the corpus.
+
+```
+right 436,449 → 430,453   −5,996 lines
+```
+
+Declaration order is overwhelmingly the correct general rule, and a global
+reordering is catastrophic. So `thisTypeInTuples`'s two lines are a **LOCAL
+exception**, not evidence of a systematic ordering difference, and the
+inference above is withdrawn along with the two before it.
+
+**Where that leaves the item.** Three things are now established by reading or
+measurement rather than inference:
+
+1. `chooseOverload` is first-applicable-wins over `s.candidates` — read.
+2. This port's `get_signatures_of_symbol` mirrors upstream's rule exactly —
+   read, both sides.
+3. Global candidate order is declaration order and must stay that way —
+   measured at −5,996.
+
+Which means the cause is something that makes lib's `slice(start?, end?)`
+*inapplicable* or unreachable for this particular zero-argument call on a
+TUPLE, rather than anything about ordering. That is a much smaller search than
+the one this section started with, and it is genuinely open — three hypotheses
+have now died here, and the next one should be measured before it is written
+down.
 
 **(b) A UNION receiver's member signatures — `sliceResultCast:0:3`.**
 `declare var x: [number, string] | [number, string, string]; x.slice` should
@@ -4562,12 +4582,19 @@ re-derive the real answer. The project's own rule — *correct the record when a
 number turns out to be wrong, and say it was corrected* — applies to
 attributions as much as to numbers.
 
-**And the correction needed correcting.** This section's own first draft
-replaced §770's wrong cause with a wrong MECHANISM, inferred from the answer
-rather than read from the source; the paragraph above now says so and withdraws
-it. That is twice in one section that a plausible-sounding cause was written
-before it was checked, which is worth leaving visible: the failure mode is not
-ignorance, it is fluency.
+**And the correction needed correcting, twice.** This section's first draft
+replaced §770's wrong cause with a wrong MECHANISM ("later declarations come
+first"), inferred from the answer rather than read from the source. Its second
+draft replaced that with a wrong INFERENCE ("candidate order cannot be print
+order"), which a one-run probe then refuted at −5,996 lines.
+
+Three plausible-sounding causes died in one section, and the pattern in all
+three is identical: each was written the moment it *explained* the observation,
+without being tested against anything else. The two that were merely read
+against the source survived — `chooseOverload`'s rule, and the port's mirroring
+of `getSignaturesOfSymbol`. **The failure mode is not ignorance, it is
+fluency**, and the corrective is cheap: one corpus run refuted in forty seconds
+what three paragraphs had asserted.
 
 Neither cause is cheap, and neither is a defect in §770's fallback. Both are
 now named precisely enough to be picked up or refused on their merits.
