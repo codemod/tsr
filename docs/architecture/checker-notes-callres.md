@@ -4526,9 +4526,26 @@ withdrawn rather than left standing.
 What IS established: upstream picks `(): this` for the zero-argument call and
 this port picks lib's `(start?, end?)`, both signatures are applicable to zero
 arguments, and the difference is therefore in candidate selection rather than
-in this-types. **Whoever takes this should find the rule first** — in
-`chooseOverload`/`resolveCall`, or in how the global `Array` augmentation
-merges — and should not assume it is declaration order.
+in this-types.
+
+**Narrowed one step further, by reading rather than inferring.**
+`chooseOverload` (`checker.go:9025`) is plainly first-applicable-wins: it walks
+`s.candidates` in order, skips any failing `hasCorrectTypeArgumentArity` or
+`hasCorrectArity`, and returns the first that is applicable (`:9040`-onwards).
+There is no preference for fewer parameters, no arity tie-break, no second
+ranking pass. So the whole question reduces to **the ORDER of `s.candidates`**.
+
+And that yields a sharp, checkable claim: this port PRINTS the member
+identically to upstream (`:0:7` and `:0:9` are RIGHT, lib's overload first) and
+yet SELECTS differently. Since selection is first-applicable over the candidate
+list, **upstream's candidate order cannot be its print order** — or its
+candidate list for this member is not the one the print is built from.
+
+That is the thing to establish next, and it is a question about
+`getSignaturesOfType` on a method symbol merged across interface declarations —
+not about `chooseOverload`, which is now read and understood, and not about
+declaration order, which the binder evidence above rules out as a reordering
+step. The two orders differing is the finding; the reason is still open.
 
 **(b) A UNION receiver's member signatures — `sliceResultCast:0:3`.**
 `declare var x: [number, string] | [number, string, string]; x.slice` should
