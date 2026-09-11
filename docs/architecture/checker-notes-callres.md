@@ -4792,3 +4792,99 @@ answers at all.
   at `binding_element_property_name`.
 - `isGenericObjectType` is reduced to a bare TYPE PARAMETER; a mapped or
   indexed-access source keeps the gap.
+
+## §777 — the WRONG-side board for the 95% goal, and `any_audit` is BROKEN (measurement only)
+
+§774 established that 95% needs ~10,500 lines from the WRONG bucket, because
+the entire gap is 7,957. This is the wrong side, measured — and the first
+instrument reached for it turned out to be untrustworthy, which is the more
+important half of this section.
+
+### `wrongflip.rs` — trustworthy, and it names one dominant cause
+
+```
+WRONG (ported, defect)      29,815 lines
+  we answered `any`, upstream did not      18,112  (60.75%)
+  same shape, different text                6,670  (22.37%)
+  different shape — a wrong type            4,062  (13.62%)
+  upstream expanded it, we printed a name     546   (1.83%)
+  upstream NAMED it, we printed a structure   362   (1.21%)
+  error leaked into a printed type             63   (0.21%)
+
+propagation split:  ROOT 4,113 (13.80%) — everything else is a symptom
+```
+
+Two facts worth carrying. **Over-answering `any` is 61% of the entire wrong
+bucket** — one cause, bigger than everything else combined. And **only 13.8% of
+wrong lines are ROOTs**; the rest propagate, so the conversion-per-fix ratio on
+this side is better than the line counts suggest and worse than they promise,
+depending on which root a fix reaches.
+
+Naming failures are **908 lines (3.05%)**, which independently corroborates
+§774's refusal of design P: there is no naming lever left to pull.
+
+### `any_audit.rs` — its CONTROL FAILS, and its rows must not be used
+
+The obvious next step was `any_audit`, which splits printed `any` by the rule
+that minted it. It runs, prints a full ranked table, and then **aborts on its
+own control**:
+
+```
+CONTROLS (must read zero):
+  UNCLASSIFIED, banked      6360
+  UNCLASSIFIED, lost       13903
+  DISAGREEMENT (both)      20121
+assert_eq!(… , 0, "the classifier no longer mirrors
+                   `types_producer::type_at_location`;
+                   no row above is trustworthy")
+```
+
+The assertion's message is the finding: **no row above is trustworthy.** The
+control exists precisely because "a classifier that has drifted produces a tidy
+table either way", and it has drifted by 40,384 lines.
+
+**I read its rows before reading its exit code** and quoted
+`CHECKER/… unannotated Parameter, container CONTEXTUALISABLE` at 1,042 + 778
+lines as "~1,820 lines from contextual parameter typing, the biggest actionable
+lever". **That number is withdrawn.** The row may be right, but this probe
+cannot establish it, and the total it sits inside is the only part corroborated
+elsewhere (`wrongflip`'s 18,112, a separate probe that did not crash).
+
+`any_audit` needs repairing before the `any` bucket can be split at all. Until
+then the 18,112 is a known total with an unknown composition.
+
+### A stale doc found on the way
+
+`contextual.rs`'s module doc carries a reachability table:
+
+```
+| callee                     | count     | reachable                |
+| one non-generic signature  | 548 (59%) | yes — this module        |
+| generic                    | 183 (20%) | no: needs inference      |
+| overload set               | 102 (11%) | no: needs the full resolveCall |
+```
+
+The generic row is **no longer true**: `contextual_type_for_argument` carries
+"Iteration 4 arm (a)" — a single generic candidate's parameter type flows as-is,
+with the fixing-mapper and returnMapper guards — and `inference.rs` is 2,519
+lines with `check_generic_call`, `instantiate_type` and
+`is_context_sensitive_argument`. The same doc's opening line, *"reduced to the
+three corpus arms"*, is stale too: `get_contextual_type` now dispatches
+seventeen.
+
+Not corrected in this section because correcting it properly means re-measuring
+the table's four rows, which is its own piece of work. **Recorded here so the
+next reader does not plan against it**, and so that whoever re-measures knows
+the numbers are pre-inference.
+
+### Where this leaves the 95% route
+
+- The gap side is 7,957 lines over 117 rows, top 30 = 82% (§774).
+- The wrong side is 29,815, of which `any` over-answering is 18,112 —
+  **composition unknown until `any_audit` is repaired**.
+- Naming is spent (908 lines, design P refused three times).
+- 13.8% of wrong lines are roots.
+
+The honest next step for the goal is **repair `any_audit`**, because without it
+the largest single population in the corpus cannot be ranked, and every plan
+that touches it is planning blind.
