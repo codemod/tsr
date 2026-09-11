@@ -4599,3 +4599,117 @@ what three paragraphs had asserted.
 Neither cause is cheap, and neither is a defect in §770's fallback. Both are
 now named precisely enough to be picked up or refused on their merits.
 
+
+## §774 — the board re-measured for the 95% goal, three candidate levers priced, two refused
+
+Measurement only, no code. Run because the session goal became a NUMBER
+(95% gradient), and a number-goal has to be planned against the ceiling and the
+levers rather than worked item by item.
+
+### What 95% requires, and whether it is reachable
+
+`ceiling.rs` at this tree:
+
+```
+gradient                    436,449 / 478,855  (91.14%)
+UNREACHABLE (ADR-0038), attributed        0  (0.00 points)
+  not attributed: case has no .errors.txt 408  (0.09 points)  <- the blind spot
+REACHABLE CEILING           reachable denominator 478,855 of 478,855
+```
+
+**Nothing is structurally unreachable.** 95% is therefore a volume problem, not
+a bound problem — but the shape of the volume matters:
+
+```
+95% of 478,855                = 454,912 right      (+18,463 from today)
+the ENTIRE gap                =   7,957 lines
+closing all of it             → 444,406 = 92.8%
+```
+
+**Closing every gap line in the corpus does not reach 95%.** The remaining
+~10,500 must come from converting WRONG lines, of which there are ~29,900. Any
+plan that ranks only gap rows is planning for at most +1.7 points.
+
+### The gap is a list, not a tail
+
+`gaproot.rs`, 7,957 lines over **117 distinct root rows**:
+
+```
+ rows   lines   share
+    1    1152  14.48%
+   10    4416  55.50%
+   30    6497  81.65%
+  100    7928  99.64%
+```
+
+Thirty rows cover 82%. That is a materially different picture from §4.-3's "long
+tail", which was measured in CASES; in LINES the gap is concentrated. The two
+framings are both right and answer different questions, and a line-denominated
+goal should use this one.
+
+### §773's recommendation, WITHDRAWN
+
+§773 named *"property access, the property has no type" at 259 lines* as the
+best-evidenced unworked item. **It is not an item at all.** `gaproot.rs` runs
+with `PROPERTY_DECLARATION_EDGE = true` and DESCENDS through that refusal to the
+property's own declaration; `property-declaration` appears in `EDGES TAKEN` at
+240 steps. A one-step split figure is not a root figure, and `depend.rs`'s
+property-access table is a one-step split. Withdrawn before anything was built
+on it — the fifth wrong call in this block, and the fourth caught by checking
+rather than by consequence.
+
+### Lever 1: design P (qualified-name printing) — REFUSED, third re-size
+
+`qualnamep.rs` at this tree:
+
+```
+STRICT   CONVERTS 0    CHURN 0     AT RISK 6     net  -6
+LOOSE    CONVERTS 52   CHURN 112   AT RISK 762   net -710
+CP7  right lines already printing a dotted namespace name  20,055
+```
+
+Design P has now been sized three times: **36 → 23 → 0**. It is not shrinking
+because it was mis-measured; CP7 says why — design W landed and its 20,055 right
+lines ARE design P's former population. **The design is spent.** It should not
+be re-proposed without a fresh CP7.
+
+### Lever 2: the class/enum alias leaf — REFUSED, re-measured
+
+`get_type_of_alias`'s §145 arm excludes `NAMESPACE | CLASS | ENUM` leaves, with
+§156's recorded refusal (58:34, then 33:34 over §157) and the reason *"classes
+keep the gap until that print road exists"* — the print road being lever 1.
+
+Lever 1 is dead, so that prerequisite will not arrive. The §769→§771 lesson says
+a refused arm can turn clean when the tree moves, so it was re-measured rather
+than assumed:
+
+```
+admit CLASS and ENUM leaves:
+  +6 G→R, +6 W→R   against  26 G→W
+  12 gained : 26 lost
+```
+
+**The refusal STANDS**, now on a third independent measurement, and its stated
+prerequisite is void. `collisionExportsRequireAndInternalModuleAliasInGlobalFile`
+alone contributes 12 of the 26. Anyone reopening this needs a different reason
+than "the tree has moved" — that was tested.
+
+### Where that leaves the 95% goal
+
+Two of the three levers the board still advertised are spent. What is left is
+ordinary volume across concentrated rows, and the wrong-line side must carry
+roughly 57% of the distance. The rows with the highest `own` share — work that
+converts directly rather than unblocking something downstream — are:
+
+```
+                                                  lines   own  cases
+alias RHS TypeReference resolved with arguments     125   125     31
+declaration name, symbol has no type: BINDING…      132   128     43
+annotation TypeReference qualified name             109   101     24
+declaration name, symbol has no type: FUNCTION…     100   100     60
+expression answered error: CallExpression          1152   538    247
+expression answered error: ArrowFunction           1101   464    207
+```
+
+The first four are 100%-own rows: nothing downstream depends on them, so their
+`lines` figure is their conversion, not a ceiling.
