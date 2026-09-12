@@ -1277,20 +1277,35 @@ So it is not IIFEs, not bare parameters, and not parenthesised callees — it is
 exactly their intersection.
 
 **And §768's arm is not the problem: nothing reaches it.** An `eprintln` at the
-entry of `contextual_type_for_parameter`'s IIFE branch prints **nothing** on this
-shape. The arm is correct — `immediately_invoked_call` climbs parenthesised
-callees explicitly (`contextual.rs:421`) — and the road that computes the bare
-parameter's type never asks it.
+entry of the IIFE branch prints **nothing** on this shape. The arm is correct —
+`immediately_invoked_call` climbs parenthesised callees explicitly
+(`contextual.rs:421`).
+
+**Traced one level out, and it is worse than the arm being unreachable.** An
+`eprintln` at the entry of `get_contextually_typed_parameter_type` **also prints
+nothing**. The whole contextual-parameter road is unreached, not just its IIFE
+branch — so the arrow's signature is being built for the callee position without
+ever consulting a parameter's symbol type, which is where `symbols.rs:4291`
+calls that road from.
+
+The remaining question is therefore sharper than §807's first version: **which
+road builds an inline callee's signature, and why does it not go through
+`get_type_of_symbol` for its parameters?** The standalone spellings do —
+`((j) => {})` as a variable initialiser answers `(j: any) => void` — so the
+difference is the callee position itself.
 
 That is a different defect from the one §768/§771/§795 have been extending. Those
 three built and refined the arm's *contents*; this is its *reachability* from the
 parameter-typing road when the function is a callee.
 
 **Not attempted.** Recorded because the probe ladder narrows a 1,059-line family
-to one intersection and one question — *what types a bare parameter when its
-function is a call's callee, and why does it not consult the contextual road?* —
-and because four sessions of work on this arm have been aimed at its body while
-the call never arrives.
+to one intersection and one question, and because several sessions of work on
+this arm have been aimed at its body while the call never arrives.
+
+**The next session should start with `examples/traceone.rs`**, not with another
+`eprintln` ladder — two rounds of hand-placed traces established only that the
+road is unreached, and the instrument for "where did this type come from" already
+exists on §6's table.
 
 #### §805 — RANK THE GAPS TOO. Every board above ranks WRONG lines only
 
