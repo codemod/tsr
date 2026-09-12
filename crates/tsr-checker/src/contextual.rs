@@ -223,6 +223,35 @@ impl<'a> Checker<'a, '_> {
             // A SPREAD argument (`f(...xs)`) takes the variadic/rest legs at
             // `:29504` and `:29528`; those are not ported and decline here, so
             // the arm answers only for plain argument lists.
+            // §795 (`:29504`/`:29528`): the SPREAD-ARGUMENT legs, §771's
+            // recorded residue. `(function (a, b, c) {})(...t1)` with
+            // `t1: [number, boolean, string]` types `a`, `b`, `c` positionally
+            // off the tuple's elements — the baseline records `>a : number`,
+            // `>b : boolean`, `>c : string`
+            // (`restTuplesFromContextualTypes.types:11-13`), and a rest
+            // parameter takes the remaining elements as a tuple
+            // (`>x : [number, boolean, string]`, `:21`).
+            //
+            // Admitted only for a call whose arguments are EXACTLY one spread
+            // over a CONCRETE tuple. That is the whole of upstream's
+            // decidable slice here: a spread mixed with plain arguments needs
+            // the position arithmetic `getSpreadArgumentType` does over
+            // several sources, and a spread of an array has no element to
+            // land on. Both keep declining, as they did before this arm.
+            if let [tsr_ast::Expression::SpreadElement(spread)] = call.arguments
+                && let Some(operand) = spread.expression
+            {
+                let operand_type = self.check_expression(operand);
+                let Some((elements, _)) = self.tuple_element_lists.get(&operand_type).cloned()
+                else {
+                    return None;
+                };
+                if parameters[index].dot_dot_dot_token.is_some() {
+                    let tail: Vec<TypeId> = elements.into_iter().skip(index).collect();
+                    return Some(self.create_tuple_type(tail, false));
+                }
+                return elements.get(index).copied();
+            }
             if parameters[index].dot_dot_dot_token.is_some() {
                 if call
                     .arguments

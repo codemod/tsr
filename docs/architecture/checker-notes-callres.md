@@ -6014,3 +6014,65 @@ infer through (`[string, ...T]`). There the literal now mints a tuple where it
 previously widened, and the inference half still declines — so the argument's
 own printed line changes while the call stays a gap. No corpus line shows a
 regression from it, but that is the interaction to check first.
+
+## §795 — the IIFE spread-argument legs, and a refusal cashed twice
+
+### The rule
+
+```ts
+declare const t1: [number, boolean, string];
+(function (a, b, c) {})(...t1);   // a: number, b: boolean, c: string
+(function (...x) {})(...t1);      // x: [number, boolean, string]
+```
+
+`getSpreadArgumentType`'s legs at `checker.go:29504` and `:29528`. §771 declined
+every spread argument outright and recorded these as its residue.
+
+### The chain this closes, which is the reason to write refusals properly
+
+| | |
+|---|---|
+| **§769** | wrote the IIFE REST arm, measured **21:9 adverse**, reverted it |
+| **§770** | landed the prerequisite §769 named |
+| **§771** | re-applied §769's arm, exactly as its refusal predicted |
+| **§795** | the residue §771 itself recorded |
+
+§769's arm was **correct** and its measurement was **bad**, and the entry
+separated those two facts instead of collapsing them into "does not work". What
+broke was downstream: a tuple inherited no `Array<T>` members then, so giving a
+parameter its true tuple type took `noNumbers.some(…)` from RIGHT to GAP. The
+refusal named the prerequisite in one sentence — *a tuple's apparent type must
+include the members of `Array<union of its elements>`* — and said the arm would
+afterwards be "a ~20-line re-application of code this entry describes".
+
+Both halves came true. **A refusal that names its prerequisite precisely enough
+is a work item, not a dead end**, and this one was cashed twice by later
+sessions that only had to re-read it.
+
+That it was re-checkable at all is why this session re-tested it: the probe was
+four lines (`t.some`, `t.map`, `t.length` on a tuple), it confirmed §770 had
+landed the prerequisite, and the arm followed. **Re-testing a refusal's stated
+prerequisite is cheaper than re-deriving the refusal.**
+
+### What is admitted
+
+Exactly one spread over a CONCRETE tuple. A spread mixed with plain arguments
+needs the position arithmetic `getSpreadArgumentType` does across several
+sources; a spread of an array has no element to land on. Both keep declining,
+and `a_spread_of_an_array_still_declines` pins the second.
+
+### The measurement
+
+```
+WRONG->RIGHT: 16  conformance/restTuplesFromContextualTypes 16
+```
+
+**+16, zero adverse of any kind.**
+
+### How we would know this is wrong
+
+The rest leg takes `elements[index..]` as a tuple without consulting the
+operand's optional mask, so a spread of `[a, b?]` into a rest parameter reports
+both elements as required. The same gap is noted in §792's splice; if a
+`readonly [...]` or parameter line ever disagrees about optionality, these two
+arms are where it comes from.
