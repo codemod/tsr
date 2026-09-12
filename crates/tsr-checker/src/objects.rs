@@ -57,6 +57,7 @@ use crate::{
 /// a bracketed *parameter* and a key type. Those are different spellings of
 /// different things, and modelling the second as a property with a blank name
 /// would put the difference in the renderer instead of in the data.
+#[derive(Clone)]
 pub(crate) enum Member {
     /// `a: string`, `readonly a?: string`.
     Property {
@@ -1572,6 +1573,9 @@ impl Checker<'_, '_> {
         // §453: `ObjectFlagsFreshLiteral` — see the side table's doc on
         // `Checker::fresh_object_literal_types`.
         self.fresh_object_literal_types.insert(minted);
+        // §800: the members AS PRINTED, so a re-mint does not have to go back
+        // through the symbol road and widen what this literal retained.
+        self.object_literal_members.insert(minted, members.clone());
         // §539: keyed by the minted type id, so the element-access lookup
         // reaches the signature this literal prints.
         if let Some(info) = minted_index_info {

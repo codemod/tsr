@@ -546,6 +546,15 @@ pub struct Checker<'a, 'n> {
     /// `checker.go:17938`, with no initializer to infer from), so the value
     /// needs no table.
     pub(crate) pattern_implied_members: rustc_hash::FxHashMap<crate::types::TypeId, Vec<String>>,
+    /// §800: the MEMBERS an object literal printed, keyed by its minted type.
+    ///
+    /// `spread_members_of` can re-derive a member list from the `__object`
+    /// symbol, but each member's type comes back from `get_type_of_symbol` —
+    /// the DECLARED, widened type. A literal in a const context retained its
+    /// literal member types at print time and nothing else remembers them, so
+    /// a re-mint through the symbol road silently widens
+    /// (`{ readonly a: 1; }` became `{ readonly a: number; }`). ADR-0003.
+    pub(crate) object_literal_members: rustc_hash::FxHashMap<TypeId, Vec<crate::objects::Member>>,
     pub(crate) object_literal_index_infos:
         rustc_hash::FxHashMap<crate::types::TypeId, Vec<crate::index_signatures::IndexInfo>>,
     /// The identifier the JSX namespace hangs off, `getJsxNamespace`'s
@@ -980,6 +989,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             no_implicit_any: false,
             js_literal_types: rustc_hash::FxHashSet::default(),
             fresh_object_literal_types: rustc_hash::FxHashSet::default(),
+            object_literal_members: rustc_hash::FxHashMap::default(),
             object_literal_index_infos: rustc_hash::FxHashMap::default(),
             pattern_implied_members: rustc_hash::FxHashMap::default(),
             jsx_namespace: "React".to_string(),

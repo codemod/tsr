@@ -1061,7 +1061,17 @@ impl Checker<'_, '_> {
         else {
             return id;
         };
-        let Some(members) = self.spread_members_of(id) else { return id };
+        // §800: the literal's OWN members first. `spread_members_of` re-derives
+        // them from the `__object` symbol, where each type comes back widened —
+        // which is why §799 landed `{ readonly a: number; }` for a literal that
+        // had correctly printed `{ a: 1; }`.
+        let members = if let Some(members) = self.object_literal_members.get(&id).cloned() {
+            members
+        } else if let Some(members) = self.spread_members_of(id) {
+            members
+        } else {
+            return id;
+        };
         if members.is_empty()
             || !members
                 .iter()

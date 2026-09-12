@@ -159,29 +159,29 @@ fn an_as_const_assertion_still_reads_readonly_at_the_literal() {
     assert_eq!(type_of_initialiser(source, "a"), "readonly [\"b\", \"c\"]");
 }
 
-/// §799: an OBJECT literal argument of a `const` type parameter gets the
-/// `readonly` at the CALL, the same as a tuple does.
+/// §799 + §800: an OBJECT literal argument of a `const` type parameter keeps
+/// its literal member types AND carries the `readonly` at the call.
 ///
-/// **A known half-answer, pinned as it is rather than as it should be.**
-/// Upstream records `{ readonly a: 1; readonly b: "x"; }`; this port keeps the
-/// `readonly` and WIDENS the members. The cause is in the re-mint:
-/// `readonly_tuple_image`'s object arm rebuilds through `spread_members_of`,
-/// which reads each member's type from the SYMBOL table
-/// (`get_type_of_symbol`) — the declared, widened type — not from the literal's
-/// own retained members. The literal itself is right (`check_object_literal`
-/// keeps `{ a: 1; }`); the re-mint throws that away.
+/// **This assertion was written the other way round on purpose and then
+/// changed by the fix, which is the point of writing it at all.** §799 landed
+/// the `readonly` but widened the members, and pinned that half-answer here
+/// with its cause in the comment: `readonly_tuple_image`'s object arm rebuilt
+/// through `spread_members_of`, which reads each member's type from the
+/// `__object` SYMBOL (`get_type_of_symbol` — the declared, widened type) rather
+/// than from what the literal had printed.
 ///
-/// It still converts 39 corpus lines, because on those the `readonly` is the
-/// whole difference. Pinning the half-answer keeps the residue visible: when
-/// the re-mint learns to carry the literal's members, this assertion is what
-/// should change.
+/// §800 recorded the literal's own members in `object_literal_members`
+/// (ADR-0003) and preferred them in the re-mint. The corpus showed **zero
+/// transitions** — no baseline line happened to depend on the distinction — and
+/// this test is the entire evidence that the fix landed. A residue pinned as an
+/// assertion reports its own repair; a residue described in prose does not.
 #[test]
-fn an_object_argument_gets_the_readonly_at_the_call() {
+fn an_object_argument_keeps_its_literal_members_and_the_call_is_readonly() {
     let source = "interface Array<T> { length: number }\n\
                   interface ReadonlyArray<T> { length: number }\n\
                   declare function f<const T>(x: T): T;\n\
                   const a = f({ a: 1, b: \"x\" });";
-    assert_eq!(type_of_initialiser(source, "a"), "{ readonly a: number; readonly b: string; }");
+    assert_eq!(type_of_initialiser(source, "a"), "{ readonly a: 1; readonly b: \"x\"; }");
 }
 
 /// The control: a plain type parameter widens the members and adds no

@@ -6284,3 +6284,61 @@ literal's retained members.
 it is**, with the cause in its doc comment. When the re-mint learns to carry the
 literal's members, that assertion is what changes — which is a more useful
 marker than a sentence in a notes file, because it fails when someone fixes it.
+
+## §800 — the literal's own members, and a residue that reported its own repair
+
+### The residue §799 pinned
+
+§799 landed the `readonly` on an object inferred through a `const` type
+parameter and **widened the members**: `{ readonly a: number; }` where upstream
+records `{ readonly a: 1; }`. The cause was in the re-mint —
+`readonly_tuple_image`'s object arm rebuilt through `spread_members_of`, which
+reads each member's type from the `__object` SYMBOL via `get_type_of_symbol`,
+i.e. the declared and widened type, rather than from what the literal had
+actually printed.
+
+The literal itself was right the whole time. `check_object_literal` retains
+`{ a: 1; }` under a const context; nothing downstream remembered it.
+
+### The fix
+
+`object_literal_members` (ADR-0003) records the `Vec<Member>` a literal printed,
+keyed by its minted type, beside the `fresh_object_literal_types` and
+`object_literal_index_infos` tables that already sit there. The re-mint prefers
+it and falls back to `spread_members_of` for everything else.
+
+`Member` gains `#[derive(Clone)]`, which it did not have — the only reason it
+did not is that nothing had needed to keep a member list past the mint.
+
+### The measurement, and why this landed anyway
+
+```
+no transitions vs baseline
+```
+
+**Zero corpus movement.** No baseline line happened to depend on the
+distinction: §799's 39 conversions were all cases where the `readonly` alone was
+the difference.
+
+What says the fix landed is the **test**. §799 pinned its residue as an
+assertion of the half-answer —
+`an_object_argument_gets_the_readonly_at_the_call`, asserting
+`{ readonly a: number; }` — with the cause in its doc comment. §800 turned that
+test red by making the port correct, and the assertion was then updated to
+upstream's real answer.
+
+**A residue pinned as an assertion reports its own repair. A residue described
+in prose does not.** This is the first time in the session that technique paid,
+and it paid in the case where the corpus was silent — which is exactly where a
+prose note would have gone unread. The corpus is the arbiter of *value*; it is
+not an arbiter of *correctness*, and a change that is right with zero
+transitions still belongs in the tree if something else can witness it.
+
+### How we would know this is wrong
+
+The table is written at every object-literal mint, not only const ones, so it
+grows with the literal count. It is read only by `readonly_tuple_image` today.
+If a future reader uses it as a general member source, note that it holds the
+members **as printed at mint time** — a literal whose members were later
+narrowed or instantiated is not reflected, which is precisely the property that
+makes it right here and would make it wrong there.
