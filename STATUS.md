@@ -3046,11 +3046,33 @@ constituent that is a subtype of another — and this port's
 `inferentialTypingWithObjectLiteralProperties` are the shape where reduction
 would have changed nothing; the 29 regressions are where it would have.
 
-**Prerequisite, named and checkable**: subtype reduction on union construction
-(`UnionReductionSubtype`). Until `get_union_type_unprinted` can drop a
-constituent that is a strict subtype of a sibling, the union fallback prints
-unreduced types and loses more than it wins. §801's
-`differing_positions_do_not_yet_union` stays pinned as the marker.
+~~**Prerequisite, named and checkable**: subtype reduction on union
+construction (`UnionReductionSubtype`)…~~ **BUILT, AND THE PREREQUISITE WAS
+WRONG.**
+
+`remove_subtypes` was written — `removeSubtypes` (`checker.go:25934`), dropping
+every constituent that is a strict subtype of another, refusing whole on a
+`Ternary::Unknown`. (The union module's doc says subtype reduction *"needs
+assignability, which does not exist"*; that was true when written and is not
+now — `relate_ternary(.., Relation::StrictSubtype)` is the same predicate
+`single_common_supertype` already runs. **That stale reason is worth fixing in
+`unions.rs` independently of this.**)
+
+With the reduction in front of the union fallback, the measurement is
+**identical to §802's — the same 29 RIGHT→WRONG, the same 6 WRONG→RIGHT.**
+Nothing was dropped: the best-common-type candidates are not subtype-reducible,
+so upstream is picking a single candidate there for some reason that is **not**
+`UnionReductionSubtype`.
+
+**So both the refusal and its stated prerequisite stand corrected.** The
+refusal is right — the union fallback costs 23 — and the reason given for it was
+a guess that building disproved, the fourth time this session (§790, §796, §799,
+here). The leftmost fallback is carrying something real and **what** is still
+unidentified; `getCovariantInference`'s full shape (the `widenLiteralTypes`
+decision, the priority ordering, `inferFromTypes`' `contravariant` flag) is where
+to look, and none of it should be guessed at from a failed measurement again.
+
+§801's `differing_positions_do_not_yet_union` stays pinned as the marker.
 
 
 ### §799 (2026-09-12) — the OBJECT half of §798: LANDED at +39 after four attempts, and attempt 3's ZERO WAS A STALE BUILD
