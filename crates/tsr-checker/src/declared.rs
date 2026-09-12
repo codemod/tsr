@@ -1656,6 +1656,16 @@ impl<'a> Checker<'a, '_> {
             let text =
                 format!("{}[{}]", if readonly { "readonly " } else { "" }, pieces.join(", "));
             let minted = self.store.new_named(TypeFlags::OBJECT, text, None);
+            // §791: remember the NODE. This mint is print-only precisely
+            // because a rest element resolved to something with no element
+            // list — a type parameter. Once that parameter is BOUND to a
+            // concrete tuple, re-resolving this same node takes the `spliced`
+            // path above and produces a real tuple, which is upstream's
+            // normalisation. The binding is `alias_evaluation_bindings`, so
+            // nothing here needs to know how to substitute.
+            if let Some(id) = node.node_id {
+                self.variadic_tuple_nodes.insert(minted, id);
+            }
             // §87 (`checker-notes-narrow.md`): a variadic whose ONLY rest is
             // one TRAILING `...T[]` records its NODE so positional consumers
             // (§86's contextual expansion) can resolve it AT CONSUMPTION —
@@ -2051,6 +2061,68 @@ impl<'a> Checker<'a, '_> {
             // positions even through type-parameter arguments
             // (`PrefixData<P>` answers `\`${P}:baz\``).
             return error;
+        }
+        // §791: a generic ALIAS whose body is a §40 PRINT-ONLY VARIADIC TUPLE
+        // normalises at instantiation — `TV0<[boolean]>` over
+        // `type TV0<T extends unknown[]> = [string, ...T]` is `[string, boolean]`
+        // upstream, not the alias reference this port printed.
+        //
+        // §790 refused this as a subsystem and named the wrong prerequisite
+        // twice before the trace: the arm IS on this road and DOES fire, and
+        // `instantiate_type` answers `errorType` because its Arm 6 substitutes
+        // a tuple ELEMENT-WISE through `tuple_element_lists` — which a
+        // print-only variadic has no entry in, by §40's design.
+        //
+        // The cheap rule is not to teach Arm 6 to splice. It is to notice that
+        // §40's structural road ALREADY splices a rest over a concrete tuple
+        // (`excessivelyLargeTupleSpread`'s population), and that all it lacked
+        // was the parameter being concrete. So: bind the alias's type
+        // parameters to the arguments with §91's own
+        // `alias_evaluation_bindings` frame and RE-RESOLVE the recorded node.
+        // Nothing here substitutes anything; the existing splice runs.
+        if self.binder.symbols().get(symbol).flags.contains(tsr_binder::SymbolFlags::TYPE_ALIAS)
+            && let Some(declaration) =
+                self.binder.symbols().get(symbol).declarations.first().copied()
+            && let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
+            // Syntactic gate FIRST: only a tuple body carrying a rest element
+            // can be a print-only variadic, and resolving every alias body
+            // eagerly to find out re-enters this road on unrelated shapes.
+            && let Some(body_node @ TypeNode::TupleTypeNode(body_tuple)) = alias.r#type
+            && body_tuple.elements.iter().any(|e| matches!(e, TypeNode::RestTypeNode(_)))
+            && self.variadic_alias_in_progress.insert(symbol)
+        {
+            let body = self.get_type_from_type_node(body_node);
+            if let Some(&tuple_node) = self.variadic_tuple_nodes.get(&body) {
+                let parameter_symbols: Vec<tsr_binder::SymbolId> = alias
+                    .type_parameters
+                    .iter()
+                    .filter_map(|parameter| parameter.node_id)
+                    .filter_map(|id| self.binder.symbol_of(id))
+                    .collect();
+                if parameter_symbols.len() == arguments.len() && !parameter_symbols.is_empty() {
+                    let frame: rustc_hash::FxHashMap<tsr_binder::SymbolId, TypeId> =
+                        parameter_symbols.iter().copied().zip(arguments.iter().copied()).collect();
+                    self.alias_evaluation_bindings.push(frame);
+                    let resolved = match self.node_map.get(tuple_node) {
+                        Some(Node::TupleTypeNode(tuple)) => {
+                            Some(self.tuple_type_node_structural(tuple))
+                        }
+                        _ => None,
+                    };
+                    self.alias_evaluation_bindings.pop();
+                    // Only a SPLICED answer is taken. A re-resolve that is
+                    // still print-only means an argument was itself generic,
+                    // and the alias reference remains the honest print.
+                    if let Some(resolved) = resolved
+                        && resolved != error
+                        && self.tuple_element_lists.contains_key(&resolved)
+                    {
+                        self.variadic_alias_in_progress.remove(&symbol);
+                        return resolved;
+                    }
+                }
+            }
+            self.variadic_alias_in_progress.remove(&symbol);
         }
         // §46 (`checker-notes-narrow.md`): a generic ALIAS reference whose
         // body is a type literal answers the §41 shape — name+args print,

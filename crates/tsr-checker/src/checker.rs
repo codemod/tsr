@@ -715,6 +715,19 @@ pub struct Checker<'a, 'n> {
     /// §87: a trailing-rest variadic's tuple NODE — resolved lazily by
     /// positional consumers; the print stays §40's.
     pub(crate) tuple_rest_tails: FxHashMap<TypeId, tsr_ast::NodeId>,
+    /// §791: the NODE behind a §40 PRINT-ONLY variadic tuple — one whose rest
+    /// element is over a type parameter, so no element list could be built.
+    ///
+    /// `tuple_rest_tails` records only the trailing-`...T[]` shape and only for
+    /// §86's contextual expansion. This records EVERY print-only variadic, so
+    /// an alias instantiation can re-resolve the node with its type parameters
+    /// bound and let §40's own splice run on concrete arguments.
+    pub(crate) variadic_tuple_nodes: FxHashMap<TypeId, tsr_ast::NodeId>,
+    /// §791: the variadic aliases whose normalisation is in progress. A
+    /// variadic body can reference its own alias, and the re-resolve below
+    /// re-enters this road; without the guard that is an unbounded recursion
+    /// (measured as a stack overflow on the first corpus run).
+    pub(crate) variadic_alias_in_progress: rustc_hash::FxHashSet<tsr_binder::SymbolId>,
     /// `a type-parameter type -> the symbol it was minted from`.
     ///
     /// The third instance of the `type_reference_targets` precedent, and it
@@ -1004,6 +1017,8 @@ impl<'a, 'n> Checker<'a, 'n> {
             optional_tuple_types: FxHashMap::default(),
             tuple_optional_masks: FxHashMap::default(),
             tuple_rest_tails: FxHashMap::default(),
+            variadic_tuple_nodes: FxHashMap::default(),
+            variadic_alias_in_progress: rustc_hash::FxHashSet::default(),
             type_parameter_symbols: FxHashMap::default(),
             signature_types: FxHashMap::default(),
             instantiated_signatures: FxHashMap::default(),

@@ -5794,3 +5794,80 @@ set whose unique arity match is nevertheless the wrong overload will supply a
 wrong context. Nothing in the measurement shows it (zero adverse), and the
 uniqueness requirement makes it rarer than §788's first-fit rule, but it is the
 same falsifier: the general fix is assignability-ranked selection, still refused.
+
+## §791 — variadic tuple normalisation for a generic alias, and what its +2 proves
+
+### The rule
+
+`type TV0<T extends unknown[]> = [string, ...T]` instantiated as `TV0<[boolean]>`
+is `[string, boolean]` upstream — the rest element is **spliced**, not
+substituted. This port printed the alias reference.
+
+### The obvious route, and why it is the wrong one
+
+`instantiate_type`'s **Arm 6** (`inference.rs:1417`) substitutes a tuple
+element-wise through `tuple_element_lists` and re-mints with
+`create_tuple_type(elements, readonly)`. A §40 *print-only* variadic has no
+element-list entry — that is what "print-only" means — so Arm 6 answers
+`errorType`.
+
+Teaching Arm 6 to splice would need per-element rest-ness in the tuple
+representation: `create_tuple_type` takes a flat `Vec<TypeId>`, and
+`tuple_rest_tails` maps a whole tuple to a NODE rather than its elements. That
+is a type-model change, and it is what STATUS §5's §790 entry refused as a
+subsystem.
+
+**None of it is needed.** §40's structural road *already* splices a rest over a
+concrete tuple — that is how `excessivelyLargeTupleSpread` works. All it lacked
+was the type parameter being concrete. So this arm:
+
+1. records the NODE behind every print-only variadic mint
+   (`variadic_tuple_nodes`, ADR-0003);
+2. at an alias instantiation, binds the alias's type parameters to the arguments
+   with §91's own `alias_evaluation_bindings` frame;
+3. **re-resolves the recorded node**.
+
+Nothing substitutes anything. The existing splice runs, now over concrete
+arguments.
+
+### The guard that the first run required
+
+A variadic body can reference its own alias, and the re-resolve re-enters this
+road: the first corpus run **overflowed the stack**. Two fixes, both kept:
+
+- a syntactic gate — only a tuple body carrying a rest element is considered, so
+  arbitrary alias bodies are never resolved eagerly just to find out;
+- `variadic_alias_in_progress`, a per-symbol sentinel around the re-resolve.
+
+### The measurement, and the estimate it corrects
+
+```
+WRONG->RIGHT: 2  conformance/variadicTuples1 2
+```
+
+**+2, zero adverse of any kind.** That number is the finding.
+
+STATUS §5's §790 entry priced this subsystem at roughly **780 lines** —
+`variadicTuples1` 281, `strictBindCallApply1` 204, `genericRestParameters1` 161,
+`variadicTuples2` 138 — on the reasoning that all four are "the same road".
+They are the same *feature*; they are not the same *position*. This arm
+normalises variadic tuples in **annotation** positions and converts 2 lines,
+because 224 of `variadicTuples1`'s 281 wrong lines are the port answering `any`
+in **expression** positions: array literals with spreads, `as const`, and
+`bind`-shaped signatures.
+
+**The correction is the reusable part.** §790 counted four cases that share a
+language feature and called the total one subsystem's worth. A population
+sharing a feature is not a population sharing a fix — the expression half needs
+spread-element typing in array literals and `as const` normalisation, which are
+different builds from this one. The remaining variadic estimate should be
+re-derived per POSITION, not per feature, and until that is done it has no
+number.
+
+### How we would know this is wrong
+
+The re-resolve runs §40's structural road a second time for the same node under
+a binding frame. If a future change makes that road stateful in a way the frame
+does not cover, an instantiation could see a stale splice. The sentinel prevents
+recursion, not staleness; the `a_non_tuple_argument_declines_rather_than_guessing`
+test pins the one case where declining is the right answer.
