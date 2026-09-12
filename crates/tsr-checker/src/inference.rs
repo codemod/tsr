@@ -1032,6 +1032,40 @@ impl Checker<'_, '_> {
         if depth > 16 {
             return;
         }
+        // §793: a parameter typed `[...T]` infers `T` from the WHOLE argument.
+        //
+        // `f<T extends unknown[]>(t: [...T]): T` called with `[1, 2]` infers
+        // `T := [number, number]` upstream. This port built `[...T]` as a §40
+        // PRINT-ONLY variadic — a named type with no element list and no
+        // reference target — so every arm below missed it, `T` collected no
+        // candidate, and the call answered `errorType`.
+        //
+        // The shape admitted is exactly the one that is decidable: a recorded
+        // variadic node (§791's `variadic_tuple_nodes`) whose elements are a
+        // SINGLE rest over a name that resolves to one of THIS inference's
+        // parameters. `[...T]` is upstream's idiom for "this parameter is the
+        // whole tuple"; anything else — `[string, ...T]`, two rests — needs
+        // the source split across positions, which is the tuple-splitting
+        // machinery this port does not have, and those keep declining.
+        if let Some(&node) = self.variadic_tuple_nodes.get(&target)
+            && let Some(tsr_ast::Node::TupleTypeNode(tuple)) = self.node_map.get(node)
+            && let [tsr_ast::TypeNode::RestTypeNode(rest)] = tuple.elements
+            && let Some(tsr_ast::TypeNode::TypeReferenceNode(reference)) = rest.r#type
+            && let Some(tsr_ast::EntityName::Identifier(name)) = reference.type_name
+            && let Some(name_id) = name.node_id
+            && let Some(symbol) = self.binder.resolve_name(
+                self.nodes,
+                self.node_map,
+                name_id,
+                name.text,
+                tsr_binder::SymbolFlags::TYPE,
+            )
+            && let Some(&matched) =
+                parameters.iter().find(|&&p| self.type_parameter_symbols.get(&p) == Some(&symbol))
+        {
+            add_candidate(out, matched, source);
+            return;
+        }
         if parameters.contains(&target) {
             add_candidate(out, target, source);
             // `inference.go:207-208`: a candidate arriving where the walk's

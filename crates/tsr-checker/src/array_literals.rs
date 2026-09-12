@@ -249,6 +249,22 @@ impl Checker<'_, '_> {
             let Some(parent) = self.nodes.parent(id) else {
                 break 'context TupleContext::No;
             };
+            // §793: a CALL ARGUMENT whose parameter is spelled `[...T]` is in
+            // TUPLE context. `f<T extends unknown[]>(t: [...T])` called with
+            // `f([1, 2])` records `[number, number]` for the literal upstream,
+            // not `number[]` — the variadic parameter is exactly how a
+            // signature asks for a tuple.
+            //
+            // Every other arm of this function reads an ANNOTATION (assertion,
+            // declaration, assignment target); a call argument had none of
+            // them, so this position could never reach tuple context however
+            // the parameter was spelled.
+            if let Some(tsr_ast::Node::CallExpression(call)) = self.node_map.get(parent)
+                && let Some(contextual) = self.contextual_type_for_argument(call, id)
+                && self.variadic_tuple_nodes.contains_key(&contextual)
+            {
+                break 'context TupleContext::Annotated;
+            }
             match self.node_map.get(parent) {
                 // §371: a type ASSERTION to a tuple supplies the tuple
                 // context — `<[]>[]` / `[] as []` record the literal as the

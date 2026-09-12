@@ -5942,3 +5942,75 @@ The splice reads `tuple_element_lists` and drops the operand's optional mask
 `[a?, b?]` — therefore splices as if every element were required. No corpus line
 shows it, and the const-assertion position makes it rare, but it is the first
 thing to check if a `readonly [...]` line disagrees about optionality.
+
+## §793 — `[...T]` as a parameter: two gaps that each measured ZERO alone
+
+### The rule
+
+```ts
+declare function f<T extends unknown[]>(t: [...T]): T;
+f([1, 2]);   // T := [number, number]
+```
+
+This port answered `errorType`.
+
+### Why it needed two fixes, and why neither could be measured on its own
+
+**(1) Inference.** `[...T]` is built as a §40 print-only variadic — a named type
+with no element list and no reference target — so every arm of
+`infer_from_types_within` missed it and `T` collected no candidate at all.
+
+**(2) Contextual typing.** Every arm of `array_literal_tuple_context_kind` reads
+an ANNOTATION: a type assertion, an annotated declaration, an assignment target.
+A **call argument** has none of those, so the literal stayed `number[]` however
+the parameter was spelled.
+
+Landing (1) alone made the call answer `number[]` where it had answered a gap —
+a confident wrong answer replacing an honest one — and the corpus reported it
+correctly as **zero transitions**. Landing both is **+22**
+(`variadicTuples1` 12, `variadicTuples2` 6, `restTupleElements1` 3), zero
+adverse.
+
+**This is the failure mode that the per-arm measurement discipline is blind to.**
+A fix whose partner is missing reads as "no effect" and looks refusable; §793's
+first half would have been written off as a dead end on its own number. The
+signal that it was not is that the unit probe MOVED (`error` → `number[]`) while
+the corpus did not — a mechanism that works but produces the wrong answer, which
+is a missing partner rather than a wrong idea. **A probe that moves and a corpus
+that does not is the shape of an incomplete chain, not of a useless arm.**
+
+### What is admitted, and what is not
+
+Only a SINGLE rest over a name resolving to one of this inference's own
+parameters. `[...T]` is upstream's idiom for *"this parameter is the whole
+tuple"*. Anything with a leading or trailing element — `[string, ...T]`, or two
+rests — needs the source SPLIT across positions, which is tuple-splitting
+machinery this port does not have. Those keep declining, and
+`a_variadic_with_a_leading_element_still_declines` pins it.
+
+### The running per-POSITION tally
+
+§790 refused variadic tuples as one ~780-line subsystem. Re-derived per
+position, after §791's correction:
+
+| position | arm | lines |
+|---|---|---:|
+| annotation (alias instantiation) | §791 | +2 |
+| expression — array literal | probed, already correct | 0 |
+| expression — `as const` | §792 | +80 |
+| call argument — `[...T]` parameter | §793 | +22 |
+
+**+104 so far against an estimate of ~780**, and the remaining
+`variadicTuples1` residue is now mixed shapes rather than one road. The estimate
+was wrong in its number and right that the feature is large; what it got wrong
+was treating "shares a feature" as "shares a fix", which four separate arms at
+four separate positions have now demonstrated.
+
+### How we would know this is wrong
+
+The contextual half fires for ANY call argument whose parameter type is a
+recorded variadic node, including one this port built for a shape it cannot
+infer through (`[string, ...T]`). There the literal now mints a tuple where it
+previously widened, and the inference half still declines — so the argument's
+own printed line changes while the call stays a gap. No corpus line shows a
+regression from it, but that is the interaction to check first.
