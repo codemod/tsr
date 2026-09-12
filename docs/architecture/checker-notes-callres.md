@@ -6342,3 +6342,67 @@ If a future reader uses it as a general member source, note that it holds the
 members **as printed at mint time** — a literal whose members were later
 narrowed or instantiated is not reflected, which is precisely the property that
 makes it right here and would make it wrong there.
+
+## §801 — a tuple target infers element-wise, found through a case it does not fix
+
+### The gap
+
+```ts
+declare function f<T>(x: [T, T]): T;
+f(t);   // t: [number, number]  →  number
+```
+
+answered `errorType`. A tuple is not a type REFERENCE in this port —
+`create_tuple_type` mints a named type and records its elements in
+`tuple_element_lists`, with no entry in `type_reference_targets` — so
+`infer_from_types_within`'s reference arm never saw a tuple/tuple pair and no
+candidate was collected at all.
+
+Equal length only. A mismatch is upstream's variadic arithmetic, a rest element
+absorbing several positions, which this port does not have; pairing positionally
+across a mismatch would match the wrong source element to the wrong parameter.
+
+### How it was found, which is the transferable part
+
+The probe was `jsdocTemplateTag6`'s `f4<const T>(x: [T, T])` called with
+`[[1, "x"], [2, "y"]]`. Printing the type of **every subexpression** showed:
+
+```
+CALL   error
+OUTER  [[1, "x"], [2, "y"]]
+INNER  [1, "x"]
+  ELEM 1
+  ELEM "x"
+```
+
+Everything inside was already right — the nested tuples, every literal, the
+const context from §797–§800. Only the combination failed.
+
+**"Everything inside is correct, the combination is not" localises to the
+combining step, not to another arm of what is already working.** Four arms of
+const-context work preceded this, and the natural next guess was a fifth. The
+subexpression dump said inference instead, in one run.
+
+### And it fixed a different family
+
+```
+WRONG->RIGHT: 13  strictOptionalProperties1 4, typeInferenceWithTupleType 4, tupleTypes 3
+```
+
+**Zero of the 13 are in `jsdocTemplateTag6`.** The case that exposed the gap
+needs the variadic arithmetic above and is untouched. This is the third time
+this session a rule placed where upstream places it paid out somewhere
+unenumerated (§785's index infos, §798/§799's `jsdocTemplateTag6`) — and the
+first time the *source* case got nothing.
+
+### The residue, pinned as an assertion
+
+`f<T>(x: [T, T])` with `[number, string]` should infer `string | number`; this
+port answers `number`. The element-wise walk is right — both positions DO
+contribute candidates, which is why the call resolves at all — and what does not
+union them is the candidate-COMBINATION step (`getCovariantInference`), the same
+rule every other multi-candidate position uses.
+
+`differing_positions_do_not_yet_union` asserts the half-answer. §800 showed why
+this is worth doing: when the combination rule lands, that test turns red and
+reports its own repair, where a prose note would not.

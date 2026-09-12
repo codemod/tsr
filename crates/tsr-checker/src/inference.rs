@@ -1154,6 +1154,27 @@ impl Checker<'_, '_> {
             }
             return;
         }
+        // §801: a TUPLE target infers ELEMENT-WISE from a tuple source.
+        // `f4<const T>(x: [T, T])` called with `[[1, "x"], [2, "y"]]` infers
+        // `T` from BOTH positions and unions them —
+        // `readonly [1, "x"] | readonly [2, "y"]`
+        // (`jsdocTemplateTag6.types:137`). A tuple is not a type REFERENCE in
+        // this port, so the reference arm below never saw the pair and the
+        // whole call answered `errorType`.
+        //
+        // Equal length only. A length mismatch is upstream's variadic
+        // arithmetic (a rest element absorbing several positions), which this
+        // port does not have — inferring positionally across a mismatch would
+        // pair the wrong source with the wrong parameter.
+        if let Some((target_elements, _)) = self.tuple_element_lists.get(&target).cloned()
+            && let Some((source_elements, _)) = self.tuple_element_lists.get(&source).cloned()
+            && target_elements.len() == source_elements.len()
+        {
+            for (t, s) in target_elements.iter().zip(source_elements.iter()) {
+                self.infer_from_types_within(*s, *t, original, parameters, out, depth + 1);
+            }
+            return;
+        }
         let target_reference = self.type_reference_targets.get(&target).cloned();
         let source_reference = self.type_reference_targets.get(&source).cloned();
         if let (Some((ts, ta)), Some((ss, sa))) = (target_reference, source_reference) {
