@@ -3012,6 +3012,43 @@ version of bare `any`.
 
 ## 5. Refused, with the number that refused it
 
+### §799 (2026-09-12) — the OBJECT half of §798: built, ZERO transitions, reverted
+
+§797/§798 gave `const` type parameters their argument context and put the
+`readonly` at the inference site, for ARRAY literals. The same case wants it for
+OBJECT literals:
+
+```
+typeParameterConstModifiers:0:116   oracle { a: 1; b: "x"; }   port { a: number; b: string; }
+typeParameterConstModifiers:0:112   oracle { readonly a: 1; readonly b: "x"; } | …
+```
+
+**Attempt 1 — reuse `const_context` on the object road: −4.** `objects.rs`'s
+`const_context` means *"readonly regular members"* at seven call sites, and only
+the regular-members half applies to a const type parameter. Conflating them
+measured **4 RIGHT→WRONG** (`typeParameterConstModifiers` 3,
+`jsdocTemplateTag6` 1) — the literal came out readonly where upstream keeps it
+plain, which is exactly the mistake §798 had just corrected on the array road.
+
+**Attempt 2 — split the flag: ZERO transitions.** A second
+`const_parameter_context` flag driving only the regular-members half removed the
+4 adverse and gained nothing. The literal is now right; the CALL is not, because
+`readonly_tuple_image` (§798) re-mints TUPLES readonly and has no object arm.
+
+**So this is §793's shape again**: a correct half whose partner is missing reads
+as "no effect" and is indistinguishable from a dead end on its own number. Both
+attempts reverted rather than landed inert.
+
+**Prerequisite, named**: `readonly_tuple_image` needs an object arm — re-minting
+an anonymous object type with `readonly` on every member, recursively, the way
+it already does for tuple elements. That is object re-minting machinery this port
+does not have at that seam; the tuple arm got it free from
+`create_tuple_type(elements, true)`.
+
+**Do not re-attempt the object context without it.** Alone it is measurably
+worth nothing, and with `const_context` reused instead of split it is worth −4.
+
+
 ### §796 (2026-09-12) — §33's `const` type-parameter decline RE-TESTED: still refused, number corrected 70 → 42
 
 `calls.rs:582` declines every call through a signature carrying a `const` type
