@@ -3027,13 +3027,42 @@ over a type parameter. **What is missing is NORMALISATION at instantiation**:
 upstream splices the argument's elements into the tuple and prints the result,
 where this port keeps the alias reference.
 
-**Why it is not a cheap rule.** An arm was written that instantiates a
-tuple-bodied alias with its arguments, placed beside §36's conditional-alias and
-§46's type-literal arms in `get_type_from_type_node`'s alias handling. It **did
-not fire** — `TV0<[boolean]>` still printed as itself — so aliases with type
-arguments reach their type through a road that is not that one. Finding it is
-the prerequisite, and past it the real work is the SPLICE (`[string, ...T]` with
-`T := [boolean]` becoming `[string, boolean]`), which this port has nowhere.
+**Why it is not a cheap rule — CORRECTED, the first version of this paragraph
+was wrong.**
+
+What stood here said the arm *"did not fire … so aliases with type arguments
+reach their type through a road that is not that one"*, and named finding that
+road as the prerequisite. **Both halves are false.** Re-run with a trace inside
+the arm:
+
+```
+TUP: arm reached, params=1 args=1 body="[string, ...T]"
+TUP: image="error" iserr=true
+RESULT TV0<[boolean]>
+```
+
+The arm **is** on the right road (`get_instantiated_type_reference`, beside
+§36's conditional-alias and §46's type-literal arms) and **does** fire. It falls
+through because `instantiate_type` answers `errorType` for the body, and the
+original paragraph read that fall-through as "never reached". **A silent
+fall-through and an unreached branch look identical from the outside; one
+`eprintln` inside the branch separates them, and not writing it cost this entry
+its accuracy.**
+
+So the prerequisite is sharper than "find the road", and it is named exactly:
+`instantiate_type`'s **Arm 6** (`inference.rs:1417`) substitutes a tuple
+element-wise through `tuple_element_lists` and re-mints with
+`create_tuple_type(elements, readonly)`. That signature carries **no rest-ness
+per element** — `tuple_rest_tails` maps a whole tuple to a NODE, not its
+elements — so there is nowhere to express *"this element is `...T` and must be
+SPLICED, not substituted"*. `[string, ...T]` with `T := [boolean]` needs to
+become `[string, boolean]`, and element-wise substitution can only produce
+`[string, [boolean]]`.
+
+**The build is therefore: per-element rest-ness in the tuple representation,
+then the splice in Arm 6.** That is a type-model change, which is why this is a
+subsystem and not an arm — but it is a *named, bounded* one, not an open
+question.
 
 **Refused with that as the named prerequisite**: variadic-tuple normalisation is
 a subsystem — tuple splicing plus the alias-instantiation road — not an arm.
