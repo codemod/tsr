@@ -5595,3 +5595,108 @@ re-derive the ladder.
 would make the pair admit an unrelated reference. The 1 GAP→WRONG
 (`jsxGenericComponentWithSpreadingResultOfGenericFunction:0:13`) is the line to
 re-read first if this is ever suspected.
+
+## §788 — generic construct overloads are ALTERNATIVES, not agreements
+
+### The rule that was wrong
+
+The `new` road's generic-candidate walk (`expressions.rs`) answered only when
+**every** candidate produced the same return:
+
+```rust
+match agreed {
+    None => agreed = Some(answer),
+    Some(t) if t == answer => {}
+    Some(_) => { ok = false; break; }
+}
+```
+
+That is right for a set that is really one signature seen several ways —
+`DateConstructor`'s four construct signatures all return `Date`, which is the
+shape the walk was built for — and **wrong for a genuine overload set**, where
+the candidates are alternatives and only one is meant to fit.
+
+`SetConstructor` is the head case:
+
+```ts
+new <T = any>(values?: readonly T[] | null): Set<T>;
+new <T = any>(iterable?: Iterable<T> | null): Set<T>;
+```
+
+`new Set([0, 1, 2])` fits the first and not the second. The second answered
+`errorType`, `ok` went false, and the whole call declined to a gap.
+
+### What upstream does
+
+`chooseOverload` (`checker.go`) walks the candidates **in order** and takes the
+first one the arguments fit. It never consults the rest, and it never requires
+the candidates to agree about anything.
+
+### What landed, and what stayed refused
+
+The arm is the first-applicable rule restricted to what this port can decide
+without the relater:
+
+- **arity accepts the argument count** — `Checker::arity_accepts`, which is
+  `hasCorrectArity` reduced to the minimum (leading non-optional, non-rest
+  parameters) and maximum (unbounded with a rest);
+- **the generic resolution does not answer `errorType`**.
+
+Assignability-ranked selection among several *fitting* candidates stays the
+already-recorded 926-line refusal. This arm does not need it: where several
+candidates fit, upstream's answer is the first, and so is this one.
+
+It runs **only where the agreement walk already declined**, so its failure
+direction is gap→wrong and it can take no right line away.
+
+### The measurement
+
+```
+TOTAL 474243  right 437264  gap 7708  wrong 29271
+GAP->RIGHT:    69  intlNumberFormatES2023 38, intlNumberFormatES2020 17, localesObjectArgument 12
+WRONG->RIGHT: 196  compiler/setMethods 126, intlNumberFormatES2023 27, overloadResolutionConstructors 17
+GAP->WRONG:     6 ⚠  zero RIGHT->WRONG, zero RIGHT->GAP
+```
+
+**+265** — the largest arm of the session, and it closes the case §787 had just
+finished refusing.
+
+### §787's refusal was right about the blocker and wrong about its size
+
+§787 measured three blockers in front of `setMethods` and named the third as
+*"generic overload selection, already refused at 926 lines"*, concluding that
+those 180 lines were **not reachable by any local fix**.
+
+The blocker was correctly identified. The conclusion did not follow: *selecting
+among fitting candidates by assignability* is the 926-line item, but *taking the
+first candidate that fits at all* needs none of it, and that is what upstream
+does. 126 of `setMethods`'s 180 lines converted on the smaller rule.
+
+**The lesson is about how a refusal gets sized.** §787 priced the whole road
+from the hardest thing on it. A refusal should name the cheapest rule that would
+answer the case, not the most complete one — otherwise it refuses work that was
+never required. This entry is the counterexample to its own predecessor, one
+commit later.
+
+### The CALL twin was tried and reverted
+
+The same arm on `resolve_call_signature`'s named-callee road measured **+36
+more** but introduced **1 RIGHT→WRONG** (`parseErrorDoubleCommaInCall`) and 4
+further GAP→WRONG. The reason is structural and worth recording: on the call
+road, returning `None` from that block is not the end — the caller has its own
+generic road (`calls.rs:646`, `check_generic_call` on the resolved signature)
+that handles these better. The arm **short-circuited a better road**, which is
+the one thing an additive fallback must not do.
+
+The `new` road has no such successor, which is why the identical rule is safe
+there and not here. **Re-attempt the call twin only as a last resort after that
+caller's road, not inside this block.**
+
+### How we would know this is wrong
+
+`arity_accepts` decides fit without looking at the argument *types*, so a
+candidate whose arity matches but whose parameters the arguments do not satisfy
+will be picked when an later candidate was meant. The 6 GAP→WRONG
+(`intlNumberFormatES2020/ES2023`, `typesWithSpecializedConstructSignatures`) are
+where to look first; the general fix is the assignability ranking that remains
+refused.

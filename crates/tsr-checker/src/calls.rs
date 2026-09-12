@@ -976,6 +976,22 @@ impl Checker<'_, '_> {
     /// nothing: the first needs call-signature members and the second is an
     /// unported type node. Both are gaps rather than wrong answers, and both are
     /// named in `docs/architecture/checker.md`.
+    /// Whether `signature` accepts exactly `count` arguments. §788.
+    ///
+    /// `hasCorrectArity` (`checker.go`) reduced to what decides an overload
+    /// pick here: a rest parameter makes the maximum unbounded, and the
+    /// minimum is the count of leading parameters that are neither optional
+    /// nor rest.
+    pub(crate) fn arity_accepts(signature: &crate::signatures::Signature, count: usize) -> bool {
+        let required = signature
+            .parameters
+            .iter()
+            .take_while(|parameter| !parameter.optional && !parameter.rest)
+            .count();
+        let unbounded = signature.parameters.iter().any(|parameter| parameter.rest);
+        count >= required && (unbounded || count <= signature.parameters.len())
+    }
+
     pub fn resolve_call_signature(
         &mut self,
         callee: TypeId,

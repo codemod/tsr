@@ -2245,6 +2245,53 @@ impl Checker<'_, '_> {
                             }
                         }
                     }
+                    // §788: OVERLOADS ARE ALTERNATIVES, NOT AGREEMENTS.
+                    //
+                    // The walk above answers only when every generic candidate
+                    // produces the SAME return, which is right for a set that
+                    // is really one signature seen several ways
+                    // (`DateConstructor`'s four construct signatures all return
+                    // `Date`) and wrong for a genuine overload set. `SetConstructor`
+                    // is `new <T = any>(values?: readonly T[] | null): Set<T>`
+                    // AND `new <T = any>(iterable?: Iterable<T> | null): Set<T>`;
+                    // `new Set([0, 1, 2])` fits the first and not the second, so
+                    // the second answers `errorType`, `ok` goes false, and the
+                    // whole call declined.
+                    //
+                    // Upstream's `chooseOverload` (`checker.go`) takes the FIRST
+                    // candidate the arguments fit and never consults the rest.
+                    // This is that rule, restricted to the shape this port can
+                    // decide: a candidate is "fits" when its generic resolution
+                    // does not answer `errorType` AND its arity accepts the
+                    // argument count. Anything subtler — assignability-ranked
+                    // selection among several fitting candidates — stays the
+                    // already-recorded 926-line refusal.
+                    //
+                    // Purely additive: it runs only where the agreement walk
+                    // ALREADY declined, so its failure direction is gap→wrong
+                    // and it can take no right line away.
+                    if !ok || agreed.is_none() {
+                        for candidate in &candidates {
+                            if candidate.type_parameters.iter().any(|tp| {
+                                tp.constraint
+                                    .is_some_and(|c| self.type_parameter_symbols.contains_key(&c))
+                            }) {
+                                continue;
+                            }
+                            if !Self::arity_accepts(candidate, node.arguments.len()) {
+                                continue;
+                            }
+                            let answer = if candidate.type_parameters.is_empty() {
+                                candidate.r#type
+                            } else {
+                                self.check_generic_call(candidate, None, node.arguments)
+                            };
+                            if answer != error {
+                                bump(&COUNTERS.new_resolved);
+                                return answer;
+                            }
+                        }
+                    }
                     if ok && let Some(answer) = agreed {
                         bump(&COUNTERS.new_resolved);
                         return answer;

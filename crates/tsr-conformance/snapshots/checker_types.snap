@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 6108/9538 (64.04%)
-Assertion lines: 436999/478855 (91.26%)  — a gradient, not a pass rate
-Failed         : 3430
+Passed         : 6109/9538 (64.05%)
+Assertion lines: 437264/478855 (91.31%)  — a gradient, not a pass rate
+Failed         : 3429
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 3430 failures:
+First 100 of 3429 failures:
 compiler/2dArrays
   2dArrays.ts: >function (val) { return val.isSunk; } : error — expected >function (val) { return val.isSunk; } : (val: Ship) => boolean
 compiler/ClassDeclaration26
@@ -170,7 +170,7 @@ compiler/arrayFlatNoCrashInferenceDeclarations
 compiler/arrayFrom
   arrayFrom.ts: >inputARand : any — expected >inputARand : ArrayLike<A> | Iterable<A>
 compiler/arrayLiteralAndArrayConstructorEquivalence1
-  arrayLiteralAndArrayConstructorEquivalence1.ts: >myCars3 : any — expected >myCars3 : {}[]
+  arrayLiteralAndArrayConstructorEquivalence1.ts: >myCars3 : any[] — expected >myCars3 : {}[]
 compiler/arrayLiteralComments
   arrayLiteralComments.ts: >testArrayWithFunc : error — expected >testArrayWithFunc : (string | number | number[] | (() => void) | { a: number; })[]
 compiler/arrayReferenceWithoutTypeArgs
