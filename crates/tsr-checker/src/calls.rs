@@ -960,22 +960,6 @@ impl Checker<'_, '_> {
         signature.r#type
     }
 
-    /// The single call signature of a type, or `None`.
-    ///
-    /// Ported from `getSignaturesOfType(t, SignatureKindCall)`
-    /// (`checker.go:18959`) followed by the part of `resolveCall`
-    /// (`checker.go:8843`) that is decidable without assignability: when there is
-    /// exactly one candidate, resolution has nothing to choose and the answer is
-    /// that candidate.
-    ///
-    /// Only an **anonymous object type** has signatures here — the shape a
-    /// function, method, class, enum or value-module symbol has, and the shape a
-    /// function expression or arrow is ([`TypeData::Anonymous`]). An interface
-    /// with a call signature member, and a function *type node*
-    /// (`(x: number) => void` in annotation position), both still resolve to
-    /// nothing: the first needs call-signature members and the second is an
-    /// unported type node. Both are gaps rather than wrong answers, and both are
-    /// named in `docs/architecture/checker.md`.
     /// Whether `signature` accepts exactly `count` arguments. §788.
     ///
     /// `hasCorrectArity` (`checker.go`) reduced to what decides an overload
@@ -992,6 +976,22 @@ impl Checker<'_, '_> {
         count >= required && (unbounded || count <= signature.parameters.len())
     }
 
+    /// The single call signature of a type, or `None`.
+    ///
+    /// Ported from `getSignaturesOfType(t, SignatureKindCall)`
+    /// (`checker.go:18959`) followed by the part of `resolveCall`
+    /// (`checker.go:8843`) that is decidable without assignability: when there is
+    /// exactly one candidate, resolution has nothing to choose and the answer is
+    /// that candidate.
+    ///
+    /// Only an **anonymous object type** has signatures here — the shape a
+    /// function, method, class, enum or value-module symbol has, and the shape a
+    /// function expression or arrow is ([`TypeData::Anonymous`]). An interface
+    /// with a call signature member, and a function *type node*
+    /// (`(x: number) => void` in annotation position), both still resolve to
+    /// nothing: the first needs call-signature members and the second is an
+    /// unported type node. Both are gaps rather than wrong answers, and both are
+    /// named in `docs/architecture/checker.md`.
     pub fn resolve_call_signature(
         &mut self,
         callee: TypeId,

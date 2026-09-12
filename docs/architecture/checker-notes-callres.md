@@ -5700,3 +5700,97 @@ will be picked when an later candidate was meant. The 6 GAP→WRONG
 (`intlNumberFormatES2020/ES2023`, `typesWithSpecializedConstructSignatures`) are
 where to look first; the general fix is the assignability ranking that remains
 refused.
+
+## §789 — an object literal in a MIXED-ARITY overloaded call keeps its contextual type
+
+### The road, and why three earlier readings missed it
+
+`symbols.rs`'s §56.3 supplies the contextual member root for an object-literal
+argument. It resolves the call's signature and reads the parameter at this
+index. For an overload set, `resolve_call_signature` answers the **first**
+candidate without consulting arity — so a mixed-arity set handed this road the
+wrong parameter list entirely.
+
+```ts
+declare function g(x: number, o: { u: "a" | "b" }): void;
+declare function g(o: { u: "a" | "b" }): void;
+g({ u: "a" });
+```
+
+The road looked for `u` on the first overload's `x: number`, found nothing, and
+left the literal to widen: `{ u: string; }` where the oracle records
+`{ u: "a"; }`.
+
+This family had **three** readings on this page before this one, and the first
+two were wrong:
+
+1. *a missing `isLiteralOfContextualType`* — refuted, it is ported at
+   `signatures.rs:2190`;
+2. *"the contextual type is not reaching the object literal through an
+   overloaded call"* — right in outline, too broad to act on;
+3. *"the SS114 arity discriminator in `contextual.rs` does not fire"* —
+   **also wrong, and instructively so**: instrumenting
+   `contextual_type_for_argument_resolving` printed nothing on any probe rung
+   INCLUDING the ones that already worked, which should have said immediately
+   that the function was not on this road at all. It is not. Object-literal
+   member context comes from `symbols.rs` §56.3, and `contextual.rs`'s
+   discriminator governs a different question.
+
+The lesson is the cheap one: when instrumentation is silent on a case that
+**works**, the instrument is in the wrong place — that is a stronger signal
+than silence on a case that fails, and it arrives for free.
+
+### The probe ladder that made it cheap
+
+| probe | answer |
+|---|---|
+| single signature | `{ u: "a"; }` ✅ |
+| plain `string` property (control) | `{ u: string; }` ✅ |
+| method, single signature | `{ u: "a"; }` ✅ |
+| two overloads, **same arity** | `{ u: "a"; }` ✅ |
+| two overloads, **mixed arity**, function | `{ u: string; }` ❌ |
+| two overloads, **mixed arity**, method | `{ u: string; }` ❌ |
+
+Same-arity sets already work through §70's agreement path. **Only mixed-arity
+fails** — which turns "contextual typing through overloads" into "consult
+arity", a rule this port already had in `Checker::arity_accepts` (§788, one
+commit earlier).
+
+### The rule, and why it is stricter than §788's
+
+The resolved candidate is kept only when its arity accepts the call; otherwise
+the **unique** arity-accepting candidate supplies the context, and a tie
+declines.
+
+§788's `new` road takes the *first* fit. This road demands *uniqueness*, and the
+asymmetry is deliberate: §788 supplies an **answer**, where being wrong shows up
+directly as a wrong line; this supplies a **contextual type**, where being wrong
+silently retypes the argument and can cascade. Declining merely leaves the
+widening that was already there, so the conservative direction is free.
+
+### The measurement
+
+```
+TOTAL 474243  right 437289  gap 7708  wrong 29246
+WRONG->RIGHT: 25  arrayToLocaleStringES2020 13, arrayToLocaleStringES2015 12
+```
+
+**+25, zero adverse transitions of any kind.** Gradient 91.31% → 91.32%.
+
+### What it did NOT convert, and what that means
+
+`compiler/temporal`'s 78 contextual-literal lines did **not** move.
+`startOfMoonMission.until(endOfMoonMission, { largestUnit: "hour" })` is a
+mixed-arity overload set too, so something else gates it — the argument is at
+index 1 rather than 0, and the receiver is a generic class instance. **The
+contextual-literal family is therefore still open past this arm**, and it should
+not be priced at the 480 the §4.-5 census gave it: that number is the whole
+widening family across every cause, and this arm converted 25 of it.
+
+### How we would know this is wrong
+
+`arity_accepts` decides fit without looking at argument types, so a mixed-arity
+set whose unique arity match is nevertheless the wrong overload will supply a
+wrong context. Nothing in the measurement shows it (zero adverse), and the
+uniqueness requirement makes it rarer than §788's first-fit rule, but it is the
+same falsifier: the general fix is assignability-ranked selection, still refused.

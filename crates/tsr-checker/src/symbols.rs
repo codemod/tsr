@@ -2803,6 +2803,38 @@ impl<'a> Checker<'a, '_> {
     /// union (unprinted — the result is consumed, never printed); an
     /// intersection collects per-constituent concrete properties and
     /// intersects. Generic mapped types inside are unported and decline.
+    /// The UNIQUE call signature of `callee` whose arity accepts `count`
+    /// arguments, or `None` when none or several do. §789.
+    ///
+    /// Used only to supply a CONTEXTUAL type, never an answer, which is why it
+    /// demands uniqueness where [`Checker::arity_accepts`]'s other caller
+    /// (§788's `new` road) takes the first fit: a wrong context silently
+    /// retypes the argument, while a decline merely leaves the widening that
+    /// was already there.
+    fn sole_arity_matching_signature(
+        &mut self,
+        callee: TypeId,
+        count: usize,
+    ) -> Option<crate::signatures::Signature> {
+        let candidates = match self.store.get(callee).data {
+            crate::types::TypeData::Anonymous { symbol, .. } => {
+                self.get_signatures_of_symbol(symbol)?
+            }
+            crate::types::TypeData::Named { .. } => self.signature_candidates_of_named_type(
+                callee,
+                crate::signatures::SignatureKind::Call,
+            )?,
+            _ => return None,
+        };
+        let mut fitting =
+            candidates.into_iter().filter(|candidate| Self::arity_accepts(candidate, count));
+        let first = fitting.next()?;
+        if fitting.next().is_some() {
+            return None;
+        }
+        Some(first)
+    }
+
     fn contextual_property_type(&mut self, t: TypeId, name: &str) -> Option<TypeId> {
         match &self.store.get(t).data {
             crate::types::TypeData::Union { types, .. } => {
@@ -2949,6 +2981,40 @@ impl<'a> Checker<'a, '_> {
                     let callee_type = self.check_expression(callee);
                     let signature = self.resolve_call_signature(callee_type, Some(call.arguments));
                     self.narrow_value_stack.remove(&holder);
+                    // §789: an OVERLOAD SET resolves to `None` above —
+                    // `resolve_call_signature` answers only for a set it can
+                    // choose from — so every object-literal argument of an
+                    // overloaded call lost its contextual type and widened its
+                    // literal members. `f({ u: "a" })` against
+                    // `f(o: { u: "a" | "b" })` recorded `{ u: string; }` where
+                    // the oracle records `{ u: "a"; }`.
+                    //
+                    // A probe ladder showed the failure is narrower than
+                    // "overloads": single signatures, methods, and SAME-ARITY
+                    // overload sets all work (the last through §70's agreement
+                    // path). Only MIXED-ARITY sets fail, and for those the
+                    // arity IS the choice — upstream's `chooseOverload` would
+                    // discard every candidate that cannot take this many
+                    // arguments before anything subtler runs.
+                    //
+                    // So: the UNIQUE arity-accepting candidate. Not "the
+                    // first" — this road supplies a contextual type rather
+                    // than an answer, and a wrong context silently retypes the
+                    // argument, so a tie declines and keeps the widening that
+                    // was already there. Same rule as §788, one notch more
+                    // conservative because the failure mode is worse.
+                    let count = call.arguments.len();
+                    let signature = match signature {
+                        // The resolved candidate is kept only when it could
+                        // actually take this call. `resolve_call_signature`
+                        // answers the FIRST candidate of an overload set
+                        // without consulting arity, so a mixed-arity set handed
+                        // this road the wrong parameter list — which is why the
+                        // probe saw `CTX: no member u`, the `u` being looked
+                        // for on the first overload's `x: number`.
+                        Some(resolved) if Self::arity_accepts(&resolved, count) => Some(resolved),
+                        _ => self.sole_arity_matching_signature(callee_type, count),
+                    };
                     let Some(signature) = signature else {
                         if debug {
                             eprintln!("CTX: no signature (callee {callee_type:?})");
