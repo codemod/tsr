@@ -1295,10 +1295,45 @@ declaration by whether it is shadowed. The existing arm has measured history
 (`underscoreTest1:3229/3233/3237`, `asyncFunctionReturnType`) and must keep
 working.
 
-**Not attempted.** Recorded at this size and this precision because the mechanism
-is located, the rule is stated, and the trap — that the obvious change is the
-mirror image of the right one — is the part a fresh session would lose a cycle
-to. `bluebirdStaticThis` at 56 lines is the measurement to start from.
+**Attempted, and the reference-side rule measured −6.** The arm was written in
+`type_to_string_at`: for a type-parameter type whose symbol is known, look up
+the innermost `render_type_parameter_scope` entry with that name and print
+`name_1` when the symbol differs. `signature_to_string_at` already pushes that
+scope before rendering the body, so the innermost entry under a name *is* the
+declaration that shadows it.
+
+```
+RIGHT->WRONG: 7  ⚠  inferFromNestedSameShapeTuple 3, genericContextualTypes1 3,
+                    isomorphicMappedTypeInference 1
+WRONG->RIGHT: 1     declarationEmitShadowing 1
+```
+
+**Why it over-fires, which is the finding.** The regressions rename a parameter
+that is the signature's OWN:
+
+```
+oracle  <Id>(items: readonly Recursive<Id>[])   => Id[]
+port    <Id>(items: readonly Recursive<Id_1>[]) => Id[]
+```
+
+`Id` inside `Recursive<Id>` is the same `Id` the signature declares — but the
+type-parameter TYPE reached through the nested reference carries a **different
+symbol** than the one `push_render_type_parameter_scope` recorded from the
+declaration. Symbol identity is not preserved through an instantiated reference
+argument, so "the symbols differ" is not a sound test for "this is a different
+parameter".
+
+**Prerequisite, named from a measurement rather than guessed**: the shadow test
+must ask whether the reference RESOLVES to a declaration outside the signature —
+which is what `rename_type_parameters_for_site` already does via
+`binder.resolve_name(reference, …)` — not whether two `SymbolId`s are equal.
+`type_to_string_at` has the `reference` node in hand, so the ingredient is
+present; what is missing is knowing which declarations belong to the signature
+being rendered, and that is not in scope at the renderer.
+
+`bluebirdStaticThis` at 56 lines is still the measurement to start from, and the
+1 WRONG→RIGHT in `declarationEmitShadowing` says the rule is right where symbol
+identity happens to hold.
 
 #### §789 probe — MIXED-ARITY overloads drop the contextual type (located, not yet fixed)
 
