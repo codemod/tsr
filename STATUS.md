@@ -1253,6 +1253,53 @@ The road is real but **diffuse — 226 cases averaging 8 lines each**, so it is 
 subsystem's worth of small fixes rather than an arm, and §784 was its one
 concentrated head. Recorded so the next session does not re-derive its size.
 
+#### §804 — TYPE-PARAMETER RENAMING at a shadowed site: 327 lines, one mechanism, rule identified
+
+Found by ranking wrong lines on edit distance rather than by case: the port is
+**very close** on these, which is why no case-ranked board surfaced them.
+
+```
+oracle  <S extends S_1>(cb: (x: S_1) => S) => Chain<S>
+port    <S extends S>  (cb: (x: S)   => S) => Chain<S>
+```
+
+`<S extends S>` is not a type anyone wrote; it is two DIFFERENT `S`s printed the
+same. Upstream disambiguates with `_1`.
+
+**Population**: 327 wrong lines where the oracle uses a renamed parameter
+(`X_1`) and the port does not.
+
+| lines | case |
+|---:|---|
+| 56 | `compiler/bluebirdStaticThis` |
+| 27 | `declarationsWithRecursiveInternalTypesProduceUniqueTypeParams` |
+| 24 | `conformance/restTuplesFromContextualTypes` |
+| 18 | `conformance/subtypesOfTypeParameter` |
+| 16 | `chainedCallsWithTypeParameterConstrainedToOtherTypeParameter2` |
+| 11 | `compiler/complexRecursiveCollections` |
+
+**The machinery EXISTS**: `rename_type_parameters_for_site`
+(`inference.rs:1694`), with `render_type_parameter_scope` and a shadow test that
+already compares a site-resolved name against the signature's own parameter
+symbol. It is called from `signatures.rs:4001` and `checker.rs:1452`.
+
+**And the rule it implements is the MIRROR of the one these lines need.** It
+renames the signature's OWN parameter when that name is shadowed — producing
+`<S_1 extends S>`. Upstream produces `<S extends S_1>`: the signature's own `S`
+keeps its name and the **enclosing** `S`, referenced from inside, is the one that
+prints `S_1`.
+
+So this is not "turn the renaming on". It is a second rule at a different site —
+renaming a type-parameter REFERENCE by where it is read from, not renaming a
+declaration by whether it is shadowed. The existing arm has measured history
+(`underscoreTest1:3229/3233/3237`, `asyncFunctionReturnType`) and must keep
+working.
+
+**Not attempted.** Recorded at this size and this precision because the mechanism
+is located, the rule is stated, and the trap — that the obvious change is the
+mirror image of the right one — is the part a fresh session would lose a cycle
+to. `bluebirdStaticThis` at 56 lines is the measurement to start from.
+
 #### §789 probe — MIXED-ARITY overloads drop the contextual type (located, not yet fixed)
 
 The 480 contextual-literal-widening lines (oracle `{ largestUnit: "hour"; }`,
