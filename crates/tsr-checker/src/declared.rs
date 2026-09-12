@@ -358,6 +358,10 @@ impl<'a> Checker<'a, '_> {
                         let printed = format!("keyof {operand}");
                         let id = self.store.new_named(TypeFlags::ANY, printed, None);
                         self.unresolved_types.insert(id);
+                        // §786: remember that THIS mint is a generic index, so
+                        // `x[k]` where `k: keyof T` can defer rather than
+                        // answer `any`.
+                        self.deferred_keyof_types.insert(id);
                         id
                     }
                     None => self.intrinsics.error,

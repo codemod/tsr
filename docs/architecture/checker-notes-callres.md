@@ -5389,3 +5389,110 @@ not have. Nothing in the measurement shows that, and the failure would be
 W→R-shaped noise rather than a regression, but it is the falsifier: the general
 fix is to port `resolveMappedTypeMembers` and delete both this and §45's
 `record_string_value`.
+
+## §786 — the deferred indexed access, on the EXPRESSION road
+
+### The rule
+
+`getIndexedAccessType` (`checker.go`) does not resolve when
+`isGenericObjectType(objectType) || isGenericIndexType(indexType)`. It builds an
+`IndexedAccessType` that prints as written and is resolved only at
+instantiation. `x[k]` with `x: T, k: K extends keyof T` is `T[K]`, not `any`.
+
+The ANNOTATION half has been ported since §619–§626: `declared.rs`'s
+`IndexedAccessTypeNode` arm mints `T[K]` through the §31 mint, with §625's
+concrete/generic asymmetry already measured there. This is its EXPRESSION twin,
+minting the same way so the two spellings cannot print differently.
+
+### Where it goes, and the zero-movement lesson
+
+Placed at the tail of `element_access_lookup`, the arm measured **zero
+movement**. That is not a small miss; it is the wrong reading of the function.
+`element_access_lookup` short-circuits:
+
+```rust
+let Some(name) = self.property_name_from_index(index_type) else {
+    if let Some(info) = self.get_applicable_index_info(...) { return ...; }
+    return error;          //  <-- the whole generic family exits HERE
+};
+```
+
+A generic index names no property, so `property_name_from_index` yields `None`
+and the function returns from *that* branch, never reaching its own tail. The
+arm belongs in the branch.
+
+STATUS §4.-5 had recorded "no generic-object arm anywhere in that chain, so the
+`any` is the final `error`" — the chain reading was right and **the exit point
+named in it was wrong**, which is why that entry was written as *the absence is
+verified, the conversion is not*.
+
+### The gate is `keyof` of THIS object
+
+Deferring on "the index is generic" measured **6 RIGHT→WRONG**, all in one
+fixture (`mappedTypeRelationships.types:107-123`):
+
+```ts
+function f6<T, U extends T, K extends keyof U>(x: T, y: U, k: K) {
+    x[k] = y[k];
+}
+>y[k] : U[K]      // defers
+>x[k] : any       // does NOT defer
+```
+
+`K` indexes `U`, and `U extends T` makes `keyof T` a **subset** of `keyof U`,
+not the reverse — so `x[k]` is upstream's reported error, printed `any`, which
+this port already spelled `errorType`. The arm therefore requires the index's
+constraint (or the index itself) to be the deferred `keyof` mint **of this
+object**.
+
+That relation is decided **by name**, not by the relater, and the reason is
+structural rather than lazy: the thing being compared is a §35 deferred `keyof
+X` mint, a named `TypeFlags::ANY` type the relater cannot relate to anything.
+Deciding by name is narrower than upstream — it declines a `keyof` reached
+through an alias — and narrower is the correct direction here, because
+declining leaves the `any` this road already printed while a wrong defer prints
+a confident type.
+
+### `deferred_keyof_types`
+
+§35 mints `keyof T` as a plain unresolved named type; nothing in its flags says
+it is generic, and `unresolved_types` also holds §31's mints for names that
+simply did not resolve. A side set (ADR-0003, not a `TypeData` widening)
+records which mints are `keyof`. Without it, `isGenericIndexType` would have to
+be recovered from printed text, which is not sound.
+
+### The measurement
+
+```
+TOTAL 474243  right 436995  gap 7787  wrong 29461
+GAP->RIGHT:    8   typeGuardOfFormTypeOfFunction 4, asyncFunctionReturnType 3, ...
+WRONG->RIGHT: 77   mappedTypeRelationships 46, keyofAndIndexedAccessErrors 11, quickinfoTypeAtReturnPositionsInaccurate 6
+GAP->WRONG:    3 ⚠
+```
+
+**+85, zero RIGHT→WRONG, zero RIGHT→GAP.** Gradient 91.24% → 91.26%.
+
+### The three GAP→WRONG, named
+
+This arm fires **only where the road already answered `error`**, so its failure
+direction is gap→wrong and never right→wrong — §620's own stated reason for
+accepting that direction on the annotation road. All three are a *different*
+unported road becoming visible, not this arm answering wrongly:
+
+| line | oracle | port | the road that is actually missing |
+|---|---|---|---|
+| `asyncFunctionReturnType:0:111` | `Promise<Awaited<TObj[K]>>` | `Promise<TObj[K]>` | `Awaited<T>` is unported; the `TObj[K]` inside is correct |
+| `typeVariableTypeGuards:0:87` | `NonNullable<T>[K]` | `T[K]` | the object was not NARROWED — flow narrowing of a type parameter |
+| `typeGuardOfFormTypeOfFunction:0:84` | `Function.apply`'s signature | `any` | not an indexed access at all; walk-order sensitivity (§783) |
+
+Each is worth more than its line: the first two say the deferred print is being
+built correctly and the *context* around it is what is missing, which is the
+best evidence available that the mint itself is right.
+
+### How we would know this is wrong
+
+The by-name relation is the falsifier. If a corpus case defers where upstream
+resolves — a `keyof` reached through an alias whose print happens to match, or
+two distinct type parameters printing the same name in different scopes — this
+gate is what let it through. The general fix is a real `isGenericIndexType`
+over a real `keyof` type, which needs `keyof` to stop being a printed mint.

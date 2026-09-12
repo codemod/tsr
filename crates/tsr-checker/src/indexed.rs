@@ -350,6 +350,24 @@ impl Checker<'_, '_> {
                     index_type,
                 );
             }
+            // §786: the DEFERRED indexed access. `getIndexedAccessType`
+            // (`checker.go`) does not resolve when
+            // `isGenericObjectType(objectType) || isGenericIndexType(indexType)`
+            // — it builds an `IndexedAccessType` that prints as written and is
+            // resolved only at instantiation.
+            //
+            // It belongs HERE, in the non-literal-index branch, and not at the
+            // tail of this function: a generic index names no property, so this
+            // `return error` is the one the whole family reaches. An arm at the
+            // tail measured ZERO movement for exactly that reason.
+            //
+            // The annotation road already does this — `declared.rs`'s
+            // `IndexedAccessTypeNode` arm (§619-§626) mints `T[K]` through the
+            // §31 mint. This is its EXPRESSION twin, minting the same way so
+            // the two spellings cannot print differently.
+            if let Some(deferred) = self.deferred_indexed_access(object_type, index_type) {
+                return deferred;
+            }
             return error;
         };
         // Through [`Checker::get_type_of_property_of_type`] rather than
@@ -422,6 +440,79 @@ impl Checker<'_, '_> {
             return self.intrinsics.any;
         }
         error
+    }
+
+    /// Mint the deferred `Object[Index]` of a generic indexed access, or
+    /// `None` when the access is concrete. §786.
+    ///
+    /// Genericity is narrower here than upstream's `isGenericObjectType` /
+    /// `isGenericIndexType`, deliberately. Upstream also treats a mapped type
+    /// over a generic as a generic object; this port does not resolve mapped
+    /// members at all (§785), so admitting that shape would mint a deferred
+    /// print over a road that has no answer to defer TO. What is admitted is
+    /// what this port can actually name:
+    ///
+    /// - a **type parameter** on either side (`x: T`, `k: K`);
+    /// - a deferred **`keyof`** mint as the index (`k: keyof T`), tracked in
+    ///   [`Checker::deferred_keyof_types`] because §35 mints it as a plain
+    ///   unresolved named type and nothing in its flags says it is generic.
+    ///
+    /// An `errorType` on either side refuses: a deferred print built over a
+    /// type this port failed to compute would be a confident answer wearing
+    /// the shape of a faithful one.
+    fn deferred_indexed_access(
+        &mut self,
+        object_type: TypeId,
+        index_type: TypeId,
+    ) -> Option<TypeId> {
+        use crate::flags::TypeFlags;
+        let error = self.intrinsics.error;
+        if object_type == error || index_type == error {
+            return None;
+        }
+        // The index must be generic AND its keys must be THIS object's.
+        //
+        // Upstream reports and answers `errorType` — printed `any` — when the
+        // index is not assignable to `keyof objectType`, and the corpus states
+        // the rule sharply. In
+        //
+        //     function f6<T, U extends T, K extends keyof U>(x: T, y: U, k: K)
+        //
+        // `y[k]` records `U[K]` and `x[k]` records **`any`**
+        // (`mappedTypeRelationships.types:107-123`): `K` indexes `U`, and
+        // `U extends T` makes `keyof T` a SUBSET of `keyof U`, not the reverse.
+        // Deferring both measured **6 RIGHT→WRONG** in that one case.
+        //
+        // The relation is decided by NAME rather than by the relater, because
+        // the thing being compared is a deferred `keyof X` mint — a named type
+        // this port cannot structurally relate to anything. That is narrower
+        // than upstream (it will decline a `keyof` reached through an alias),
+        // and narrower is the right direction: declining leaves the `any` this
+        // road already printed, while a wrong defer prints a confident type.
+        let object_text = crate::printing::type_to_string(self.store.get(object_type));
+        let keys_this_object = |checker: &mut Self, candidate: TypeId| -> bool {
+            checker.deferred_keyof_types.contains(&candidate)
+                && crate::printing::type_to_string(checker.store.get(candidate))
+                    == format!("keyof {object_text}")
+        };
+        let index_is_generic = if keys_this_object(self, index_type) {
+            // `x[k]` where `k: keyof T` — the index IS the `keyof` mint.
+            true
+        } else if self.store.get(index_type).flags.contains(TypeFlags::TYPE_PARAMETER) {
+            // `x[k]` where `k: K` — the constraint must be this object's keys.
+            self.type_parameter_constraint(index_type)
+                .is_some_and(|constraint| keys_this_object(self, constraint))
+        } else {
+            false
+        };
+        if !index_is_generic {
+            return None;
+        }
+        let object = crate::printing::type_to_string(self.store.get(object_type));
+        let index = crate::printing::type_to_string(self.store.get(index_type));
+        let id = self.store.new_named(TypeFlags::ANY, format!("{object}[{index}]"), None);
+        self.unresolved_types.insert(id);
+        Some(id)
     }
 
     /// `isForInVariableForNumericPropertyNames` (`checker.go:8179`): the

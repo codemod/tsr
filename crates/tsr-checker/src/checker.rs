@@ -248,6 +248,11 @@ pub struct Checker<'a, 'n> {
     /// carry `TypeFlags::ANY` and every guard here tests the identity so the
     /// two stay apart.
     pub(crate) unresolved_types: rustc_hash::FxHashSet<TypeId>,
+    /// §786: the deferred `keyof T` mints of §35, kept apart from the rest of
+    /// [`Checker::unresolved_types`] because they are the only members of that
+    /// set that are GENERIC. `isGenericIndexType` needs that distinction and
+    /// the printed text is not a sound way to recover it.
+    pub(crate) deferred_keyof_types: rustc_hash::FxHashSet<TypeId>,
     /// A class symbol to its `this` type, upstream's `d.thisType`
     /// (`checker.go:17334`). One per class, so `this` has a stable identity
     /// inside one.
@@ -922,6 +927,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             reference_display_arity: FxHashMap::default(),
             literal_this_types: FxHashMap::default(),
             unresolved_types: rustc_hash::FxHashSet::default(),
+            deferred_keyof_types: rustc_hash::FxHashSet::default(),
             resolutions: Resolutions::new(),
             flow_analysis_disabled: false,
             flow_disabled_containers: rustc_hash::FxHashSet::default(),
