@@ -3006,6 +3006,44 @@ version of bare `any`.
 
 ## 5. Refused, with the number that refused it
 
+### §790 (2026-09-11) — variadic tuples: probed, NOT cheap, and the ladder is recorded
+
+`conformance/variadicTuples1` heads the wrong-line board at **281 lines** (224 of
+them the port answering `any`). Probed against §788's rule — *find the cheapest
+rule that would answer the case* — and it does not have one.
+
+**What already works**, which is most of the machinery and was worth knowing:
+
+| probe | answer |
+|---|---|
+| `[string, number]` | `[string, number]` ✅ |
+| `[string, ...number[]]` | `[string, ...number[]]` ✅ |
+| `<T extends unknown[]>(x: [string, ...T]) => void` | prints in full ✅ |
+| `TV0<[boolean]>` over `type TV0<T extends unknown[]> = [string, ...T]` | **`TV0<[boolean]>`** ❌ (upstream: `[string, boolean]`) |
+| `TV0<[boolean, number]>` | **`TV0<[boolean, number]>`** ❌ |
+
+So tuple types with rest elements BUILD and PRINT correctly, including `...T`
+over a type parameter. **What is missing is NORMALISATION at instantiation**:
+upstream splices the argument's elements into the tuple and prints the result,
+where this port keeps the alias reference.
+
+**Why it is not a cheap rule.** An arm was written that instantiates a
+tuple-bodied alias with its arguments, placed beside §36's conditional-alias and
+§46's type-literal arms in `get_type_from_type_node`'s alias handling. It **did
+not fire** — `TV0<[boolean]>` still printed as itself — so aliases with type
+arguments reach their type through a road that is not that one. Finding it is
+the prerequisite, and past it the real work is the SPLICE (`[string, ...T]` with
+`T := [boolean]` becoming `[string, boolean]`), which this port has nowhere.
+
+**Refused with that as the named prerequisite**: variadic-tuple normalisation is
+a subsystem — tuple splicing plus the alias-instantiation road — not an arm.
+`conformance/variadicTuples2` (138) and `conformance/genericRestParameters1`
+(161) are the same road, and `conformance/strictBindCallApply1` (204) is
+downstream of it (`CallableFunction.bind`'s signature is
+`(this: (this: T, ...args: [...A, ...B]) => R, ...)`), so the family is roughly
+**780 lines behind one subsystem**.
+
+
 ### §787 (2026-09-11) — two inference fixes that are RIGHT and do not pay
 
 Both were found by a probe ladder against the real `SetConstructor` while
