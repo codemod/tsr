@@ -3039,14 +3039,35 @@ plain, which is exactly the mistake §798 had just corrected on the array road.
 as "no effect" and is indistinguishable from a dead end on its own number. Both
 attempts reverted rather than landed inert.
 
-**Prerequisite, named**: `readonly_tuple_image` needs an object arm — re-minting
-an anonymous object type with `readonly` on every member, recursively, the way
-it already does for tuple elements. That is object re-minting machinery this port
-does not have at that seam; the tuple arm got it free from
-`create_tuple_type(elements, true)`.
+**Attempt 3 — BUILD the object arm of `readonly_tuple_image`: still ZERO, and
+the prerequisite named above was also incomplete.**
 
-**Do not re-attempt the object context without it.** Alone it is measurably
-worth nothing, and with `const_context` reused instead of split it is worth −4.
+The arm was written (`spread_members_of` → mark every `Member::Property`
+readonly → `render_object_type` → re-mint on the same members symbol; flat only,
+because `Member::Property` carries its type as printed TEXT and a nested object
+cannot be re-minted the way a nested tuple can). **It works** — the probe shows
+`f({ a: 1, b: 'x' })` answering `{ readonly a: number; readonly b: string; }`
+where it previously widened without readonly.
+
+**And the corpus still did not move**, because the remaining half is the member
+TYPES: upstream wants `{ readonly a: 1; readonly b: "x"; }` and this answers
+`number`/`string`. The literal-retention arm in `check_object_literal`
+(`objects.rs:1315`, `PropertyValue::Initializer(..) if const_context`) was
+switched to the new flag and still did not fire, so
+`array_literal_argument_of_const_type_parameter` is answering `false` for an
+object literal that IS a direct call argument. Why is not established — the
+re-entry guard is the first suspect.
+
+**Three blockers found in sequence, each by building the previous one's named
+prerequisite**: the flag conflation (−4), the missing object readonly arm (built,
+works, zero), and now the context predicate not reaching the object literal.
+**Every prerequisite this entry has named so far has been incomplete**, which is
+itself the finding: on this road, naming a blocker from a failed measurement has
+been unreliable, and the only thing that has located one is building it.
+
+**Do not re-attempt without first tracing
+`array_literal_argument_of_const_type_parameter` on an object-literal argument.**
+That is a one-`eprintln` question and it is where the next attempt starts.
 
 
 ### §796 (2026-09-12) — §33's `const` type-parameter decline RE-TESTED: still refused, number corrected 70 → 42
