@@ -50,10 +50,24 @@
 //!
 //! # What is deliberately not here
 //!
-//! - **Subtype reduction** (`removeSubtypes`, `checker.go:25934`) needs
-//!   assignability, which does not exist. Only `UnionReductionLiteral` is
-//!   reachable, which is what `getUnionType` and `getTypeFromUnionTypeNode` both
-//!   ask for anyway; `UnionReductionSubtype` arrives with `||` and `??`.
+//! - **Subtype reduction** (`removeSubtypes`, `checker.go:25934`). Only
+//!   `UnionReductionLiteral` is built, which is what `getUnionType` and
+//!   `getTypeFromUnionTypeNode` both ask for anyway; `UnionReductionSubtype`
+//!   arrives with `||` and `??`.
+//!
+//!   **The reason given here was "needs assignability, which does not exist".
+//!   That was true when written and is not now** — §803 (2026-09-12) wrote
+//!   `removeSubtypes` in twenty lines over
+//!   `relate_ternary(.., Relation::StrictSubtype)`, the same predicate
+//!   `single_common_supertype` (`inference.rs`) had already been running. The
+//!   reduction is *buildable*; it is simply not built, and no measurement yet
+//!   shows a caller that needs it — §803's own attempt measured **zero change**
+//!   against the fallback it was written for, because those candidates are not
+//!   subtype-reducible at all (STATUS §5, §802/§803).
+//!
+//!   Corrected rather than deleted, because "this is impossible" and "this is
+//!   unbuilt and unmeasured" invite completely different next sessions, and the
+//!   first one stood here for months after it stopped being true.
 //! - **`origin` and `addNamedUnions`** (`checker.go:25705`), which keep
 //!   `E | string` printing as `E | string` instead of expanding `E`'s members.
 //!   A union with a *named* union among its constituents is a gap here
