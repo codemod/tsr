@@ -6540,3 +6540,71 @@ namespace is — so a namespace-local alias printed from outside would keep a na
 upstream would qualify or expand. No corpus line shows it; the honest fix is the
 accessibility walk this port already has for symbols
 (`needsQualification`/`best_name`), applied to type aliases.
+
+## §808 — the contextual road was structurally unreachable from the PATTERN parameter arm
+
+### What `parameter_of` does
+
+It builds a signature's parameters from **syntax**: the annotation, or the
+implicit `any` that §561's gate admits where `has_no_contextual_type` can SHOW
+none exists. It never asked `get_contextually_typed_parameter_type`.
+
+That road lives on the SYMBOL path (`symbols.rs:4291`, inside
+`get_type_of_symbol`), and it is where §768's IIFE arm and every other
+contextual parameter source hang.
+
+**For a PATTERN-named parameter there is no symbol to go through.** §429 states
+it outright: *"a PATTERN-named parameter has no symbol of its own — the binder
+binds the element names — so its type comes from the declaration directly."* So
+the contextual road was not merely unconsulted here, it was **structurally
+unreachable**: the arm reads syntax, and the only bridge to the contextual road
+runs through a symbol this parameter does not have.
+
+The result is a parameter that declines exactly when it is contextually typed —
+§561's gate correctly refuses the implicit `any` because a contextual type
+exists, and nothing then supplies the one that does.
+
+### The arm
+
+Before the `return None`, ask the contextual road with the parameter's node.
+Four lines.
+
+```
+GAP->RIGHT:   14  typeofObjectInference 8, controlFlowDestructuringParameters 4, …
+WRONG->RIGHT: 23  contextuallyTypedParametersWithInitializers1 11, arrayFrom 5,
+                  inferFromGenericFunctionReturnTypes3 4
+GAP->WRONG:    3 ⚠
+```
+
+**+37**, zero RIGHT→WRONG, zero RIGHT→GAP.
+
+### The three GAP→WRONG, named
+
+They are **written-form reuse**, the same family §794 refused:
+
+```
+oracle  ({ value }: { value: typeof val; }) => number
+port    ({ value }: { value: number; }) => number
+```
+
+The contextual type is correct; upstream prints the annotation node it came
+from (`typeof val`) and this arm supplies the computed type with
+`written_text: None`. The arm fires only where the road answered `None` — a gap
+— so gap→wrong is its only possible failure direction, which is §620's stated
+reason for accepting it.
+
+### How it was found, and what it did NOT fix
+
+By asking §807's question — *which road builds an inline callee's signature, and
+why does it not go through `get_type_of_symbol` for its parameters?* — and
+reading `parameter_of` instead of placing more traces.
+
+**The IIFE case it came from is still gapping.** The IDENTIFIER-named road below
+this one *does* call `get_type_of_symbol` and *does* reach the contextual road:
+probing `((j) => {})("build")` shows `j` typing as `string` correctly, while the
+arrow's signature still answers `errorType`. So §807's remaining defect is not
+the parameter at all — it is downstream, in the signature or return road, and
+that is recorded there.
+
+Two roads that looked like one question turned out to be two, and only one of
+them was this.

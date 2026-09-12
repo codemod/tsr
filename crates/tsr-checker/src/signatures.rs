@@ -2937,6 +2937,38 @@ impl<'a> Checker<'a, '_> {
                         }
                         _ => false,
                     }) {
+                        // §808: before declining, ask the CONTEXTUAL road.
+                        //
+                        // This function builds a signature's parameters from
+                        // SYNTAX — an annotation, or the implicit `any` that
+                        // §561's gate admits where it can SHOW no contextual
+                        // type exists. It never asks
+                        // `get_contextually_typed_parameter_type`, which lives
+                        // on the SYMBOL path (`symbols.rs:4291`) and is what
+                        // §768's IIFE arm hangs off.
+                        //
+                        // So `((j) => { })("build")` declined here: the arrow
+                        // IS contextually typed (by the call that invokes it),
+                        // so §561's gate correctly refuses the implicit `any`
+                        // — and the road that would have supplied `string`
+                        // was never consulted, because a callee's signature is
+                        // built through this function and not through its
+                        // parameters' symbols.
+                        //
+                        // `conformance/contextuallyTypedIife` is 75 GAP lines
+                        // of exactly that, and §767 sized the family it heads
+                        // at 1,059 lines / 249 cases.
+                        if let Some(contextual) = self.get_contextually_typed_parameter_type(id)
+                            && contextual != self.intrinsics.error
+                        {
+                            return Some(Parameter {
+                                name: name_text,
+                                optional: node.question_token.is_some(),
+                                rest: node.dot_dot_dot_token.is_some(),
+                                r#type: contextual,
+                                written_text: None,
+                            });
+                        }
                         return None;
                     }
                     let computed = self.get_widened_type_for_variable_like_declaration(id);
