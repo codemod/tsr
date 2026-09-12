@@ -6478,3 +6478,65 @@ NOT treat as constructible — an abstract constructor type is the candidate —
 this would answer where upstream errors. `SignatureKind::AbstractConstruct`
 exists and is not excluded here, deliberately: no corpus line distinguishes them
 today, and excluding it without a measurement would be guessing.
+
+## §806 — §34's alias rule was right about its case and wrong as a rule
+
+### One file, two aliases, two different answers
+
+`compiler/correlatedUnions` contains both, and both are spelled `type X = { … }`:
+
+| alias | declared | oracle prints |
+|---|---|---|
+| `RecordMap` | top level (`:7`) | `RecordMap[P]` |
+| `ArgMap` | inside a function body (`:147`) | `{ sum: …; concat: … }[P]` |
+
+`declared.rs`'s `IndexedAccessTypeNode` arm declined an alias object **whole**,
+citing the second: *"a TYPE ALIAS object EXPANDS in upstream's deferred print
+(`ArgMap[P]` wants `{ sum: …; concat: … }[P]`); only a non-alias object keeps
+its written name."*
+
+That sentence is a correct observation of `ArgMap` generalised into a rule about
+aliases. The counterexample was eleven lines above it in the same fixture.
+
+### The actual rule
+
+Upstream prints a name it can **reach** from the print site and expands one it
+cannot — `isTypeAccessible`, the node builder's symbol-table walk. A locally
+scoped alias is not nameable from an arbitrary site; a top-level one is.
+
+Approximated syntactically: an alias whose declaration has a function or block
+ancestor expands, everything else keeps its written name. Narrower than
+upstream's walk, and it errs toward §34's behaviour, which was the measured one.
+
+### The measurement, in two steps
+
+```
+lift the decline, no scope gate:   +60   with 6 GAP->WRONG  (all of them ArgMap)
+lift it WITH the scope gate:       +56   zero adverse
+```
+
+```
+GAP->RIGHT:  50  correlatedUnions 20, genericInferenceDefaultTypeParameter 8,
+                 instantiateContextualTypes 6
+WRONG->RIGHT: 6  mappedTypeIndexedAccessConstraint 4, instantiateContextualTypes 2
+```
+
+**The six regressions of the ungated version were the whole evidence for the
+rule** — they are exactly the alias §34 had generalised from. Measuring the
+naive lift first, rather than reasoning about which aliases differ, is what made
+the distinction visible in one run.
+
+### How it was found
+
+The **gap** board (§805's instrument). `correlatedUnions` heads it at 164, and
+no wrong-line board this session had ever listed the case. The first sampled
+gap line was `TypeMap[P] : error`, which points straight at this arm.
+
+### How we would know this is wrong
+
+The scope test walks for a function or block ancestor. A type alias declared
+inside a NAMESPACE is not local by this test and is nameable only if the
+namespace is — so a namespace-local alias printed from outside would keep a name
+upstream would qualify or expand. No corpus line shows it; the honest fix is the
+accessibility walk this port already has for symbols
+(`needsQualification`/`best_name`), applied to type aliases.

@@ -597,7 +597,31 @@ impl<'a> Checker<'a, '_> {
                                     .flags
                                     .contains(SymbolFlags::TYPE_ALIAS)
                             });
-                        if is_alias { None } else { Self::entity_name_text(object.type_name) }
+                        // §806: §34 declined an ALIAS object whole, on the
+                        // reasoning that upstream EXPANDS it — `ArgMap[P]`
+                        // records `{ sum: …; concat: … }[P]`. True for that
+                        // alias and NOT for every alias: the same fixture has
+                        // `RecordMap[P]` recording `RecordMap[P]`, and both are
+                        // `type X = { … }`.
+                        //
+                        // The difference is where they are DECLARED.
+                        // `RecordMap` is top-level; `ArgMap` sits inside a
+                        // function body (`correlatedUnions.ts:147`). Upstream
+                        // prints a name it can REACH from the site and expands
+                        // one it cannot — `isTypeAccessible`, the node
+                        // builder's symbol-table walk.
+                        //
+                        // Approximated syntactically: an alias whose
+                        // declaration has a function or block ancestor is not
+                        // nameable from an arbitrary site, so it expands;
+                        // everything else keeps its written name. That is
+                        // narrower than upstream's walk and errs toward the
+                        // old behaviour, which was the measured one.
+                        if is_alias && self.alias_declaration_is_locally_scoped(object.type_name) {
+                            None
+                        } else {
+                            Self::entity_name_text(object.type_name)
+                        }
                     }
                     _ => None,
                 };
@@ -613,6 +637,48 @@ impl<'a> Checker<'a, '_> {
             }
             _ => self.intrinsics.error,
         }
+    }
+
+    /// Whether the TYPE ALIAS `name` resolves to is declared inside a function
+    /// or block rather than at a file/namespace top level. §806.
+    ///
+    /// The syntactic half of `isTypeAccessible` (`checker.go`): a locally
+    /// scoped alias cannot be NAMED from an arbitrary print site, so the node
+    /// builder writes its body instead. A top-level one keeps its name.
+    fn alias_declaration_is_locally_scoped(
+        &mut self,
+        name: Option<tsr_ast::EntityName<'a>>,
+    ) -> bool {
+        let Some(tsr_ast::EntityName::Identifier(identifier)) = name else { return false };
+        let Some(id) = identifier.node_id else { return false };
+        let Some(symbol) = self.binder.resolve_name(
+            self.nodes,
+            self.node_map,
+            id,
+            identifier.text,
+            SymbolFlags::TYPE,
+        ) else {
+            return false;
+        };
+        let Some(declaration) = self.binder.symbols().get(symbol).declarations.first().copied()
+        else {
+            return false;
+        };
+        let mut current = declaration;
+        while let Some(parent) = self.nodes.parent(current) {
+            if matches!(
+                self.nodes.kind(parent),
+                SyntaxKind::Block
+                    | SyntaxKind::FunctionDeclaration
+                    | SyntaxKind::FunctionExpression
+                    | SyntaxKind::ArrowFunction
+                    | SyntaxKind::MethodDeclaration
+            ) {
+                return true;
+            }
+            current = parent;
+        }
+        false
     }
 
     /// Ported from `Checker.getTypeFromTypeQueryNode` (`checker.go:24102`) via
