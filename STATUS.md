@@ -1243,6 +1243,46 @@ The road is real but **diffuse — 226 cases averaging 8 lines each**, so it is 
 subsystem's worth of small fixes rather than an arm, and §784 was its one
 concentrated head. Recorded so the next session does not re-derive its size.
 
+#### §789 probe — MIXED-ARITY overloads drop the contextual type (located, not yet fixed)
+
+The 480 contextual-literal-widening lines (oracle `{ largestUnit: "hour"; }`,
+port `{ largestUnit: string; }`) had two earlier readings on this page, both
+refuted:
+
+1. *a missing `isLiteralOfContextualType`* — refuted, it is ported at
+   `signatures.rs:2190`;
+2. *"the contextual type is not reaching the object literal through an
+   OVERLOADED call"* — right in outline, and now narrowed by probe.
+
+A five-rung ladder in a lib-less harness, reading the ARGUMENT's own type:
+
+| probe | answer |
+|---|---|
+| `f(o: { u: "a" \| "b" })` called `f({u:"a"})` | `{ u: "a"; }` ✅ |
+| `f(o: { u: string })` | `{ u: string; }` ✅ (control) |
+| bare literal argument | `"a"` ✅ |
+| METHOD on an interface, one signature | `{ u: "a"; }` ✅ |
+| two overloads, **SAME arity** | `{ u: "a"; }` ✅ |
+| two overloads, **MIXED arity** (method) | `{ u: string; }` ❌ |
+| two overloads, **MIXED arity** (function) | `{ u: string; }` ❌ |
+
+**So the failure is specifically MIXED-ARITY overloads**, not overloads in
+general — same-arity sets already work through §70's agreement path. That is a
+much smaller item than "contextual typing through overloads".
+
+`contextual.rs` has an arity discriminator for exactly this (SS114, the
+`by_arity` filter in `contextual_type_for_argument_resolving`), so the rule is
+already written. **What is NOT established is why it does not fire**:
+instrumenting that function printed nothing on any rung — including the ones
+that WORK — so object-literal context is reached by some other road and the
+SS114 discriminator is not on it. Finding that road is the next step, and it
+is a grep, not a subsystem.
+
+**Recorded at the §788 standard**: the mechanism is located to a function and a
+condition, and the part that is still a guess is labelled as one. Do not price
+this at 480 — that is the population of the whole widening family, and only the
+mixed-arity share of it is this item.
+
 #### Two candidate arms this board turned up, both sized and neither started
 
 **(a) The deferred INDEXED ACCESS `T[K]` — 206 lines, concentrated.** Where the
