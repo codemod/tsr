@@ -3009,6 +3009,45 @@ version of bare `any`.
 
 ## 5. Refused, with the number that refused it
 
+### §794 (2026-09-12) — the rest-tuple parameter EXPANSION in the second renderer: −4, REFUSED
+
+`declare let f: (...x: [number, string]) => void` prints
+`(x_0: number, x_1: string) => void` upstream — a rest parameter typed as a
+TUPLE expands into positional parameters (`getExpandedParameters`,
+`checker.go`). `conformance/genericRestParameters1` records the expanded form on
+its **first line**, and the case is 161 wrong against 381 right.
+
+**The expansion is already ported — in one renderer only.**
+`signature_to_string_at_worker` has it; `signature_to_string` (the `&self` form
+that `signature_bearing_type_node` uses to bake a written function type's text)
+does not. So the whole family printed as written.
+
+Adding it to the second renderer measured **6 RIGHT→WRONG against 2
+WRONG→RIGHT, net −4**, all six in `conformance/restTuplesFromContextualTypes`:
+
+```
+oracle  (cb: (...args: typeof t1) => void) => void
+port    (cb: (args_0: number, args_1: boolean, args_2: string) => void) => void
+```
+
+**Upstream does NOT expand when the written annotation is a TYPE QUERY.** That
+is `tryReuseExistingTypeNode` (`nodebuilderimpl.go`) winning: `typeof t1` NAMES
+the tuple, and naming it is more faithful than spelling out positions the source
+never wrote. A tuple literal names nothing, so there the expansion is the only
+route to upstream's text.
+
+**Gating on `written_text` did not fix it, and that is the finding.** The
+regression is in a NESTED signature — the inner `(...args: typeof t1) => void`
+is reached by rendering `cb`'s type, and by then this port has no written text
+for the inner parameter at all. The discriminator upstream uses is available at
+the node; this port's is available only at the outer parameter.
+
+**Prerequisite, named**: written-annotation text must survive into nested
+signature renders before this expansion can be turned on. Until then the
+expansion is correct for the top-level shape and wrong one level down, and the
+corpus weights the second more heavily. Re-attempt only behind that.
+
+
 ### §790 (2026-09-11) — variadic tuples: probed, NOT cheap, and the ladder is recorded
 
 `conformance/variadicTuples1` heads the wrong-line board at **281 lines** (224 of
