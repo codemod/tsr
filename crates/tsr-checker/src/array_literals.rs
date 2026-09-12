@@ -231,6 +231,59 @@ impl Checker<'_, '_> {
     /// destructured literal is itself destructured); an annotation-driven
     /// tuple context does not — its element types, not the pattern, decide
     /// the inner shapes (`arrayLiterals2ES5`'s `[number[], string[]]`).
+    /// Whether `id` is a DIRECT call argument whose callee signature carries a
+    /// `const` type parameter. §797.
+    ///
+    /// Direct only. An argument nested inside a CALLBACK
+    /// (`test1(() => ['a'])`) needs const-ness to propagate across a function
+    /// boundary into the arrow's return, which this port cannot do — see
+    /// STATUS §5's §796 entry, where lifting the decline for that shape
+    /// measured 42 GAP→WRONG.
+    ///
+    /// Guarded against re-entry: resolving the callee's signature checks the
+    /// arguments, and an array-literal argument asks this question again.
+    fn array_literal_argument_of_const_type_parameter(&mut self, id: tsr_ast::NodeId) -> bool {
+        // Climb the same carriers `is_const_context` climbs for `as const` —
+        // nested array literals, parens, and object-literal property
+        // assignments — because a const context reaches ALL the way down:
+        // `f1(['a', ['b', 'c']])` records
+        // `readonly ["a", readonly ["b", "c"]]`, so the INNER literal is const
+        // too. Stopping at the direct argument left it `string[]`.
+        let mut current = id;
+        loop {
+            let Some(parent) = self.nodes.parent(current) else { return false };
+            match self.node_map.get(parent) {
+                Some(
+                    tsr_ast::Node::ArrayLiteralExpression(_)
+                    | tsr_ast::Node::ParenthesizedExpression(_)
+                    | tsr_ast::Node::PropertyAssignment(_)
+                    | tsr_ast::Node::ObjectLiteralExpression(_),
+                ) => current = parent,
+                _ => break,
+            }
+        }
+        let Some(parent) = self.nodes.parent(current) else { return false };
+        let Some(tsr_ast::Node::CallExpression(call)) = self.node_map.get(parent) else {
+            return false;
+        };
+        if !call.arguments.iter().any(|argument| argument.node_id() == Some(current)) {
+            return false;
+        }
+        let Some(call_id) = call.node_id else { return false };
+        if !self.resolving_signature_calls.insert(call_id) {
+            return false;
+        }
+        let answer = call
+            .expression
+            .map(|callee| self.check_expression(callee))
+            .and_then(|callee_type| self.resolve_call_signature(callee_type, Some(call.arguments)))
+            .is_some_and(|signature| {
+                signature.type_parameters.iter().any(|parameter| parameter.is_const)
+            });
+        self.resolving_signature_calls.remove(&call_id);
+        answer
+    }
+
     fn array_literal_in_tuple_context(&mut self, node: &ArrayLiteralExpression<'_>) -> bool {
         self.array_literal_tuple_context_kind(node) != TupleContext::No
     }
@@ -466,7 +519,19 @@ impl Checker<'_, '_> {
         // `isConstContext`, `checker.go:8021`) — the slice-1 mint lived only
         // in the assertion arm, so `[10] as const`'s literal line kept
         // printing `number[]` (constAssertions 0:184/0:190).
-        if node.node_id.is_some_and(|id| self.is_const_context(id)) && !has_tuple_spread {
+        // §797: an array literal that is the ARGUMENT of a `const` type
+        // parameter is in a CONST CONTEXT — `f(["b", "c"])` on
+        // `declare function f<const T>(x: T)` records `["b", "c"]`, not
+        // `string[]` (`isConstTypeVariable`, `checker.go`).
+        //
+        // `is_const_context` cannot answer this: it walks the parent chain
+        // SYNTACTICALLY and const-ness here depends on the callee's resolved
+        // signature. Same seam §793 used for the tuple-context arm.
+        let const_argument =
+            node.node_id.is_some_and(|id| self.array_literal_argument_of_const_type_parameter(id));
+        if (const_argument || node.node_id.is_some_and(|id| self.is_const_context(id)))
+            && !has_tuple_spread
+        {
             let mut elements = Vec::with_capacity(node.elements.len());
             let mut clean = true;
             for element in node.elements {

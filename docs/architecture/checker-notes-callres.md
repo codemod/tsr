@@ -6076,3 +6076,80 @@ operand's optional mask, so a spread of `[a, b?]` into a rest parameter reports
 both elements as required. The same gap is noted in §792's splice; if a
 `readonly [...]` or parameter line ever disagrees about optionality, these two
 arms are where it comes from.
+
+## §797 — the `const` type-parameter argument context, and a refusal NARROWED rather than lifted or kept
+
+### The rule
+
+```ts
+declare function f<const T>(x: T): T;
+f(["b", "c"]);              // readonly ["b", "c"], not string[]
+f(["a", ["b", "c"]]);       // readonly ["a", readonly ["b", "c"]]
+```
+
+`isConstTypeVariable` (`checker.go`) makes an argument position const exactly as
+`as const` does, all the way down through nested literals.
+
+### Why `is_const_context` could not answer it
+
+That function walks the parent chain **syntactically** — parens, array
+literals, spreads, property assignments, template spans — looking for a const
+assertion. Const-ness here depends on the callee's **resolved signature**, which
+is not in the tree. `array_literal_argument_of_const_type_parameter` asks it at
+the same seam §793 used for the tuple-context arm, behind the
+`resolving_signature_calls` re-entry guard, and climbs the same carriers so the
+context reaches nested literals (that climb is the difference between **+8** and
+**+14**).
+
+### The decline, narrowed
+
+§33 refused **every** call through a const-marked signature, because this port's
+inference widens where upstream keeps literals — **70 GAP→WRONG** when written.
+STATUS §5's §796 entry re-measured that at **42**, built the arm above, and
+showed the 42 are *all one shape*:
+
+```ts
+declare function test1<const T>(create: () => T): T;
+test1(() => ['a']);   // readonly ["a"]
+```
+
+There const-ness must cross a **function boundary** into the arrow's return
+before the literal is reached, and nothing in this port carries a const context
+across one.
+
+So the decline now asks for exactly that shape — a parameter whose type has call
+signatures — and every other const-marked call goes through inference with its
+arguments correctly in const context.
+
+| what was tried | result |
+|---|---|
+| lift the decline entirely | 42 GAP→WRONG against 8 WRONG→RIGHT |
+| keep it whole | those 14 lines unreachable |
+| **narrow it to the callback shape** | **+14, zero adverse** |
+
+**A refusal narrowed to its actual cause beats both lifting it and keeping it.**
+That is only available once the cause is measured rather than assumed — §33
+stated a reason, §796 tested that reason and found it applied to a *subset*, and
+this arm is the subset's complement.
+
+### A residue, recorded rather than closed
+
+Upstream distinguishes the LITERAL's line from the CALL's: `['a', ['b', 'c']]`
+is `["a", ["b", "c"]]` — a tuple, **not** readonly — while the call is
+`readonly ["a", readonly ["b", "c"]]`. The readonly comes from `getWidenedType`
+over the const type variable, not from the literal itself. This port's const arm
+mints the readonly tuple **at the literal**, so the CALL lines are right and the
+LITERAL lines stay wrong. That is why a case carrying both converts about half.
+
+Fixing it needs the readonly to move from the literal to the inference site,
+which is the same const-type-variable machinery the callback shape needs. **Both
+residues are one prerequisite**, and that is the next thing to build here.
+
+### How we would know this is wrong
+
+The arm fires on any array literal reaching a call argument through the climbed
+carriers, without checking WHICH parameter it lands on. A signature with one
+`const` type parameter and one ordinary parameter will put a const context on
+both arguments. No corpus line shows it; the fix is to resolve the argument's
+own parameter, which `contextual_type_for_argument` already does for other
+questions.

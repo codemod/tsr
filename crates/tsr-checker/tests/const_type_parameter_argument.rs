@@ -1,0 +1,130 @@
+//! An array literal argument of a `const` type parameter is in a CONST
+//! CONTEXT. §797.
+//!
+//! ```ts
+//! declare function f<const T>(x: T): T;
+//! f(["b", "c"]);   // readonly ["b", "c"], not string[]
+//! ```
+//!
+//! # Two changes, and the second is a REFUSAL being narrowed
+//!
+//! **The arm**: `is_const_context` walks the parent chain syntactically and
+//! cannot answer this, because const-ness here depends on the callee's
+//! RESOLVED signature. `array_literal_argument_of_const_type_parameter` asks it
+//! at the same seam §793 used for the tuple-context arm, behind the
+//! `resolving_signature_calls` re-entry guard.
+//!
+//! **The decline**: §33 refused EVERY call through a const-marked signature,
+//! because this port's inference widens where upstream keeps literals — 70
+//! GAP→WRONG when it was written. STATUS §5's §796 entry re-measured that at
+//! **42**, then built the arm above and showed the 42 are *all* one shape:
+//!
+//! ```ts
+//! declare function test1<const T>(create: () => T): T;
+//! test1(() => ['a']);   // readonly ["a"]
+//! ```
+//!
+//! There const-ness must cross a FUNCTION BOUNDARY into the arrow's return
+//! before the literal is reached, and nothing in this port carries a const
+//! context across one. So the decline now asks for exactly that shape — a
+//! parameter whose type is a function mentioning a const type parameter — and
+//! every other const-marked call goes through inference with its arguments
+//! correctly in const context.
+//!
+//! **A refusal narrowed to its actual cause is worth more than a refusal
+//! lifted or kept whole.** Lifting it measured 42 GAP→WRONG against 8; keeping
+//! it whole left those 8 unreachable; narrowing it is +8 with zero adverse.
+//!
+//! # A known residue, recorded rather than closed
+//!
+//! Upstream distinguishes the LITERAL's own line from the CALL's:
+//! `['a', ['b', 'c']]` is `["a", ["b", "c"]]` (a tuple, NOT readonly) while the
+//! call is `readonly ["a", readonly ["b", "c"]]` — the readonly comes from
+//! `getWidenedType` over the const type variable, not from the literal. This
+//! port's const arm mints the readonly tuple at the literal, so the CALL lines
+//! are right and the LITERAL lines are not. That is why this measured +8 rather
+//! than +16 on a case with both.
+
+use tsr_ast::Statement;
+use tsr_checker::Checker;
+use tsr_core::Arena;
+
+/// The printed type of the named variable's initialiser.
+fn type_of_initialiser(source: &str, name: &str) -> String {
+    let arena = Arena::new();
+    let parsed = tsr_parser::parse(&arena, source);
+    assert!(parsed.diagnostics.is_empty(), "fixture must parse");
+    let bound = tsr_binder::bind(
+        &arena,
+        parsed.source_file,
+        &parsed.nodes,
+        tsr_binder::FileInfo { name: "t.ts", text: source },
+    );
+    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+    for statement in parsed.source_file.statements {
+        let Statement::VariableStatement(node) = statement else { continue };
+        for declaration in node.declaration_list.map(|list| list.declarations).unwrap_or_default() {
+            let Some(tsr_ast::BindingName::Identifier(identifier)) = declaration.name else {
+                continue;
+            };
+            if identifier.text != name {
+                continue;
+            }
+            let initialiser = declaration.initializer.expect("an initialiser");
+            let id = checker.check_expression(initialiser);
+            return checker.type_to_string(id);
+        }
+    }
+    panic!("no declaration named {name}");
+}
+
+const LIB: &str = "interface Array<T> { length: number }\n\
+                   interface ReadonlyArray<T> { length: number }\n";
+
+/// The head case, from `conformance/typeParameterConstModifiers` — the CALL's
+/// type. `f1(['a', ['b', 'c']])` records
+/// `readonly ["a", readonly ["b", "c"]]` there (`:15-:16`).
+#[test]
+fn a_const_type_parameter_keeps_an_array_argument_as_a_readonly_tuple() {
+    let source =
+        format!("{LIB}declare function f<const T>(x: T): T;\nconst a = f([\"b\", \"c\"]);");
+    assert_eq!(type_of_initialiser(&source, "a"), "readonly [\"b\", \"c\"]");
+}
+
+/// Nested literals are const all the way down, which is what makes this the
+/// const CONTEXT rather than a top-level readonly wrapper.
+#[test]
+fn the_const_context_reaches_nested_literals() {
+    let source = format!(
+        "{LIB}declare function f<const T>(x: T): T;\nconst a = f([\"a\", [\"b\", \"c\"]]);"
+    );
+    assert_eq!(type_of_initialiser(&source, "a"), "readonly [\"a\", readonly [\"b\", \"c\"]]");
+}
+
+/// The control: a PLAIN type parameter still widens, which is what makes the
+/// `const` modifier observable at all.
+#[test]
+fn a_plain_type_parameter_still_widens() {
+    let source = format!("{LIB}declare function f<T>(x: T): T;\nconst a = f([\"b\", \"c\"]);");
+    assert_eq!(type_of_initialiser(&source, "a"), "string[]");
+}
+
+/// The decline that survives: a CALLBACK parameter keeps §33's refusal,
+/// because const-ness would have to cross the function boundary. Answering
+/// here would put 42 GAP→WRONG back on the board.
+#[test]
+fn a_callback_shaped_const_signature_still_declines() {
+    let source = format!(
+        "{LIB}declare function test1<const T>(create: () => T): T;\n\
+         const a = test1(() => [\"a\"]);"
+    );
+    assert_eq!(type_of_initialiser(&source, "a"), "error");
+}
+
+/// A non-array argument through a const parameter is unaffected either way —
+/// the arm is scoped to array literals, which is where the widening happened.
+#[test]
+fn a_scalar_argument_through_a_const_parameter_resolves() {
+    let source = format!("{LIB}declare function f<const T>(x: T): T;\nconst a = f(\"b\");");
+    assert_eq!(type_of_initialiser(&source, "a"), "\"b\"");
+}

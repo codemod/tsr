@@ -579,7 +579,26 @@ impl Checker<'_, '_> {
             // mint readonly tuples) where this port's inference widens — 70
             // G→W in the first pair — so calls through a const-marked
             // signature DECLINE while the signature itself prints.
-            if signature.type_parameters.iter().any(|parameter| parameter.is_const) {
+            // §797: §33's decline NARROWED to the shape that still needs it.
+            //
+            // It refused every call through a const-marked signature because
+            // this port's inference widens where upstream keeps literals — 70
+            // G→W when written, re-measured at 42 before this arm. §796 then
+            // built the const-ARGUMENT context (`array_literals.rs`) and showed
+            // **all 42 are the CALLBACK shape**: `test1(() => ['a'])` on
+            // `<const T>(create: () => T)`, where const-ness must cross a
+            // FUNCTION BOUNDARY into the arrow's return before the literal is
+            // reached. Nothing here carries a const context across one.
+            //
+            // So the decline now asks for exactly that shape — a parameter
+            // whose type is a function mentioning a `const` type parameter —
+            // and every other const-marked call goes through the inference road
+            // with its arguments correctly in const context.
+            if signature.type_parameters.iter().any(|parameter| parameter.is_const)
+                && signature.parameters.iter().any(|parameter| {
+                    self.signatures_of_type(parameter.r#type).is_some_and(|s| !s.is_empty())
+                })
+            {
                 return error;
             }
             // §288: WRITTEN type arguments need no inference at all — the
