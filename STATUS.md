@@ -1323,13 +1323,31 @@ declaration. Symbol identity is not preserved through an instantiated reference
 argument, so "the symbols differ" is not a sound test for "this is a different
 parameter".
 
-**Prerequisite, named from a measurement rather than guessed**: the shadow test
-must ask whether the reference RESOLVES to a declaration outside the signature —
-which is what `rename_type_parameters_for_site` already does via
-`binder.resolve_name(reference, …)` — not whether two `SymbolId`s are equal.
-`type_to_string_at` has the `reference` node in hand, so the ingredient is
-present; what is missing is knowing which declarations belong to the signature
-being rendered, and that is not in scope at the renderer.
+**Attempt 2 — compare TYPE IDENTITY instead of symbols: −10, WORSE.** The render
+scope was given a second stack keyed by the signature's own type-parameter
+`TypeId`s (`type_parameter_types(signature)`), and the renamer asked *"this name
+is declared here and this id is not one of them"*. Measured **11 RIGHT→WRONG**
+against 1 — the same `inferFromNestedSameShapeTuple` and `genericContextualTypes1`
+regressions plus four more in the declaration-emit family.
+
+**So neither identity survives the nested reference.** `Recursive<Id>`'s `Id`
+carries a different SYMBOL *and* a different TYPE ID than the declaration the
+scope recorded. A render-scope test — of any keying — cannot answer *"is this
+reference the signature's own parameter?"*, because by the time the renderer
+sees it, the parameter has been re-minted by instantiation.
+
+**That is the prerequisite, and it is structural rather than a missing
+predicate**: the renamer needs the reference's DECLARATION, which means
+resolving the written name at its own site (`binder.resolve_name`) the way
+`rename_type_parameters_for_site` does for declarations — not comparing anything
+the type carries. `type_to_string_at` has the `reference` node, but that node is
+the *consumer's* site, not the position where the parameter was written, so the
+resolution would answer about the wrong scope.
+
+**Two attempts, both measured, both reverted: −6 and −10.** Do not try a third
+keyed on anything the TYPE carries. The 1 WRONG→RIGHT that both attempts found
+(`declarationEmitShadowing`) is the shape where re-minting happens not to occur,
+and it is not worth 7–11 regressions to reach.
 
 `bluebirdStaticThis` at 56 lines is still the measurement to start from, and the
 1 WRONG→RIGHT in `declarationEmitShadowing` says the rule is right where symbol
