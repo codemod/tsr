@@ -3010,6 +3010,44 @@ version of bare `any`.
 
 ## 5. Refused, with the number that refused it
 
+### §796 (2026-09-12) — §33's `const` type-parameter decline RE-TESTED: still refused, number corrected 70 → 42
+
+`calls.rs:582` declines every call through a signature carrying a `const` type
+parameter. §33's stated reason: *"`const` type parameters retain literals (and
+mint readonly tuples) where this port's inference widens — 70 G→W in the first
+pair"*.
+
+That number predates §791–§793's tuple and const work, so it was re-tested by
+disabling the decline and measuring:
+
+```
+GAP->WRONG:   42  ⚠  typeParameterConstModifiersReturnsAndYields 42
+WRONG->RIGHT:  5     typeParameterConstModifiers 5
+```
+
+**Still a refusal, and the reason is unchanged in kind**: the port answers a
+widened type where upstream keeps the literal, turning 42 honest gaps into
+confident wrong lines. The cost has fallen from 70 to **42** — the tuple work
+did help — but 42:5 is nowhere near the bar.
+
+**Prerequisite, named and checkable**: an argument whose corresponding type
+parameter is `const` must be checked in a CONST CONTEXT
+(`isConstTypeVariable`, `checker.go`), so an array literal there mints a
+readonly tuple and a string literal keeps its literal type. This port's
+`is_const_context` walks the parent chain syntactically and has no call-argument
+arm — §793 added the *tuple*-context arm for call arguments, which is the same
+seam and the model to follow.
+
+**What the probe showed on the way**, worth keeping: with the decline in place,
+`f("b")` through `const T` answers `error` while plain `T` answers `"b"`. The
+decline is not selective — it refuses shapes the port would get right. That is
+the argument for fixing the prerequisite rather than narrowing the decline.
+
+`conformance/typeParameterConstModifiers` is 161 wrong / 310 right and
+`typeParameterConstModifiersReturnsAndYields` is the case that punishes the
+naive lift; both are the measurement for the next attempt.
+
+
 ### §794 (2026-09-12) — the rest-tuple parameter EXPANSION in the second renderer: −4, REFUSED
 
 `declare let f: (...x: [number, string]) => void` prints
@@ -3225,6 +3263,18 @@ whether the declaration was a method or an accessor. Until a property
 enumeration carries that, this arm can spell `Omit<T, boundKeys>` but not
 `Omit<T, boundKeys | unspreadable>`, and **half an omit list is a confidently
 wrong type where the gap was honest**.
+
+> **CASHED THE SAME DAY by §776, and this entry did not say so until
+> 2026-09-12.** `is_spreadable_property` and `member_declaration_has_modifier`
+> are in `destructure.rs` (`:747`, `:768`) and the `Omit` mint is at `:819`.
+> The refusal was correct, its prerequisite was correct, and §776 built both —
+> but the entry was left reading as OPEN, so a later session re-reading §5
+> would have re-derived a solved problem.
+>
+> **Marking a refusal cashed is part of cashing it.** §769's entry carries the
+> same note; the difference is that §769's was added when the chain closed and
+> this one sat stale for a day. A §5 that does not track its own resolutions
+> costs exactly what §5 exists to prevent.
 
 **RESOLVED THE SAME DAY by §776**, which built the prerequisite
 (`is_spreadable_property` over symbols, plus class-member modifier access) and
