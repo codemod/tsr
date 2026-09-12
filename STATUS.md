@@ -3030,13 +3030,33 @@ widened type where upstream keeps the literal, turning 42 honest gaps into
 confident wrong lines. The cost has fallen from 70 to **42** — the tuple work
 did help — but 42:5 is nowhere near the bar.
 
-**Prerequisite, named and checkable**: an argument whose corresponding type
-parameter is `const` must be checked in a CONST CONTEXT
-(`isConstTypeVariable`, `checker.go`), so an array literal there mints a
-readonly tuple and a string literal keeps its literal type. This port's
-`is_const_context` walks the parent chain syntactically and has no call-argument
-arm — §793 added the *tuple*-context arm for call arguments, which is the same
-seam and the model to follow.
+**Prerequisite, named and then BUILT — which sharpened it.** The first version
+of this entry said the blocker was that `is_const_context` has no call-argument
+arm. That arm was then written (`array_literal_argument_of_const_type_parameter`:
+walk to the parent call, resolve the callee signature behind the
+`resolving_signature_calls` guard, ask whether any type parameter is `const`)
+and measured:
+
+```
+with the arm AND the decline lifted:   42 G→W  against  8 W→R   (was 5 W→R)
+with the arm and the decline KEPT:     no transitions at all
+```
+
+So the arm is right and **not the blocker**. It converts 3 more lines when the
+decline is lifted and is completely inert behind it, because the decline
+short-circuits before any argument is reached.
+
+**The actual blocker, measured**: all 42 GAP→WRONG are the CALLBACK shape.
+`test1(() => ['a'])` on `declare function test1<const T>(create: () => T): T`
+records `readonly ["a"]` — const-ness propagates through the arrow's RETURN into
+the inferred `T`, and `T` is then made readonly. Nothing in this port carries a
+const context across a function boundary. **That propagation, not the
+call-argument arm, is what §33's decline is waiting on**, and it is why the arm
+was reverted rather than landed inert.
+
+Both halves are needed at once, which is §793's lesson arriving again: a fix
+whose partner is missing reads as "no effect" and is indistinguishable from a
+dead end on its own number.
 
 **What the probe showed on the way**, worth keeping: with the decline in place,
 `f("b")` through `const T` answers `error` while plain `T` answers `"b"`. The
