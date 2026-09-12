@@ -5871,3 +5871,74 @@ a binding frame. If a future change makes that road stateful in a way the frame
 does not cover, an instantiation could see a stale splice. The sentinel prevents
 recursion, not staleness; the `a_non_tuple_argument_declines_rather_than_guessing`
 test pins the one case where declining is the right answer.
+
+## §792 — a tuple spread inside `as const` splices, and the per-POSITION re-derivation that found it
+
+### The rule
+
+`[1, ...t] as const` with `t: [boolean]` is `readonly [1, boolean]` upstream.
+`check_const_assertion` (`assertions.rs`) declined any spread outright and
+answered `errorType`.
+
+### The refusal's stated reason did not cover the case
+
+§105's comment gave it as: *"spreads, holes, and object elements decline the
+operand whole — readonly MEMBERS are slice 2, behind the value-spelling
+carriage."*
+
+That reason is real for holes and object elements. It is **not a reason for a
+tuple spread**, which needs no member machinery at all — only the operand's
+element list, which this port already keeps in `tuple_element_lists`. The
+refusal had bundled three unrelated element kinds under one justification, and
+the justification only fitted two of them.
+
+**A refusal's stated reason has to be re-read against the case in hand rather
+than inherited from the sentence it appears in.** That is the same failure shape
+as §787 (priced from the hardest problem) and §790 (priced from the widest
+feature), arriving a third way.
+
+### Where the case came from
+
+§790 refused variadic tuples as a subsystem at ~780 lines. §791 built the
+ANNOTATION half for **+2** and corrected that estimate: the four cases in it
+share a language feature, not a fix, and the number had to be re-derived **per
+position**. Doing that put the expression half in two places — array literals
+and `as const` — and a five-rung probe found the literal road already correct
+(`[1, ...t, 2]` answers the widened array upstream does) with `as const` the one
+that failed.
+
+Worth **+80**, against §791's +2 on the annotation half.
+
+### Upstream's cap, transcribed
+
+The first measurement was +78 net with **2 RIGHT→WRONG** in
+`compiler/excessivelyLargeTupleSpread` — a case that exists to exercise exactly
+this bound. Upstream:
+
+```go
+if len(spreadTypes)+len(n.types) >= 10_000 {
+    // Expression produces a tuple type that is too large to represent
+    c.error(c.currentNode, message)
+    return false
+}
+```
+(`checker.go:23379`)
+
+With the cap the same measurement is **+80 and zero adverse of any kind**. The
+port would otherwise have built the giant tuple, which is the failure mode a
+"faithful in the common case" splice invites: the bound is part of the rule, not
+an implementation detail of upstream's.
+
+### The restriction
+
+Only operands that HAVE an element list splice. A spread of an array, or of
+§40's print-only variadic, still declines — there is nothing to splice and
+inventing a length would be a confident wrong answer where a gap belongs.
+
+### How we would know this is wrong
+
+The splice reads `tuple_element_lists` and drops the operand's optional mask
+(`tuple_optional_masks`). A spread of a tuple with optional elements —
+`[a?, b?]` — therefore splices as if every element were required. No corpus line
+shows it, and the const-assertion position makes it rare, but it is the first
+thing to check if a `readonly [...]` line disagrees about optionality.
