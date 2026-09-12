@@ -5496,3 +5496,102 @@ resolves — a `keyof` reached through an alias whose print happens to match, or
 two distinct type parameters printing the same name in different scopes — this
 gate is what let it through. The general fix is a real `isGenericIndexType`
 over a real `keyof` type, which needs `keyof` to stop being a printed mint.
+
+## §787 — `Array`/`ReadonlyArray` are one inference target, and two larger fixes that did NOT pay
+
+### What landed
+
+`infer_from_types_within` compared two reference targets by identity. A
+`readonly T[]` parameter is a `ReadonlyArray<T>` reference; an array-literal
+argument is an `Array<number>` reference; the identity test refused, `T`
+collected no candidate, and the call answered `errorType` — printed `any`.
+
+Upstream infers argument-wise across that pair (`inferFromObjectTypes`,
+`inference.go`): a mutable array IS a readonly one and their single type
+argument occupies the same slot. `Checker::is_array_like_pair` admits exactly
+the two globals, in either order.
+
+Restricted to those two rather than any structurally-compatible pair, because
+inference that admits a target it cannot justify produces a **candidate**, and a
+wrong candidate is a confident wrong answer rather than a missing one.
+
+Measured **+4** (3 GAP→RIGHT, 1 WRONG→RIGHT) against 1 GAP→WRONG, zero
+RIGHT→WRONG, zero RIGHT→GAP.
+
+### Why the target was `compiler/setMethods`, and why it did not move
+
+The §4.-5 board put `setMethods` at 180 wrong lines against 37 right, with
+**177 of the 180 the port answering `any`** where the oracle wants `Set<number>`
+— the most concentrated `any` block left on the board after §784–§786.
+
+`Set : SetConstructor` is RIGHT in that case, so the lib IS loaded and this was
+never a lib-resolution problem. A probe ladder against the real
+`SetConstructor` shape isolated **three** independent blockers, and the honest
+outcome is that only the first is worth having:
+
+| probe | before | after the landed arm |
+|---|---|---|
+| `new C<T>(v: readonly T[])` | `error` | `S<number>` |
+| `new C<T>(v: readonly T[] \| null)` | `error` | `error` |
+| `new C<T = any>(v: T[])` | `S<any>` | `S<any>` |
+| `new C<T = any>(v?: readonly T[] \| null)` **(the real shape)** | `S<any>` | `S<any>` |
+
+### Refused (a): widening the union strike-out — ZERO movement
+
+The union arm strikes a target constituent the source is assignable to, guarded
+by `!parameters.contains(&c)` — which excludes a NAKED `T` and nothing else. So
+`readonly T[] | null` was struck whole (an `Array<number>` IS assignable to
+`ReadonlyArray<T>`) and `T` collected nothing.
+
+Upstream cannot reach that state: `inferToMultipleTypes` (`inference.go:700`)
+matches constituents IDENTICALLY in its first pass, and a constituent carrying
+an uninferred parameter is identical to nothing. Striking on assignability is
+this port's approximation and is sound only where the constituent is closed.
+
+Narrowing the strike to skip any constituent that MENTIONS an inference
+parameter fixed the probe (`readonly T[] | null` began inferring) and measured
+**exactly zero corpus transitions**. The shape is real and the fix is right;
+the corpus does not reach it independently of blocker (b), which sits in front
+of it on every case that would have shown it.
+
+### Refused (b): §44's all-defaulted shortcut — −4 net, with RIGHT→WRONG
+
+`get_signature_of_named_type` (`signatures.rs`) instantiates an ALL-DEFAULTED
+generic signature with its own defaults and strips the type parameters (§44).
+For `new <T = any>(values?: readonly T[] | null): Set<T>` that answers
+`Set<any>` and **preempts the inference road entirely** — which is why every
+probe carrying a default stayed `S<any>` no matter what inference could do.
+
+Declining the shortcut when the signature's VALUE parameters mention a type
+parameter fixed all four defaulted probes. On the corpus it measured
+**2 RIGHT→WRONG (`genericDefaults`) and 2 RIGHT→GAP
+(`contextualTypesNegatedTypeLikeConstraintInGenericMappedType1/3`)** for no
+compensating conversion — net −4. Reverted.
+
+**Why it went backwards is the useful part**: the shortcut is not merely a
+fallback, it is load-bearing for cases where inference then produces a *worse*
+answer than the default. Removing it exposes the inference road's own gaps on
+cases that were passing by accident.
+
+### What actually blocks `setMethods`, named
+
+The real `SetConstructor` has **two** generic construct signatures
+(`readonly T[] | null` and `Iterable<T> | null`). With the shortcut declined,
+the probe with two overloads answered `error` rather than `S<number>` — so past
+(a) and (b) the case lands on **generic overload selection**, which is
+`get_signature_of_named_type`'s own already-recorded refusal: *"A generic
+candidate (926 lines). That is `inferTypes`, the largest gate in `callgate.rs`'s
+own split."*
+
+So `setMethods`'s 180 lines are **not** reachable by any local inference fix.
+They are downstream of generic overload selection, and the prerequisite has a
+name and a size already on the page. Recorded here so the next session does not
+re-derive the ladder.
+
+### How we would know the landed half is wrong
+
+`is_array_like_pair` resolves `Array` and `ReadonlyArray` through
+`global_type_symbol`. A corpus file declaring its own global `ReadonlyArray`
+would make the pair admit an unrelated reference. The 1 GAP→WRONG
+(`jsxGenericComponentWithSpreadingResultOfGenericFunction:0:13`) is the line to
+re-read first if this is ever suspected.

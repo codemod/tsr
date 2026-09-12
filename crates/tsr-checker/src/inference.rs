@@ -957,6 +957,65 @@ impl Checker<'_, '_> {
         self.infer_from_types_within(source, target, target, parameters, out, depth);
     }
 
+    /// Whether `id` is, or structurally contains, one of `parameters`. §787.
+    ///
+    /// Used to keep the union strike-out off constituents that still carry an
+    /// inference variable — see the call site. The walk follows type-reference
+    /// ARGUMENTS and union constituents, which is every shape this port builds
+    /// that can nest a parameter; anything else answers `false`, and `false` is
+    /// the conservative direction because it only re-enables a strike that was
+    /// already the previous behaviour.
+    fn type_mentions_parameter(&mut self, id: TypeId, parameters: &[TypeId], depth: usize) -> bool {
+        if parameters.contains(&id) {
+            return true;
+        }
+        if depth > 8 {
+            return false;
+        }
+        if let Some((_, arguments)) = self.type_reference_targets.get(&id).cloned()
+            && arguments
+                .into_iter()
+                .any(|argument| self.type_mentions_parameter(argument, parameters, depth + 1))
+        {
+            return true;
+        }
+        if let TypeData::Union { types, .. } = &self.store.get(id).data {
+            let constituents = types.clone();
+            return constituents
+                .into_iter()
+                .any(|c| self.type_mentions_parameter(c, parameters, depth + 1));
+        }
+        false
+    }
+
+    /// Whether two reference targets are the `Array`/`ReadonlyArray` pair, in
+    /// either order. §787.
+    ///
+    /// Kept to those two globals rather than any structurally-compatible pair:
+    /// inference that admits a target it cannot justify produces a CANDIDATE,
+    /// and a wrong candidate is a confident wrong answer rather than a missing
+    /// one. `Array` and `ReadonlyArray` are the pair upstream names, and their
+    /// single type argument occupies the same slot by construction.
+    fn is_array_like_pair(
+        &mut self,
+        first: tsr_binder::SymbolId,
+        second: tsr_binder::SymbolId,
+    ) -> bool {
+        if first == second {
+            return true;
+        }
+        let resolve = |checker: &mut Self, name: &str| {
+            checker.global_type_symbol(name).map(|symbol| checker.binder.merged_symbol(symbol))
+        };
+        let array = resolve(self, "Array");
+        let readonly = resolve(self, "ReadonlyArray");
+        let (Some(array), Some(readonly)) = (array, readonly) else { return false };
+        let first = self.binder.merged_symbol(first);
+        let second = self.binder.merged_symbol(second);
+        let pair = [first, second];
+        pair.contains(&array) && pair.contains(&readonly)
+    }
+
     fn infer_from_types_within(
         &mut self,
         source: TypeId,
@@ -988,7 +1047,24 @@ impl Checker<'_, '_> {
         let target_reference = self.type_reference_targets.get(&target).cloned();
         let source_reference = self.type_reference_targets.get(&source).cloned();
         if let (Some((ts, ta)), Some((ss, sa))) = (target_reference, source_reference) {
-            if ts == ss && ta.len() == sa.len() {
+            // §787: `Array` and `ReadonlyArray` are ONE reference target for
+            // inference. `mk<T>(values: readonly T[])` called with `[0, 1, 2]`
+            // puts an `Array<number>` source against a `ReadonlyArray<T>`
+            // target, and the identity test below refused it — so `T` got no
+            // candidate and the whole call answered `errorType`, printed `any`.
+            //
+            // Upstream infers argument-wise here: `inferFromObjectTypes`
+            // (`inference.go`) admits two references whose targets differ when
+            // both are array-like, because a mutable array IS a readonly one
+            // and their single type argument occupies the same slot.
+            //
+            // This is not a niche shape. `readonly T[]` is how every modern lib
+            // signature spells an array parameter — `new Set(values)`,
+            // `Promise.all`, `Array.from`, `concat` — so a single missing pair
+            // made `new Set([0, 1, 2])` answer `any`. `compiler/setMethods` is
+            // 180 wrong lines against 37 right for exactly this reason.
+            let same_target = ts == ss || self.is_array_like_pair(ts, ss);
+            if same_target && ta.len() == sa.len() {
                 for (t, s) in ta.iter().zip(sa.iter()) {
                     self.infer_from_types_within(*s, *t, original, parameters, out, depth + 1);
                 }
@@ -1087,6 +1163,56 @@ impl Checker<'_, '_> {
                 && constituents
                     .iter()
                     .any(|&c| !parameters.contains(&c) && self.is_type_assignable_to(source, c))
+            {
+                return;
+            }
+            // `inferToMultipleTypes` (`inference.go:700`) strikes the target
+            // constituents the source already matches **before** anything
+            // reaches the naked type variable. `f1(1, "hello")` against
+            // `<T>(x: T, y: string | T) => T` is the case: `"hello"` matches
+            // the `string` constituent, so upstream infers nothing from that
+            // position and the answer is `1`
+            // (`baselines/reference/submodule/conformance/unionTypeInference.types:27`).
+            // Without this the naked `T` also collects `"hello"`, the two
+            // positions disagree and a right line becomes a gap — which is how
+            // the bar's second leg found it.
+            //
+            // `is_type_assignable_to` decides this over exactly the domain it
+            // is proved on — primitives, literals and unions of them
+            // (`crate::relater`) — and answers `false` between two object types
+            // rather than guessing, which is a refusal in the safe direction
+            // here: it leaves the position contributing a candidate, and a
+            // disagreeing candidate gaps.
+            //
+            // `never` and `any` are excluded as sources: both are assignable
+            // to everything, so they would strike every union position and
+            // contribute nothing anywhere. Upstream infers *from* them
+            // normally — `never` is a real candidate — and including them cost
+            // **84 converted lines** against the two the strike was added for,
+            // measured over the corpus pair.
+            let source_is_wildcard =
+                source == self.intrinsics.never || source == self.intrinsics.any;
+            // §787: the strike must skip every constituent that MENTIONS an
+            // inference parameter, not only one that IS one.
+            //
+            // `!parameters.contains(&c)` excludes a NAKED `T` and nothing else,
+            // so `readonly T[] | null` — the shape every lib collection
+            // constructor uses — was struck whole: `Array<number>` is
+            // assignable to `ReadonlyArray<T>`, the strike fired, and `T`
+            // collected no candidate at all. `new Set([0, 1, 2])` answered
+            // `Set<any>` through the `T = any` default.
+            //
+            // Upstream's `inferToMultipleTypes` (`inference.go:700`) cannot
+            // reach that state: its first pass matches constituents
+            // IDENTICALLY, and a constituent carrying an uninferred parameter
+            // is identical to nothing. Striking on assignability instead is
+            // this port's approximation, and it is sound only where the
+            // constituent is closed.
+            if !source_is_wildcard
+                && constituents.clone().into_iter().any(|c| {
+                    !self.type_mentions_parameter(c, parameters, 0)
+                        && self.is_type_assignable_to(source, c)
+                })
             {
                 return;
             }
