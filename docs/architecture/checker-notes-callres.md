@@ -5301,3 +5301,91 @@ lost conversions rather than new wrong lines. If a later measurement shows a
 JS case still printing `any` where the oracle wants `error`, this predicate is
 the first thing to narrow — to a `require(…)` CALL and a `module.exports` /
 `exports.x` ASSIGNMENT, rather than a bare name.
+
+## §785 — `Record<K, V>` with a primitive key carries an index signature
+
+### The gap, named in the module's own doc for a long time
+
+`index_signatures.rs`'s module doc has listed "index signatures on a **class**
+and on a mapped type" as unported. `Record<K, V>` is `{ [P in K]: V }`, a
+mapped type, so it has been in that gap the whole time.
+
+Upstream reaches the answer in `resolveMappedTypeMembers` (`checker.go`): it
+walks `getLowerBoundOfKeyType(constraintType)` and, for each key, either makes
+a PROPERTY (when the key is usable as a property name) or an **index info**
+(when it is not — which is exactly `string`, `number`, `symbol` and the pattern
+types).
+
+### Why the property road did not already cover it
+
+§45 special-cased `Record<string, V>` in `Checker::record_string_value`
+(`members.rs:315`), consulted from the PROPERTY access road. That was the right
+call for `r.k`, and it never fires for `m[i]` — an element access does not ask
+for a property by name. So a `Record` element access fell through
+`element_access_lookup` to `errorType`, printed `any`.
+
+Verified by probe against a control rather than assumed: in the lib-less
+harness, `interface R { [k: number]: string }` answers `string` for `m[i]`
+while `Record<number, string>` answers `error`. The plain index signature works;
+the mapped spelling does not.
+
+### The shape
+
+A sibling of `record_string_value` in `index_signatures.rs`, consulted from
+`get_index_infos_of_type` ahead of the `TypeData::Named` members road, keyed on
+`type_reference_targets` and the global `Record` symbol, restricted to
+`arguments[0] == string || arguments[0] == number`.
+
+Because it lands in `get_index_infos_of_type` rather than in the element-access
+road, it serves every consumer of index infos at once — element access, the
+apparent-type twin, and the relater.
+
+### Why `string` and `number` only
+
+`Record<"a" | "b", V>` must produce PROPERTIES. Handing back an index signature
+for it would make `r.c` answer `V` where upstream errors — a confident wrong
+answer in place of a missing one, which is the trade this project refuses
+everywhere. The restriction is upstream's own line: an index info is what you
+get for a key *not usable as a property name*.
+
+### The measurement
+
+```
+TOTAL 474243  right 436910  gap 7798  wrong 29535
+GAP->RIGHT:   74   objectSpreadRepeatedComplexity 59, controlFlowComputedPropertyNames 10, discriminantNarrowingCouldBeCircular 3
+WRONG->RIGHT: 126  compiler/temporal 116, controlFlowComputedPropertyNames 4, useBeforeDeclaration_destructuring 3
+```
+
+**+200, zero adverse of any kind**, +1 case, gradient 91.20% → 91.24%.
+
+Two things in that are worth reading rather than skimming:
+
+- **The `temporal` 116 is a prediction that held.** STATUS §4.-5 split that
+  case's 339 wrong lines and attributed **117** of them to the port answering
+  `any`. This arm converts 116 of them. That is the first time on this board a
+  cause-split predicted an arm's size before it was measured, and it is the
+  argument for splitting a case before pricing it.
+- **74 of the 200 are GAP→RIGHT, in cases that are not about `Record` at all**
+  (`objectSpreadRepeatedComplexity` 59). Index infos are consumed by the spread
+  and relater roads too, so an index signature that did not exist was failing
+  those independently. The arm is wider than its name.
+
+### The two risks, recorded before the run and settled by it
+
+1. *Relater movement.* `get_index_infos_of_type` is consulted by assignability,
+   so this could have moved relations adversely. It did not — zero R→W, zero
+   R→G.
+2. *The early return.* The arm returns ahead of the `TypeData::Named` members
+   road, which is safe only while a `Record` reference carries no members table
+   of its own. That holds **today** precisely because mapped-type member
+   resolution is unported. **If mapped members are ever ported, this early
+   return becomes a shadow and must move below the `Named` road.**
+
+### How we would know this is wrong
+
+The arm is keyed on the global `Record` symbol, so a corpus file declaring its
+own unrelated `Record` in global scope would get an index signature it should
+not have. Nothing in the measurement shows that, and the failure would be
+W→R-shaped noise rather than a regression, but it is the falsifier: the general
+fix is to port `resolveMappedTypeMembers` and delete both this and §45's
+`record_string_value`.

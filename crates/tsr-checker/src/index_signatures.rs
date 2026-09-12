@@ -133,6 +133,34 @@ impl<'a> Checker<'a, '_> {
         if let Some(infos) = self.object_literal_index_infos.get(&id) {
             return Some(infos.clone());
         }
+        // §785: the global `Record<K, V>` with a PRIMITIVE key carries an
+        // index signature `[k: K]: V`.
+        //
+        // `Record<K, V>` is `{ [P in K]: V }`, and upstream reaches this
+        // through `resolveMappedTypeMembers` (`checker.go`), which walks
+        // `getLowerBoundOfKeyType(constraintType)` and — for a key that is not
+        // usable as a property name, i.e. exactly `string`/`number`/`symbol` —
+        // creates an INDEX INFO rather than a property. Mapped-type member
+        // resolution is not ported (see this module's gap list above), so the
+        // one alias the corpus actually leans on is special-cased here, the
+        // same scoping decision §45 already made for the PROPERTY road in
+        // `Checker::record_string_value` — and this is the half that road
+        // could not cover, because `m[i]` never asks for a property.
+        //
+        // Head case `compiler/temporal`: four sites spelled
+        // `monthsByDays[zdt.daysInMonth]` over
+        // `Record<number, Temporal.ZonedDateTime[]>`, whose `any` cascades
+        // into the `Array<T>` members read off each one — 339 wrong lines in a
+        // case that is otherwise 6,258 RIGHT.
+        //
+        // Restricted to `string` and `number` on purpose. A literal-union key
+        // (`Record<"a" | "b", V>`) must produce PROPERTIES, not an index
+        // signature, and handing one back here would make `r.c` answer `V`
+        // where upstream errors — a confident wrong answer in place of a
+        // missing one.
+        if let Some(info) = self.record_index_info(id) {
+            return Some(vec![info]);
+        }
         let TypeData::Named { members: Some(owner), .. } = self.store.get(id).data else {
             return Some(Vec::new());
         };
@@ -357,6 +385,24 @@ impl<'a> Checker<'a, '_> {
     /// Upstream's `default` arm merges several applicable signatures into a
     /// synthetic `IndexInfo` over the intersection of their value types. That
     /// needs intersections, so two applicable signatures is a gap here.
+    /// The `Record<K, V>` index signature, for `K` exactly `string` or
+    /// `number`. §785 — see the call site in
+    /// [`Checker::get_index_infos_of_type`] for why this alias alone is
+    /// special-cased and why a literal-union key is excluded.
+    fn record_index_info(&mut self, receiver: TypeId) -> Option<IndexInfo> {
+        let (target, arguments) = self.type_reference_targets.get(&receiver)?.clone();
+        if arguments.len() != 2 {
+            return None;
+        }
+        let key = arguments[0];
+        if key != self.intrinsics.string && key != self.intrinsics.number {
+            return None;
+        }
+        let record = self.binder.global("Record")?;
+        (self.binder.merged_symbol(target) == self.binder.merged_symbol(record))
+            .then_some(IndexInfo { key, value: arguments[1] })
+    }
+
     pub(crate) fn get_applicable_index_info(
         &mut self,
         id: TypeId,
