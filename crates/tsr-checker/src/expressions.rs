@@ -2366,6 +2366,31 @@ impl Checker<'_, '_> {
             bump(&COUNTERS.new_callee_not_anonymous);
             return error;
         };
+        // §805: a CONSTRUCTOR TYPE NODE callee — `declare var C: new (tag: string) => L`
+        // — carries its construct signature on the TYPE, in `signature_types`
+        // (`function_types.rs` puts it there), not on a class symbol. The
+        // `CLASS` gate below declined it whole, so every `new C(…)` through an
+        // annotated constructor variable answered `errorType`.
+        //
+        // `conformance/localesObjectArgument` is 75 GAP lines of exactly this:
+        // `new Intl.Locale("en-US")`, where `Intl.Locale` is a VARIABLE typed
+        // `new (tag: …) => Intl.Locale` rather than a class or a constructor
+        // interface. The two roads either side of it were already ported — a
+        // class (below) and a constructor INTERFACE (`DateConstructor`, above)
+        // — and this third spelling had no arm.
+        //
+        // Non-generic, single-signature only: an overload set here needs the
+        // selection §788 built for the interface road, and a generic one needs
+        // inference. Both keep the gap.
+        if let Some(signatures) = self.signature_types.get(&callee_type).cloned()
+            && let [signature] = signatures.as_slice()
+            && signature.kind != crate::signatures::SignatureKind::Call
+            && signature.type_parameters.is_empty()
+            && signature.r#type != error
+        {
+            bump(&COUNTERS.new_resolved);
+            return signature.r#type;
+        }
         if !self.binder.symbols().get(symbol).flags.contains(SymbolFlags::CLASS) {
             // §298: `new f()` on a PLAIN FUNCTION — upstream reports TS7009
             // ("'new' expression, whose target lacks a construct signature,

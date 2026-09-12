@@ -6406,3 +6406,75 @@ rule every other multi-candidate position uses.
 `differing_positions_do_not_yet_union` asserts the half-answer. §800 showed why
 this is worth doing: when the combination rule lands, that test turns red and
 reports its own repair, where a prose note would not.
+
+## §805 — the third spelling of a constructible value, found by ranking GAPS
+
+### The gap
+
+```ts
+declare var C: new (tag: string) => L;
+new C("x");   // errorType
+```
+
+The `new` road reaches its callee's **symbol** and requires
+`SymbolFlags::CLASS`. A variable annotated with a constructor type carries its
+construct signature on the **type** — in `signature_types`, where
+`function_types.rs` puts it — and has no class symbol at all, so the gate
+declined it whole.
+
+### Two of the three spellings were already ported
+
+| spelling | road |
+|---|---|
+| `class C {}` | the CLASS branch, below this arm |
+| `interface DateConstructor { new (…): Date }` | the constructor-INTERFACE branch, above it (`bd tsr-4sa`) |
+| **`declare var C: new (…) => L`** | **had no arm** |
+
+`conformance/localesObjectArgument` is 75 GAP lines of the third:
+`new Intl.Locale("en-US")`, where `Intl.Locale` is a variable typed
+`new (tag: …) => Intl.Locale`. The two neighbouring roads were built separately,
+each for the case that surfaced it, and nothing had asked whether the set of
+spellings was covered.
+
+### Ranking GAPS is what surfaced it
+
+Every board in STATUS §4.-5 — case counts, shape census, edit distance — ranks
+**wrong** lines. These 75 were honest gaps, so none of those boards showed them
+at all, and the case had never appeared on any list this session.
+
+```
+awk -F'\t' '$2=="GAP"{split($1,a,":"); c[a[1]]++} END{for(k in c) print c[k],k}' \
+  target/verdict_baseline.tsv | sort -rn | head
+```
+
+is the whole instrument. **A board that ranks only one verdict hides the other
+one entirely**, and this session built four boards over wrong lines before
+running that line once.
+
+### The measurement
+
+```
+GAP->RIGHT:  122  localesObjectArgument 75, es2021LocalesObjectArgument 14,
+                  es2022LocalesObjectArgument 14
+WRONG->RIGHT: 71  genericCallWithFunctionTypedArguments2 24,
+                  genericCallWithConstructorTypedArguments5 10, witness 10
+```
+
+**+193, zero adverse** — the second-largest arm of the session, and the 71
+WRONG→RIGHT are cases that had nothing to do with `Intl`: a constructor-typed
+parameter reaching `new` inside a generic call resolves now too.
+
+### What stays refused
+
+Non-generic, single-signature only. An overload set here needs the selection
+§788 built for the interface road; a generic constructor type needs inference.
+`a_generic_constructor_type_still_declines` pins the second.
+
+### How we would know this is wrong
+
+The arm reads `signature_types` for the callee and takes a lone non-`Call`
+signature. If a type ever carries a construct signature there that upstream does
+NOT treat as constructible — an abstract constructor type is the candidate —
+this would answer where upstream errors. `SignatureKind::AbstractConstruct`
+exists and is not excluded here, deliberately: no corpus line distinguishes them
+today, and excluding it without a measurement would be guessing.
