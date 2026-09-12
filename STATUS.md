@@ -3015,6 +3015,44 @@ version of bare `any`.
 
 ## 5. Refused, with the number that refused it
 
+### §802 (2026-09-12) — unioning when there is no common supertype: −23, REFUSED
+
+§801 pinned a residue as an assertion: `f<T>(x: [T, T])` called with a
+`[number, string]` should infer `string | number` and this port answers
+`number`. The cause is `single_common_supertype` (`inference.rs:2682`) falling
+back to the **leftmost** candidate when no candidate is a supertype of all the
+others, where upstream's `getCovariantInference` falls to
+`getUnionType(baseCandidates, UnionReductionSubtype)`.
+
+Replacing that fallback with the union measured:
+
+```
+RIGHT->WRONG: 29  ⚠  defaultBestCommonTypesHaveDecls 4, promisePermutations 4,
+                     promisePermutations2 4, genericCallWithGenericSignatureArguments 4,
+                     genericCallWithNonSymmetricSubtypes 4, genericRestArgs 2, …
+WRONG->RIGHT:  6     inferentialTypingWithObjectLiteralProperties 6
+```
+
+**Net −23.** The leftmost fallback is not a placeholder; it is carrying the
+BEST-COMMON-TYPE family, and the case names say so —
+`defaultBestCommonTypesHaveDecls`, `genericCallWithNonSymmetricSubtypes`. On
+those upstream picks a single candidate, and the union prints a type it never
+prints.
+
+**So upstream's rule is narrower than "union whenever no candidate dominates".**
+`getUnionType` there runs under `UnionReductionSubtype`, which collapses a
+constituent that is a subtype of another — and this port's
+`get_union_type_unprinted` does no such reduction. The 6 conversions in
+`inferentialTypingWithObjectLiteralProperties` are the shape where reduction
+would have changed nothing; the 29 regressions are where it would have.
+
+**Prerequisite, named and checkable**: subtype reduction on union construction
+(`UnionReductionSubtype`). Until `get_union_type_unprinted` can drop a
+constituent that is a strict subtype of a sibling, the union fallback prints
+unreduced types and loses more than it wins. §801's
+`differing_positions_do_not_yet_union` stays pinned as the marker.
+
+
 ### §799 (2026-09-12) — the OBJECT half of §798: LANDED at +39 after four attempts, and attempt 3's ZERO WAS A STALE BUILD
 
 **This entry stood as a refusal for one commit and the refusal was wrong.** Kept
