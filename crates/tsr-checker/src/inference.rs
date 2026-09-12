@@ -782,6 +782,24 @@ impl Checker<'_, '_> {
             {
                 return decline;
             }
+            // §798: a `const` type parameter's inferred tuple is READONLY.
+            // `f(['a', ['b', 'c']])` on `<const T>(x: T)` records
+            // `readonly ["a", readonly ["b", "c"]]` for the call while the
+            // literal itself stays `["a", ["b", "c"]]` — upstream applies the
+            // readonly here, over the const type variable, not at
+            // `checkArrayLiteral`. §797 had it at the literal, which made the
+            // call lines right and the literal lines wrong; this moves it.
+            let candidate = match candidate {
+                Some(inferred)
+                    if signature
+                        .type_parameters
+                        .get(position)
+                        .is_some_and(|parameter| parameter.is_const) =>
+                {
+                    Some(self.readonly_tuple_image(inferred))
+                }
+                other => other,
+            };
             match candidate {
                 Some(inferred) if inferred != error => map.push((type_parameter, inferred)),
                 Some(_) => return decline,
@@ -1014,6 +1032,22 @@ impl Checker<'_, '_> {
         let second = self.binder.merged_symbol(second);
         let pair = [first, second];
         pair.contains(&array) && pair.contains(&readonly)
+    }
+
+    /// `id` with every tuple in it — itself and its elements, recursively —
+    /// re-minted readonly. §798.
+    ///
+    /// `getWidenedType` over a const type variable makes the inferred tuple
+    /// readonly ALL THE WAY DOWN: `f(['a', ['b', 'c']])` is
+    /// `readonly ["a", readonly ["b", "c"]]`. A non-tuple is returned
+    /// unchanged, which is what keeps `f("b")` at `"b"`.
+    fn readonly_tuple_image(&mut self, id: TypeId) -> TypeId {
+        let Some((elements, _)) = self.tuple_element_lists.get(&id).cloned() else {
+            return id;
+        };
+        let mapped: Vec<TypeId> =
+            elements.into_iter().map(|element| self.readonly_tuple_image(element)).collect();
+        self.create_tuple_type(mapped, true)
     }
 
     fn infer_from_types_within(

@@ -552,7 +552,16 @@ impl Checker<'_, '_> {
                 }
             }
             if clean {
-                return self.create_tuple_type(elements, true);
+                // §798: the `readonly` belongs at the INFERENCE site, not the
+                // literal, when the const context came from a `const` TYPE
+                // PARAMETER. Upstream records `['a', ['b', 'c']]` as
+                // `["a", ["b", "c"]]` — a tuple, NOT readonly — while the CALL
+                // is `readonly ["a", readonly ["b", "c"]]`; the readonly comes
+                // from the const type variable, not from `checkArrayLiteral`.
+                //
+                // An `as const` assertion is the other way round and keeps the
+                // readonly here, which is what `is_const_context` answers.
+                return self.create_tuple_type(elements, !const_argument);
             }
             return error;
         }

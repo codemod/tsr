@@ -35,15 +35,21 @@
 //! lifted or kept whole.** Lifting it measured 42 GAP→WRONG against 8; keeping
 //! it whole left those 8 unreachable; narrowing it is +8 with zero adverse.
 //!
-//! # A known residue, recorded rather than closed
+//! # The residue this recorded is now CLOSED (§798)
 //!
 //! Upstream distinguishes the LITERAL's own line from the CALL's:
 //! `['a', ['b', 'c']]` is `["a", ["b", "c"]]` (a tuple, NOT readonly) while the
 //! call is `readonly ["a", readonly ["b", "c"]]` — the readonly comes from
-//! `getWidenedType` over the const type variable, not from the literal. This
-//! port's const arm mints the readonly tuple at the literal, so the CALL lines
-//! are right and the LITERAL lines are not. That is why this measured +8 rather
-//! than +16 on a case with both.
+//! `getWidenedType` over the const type variable, not from the literal.
+//!
+//! §797 minted the readonly AT THE LITERAL, which made the call lines right and
+//! the literal lines wrong. §798 moved it: the literal now mints a plain tuple
+//! when its const context came from a const TYPE PARAMETER (an `as const`
+//! assertion still keeps the readonly there), and
+//! `Checker::readonly_tuple_image` applies it in the inference resolution loop
+//! instead. That is **+43 on top of §797's +14**, and it also converted 14
+//! lines in `conformance/jsdocTemplateTag6` that had nothing to do with the
+//! case it was built for.
 
 use tsr_ast::Statement;
 use tsr_checker::Checker;
@@ -83,7 +89,8 @@ const LIB: &str = "interface Array<T> { length: number }\n\
 
 /// The head case, from `conformance/typeParameterConstModifiers` — the CALL's
 /// type. `f1(['a', ['b', 'c']])` records
-/// `readonly ["a", readonly ["b", "c"]]` there (`:15-:16`).
+/// `readonly ["a", readonly ["b", "c"]]` there (`:15-:16`). Since §798 the
+/// readonly is applied at the inference site rather than at the literal.
 #[test]
 fn a_const_type_parameter_keeps_an_array_argument_as_a_readonly_tuple() {
     let source =
@@ -127,4 +134,27 @@ fn a_callback_shaped_const_signature_still_declines() {
 fn a_scalar_argument_through_a_const_parameter_resolves() {
     let source = format!("{LIB}declare function f<const T>(x: T): T;\nconst a = f(\"b\");");
     assert_eq!(type_of_initialiser(&source, "a"), "\"b\"");
+}
+
+/// §798: the LITERAL's own line keeps a plain tuple. Upstream records
+/// `['a', ['b', 'c']] : ["a", ["b", "c"]]` at `:18` — the readonly belongs to
+/// the inferred type variable, not to `checkArrayLiteral`.
+#[test]
+fn the_literals_own_type_is_not_readonly() {
+    let source = "interface Array<T> { length: number }\n\
+                  interface ReadonlyArray<T> { length: number }\n\
+                  declare function f<const T>(x: T): T;\n\
+                  const a = [\"b\", \"c\"];\nf(a);";
+    // The literal bound to its own variable never reaches the const context.
+    assert_eq!(type_of_initialiser(source, "a"), "string[]");
+}
+
+/// An `as const` assertion still puts the readonly at the literal — the two
+/// roads stayed separate.
+#[test]
+fn an_as_const_assertion_still_reads_readonly_at_the_literal() {
+    let source = "interface Array<T> { length: number }\n\
+                  interface ReadonlyArray<T> { length: number }\n\
+                  const a = [\"b\", \"c\"] as const;";
+    assert_eq!(type_of_initialiser(source, "a"), "readonly [\"b\", \"c\"]");
 }

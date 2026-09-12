@@ -6153,3 +6153,70 @@ carriers, without checking WHICH parameter it lands on. A signature with one
 both arguments. No corpus line shows it; the fix is to resolve the argument's
 own parameter, which `contextual_type_for_argument` already does for other
 questions.
+
+## §798 — the `readonly` belongs at the INFERENCE site, not the literal
+
+### The distinction upstream makes, and §797 did not
+
+```ts
+declare function f1<const T>(x: T): T;
+const x12 = f1(['a', ['b', 'c']]);
+>x12 : readonly ["a", readonly ["b", "c"]]     // the CALL
+>['a', ['b', 'c']] : ["a", ["b", "c"]]         // the LITERAL — no readonly
+```
+
+The `readonly` comes from `getWidenedType` over the **const type variable**, not
+from `checkArrayLiteral`. §797 minted it at the literal, which made every CALL
+line right and every LITERAL line wrong — and said so, as a recorded residue.
+
+### The move
+
+Two edits, which only work together:
+
+1. `array_literals.rs`'s const arm mints a **plain** tuple when the const
+   context came from a const TYPE PARAMETER (`create_tuple_type(elements,
+   !const_argument)`). An `as const` assertion is the other case and keeps the
+   readonly there — `is_const_context` answers that one, and the two roads stay
+   separate.
+2. `inference.rs`'s resolution loop applies `Checker::readonly_tuple_image` to a
+   candidate whose type parameter `is_const` — recursively, because the readonly
+   goes all the way down.
+
+Either alone is a regression: (1) without (2) drops the readonly from the call
+lines §797 had just won; (2) without (1) double-applies it.
+
+### The measurement
+
+```
+WRONG->RIGHT: 43  typeParameterConstModifiers 29, jsdocTemplateTag6 14
+```
+
+**+43, zero adverse**, on top of §797's +14 in the same case.
+
+**The 14 lines in `conformance/jsdocTemplateTag6` were not predicted.** That
+case is about JSDoc `@template` and has nothing to do with the shape this was
+built for; it benefits because its templates carry const-marked parameters and
+the same resolution loop serves them. Placing a rule at the site upstream places
+it at reaches callers this port had not enumerated — which is the argument for
+matching upstream's *location* and not only its *effect*.
+
+### Why §797 got it wrong, and why that was still the right order
+
+§797 had the readonly at the literal because that is where `as const` puts it,
+and the first measurement (+14, zero adverse) confirmed nothing was broken. The
+residue was visible only by reading the baseline's LITERAL lines next to its CALL
+lines — the corpus score cannot distinguish "right for the right reason" from
+"right for a reason that will not generalise".
+
+Landing §797 first was still correct: it was clean, it was measured, and it made
+the residue precise enough to fix in one step. **A clean arm with a recorded
+residue is a better intermediate state than an unbuilt correct one.**
+
+### How we would know this is wrong
+
+`readonly_tuple_image` rebuilds every nested tuple readonly, including one that
+arrived from somewhere other than the const literal — a tuple-typed variable
+passed through a const parameter is now re-minted readonly whether or not
+upstream would. No corpus line shows it, and upstream's `getWidenedType` over a
+const type variable does the same thing, but a case where a const parameter
+receives an already-readonly or explicitly-mutable tuple is where to look.
