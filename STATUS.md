@@ -1255,6 +1255,43 @@ The road is real but **diffuse — 226 cases averaging 8 lines each**, so it is 
 subsystem's worth of small fixes rather than an arm, and §784 was its one
 concentrated head. Recorded so the next session does not re-derive its size.
 
+#### §807 — the IIFE with a BARE parameter: §768's arm exists and NOTHING CALLS IT
+
+`conformance/contextuallyTypedIife` is 75 GAP lines and sits fifth on the gap
+board. §767 already sized the family it heads — *"an un-annotated PARAMETER
+became the gap board's second-largest root (1,059 lines / 249 cases) with
+`contextuallyTypedIife` at its head"*.
+
+**Isolated by probe to one shape.** Five variants, lib-less harness, reading the
+call's own type:
+
+| probe | answer |
+|---|---|
+| `const f = (j: string) => {}; f("build")` | `void` ✅ |
+| `const g = (j) => {}; g("build")` — bare param, NAMED callee | `void` ✅ |
+| `((j: string) => {})("build")` — annotated IIFE | `void` ✅ |
+| `(() => {})()` — no parameters | `void` ✅ |
+| **`((j) => {})("build")` — BARE param, IIFE** | **`error`** ❌ |
+
+So it is not IIFEs, not bare parameters, and not parenthesised callees — it is
+exactly their intersection.
+
+**And §768's arm is not the problem: nothing reaches it.** An `eprintln` at the
+entry of `contextual_type_for_parameter`'s IIFE branch prints **nothing** on this
+shape. The arm is correct — `immediately_invoked_call` climbs parenthesised
+callees explicitly (`contextual.rs:421`) — and the road that computes the bare
+parameter's type never asks it.
+
+That is a different defect from the one §768/§771/§795 have been extending. Those
+three built and refined the arm's *contents*; this is its *reachability* from the
+parameter-typing road when the function is a callee.
+
+**Not attempted.** Recorded because the probe ladder narrows a 1,059-line family
+to one intersection and one question — *what types a bare parameter when its
+function is a call's callee, and why does it not consult the contextual road?* —
+and because four sessions of work on this arm have been aimed at its body while
+the call never arrives.
+
 #### §805 — RANK THE GAPS TOO. Every board above ranks WRONG lines only
 
 Four boards were built over wrong lines this session — case counts, a shape
