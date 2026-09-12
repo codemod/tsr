@@ -231,8 +231,8 @@ impl Checker<'_, '_> {
     /// destructured literal is itself destructured); an annotation-driven
     /// tuple context does not — its element types, not the pattern, decide
     /// the inner shapes (`arrayLiterals2ES5`'s `[number[], string[]]`).
-    /// Whether `id` is a DIRECT call argument whose callee signature carries a
-    /// `const` type parameter. §797.
+    /// Whether `id` reaches a call argument whose callee signature carries a
+    /// `const` type parameter. §797, shared with the object road at §799.
     ///
     /// Direct only. An argument nested inside a CALLBACK
     /// (`test1(() => ['a'])`) needs const-ness to propagate across a function
@@ -242,7 +242,10 @@ impl Checker<'_, '_> {
     ///
     /// Guarded against re-entry: resolving the callee's signature checks the
     /// arguments, and an array-literal argument asks this question again.
-    fn array_literal_argument_of_const_type_parameter(&mut self, id: tsr_ast::NodeId) -> bool {
+    pub(crate) fn array_literal_argument_of_const_type_parameter(
+        &mut self,
+        id: tsr_ast::NodeId,
+    ) -> bool {
         // Climb the same carriers `is_const_context` climbs for `as const` —
         // nested array literals, parens, and object-literal property
         // assignments — because a const context reaches ALL the way down:

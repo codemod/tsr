@@ -1042,12 +1042,44 @@ impl Checker<'_, '_> {
     /// `readonly ["a", readonly ["b", "c"]]`. A non-tuple is returned
     /// unchanged, which is what keeps `f("b")` at `"b"`.
     fn readonly_tuple_image(&mut self, id: TypeId) -> TypeId {
-        let Some((elements, _)) = self.tuple_element_lists.get(&id).cloned() else {
+        if let Some((elements, _)) = self.tuple_element_lists.get(&id).cloned() {
+            let mapped: Vec<TypeId> =
+                elements.into_iter().map(|element| self.readonly_tuple_image(element)).collect();
+            return self.create_tuple_type(mapped, true);
+        }
+        // §799: the OBJECT arm. `f({ a: 1 })` on `<const T>(x: T)` is
+        // `{ readonly a: 1; }` — the same `getWidenedType` over the const type
+        // variable that makes a tuple readonly marks an object's members
+        // readonly.
+        //
+        // FLAT only. `Member::Property` carries its type as printed TEXT, so a
+        // nested object cannot be re-minted from here the way a nested tuple
+        // can (tuple elements are `TypeId`s). A member list carrying anything
+        // but properties — a signature, an index — declines whole rather than
+        // marking half of it.
+        let crate::types::TypeData::Named { members: Some(owner), .. } = self.store.get(id).data
+        else {
             return id;
         };
-        let mapped: Vec<TypeId> =
-            elements.into_iter().map(|element| self.readonly_tuple_image(element)).collect();
-        self.create_tuple_type(mapped, true)
+        let Some(members) = self.spread_members_of(id) else { return id };
+        if members.is_empty()
+            || !members
+                .iter()
+                .all(|member| matches!(member, crate::objects::Member::Property { .. }))
+        {
+            return id;
+        }
+        let readonly: Vec<crate::objects::Member> = members
+            .into_iter()
+            .map(|member| match member {
+                crate::objects::Member::Property { name, optional, printed, .. } => {
+                    crate::objects::Member::Property { name, optional, readonly: true, printed }
+                }
+                other => other,
+            })
+            .collect();
+        let text = crate::objects::render_object_type(&readonly);
+        self.store.new_named(crate::flags::TypeFlags::OBJECT, text, Some(owner))
     }
 
     fn infer_from_types_within(

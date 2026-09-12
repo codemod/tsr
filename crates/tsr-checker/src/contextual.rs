@@ -242,10 +242,7 @@ impl<'a> Checker<'a, '_> {
                 && let Some(operand) = spread.expression
             {
                 let operand_type = self.check_expression(operand);
-                let Some((elements, _)) = self.tuple_element_lists.get(&operand_type).cloned()
-                else {
-                    return None;
-                };
+                let (elements, _) = self.tuple_element_lists.get(&operand_type).cloned()?;
                 if parameters[index].dot_dot_dot_token.is_some() {
                     let tail: Vec<TypeId> = elements.into_iter().skip(index).collect();
                     return Some(self.create_tuple_type(tail, false));

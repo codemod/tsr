@@ -6220,3 +6220,67 @@ passed through a const parameter is now re-minted readonly whether or not
 upstream would. No corpus line shows it, and upstream's `getWidenedType` over a
 const type variable does the same thing, but a case where a const parameter
 receives an already-readonly or explicitly-mutable tuple is where to look.
+
+## §799 — the OBJECT half of the const road, and four attempts on one arm
+
+### The rule
+
+`f({ a: 1, b: 'x' })` on `<const T>(x: T)` is
+`{ readonly a: 1; readonly b: "x"; }` upstream — the same `getWidenedType` over
+a const type variable that §798 applied to tuples.
+
+### Four attempts, and what each one cost
+
+| attempt | change | result |
+|---|---|---|
+| 1 | reuse `const_context` on the object road | **−4** (readonly at the literal — the mistake §798 had just fixed for arrays) |
+| 2 | split into `const_parameter_context` + `regular_members` | **0** (literal right, call not readonly) |
+| 3 | build the object arm of `readonly_tuple_image` | **0** — *and this measurement was WRONG* |
+| 4 | both halves together | **+39, zero adverse** |
+
+**Attempt 3's zero was a stale build.** The arm and the split flag were both in
+the tree, the probe was run against a binary that predated one of them, and the
+entry written from it named a third blocker that does not exist. STATUS §5
+carried that wrong conclusion for one commit.
+
+**The lesson is narrow and mechanical**: when a measurement contradicts a probe
+that just passed, rebuild before theorising. Three of this session's findings
+came from trusting a zero (§793's incomplete chain, §796's inert half, §799's
+attempt 2) and one came from a zero that was simply false. The two are
+indistinguishable without a rebuild, and the rebuild is thirty seconds.
+
+### What landed
+
+- `objects.rs` gets `const_parameter_context` as a **second** flag.
+  `const_context` means *"readonly regular members"* at seven call sites and
+  only the regular-members half applies here; conflating them is attempt 1's −4.
+- `readonly_tuple_image` gets an object arm: `spread_members_of` → mark every
+  `Member::Property` readonly → `render_object_type` → re-mint on the same
+  members symbol.
+
+Flat only. `Member::Property` carries its type as printed TEXT, so a nested
+object cannot be re-minted the way a nested tuple can (tuple elements are
+`TypeId`s). A member list carrying a signature or an index declines whole rather
+than marking half of it.
+
+```
+WRONG->RIGHT: 39  typeParameterConstModifiers 19, jsdocTemplateTag6 17,
+                  typeParameterConstModifiersWithIntersection 3
+```
+
+**17 of the 39 are `jsdocTemplateTag6` again** — the same unenumerated caller
+§798 picked up, for the same reason: the rule sits where upstream puts it.
+
+### The residue, pinned in a test rather than described
+
+Upstream records `{ readonly a: 1; readonly b: "x"; }`; this port keeps the
+`readonly` and **widens the members**. The literal itself is right —
+`check_object_literal` retains `{ a: 1; }` — and the re-mint throws that away,
+because `spread_members_of` reads each member's type from the SYMBOL table
+(`get_type_of_symbol`, the declared and widened type) rather than from the
+literal's retained members.
+
+`an_object_argument_gets_the_readonly_at_the_call` asserts the half-answer **as
+it is**, with the cause in its doc comment. When the re-mint learns to carry the
+literal's members, that assertion is what changes — which is a more useful
+marker than a sentence in a notes file, because it fails when someone fixes it.

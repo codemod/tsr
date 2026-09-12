@@ -632,7 +632,17 @@ impl Checker<'_, '_> {
         // regular members — gated to literals with NO single-quoted string
         // member VALUE, because the value-spelling carriage is unbuilt and a
         // wrong quote is worse than the gap.
+        // §799: an OBJECT literal reaching a `const` type parameter's argument
+        // keeps its literal member types but is NOT readonly at the literal —
+        // §798's rule, on the object road. Kept as a SECOND flag rather than
+        // folded into `const_context`, which means "readonly regular members"
+        // at seven sites below and only the regular-members half applies here;
+        // conflating them measured 4 RIGHT→WRONG. The readonly is applied at
+        // the inference site by `Checker::readonly_tuple_image`'s object arm.
+        let const_parameter_context =
+            node.node_id.is_some_and(|id| self.array_literal_argument_of_const_type_parameter(id));
         let const_context = node.node_id.is_some_and(|id| self.is_const_context(id));
+        let regular_members = const_context || const_parameter_context;
         // §365: whether this literal IS a destructuring-assignment target —
         // upstream's `inDestructuringPattern := ast.IsAssignmentTarget(node)`
         // (checker.go:13155). A defaulted member in that position is OPTIONAL
@@ -1302,7 +1312,7 @@ impl Checker<'_, '_> {
                 // Const context first — upstream's own order in
                 // `checkExpressionForMutableLocation`: `isConstContext` wins
                 // before any contextual retention question is asked.
-                PropertyValue::Initializer(initializer) if const_context => {
+                PropertyValue::Initializer(initializer) if regular_members => {
                     let checked = self.check_expression(initializer);
                     self.get_regular_type_of_literal_type(checked)
                 }

@@ -158,3 +158,39 @@ fn an_as_const_assertion_still_reads_readonly_at_the_literal() {
                   const a = [\"b\", \"c\"] as const;";
     assert_eq!(type_of_initialiser(source, "a"), "readonly [\"b\", \"c\"]");
 }
+
+/// §799: an OBJECT literal argument of a `const` type parameter gets the
+/// `readonly` at the CALL, the same as a tuple does.
+///
+/// **A known half-answer, pinned as it is rather than as it should be.**
+/// Upstream records `{ readonly a: 1; readonly b: "x"; }`; this port keeps the
+/// `readonly` and WIDENS the members. The cause is in the re-mint:
+/// `readonly_tuple_image`'s object arm rebuilds through `spread_members_of`,
+/// which reads each member's type from the SYMBOL table
+/// (`get_type_of_symbol`) — the declared, widened type — not from the literal's
+/// own retained members. The literal itself is right (`check_object_literal`
+/// keeps `{ a: 1; }`); the re-mint throws that away.
+///
+/// It still converts 39 corpus lines, because on those the `readonly` is the
+/// whole difference. Pinning the half-answer keeps the residue visible: when
+/// the re-mint learns to carry the literal's members, this assertion is what
+/// should change.
+#[test]
+fn an_object_argument_gets_the_readonly_at_the_call() {
+    let source = "interface Array<T> { length: number }\n\
+                  interface ReadonlyArray<T> { length: number }\n\
+                  declare function f<const T>(x: T): T;\n\
+                  const a = f({ a: 1, b: \"x\" });";
+    assert_eq!(type_of_initialiser(source, "a"), "{ readonly a: number; readonly b: string; }");
+}
+
+/// The control: a plain type parameter widens the members and adds no
+/// `readonly`.
+#[test]
+fn a_plain_type_parameter_widens_object_members() {
+    let source = "interface Array<T> { length: number }\n\
+                  interface ReadonlyArray<T> { length: number }\n\
+                  declare function f<T>(x: T): T;\n\
+                  const a = f({ a: 1, b: \"x\" });";
+    assert_eq!(type_of_initialiser(source, "a"), "{ a: number; b: string; }");
+}
