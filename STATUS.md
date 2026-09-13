@@ -3222,6 +3222,48 @@ version of bare `any`.
 
 ## 5. Refused, with the number that refused it
 
+### §810 (2026-09-12) — the generator `TNext` slot from the lib DEFAULT: −255, REFUSED
+
+`signatures.rs`'s generator return type fills its third slot with a hardcoded
+`unknown` when there is no `next` type to aggregate. The oracle disagrees for
+ASYNC generators:
+
+```
+conformance/types.asyncGenerators.es2018.1   wants  AsyncGenerator<number, void, any>
+port (lib-less probe)                                AsyncGenerator<number, void, unknown>
+```
+
+and the real lib declares `AsyncGenerator<T = unknown, TReturn = any,
+TNext = any>` (`lib.es2018.asyncgenerator.d.ts:19`), so reading the type
+parameter's DEFAULT looked like the rule — and §511's cited fallback
+(`IterableIterator<number, void, unknown>`) looked compatible with it.
+
+**Measured at −255**: 266 RIGHT→WRONG against 11 WRONG→RIGHT
+(`emitter.asyncGenerators.objectLiteralMethods.es2015`/`es2018` 18 each,
+`generatorReturnTypeInference`/`NonStrict` 13 each, `privateNameStaticMethodAsync`
+11, …).
+
+**Why, and the part worth keeping**: `Generator` declares
+`TNext = any` too (`lib.es2015.generator.d.ts:19`) — *the same default* — and
+SYNC generators want `unknown` in the baselines. So the two differ in the oracle
+while their declarations agree, and the default is provably not what upstream
+reads.
+
+**Unexplained, and stated as such.** Upstream's `getGeneratorType` takes a
+`nextType` that falls back to `unknownType` for both kinds, which matches the
+sync answer and not the async one. Where the async `any` comes from is not
+established — `fillMissingTypeArguments` supplying the third slot from the
+default on a two-argument construction is the hypothesis, and it is a hypothesis,
+which is exactly what this session has learned not to write down as a
+prerequisite.
+
+**Do not re-attempt by reading defaults.** The 65 GAP lines in
+`types.asyncGenerators.es2018.1` are a separate question anyway: the lib-less
+probe already answers `AsyncGenerator<number, void, unknown>` there, so the
+corpus's `error` comes from something in the real-lib path this entry never
+reached.
+
+
 ### §802 (2026-09-12) — unioning when there is no common supertype: −23, REFUSED
 
 §801 pinned a residue as an assertion: `f<T>(x: [T, T])` called with a
