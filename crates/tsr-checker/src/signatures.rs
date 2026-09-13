@@ -3805,6 +3805,24 @@ impl<'a> Checker<'a, '_> {
         let unannotated = parts.parameters.iter().any(|parameter| parameter.r#type.is_none());
         if unannotated
             && !self.has_no_contextual_type(node)
+            // §809: an IMMEDIATELY INVOKED function is not in this guard's
+            // domain. The guard exists because an unannotated parameter under a
+            // CONTEXTUAL SIGNATURE may type confidently wrong when that
+            // signature does not materialise — the 37-G→W hazard its comment
+            // records. An IIFE's parameter types come from a different road
+            // entirely: §768 reads them off the ARGUMENTS of the call that
+            // invokes the function, and that road resolves.
+            //
+            // Verified rather than assumed: probing `((j) => {})("build")`,
+            // `get_type_of_symbol` on `j` answers `string` — correctly, through
+            // §768 — while this guard was answering `errorType` for the whole
+            // arrow above it. The parameter was right and the function it
+            // belongs to was refused.
+            //
+            // `conformance/contextuallyTypedIife` is 75 GAP lines of that, and
+            // §767 sized the un-annotated-parameter family it heads at 1,059
+            // lines / 249 cases.
+            && self.immediately_invoked_call(node).is_none()
             && !self.argument_context_is_any(node)
             && !self.argument_context_has_no_call_signature(node)
             // Iteration 4 arm (b), WIDENED by SS137: the gate lifts

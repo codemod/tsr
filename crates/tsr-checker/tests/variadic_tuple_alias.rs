@@ -52,11 +52,14 @@ fn type_of_annotation(source: &str) -> String {
     let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
     for statement in parsed.source_file.statements {
         let Statement::VariableStatement(node) = statement else { continue };
-        for declaration in node.declaration_list.map(|list| list.declarations).unwrap_or_default() {
-            let annotation = declaration.r#type.expect("an annotation");
-            let id = checker.get_type_from_type_node(annotation);
-            return checker.type_to_string(id);
-        }
+        let Some(declaration) =
+            node.declaration_list.and_then(|list| list.declarations.first().copied())
+        else {
+            continue;
+        };
+        let annotation = declaration.r#type.expect("an annotation");
+        let id = checker.get_type_from_type_node(annotation);
+        return checker.type_to_string(id);
     }
     panic!("the fixture must declare a variable");
 }

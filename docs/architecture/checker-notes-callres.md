@@ -6608,3 +6608,71 @@ that is recorded there.
 
 Two roads that looked like one question turned out to be two, and only one of
 them was this.
+
+## §809 — an IIFE is not in the contextual guard's domain
+
+### The guard, and what it was refusing
+
+`get_type_of_function_expression` (`signatures.rs:3806`) declines a function
+with an unannotated parameter when a contextual type exists and the contextual
+SIGNATURE does not materialise. Its comment records why: an arrow whose
+contextual signature answers `None` types standalone-`any`, measured at
+**37 GAP→WRONG**.
+
+**An IIFE is not that shape.** Its parameter types come from §768's road, which
+reads them off the ARGUMENTS of the call that invokes the function — a different
+mechanism entirely from a contextual signature.
+
+So the guard was refusing the *function* above parameters that were already
+correct. Probing `((j) => {})("build")`: `get_type_of_symbol` on `j` answers
+**`string`**, through §768, while the guard answered `errorType` for the arrow.
+
+One clause — `self.immediately_invoked_call(node).is_none()` — is the whole fix.
+
+### The measurement
+
+```
+GAP->RIGHT:   55  contextuallyTypedIife 44, emitDefaultParametersFunctionExpressionES6 4, …
+WRONG->RIGHT: 87  contextuallyTypedIifeStrict 45, restTuplesFromContextualTypes 32,
+                  controlFlowIIFE 4
+GAP->WRONG:   16 ⚠
+```
+
+**+142**, zero RIGHT→WRONG, zero RIGHT→GAP.
+
+The 16 GAP→WRONG are pre-existing gaps becoming visible now that the enclosing
+function resolves — a deferred `Omit<T, "kind">` where upstream resolves the
+member list (§776's mint, reached for the first time here) and dropped tuple
+element LABELS (`[number, name: string, …]` printing as `[number, string, …]`).
+Neither is this arm computing anything wrongly, and both are the gap→wrong
+direction §620 accepts for an arm that only fires where the road answered
+`error`.
+
+### Three entries to find one clause
+
+- **§807** isolated it to one intersection — bare parameter × IIFE — by probe
+  ladder, and traced that the contextual-parameter road was never entered.
+- **§808** found a *different* unreachability at that road (the PATTERN arm has
+  no symbol to reach it through), fixed it for **+37**, and recorded explicitly
+  that it did NOT fix this case.
+- **§809** is the actual one: the parameter road was fine all along for the
+  identifier spelling, and the refusal was one level up, in the function.
+
+**What located it was reading the guard that returns `error`** — not the two
+rounds of hand-placed `eprintln`s, which established only that a road was
+unreached, and not `traceone.rs`, which §807's first version recommended and
+which prints want/got rather than provenance.
+
+The transferable form: **when a probe shows a part resolving correctly and the
+whole still failing, the refusal is in the assembly, not the part.** §801 found
+the same shape from the other side — every subexpression right, the combination
+wrong — and §808 is the case where the part really was broken. All three needed
+the subexpression dump to tell them apart.
+
+### How we would know this is wrong
+
+The exemption trusts §768's road for every IIFE. Where that road declines — a
+spread argument mixed with plain ones, which §795 left refused — the parameter
+falls back to whatever `get_type_of_symbol` gives, and the function now resolves
+around it rather than gapping. No corpus line shows a wrong answer from that
+today; the 16 GAP→WRONG above are the population to watch if one appears.

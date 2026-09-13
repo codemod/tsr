@@ -409,7 +409,7 @@ impl<'a> Checker<'a, '_> {
     /// number of parentheses — `((function (x) { }))("!")` counts, which is
     /// what `contextuallyTypedIife`'s "Lots of Irritating Superfluous
     /// Parentheses" block is there to check.
-    fn immediately_invoked_call(&self, function: NodeId) -> Option<NodeId> {
+    pub(crate) fn immediately_invoked_call(&self, function: NodeId) -> Option<NodeId> {
         if !matches!(
             self.nodes.kind(function),
             tsr_ast::SyntaxKind::FunctionExpression | tsr_ast::SyntaxKind::ArrowFunction
