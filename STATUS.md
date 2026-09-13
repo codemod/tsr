@@ -3242,6 +3242,46 @@ version of bare `any`.
 
 ## 5. Refused, with the number that refused it
 
+### §811 (2026-09-12) — naming a type alias whose BODY does not compute: 64 R→W, REFUSED
+
+A type alias's own declaration line prints its name whatever the body is —
+`type F6 = ({ a: string }) => typeof string` records `>F6 : F6`
+(`renamingDestructuredPropertyInFunctionType2`). This port returns the body's
+`errorType` and the declaration gaps with it. Probed: `type F1 = { a: string }`
+answers `F1`, `type F2 = (a: string) => void` answers `F2`, and only an
+uncomputable body gaps.
+
+**Built as the §31/§35 pattern** — mint a named type carrying the alias's name,
+register it in `unresolved_types` so every consumer that asks *"is this a gap?"*
+still gets yes and only the PRINTED line changes.
+
+```
+GAP->RIGHT:  194   esNextWeakRefs_IterableWeakMap 31, mappedTypes1 23, correlatedUnions 18
+WRONG->RIGHT: 249  bigintWithLib 74, esNextWeakRefs_IterableWeakMap 19, …
+GAP->WRONG:  349 ⚠ inferTypesWithExtends1 39, readonlyFloat32ArrayAssignableWithFloat32Array 16, …
+RIGHT->WRONG:  64 ⚠ keyofAndIndexedAccessErrors 18, noUncheckedIndexedAccess 5, …
+```
+
+**443 converted against 413 adverse, and 64 of the adverse are RIGHT→WRONG.**
+Net +30 right lines is not the measurement that matters; the R→W is
+disqualifying on its own.
+
+**Why `unresolved_types` did not contain it.** The whole design rested on the
+mint staying a gap to every consumer. It does not: 349 GAP→WRONG and 64
+RIGHT→WRONG say the name reaches printing positions where the old `errorType`
+was being *used* rather than merely propagated — the alias's use sites now print
+a name for a type this port cannot compute, which is exactly the trade §4's rule
+forbids.
+
+**The finding worth keeping is the size.** This one mint moves **856 lines** in
+the two directions combined — far more than any arm this session landed. The
+alias-naming road is a high-leverage seam and a mis-aimed change there is
+expensive in both directions at once. A version that names the DECLARATION line
+only, without the minted type escaping into use sites, is the shape to try; this
+port has no way to type a declaration differently from its references today, and
+that is the prerequisite.
+
+
 ### §810 (2026-09-12) — the generator `TNext` slot from the lib DEFAULT: −255, REFUSED
 
 `signatures.rs`'s generator return type fills its third slot with a hardcoded
