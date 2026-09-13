@@ -1360,6 +1360,26 @@ arm (§805, +193). The gap board's current head:
 **A board that ranks one verdict hides the other entirely.** Same caution as
 every board here: these are populations, not conversions.
 
+**The head was then walked, and it is now all subsystem work or standing
+refusals** — recorded so the next session does not re-derive it. The board's
+cheap items were §805 (+193), §806 (+56), §808 (+37) and §809 (+142); what is
+left at the top resolves as:
+
+| gap | case | what it actually needs |
+|---:|---|---|
+| 144 | `correlatedUnions` | MAPPED TYPE members — `{ [P in K]: … }[K]` indexed and its members read; the subsystem `index_signatures.rs` names as unported |
+| 110 | `typeParameterConstModifiersReturnsAndYields` | const context across a FUNCTION BOUNDARY — §796/§797's measured blocker, 42 G→W if lifted naively |
+| 104 | `privacyLocalInternalReferenceImportWithExport` | §722's refused `import =` alias rename (−71: 130 R→W vs 59 W→R); its own cited regressions are this family |
+| 90 | `privacyFunctionParameterDeclFile` | same as above |
+| 69 | `isomorphicMappedTypeInference` | mapped types again |
+| 65 | `types.asyncGenerators.es2018.1` | §810's territory — and the lib-less probe already answers correctly there, so the corpus `error` is somewhere in the real-lib path that entry never reached |
+
+**So the gap board is not exhausted, but its top is no longer cheap.** The next
+thing worth doing on it is ranking by case *below* the head, or crossing it with
+the shape census the wrong-line boards use — neither of which this session did.
+
+
+
 #### §804 — TYPE-PARAMETER RENAMING at a shadowed site: 327 lines, one mechanism, rule identified
 
 Found by ranking wrong lines on edit distance rather than by case: the port is
