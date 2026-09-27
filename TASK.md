@@ -1147,3 +1147,46 @@ wrong 28,811 = 36,229 aligned non-right, so ~47% of it. Recent windows
 land +50..+140 per build. It is a real target and it is a lot of builds;
 finding 1 above says the addressable population is bigger than the gap
 boards show, which is the best news on this page.
+
+--- §816 ADDENDUM (same session) ---
+
+§816 LANDED: a concrete `keyof` prints its INDEX ORIGIN. +40 W->R, ZERO
+adverse. 438,014 -> 438,054, 91.47% -> 91.48%, cases 6,119 -> 6,120.
+
+THE LESSON WORTH INHERITING: the item was filed in §815 as "build a
+print-only mint". The census showed the port ALREADY COMPUTES THE RIGHT
+KEY SET (keyof Thing -> "a"|"b"|"c", keyof Object -> the correct seven,
+keyof JSX.IntrinsicElements -> the full tag list). Only the PRINT was
+wrong, and §730's own note had said so: "its 90 GAP->WRONG were the
+PRINTED form". Measure what the port answers before deciding what to
+build -- the difference here was a one-helper build instead of a
+subsystem.
+
+Leg 3 fired TWICE and both firings RAISED the net (+38 leaky -> +40
+fixed):
+  - checkJsObjectLiteralHasCheckedKeyof: upstream's ANONYMOUS object
+    type takes no origin. This port stores a JS object-literal type as
+    TypeData::Named with a STRUCTURAL TEXT, not as TypeData::Anonymous,
+    so the variant cannot tell them apart and a TEXT TEST has to. That
+    is a real wart -- the principled fix is for whoever mints that type
+    to say which it is.
+  - divideAndConquerIntersections: Omit<Update,"update_id">. Upstream's
+    origin gate DOES include t.alias != nil so reading the gate alone
+    licenses it -- but getIndexTypeEx routes a mapped type to
+    getIndexTypeForMappedType branches earlier and never reaches the
+    origin. No mapped types here to test for; the available signal is
+    "the keys came from evaluating an alias body".
+
+  => A BAR LEG PINNED TO A MECHANISM'S BOUNDARY CATCHES WHAT A LEG
+     PINNED TO A COUNT CANNOT. Neither defect was visible in the net.
+
+NEXT VEIN, sized but not probed: the NEAR-MISS lines, where one side's
+text contains the other's -- 1,165 (got inside want) + 1,163 (want
+inside got) = 2,328 lines. §816 came out of exactly this shape (the
+computation right, the print wrong) and it was the cheapest build of
+the session by a wide margin. Census these before reaching for a
+subsystem.
+
+SESSION TOTAL: 437,946 -> 438,054 (+108 lines, +4 cases), three
+commits: 68893173 (§812-§814), 26adcb3b (the §4.-5 correction),
+487fb387 (§816).
