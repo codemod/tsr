@@ -2776,6 +2776,34 @@ impl<'a> Checker<'a, '_> {
         self.binder.symbol_of(literal.node_id?)
     }
 
+    /// §823: the member table of the branch a CONDITIONAL alias body chooses
+    /// for `arguments`, if that branch is an object type with one.
+    ///
+    /// The companion of [`Checker::alias_body_literal_symbol`] for the one body
+    /// shape it declines. `evaluate_conditional_alias` already refuses every
+    /// case it cannot decide, so a `None` here keeps exactly today's answer.
+    fn conditional_alias_branch_literal_symbol(
+        &mut self,
+        symbol: SymbolId,
+        arguments: &[TypeId],
+    ) -> Option<SymbolId> {
+        if !self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS) {
+            return None;
+        }
+        let declaration = self.binder.symbols().get(symbol).declarations.first().copied()?;
+        let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration) else {
+            return None;
+        };
+        if !matches!(alias.r#type, Some(TypeNode::ConditionalTypeNode(_))) {
+            return None;
+        }
+        let evaluated = self.evaluate_conditional_alias(symbol, arguments)?;
+        match &self.store.get(evaluated).data {
+            crate::types::TypeData::Named { members: Some(members), .. } => Some(*members),
+            _ => None,
+        }
+    }
+
     /// `createTypeReference(target, typeArguments)` (`checker.go`).
     ///
     /// Interned on the `(target, arguments)` pair, which is what makes
@@ -2810,7 +2838,20 @@ impl<'a> Checker<'a, '_> {
         // TypeLiteral body mints the BODY's symbol — §46's admission, one
         // road lower, so `instantiate_type`'s arm-3 rebuilds keep their
         // members and `o2.merge` resolves like `o1.merge` did.
-        let member_symbol = self.alias_body_literal_symbol(symbol).unwrap_or(symbol);
+        // §823 (`checker-notes-deferred.md`): a CONDITIONAL body gets its
+        // member table from the branch its own arguments choose. §90's helper
+        // admits `alias.r#type` only when it IS a `TypeLiteralNode`, so
+        // `type Action<T, P> = P extends void ? … : { type: T, payload: P }`
+        // fell back to the alias symbol — whose member table is structurally
+        // empty — and every property access on `Action<…>` gapped. The probe's
+        // control proves the substitution seam itself is fine: the same access
+        // on a plain `type Plain<T, P> = { type: T, payload: P }` answers
+        // correctly, because that body IS a literal.
+        let mut member_symbol = self.alias_body_literal_symbol(symbol);
+        if member_symbol.is_none() {
+            member_symbol = self.conditional_alias_branch_literal_symbol(symbol, &arguments);
+        }
+        let member_symbol = member_symbol.unwrap_or(symbol);
         // `OBJECT` even when the target is a type alias, where upstream\'s
         // instantiated type carries the flags of the alias\'s *body*. The flags
         // are consulted by the arithmetic and `+` arms, and claiming

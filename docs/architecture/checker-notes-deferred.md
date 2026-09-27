@@ -860,3 +860,110 @@ members off. The probe that would settle it is one line — print what
 `Action<ActionType.Bar, number>`, and whether `type_reference_targets` holds the
 alias or its evaluated branch. **Not done**, and not to be guessed at again.
 
+
+---
+
+## §823 — a CONDITIONAL-bodied alias reference gets its members from the chosen branch
+
+§822's refutation said the residue belonged to the type-reference member road and
+named a one-line probe. **The probe was run first this time**
+(`crates/tsr-checker/tests/conditional_alias_members.rs`), and its control is
+what localises the defect:
+
+| fixture | `.payload` answers |
+|---|---|
+| `Plain<string, number>` where `type Plain<T, P> = { type: T, payload: P }` | **`number`** ✓ |
+| `Action<ActionType.Bar, number>` where `type Action<T, P> = P extends void ? … : { type: T, payload: P }` | **`error`** |
+
+So `bd tsr-4qx`'s member substitution is **not** the problem — it works perfectly
+on a plain generic alias. One line decides which:
+
+```rust
+// alias_body_literal_symbol, declared.rs
+let Some(TypeNode::TypeLiteralNode(literal)) = alias.r#type else { return None };
+```
+
+`create_type_reference_with_display` asks that helper for the member table an
+instantiated alias reference answers lookups from (`§90`/`§46`), and it admits a
+body that **is** a type literal and nothing else. A conditional body returns
+`None`, the reference falls back to the alias's own symbol, whose member table is
+structurally empty — and the access gaps.
+
+**The corpus answers `P` rather than `error` for the same shape**, which the probe
+also records: in `recursiveArrayNotCircular` the access goes through a *union* of
+these references narrowed by `switch (action.type)`, so the bare `P` arrives on
+the narrowed-union road. The direct reference declines outright. Two roads, one
+cause.
+
+### The design
+
+Where the body is a conditional, evaluate it over **the reference's own
+arguments** — which `create_type_reference_with_display` has in hand — and take
+the members symbol of the chosen branch. Substitution then proceeds exactly as it
+does for `Plain`, because `type_reference_targets` still records
+`(Action, [Bar, number])` and the branch's `payload: P` is substituted through it.
+
+This is the piece §822 guessed at and got wrong: the frame was never the issue,
+the *admission test* was.
+
+### The bar, registered before the code
+
+- **Leg 1 (primary).** `gained ≥ 5`, the named residue.
+- **Leg 2 (safety).** `RIGHT → WRONG ≤ 5`. A reference that used to gap now
+  answers, so consumers downstream of it change.
+- **Leg 3 (the mechanism's own check, independent of the corpus).** The probe test
+  must flip from `error` to `number`. If the corpus moves and the probe does not,
+  the gain is something else.
+- **Leg 4 (a PERFORMANCE falsifier, new for this build).** The corpus run must
+  finish in its usual time. This adds a conditional evaluation to
+  `create_type_reference_with_display`, which is hot, and
+  `recursiveArrayNotCircular` is *genuinely recursive* — `Action<ActionType.Batch,
+  ReducerAction[]>` where `ReducerAction` contains `Action<…>`. The
+  `instantiation_depth` guard should bound it; a hang means it does not, and that
+  is a failure rather than a slow pass.
+
+### §823's score — LANDED at a MEASURED ZERO, and the tests are the deliverable
+
+```
+right 438,193 → 438,193      no transitions vs baseline
+```
+
+| leg | bar | read | |
+|---|---|---|---|
+| 1 | gained ≥ 5 | **0** | **FIRED** |
+| 2 | RIGHT→WRONG ≤ 5 | 0 | PASS |
+| 3 | the probe flips `error` → `number` | **flipped, but only without the enum** | **FIRED, then explained** |
+| 4 | the run finishes in its usual time | yes | PASS — the depth guard bounds the recursion |
+
+**The mechanism is correct and the corpus does not reach it**, which is the §34 /
+`93b540a` precedent and is why this ships where §822 was reverted: there the
+mechanism was *wrong*. The difference is not a judgement call, it is a test —
+
+```
+Action<string, number>        → a.payload : number      ✓  §823 working
+Action<ActionType.Bar, number> → a.payload : error      ✗  blocker 1
+type Bar = Action<string, number>; a: Bar → a.payload : P   ✗  blocker 2
+```
+
+Leg 3 fired on the original probe and the diagnostic pair explains it: the enum
+argument, not the road. **Two blockers stand between §823 and the corpus, each
+now pinned by a named test**, and neither is what §821–§822 were looking for:
+
+1. **An enum member as a type argument does not resolve.**
+   `Action<ActionType.Bar, number>` answers `error` where
+   `Action<string, number>` answers `number`, so the difference is the *argument*.
+   `recursiveArrayNotCircular` — the case that motivated this whole block — uses
+   `Action<ActionType.Bar, …>` throughout, which is exactly why §823 gains
+   nothing there. **This is the next item on this road**, and it is a narrow one.
+2. **The alias-declared road hands back an UNINSTANTIATED branch.** Through an
+   intermediate alias the same reference answers bare `P`. That is
+   `in_alias_declared_position`'s road (`declared.rs:2143`) evaluating the
+   conditional and never substituting — and it is where the corpus's bare `P`/`T`
+   actually come from. A *different* defect from blocker 1, and from §822's guess.
+
+> **What this block cost and what it bought.** §821 landed +37. §822 was built on
+> a guess, measured zero, and was reverted. §823 was built on a *probe*, measures
+> zero too — but its probe converted a vague residue into **three localised facts
+> with a test each**, and the next session can act on any of them without
+> re-deriving anything. The lesson §822 paid for is already visible in the
+> difference between the two write-ups.
