@@ -783,3 +783,80 @@ those are different facts.
   unported. Gate it on the *substituted* check being a union or `never`.
 - The `check is any` sub-rule (`:24383-24386`, upstream unions both branches
   through `extraTypes`) remains declined and unported.
+
+---
+
+## §822 — the evaluated branch is INSTANTIATED, not just chosen: **BUILT, MEASURED AT ZERO, REVERTED, and the DIAGNOSIS IS REFUTED**
+
+§821's named residue, and the interesting part is that the explanation was wrong.
+`recursiveArrayNotCircular` reduces to four lines of source:
+
+```ts
+type Action<T, P> = P extends void ? { type: T } : { type: T, payload: P }
+type ReducerAction = Action<ActionType.Bar, number> | Action<ActionType.Baz, boolean> | …
+```
+
+§821 chooses the branch correctly — the check `P` *is* substituted, which is how
+it passes the guard and reaches the relation — but the answers come out bare:
+
+```
+want ActionType   got T          (action.type)
+want number       got P          (action.payload)
+want boolean      got P
+want string       got P
+```
+
+### The diagnosis, and the bar leg that killed it
+
+I argued this was the **frame**: `alias_evaluation_bindings` is a stack popped on
+exit, this port's object types carry `members: Option<SymbolId>` — a pointer at a
+symbol table resolved at the *access* site — and that access happens in
+`reducer`'s `switch`, long after the frame is gone. The fix followed: instantiate
+the chosen branch eagerly with `instantiate_type` while the bindings are in hand,
+the same idiom §136's default-fill uses twenty lines away.
+
+**Leg 3 required those 5 lines to convert, and the full run read `no transitions
+vs baseline` — literally zero, corpus-wide.** The leg was written as *"if they do
+not convert, the frame is not the cause and the diagnosis is wrong, not merely
+incomplete."* It is wrong.
+
+### Why — and this is the part worth keeping
+
+Two facts refute it, both checkable in seconds and neither checked before the
+code was written:
+
+1. **`mentions_type_parameter` is not blind through a members symbol.** It falls
+   back to a *text scan* of `type_to_string` (`inference.rs:2010`), and
+   `{ type: T; payload: P; }` contains both names, so `instantiate_type` would
+   have proceeded. The "laziness seam" story predicted a blindness that does not
+   exist.
+2. **The `P`/`T` answers do not come from this site at all.**
+   `evaluate_conditional_alias` is reached only `in_alias_declared_position`
+   (`declared.rs:2143`). The failing lines are *property accesses* on the union's
+   constituents, and those read `Action<ActionType.Bar, number>` as a **type
+   reference**, substituting through `type_reference_targets` on the `bd tsr-4qx`
+   member seam. §821 made those lines non-gap; it is not what answers them.
+
+So instantiating this function's result could not have moved them, and a full-run
+zero was the only possible outcome. **Reverted**: a 25-line no-op carrying a
+refuted explanation is worse than nothing, and the §34 / `93b540a` precedent for
+shipping a measured zero applies to a *correct* mechanism the corpus does not
+exercise, not to a wrong one.
+
+> **The transferable bit is the ordering.** Both refuting facts are one `grep`
+> each — read the function I claimed was blind, and find who actually calls the
+> function I was editing. I wrote 25 lines of code and a bar first. **When a
+> diagnosis names a mechanism, confirm the mechanism is on the path before
+> building on it**; a bar leg catches the error afterwards, which is what it did,
+> but the greps were cheaper than the build.
+
+### What the residue actually needs
+
+The 5 lines belong to the **type-reference member road**, not the conditional
+road: `Action<…>`'s members come from an alias whose body is a *conditional*, and
+`get_type_of_property_of_type`'s substitution has no evaluated body to read
+members off. The probe that would settle it is one line — print what
+`get_type_of_property_of_type` answers for `payload` on
+`Action<ActionType.Bar, number>`, and whether `type_reference_targets` holds the
+alias or its evaluated branch. **Not done**, and not to be guessed at again.
+
