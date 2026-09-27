@@ -7106,22 +7106,67 @@ impl Checker<'_, '_> {
     /// Keep only the constituents of `t` for which every bit of `facts` holds
     /// (`getTypeWithFacts`, `checker.go:31245`).
     pub(crate) fn get_type_with_facts(&mut self, t: TypeId, facts: TypeFacts) -> TypeId {
-        // §85 (`checker-notes-narrow.md`): `getAdjustedTypeWithFacts`' type-
-        // variable arm — a TYPE PARAMETER (or `unknown`) under a non-null
-        // fact narrows by INTERSECTION, not by filtering: `t != null` gives
-        // `T & {}`, `!== undefined` gives `T & ({} | null)`, `!== null`
-        // gives `T & ({} | undefined)`; `unknown` drops the `T &`
-        // (`unknownControlFlow`). Minted as named prints with a per-(t,
-        // spelling) cache — the intersection machinery refuses `{}`.
-        // The base is either a raw type variable or a §85 mint being
-        // REFINED (`T & ({} | null)` then `!== null` gives `T & {}`).
+        // §85 (`checker-notes-narrow.md`): `getAdjustedTypeWithFacts`'
+        // intersection road — a type variable (or `unknown`, or since §813 a
+        // deferred `keyof X` / `X[Y]` mint) under a non-null fact narrows by
+        // INTERSECTION rather than by filtering.
+        //
+        // §814 restores upstream's ORDER. `getAdjustedTypeWithFacts`
+        // (`checker.go:31159`) runs `getTypeWithFacts` FIRST and hands its
+        // result to `removeNullableByIntersection` (`:31179`), which maps over
+        // the *filtered* type's constituents. Folding both into one early
+        // return — as this port did from §85 until §814 — answers the
+        // intersection only when the operand is ALREADY free of its nullable,
+        // so the first narrowing of `T[K] | undefined` produced a bare `T[K]`
+        // and only a second identical guard produced `T[K] & ({} | null)`.
+        // Hence two attempts: once on the operand, once on what the filter left.
+        if let Some(minted) = self.non_null_mint(t, facts) {
+            return minted;
+        }
+        let filtered = self.filter_type(t, |checker, constituent| {
+            checker.get_type_facts(constituent).contains(facts)
+        });
+        // The second attempt is restricted to the DEFERRED mints. Measured on
+        // the stale-base rehearsal of this build: ungated it also reaches type
+        // parameters, gaining 2 (`typeVariableTypeGuards`, `unknownControlFlow`)
+        // and losing 2 (`indexedAccessConstraints:26` wants a bare `T` where the
+        // truthy arm spelled `NonNullable<T>`; `controlFlowGenericTypes:291`
+        // wants `T` where it spelled `T & ({} | null)`) — net zero for two
+        // regressed cases. Widening it to type parameters needs a measurement of
+        // when upstream's `mapType` declines, which is a separate item.
+        if filtered != t && self.deferred_index_mints.contains(&filtered) {
+            if let Some(minted) = self.non_null_mint(filtered, facts) {
+                return minted;
+            }
+        }
+        filtered
+    }
+
+    /// §85's `T & {}`-family mint: the answer `removeNullableByIntersection`
+    /// (`checker.go:31179`) gives for one operand and one fact set, or `None`
+    /// where upstream's filtering road is the right one.
+    ///
+    /// Minted as a **named print** with a per-`(base, spelling)` cache, because
+    /// this port's intersection machinery refuses `{}` as a constituent. The
+    /// base is either a raw type variable, a deferred §813 mint, or a §85 mint
+    /// being *refined* — `T & ({} | null)` under a further `!== null` combines
+    /// to `T & {}` through the `(base, kind)` reverse map.
+    fn non_null_mint(&mut self, t: TypeId, facts: TypeFacts) -> Option<TypeId> {
         let (base, prior) = match self.non_null_mint_bases.get(&t) {
             Some(&(base, prior)) => (base, Some(prior)),
             None => (t, None),
         };
         let flags = self.store.get(base).flags;
+        // §813: a DEFERRED `keyof X` / `X[Y]` mint joins the type variables
+        // here. Upstream's `removeNullableByIntersection` (`checker.go:31179`)
+        // gates on the operand's FACTS and on nothing else, so `T[K] | undefined`
+        // narrows to `T[K] & ({} | undefined)` exactly as `T | undefined` does;
+        // this port's `TYPE_PARAMETER | UNKNOWN` test was narrower than upstream,
+        // and the corpus asks for the wider one by name
+        // (`indexedAccessAndNullableNarrowing`).
+        let deferred_mint = self.deferred_index_mints.contains(&base);
         if self.strict_null_checks
-            && flags.intersects(TypeFlags::TYPE_PARAMETER | TypeFlags::UNKNOWN)
+            && (flags.intersects(TypeFlags::TYPE_PARAMETER | TypeFlags::UNKNOWN) || deferred_mint)
         {
             let asked = if facts.contains(TypeFacts::TRUTHY) {
                 // §85.1: TRUTHY spells the UTILITY — `u && u` prints the
@@ -7160,7 +7205,7 @@ impl Checker<'_, '_> {
                     (Some(prior), _) => prior,
                 };
                 if Some(combined) == prior {
-                    return t;
+                    return Some(t);
                 }
                 let text = if flags.intersects(TypeFlags::UNKNOWN) {
                     match combined {
@@ -7179,17 +7224,15 @@ impl Checker<'_, '_> {
                 };
                 let key = (base, text.clone());
                 if let Some(&cached) = self.non_null_type_variables.get(&key) {
-                    return cached;
+                    return Some(cached);
                 }
                 let minted = self.store.new_named(TypeFlags::OBJECT, text, None);
                 self.non_null_type_variables.insert(key, minted);
                 self.non_null_mint_bases.insert(minted, (base, combined));
-                return minted;
+                return Some(minted);
             }
         }
-        self.filter_type(t, |checker, constituent| {
-            checker.get_type_facts(constituent).contains(facts)
-        })
+        None
     }
 
     /// Keep the constituents of a union that satisfy `predicate`

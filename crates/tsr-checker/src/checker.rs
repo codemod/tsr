@@ -253,6 +253,23 @@ pub struct Checker<'a, 'n> {
     /// set that are GENERIC. `isGenericIndexType` needs that distinction and
     /// the printed text is not a sound way to recover it.
     pub(crate) deferred_keyof_types: rustc_hash::FxHashSet<TypeId>,
+    /// §813: the DEFERRED `keyof X` / `X[Y]` mints, as a set of their own.
+    ///
+    /// A subset of [`Self::unresolved_types`] rather than a new kind of type.
+    /// It exists because **one consumer must treat these like a type variable
+    /// and the rest must not**: `getAdjustedTypeWithFacts`
+    /// (`checker.go:31159`) narrows a possibly-nullable operand by
+    /// INTERSECTION, and `removeNullableByIntersection` (`:31179`) gates on
+    /// nothing but the operand's *facts* — a deferred `T[K]` is intersected
+    /// there exactly as `T` is, so `T[K] | undefined` narrows to
+    /// `T[K] & ({} | undefined)` and not to a bare `T[K]`.
+    ///
+    /// Distinct from [`Self::deferred_keyof_types`], which answers a different
+    /// question (*is this mint usable as a generic index?*, §786) and holds only
+    /// the `keyof` half. Testing `unresolved_types` instead would be too wide:
+    /// the §31 type-reference mint is in it too, and upstream has a real,
+    /// resolved type for `Foo<T>` whose facts it can actually read.
+    pub(crate) deferred_index_mints: rustc_hash::FxHashSet<TypeId>,
     /// A class symbol to its `this` type, upstream's `d.thisType`
     /// (`checker.go:17334`). One per class, so `this` has a stable identity
     /// inside one.
@@ -950,6 +967,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             literal_this_types: FxHashMap::default(),
             unresolved_types: rustc_hash::FxHashSet::default(),
             deferred_keyof_types: rustc_hash::FxHashSet::default(),
+            deferred_index_mints: rustc_hash::FxHashSet::default(),
             resolutions: Resolutions::new(),
             flow_analysis_disabled: false,
             flow_disabled_containers: rustc_hash::FxHashSet::default(),

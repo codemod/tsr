@@ -356,12 +356,18 @@ impl<'a> Checker<'a, '_> {
                 match deferred {
                     Some(operand) => {
                         let printed = format!("keyof {operand}");
-                        let id = self.store.new_named(TypeFlags::ANY, printed, None);
+                        // §812: OBJECT rather than ANY, for §36's recorded
+                        // reason one construct over — an ANY constituent
+                        // absorbs its whole union, so `keyof T | keyof U`
+                        // answered a bare `any`.
+                        let id = self.store.new_named(TypeFlags::OBJECT, printed, None);
                         self.unresolved_types.insert(id);
                         // §786: remember that THIS mint is a generic index, so
                         // `x[k]` where `k: keyof T` can defer rather than
                         // answer `any`.
                         self.deferred_keyof_types.insert(id);
+                        // §813: also a DEFERRED mint, for getAdjustedTypeWithFacts.
+                        self.deferred_index_mints.insert(id);
                         id
                     }
                     None => self.intrinsics.error,
@@ -628,8 +634,13 @@ impl<'a> Checker<'a, '_> {
                 match (object_text, deferred_index) {
                     (Some(object), Some(index)) => {
                         let printed = format!("{object}[{index}]");
-                        let id = self.store.new_named(TypeFlags::ANY, printed, None);
+                        // §812: OBJECT rather than ANY — see the `keyof` arm;
+                        // a deferred `T["params"] | undefined` loses its second
+                        // constituent to any-absorption otherwise.
+                        let id = self.store.new_named(TypeFlags::OBJECT, printed, None);
                         self.unresolved_types.insert(id);
+                        // §813: also a DEFERRED mint, for getAdjustedTypeWithFacts.
+                        self.deferred_index_mints.insert(id);
                         id
                     }
                     _ => self.intrinsics.error,
