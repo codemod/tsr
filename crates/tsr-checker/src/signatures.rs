@@ -3350,6 +3350,107 @@ impl<'a> Checker<'a, '_> {
                 }
                 Some(format!("{}<{}>", identifier.text, parts.join(", ")))
             }
+            // §825: an INDEXED ACCESS spells `T[K]` as written. A
+            // union/intersection/function object half would need parentheses the
+            // written form may or may not carry, so those decline — a `None` here
+            // costs nothing but today's computed print.
+            TypeNode::IndexedAccessTypeNode(access) => {
+                let object = access.object_type?;
+                if matches!(
+                    object,
+                    TypeNode::UnionTypeNode(_)
+                        | TypeNode::IntersectionTypeNode(_)
+                        | TypeNode::FunctionTypeNode(_)
+                        | TypeNode::ConstructorTypeNode(_)
+                ) {
+                    return None;
+                }
+                let object =
+                    Self::written_type_text_flags(object, single_quoted, array_headed, void_union)?;
+                let index = Self::written_type_text_flags(
+                    access.index_type?,
+                    single_quoted,
+                    array_headed,
+                    void_union,
+                )?;
+                Some(format!("{object}[{index}]"))
+            }
+            // §825: an INTERSECTION, needed by `keyof T & string` inside a mapped
+            // constraint. A union constituent parenthesises, as the array arm's
+            // precedent does.
+            TypeNode::IntersectionTypeNode(intersection) => {
+                let mut parts = Vec::with_capacity(intersection.types.len());
+                for constituent in intersection.types {
+                    let inner = Self::written_type_text_flags(
+                        *constituent,
+                        single_quoted,
+                        array_headed,
+                        void_union,
+                    )?;
+                    if matches!(constituent, TypeNode::UnionTypeNode(_)) {
+                        parts.push(format!("({inner})"));
+                    } else {
+                        parts.push(inner);
+                    }
+                }
+                (parts.len() > 1).then(|| parts.join(" & "))
+            }
+            // §825: a MAPPED TYPE spells as written —
+            // `{ [K in keyof T]: T[K]; }`. Both modifier tokens carry three
+            // spellings upstream and the corpus shows all of them:
+            // `-readonly [P in keyof T]: Awaited<T[P]>;`,
+            // `[x in K]?: Lower<T>[];`,
+            // `[P in keyof T & string as Capitalize<P>]: V;`.
+            //
+            // Every recursive call threads `single_quoted` and `array_headed`,
+            // because §77's admission gate IS those flags — a template holding a
+            // `'a'` literal or an `Array<…>` head that failed to set them would be
+            // a silent divergence rather than a miss.
+            TypeNode::MappedTypeNode(mapped) => {
+                let parameter = mapped.type_parameter?;
+                let name = parameter.name?.text;
+                let constraint = Self::written_type_text_flags(
+                    parameter.constraint?,
+                    single_quoted,
+                    array_headed,
+                    void_union,
+                )?;
+                let readonly = match mapped.readonly_token.map(|token| token.kind) {
+                    None => "",
+                    Some(SyntaxKind::ReadonlyKeyword) => "readonly ",
+                    Some(SyntaxKind::PlusToken) => "+readonly ",
+                    Some(SyntaxKind::MinusToken) => "-readonly ",
+                    Some(_) => return None,
+                };
+                let question = match mapped.question_token.map(|token| token.kind) {
+                    None => "",
+                    Some(SyntaxKind::QuestionToken) => "?",
+                    Some(SyntaxKind::PlusToken) => "+?",
+                    Some(SyntaxKind::MinusToken) => "-?",
+                    Some(_) => return None,
+                };
+                let remapped = match mapped.name_type {
+                    None => String::new(),
+                    Some(name_type) => {
+                        let text = Self::written_type_text_flags(
+                            name_type,
+                            single_quoted,
+                            array_headed,
+                            void_union,
+                        )?;
+                        format!(" as {text}")
+                    }
+                };
+                let template = Self::written_type_text_flags(
+                    mapped.r#type?,
+                    single_quoted,
+                    array_headed,
+                    void_union,
+                )?;
+                Some(format!(
+                    "{{ {readonly}[{name} in {constraint}{remapped}]{question}: {template}; }}"
+                ))
+            }
             TypeNode::ArrayTypeNode(array) => {
                 let element = array.element_type?;
                 let inner = Self::written_type_text_flags(

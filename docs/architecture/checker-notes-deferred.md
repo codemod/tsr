@@ -1060,3 +1060,121 @@ type comes from is worse than an empty space with a verified note in it.
 > the function entry — cost minutes between them, and would have prevented all
 > three cuts. **Instrument the path before widening anything on it.**
 
+
+---
+
+## §825 — mapped types in the bounded WRITTEN renderer
+
+§815's head 2, and the first build of this block chosen by **instrumenting the
+path before touching it** rather than after.
+
+### The population is not what the census first said
+
+A census of *"the want is a bare mapped type"* reads 125 lines, but almost every
+one of those texts continues past the closing brace:
+
+```
+{ [P in K]: TakeString; }) => void
+{ [K in keyof T]: T[K]; }) => T
+{ [K in keyof S]: Reducer<S[K]>; }) => Reducer<S>
+```
+
+The `) => void` tail is the tell: **these are mapped types as parameter
+annotations inside SIGNATURE prints**, not standalone type answers. 291 non-right
+lines contain a mapped clause somewhere; 125 have one at the head of the want.
+
+That relocates the build entirely — from `get_type_from_type_node` (where a
+mapped type has no arm and answers `errorType`) to
+`Checker::written_type_text_flags`, §77's bounded written renderer, which is what
+a signature print reuses.
+
+### Why this road is a materially safer bet than §822–§824's
+
+Those three built on a mechanism they had not shown was on the path, and produced
+five measured zeros between them. **This road is live by construction**: §77
+landed **+370 at zero adverse** through `written_type_text`, §108 added generic
+references to it and §730 added `keyof`. The question here is not *"is this
+function called"* but *"does it have the arms these texts need"* — and it does
+not.
+
+### Exactly three arms are missing
+
+Reading the existing match, `keyof` (§730), generic references (§108), arrays,
+unions, parentheses, literals and type literals are all present. The mapped texts
+above need three more:
+
+| arm | spelling |
+|---|---|
+| `MappedTypeNode` | `{ ` *readonly?* `[` *name* ` in ` *constraint* ( ` as ` *nameType* )? `]` *question?* `: ` *template* `; }` |
+| `IndexedAccessTypeNode` | `T[K]` |
+| `IntersectionTypeNode` | `A & B` — needed by `keyof T & string` |
+
+The two modifier tokens each have three spellings upstream, and the corpus shows
+all of them: `-readonly [P in keyof T]: Awaited<T[P]>;`, `[x in K]?: Lower<T>[];`,
+`[P in keyof T & string as Capitalize<P>]: V;`.
+
+### The bar, registered before the code
+
+- **Leg 1 (primary).** `gained ≥ 40` of the 291.
+- **Leg 2 (safety, and this is the real risk).** `RIGHT → WRONG ≤ 10`. Written
+  reuse **replaces** a computed print, so a wrong spelling turns a right line
+  wrong rather than merely failing to convert. Every new arm is a spelling claim.
+- **Leg 3 (the flag falsifier).** `single_quoted` and `array_headed` must be
+  threaded through **every** new recursive call. §77's whole gate is those flags;
+  a mapped template containing `'a'` or an `Array<…>` head that does not set them
+  is a silent divergence that no count would show. This is checked by reading, not
+  by the number.
+- **Leg 4.** `cases regressed ≤ 2`.
+
+**What would make me wrong about the design.** If leg 2 fires on the modifier
+spellings, the `+readonly` / `-?` forms are rarer than the corpus census suggests
+and should be declined rather than guessed — decline is free here, because a
+`None` from this renderer just keeps today's computed print.
+
+### §825's score — LANDED at +6, leg 1 fired at 6 against 40, and the direction is EXHAUSTED
+
+```
+right 438,193 → 438,199  (+6)     wrong 28,683 → 28,677     gap unchanged
+WRONG→RIGHT 6   |   RIGHT→WRONG 0   GAP→WRONG 0
+```
+
+| leg | bar | read | |
+|---|---|---|---|
+| 1 | gained ≥ 40 | **6** | **FIRED** |
+| 2 | RIGHT→WRONG ≤ 10 | **0** | PASS |
+| 3 | the flags threaded through every new call | yes, by reading | PASS |
+| 4 | cases regressed ≤ 2 | 0 | PASS |
+
+The three arms are correct — `declarationEmitMappedTypeDistributivityPreservesConstraints`
+(3), `indexedAccessTypeConstraints`, `invariantGenericErrorElaboration` — and they
+cost nothing. **The 291-line population is simply not behind them**, and the
+residue says what it is behind instead:
+
+```
+still failing with a mapped clause in the want   291 lines
+  we answer `error`   151     the checker computes nothing — gap work
+  we answer `any`     100
+  a partial signature  ~40
+```
+
+and the head of it is not a mapped-type problem at all — it is **lib overload
+sets**:
+
+```
+want  { <T>(values: Iterable<T | PromiseLike<T>>): Promise<Awaited<T>[]>;
+        <T extends readonly unknown[] | []>(values: T): Promise<{ -readonly [P in keyof T]: Awaited<T[P]>; }>; }
+got   any
+```
+
+That is `Promise.all`'s type. The mapped clause is incidental to it; what fails is
+**printing a multi-signature interface type**, and the `awaitedType` family alone
+accounts for the repeated rows. Rendering mapped types correctly cannot reach a
+line whose enclosing print is an overload set the port cannot render at all.
+
+> **The direction is exhausted, and that is the finding.** §815 filed mapped types
+> as head 2 on the strength of 291 lines. The print-side arm for them converts
+> **6**. The other 285 are two other subsystems — outright gaps (151) and
+> overload-set printing — and no amount of work on the mapped renderer moves them.
+> The population was real; the attribution to this mechanism was not, which is the
+> naming-prefix error one more time in a new costume: **a want containing a
+> construct is not a want blocked by that construct.**
