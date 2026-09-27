@@ -2257,3 +2257,58 @@ this arm's. The residue names the difference:
 does not: `typeof u === "string"` on an `unknown` already answers `string`. §830.2's
 *"fix the pair"* lesson does not apply when the pair is already correct — checking
 cost one test and saved a build. Both are pinned.
+
+---
+
+## §836 — the `() => any` row REFUSED at 237 : 3,063, before any code
+
+The largest unopened row of the corrected near-miss census, and it looked like the
+best-shaped item left: **69 lines / 27 cases, every single want identical** —
+`() => any` where the port answers `any`. Head `destructuringParameterProperties3`
+24, `witness` 9, `functionImplementations` 6.
+
+Reading the head case gives a coherent mechanism:
+
+```ts
+class C1<T, U, V> {
+    constructor(private k: T, private [a, b, c]: [T,U,V]) { … }
+    public getA() { return this.a }        // upstream: getA : () => any
+}
+```
+
+A parameter property with a **binding pattern** is an error upstream, so the
+members `a`/`b`/`c` do not exist, `this.a` is `any`, and `getA` is `() => any`. This
+port cannot build the signature at all and answers `any` for the whole method.
+
+So the candidate rule is: **a function whose return type cannot be computed still
+has a signature, with `any` as its return** — rather than collapsing to `any`.
+
+### The measurement that refuses it
+
+Over every non-right line where the port answers `any` and the want is a signature:
+
+```
+want's return is `any`   :    237     convertible by this rule
+want's return is real    :  3,063     would become WRONG lines
+                                      void 668, string 567, number 452,
+                                      boolean 72, unknown 34, this 32, …
+```
+
+**1 : 13 against.** The rule cannot distinguish "upstream also gave up here" from
+"upstream computed `string`" — and the thing that would tell them apart is the
+return type, which is exactly what is failing. Every refusal on this project's board
+sits at a better ratio than this: `tsr-6ph` at 2.1 and 2.5, qualified naming at 2.7,
+`removeSubtypes` at 1.03.
+
+This is ADR-0038's argument arriving with a number: claiming `any` where nothing was
+computed scores as right only on the lines where upstream also failed, and here those
+are 7% of the population.
+
+> **The row was refused for the cost of one `awk`, and the shape is what made it
+> look safe.** 69 lines with a *single identical want* reads as the most uniform
+> item on the board — and uniformity of the want is precisely what a want-shaped
+> census cannot distinguish from uniformity of the mechanism. The 69 are the subset
+> of 237 whose want happens to be nullary; nothing in the port can select them.
+>
+> **Five rows read this session, four buildable, one refused before it was built.**
+> That ratio is the method working, not failing.
