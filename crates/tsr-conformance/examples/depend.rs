@@ -655,6 +655,15 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
                 || (!wants_any && kind_label.contains("member NAME"))
             {
                 let reason = types_producer::gap_reason(&mut checker, bound, nodes, map, current);
+                // §829.1: `TSR_PROJECTION_CASES=1` names the cases behind the
+                // "the property TYPES; the projection fails" bucket, which the
+                // aggregate cannot — and which is what a diagnosing run needs to
+                // pick a fixture. A probe switch, not a board change.
+                if std::env::var("TSR_PROJECTION_CASES").is_ok()
+                    && reason.contains("the projection fails")
+                {
+                    eprintln!("PROJECTION\t{}\t{}", case.name, reason);
+                }
                 *report.access_reasons.entry(reason).or_default() += 1;
             }
             *report.root_cases.entry(key).or_default().entry(case.name.clone()).or_default() += 1;

@@ -1408,3 +1408,64 @@ receiver's target, its arguments, and the property's own type — to see *where*
 substitution is dropped. On this session's evidence that run should happen
 **before** any arm is written: five of this block's builds measured zero because a
 mechanism was assumed to be on a path it was not on.
+
+### §829.1 — where the 187 actually live, and the question that is now open
+
+`TSR_PROJECTION_CASES=1` names the cases behind the bucket, which the aggregate
+cannot. **193 lines across 21 cases**, and it is concentrated:
+
+```
+56  conformance/genericCallWithConstraintsTypeArgumentInference
+48  conformance/genericCallTypeArgumentInference
+13  compiler/genericClassWithStaticFactory
+12  compiler/recursiveTypeAliasWithSpreadConditionalReturnNotCircular
+11  conformance/genericClassWithFunctionTypedMemberArguments
+ 8  conformance/genericClassWithObjectTypeArgsAndConstraints
+    … 15 more
+```
+
+**104 of 193 sit in two cases, and both are named for generic-call type-argument
+inference.** Their failing lines say the same:
+
+```
+want Object                                    got unknown
+want number                                    got unknown
+want Base                                      got error
+want <U extends Derived2>(t: Base, u: U) => Base  got error / any
+```
+
+`want … got unknown` is §36's uninferred-parameter fallback firing where upstream
+*did* infer — so on these lines inference is what did not happen, and the property
+projection is downstream of it.
+
+### The open question, stated rather than answered
+
+Type-argument inference's remaining legs are **already refused, and well**:
+`checker-notes-infer2.md` §6–§7, priority lattice **11 converts / 1 wrong**,
+contravariant bucket **6 own-node lines** (and it needs `strictFunctionTypes`,
+which this port does not model), **~17 together**, measured as deltas over the
+shipped arm with at-risk **0** across 792 admitted right lines. That refusal is
+not stale in the way §821's primitive gate was — it was priced against controls,
+not against a superseded instrument.
+
+**So the question is whether these 193 lines ARE those refused legs, or a distinct
+projection defect that merely co-occurs in the same cases.** On this session's
+record I am not going to assert either. Two facts bear on it and they point
+different ways:
+
+- *For the same mechanism*: the cases are the inference cases, and `got unknown`
+  is the inference fallback.
+- *For a distinct one*: the refused legs were sized at ~17 conversions over the
+  whole corpus, and this bucket is 193 lines — an order of magnitude apart, which
+  is exactly the gap that appears when a row is mistaken for a mechanism **in
+  either direction**.
+
+**One instrumented run settles it**: inside `get_type_of_property_of_type` on a
+line from the 193, print the receiver's target, its type arguments, and the
+property's own type. If the arguments are absent or `unknown`, this is inference
+and the refusal governs. If they are present and correct and the projection still
+fails, it is a separate defect and the 193 is a real item.
+
+That run has not been done, and **writing an arm before it would be the sixth
+zero-measuring build of this block** — five of them happened for exactly that
+reason.
