@@ -60,6 +60,11 @@ fn last_expression_statement<'a>(statements: &[Statement<'a>]) -> Option<tsr_ast
             Statement::Block(block) => {
                 found = last_expression_statement(block.statements).or(found);
             }
+            Statement::IfStatement(node) => {
+                for branch in [node.then_statement, node.else_statement].into_iter().flatten() {
+                    found = last_expression_statement(std::slice::from_ref(&branch)).or(found);
+                }
+            }
             Statement::FunctionDeclaration(node) => {
                 if let Some(tsr_ast::FunctionBody::Block(block)) = node.body {
                     found = last_expression_statement(block.statements).or(found);
@@ -290,4 +295,23 @@ fn a_call_without_type_arguments_keeps_the_unknown_fill() {
     let source = "function f<A>(a: (x: A) => A): void { }\n\
          f(n => n);\n";
     assert_eq!(last_arrow_type(source), "(n: unknown) => unknown");
+}
+
+/// §835: `x === v` narrows an `unknown` — upstream's `flow.go:581-588`, an arm
+/// this port's equality road never had. `filter_type` cannot reach it, because a
+/// non-union `unknown` either survives whole or becomes `never`.
+#[test]
+fn equality_narrows_an_unknown_to_the_compared_value() {
+    let source = "declare const u: unknown;\nif (u === 1) { u; }\n";
+    assert_eq!(type_of_last_expression(source), "1");
+}
+
+/// §835's control: `typeof` narrowing of an `unknown` **already worked**, so the
+/// residue in `unknownType2` is neither this arm nor its typeof sibling. Probed
+/// before assuming a sibling fix was needed — §830.2's "fix the pair" lesson does
+/// not apply when the pair is already correct.
+#[test]
+fn typeof_already_narrows_an_unknown() {
+    let source = "declare const u: unknown;\nif (typeof u === \"string\") { u; }\n";
+    assert_eq!(type_of_last_expression(source), "string");
 }

@@ -2169,3 +2169,91 @@ checked, so the FIXING mapper never applies there at all.
 > (`typeArgumentInference.ts:51`) showed a third of it is not that subsystem, and
 > the fix was nine lines. **Four rows in a row dissolved when read; this one
 > dissolved into something buildable.**
+
+---
+
+## §835 — `x === v` narrows an `unknown`
+
+The largest unread piece of §834's 291-line population: `unknownType2` **42 lines**.
+Read rather than assumed, and it is not inference either.
+
+The failures want primitives and `object` where the port answers `unknown`, and the
+source says why (`unknownType2.ts:107-117`):
+
+```ts
+declare const u: unknown;
+if (u === NumberEnum)   { let enumObj: object = u; }      // wants object
+if (u === NumberEnum.A) { let a: NumberEnum.A = u; }      // wants NumberEnum.A
+if (u === StringEnum.B) { let b: StringEnum.B = u; }      // wants StringEnum.B
+```
+
+### Upstream's rule, and the arm this port does not have
+
+`narrowTypeByEquality` (`flow.go:580-588`):
+
+```go
+if assumeTrue {
+    if !doubleEquals && (t.flags&TypeFlagsUnknown != 0 || someType(t, c.IsEmptyAnonymousObjectType)) {
+        if valueType.flags&(TypeFlagsPrimitive|TypeFlagsNonPrimitive) != 0 || c.IsEmptyAnonymousObjectType(valueType) {
+            return valueType
+        }
+        if valueType.flags&TypeFlagsObject != 0 {
+            return c.nonPrimitiveType
+        }
+    }
+    …
+```
+
+So on an `unknown`, a `===` against a **primitive** value narrows to that value's
+type, and against an **object** value narrows to `object`. That is both wanted
+shapes: `u === NumberEnum.A` gives the enum literal, `u === NumberEnum` gives
+`object` because the enum *object* is an object type.
+
+`narrow_type_by_equality` (`flow.rs:6641`) has **no `UNKNOWN` arm at all** — it goes
+straight to the constituent walk, and `filter_type` on a non-union `unknown` leaves
+it whole. The port's `intrinsics.non_primitive` is already the `object` keyword's
+type (`declared.rs:163`), so both answers are expressible today.
+
+**Deliberately NOT ported**: the `IsEmptyAnonymousObjectType` half of the same
+condition — the `{}` receiver and the `{}` value. It is a second predicate this port
+has no equivalent of, and folding it in would make the measurement unreadable. The
+`unknown` half is the whole build.
+
+### The bar, registered before the code
+
+- **Leg 1 (primary).** `gained ≥ 25` of the 42.
+- **Leg 2 (safety).** `RIGHT → WRONG ≤ 5`. This adds a *narrowing* where there was
+  none, so anything downstream of an `unknown` reference in a true branch changes.
+- **Leg 3 (the control).** `assume_true == false` and `==` (double-equals) must be
+  untouched — the arm is gated on both, exactly as upstream gates it, and a
+  regression in the false branch would say the gate was dropped.
+- **Leg 4.** `cases regressed ≤ 2`.
+
+### §835's score — LANDED at +23, ZERO adverse; leg 1 fired by 2 and the residue says why
+
+```
+right 438,574 → 438,597  (+23)     wrong 28,387 → 28,364     gap unchanged
+WRONG→RIGHT 23   |   RIGHT→WRONG 0   GAP→WRONG 0        all in `unknownType2`
+```
+
+| leg | bar | read | |
+|---|---|---|---|
+| 1 | gained ≥ 25 | **23** | **FIRED by 2** |
+| 2 | RIGHT→WRONG ≤ 5 | **0** | PASS |
+| 3 | false branch / `==` untouched | 0 adverse | PASS |
+| 4 | cases regressed ≤ 2 | 0 | PASS |
+
+Leg 1 fired because the 42-line sizing was the *case's* `unknown` population, not
+this arm's. The residue names the difference:
+
+- `want true`, `got isTrue<true>` — a **conditional-type alias** left unevaluated,
+  §821's family, not narrowing.
+- `want string` / `boolean` / `number` / `object`, `got unknown` — the
+  `IsEmptyAnonymousObjectType` half of upstream's same condition, deliberately not
+  ported, plus forms this arm's gate excludes.
+- `want 'idk' : "idk" | "no" | "yes"` — a contextual literal union.
+
+**And the `typeof` sibling was probed before assuming it needed the same fix.** It
+does not: `typeof u === "string"` on an `unknown` already answers `string`. §830.2's
+*"fix the pair"* lesson does not apply when the pair is already correct — checking
+cost one test and saved a build. Both are pinned.

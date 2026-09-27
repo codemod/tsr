@@ -6706,6 +6706,33 @@ impl Checker<'_, '_> {
             {
                 return t;
             }
+            // §835: upstream's `unknown` arm (`flow.go:581-588`), which this
+            // road never had. On an `unknown`, `x === v` under assume-true
+            // narrows to **v's own type** when `v` is primitive or non-primitive,
+            // and to **`object`** when `v` is an object type — so
+            // `u === NumberEnum.A` gives the enum literal and `u === NumberEnum`
+            // gives `object`, because an enum OBJECT is an object type
+            // (`unknownType2`).
+            //
+            // `filter_type` cannot reach this: a non-union `unknown` either
+            // survives whole or becomes `never`, so the narrowing was a no-op.
+            //
+            // NOT ported, and stated rather than approximated: the
+            // `IsEmptyAnonymousObjectType` half of upstream's same condition (a
+            // `{}` receiver or value). That is a second predicate with no
+            // equivalent here, and folding it in would make this measurement
+            // unreadable.
+            if assume_true
+                && !double_equals
+                && self.store.get(t).flags.intersects(TypeFlags::UNKNOWN)
+            {
+                if value_flags.intersects(TypeFlags::PRIMITIVE | TypeFlags::NON_PRIMITIVE) {
+                    return value_type;
+                }
+                if value_flags.intersects(TypeFlags::OBJECT) {
+                    return self.intrinsics.non_primitive;
+                }
+            }
             // §52's contained leg: an alias-NAMED union declines — the
             // narrowed rebuild loses the alias spelling and the corpus
             // wants BOTH spellings for one member set by creation path
