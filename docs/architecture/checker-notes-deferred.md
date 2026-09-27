@@ -2399,3 +2399,59 @@ the same single line, `dynamicNames:21`, want `T1` against `typeof T1`:
 > `extends` chain of **classes**, nothing else. The second cut also shows why
 > re-measuring beats reasoning: "restrict to classes" was a plausible fix for the
 > wrong cause, and only the number said so.
+
+---
+
+## §838 — the `Promise<IPromise<…>>` row is OVERLOAD SELECTION, read and not built
+
+34 lines, 2 cases (`promisePermutations` 17, `promisePermutations3` 17), and the
+diff is one wrapper:
+
+```
+want  Promise<IPromise<number>>
+got   Promise<number>
+```
+
+The obvious reading is *"we unwrap a thenable upstream does not"*, and it is wrong.
+`getPromisedTypeOfPromiseEx` (`checker.go:28926`) **would** unwrap `IPromise`: it
+finds `then`, takes its candidates' first parameter, and reads that callback's first
+parameter. Nothing in it declines a user-defined thenable.
+
+The baseline's own context gives the real shape:
+
+```ts
+declare var s1: Promise<number>;
+declare function testFunction(): IPromise<number>;
+
+var s1a = s1.then(testFunction, testFunction, testFunction);
+//  upstream:  Promise<IPromise<number>>
+//  this port: Promise<number>
+```
+
+`Promise<T>` in that fixture declares **four** `then` overloads differing only in
+whether each callback returns `Promise<U>` or `U`:
+
+```ts
+then<U>(success?: (value: T) => Promise<U>, error?: (error: any) => Promise<U>, …): Promise<U>;
+then<U>(success?: (value: T) => Promise<U>, error?: (error: any) => U,          …): Promise<U>;
+then<U>(success?: (value: T) => U,          error?: (error: any) => Promise<U>, …): Promise<U>;
+then<U>(success?: (value: T) => U,          error?: (error: any) => U,          …): Promise<U>;
+```
+
+Upstream selects the fourth — `U = IPromise<number>`. This port selects one of the
+first three, matching `IPromise<number>` against `Promise<U>` structurally and
+inferring `U = number`. **No unwrapping happens anywhere; a different candidate
+wins.**
+
+### So the row belongs to overload selection
+
+`STATUS.md` §4.2 prices overload selection's own gates at ~460 reachable lines at
+**effort 5**, and the `undecidable pair` and `any` parameter gates there are two of
+this project's own measured refusals working as designed. This 34 is a piece of that,
+not a separate item, and there is nothing smaller inside it: the four candidates are
+structurally distinguishable only by whether `IPromise<U>` should count as a
+`Promise<U>`, which is the relation question the whole family turns on.
+
+> **Third row this session to dissolve into an existing subsystem** — after §833
+> (destructuring assignment) and §836's refusal. The reading cost four greps and no
+> code, which is the only reason it is cheap to have been wrong about.
