@@ -2027,3 +2027,44 @@ only supplies the corpus number.
 > method row is blocked on an unread upstream route; and this one is an unported
 > feature. **The shape of a want has now failed as a predictor four times out of
 > four** — which is the strongest form of this session's one finding.
+
+### §833.1 — `checkDestructuringAssignment` sized, and it corrects my own recommendation
+
+I named this subsystem as the one I would pick. Sized before starting it, which is
+the rule this page has been accumulating:
+
+```
+statement-level destructuring assignment appears in   144 of 12,444 cases
+those cases hold                                      6,175 right / 83 gap / 682 wrong
+                                                      765 non-right = a CEILING
+```
+
+**765 is a ceiling, not a sizing** — those 144 cases have contextual-typing,
+inference and printing defects like every other case, and this file's fourth rule
+says a population is not thereby attributed to a mechanism. The mechanism's own
+share is smaller, and §833's 36 lines are the only part measured to it.
+
+Two things follow, and the second is the point:
+
+1. A direct probe for the **assignment expression's own line** —
+   `^[({[].* = .* : ` over the wants — finds **3 non-right lines**, all in one case.
+   So the assignment expressions themselves are largely *not* what is failing; the
+   36 are the *targets inside* them.
+2. **At the observed 15–57% conversion band, 765 as a ceiling is +115 to +435.**
+   That is a real subsystem's worth of work for less than §830's single arm
+   returned (+214), and nowhere near the ~16,400 lines 95% needs.
+
+> **So the recommendation is withdrawn as stated.** `checkDestructuringAssignment`
+> is the best-*bounded* of the three remaining subsystems, which is not the same as
+> the highest-value, and I had been treating those as interchangeable.
+> Variadic-tuple and generic-call inference are both larger populations
+> (`variadicTuples1` 267 wrong lines, `strictBindCallApply1` 204, and
+> `genericCall*` was §830's own head at 104) — and both are refused with
+> *controlled* measurements, which is a different and weaker kind of obstacle than
+> "unported".
+>
+> **Whichever is chosen, the honest framing is that no single subsystem on this
+> board closes the gap**: the three together, converted at the top of the observed
+> band, are low four figures against a five-figure target. That is the measured
+> version of §4.4's standing conclusion, and it has now been re-derived from the
+> current base rather than inherited.
