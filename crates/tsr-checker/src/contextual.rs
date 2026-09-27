@@ -951,14 +951,34 @@ impl<'a> Checker<'a, '_> {
             let names: Vec<&str> = single.type_parameters.iter().map(|p| p.name.as_str()).collect();
             let unknown = self.intrinsics.unknown;
             let returned = single.r#type;
+            // §834: a WRITTEN type argument is not a fill. The `unknown` below is
+            // upstream's FIXING mapper, for a context with no inference
+            // candidates — but `someGenerics6<number>(n => n)` has `A` decided by
+            // the programmer, and upstream instantiates the signature from the
+            // written arguments before any argument is checked. So each position
+            // takes its written argument where one exists and `unknown` only
+            // where none does.
+            let written: Vec<TypeId> = call
+                .type_arguments
+                .iter()
+                .map(|argument| self.get_type_from_type_node(*argument))
+                .collect();
+            let error = self.intrinsics.error;
             let map: Vec<(TypeId, TypeId)> = type_parameter_ids
                 .iter()
                 .enumerate()
                 .filter(|&(position, &t)| {
-                    !(contextual_call
-                        && self.mentions_type_parameter(returned, &[t], &[names[position]]))
+                    // A written argument overrides the return-mapper guard: that
+                    // guard exists to keep an INFERRED parameter adopted, and
+                    // there is nothing to infer at a position the source fixed.
+                    written.get(position).is_some_and(|&a| a != error)
+                        || !(contextual_call
+                            && self.mentions_type_parameter(returned, &[t], &[names[position]]))
                 })
-                .map(|(_, &t)| (t, unknown))
+                .map(|(position, &t)| match written.get(position) {
+                    Some(&argument) if argument != error => (t, argument),
+                    _ => (t, unknown),
+                })
                 .collect();
             if map.is_empty() {
                 return Some(parameter_type);

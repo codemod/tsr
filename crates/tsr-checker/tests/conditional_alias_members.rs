@@ -71,6 +71,40 @@ fn last_expression_statement<'a>(statements: &[Statement<'a>]) -> Option<tsr_ast
     found
 }
 
+/// The type of the LAST arrow function in the source — §834's probe needs the
+/// arrow itself, not the statement around it.
+fn last_arrow_type(source: &str) -> String {
+    let arena = Arena::new();
+    let parsed = tsr_parser::parse(&arena, source);
+    assert!(parsed.diagnostics.is_empty(), "fixture must parse");
+    let bound = tsr_binder::bind(
+        &arena,
+        parsed.source_file,
+        &parsed.nodes,
+        tsr_binder::FileInfo { name: "test.ts", text: source },
+    );
+    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+    let options = tsr_core::CompilerOptions {
+        strict_null_checks: tsr_core::Tristate::True,
+        ..Default::default()
+    };
+    checker.apply_compiler_options(&options);
+    let mut last = None;
+    for raw in 0..u32::try_from(parsed.nodes.len()).expect("fits") {
+        let id = tsr_ast::NodeId::new(raw);
+        if parsed.nodes.kind(id) == tsr_ast::SyntaxKind::ArrowFunction {
+            last = Some(id);
+        }
+    }
+    let id = last.expect("the fixture must contain an arrow function");
+    let Some(node) = parsed.node_map.get(id) else { return "NO-NODE".to_string() };
+    let Ok(expression) = tsr_ast::Expression::try_from(node) else {
+        return "NOT-EXPRESSION".to_string();
+    };
+    let ty = checker.check_expression(expression);
+    checker.type_to_string(ty)
+}
+
 const ACTION: &str = "enum ActionType { Foo, Bar }\n\
      type Action<T, P> = P extends void ? { type: T } : { type: T, payload: P }\n";
 
@@ -232,4 +266,28 @@ fn an_optional_method_does_not_yet_carry_undefined() {
          declare const i: I;\n\
          i.f;\n";
     assert_eq!(type_of_last_expression(source), "() => void");
+}
+
+/// §834: an EXPLICITLY WRITTEN type argument reaches the contextually typed
+/// parameter. `f<number>(n => n)` answered `(n: unknown) => unknown` before —
+/// the FIXING mapper overwriting a type argument the programmer had already
+/// decided. +105 corpus lines at zero `RIGHT→WRONG`.
+#[test]
+fn a_written_type_argument_reaches_the_contextual_parameter() {
+    let source = "function f<A>(a: (x: A) => A): void { }\n\
+         f<number>(n => n);\n";
+    assert_eq!(last_arrow_type(source), "(n: number) => number");
+}
+
+/// §834's leg-3 control, and the reason the change is *informing* the fill rather
+/// than widening it: with **no** written type argument there is nothing to infer
+/// from and upstream's FIXING mapper still applies, so the answer stays `unknown`.
+///
+/// If this ever moves, §834 has become a guess about inference instead of a read
+/// of the written source.
+#[test]
+fn a_call_without_type_arguments_keeps_the_unknown_fill() {
+    let source = "function f<A>(a: (x: A) => A): void { }\n\
+         f(n => n);\n";
+    assert_eq!(last_arrow_type(source), "(n: unknown) => unknown");
 }

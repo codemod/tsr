@@ -2068,3 +2068,104 @@ Two things follow, and the second is the point:
 > band, are low four figures against a five-figure target. That is the measured
 > version of §4.4's standing conclusion, and it has now been re-derived from the
 > current base rather than inherited.
+
+---
+
+## §834 — a WRITTEN type argument reaches the contextual parameter
+
+The largest re-measurable population left, and it is **not** the refused inference
+legs — nothing is being inferred.
+
+```
+lines answering `unknown` where the want is a real type:  291 across 56 cases
+  unknownType2 42, typeArgumentInference 19,
+  typeArgumentInferenceWithConstraints 19, genericFunctionInference1 16,
+  genericCallWithConstraintsTypeArgumentInference 16, …
+top wants: number 89, string 40, {} 17, Base 16, string[] 10
+```
+
+Reading the head case's failing positions gives the shape in one line of source
+(`typeArgumentInference.ts:51`):
+
+```ts
+function someGenerics6<A>(a: (a: A) => A, b: (b: A) => A, c: (c: A) => A) { }
+someGenerics6<number>(n => n, n => n, n => n);     //  n is number
+```
+
+Probed directly: `f<number>(n => n)` answers **`(n: unknown) => unknown`** where
+upstream answers `(n: number) => number`.
+
+### Why the existing code is right about its own case and wrong about this one
+
+`contextual_type_for_argument_resolving` (`contextual.rs:930-962`) is upstream's
+**FIXING mapper**: a context consumed with no inference candidates fixes its type
+parameters to `unknown` (`getInferredType`'s final leg, `inference.go:1317`). Its
+comment states the intent exactly:
+
+> This road fires only when NO memo exists, i.e. no pass-1 candidates were
+> collected for this call, so the fill is total: `someGenerics6(n => n, …)` wants
+> `(n: unknown) => unknown`, not the adopted `(n: A) => A`.
+
+**That is correct — for the call with no type arguments.** `someGenerics6<number>(…)`
+is the same road with `A` *already decided by the programmer*, and the fill
+overwrites it with `unknown`. Upstream never infers there at all: written type
+arguments instantiate the signature before arguments are checked.
+
+So the map at `:954` should take a **written argument where one exists** and fall
+back to `unknown` only for the positions that have none.
+
+### The bar, registered before the code
+
+- **Leg 1 (primary).** `gained ≥ 40`. The 291 is the whole `unknown` population and
+  most of it is genuine inference; the written-type-argument share is the part this
+  can reach, and the two head cases hold 38 between them.
+- **Leg 2 (safety).** `RIGHT → WRONG ≤ 10`. The `unknown` fill is *load-bearing* —
+  `contextualTypingTwoInstancesOfSameTypeParameter` and
+  `genericContextualTypes1` are named in the code as depending on it, and the §134
+  return-mapper guard above it must keep working. This leg is the real question.
+- **Leg 3 (the control).** A call with **no** type arguments must be unchanged —
+  `someGenerics6(n => n, …)` must still answer `(n: unknown) => unknown`. If that
+  moves, the fill has been widened rather than informed.
+- **Leg 4.** `cases regressed ≤ 2`.
+
+### §834's score — LANDED at +105, all four legs pass, ZERO `RIGHT→WRONG`
+
+```
+right 438,469 → 438,574  (+105)    gap 7,286 → 7,282    wrong 28,488 → 28,387
+GAP→RIGHT 3   WRONG→RIGHT 102   |   RIGHT→WRONG 0   GAP→WRONG 1
+gradient 91.57% → 91.59%, cases 6,133 → 6,135
+```
+
+| leg | bar | read | |
+|---|---|---|---|
+| 1 | gained ≥ 40 | **105** | PASS |
+| 2 | RIGHT→WRONG ≤ 10 | **0** | PASS — the `unknown` fill's dependents are intact |
+| 3 | a call with no type arguments unchanged | pinned by test | PASS |
+| 4 | cases regressed ≤ 2 | 1 | PASS |
+
+`typeArgumentInference` 33, `typeArgumentInferenceWithConstraints` 33,
+`mismatchedExplicitTypeParameterAndArgumentType` 24 — and **leg 2 was the real
+question**, because the `unknown` fill is load-bearing for
+`contextualTypingTwoInstancesOfSameTypeParameter` and `genericContextualTypes1`.
+Zero right lines moved, which says the change *informs* the fill rather than
+widening it: a position with a written argument takes it, every other position
+still fixes to `unknown`. The control test pins exactly that.
+
+The single `GAP→WRONG` is `importTypeGenericArrowTypeParenthesized:1:24`, one line,
+unowned.
+
+### Why this was reachable when the inference refusal was not
+
+The 291-line `unknown` population reads as *"inference failed"*, and inference's
+remaining legs are refused at ~17 conversions with controls — a refusal §832.2's
+sibling reasoning would have honoured. **But nothing is being inferred on these
+lines.** `someGenerics6<number>(n => n)` has `A` decided by the programmer, and
+upstream instantiates from written type arguments *before* any argument is
+checked, so the FIXING mapper never applies there at all.
+
+> **This is the session's finding in its cleanest form.** The population was named
+> by the shape of its answer — `got unknown` — and that shape pointed at a
+> subsystem which is correctly refused. One read of the head case's source
+> (`typeArgumentInference.ts:51`) showed a third of it is not that subsystem, and
+> the fix was nine lines. **Four rows in a row dissolved when read; this one
+> dissolved into something buildable.**
