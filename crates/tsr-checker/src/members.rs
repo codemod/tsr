@@ -1027,7 +1027,12 @@ impl Checker<'_, '_> {
         }
         if let Some(property) = self.get_property_of_type(id, name) {
             let declared = self.get_type_of_symbol(property);
-            let instantiated = self.instantiate_for_reference(id, declared);
+            // §830: a GENERIC member keeps its own type parameters through the
+            // reference's substitution.
+            let shadowed = self.member_own_type_parameter_names(property);
+            let shadowed_refs = shadowed.iter().map(String::as_str).collect::<Vec<_>>();
+            let instantiated =
+                self.instantiate_for_reference_shadowed(id, declared, &shadowed_refs);
             // §92: a property the symbol road FINDS but cannot type may
             // still answer through the shape road (chain1's low reads — the
             // alias symbol's table hands back a symbol whose declared type
@@ -1266,6 +1271,29 @@ impl Checker<'_, '_> {
         receiver: TypeId,
         declared: TypeId,
     ) -> TypeId {
+        self.instantiate_for_reference_shadowed(receiver, declared, &[])
+    }
+
+    /// [`Self::instantiate_for_reference`] with the member's OWN type parameter
+    /// names excluded from the substitution — §830.
+    ///
+    /// A generic member of a generic class has two sets of parameters and only
+    /// the class's are bound by the reference. `C<Base, Derived>`'s `foo4<U
+    /// extends Derived2>(t: T, u: U) => T` must answer
+    /// `<U extends Derived2>(t: Base, u: U) => Base`: the class's `T` substitutes,
+    /// **`foo4`'s own `U` shadows the class's `U` and must survive**.
+    ///
+    /// Upstream never meets this because it instantiates the *symbol*
+    /// (`instantiateSymbol`, `checker.go:19676`) and a signature's own parameters
+    /// are not in the class's mapper. Here the substitution is name-based —
+    /// `mentions_type_parameter` falls back to a text scan — so a shadowing name
+    /// is substituted anyway unless it is removed, which is what `shadowed` does.
+    pub(crate) fn instantiate_for_reference_shadowed(
+        &mut self,
+        receiver: TypeId,
+        declared: TypeId,
+        shadowed: &[&str],
+    ) -> TypeId {
         let Some((symbol, arguments)) = self.type_reference_targets.get(&receiver).cloned() else {
             return declared;
         };
@@ -1276,10 +1304,43 @@ impl Checker<'_, '_> {
         if parameters.len() != arguments.len() {
             return error;
         }
-        let names = parameters.iter().map(|(_, name)| name.as_str()).collect::<Vec<_>>();
-        let types = parameters.iter().map(|&(id, _)| id).collect::<Vec<_>>();
-        let map = types.iter().copied().zip(arguments).collect::<Vec<_>>();
+        // The arity check is over the FULL lists, because it is a statement about
+        // the reference; the shadowed names are dropped only from the map.
+        let mut names: Vec<&str> = Vec::new();
+        let mut types: Vec<TypeId> = Vec::new();
+        let mut map: Vec<(TypeId, TypeId)> = Vec::new();
+        for (index, (parameter, name)) in parameters.iter().enumerate() {
+            if shadowed.contains(&name.as_str()) {
+                continue;
+            }
+            names.push(name.as_str());
+            types.push(*parameter);
+            map.push((*parameter, arguments[index]));
+        }
+        // Every class parameter shadowed: nothing of the reference reaches this
+        // member, and `declared` is already the answer.
+        if map.is_empty() {
+            return declared;
+        }
         self.instantiate_type(declared, &map, &types, &names)
+    }
+
+    /// §830: the names of a property's OWN type parameters, which shadow any
+    /// same-named parameter of the class the property is reached through.
+    fn member_own_type_parameter_names(&self, property: SymbolId) -> Vec<String> {
+        let Some(declaration) = self.binder.symbols().get(property).declarations.first().copied()
+        else {
+            return Vec::new();
+        };
+        let parameters = match self.node_map.get(declaration) {
+            Some(Node::MethodDeclaration(method)) => method.type_parameters,
+            Some(Node::MethodSignatureDeclaration(method)) => method.type_parameters,
+            _ => return Vec::new(),
+        };
+        parameters
+            .iter()
+            .filter_map(|parameter| parameter.name.map(|name| name.text.to_string()))
+            .collect()
     }
 
     /// Ported from `Checker.getPropertyOfTypeEx` (`checker.go:18899`) through

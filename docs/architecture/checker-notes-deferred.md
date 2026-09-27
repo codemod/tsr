@@ -1514,3 +1514,130 @@ overturned a written conclusion.
 
 The probe stays, env-gated, beside `TSR_DEBUG_2454` and `TSR_JOIN_DEBUG` — the
 port's existing idiom for exactly this.
+
+---
+
+## §830 — a generic member projected through an instantiated reference keeps its OWN type parameters
+
+### §829.2's evidence was wrong, and the corrected trace is sharper
+
+§829.2 traced `TSR_PROJ_TRACE=foo` and concluded *"the inputs are present and the
+projection fails"*. **`foo` is RIGHT.** `c.foo : (t: Base, u: Derived) => Base`
+matches the baseline exactly, so I traced a *working* line and generalised from it.
+The conclusion (*the 193 is real, not the refused inference legs*) survives; the
+evidence for it did not, and the corrected trace names a much more specific
+mechanism.
+
+Tracing the methods that actually fail:
+
+```
+PROJ `foo`  on `C<Base, Derived>`: property_own_type = "(t: T, u: U) => T"                              ✓ RIGHT
+PROJ `foo3` on `C<Base, Derived>`: property_own_type = "<T extends Derived>(t: T, u: U) => T"           ✗
+PROJ `foo4` on `C<Base, Derived>`: property_own_type = "<U extends Derived2>(t: T, u: U) => T"          ✗
+PROJ `foo5` on `C<Base, Derived>`: property_own_type = "<T extends Derived, U extends Derived2>(…)"     ✗
+```
+
+The split is **exactly** whether the member has its own type parameters:
+
+| member | own params | corpus wants | port |
+|---|---|---|---|
+| `foo(t: T, u: U)` | none | `(t: Base, u: Derived) => Base` | ✓ |
+| `foo4<U extends Derived2>(t: T, u: U)` | `U` shadows the class's `U` | `<U extends Derived2>(t: Base, u: U) => Base` | `error` / `any` |
+| `foo5<T extends Derived, U extends Derived2>` | both shadow | as written | `error` / `any` |
+
+### The defect, in one function
+
+`instantiate_for_reference` (`members.rs`) builds its map from the **class's**
+parameters to the reference's arguments and substitutes:
+
+```rust
+let names  = parameters.iter().map(|(_, name)| name.as_str()).collect::<Vec<_>>();
+let types  = parameters.iter().map(|&(id, _)| id).collect::<Vec<_>>();
+let map    = types.iter().copied().zip(arguments).collect::<Vec<_>>();
+self.instantiate_type(declared, &map, &types, &names)
+```
+
+For `foo4` that map says `U → Derived`, and **`foo4`'s own `U` is a different `U`**.
+Upstream never has this problem because it instantiates the *symbol*
+(`instantiateSymbol`, `checker.go:19676`) and a generic signature's own parameters
+are not in the class's mapper. Here the substitution is name-based —
+`mentions_type_parameter` falls back to a text scan — so a shadowing name is
+substituted anyway.
+
+**The member's own type parameters must be removed from the map.** The caller at
+`members.rs:1028` already holds the property symbol, so the shadowed names are one
+declaration read away.
+
+### The bar, registered before the code
+
+- **Leg 1 (primary).** `gained ≥ 40` of the 193; the two head cases hold 104.
+- **Leg 2 (safety).** `RIGHT → WRONG ≤ 10`. These lines answer `error`/`any` today,
+  so converting them is mostly gap→right — but a generic signature that now prints
+  must print its parameter list and constraints exactly, and a wrong spelling is a
+  wrong line.
+- **Leg 3 (the control that says plain projection is intact).** `c.foo`,
+  `c.foo2`, `i.foo` and the other **non-generic** members must stay RIGHT. They are
+  what proves the change is confined to the shadowing case.
+- **Leg 4.** `cases regressed ≤ 2`.
+
+**What would make me wrong about the design.** If leg 2 fires on the constraint
+spellings (`<T extends Derived>`), the printing of a preserved parameter list is a
+separate arm from the substitution and should be declined until it is measured on
+its own — the substitution can be correct while the render is not.
+
+### §830's score — LANDED at +214, all four legs pass, ZERO `RIGHT→WRONG`
+
+```
+right 438,199 → 438,413  (+214)    gap 7,367 → 7,286    wrong 28,677 → 28,544
+GAP→RIGHT 68   WRONG→RIGHT 146   |   RIGHT→WRONG 0   GAP→WRONG 13
+gradient 91.51% → 91.55%, cases 6,130 → 6,133
+```
+
+| leg | bar | read | |
+|---|---|---|---|
+| 1 | gained ≥ 40 | **214** — 111% of the sized 193 | PASS |
+| 2 | RIGHT→WRONG ≤ 10 | **0** | PASS |
+| 3 | non-generic members stay RIGHT | **0 R→W anywhere** | PASS |
+| 4 | cases regressed ≤ 2 | **0** | PASS |
+
+Converted across more cases than the sizing named — `genericClassWithStaticFactory`
+51, `genericCallTypeArgumentInference` 36, `genericClassWithFunctionTypedMemberArguments`
+35, `genericClassWithObjectTypeArgsAndConstraints` 32,
+`genericCallWithConstraintsTypeArgumentInference` 30 — because the mechanism is
+*any* generic member reached through *any* instantiated reference, not just the two
+head cases.
+
+### The 13 `GAP→WRONG`, priced and owned
+
+**12 of 13 answer `unknown` where the corpus wants `Derived`/`Base`.** That is
+§36's uninferred-type-parameter fallback: the call through the newly-projected
+generic signature now resolves far enough to *attempt* inference, and inference
+does not find the candidate. So these lines have moved from "no signature at all"
+to "a signature whose type argument is not inferred" — and their owner is the
+already-refused inference legs (`checker-notes-infer2.md` §6–§7, ~17 conversions
+priced against controls). **§829.1 predicted exactly this**: *"if the arguments are
+absent or `unknown`, this is inference and the refusal governs."* It governs here,
+on 12 lines, and it did not govern the 214.
+
+The 13th (`bivariantInferences:7`) is two pre-existing print concerns in one line:
+upstream keeps a union of four *identical* signatures where this port reduces to
+one, and spells `readonly T[]` where this port spells `ReadonlyArray<T>`. Neither
+is this build's.
+
+### What the chain cost and what it returned
+
+```
+§826  instrument   0 lines   made 1,713 lines visible at all
+§827  instrument   0 lines   re-rooted 318; 864 → 693
+§828  instrument   0 lines   corrected 693 → 339, split by reason
+§829  instrument   0 lines   corrected 339 → 187, one mechanism
+§829.1 probe       0 lines   located to 21 cases; found it landing on a refusal
+§829.2 trace       0 lines   answered "real item" — on evidence that was itself wrong
+§830  BUILD     +214 lines   the mechanism, once it was actually named
+```
+
+Six zero-gradient steps and then the largest build of the session. **The five
+earlier zero-measuring builds of this block were all attempts to skip that
+sequence** — and the one time the diagnosis was carried to a named mechanism with
+a trace behind it, the arm converted 111% of its sizing at zero cost to right
+lines.
