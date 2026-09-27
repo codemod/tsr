@@ -1114,6 +1114,77 @@ fresh run at `7cecc02` (fourth session; every row within noise). Two lists, beca
 project's ordering rule has two halves: **rank by the conversion, and where the
 conversion is unknown, rank by how cheap it is to find out.**
 
+### 4.-6 THE NEAR-MISS BOARD, 2026-09-27 (§817) — where the type is RIGHT and the PRINT is wrong
+
+**Why this board exists, and why it is the cheapest one on this page.** §4.-5
+ranks wrong lines by case and by shape. Neither lens separates *"the port
+computed the wrong type"* from *"the port computed the right type and printed it
+differently"*, and those two have wildly different costs. §816 was the second
+kind: the item was filed as *build a print-only mint for `keyof`*, the census
+showed the port **already had the correct key set**, and it became a one-helper
+build landing +40 at zero adverse.
+
+The separator is a substring test between the two sides. Over the 28,771 wrong
+lines at the §816 baseline (`487fb387`):
+
+```
+one side's text CONTAINS the other's   2,328 lines   (8.1% of the wrong bucket)
+  the port OMITTED something           1,165
+  the port added something EXTRA       1,163
+```
+
+**Ranked by what the difference actually is** — the top of it, each row being
+`[what precedes the shared text]…[what follows it]`:
+
+| lines | direction | the difference | reading |
+|---:|---|---|---|
+| 113 | EXTRA | `… \| undefined` | **a guard should have removed it** |
+| 104 | OMITTED | `… \| undefined` | a different mechanism — see below |
+| 77 | OMITTED | `…[]` | an array wrapper is lost |
+| 71 | OMITTED | `() => …` | a function-type wrapper is lost |
+| 70 / 69 | EXTRA / OMITTED | `string \| …` | both directions |
+| 69 / 67 | OMITTED | `…) => any` / `…) => void` | signature tails |
+| 67 / 20 | EXTRA / OMITTED | `typeof …` | both directions |
+| 59 / 46 | OMITTED | `(…) \| undefined` | the parenthesised optional |
+| 49 | OMITTED | `Promise<…>` | the promise wrapper |
+| 31 | EXTRA | `unique …` | |
+
+**The `\| undefined` rows are TWO mechanisms, not one, and reading them as one
+would be the mistake this board exists to prevent.** Sampled:
+
+- **EXTRA (113)** — `controlFlowAliasedDiscriminants`, `narrowingOfQualifiedNames`
+  (14), `nonNullReferenceMatching` (12), `truthinessCallExpressionCoercion1` (11),
+  `narrowedImports` (10). Every sample is a **narrowing** miss: a guard ran and
+  the `undefined` survived. This is the aliased-condition / qualified-name
+  narrowing residue `TASK.md` already names, and it is real checker work.
+- **OMITTED (104)** — the head is uniform and unrelated: `argumentsReferenceInConstructor1_Js`
+  … `argumentsReferenceInMethod3_Js`, all wanting `object | undefined` where the
+  port says `object`. **`arguments` in a JS file.**
+
+#### The `arguments`-in-JS family, sized (§817)
+
+15 cases, **79 non-right lines**, and the sub-shapes say it is one mechanism
+seen from four angles:
+
+| lines | want | got |
+|---:|---|---|
+| 28 | `object` | `any` |
+| 14 | `object` | `error` |
+| 10 | `object \| undefined` | `object` |
+| 10 | `object` | `{}; }` |
+
+So `arguments` in a **JS** file types as `object`, and this port answers `any`,
+`error` or `{}`. §37 landed `arguments` → `IArguments` for TypeScript (+637); this
+is the JS variant of the same road and it is **not** a copy of it — the answer is
+a different type. **Not built.** Sized at ~62 addressable lines of the 79.
+
+> **How to use this board.** A row here is a *candidate for a cheap build*, not a
+> population: the substring relation is evidence that the computation may already
+> be right, and nothing more. Check what the port actually answers before costing
+> the row — that check is the whole reason §816 cost one helper instead of a
+> subsystem. And the `| undefined` split is the standing warning that a row here
+> can be two mechanisms wearing one diff.
+
 ### 4.-5 THE WRONG-LINE CONCENTRATION BOARD, 2026-09-11 (§784) — the lens the gap-root board cannot provide
 
 **Why this board exists.** §4.-3 and the `depend.rs`/`gaproot.rs` boards rank
