@@ -1973,3 +1973,57 @@ the machinery exists in this port and the answer may be that the port's optional
 
 **A negative read is a result.** Recording "three roads read, none explains it, here
 is the fourth to try" is worth more than a fourth placement that measures −4.
+
+---
+
+## §833 — the `{ [x: string]: any; }` row dissolves into an UNPORTED FEATURE
+
+From the corrected near-miss census: **36 lines / 6 cases** want
+`{ [x: string]: any; }` and answer `any`. Head `mappedTypeRecursiveInference` 23,
+then `commentsAfterSpread` 6, `computedPropertiesInDestructuring1` 2,
+`objectRest` 2.
+
+### The chain, read rather than guessed
+
+1. **The baseline's position.** `computedPropertiesInDestructuring1.types:132`
+   records `>{[foo2()]: bar3} : { [x: string]: any; }`. Reading the fixture, that
+   line is in its *"// destructuring assignment"* section (source line 24 onward):
+   `({[foo2()]: bar3} = {bar: "bar"})`. So the node **is** an
+   `ObjectLiteralExpression`, not a binding pattern — the earlier `let {…} = …`
+   forms are a different section and are not these lines.
+2. **Upstream's rule.** `checkObjectLiteral` (`checker.go:13196`): a computed
+   **string-typed** property name gives the literal a string index signature —
+   `hasComputedStringProperty` → `getObjectLiteralIndexInfo(…, c.stringType)`.
+   (`getTypeFromObjectBindingPattern` at `:17921` only adds one for a `...rest`
+   element, which is why the *pattern* road does not explain these lines.)
+3. **Why this port answers `any`, and it is not the index signature.**
+   `objects.rs`'s own comment, written when the shorthand arm was added:
+
+   > **Unobservable today and load-bearing under one named edit** … The only way to
+   > write this form is as an assignment target, and `check_binary_expression` gaps
+   > the whole assignment before this literal is ever checked — verified by making
+   > this arm answer `never` and watching the result stay `error`. **It becomes live
+   > the moment destructuring assignment is ported.**
+
+**Destructuring assignment is not ported.** The literal is never checked, so no
+index-signature arm could have converted these lines — the whole expression gaps
+and the producer prints `any`.
+
+### What this row is, then
+
+Not a print slice and not an index-signature item: **36 lines of an unported
+feature**, and the smallest visible piece of it. Building the computed-index arm
+first would have measured **zero**, for the same reason §824 did — a mechanism
+placed on a path nothing reaches.
+
+The item is *destructuring assignment* (`checkDestructuringAssignment`), it is
+subsystem-scale, and its size is unmeasured beyond these 36 lines. The port's own
+comment has been pointing at it since the shorthand arm was written; this section
+only supplies the corpus number.
+
+> **Four rows traced to true causes this session, and not one was what its shape
+> suggested**: the mapped row was overload sets that turned out to be a missing
+> `?`; the 864-line member row was three mechanisms in a trench coat; the optional-
+> method row is blocked on an unread upstream route; and this one is an unported
+> feature. **The shape of a want has now failed as a predictor four times out of
+> four** — which is the strongest form of this session's one finding.
