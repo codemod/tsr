@@ -894,6 +894,35 @@ impl Checker<'_, '_> {
     /// (`crate::relater`'s `properties_related_to`) meaning what it did.
     #[must_use]
     pub fn get_type_of_property_of_type(&mut self, id: TypeId, name: &str) -> Option<TypeId> {
+        // §829.2, a PROBE and nothing else (`TSR_PROJ_TRACE=<name>`): print what
+        // the projection has in hand for one property name, so the 193-line
+        // "the property TYPES; the projection fails" bucket can be told apart
+        // from the already-refused inference legs. Behaviour-free.
+        if std::env::var("TSR_PROJ_TRACE").ok().as_deref() == Some(name) {
+            let reference = self.type_reference_targets.get(&id).cloned();
+            let arguments = reference.as_ref().map(|(_, args)| {
+                args.iter()
+                    .map(|&a| crate::printing::type_to_string(self.store.get(a)))
+                    .collect::<Vec<_>>()
+            });
+            let own = self
+                .get_property_of_type(id, name)
+                .map(|symbol| self.get_type_of_symbol(symbol))
+                .map(|t| {
+                    if t == self.intrinsics.error {
+                        "error".to_string()
+                    } else {
+                        crate::printing::type_to_string(self.store.get(t))
+                    }
+                });
+            eprintln!(
+                "PROJ `{name}` on `{}`: is_reference={} args={:?} property_own_type={:?}",
+                crate::printing::type_to_string(self.store.get(id)),
+                reference.is_some(),
+                arguments,
+                own
+            );
+        }
         // §49 (`checker-notes-narrow.md`): a UNION projects across its
         // constituents — every one must carry the name, and the answer is
         // the union of the member types.

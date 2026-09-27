@@ -1469,3 +1469,48 @@ fails, it is a separate defect and the 193 is a real item.
 That run has not been done, and **writing an arm before it would be the sixth
 zero-measuring build of this block** — five of them happened for exactly that
 reason.
+
+### §829.2 — the trace, and the open question is ANSWERED: the 193 is a real item
+
+`TSR_PROJ_TRACE=<name>` prints what the projection has in hand. On the dominant
+case's `c.foo(d1, d2)` / `i.foo(d1, d2)`:
+
+```
+PROJ `foo` on `C<Base, Derived>`: is_reference=true args=Some(["Base", "Derived"]) property_own_type=Some("(t: T, u: U) => T")
+PROJ `foo` on `I<Base, Derived>`: is_reference=true args=Some(["Base", "Derived"]) property_own_type=Some("(t: T, u: U) => T")
+```
+
+Every input the substitution needs is present and correct:
+
+| input | value |
+|---|---|
+| the receiver is a reference | **yes** |
+| its type arguments | **`["Base", "Derived"]`** — inferred, and right |
+| the property's own type | **`(t: T, u: U) => T`** — computed, not `error` |
+
+**So inference already succeeded on these lines**, and `§829.1`'s test comes down
+on the side it named: *"if they are present and correct and the projection still
+fails, it is a separate defect and the 193 is a real item."* They are. It is.
+
+`T → Base, U → Derived` into `(t: T, u: U) => T` should give
+`(t: Base, u: Derived) => Base`, and the corpus wants `r4 : Base` from calling it.
+The refused inference legs (~17 conversions, priced against controls) **do not
+govern here** — they are about finding candidates, and the candidates are found.
+
+### What is now known, and what the next arm must not assume
+
+Known: the projection is reached with a reference receiver, correct arguments and
+a typed property, and the answer does not come out. Not known: **which step drops
+it** — the substitution itself, or the *call* through the substituted signature.
+The failing lines in this case are call results (`r4`, `r5`, `r6`, `r7`) and
+signature prints, so the call road is a live candidate and `§829.1`'s bucket
+reached them through the member-name root rather than through the call.
+
+That distinction is the next trace, not the next guess: print the substituted
+signature before the call resolves. **This block's record is five zero-measuring
+builds, every one from assuming a mechanism onto a path**, and the two traces that
+have now run (`TSR_DEBUG_824`, `TSR_PROJ_TRACE`) each cost minutes and each
+overturned a written conclusion.
+
+The probe stays, env-gated, beside `TSR_DEBUG_2454` and `TSR_JOIN_DEBUG` — the
+port's existing idiom for exactly this.
