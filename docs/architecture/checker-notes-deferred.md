@@ -1641,3 +1641,30 @@ earlier zero-measuring builds of this block were all attempts to skip that
 sequence** — and the one time the diagnosis was carried to a named mechanism with
 a trace behind it, the arm converted 111% of its sizing at zero cost to right
 lines.
+
+### §830.1 — the same rule at the PROPERTY spelling: measured at zero, shipped with a test
+
+`member_own_type_parameter_names` read only `MethodDeclaration` and
+`MethodSignatureDeclaration`, so `foo: <U>(t: T, u: U) => T` — the *property*
+spelling of the same two parameter sets — kept substituting the shadowing name.
+Extended to `PropertySignatureDeclaration` and `PropertyDeclaration` whose type is
+a `FunctionTypeNode` or `ConstructorTypeNode`.
+
+**Corpus-wide: zero transitions.** Shipped on §823's test rather than §824's —
+the distinction being whether the mechanism *fires*, which a unit test answers and
+which is the one question the minimal harness is a good oracle for:
+
+```ts
+class C<T, U> { foo<U>(t: T, u: U): T { … } }      // §830   → <U>(t: string, u: U) => string
+class C<T, U> { foo: <U>(t: T, u: U) => T; }       // §830.1 → <U>(t: string, u: U) => string
+```
+
+Both fire, and both are right: the class's `T` substitutes to `string`, the
+member's own `U` survives. The corpus simply has no generic-function-typed
+*property* on a generic class in its failing set.
+
+> **My expected value in that test was wrong and the code was right** — I wrote
+> `=> T` where the answer is `=> string`, having forgotten that the class's `T`
+> *should* substitute. That is the sixth test expectation written from intuition
+> in this project's history and the sixth time the port was right; `STATUS.md`
+> §7's process notes already count five.

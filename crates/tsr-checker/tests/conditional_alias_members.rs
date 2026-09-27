@@ -169,3 +169,28 @@ fn blocker_the_alias_declared_road_does_not_substitute() {
          a.payload;\n";
     assert_eq!(type_of_last_expression(source), "P");
 }
+
+/// §830: a GENERIC METHOD reached through an instantiated reference keeps its own
+/// type parameters — the class's substitute, the method's shadow and survive.
+///
+/// `instantiate_for_reference` mapped the class's parameters by NAME, so `foo`'s
+/// own `U` was substituted with the class's argument. +214 lines corpus-wide.
+#[test]
+fn a_generic_method_keeps_its_own_type_parameters() {
+    let source = "class C<T, U> { foo<U>(t: T, u: U): T { return t; } }\n\
+         declare const c: C<string, number>;\n\
+         c.foo;\n";
+    assert_eq!(type_of_last_expression(source), "<U>(t: string, u: U) => string");
+}
+
+/// §830.1: the same shadowing rule at the PROPERTY spelling —
+/// `foo: <U>(t: T, u: U) => T` is the same two sets of parameters written the
+/// other way. Measured at **zero** corpus-wide; this test is what says the
+/// mechanism is correct rather than merely unexercised.
+#[test]
+fn a_generic_function_typed_property_keeps_its_own_type_parameters() {
+    let source = "class C<T, U> { foo: <U>(t: T, u: U) => T; }\n\
+         declare const c: C<string, number>;\n\
+         c.foo;\n";
+    assert_eq!(type_of_last_expression(source), "<U>(t: string, u: U) => string");
+}

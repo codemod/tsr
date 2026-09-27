@@ -1335,6 +1335,27 @@ impl Checker<'_, '_> {
         let parameters = match self.node_map.get(declaration) {
             Some(Node::MethodDeclaration(method)) => method.type_parameters,
             Some(Node::MethodSignatureDeclaration(method)) => method.type_parameters,
+            // §830.1: a PROPERTY whose type is a generic function or constructor
+            // type has exactly the same two sets of parameters as a generic
+            // method — `foo: <T>(x: T) => T` on `C<T>` is `foo<T>(x: T): T`
+            // written the other way, and upstream's `instantiateSymbol` treats
+            // them identically because both end up as a signature carrying its
+            // own `typeParameters`. §830 read only the method spellings, so the
+            // property spellings kept substituting a shadowing name.
+            Some(Node::PropertySignatureDeclaration(property)) => match property.r#type {
+                Some(tsr_ast::TypeNode::FunctionTypeNode(signature)) => signature.type_parameters,
+                Some(tsr_ast::TypeNode::ConstructorTypeNode(signature)) => {
+                    signature.type_parameters
+                }
+                _ => return Vec::new(),
+            },
+            Some(Node::PropertyDeclaration(property)) => match property.r#type {
+                Some(tsr_ast::TypeNode::FunctionTypeNode(signature)) => signature.type_parameters,
+                Some(tsr_ast::TypeNode::ConstructorTypeNode(signature)) => {
+                    signature.type_parameters
+                }
+                _ => return Vec::new(),
+            },
             _ => return Vec::new(),
         };
         parameters
