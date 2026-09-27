@@ -393,14 +393,49 @@ impl Checker<'_, '_> {
     /// `super(…)` call, an `import(…)` call, a call with explicit type arguments,
     /// a call to a callee with no call signature, and an overloaded call outside
     /// what [`Checker::choose_overload`] can decide.
-    /// §140: the dynamic-import call's type. `None` keeps the caller's
-    /// errorType — an unresolvable or non-literal specifier, a module file
-    /// with no symbol, or a missing Promise global each decline.
+    /// §818: `Promise<any>`, which is what `createPromiseType`
+    /// (`checker.go:20348`) answers for `anyType` — `getAwaitedTypeNoAlias(any)`
+    /// is `any`, so no unwrapping is observable. `None` when the lib has no
+    /// `Promise`, which is upstream's `errorType` return at `:20378`.
+    fn promise_of_any(&mut self) -> Option<TypeId> {
+        let promise = self.global_type_symbol_with_arity("Promise", 1)?;
+        let any = self.intrinsics.any;
+        Some(self.create_type_reference(promise, vec![any]))
+    }
+
+    /// §140 + §818: the dynamic-import call's type.
+    ///
+    /// `checkImportCallExpression` (`checker.go:8267`) has three returns and
+    /// **all three are a promise**: no arguments answers `Promise<any>`
+    /// (`:8273`), a resolvable module answers `Promise<typeof import("m")>`
+    /// (`:8311`), and everything else falls through to `Promise<any>` (`:8314`)
+    /// — upstream's own comment at `:8302` says why that catches a non-literal
+    /// specifier, *"resolveExternalModuleName will return undefined if the
+    /// moduleReferenceExpression is not a string literal"*, and it catches an
+    /// unresolvable module with it.
+    ///
+    /// §140 built the middle return and declined the other two; §818 supplies
+    /// them. `None` — the caller's `errorType` — is now reached for exactly one
+    /// reason, and it is the faithful one: **no `Promise` global**, where
+    /// `createPromiseReturnType` (`:20374`) reports
+    /// `A_dynamic_import_call_returns_a_Promise…` and answers `errorType`.
     fn check_import_call_expression(&mut self, node: &CallExpression<'_>) -> Option<TypeId> {
-        let specifier = node.arguments.first().copied()?;
-        let specifier_id = tsr_ast::Node::from(specifier).node_id()?;
-        let tsr_ast::Expression::StringLiteral(literal) = specifier else { return None };
-        let module = self.resolve_external_module_name(specifier_id, specifier_id)?;
+        // `:8273`: no arguments, so there is no specifier to resolve.
+        let Some(specifier) = node.arguments.first().copied() else {
+            return self.promise_of_any();
+        };
+        // `:8314`'s fall-through. A non-literal specifier and an unresolvable
+        // module are the same answer upstream, and neither is an error here.
+        let resolved =
+            tsr_ast::Node::from(specifier).node_id().and_then(|specifier_id| match specifier {
+                tsr_ast::Expression::StringLiteral(literal) => self
+                    .resolve_external_module_name(specifier_id, specifier_id)
+                    .map(|module| (literal, module)),
+                _ => None,
+            });
+        let Some((literal, module)) = resolved else {
+            return self.promise_of_any();
+        };
         // Interned per (module, written spelling): duplicate mints would
         // churn prints (the bar's falsifier c).
         // SS196: the specifier is a STRING and prints escaped —

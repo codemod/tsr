@@ -395,3 +395,113 @@ alias-body signal), not by knowing it is a mapped type. When
 [§815](#815--what-this-family-has-left-sized-and-not-built)'s head 2 ports
 mapped types, this predicate should be re-derived against the real test and the
 text test in half 1 should go with it.
+
+---
+
+## §818 — a dynamic `import()` that cannot resolve is still a `Promise`
+
+Found through §4.-6's near-miss board (`STATUS.md`), on the row *`want =
+Promise<got>`*: every case in its head is named `importCallExpression*`, which is
+about as uniform as a corpus row gets.
+
+### What §140 built, and the three returns it left out
+
+§140 landed `import("./m")` → `Promise<typeof import("./m")>` and its doc comment
+says what it declines: *"an unresolvable or non-literal specifier, a module file
+with no symbol, or a missing Promise global each decline"*. Three of those four
+declines are **not** what upstream does. `checkImportCallExpression`
+(`checker.go:8267`) has exactly three returns and all three are a promise:
+
+```go
+if len(args) == 0 {
+    return c.createPromiseReturnType(node, c.anyType)      // :8273
+}
+…
+if moduleSymbol != nil { … return c.createPromiseReturnType(node, syntheticType) }   // :8311
+return c.createPromiseReturnType(node, c.anyType)          // :8314  ← the fall-through
+```
+
+The fall-through at `:8314` catches a non-literal specifier (upstream's own
+comment: *"resolveExternalModuleName will return undefined if the
+moduleReferenceExpression is not a string literal"*) **and** an unresolvable
+module. `createPromiseType` (`:20348`) then answers `Promise<any>`, because
+`getAwaitedTypeNoAlias(any)` is `any`.
+
+The **missing-Promise-global** decline is the one that stays: upstream reports
+`A_dynamic_import_call_returns_a_Promise…` and returns `errorType`
+(`:20374-20379`), so declining there is faithful.
+
+### The sizing, and the one row deliberately excluded
+
+Non-right lines wanting `Promise<any>` and answering `any` or `error`:
+**~67 lines across 12 cases**, head `importCallExpressionReturnPromiseOfAny` (12,
+and the case name is the specification), `importCallExpressionSpecifierNotStringTypeError`
+(11), `importCallExpressionDeclarationEmit1` (8), `importCallExpression6ES2020` (8),
+`importCallExpression5ES2020` (8), `importCallExpressionGrammarError` (7).
+
+**`Promise<unknown>` (47 lines) is NOT this item and must not be counted into
+it**: its cases are `promisePermutations` (16), `promisePermutations3` (16),
+`promisePermutations2` (12) — async-function return inference, a different road.
+Checked rather than assumed, because the two shapes differ by one type argument
+and the §4.-6 board's own warning is that one diff can hide two mechanisms.
+
+### The bar, registered before the code
+
+- **Leg 1 (primary).** `gained ≥ 40` of the ~67.
+- **Leg 2 (safety).** `RIGHT → WRONG ≤ 3`. Low, because this replaces an
+  `errorType` with a real type at positions that were previously *gaps* — the
+  ADR-0038 direction that cannot break a right line by construction. Anything
+  above 3 means the new type is flowing somewhere a gap used to stop.
+- **Leg 3 (the excluded row's falsifier).** `promisePermutations`,
+  `promisePermutations2` and `promisePermutations3` must read **zero
+  transitions**. If they move, the two shapes are one mechanism and the sizing
+  above is wrong.
+- **Leg 4.** `cases regressed == 0`.
+
+**What would make me wrong about the design.** If leg 2 fires, then answering
+`Promise<any>` where the specifier is unresolvable is feeding a real type into
+consumers that were relying on the gap to stop — and the fix would be to keep the
+promise for the *no-arguments* and *non-literal-specifier* returns only, leaving
+the unresolvable-module one declining, which is a narrower build than upstream
+but a measured one.
+
+### §818's score — LANDED, every leg passed, and nothing regressed
+
+```
+right 438,054 → 438,145  (+91)     gap 7,418 → 7,386     wrong 28,771 → 28,712
+GAP→RIGHT 32   WRONG→RIGHT 59   |   RIGHT→WRONG 0   GAP→WRONG 0
+gradient 91.48% → 91.50%, cases 6,120 → 6,130  (+10)
+```
+
+| leg | bar | read | |
+|---|---|---|---|
+| 1 | gained ≥ 40 | **91** — 136% of the sized 67 | PASS |
+| 2 | RIGHT→WRONG ≤ 3 | **0** | PASS |
+| 3 | `promisePermutations*` reads zero | **0**, verified by diff | PASS |
+| 4 | cases regressed == 0 | 0 | PASS |
+
+**Zero adverse transitions of any kind**, which is what leg 2 predicted on
+principle: this replaces an `errorType` with a real type at positions that were
+previously gaps, so it cannot break a right line by construction. The prediction
+being *right* is worth as much as the number.
+
+**Leg 3 was the one that mattered, and it is why the sizing is trustworthy.**
+`Promise<unknown>` and `Promise<any>` differ by one type argument, and the 47
+`Promise<unknown>` lines sit in `promisePermutations`, `promisePermutations2` and
+`promisePermutations3` — async-function return inference, a different road. The
+leg required those three to read **zero transitions** and they do, measured by
+diffing the full dumps rather than by reading the top-three summary. Had they
+moved, the two shapes would have been one mechanism and the ~67 sizing wrong.
+
+Conversion was **136% of the sized row**, the §4.1 effect: 18 cases moved, all
+dynamic-import, and the six the sizing did not name
+(`importCallExpressionShouldNotGetParen`, `dynamicImportInDefaultExportExpression`,
+`asyncImportNestedYield`, `importCallExpressionNested*`, `dynamicImportTrailingComma`,
+`jsdocInTypeScript`) came along because the mechanism is the *call's own type* and
+reaches every position downstream of it.
+
+Pinned by `crates/tsr-checker/tests/import_call_promise.rs`, four tests: both
+routes into the `:8314` fall-through (a non-literal specifier and an unresolvable
+module), §140's return unchanged, and **the decline that stays** — with no
+`Promise` global the call answers `errorType`, which is upstream reporting
+`A_dynamic_import_call_returns_a_Promise…` at `:20374`.
