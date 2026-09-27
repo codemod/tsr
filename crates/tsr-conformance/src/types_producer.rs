@@ -1963,8 +1963,44 @@ fn access_reason(
     let Some(tsr_ast::MemberName::Identifier(name)) = access.name else {
         return "the name is not an identifier".to_string();
     };
-    if checker.get_property_of_type(receiver_type, name.text).is_some() {
-        return "the property has no type".to_string();
+    if let Some(property) = checker.get_property_of_type(receiver_type, name.text) {
+        // §829: this reading was 649 lines before §827 re-rooted the genuinely
+        // downstream half and 339 after, and a single string cannot price the
+        // remainder. The column worth reading is whether the property has a type
+        // AT ALL: `get_type_of_symbol` on it answering `error` means the lookup is
+        // still downstream of the property's own declaration, while a real type
+        // there means the property types fine and only its projection through
+        // THIS receiver fails — which is `bd tsr-4qx`'s substitution seam and a
+        // different piece of work.
+        //
+        // The receiver's shape comes with it on the same axis. It is read off the
+        // PRINTED text rather than the flags, because the producer has no flags
+        // accessor and adding public checker surface for a probe is worse than a
+        // coarse label that says it is coarse.
+        let own = checker.get_type_of_symbol(property);
+        let downstream = own == error;
+        let printed = checker.type_to_string(receiver_type);
+        let shape = if printed.contains('&') {
+            "intersection"
+        } else if printed.contains('|') {
+            "union"
+        } else if printed.starts_with('{') {
+            "anonymous"
+        } else if printed.contains('<') {
+            "generic reference"
+        } else if printed.len() <= 2 {
+            "type parameter (probably)"
+        } else {
+            "named"
+        };
+        return format!(
+            "the property has no type [{}; receiver {shape}]",
+            if downstream {
+                "DOWNSTREAM: the property itself gaps"
+            } else {
+                "the property TYPES; the projection fails"
+            }
+        );
     }
     format!("the receiver has no such property: {}", checker.type_to_string(receiver_type))
 }

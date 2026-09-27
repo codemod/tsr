@@ -1347,3 +1347,64 @@ board stayed comparable across sessions. **§827 breaks that comparability on
 purpose and pays for it with the env gate**: both boards come from one binary, so
 no future reader has to trust a number from another base. The same treatment is
 what the remaining two should get.
+
+---
+
+## §829 — the 339 splits again, and the item is **187 lines with one mechanism**
+
+§828 corrected the size; this asks the one question that decides whether any of it
+is an item at all: **does the property have a type, or not?**
+
+`access_reason` found the property symbol and then said *"the property has no
+type"* — but it never asked `get_type_of_symbol` on that symbol. One call
+separates two different pieces of work, and it was the column §828's own rule
+said to read.
+
+### The split
+
+```
+property access, the property TYPES; the projection fails; receiver generic reference   115
+member name,     the property TYPES; the projection fails; receiver generic reference    72
+                                                                                 ------
+                                                                                    187
+
+member name,     DOWNSTREAM: the property itself gaps; receiver named                    84
+property access, DOWNSTREAM: the property itself gaps; receiver named                    41
+member name,     DOWNSTREAM: the property itself gaps; receiver type parameter            14
+                                                                                 ------
+                                                                                   ~139 + tail
+```
+
+**187 lines where the property has a real type and only its projection through
+*this* receiver fails — and the receiver is a generic reference in every one of
+them.** That is `bd tsr-4qx`'s substitution seam, named precisely rather than by
+analogy: the member table is found, the property's own type is computed, and
+pushing the reference's type arguments through it does not produce the answer.
+
+The remaining ~150 are genuinely downstream and §4.3's reading holds for them.
+
+### Why this is the first properly-priced item of the block
+
+Every earlier number on this row was a row, not a mechanism:
+
+| reading | size | what it actually was |
+|---|---:|---|
+| §826's new row | 864 | a row |
+| §827's residue | 693 | a row minus one edge |
+| §828's correction | 339 | one *reason*, two mechanisms |
+| **§829** | **187** | **one reason, one mechanism, 0.0% want-any** |
+
+Each step was one column further into an instrument that was already printing the
+answer. **The receiver-shape label is read off the printed text**, not the flags,
+because the producer has no flags accessor and adding public checker surface for a
+probe is worse than a coarse label that admits it is coarse — so treat
+"generic reference" as *"the printed receiver contains `<`"*, which is what it is.
+
+### What has NOT been done
+
+The mechanism is localised and **not diagnosed**. The next step is one instrumented
+run inside `get_type_of_property_of_type` on a line from the 187 — print the
+receiver's target, its arguments, and the property's own type — to see *where* the
+substitution is dropped. On this session's evidence that run should happen
+**before** any arm is written: five of this block's builds measured zero because a
+mechanism was assumed to be on a path it was not on.
