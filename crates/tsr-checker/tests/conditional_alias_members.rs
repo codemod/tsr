@@ -125,15 +125,28 @@ fn a_conditional_alias_reference_answers_from_its_branch() {
     assert_eq!(type_of_last_expression(source), "number");
 }
 
-/// **Blocker 1, pinned: an ENUM MEMBER as a type argument does not resolve.**
+/// **A LIMIT OF THIS HARNESS, not of the checker — corrected after it was first
+/// written up the other way.**
 ///
-/// `Action<ActionType.Bar, number>` still answers `error` where
-/// `Action<string, number>` answers `number`, so the difference is the argument
-/// rather than the road. `recursiveArrayNotCircular` — the case that motivated
-/// §821–§823 — uses `Action<ActionType.Bar, number>` throughout, which is why
-/// §823 gains nothing there.
+/// `Action<ActionType.Bar, number>` answers `error` here while
+/// `Action<string, number>` answers `number`, and §823 first recorded that as a
+/// checker defect: *"an enum member as a type argument does not resolve"*.
+/// **That claim is false**, and the corpus refutes it flatly: **5,723 RIGHT
+/// lines carry a dotted enum-member answer** (`ambientEnum1` → `E1.y`,
+/// `assignToEnum` → `A.foo`, and so on), and 14,133 RIGHT lines carry a dotted
+/// answer of any kind.
+///
+/// So what fails is this fixture, not the road it was meant to probe. This
+/// harness is `Checker::new` over **one file with no `lib.d.ts` and no
+/// `ModuleHost`**, and it does not go through `types_producer`'s position rules
+/// either — so it is a usable oracle for *"does this arm fire"* and **not** for
+/// *"can the port express this"*.
+///
+/// Kept, with the caveat, because the asymmetry against the test above is still
+/// the thing to re-check if anyone touches the argument road — but the next
+/// question is what THIS fixture lacks, not what the checker lacks.
 #[test]
-fn blocker_an_enum_member_type_argument_does_not_resolve() {
+fn an_enum_argument_fails_in_this_harness_only() {
     let source = format!("{ACTION}declare const a: Action<ActionType.Bar, number>;\na.payload;\n");
     assert_eq!(type_of_last_expression(&source), "error");
 }
@@ -145,7 +158,9 @@ fn blocker_an_enum_member_type_argument_does_not_resolve() {
 /// rather than `number` — so `in_alias_declared_position`'s road
 /// (`declared.rs:2143`) evaluates the conditional and hands back a branch whose
 /// parameters were never substituted. This is the road that gives the corpus its
-/// bare `P`/`T`, and it is a different defect from blocker 1.
+/// bare `P`/`T`. Unlike the enum fixture above, this one is corroborated by the
+/// corpus: `recursiveArrayNotCircular`'s five wrong lines answer exactly this
+/// bare `P`/`T`, so the road really does hand back an uninstantiated branch.
 #[test]
 fn blocker_the_alias_declared_road_does_not_substitute() {
     let source = "type Action<T, P> = P extends void ? { type: T } : { type: T, payload: P };\n\

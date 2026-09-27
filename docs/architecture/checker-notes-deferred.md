@@ -945,21 +945,31 @@ Action<ActionType.Bar, number> → a.payload : error      ✗  blocker 1
 type Bar = Action<string, number>; a: Bar → a.payload : P   ✗  blocker 2
 ```
 
-Leg 3 fired on the original probe and the diagnostic pair explains it: the enum
-argument, not the road. **Two blockers stand between §823 and the corpus, each
-now pinned by a named test**, and neither is what §821–§822 were looking for:
+Leg 3 fired on the original probe, and **the explanation first written here was
+wrong**. It said *"the enum argument, not the road"* and filed blocker 1 as *"an
+enum member as a type argument does not resolve"*. **The corpus refutes that
+flatly**: **5,723 RIGHT lines carry a dotted enum-member answer**
+(`ambientEnum1` → `E1.y`, `assignToEnum` → `A.foo`), and 14,133 RIGHT lines carry
+a dotted answer of any kind. Enum members in type position work.
 
-1. **An enum member as a type argument does not resolve.**
-   `Action<ActionType.Bar, number>` answers `error` where
-   `Action<string, number>` answers `number`, so the difference is the *argument*.
-   `recursiveArrayNotCircular` — the case that motivated this whole block — uses
-   `Action<ActionType.Bar, …>` throughout, which is exactly why §823 gains
-   nothing there. **This is the next item on this road**, and it is a narrow one.
-2. **The alias-declared road hands back an UNINSTANTIATED branch.** Through an
-   intermediate alias the same reference answers bare `P`. That is
-   `in_alias_declared_position`'s road (`declared.rs:2143`) evaluating the
-   conditional and never substituting — and it is where the corpus's bare `P`/`T`
-   actually come from. A *different* defect from blocker 1, and from §822's guess.
+### The real finding, and it invalidates a class of reasoning used four times
+
+**The minimal unit harness is not a faithful oracle, and four of this block's
+diagnoses leaned on it.** `type_of_last_expression` is `Checker::new` over **one
+file with no `lib.d.ts` and no `ModuleHost`**, and it does not run
+`types_producer`'s position rules. It answers *"does this arm fire"* well. It
+answers *"can the port express this"* **badly**, and every time this session drew
+the second conclusion from it the corpus disagreed.
+
+So blocker 1 is withdrawn: what fails is the fixture. One blocker survives, and it
+is the one the corpus corroborates —
+
+**The alias-declared road hands back an UNINSTANTIATED branch.** Through an
+intermediate alias the reference answers bare `P`, and
+`recursiveArrayNotCircular`'s five wrong lines answer exactly that bare `P`/`T`.
+`in_alias_declared_position`'s road (`declared.rs:2143`) evaluates the conditional
+and never substitutes. **That is the next item**, and it is corpus-backed rather
+than harness-backed.
 
 > **What this block cost and what it bought.** §821 landed +37. §822 was built on
 > a guess, measured zero, and was reverted. §823 was built on a *probe*, measures
