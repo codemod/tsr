@@ -81,6 +81,41 @@ fn gaps<'a>(
     types_producer::type_id_at_location(checker, binder, nodes, map, id) == error
 }
 
+/// §827: the edge a member name's chain should take when the RECEIVER is fine
+/// and the PROPERTY is what has no type.
+///
+/// `access_reason` (`types_producer.rs`) already separates these two — "the
+/// property has no type" against "the receiver has no such property" — and the
+/// first reading is **649 of the 864 lines** on the member-name row. `STATUS.md`
+/// §4.3 has named the consequence since the sixth session: those lines are a
+/// *downstream symptom*, the property's own declaration gaps elsewhere, and the
+/// fix is to *"follow to the type-node roots, which is how tuples were found"*.
+///
+/// Until this arm, `step` took the RECEIVER edge for a member name and for the
+/// access itself. When the receiver types, the walk stopped and the board called
+/// the lookup the root — so 649 lines were rooted at the symptom.
+///
+/// Returns the property declaration's NAME where it has one, because that is the
+/// node the declaration arm at the top of `step` keys on.
+fn property_declaration_step<'a>(
+    checker: &mut tsr_checker::Checker<'a, '_>,
+    binder: &tsr_binder::BindResult<'a>,
+    map: &NodeMap<'a>,
+    access: &tsr_ast::PropertyAccessExpression<'a>,
+) -> Option<NodeId> {
+    let error = checker.intrinsics().error;
+    let receiver = access.expression?;
+    let receiver_type = checker.check_expression(receiver);
+    // A gapping receiver is the existing road's business, not this one.
+    if receiver_type == error {
+        return None;
+    }
+    let tsr_ast::MemberName::Identifier(name) = access.name? else { return None };
+    let symbol = checker.get_property_of_type(receiver_type, name.text)?;
+    let declaration = binder.symbols().get(symbol).declarations.first().copied()?;
+    Some(map.get(declaration).and_then(|node| node.name_id()).unwrap_or(declaration))
+}
+
 /// One step toward what this node's answer depends on.
 fn step<'a>(
     checker: &mut tsr_checker::Checker<'a, '_>,
@@ -120,10 +155,28 @@ fn step<'a>(
         && parent_node.name_id() == Some(id)
         && matches!(parent_node, Node::PropertyAccessExpression(_) | Node::QualifiedName(_))
     {
+        // §827: when the receiver types and the PROPERTY is what has no type,
+        // the chain continues at the property's declaration, not at the
+        // receiver. `TSR_NO_827=1` restores the receiver-only edge so both
+        // boards come from one build.
+        if std::env::var("TSR_NO_827").is_err()
+            && let Node::PropertyAccessExpression(access) = parent_node
+            && let Some(next) = property_declaration_step(checker, binder, map, access)
+        {
+            return Some(next);
+        }
         return parent_node.expression_id().or_else(|| match parent_node {
             Node::QualifiedName(qualified) => qualified.left.and_then(|l| l.node_id()),
             _ => None,
         });
+    }
+
+    // §827, the access's own half: same edge, same reason.
+    if std::env::var("TSR_NO_827").is_err()
+        && let Node::PropertyAccessExpression(access) = node
+        && let Some(next) = property_declaration_step(checker, binder, map, access)
+    {
+        return Some(next);
     }
 
     match node {

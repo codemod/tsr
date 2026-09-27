@@ -1254,3 +1254,75 @@ line to have the `name : type` shape (`want.text.strip_prefix("{got} : ")`), and
 most of the remainder fail *that* filter, which is a separate and untouched
 restriction. So the board's population is still a floor — just a much better one,
 and now an honest one, because the count prints the §826 share beside the total.
+
+---
+
+## §827 — the member-name row splits, and 693 lines stop being "not an item"
+
+§826 made the 864-line member-name row visible; this asks what is actually in it.
+`access_reason` already separates the two readings, and the split is lopsided:
+
+```
+member name / property access, "the property has no type"      649
+everything else (receiver has no such property, etc.)          215
+```
+
+`STATUS.md` §4.3 has read that shape the same way since the sixth session — *"a
+downstream symptom: the property's own declaration gaps elsewhere. `bd tsr-mcd`
+established this and it is not an item"* — and named the fix: *"follow to the
+type-node roots, which is how tuples were found."*
+
+`step` never took that edge. For a member name **and** for the access itself it
+returned the **receiver**, so when the receiver typed, the walk stopped and the
+board called the lookup the root. §827 adds the missing edge: when the receiver
+types and the property resolves, step to the **property's declaration** (its name
+node, which is what `step`'s declaration arm keys on).
+
+### A/B from one binary, `TSR_NO_827=1`
+
+| row | 827 off | 827 on | Δ |
+|---|---:|---:|---:|
+| `Identifier: the member NAME of a.b` | 864 | **693** | −171 |
+| `PropertyAccessExpression / dependency` | 825 | **678** | −147 |
+| `TypeReference / dependency` | 321 | 367 | +46 |
+| `MappedType / NO STEP ARM` | 281 | 302 | +21 |
+| `CallExpression / dependency` | 1,362 | 1,384 | +22 |
+
+**318 lines leave the two symptom rows**, and where they land is §4.3's own
+prediction coming true: the largest single destinations are `TypeReference` and
+`MappedType` — *type-node* roots.
+
+### The residue is the finding, and it corrects a standing reading
+
+**693 lines stay on the member-name row after the edge exists.** That is not
+inertia: it means `step` *took* the property-declaration edge, and the
+declaration **did not gap**. So for those lines the property's own declaration
+types fine and the lookup still fails — `get_property_of_type` finds the symbol,
+and the *type* of that property on *this receiver* does not come out.
+
+That is a **member-resolution defect**, not a downstream symptom: the
+`bd tsr-4qx` instantiation seam, reached through a receiver the substitution
+cannot serve. Head case `mixinAccessModifiers` (3.6%), 284 cases, **want-any
+0.0%** — no ADR-0038 ceiling on any of it.
+
+> **What is corrected, and what is not.** `bd tsr-mcd`'s measurement stands; it
+> was taken on a base where this row read 3,739 and the port had far less member
+> instantiation. What no longer holds is the **blanket reading** carried forward
+> from it — *"the property has no type" is always downstream, therefore not an
+> item*. On this base the shape splits roughly **1 : 2** between genuinely
+> downstream (318, now re-rooted) and a real member-resolution item (693). A
+> conclusion about a population is only as current as the base it was measured
+> on, which is the same lesson §1's staleness taught this session from the other
+> direction.
+
+Behaviour-neutral: `depend.rs` is an example, and `scorepair` reads *no
+transitions* across the change.
+
+### The two `depend.rs` fixes §4.0 deliberately left
+
+§4.0's correction named two — relabel a length-1 cycle, and add `step` arms for
+`ArrayType`/`TupleType`/`UnionType`/`IntersectionType` — and left them so the
+board stayed comparable across sessions. **§827 breaks that comparability on
+purpose and pays for it with the env gate**: both boards come from one binary, so
+no future reader has to trust a number from another base. The same treatment is
+what the remaining two should get.
