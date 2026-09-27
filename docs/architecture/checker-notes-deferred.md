@@ -280,3 +280,118 @@ type also has contextual-typing and inference defects, and those own most of the
 
 The line-level rows (`keyof` 662, mapped 291, conditional 177, `infer` 71, with
 overlap between them) are the honest figure.
+
+---
+
+## §816 — `keyof <concrete>` prints its INDEX ORIGIN
+
+§815's head 1, and the measurement turned it from *"build a mint"* into
+**"print what is already computed"**, which is a much better item.
+
+### The port already computes the right type
+
+The census of non-right lines whose wanted text is exactly `keyof X`:
+
+| want | what this port answers |
+|---|---|
+| `keyof Thing` | `"a" \| "b" \| "c"` |
+| `keyof Object` | `"constructor" \| "hasOwnProperty" \| … ` (the correct seven) |
+| `keyof JSX.IntrinsicElements` | the full, correct 180-odd tag list |
+| `keyof A` | `"#fooField" \| "#fooMethod" \| "#fooProp" \| "bar" \| "baz"` |
+
+**Every one of those key sets is right.** §730 already evaluates a concrete
+`keyof` through `keys_of` + `literal_key_union`, and its own note records the
+residue exactly: *"its 90 GAP→WRONG were the PRINTED form, which the
+written-text arm in `signatures.rs` now supplies"* — supplied for *signature*
+positions only, which is why the bare positions still print the expansion.
+
+So this is not a type-construction item at all. It is the origin.
+
+### Upstream's mechanism, and its gate
+
+`getLiteralTypeFromProperties` (`checker.go`) sets
+
+```go
+origin = c.newIndexType(t, IndexFlagsNone)
+```
+
+when `includeOrigin && t.objectFlags&(ObjectFlagsClassOrInterface|ObjectFlagsReference) != 0 || t.alias != nil`,
+and the node builder prefers it: `nodebuilderimpl.go:3439` —
+`if t.flags&TypeFlagsUnion != 0 && t.AsUnionType().origin != nil { t = t.AsUnionType().origin }` —
+after which the `Index` arm at `:3472` prints `keyof <target>` unconditionally.
+
+**The gate matters and is honoured here**: an *anonymous* object type is
+`ObjectFlagsAnonymous`, so `keyof { a: string }` gets **no** origin and prints
+its expansion. Attaching the origin unconditionally would break every such line.
+
+### The bar, registered before the code
+
+The machinery exists — §53 built origin-carrying unions and
+`create_union_with_text` already takes an `origin_text`.
+
+- **Leg 1 (primary).** `gained ≥ 25`. The bare `keyof X` rows are 55 lines and
+  581 mention `keyof <Capital>` inside a larger text, so composites should ride
+  along; 25 is deliberately below the bare row.
+- **Leg 2 (safety).** `RIGHT → WRONG ≤ 10`. This is the leg that can fire.
+  A union with an origin text is a **distinct interned type** from the same union
+  without one, so anything comparing key unions by identity can change answer.
+- **Leg 3 (the gate's falsifier).** If anonymous-operand lines move at all, the
+  `ClassOrInterface | Reference | alias` gate is not doing its job and the build
+  is wrong however good the number looks.
+- **Leg 4.** `cases regressed == 0`.
+
+**What would make me wrong about the design.** If leg 2 fires above 10 and the
+losses are lines where a key union is *consumed* rather than printed, then the
+origin belongs on a separate print-side channel rather than on the type's own
+interned text — which is the per-site printing architecture this page's §814.1
+already names as an unowned head.
+
+### §816's score — LANDED, and leg 3 fired twice before it passed
+
+```
+right 438,014 → 438,054  (+40)     wrong 28,811 → 28,771     gap 7,418 unchanged
+WRONG→RIGHT 40   |   RIGHT→WRONG 0   GAP→WRONG 0
+gradient 91.47% → 91.48%, cases 6,119 → 6,120
+```
+
+| leg | bar | read | |
+|---|---|---|---|
+| 1 | gained ≥ 25 | **40** | PASS |
+| 2 | RIGHT→WRONG ≤ 10 | **0** | PASS |
+| 3 | anonymous operands do not move | **fired twice, then 0** | PASS after the fix |
+| 4 | cases regressed == 0 | 0 | PASS |
+
+**Leg 3 earned its place.** The first cut gated on *"the target is a type
+reference, or a `Named` with a member table"*, which read `true` for two shapes
+upstream gives no origin to, and the leg named both before the number could
+disguise them (the leaky cut scored +38; the fixed one scores +40, so tightening
+the gate was not even a trade):
+
+1. **`checkJsObjectLiteralHasCheckedKeyof`** — the operand is
+   `{ x: number; y: number; }`, upstream's **anonymous** object type, which takes
+   no origin: the expansion `"x" | "y"` prints. This port stores a JS
+   object-literal type as `TypeData::Named` with a *structural* text rather than
+   as `TypeData::Anonymous`, **so the variant cannot distinguish them and the
+   printed text has to**. A text test is a poor instrument and it is used here
+   with that on the record; the principled fix is for the producer of that type
+   to say which it is.
+2. **`divideAndConquerIntersections`** — the operand is `Omit<Update, "update_id">`.
+   Upstream's origin gate *does* include `t.alias != nil`, so reading the gate
+   alone would license this — but `getIndexTypeEx` (`checker.go:26684`) never
+   reaches `getLiteralTypeFromProperties` for it, because a mapped type is
+   routed to `getIndexTypeForMappedType` several branches earlier. **This port
+   has no mapped types to test for**, and the signal it does have is that the
+   keys were found by *evaluating an alias body* rather than by reading a member
+   table — so an alias-symbol reference declines.
+
+> **The transferable part**: leg 3 was written as *"if anonymous-operand lines
+> move at all, the gate is not doing its job however good the number looks"*.
+> Both firings were gate defects rather than build defects, and neither would
+> have been visible in the net, which went **up** when they were fixed. A bar leg
+> pinned to a *mechanism's boundary* rather than to a count is what caught them.
+
+**Residue, owned and not built**: a mapped-type operand declines by proxy (the
+alias-body signal), not by knowing it is a mapped type. When
+[§815](#815--what-this-family-has-left-sized-and-not-built)'s head 2 ports
+mapped types, this predicate should be re-derived against the real test and the
+text test in half 1 should go with it.

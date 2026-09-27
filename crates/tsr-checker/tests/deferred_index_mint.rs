@@ -118,9 +118,7 @@ fn a_keyof_mint_survives_its_union_and_its_intersection() {
 #[test]
 fn an_indexed_access_mint_survives_a_nullable_union() {
     assert_eq!(
-        type_of_last_expression(
-            "function f<T, K extends keyof T>(x: T[K] | undefined) { x; }"
-        ),
+        type_of_last_expression("function f<T, K extends keyof T>(x: T[K] | undefined) { x; }"),
         "T[K] | undefined"
     );
 }
@@ -194,5 +192,34 @@ fn a_plain_type_parameter_keeps_the_eighty_five_road() {
              }"
         ),
         "T"
+    );
+}
+
+/// §816. A concrete `keyof` already computed the right key set; upstream prints
+/// the INDEX ORIGIN over it, so `keyof Thing` prints `keyof Thing` rather than
+/// the expansion (`getLiteralTypeFromProperties`' `origin = newIndexType(t)`,
+/// preferred by `nodebuilderimpl.go:3439`).
+#[test]
+fn a_concrete_keyof_prints_its_origin() {
+    assert_eq!(
+        type_of_last_expression(
+            "interface Thing { a: string; b: string; c: string }\n\
+             function f(k: keyof Thing) { k; }"
+        ),
+        "keyof Thing"
+    );
+}
+
+/// §816's gate, leg 3, which FIRED on both of these before it was tightened.
+///
+/// An operand whose printed form is structural is upstream's ANONYMOUS object
+/// type and takes no origin, so the expansion prints. This port stores a JS
+/// object-literal type as `Named` with a structural text rather than as
+/// `Anonymous`, so the variant cannot tell them apart and the text has to.
+#[test]
+fn an_anonymous_operand_keeps_its_expansion() {
+    assert_eq!(
+        type_of_last_expression("function f(k: keyof { x: number; y: number }) { k; }"),
+        "\"x\" | \"y\""
     );
 }

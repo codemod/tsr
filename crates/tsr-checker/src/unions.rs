@@ -675,6 +675,32 @@ impl Checker<'_, '_> {
     /// §53: mint a union whose SPELLING comes from `entries` (unexpanded)
     /// while `set` is the flattened member list; registers the origin for
     /// later projection. An entry whose print is `error` declines whole.
+    /// §816 (`checker-notes-deferred.md`): give a union an INDEX ORIGIN, so a
+    /// concrete `keyof X` prints `keyof X` while its constituents stay the key
+    /// literals that were actually computed.
+    ///
+    /// Upstream's `getLiteralTypeFromProperties` attaches
+    /// `origin = newIndexType(t)` and the node builder prints a union's origin
+    /// in preference to the union (`nodebuilderimpl.go:3439`, then the `Index`
+    /// arm at `:3472`). Here the origin is the union's own interned text, which
+    /// makes the origin-carrying union a *distinct* type from the bare one —
+    /// deliberately, and the same shape §53 already uses.
+    ///
+    /// Declines a union that already prints as a symbol's name, and anything
+    /// that is not a union at all (a one-key `keyof` is its single literal
+    /// upstream too, because a one-element union collapses and takes no origin).
+    pub(crate) fn index_origin_union(&mut self, union: TypeId, origin_text: String) -> TypeId {
+        let TypeData::Union { types, symbol, .. } = &self.store.get(union).data else {
+            return union;
+        };
+        if symbol.is_some() {
+            return union;
+        }
+        let types = types.clone();
+        let extra = self.store.get(union).flags & !(TypeFlags::UNION | TypeFlags::BOOLEAN);
+        create_union_with_text(&mut self.store, extra, types, None, Some(origin_text))
+    }
+
     fn build_origin_union(
         &mut self,
         set: Vec<TypeId>,

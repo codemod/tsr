@@ -256,7 +256,21 @@ impl<'a> Checker<'a, '_> {
                 let Some(inner) = node.r#type else { return self.intrinsics.error };
                 let target = self.get_type_from_type_node(inner);
                 match self.keys_of(target) {
-                    Some(keys) => self.literal_key_union(&keys),
+                    Some(keys) => {
+                        let union = self.literal_key_union(&keys);
+                        // §816 (`checker-notes-deferred.md`): upstream attaches
+                        // `origin = newIndexType(t)` to the key union and the
+                        // node builder prints the origin — so `keyof Thing`
+                        // prints `keyof Thing`, not `"a" | "b" | "c"`. §730
+                        // already computed the right key set and its own note
+                        // records the printed form as the residue.
+                        if self.keyof_origin_applies(target) {
+                            let text = format!("keyof {}", self.type_to_string(target));
+                            self.index_origin_union(union, text)
+                        } else {
+                            union
+                        }
+                    }
                     None => self.intrinsics.error,
                 }
             }
@@ -3818,6 +3832,39 @@ impl<'a> Checker<'a, '_> {
             [one] => *one,
             many => self.get_union_type(many),
         }
+    }
+
+    /// §816's gate: whether a concrete `keyof` operand is one upstream gives an
+    /// INDEX ORIGIN to.
+    ///
+    /// `getLiteralTypeFromProperties` attaches the origin only when the operand
+    /// is a `ClassOrInterface`, a `Reference`, or **aliased**. An *anonymous*
+    /// object type is `ObjectFlagsAnonymous` and gets none — so
+    /// `keyof { a: string }` prints its expansion, and attaching the origin
+    /// unconditionally would break every such line. That is this predicate's
+    /// whole job, and it is registered as §816's third bar leg.
+    fn keyof_origin_applies(&mut self, target: TypeId) -> bool {
+        // An operand whose printed form is STRUCTURAL is upstream's anonymous
+        // object type, which takes no origin: `keyof { x: number; y: number; }`
+        // prints `"x" | "y"`. This port stores a JS object-literal type as
+        // `Named` with a structural text rather than as `Anonymous`, so the
+        // variant alone cannot tell them apart and the text has to
+        // (`checkJsObjectLiteralHasCheckedKeyof`, leg 3's first firing).
+        if self.type_to_string(target).starts_with('{') {
+            return false;
+        }
+        if let Some((symbol, _)) = self.type_reference_targets.get(&target) {
+            // An alias reference whose KEYS came from evaluating its body is a
+            // mapped type upstream — `Omit`, `Pick`, `Partial` and friends —
+            // and `getIndexTypeEx` routes those to `getIndexTypeForMappedType`
+            // instead of `getLiteralTypeFromProperties`, so no origin is ever
+            // attached and the expansion prints. This port has no mapped types
+            // to test for, and "we had to evaluate an alias body to find the
+            // keys" is the signal it does have
+            // (`divideAndConquerIntersections`, leg 3's second firing).
+            return !self.binder.symbols().get(*symbol).flags.contains(SymbolFlags::TYPE_ALIAS);
+        }
+        matches!(&self.store.get(target).data, crate::types::TypeData::Named { members, .. } if members.is_some())
     }
 
     /// §91: the property-name set of a type, in declaration order, or `None`
