@@ -1668,3 +1668,31 @@ member's own `U` survives. The corpus simply has no generic-function-typed
 > *should* substitute. That is the sixth test expectation written from intuition
 > in this project's history and the sixth time the port was right; `STATUS.md`
 > §7's process notes already count five.
+
+### §830.2 — the INHERITED half, also zero, also proven
+
+`get_type_of_property_of_type` has **two** sites that pair
+`get_property_of_type` with `instantiate_for_reference`: the own-member road (§830,
+`members.rs:1028`) and the generic-heritage walk (`:1158`). §830 fixed the first and
+left the second with the identical shape, so a generic method reached through a
+generic **base** — `class D extends B<string>` reading `B<T>`'s `m<U>(t: T, u: U)` —
+would still substitute the base's argument into the method's own shadowing name.
+
+Same one-line fix. **Zero corpus transitions**, and pinned:
+
+```ts
+class B<T> { m<U>(t: T, u: U): T { … } }
+class D extends B<string> { }
+declare const d: D;
+d.m;                                   // <U>(t: string, u: U) => string
+```
+
+Shipped on §823's precedent, not §824's: the arm fires and is correct, and the
+corpus has no generic method inherited through a generic base in its failing set.
+
+> **The three-site pattern is the transferable part.** §830 converted +214 at one
+> of two structurally identical call sites; §830.1 and §830.2 cover the other
+> spelling and the other road, each for zero. **When a defect is found at one site
+> of a pair, fixing the sibling is free and the corpus will usually not show it** —
+> which is an argument for doing it anyway, with a test, rather than waiting for a
+> future session to rediscover the same bug through a different case.

@@ -1155,7 +1155,20 @@ impl Checker<'_, '_> {
                     // mutually-generic bases.
                     if let Some(property) = self.get_property_of_type(base_type, name) {
                         let declared = self.get_type_of_symbol(property);
-                        let instantiated = self.instantiate_for_reference(base_type, declared);
+                        // §830.2: the INHERITED half of §830. A generic method
+                        // reached through a generic BASE has the same two
+                        // parameter sets — `class D<T> extends B<T>` reading
+                        // `B<T>`'s `m<T>(x: T)` — and the base's arguments must
+                        // not be substituted into the method's own shadowing
+                        // name. The sibling site (the own-member road) is what
+                        // §830 fixed; this one had the identical shape.
+                        let shadowed = self.member_own_type_parameter_names(property);
+                        let shadowed_refs = shadowed.iter().map(String::as_str).collect::<Vec<_>>();
+                        let instantiated = self.instantiate_for_reference_shadowed(
+                            base_type,
+                            declared,
+                            &shadowed_refs,
+                        );
                         if instantiated != self.intrinsics.error {
                             return Some(instantiated);
                         }

@@ -194,3 +194,15 @@ fn a_generic_function_typed_property_keeps_its_own_type_parameters() {
          c.foo;\n";
     assert_eq!(type_of_last_expression(source), "<U>(t: string, u: U) => string");
 }
+
+/// §830.2: the INHERITED half — a generic method reached through a generic BASE.
+/// `instantiate_for_reference` was called without the shadowed names on that road
+/// too. Measured at zero corpus-wide; this is what says the arm fires.
+#[test]
+fn an_inherited_generic_method_keeps_its_own_type_parameters() {
+    let source = "class B<T> { m<U>(t: T, u: U): T { return t; } }\n\
+         class D extends B<string> { }\n\
+         declare const d: D;\n\
+         d.m;\n";
+    assert_eq!(type_of_last_expression(source), "<U>(t: string, u: U) => string");
+}
