@@ -2312,3 +2312,90 @@ are 7% of the population.
 >
 > **Five rows read this session, four buildable, one refused before it was built.**
 > That ratio is the method working, not failing.
+
+---
+
+## §837 — indirect self-extension declines at ANY depth, not one hop
+
+The `typeof` row of the corrected census splits cleanly in two directions, and the
+second is a **loss** the port is currently taking:
+
+```
+we ADD  `typeof`  (got = typeof want)   56 lines / ~28 cases   — §819's residue
+we OMIT `typeof`  (want = typeof got)   19 lines /   9 cases   — this
+```
+
+The 19 are all self-extension cycles: `classExtendsItselfIndirectly` ×3,
+`classExtendsItselfIndirectly2`, `classExtendsItselfIndirectly3`,
+`indirectSelfReference`, `recursiveBaseCheck`, `undefinedTypeAssignment4`. The
+fixture is a **three-hop** cycle:
+
+```ts
+class C extends E { foo: string; }   // error
+class D extends C { bar: string; }
+class E extends D { baz: number; }
+```
+
+SS195 recorded the rule this depends on: a self-extending class has no resolvable
+base, so upstream falls back to the identifier's own value type and records
+`>C : typeof C`, while an ordinary `class B extends A` records `>A : A`. The port's
+heritage compensation answers the instance type, so it must decline on a cycle.
+
+**It declines on one hop only.** The identifier arm's guard is a *name comparison*
+against the extending class (`owner_name != name.text`) — direct self-extension —
+and §60's qualified arm adds exactly one more hop, with its own comment saying so:
+
+> Self-extension DIRECT or through the base's own heritage … **one hop is what the
+> corpus exercises.**
+
+That was true of the corpus it was written against and is measurably false now: a
+three-hop cycle walks straight past both guards, the compensation fires, and the
+port answers `E` where upstream answers `typeof E`.
+
+### The fix
+
+Walk the resolved base's heritage chain for the extending class, with a visited set
+and a depth cap, and decline if it is reached at any depth. Same decline as before —
+only the detection changes.
+
+### The bar, registered before the code
+
+- **Leg 1 (primary).** `gained ≥ 12` of the 19.
+- **Leg 2 (safety).** `RIGHT → WRONG ≤ 3`. Declining *more* can only lose lines the
+  compensation was getting right, so this leg is asking whether any real
+  (non-cyclic) base was caught by the walk.
+- **Leg 3 (the control).** The existing direct and one-hop declines must be
+  unchanged — `classInheritence` and `recursiveBaseCheck`'s already-right lines stay
+  right. If they move, the walk has replaced the guards rather than extending them.
+- **Leg 4.** `cases regressed == 0`.
+
+### §837's score — LANDED at +21, ZERO adverse, all four legs pass
+
+```
+right 438,597 → 438,618  (+21)     wrong 28,364 → 28,343     gap unchanged
+WRONG→RIGHT 21   |   RIGHT→WRONG 0   GAP→WRONG 0
+gradient 91.59% → 91.60%, cases 6,135 → 6,140  (+5)
+```
+
+`classExtendsItselfIndirectly` 6, `classExtendsItselfIndirectly3` 6,
+`indirectSelfReference` 2, and a tail.
+
+**Leg 2 fired on the first two cuts and each firing named the next restriction** —
+the same single line, `dynamicNames:21`, want `T1` against `typeof T1`:
+
+1. **First cut walked every declaration kind.** Cost 1. Restricting to classes did
+   **not** fix it, which is what said the cycle was not through an interface — the
+   guess was wrong and the re-measure caught it before the reasoning did.
+2. **Second cut walked every heritage clause.** Reading the case gave it away:
+   `class T1 implements T2` beside `class T2 extends T1` is a cycle running through
+   an **`implements`** clause, and upstream's fallback (SS195) is about a class with
+   no resolvable *base*. `implements` is not a base. Restricting to
+   `ExtendsKeyword` took the loss to **0**.
+
+> **A one-line loss was worth two iterations.** It would have been easy to land
+> +20/−1 at a 21:1 ratio and call the residue unowned — the trade passes every bar
+> on this page. Reading the one line instead turned it into +21/−0 *and* produced
+> the precise statement of the rule: the self-extension fallback follows the
+> `extends` chain of **classes**, nothing else. The second cut also shows why
+> re-measuring beats reasoning: "restrict to classes" was a plausible fix for the
+> wrong cause, and only the number said so.

@@ -298,6 +298,87 @@ fn heritage_base_symbol(
     Some(checker.resolve_alias(symbol).unwrap_or(symbol))
 }
 
+/// §837: whether `from`'s heritage chain reaches `target` at any depth.
+///
+/// The self-extension decline this supports was one hop deep — the identifier arm
+/// compared names (direct self-extension) and §60's qualified arm added a single
+/// further step, with its comment saying *"one hop is what the corpus exercises"*.
+/// `classExtendsItselfIndirectly`'s three-hop cycle (`C extends E`, `D extends C`,
+/// `E extends D`) walks past both, so the compensation fired on a cycle and
+/// answered `E` where upstream answers `typeof E`.
+///
+/// Bounded by a visited set and a depth cap; a cycle is the thing being looked
+/// for, so the set is what makes the walk terminate at all.
+fn heritage_reaches<'a>(
+    binder: &tsr_binder::BindResult<'a>,
+    nodes: &NodeTable,
+    map: &NodeMap<'a>,
+    from: tsr_binder::SymbolId,
+    target: tsr_binder::SymbolId,
+) -> bool {
+    let mut seen: std::collections::HashSet<tsr_binder::SymbolId> =
+        std::collections::HashSet::new();
+    let mut stack = vec![from];
+    let mut steps = 0usize;
+    while let Some(current) = stack.pop() {
+        steps += 1;
+        if steps > 64 {
+            return false;
+        }
+        if !seen.insert(current) {
+            continue;
+        }
+        let Some(declaration) = binder.symbols().get(current).declarations.first().copied() else {
+            continue;
+        };
+        let clauses = match map.get(declaration) {
+            Some(Node::ClassDeclaration(class)) => class.heritage_clauses,
+            Some(Node::ClassExpression(class)) => class.heritage_clauses,
+            // CLASSES only. An interface's heritage was in the first cut and cost
+            // one line: `dynamicNames:21`'s base `T1` reaches the extending
+            // declaration through an INTERFACE chain that upstream still resolves,
+            // so the compensation belongs there and the walk must not see it.
+            // Upstream's fallback (SS195) is about a class with no resolvable
+            // base, which is what `extends` on a class means.
+            _ => continue,
+        };
+        for clause in clauses {
+            // EXTENDS only. The first cut walked every heritage clause and cost
+            // one line: `dynamicNames` has `class T1 implements T2` beside
+            // `class T2 extends T1`, a cycle that runs through an IMPLEMENTS
+            // clause — and upstream's self-extension fallback (SS195) is about a
+            // class with no resolvable BASE, which `implements` is not.
+            if clause.token.kind != SyntaxKind::ExtendsKeyword {
+                continue;
+            }
+            for entry in clause.types {
+                let Some(expression) = entry.expression else { continue };
+                let Some(node) = expression.node_id() else { continue };
+                let name = match expression {
+                    tsr_ast::Expression::Identifier(identifier) => identifier.text,
+                    tsr_ast::Expression::PropertyAccessExpression(access) => match access.name {
+                        Some(tsr_ast::MemberName::Identifier(member)) => member.text,
+                        _ => continue,
+                    },
+                    _ => continue,
+                };
+                let resolved = binder
+                    .resolve_name(nodes, map, node, name, tsr_binder::SymbolFlags::TYPE)
+                    .or_else(|| {
+                        binder.resolve_name(nodes, map, node, name, tsr_binder::SymbolFlags::VALUE)
+                    });
+                if let Some(base) = resolved {
+                    if base == target {
+                        return true;
+                    }
+                    stack.push(base);
+                }
+            }
+        }
+    }
+    false
+}
+
 /// Whether `id` is an `ExpressionWithTypeArguments` in a class's `extends`
 /// clause — upstream's `TryGetClassImplementingOrExtendingExpressionWithTypeArguments`
 /// (`ast/utilities.go:1438`) with its `!isImplements` half applied.
@@ -792,6 +873,16 @@ pub fn type_id_at_location_tracking<'a>(
                             name.text,
                             tsr_binder::SymbolFlags::TYPE,
                         )
+                    })
+                    // §837: decline a self-extension CYCLE at any depth, not
+                    // just the direct one this arm's name test catches.
+                    .filter(|&base| {
+                        match nodes.parent(clause).and_then(|owner| binder.symbol_of(owner)) {
+                            Some(extending) => {
+                                !heritage_reaches(binder, nodes, map, base, extending)
+                            }
+                            None => true,
+                        }
                     })
                     // §475: `extends T` where T is a TYPE PARAMETER never
                     // reaches this compensation — upstream's base-type
