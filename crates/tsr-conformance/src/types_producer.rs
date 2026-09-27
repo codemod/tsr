@@ -460,12 +460,55 @@ pub fn type_at_location<'a>(
 /// This is the whole of [`type_at_location`]'s body; that function is this plus
 /// `render`. Split out for `examples/subtypes.rs`, which has to inspect a
 /// union's *constituents* and cannot do that through a rendered string.
+///
+/// The body itself is [`type_id_at_location_tracking`]; this discards its
+/// `saw_checker_error` flag, which is what every caller but a gap-root board
+/// wants.
 pub fn type_id_at_location<'a>(
     checker: &mut tsr_checker::Checker<'a, '_>,
     binder: &tsr_binder::BindResult<'a>,
     nodes: &NodeTable,
     map: &NodeMap<'a>,
     id: NodeId,
+) -> tsr_checker::TypeId {
+    type_id_at_location_tracking(checker, binder, nodes, map, id, &mut false)
+}
+
+/// [`type_id_at_location`] plus the one fact it throws away: **did the CHECKER
+/// answer `errorType` at this position while the producer printed `any`?**
+///
+/// # Why this exists, and why it is not a new classifier
+///
+/// The producer converts `error` to `any` on three branches below, faithfully —
+/// upstream's own baseline writer does it (`type_symbol_baseline.go:383`), so a
+/// position where *upstream's* checker holds `errorType` records `any` there too.
+/// The consequence is that **a line where this port computed nothing is
+/// indistinguishable, in the baseline text, from one where it computed `any`** —
+/// which is ADR-0038's ceiling phenomenon at a specific class of positions.
+///
+/// That costs the project its ability to rank its own remaining work.
+/// `examples/depend.rs`, `gaproot.rs` and `cyclegap.rs` all select lines by
+/// `type_string == "error"`, so all three are **blind** to this population.
+/// `STATUS.md` §4.-5's correction measured it at **8,826 of 13,295** audited
+/// `any` lines — the gap column reads ~7,400 while the "computed nothing"
+/// population is more than twice that.
+///
+/// `examples/any_audit.rs` can already see it, but only because it **mirrors**
+/// this function's branch order in a parallel implementation. Exposing the fact
+/// here instead is the `tsr_conformance::verdict` precedent: one computation, so
+/// two probes cannot drift.
+///
+/// **Behaviour is unchanged by construction.** The returned `TypeId` is the same
+/// on every path; `saw_checker_error` is written and never read internally, and
+/// [`type_id_at_location`] delegates here with a throwaway. A `scorepair` run
+/// across this change must read *no transitions*.
+pub fn type_id_at_location_tracking<'a>(
+    checker: &mut tsr_checker::Checker<'a, '_>,
+    binder: &tsr_binder::BindResult<'a>,
+    nodes: &NodeTable,
+    map: &NodeMap<'a>,
+    id: NodeId,
+    saw_checker_error: &mut bool,
 ) -> tsr_checker::TypeId {
     let error = checker.intrinsics().error;
     let Some(node) = map.get(id) else { return error };
@@ -508,6 +551,7 @@ pub fn type_id_at_location<'a>(
         // `>Obj.fn : error` beside `>fn : any` — the same errorType, the
         // whole access taking the fast path and its NAME not.
         if computed == error || computed == checker.intrinsics().any {
+            *saw_checker_error |= computed == error;
             return checker.intrinsics().any;
         }
         return computed;
@@ -1325,6 +1369,7 @@ pub fn type_id_at_location<'a>(
         let computed = tsr_ast::Expression::try_from(node)
             .map_or(error, |expression| checker.check_expression(expression));
         if computed == error || computed == checker.intrinsics().any {
+            *saw_checker_error |= computed == error;
             return checker.intrinsics().any;
         }
     }
@@ -1338,6 +1383,7 @@ pub fn type_id_at_location<'a>(
         let tag = tsr_ast::Expression::try_from(node)
             .map_or(error, |expression| checker.check_expression(expression));
         if tag == error || tag == checker.intrinsics().any {
+            *saw_checker_error |= tag == error;
             return checker.intrinsics().any;
         }
     }

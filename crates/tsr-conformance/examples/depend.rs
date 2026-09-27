@@ -371,6 +371,11 @@ fn identifier_reason<'a>(
 #[derive(Default)]
 struct Report {
     gap: usize,
+    /// §826: of `gap`, how many arrived only because the CHECKER answered
+    /// `error` while the producer printed `any`. These are the lines every
+    /// gap-root board was blind to; printing the count beside the total is what
+    /// lets a reader tell this board's population from the older ones.
+    error_behind_any: usize,
     /// `(root kind, how the chain ended) -> lines`, with cases.
     roots: BTreeMap<(String, &'static str), usize>,
     root_cases: BTreeMap<(String, &'static str), HashMap<String, usize>>,
@@ -395,6 +400,7 @@ struct Report {
 impl Report {
     fn merge(&mut self, other: &Self) {
         self.gap += other.gap;
+        self.error_behind_any += other.error_behind_any;
         self.cycles += other.cycles;
         self.too_deep += other.too_deep;
         self.c1_root_does_not_gap += other.c1_root_does_not_gap;
@@ -454,8 +460,40 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
             if want.text.strip_prefix(&format!("{} : ", got.text)).is_none() {
                 continue;
             }
-            if got.type_string != "error" {
+            // §826: the printed string is NOT the checker's answer.
+            // `types_producer` converts `error` to `any` on three branches,
+            // faithfully — upstream's own baseline writer does it
+            // (`type_symbol_baseline.go:383`) — so a line where the checker
+            // computed NOTHING can arrive here reading `any`. Selecting on the
+            // string made this board blind to that whole population, measured at
+            // **8,826 of 13,295** audited `any` lines in `STATUS.md` §4.-5's
+            // correction: the gap column read ~7,400 while the "computed nothing"
+            // population is more than twice that, so every population this board
+            // has ever printed was a FLOOR presented as a ceiling.
+            //
+            // `type_id_at_location_tracking` now reports the fact the producer
+            // used to discard, which is why this is a selection change and not a
+            // new classifier.
+            // `TSR_NO_826=1` restores the old string-only selection, so the
+            // board's two populations can be A/B'd in one build rather than
+            // compared across commits.
+            let mut checker_error = false;
+            if got.type_string != "error" && std::env::var("TSR_NO_826").is_ok() {
                 continue;
+            }
+            if got.type_string != "error" {
+                types_producer::type_id_at_location_tracking(
+                    &mut checker,
+                    bound,
+                    nodes,
+                    map,
+                    line_ids[position],
+                    &mut checker_error,
+                );
+                if !checker_error {
+                    continue;
+                }
+                report.error_behind_any += 1;
             }
             report.gap += 1;
 
@@ -571,7 +609,10 @@ fn main() {
         });
 
     println!("# depend — the gap's roots, following DECLARATION edges (`bd tsr-550`)\n");
-    println!("gap lines walked: {}\n", report.gap);
+    println!(
+        "gap lines walked: {} ({} of them are a CHECKER `error` the producer printed as `any` — §826)\n",
+        report.gap, report.error_behind_any
+    );
 
     println!("## Where the chain ends — the ROOT of each gap line\n");
     let mut rows: Vec<_> = report.roots.iter().collect();

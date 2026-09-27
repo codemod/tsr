@@ -1178,3 +1178,79 @@ line whose enclosing print is an overload set the port cannot render at all.
 > The population was real; the attribution to this mechanism was not, which is the
 > naming-prefix error one more time in a new costume: **a want containing a
 > construct is not a want blocked by that construct.**
+
+---
+
+## §826 — the gap boards can finally see the lines the producer hid
+
+Zero gradient, and the point. §4.-5's correction measured that **8,826 of 13,295
+audited `any` lines sit behind a branch that answered `error`** — the checker
+computed nothing and the producer printed `any` anyway, faithfully, because
+upstream's own baseline writer does (`type_symbol_baseline.go:383`). Every
+gap-root instrument selects on `type_string == "error"`, so all of them were blind
+to that population, and every row they have ever printed was a **floor presented
+as a ceiling**.
+
+### The blocker, and why it was not a one-liner
+
+`type_id_at_location` **returns** `checker.intrinsics().any` at three sites where
+the checker answered `error`, so the fact is gone before any caller sees it.
+`any_audit.rs` recovers it only by **mirroring** the whole branch order in a
+parallel implementation.
+
+Fixed the way `tsr_conformance::verdict` already solves this class of problem —
+one computation, so two probes cannot drift:
+
+- `type_id_at_location_tracking(…, saw_checker_error: &mut bool)` is the existing
+  body, with the flag set at exactly the three `error → any` substitutions. The
+  other three `return any` sites are positions where *upstream* also prints `any`
+  (label names and friends — the audit's WRITER rows) and are deliberately not
+  flagged.
+- `type_id_at_location` delegates with a throwaway, so **all fourteen existing
+  callers are untouched and behaviour is unchanged by construction**. Verified,
+  not asserted: `scorepair` across the change reads `right 438,199` with only
+  §825's six transitions and nothing else.
+
+### The A/B, because the claim is about an instrument
+
+`TSR_NO_826=1` restores the old string-only selection, so both populations come
+from one build:
+
+```
+old selection   7,432 lines walked
+new selection   9,145 lines walked   (+1,713, +23%)
+```
+
+| row | old | new |
+|---|---:|---:|
+| `CallExpression / dependency` | 1,201 | 1,362 |
+| `Parameter / no further dependency` | **979** | 985 |
+| **`Identifier: the member NAME of a.b`** | **absent** | **864** |
+| `PropertyAccessExpression / dependency` | 703 | 825 |
+| `Identifier: symbol has no value declaration` | 264 | 385 |
+
+**The new row is `Identifier: the member NAME of a.b` — 864 lines at want-any
+`0.0%`.** It accounts for half the newly admitted lines and it is *exactly* the
+SS183 position: a name whose parent is a property access, which is the branch that
+substitutes `any` for `error`. The row that was invisible is the row the
+substitution hides, which is the internal consistency check this change needed.
+
+At **0.0% want-any** it carries no ADR-0038 ceiling at all — every one of those
+864 lines is reachable in principle. It is now the most reachable row of its size
+on the board.
+
+> **I nearly published a wrong causal claim here.** The first read of the new board
+> said `Parameter / no further dependency` (985, 0.4% want-any) was newly visible,
+> because it appears on no board recorded in `STATUS.md`. The A/B shows it was
+> already there at **979** — those boards are from the stale 84% base, not from
+> this one. Two runs of one binary settled in minutes what cross-commit comparison
+> would have got wrong. **A/B an instrument change inside one build; never against
+> a recorded number from another base.**
+
+### What this does not fix
+
+1,713 of the ~8,800 became visible, not all of them. `depend.rs` also requires the
+line to have the `name : type` shape (`want.text.strip_prefix("{got} : ")`), and
+most of the remainder fail *that* filter, which is a separate and untouched
+restriction. So the board's population is still a floor — just a much better one,
+and now an honest one, because the count prints the §826 share beside the total.
