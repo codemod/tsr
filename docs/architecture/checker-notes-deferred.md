@@ -977,3 +977,86 @@ than harness-backed.
 > with a test each**, and the next session can act on any of them without
 > re-deriving anything. The lesson §822 paid for is already visible in the
 > difference between the two write-ups.
+
+---
+
+## §824 — an EXPANDO property's `@type` tag: **NOT LANDED, three zeros, and the diagnosis finally VERIFIED by instrumentation**
+
+Corpus-evidenced population, and the cheapest-looking build left on the near-miss
+board. It took three measured zeros to find out why, and the value of this section
+is the verified end-state, not the attempt.
+
+### The population and the shape, both sound
+
+```
+want `object`, got `any` or `error`   52 lines / 26 cases
+  45 in JS-named cases, 44 in argumentsReferenceIn{Constructor,Method}1-6_Js
+```
+
+```js
+class A {
+    constructor(foo = {}) {
+        /** @type object */
+        this.arguments = foo;      // a PROPERTY named `arguments`; the name is incidental
+    }
+}
+```
+
+`argumentsReferenceInConstructor1_Js` localises it to three lines:
+
+| line | verdict |
+|---|---|
+| `this.arguments = foo : object` | **RIGHT** — the `@type` *is* read for the assignment |
+| `this.arguments : object` | GAP (`error`) |
+| `arguments : object` | WRONG (`any`) |
+
+### Three attempts, three corpus-wide zeros
+
+1. **Widened `jsdoc_type_annotation` to `PropertyAccessExpression`.** Zero. Wrong
+   node kind — guessed, not read.
+2. **Read the binder and corrected it to `BinaryExpression`.**
+   `bind_this_property_assignment` (`binder.rs:3500`, `:3525`) pushes the
+   *`BinaryExpression`*'s `id` onto `declarations`, so the docs are one parent up
+   on the `ExpressionStatement`. Still **zero**.
+3. **Instrumented it** (`TSR_DEBUG_824`, the project's own env-gated idiom) and ran
+   the single case. The answer is unambiguous:
+
+```
+824: jsdoc_type_annotation entered, kind=Parameter js=true
+```
+
+**Entered exactly once, for the constructor's `foo` parameter, and never for the
+expando property at all.** Both arms were wiring a door this declaration never
+reaches.
+
+### The verified facts, so nobody re-derives them
+
+- The expando property's declaration is the **`BinaryExpression`**
+  (`binder.rs:3500`, `:3525`).
+- **`jsdoc_type_annotation` is never entered for it** — instrumented, not inferred.
+- **Nothing in `tsr-checker` reads `SymbolFlags::ASSIGNMENT`** for type
+  computation; `grep ASSIGNMENT crates/tsr-checker/src` finds only diagnostics,
+  flow flags and export-assignment messages.
+- `get_type_for_variable_like_declaration` is called **unconditionally** at
+  `symbols.rs:3544`, so the short-circuit is **upstream of it**, inside
+  `get_type_of_symbol` for a `PROPERTY | ASSIGNMENT` symbol.
+
+**The next probe is one instrumented run**: print which branch `get_type_of_symbol`
+takes for that symbol. That is where the arm belongs — and it is an arm for a
+declaration shape the road has none for, not a widening of an existing door, which
+is what all three attempts here assumed.
+
+### Why this is reverted rather than shipped as a zero
+
+Same test as §822 against §823: §823's mechanism was demonstrably *correct* and
+unreached by the corpus, so it shipped. This one **never fires at all** — it is
+dead code by instrumented proof. A no-op arm plus a wrong story about where the
+type comes from is worse than an empty space with a verified note in it.
+
+> **The session's arithmetic on guessing.** §822, §823's corpus half, and §824's
+> three cuts are five measured zeros, and every one of them came from assuming a
+> mechanism was on the path instead of checking. The two checks that settled §824
+> — `grep` the binder for what it files as the declaration, and one `eprintln!` at
+> the function entry — cost minutes between them, and would have prevented all
+> three cuts. **Instrument the path before widening anything on it.**
+
