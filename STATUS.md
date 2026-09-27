@@ -1114,6 +1114,60 @@ fresh run at `7cecc02` (fourth session; every row within noise). Two lists, beca
 project's ordering rule has two halves: **rank by the conversion, and where the
 conversion is unknown, rank by how cheap it is to find out.**
 
+### 4.-7 WHEN THE ORACLE ITSELF SAYS `error`, 2026-09-27 (§820) — the rule ADR-0038 and ADR-0039 each describe half of
+
+**Verified against upstream, not inferred**, because every ceiling argument on
+this page depends on it and the two ADRs state it one branch apart.
+
+`errorType` upstream is `c.errorType = c.newIntrinsicType(TypeFlagsAny, "error")`
+(`checker.go:979`) — **its intrinsic name is literally `"error"`**. Which of the
+two spellings reaches a `.types` baseline is decided by one `if` in the baseline
+writer (`type_symbol_baseline.go:380-392`):
+
+```go
+if !walker.hadErrorBaseline && checker.IsTypeAny(t) &&
+   !ast.IsBindingElement(node.Parent) && !ast.IsPropertyAccessOrQualifiedName(node.Parent) &&
+   !ast.IsLabelName(node) && !ast.IsGlobalScopeAugmentation(node.Parent) &&
+   !ast.IsMetaProperty(node.Parent) && !isImportStatementName(node) &&
+   !isExportStatementName(node) && !isIntrinsicJsxTag(node, …) {
+    typeString = t.AsIntrinsicType().IntrinsicName()      // ← prints `error`
+} else {
+    … NewNodeBuilder(…)                                   // ← prints `any`
+}
+```
+
+So **the same internal type prints two different ways**, and the discriminator is
+mostly `hadErrorBaseline` — i.e. *whether the case has an `errors.txt` at all*.
+Checked on the two cases this session had in hand:
+
+| case | `errors.txt`? | `hadErrorBaseline` | the baseline records |
+|---|---|---|---|
+| `parsingDeepParenthensizedExpression` | **no** | false | **`error`** (136 lines of it) |
+| `longObjectInstantiationChain3` | **yes** | true | **`any`** |
+
+**What this settles.** ADR-0038 says *"Upstream renders `errorType` as `any`"*;
+ADR-0039 says the `any` is *"the baseline writer's decision"*. Both are right and
+neither is the whole rule: upstream renders `errorType` as **`any` only on the
+node-builder branch**, and on the intrinsic fast path — which is where a clean
+case's lines go — it renders **`error`**, exactly as this port does. The two ADRs
+describe the two sides of one `if`, and reading either alone will mislead.
+
+**Consequences, and one of them is an opportunity.**
+
+- A `want = error` row is **not** a port defect in the rendering. It means
+  upstream's checker *held `errorType`* there and this port computed something
+  instead. Matching it requires **failing where upstream fails** — the §14
+  shape, which is how the largest build in this project's history was made.
+- `parsingDeepParenthensizedExpression` is **136 lines of exactly that**, uniform
+  (`want=error`, `got=any`), in one case with no errors baseline. That is larger
+  than any single build the §812–§819 window landed. It is **not sized** here
+  beyond the line count, because the work is finding upstream's bail condition on
+  a pathological input and that has not been done.
+- A concentration falsifier would fire at 100% on it. §14's precedent says that
+  is landable **when decomposed and stated**, not that it is ignorable.
+
+---
+
 ### 4.-6 THE NEAR-MISS BOARD, 2026-09-27 (§817) — where the type is RIGHT and the PRINT is wrong
 
 **Why this board exists, and why it is the cheapest one on this page.** §4.-5

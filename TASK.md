@@ -1268,3 +1268,67 @@ builds. It is a real target and it is not a one-session target; the
 honest framing is that the instrument change above is worth more than
 any single arm, because it is what makes the remaining population
 rankable at all.
+
+--- §820: WHEN THE ORACLE SAYS `error` (STATUS §4.-7) ---
+
+VERIFIED, because every ceiling argument depends on it:
+  c.errorType = c.newIntrinsicType(TypeFlagsAny, "error")  checker.go:979
+  -- its intrinsic name IS "error".
+
+type_symbol_baseline.go:380-392 decides which spelling reaches a
+baseline:
+  !hadErrorBaseline && IsTypeAny(t) && <not one of 7 positions>
+      -> typeString = t.AsIntrinsicType().IntrinsicName()   => `error`
+  else
+      -> NewNodeBuilder(...)                                => `any`
+
+So THE SAME INTERNAL TYPE PRINTS TWO WAYS, discriminated mostly by
+whether the case has an errors.txt at all. Checked:
+  parsingDeepParenthensizedExpression  no errors.txt  -> `error` (136 lines)
+  longObjectInstantiationChain3        has errors.txt -> `any`
+
+ADR-0038 ("upstream renders errorType as any") and ADR-0039 ("the any is
+the baseline writer's decision") are the TWO SIDES OF THAT ONE `if`.
+Reading either alone will mislead. Neither is wrong.
+
+THE OPPORTUNITY THIS EXPOSES: a `want = error` row is NOT a rendering
+defect. It means upstream's checker HELD errorType and this port computed
+something instead, so matching it means FAILING WHERE UPSTREAM FAILS --
+the §14 shape, which produced the largest build in the project's history.
+
+  parsingDeepParenthensizedExpression is 136 uniform lines of exactly
+  that (want=error, got=any), one case, no errors baseline. Larger than
+  any single build in the §812-§819 window. NOT SIZED beyond the line
+  count: the work is finding upstream's bail condition on a pathological
+  input (thousands of nested parens in an asm.js-style file) and that has
+  not been done. A concentration falsifier fires at 100%; §14's
+  precedent says that is landable WHEN DECOMPOSED AND STATED.
+
+--- WHERE THE TOP OF THE BOARD ACTUALLY IS NOW (checked, not assumed) ---
+
+Ranking the 28,701 wrong lines by case and then testing the top four for
+uniformity: EVERY ONE is dominated by `any ==> <specific type>`, and
+none has a §784-shaped single gate.
+  variadicTuples1 267      17 any=>string, 13 any=>unknown, 13 any=>(...)=>number
+  temporal 223
+  complexRecursiveCollections 221
+  strictBindCallApply1 204  36 any=>string, 30 any=>(this: C, ...)=>string,
+                           10 any=>OmitThisParameter<T> shapes
+  genericFunctionInference1 202
+  genericRestParameters1 161 / conditionalTypes1 150 / thisTypeInFunctions 141
+
+strictBindCallApply1 wants ThisParameterType<T> and OmitThisParameter<T>;
+conditionalTypes1 wants conditional evaluation. THOSE ARE §815's UNBUILT
+HEADS 2 AND 3 -- mapped types and conditional types, which have NO
+CHECKER ARM AT ALL. So the frontier note in the older TASK addendum
+("pick ONE subsystem and build its prerequisite seam rather than continue
+shape-mining") is CONFIRMED against fresh data, and the subsystem it
+points at is now named by the top of the board rather than guessed.
+
+The direct print population for those constructs is small (conditional
+177 lines, mapped 291), but that is the WRONG way to price them: their
+value is as the PREREQUISITE for the utility types the top cases use
+(ThisParameterType, OmitThisParameter, Parameters, ReturnType, Omit,
+Pick, Exclude). Per §4.4 a subsystem converts nothing until finished, so
+it needs a session that accepts that, not a half-build wedged into a
+shape-mining window.
