@@ -1197,6 +1197,64 @@ direction, and **the zero is the load-bearing row**: the port never prints a
 bare `error` where the oracle wants a type. Every over-answer is `any`. So the
 whole 17,921 is reachable only by BUILDING types, never by relaxing a refusal.
 
+> #### CORRECTED at the §814 landing (2026-09-27): the zero row is about
+> #### RENDERING, and the diagnosis built on it is inverted
+>
+> *"The port never prints a bare `error` where the oracle wants a type. Every
+> over-answer is `any`."* Both sentences are true **of the printed text**, and
+> the conclusion they carry — *build types, do not relax refusals* — is also
+> right. **But the reason given for it is the opposite of what is happening**,
+> and the reason is what a session acts on.
+>
+> `examples/any_audit.rs` already classifies every printed `any` by the rule
+> that minted it, and it has carried the answer all along in a row suffix
+> nobody had summed: **`<- the branch answered ERROR; the producer prints
+> `any` there`**. Summed over the LOST section at the §814 baseline:
+>
+> ```
+> LOST (we print `any`, upstream printed something else)   17,121 lines
+>   of the 13,295 the audit prints as its top-20 rows:
+>     behind a branch that answered ERROR                   8,826  (66.4%)
+>     a genuinely COMPUTED `any`                            4,469  (33.6%)
+>   the remaining 3,826 are in the unprinted tail and are UNSPLIT
+> ```
+>
+> So on two-thirds of the measured rows **the checker computed nothing at all**.
+> The `error` is invisible in the baseline text because the producer prints
+> `any` at those positions — and it does so **faithfully**, mirroring upstream's
+> own baseline writer (`type_symbol_baseline.go:383`, ported at
+> `types_producer.rs:510`: a name whose parent is a property access renders
+> through the node builder rather than the intrinsic fast path, so an
+> any-flagged answer prints `any`). This is not a defect to fix; it is
+> ADR-0038's ceiling phenomenon appearing at a specific class of positions.
+>
+> **What it changes.** Two things, and they are the reason this correction is
+> worth its space:
+>
+> 1. **Every gap-root instrument is blind to these lines.** `depend.rs`,
+>    `gaproot.rs` and `cyclegap.rs` all walk `GAP` rows. The gap column reads
+>    **7,418**, but the population where the checker computed nothing is
+>    7,418 **plus** the ERROR-behind-`any` share — on the measured rows alone
+>    that is ~16,200, better than twice what the boards can see. A road ranked
+>    as small on a gap board may be twice that size.
+> 2. **"The port answers `any`" points a session at the wrong code.** It reads
+>    as *audit the `any`-producing rules* — implicit any, contextual typing,
+>    untyped calls. For two-thirds of these rows the truthful instruction is
+>    *find out why the branch answered `error`*, which is ordinary gap work
+>    wearing a wrong line's clothes.
+>
+> **The cheap next move, and it is an instrument change rather than a checker
+> one**: make the gap-root boards admit a WRONG row whose checker branch
+> answered `error`. `any_audit.rs` already computes the predicate, so this is
+> a join between two existing probes, not a new classifier. Until that is done,
+> no number on a gap board should be quoted as a population ceiling.
+>
+> **What is NOT claimed here.** The 3,826-line tail is unsplit, so the 66.4%
+> is measured over the printed rows only and must not be extrapolated to the
+> full 17,121 without re-running the audit without its top-20 truncation. And
+> the *conclusion* of the paragraph above stands unchanged: these lines are
+> reachable only by building types. Relaxing a refusal still converts nothing.
+
 Splitting those 17,921 by what the ORACLE wanted:
 
 | lines | the oracle's answer is |
