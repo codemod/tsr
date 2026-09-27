@@ -1925,3 +1925,51 @@ declaration name of an optional method — `getTypeOfNode`/`getSymbolAtLocation`
 road for a member name, not `getTypeOfSymbol` — and place it there. The plain
 access and the declaration name are then the same fix, and the chain road must be
 left alone.
+
+### §832.2 — the read was done, and it says my model of upstream is INCOMPLETE
+
+§832.1 named one read as the next step. It was done, and the result is negative in
+a way worth recording rather than working around.
+
+**Three roads read, and none of them explains the baseline:**
+
+1. **The declaration-name road adds nothing.** `getTypeOfNode`
+   (`checker.go:32000`) for a declaration name is
+   `getSymbolAtLocation` → **plain `getTypeOfSymbol`** — no optionality, no
+   `addOptionalityEx`.
+2. **`getTypeOfSymbol` sends a method to a road that adds nothing.**
+   `:16512` dispatches `Method` to `getTypeOfFuncClassEnumModule`, whose worker
+   (`:16912`) has no optionality arm at all.
+3. **The binder really does make it a Method, not a Property.**
+   `binder.go:661` — `ast.SymbolFlagsMethod | getOptionalSymbolFlagForNode(node)`.
+   So `Method | Optional`, and the `Variable | Property` branch at `:16509` is not
+   taken.
+
+Yet `optionalMethods.types:15` records `>g : (() => number) | undefined` for
+`g?(): number`.
+
+**So the `| undefined` arrives by a route I have not found.** The most likely
+candidate on the evidence is `missingType`: `:11398` does
+`removeMissingType(propType, prop.Flags&Optional != 0)`, and if an optional
+member's type carries `missingType` then "removing" it under
+non-`exactOptionalPropertyTypes` is what *produces* the `undefined`. That is a
+hypothesis, not a reading — `getOptionalType`'s `isProperty` arm is the only
+`missingType` producer I located, and it is not called for methods.
+
+### Why this stops here rather than proceeding
+
+This session has three reverted builds — §822, §824, §832 — and every one placed a
+**correct diagnosis on an unread road**. The 105-line population is real, the chain
+road is already correct, the symbol-type site is refused with a number, and the
+remaining two sites are unbuildable until the route above is actually found rather
+than inferred.
+
+**The next session's step is still a read, and now a specific one**: follow
+`missingType` — where it enters an optional member's type, and what
+`removeMissingType` does to it under each setting of
+`exactOptionalPropertyTypes`. §78 plumbed that option and minted `missingType`, so
+the machinery exists in this port and the answer may be that the port's optional
+*properties* already work through it while methods never acquire it.
+
+**A negative read is a result.** Recording "three roads read, none explains it, here
+is the fourth to try" is worth more than a fourth placement that measures −4.
