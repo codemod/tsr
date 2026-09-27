@@ -1292,31 +1292,52 @@ node, which is what `step`'s declaration arm keys on).
 prediction coming true: the largest single destinations are `TypeReference` and
 `MappedType` — *type-node* roots.
 
-### The residue is the finding, and it corrects a standing reading
+### The residue, CORRECTED at §828 — it is 339 lines, not 693
 
-**693 lines stay on the member-name row after the edge exists.** That is not
-inertia: it means `step` *took* the property-declaration edge, and the
-declaration **did not gap**. So for those lines the property's own declaration
-types fine and the lookup still fails — `get_property_of_type` finds the symbol,
-and the *type* of that property on *this receiver* does not come out.
+**The first version of this section was wrong and is replaced rather than
+edited.** It read: *"693 lines stay on the member-name row after the edge exists…
+that is a member-resolution defect"*, and it drew that from the row's size plus
+its head case.
 
-That is a **member-resolution defect**, not a downstream symptom: the
-`bd tsr-4qx` instantiation seam, reached through a receiver the substitution
-cannot serve. Head case `mixinAccessModifiers` (3.6%), 284 cases, **want-any
-0.0%** — no ADR-0038 ceiling on any of it.
+Two measurements refute it.
 
-> **What is corrected, and what is not.** `bd tsr-mcd`'s measurement stands; it
-> was taken on a base where this row read 3,739 and the port had far less member
-> instantiation. What no longer holds is the **blanket reading** carried forward
-> from it — *"the property has no type" is always downstream, therefore not an
-> item*. On this base the shape splits roughly **1 : 2** between genuinely
-> downstream (318, now re-rooted) and a real member-resolution item (693). A
-> conclusion about a population is only as current as the base it was measured
-> on, which is the same lesson §1's staleness taught this session from the other
-> direction.
+**§828 split the ending.** `gaps()` tests `!= error`, and **`any` passes that** —
+so a dependency answering a *wrong* `any` looked like a typed dependency and the
+walk stopped, blaming this node when the real root is upstream. The head case is
+exactly that shape: `mixinAccessModifiers` wants `Protected & Public`, the
+mixin's intersection return, and this port answers `any`, so its **receiver** is
+wrong and its lookup is innocent. A new ending now says so — and it caught **137
+lines, all on `CallExpression`** (28.5% want-any), not on the member-name row.
 
-Behaviour-neutral: `depend.rs` is an example, and `scorepair` reads *no
-transitions* across the change.
+**And the row was never one item.** Reading `access_reason`'s own breakdown across
+the §827 A/B settles the actual number:
+
+| bucket | 827 off | 827 on |
+|---|---:|---:|
+| `member name, the property has no type` | 344 | **173** |
+| `property access, the property has no type` | 305 | **166** |
+| **total for that shape** | **649** | **339** |
+
+So §827 re-rooted **310** of the 649 — those really were downstream, and §4.3's
+reading was right about them — leaving **339** corpus-wide where the property's
+declaration types fine and the lookup still fails. The rest of the 686-line row
+is a *spread* of receiver-shape refusals, none an item on its own: `T` 51,
+`this` 31, `unknown` 24, `typeof globalThis` 23, and a tail.
+
+**The corrected claim**: `bd tsr-mcd`'s measurement stands, its blanket reading
+holds for about half the shape on this base, and the real item is **339 lines at
+0.0% want-any** — the `bd tsr-4qx` instantiation seam reached through a receiver
+the substitution cannot serve. Not 693, and not one row.
+
+> **This is the ninth population this session that needed splitting before it
+> could be priced, and the sixth claim I have had to correct.** The pattern no
+> longer needs restating case by case — it needs a rule, and the rule is that
+> **a row is not an item until its own instrument's reason column has been read.**
+> `access_reason` was printing the split the whole time, three sections below the
+> row I was pricing. Every one of this session's misattributions — case-name
+> prefixes, source-shape censuses, the harness-as-oracle, want-contains-construct,
+> and this — is the same failure to read one column further before quoting a
+> number.
 
 ### The two `depend.rs` fixes §4.0 deliberately left
 

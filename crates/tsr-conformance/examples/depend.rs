@@ -559,6 +559,25 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
                     break "no further dependency";
                 };
                 if !gaps(&mut checker, bound, nodes, map, next) {
+                    // §828: "types" is `!= error`, and **`any` passes that**. A
+                    // dependency that answers a WRONG `any` is not a typed
+                    // dependency in any useful sense — the real root is upstream
+                    // of it and is a wrong line rather than a gap — but the walk
+                    // stops here and the board blames this node.
+                    //
+                    // §827's residue was read as *"the property's declaration
+                    // types fine, so the lookup is a member-resolution defect"*.
+                    // `mixinAccessModifiers` refutes that for its own 72 lines:
+                    // it wants `Protected & Public`, the mixin's intersection
+                    // return, and this port answers `any` — so the RECEIVER is
+                    // wrong, not the lookup. Splitting the ending is what tells
+                    // the two apart.
+                    let any = checker.intrinsics().any;
+                    let dependency =
+                        types_producer::type_id_at_location(&mut checker, bound, nodes, map, next);
+                    if dependency == any {
+                        break "the dependency answers a WRONG `any` — the root is UPSTREAM";
+                    }
                     break "the dependency types — the root is here";
                 }
                 if !visited.insert(next) {
