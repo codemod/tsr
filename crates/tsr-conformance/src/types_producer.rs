@@ -802,6 +802,18 @@ pub fn type_id_at_location<'a>(
                     return None;
                 }
                 let tsr_ast::MemberName::Identifier(member) = access.name? else { return None };
+                // §819: follow an import-equals ALIAS to the module it names.
+                // `import Backbone = require("./backbone")` binds `Backbone` to
+                // an alias symbol that carries no `exports` of its own, so the
+                // member lookup below answered `None` and the whole
+                // compensation declined — which is why the `aliasUsageIn*`
+                // family recorded `typeof Backbone.Model` where upstream
+                // records `Backbone.Model`. Every one of §60's guards below
+                // (CLASS-only, self-extension, the base's own heritage cycle)
+                // runs AFTER this lookup and is therefore unaffected by the
+                // hop: it changes which table is consulted, not which bases are
+                // admitted.
+                let namespace = checker.resolve_alias(namespace).unwrap_or(namespace);
                 let exports = &binder.symbols().get(namespace).exports;
                 let found = exports.get(member.text).copied()?;
                 // §60's two fired legs: a base that is (or merges with) the

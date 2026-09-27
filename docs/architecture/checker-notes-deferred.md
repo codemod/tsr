@@ -505,3 +505,119 @@ routes into the `:8314` fall-through (a non-literal specifier and an unresolvabl
 module), §140's return unchanged, and **the decline that stays** — with no
 `Promise` global the call answers `errorType`, which is upstream reporting
 `A_dynamic_import_call_returns_a_Promise…` at `:20374`.
+
+---
+
+## §819 — a heritage base reached through an IMPORT ALIAS
+
+The `got = typeof want` row of §4.-6's near-miss board: ~50 lines whose head is
+the `aliasUsageIn*` family, every one of them reading
+
+```
+want  Backbone.Model        got  typeof Backbone.Model
+```
+
+### The rule is ported; the receiver shape is not
+
+Upstream's baseline writer carries an explicit workaround
+(`type_symbol_baseline.go:371-377`):
+
+```go
+// Workaround to ensure we output 'C' instead of 'typeof C' for base class expressions
+if ast.IsExpressionWithTypeArgumentsInClassExtendsClause(node.Parent) {
+    t = fileChecker.GetTypeAtLocation(node.Parent)
+}
+if t == nil || checker.IsTypeAny(t) { t = fileChecker.GetTypeAtLocation(node) }
+```
+
+So the node **whose parent is the heritage `ExpressionWithTypeArguments`** records
+the base *instance* type, while a node one level further in keeps its own. The
+corpus shows both, two lines apart:
+
+```
+export class VisualizationModel extends Backbone.Model {
+>Backbone.Model : Backbone.Model          ← parent IS the EWTA
+>Model : typeof Backbone.Model            ← parent is the property access
+```
+
+`types_producer.rs` ports this as SS194/SS195 for an **identifier** base and §60
+for a **qualified** base — `extends N.C`, resolving `N` with `SymbolFlags::NAMESPACE`
+and reading `C` off its `exports`.
+
+**`Backbone` is neither.** It is `import Backbone = require("./backbone")`, an
+import-equals **alias to a module**, so its own symbol carries no `exports` and
+`exports.get("Model")` answers `None` — §60's arm declines and the ordinary
+expression road answers `typeof Backbone.Model`. The alias has to be followed to
+the module symbol whose exports actually hold the member, which is
+`checker.resolve_alias` and is already used twice in this same file.
+
+### The bar, registered before the code
+
+- **Leg 1 (primary).** `gained ≥ 20` of the row's ~50.
+- **Leg 2 (safety).** `RIGHT → WRONG ≤ 5`.
+- **Leg 3 (the shadowing falsifier).** §479's decline must survive:
+  `typeValueConflict1` and `typeValueConflict2` record `>M1.A : any` because a
+  VALUE binding shadows the namespace, and their own comments say *"M1 should bind
+  to the variable, not to the module"*. They must read **zero transitions** —
+  following an alias must not smuggle the compensation past a shadow.
+- **Leg 4.** `cases regressed == 0`.
+
+**What would make me wrong about the design.** If leg 2 fires on self-extending
+or circular bases, the alias hop is re-entering resolution where SS195's
+fall-back is what upstream relies on, and the fix is to decline when the resolved
+target is (or merges with) the extending class — which §60 already does for the
+namespace case and would simply need to apply after the hop rather than before.
+
+### §819's score — LANDED at +11, and **leg 1 FIRED because the sizing was wrong**
+
+```
+right 438,145 → 438,156  (+11)     wrong 28,712 → 28,701     gap 7,386 unchanged
+WRONG→RIGHT 11   |   RIGHT→WRONG 0   GAP→WRONG 0
+```
+
+| leg | bar | read | |
+|---|---|---|---|
+| 1 | gained ≥ 20 | **11** | **FIRED** |
+| 2 | RIGHT→WRONG ≤ 5 | 0 | PASS |
+| 3 | `typeValueConflict*` reads zero | 0 (no adverse at all) | PASS |
+| 4 | cases regressed == 0 | 0 | PASS |
+
+**The build is right and the forecast was wrong, and the two are separable.**
+Eleven lines converted, nothing regressed, and every guard §60 already had is
+still in force. What failed is the sizing: I priced *the whole `got = typeof
+want` row* at the alias mechanism because its **head cases** were all named
+`aliasUsageIn*`.
+
+Splitting the 56-line residue by the shape of the wanted text settles it:
+
+```
+remaining   56 lines
+  a QUALIFIED want (`A.Foo`, `base.W`, `Collision.Shapes.b2Shape`)     6
+  a BARE want (`A`, `Base`, `C`, `D`, `(Anonymous class)`, `Enum`)    50
+```
+
+**50 of 56 have a bare want, so they never reach the qualified arm at all** —
+they go through SS194/SS195's *identifier* arm and decline there for unrelated
+reasons the residue names out loud: anonymous class expressions
+(`classExpression3`, `missingPropertiesOfClassExpression`, 8 lines),
+`export default abstract class`, enum/alias merges
+(`importedEnumMemberMergedWithExportedAliasIsError`), mixins
+(`declarationEmitMixinPrivateProtected`), `verbatimModuleSyntax`. The alias hop
+was never going to touch them.
+
+> **This is the third time in one session that a population was attributed from
+> the shape of its case NAMES rather than from its mechanism** — after §4.-6's
+> `arguments`-in-JS correction and the conditional/mapped family's case-level
+> 9,396. The pattern is specific enough to name: **when a row's head cases share
+> a naming prefix, that prefix is evidence about the row's provenance and none at
+> all about its mechanism.** A fixture family is named after the *bug it was
+> filed for*, which is often one instance of a rule that has many.
+>
+> The cheap defence, which would have caught all three, costs one `awk`: split
+> the row by a property of the **wanted text** before pricing it. Here that is
+> `want contains a dot`, and it would have forecast 6 rather than ≥20.
+
+Landed at +11 with leg 1 recorded as fired, on the precedent of §87 (+3) and
+`93b540a` (0, stated): a strictly-positive zero-adverse build is worth keeping,
+and the forecast being wrong is a note about the forecaster rather than a reason
+to revert the code.

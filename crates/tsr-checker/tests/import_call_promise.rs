@@ -131,8 +131,7 @@ fn a_non_literal_specifier_is_still_a_promise() {
 #[test]
 fn an_unresolvable_module_is_still_a_promise() {
     let arena = Arena::new();
-    let fixture =
-        program(&arena, &[("lib", PROMISE), ("a", "const p = import(\"./nope\");\n")]);
+    let fixture = program(&arena, &[("lib", PROMISE), ("a", "const p = import(\"./nope\");\n")]);
     assert_eq!(variable_type(&fixture, "p"), "Promise<any>");
 }
 
