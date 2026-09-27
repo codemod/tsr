@@ -1885,3 +1885,43 @@ number and the correct placement in its doc comment.
 - **Leg 3 (the control).** The property spelling must be unchanged: it already
   answers correctly through a different road, and 0 lines may move there.
 - **Leg 4.** `cases regressed ≤ 2`.
+
+### §832.1 — where the `| undefined` already comes from, and why that fixes the placement question
+
+One more read, and it changes the item's shape again. These lines are **already
+RIGHT** today:
+
+```
+conformance/callChain.3:  a?.m : (<T>(obj: { x: T; }) => T) | undefined
+```
+
+**The optional-CHAIN access road already adds the `| undefined` for an optional
+method.** So §832 did not fail by adding something absent — it failed by adding it
+a *second* time, at a site every consumer sees, and the chain road's own
+strip/re-union then produced a different spelling. That is why `callChain.3` lost
+10 lines it was getting right.
+
+So the 105 are at the positions the chain road does **not** cover:
+
+| position | today |
+|---|---|
+| `a?.m` (optional chain) | **already right** — `(fn) \| undefined` |
+| `x.g` (plain access) | missing the `\| undefined` |
+| `g` (the declaration name of `g?(): number`) | missing it |
+| the symbol's type | missing it, and **must stay missing** — §832's −4 |
+
+Upstream's own site was not located in this session. `getTypeOfSymbol` sends a
+Method symbol to `getTypeOfFuncClassEnumModule`, which adds no optionality, and
+the property road (`getTypeForVariableLikeDeclaration`) is gated to
+`Variable | Property` — so the `(() => number) | undefined` on
+`optionalMethods.types:15`'s **declaration-name** line arrives somewhere neither
+of those explains. **That gap in the reading is the reason no third placement was
+attempted**: two of the three sites are now known to already work or to be wrong,
+and guessing the third with the upstream road unread is how §822, §824 and §832
+each cost a build.
+
+**The next step is one read, not a build**: find what upstream answers for the
+declaration name of an optional method — `getTypeOfNode`/`getSymbolAtLocation`'s
+road for a member name, not `getTypeOfSymbol` — and place it there. The plain
+access and the declaration name are then the same fix, and the chain road must be
+left alone.
