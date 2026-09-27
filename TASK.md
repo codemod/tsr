@@ -1190,3 +1190,81 @@ subsystem.
 SESSION TOTAL: 437,946 -> 438,054 (+108 lines, +4 cases), three
 commits: 68893173 (§812-§814), 26adcb3b (the §4.-5 correction),
 487fb387 (§816).
+
+--- §818/§819 ADDENDUM, and the session's most transferable finding ---
+
+STATE: checker_types 6,130/9,538 (64.27%) · 438,156/478,855 = 91.50%
+· gap 7,386 · wrong 28,701 · aligned 474,243. Baseline ACCEPTED.
+Gates: 1,808 tests, clippy clean, anchors resolve.
+
+SESSION TOTAL: 437,946 -> 438,156 (+210 lines, +14 cases), 91.46% ->
+91.50%. Four builds, all zero-or-near-zero adverse:
+  §812-§814  +68   the deferred keyof/indexed mints (ANY -> OBJECT, the
+                   facts gate, and getAdjustedTypeWithFacts' ORDER)
+  §816       +40   a concrete keyof prints its INDEX ORIGIN
+  §818       +91   a dynamic import() that cannot resolve is still a
+                   Promise  (best ratio of the session: 91 for 0)
+  §819       +11   a heritage base reached through an import alias
+
+>>> THE FINDING TO CARRY FORWARD <<<
+
+THREE TIMES this session I attributed a population from the shape of its
+CASE NAMES instead of its mechanism, and all three were wrong:
+  1. the conditional/mapped family priced at the case-level 9,396 when
+     its line-level population is under 2,000;
+  2. "arguments in a JS file" -- the argumentsReference*_Js family is
+     JSDoc `@param {object} [foo={}]` and `@type object`, and the
+     `arguments` in those names is a PROPERTY name, incidental;
+  3. §819's leg 1, priced at >=20 from the aliasUsageIn* head and
+     delivering 11, because 50 of the 56 residual lines have a BARE want
+     and never reach the qualified arm at all.
+
+  RULE: when a row's head cases share a naming prefix, that prefix is
+  evidence about the row's PROVENANCE and none at all about its
+  MECHANISM. A fixture family is named after the bug it was filed for,
+  which is usually ONE INSTANCE of a rule that has many.
+
+  DEFENCE, one awk, run BEFORE pricing: split the row by a property of
+  the WANTED TEXT (or of the source position), not by case. For §819
+  that is "want contains a dot" and it forecasts 6, not 20.
+
+  IT ALSO WORKS AS A STOP SIGNAL. Applied to the next row
+  (want=any[] got=any, 59 lines / 36 cases) it showed all 59 are BARE
+  EXPRESSIONS, and reading two of them found the evolving-array family
+  (`let x = []` -- a RECORDED REFUSAL, STATUS §3) plus generic inference
+  through `.map`. The split saved the build rather than sized it. DO NOT
+  price that row.
+
+NEAR-MISS BOARD (STATUS §4.-6) -- what is left in it, honestly:
+  the cheap wins are taken. Remaining rows and why each is not cheap:
+   - `| undefined` EXTRA 113: narrowing misses (aliased-condition and
+     qualified-name residue). Real checker work.
+   - `| undefined` OMITTED 104: JSDoc, see §4.-6's correction. ~52
+     addressable in two mechanisms (bracket optionality ~10; expando
+     property declared by a JSDoc @type ~42).
+   - `() => ` OMITTED 71: mixed causes, all `() => any` wants. Not one
+     mechanism -- split before pricing.
+   - `any[]` 59: refused, see above.
+   - `typeof` 56 residue: 50 bare wants in the IDENTIFIER arm -- anonymous
+     class expressions (8), export default abstract class, enum/alias
+     merges, mixins, verbatimModuleSyntax. Separate small items.
+   - `string | ` ~139 both ways: narrowing.
+
+STILL THE BIGGEST THING ON THE PAGE (STATUS §4.-5's correction): of the
+measured `any` LOST rows, 8,826 of 13,295 sit behind a branch that
+answered ERROR -- the checker computed NOTHING and the producer printed
+`any` faithfully. The gap column reads 7,386; the real "computed
+nothing" population is ~16,000. depend.rs / gaproot.rs / cyclegap.rs all
+walk GAP rows and are blind to it. THE CHEAP NEXT MOVE IS STILL AN
+INSTRUMENT CHANGE: let the gap-root boards admit a WRONG row whose
+checker branch answered error. any_audit.rs already computes the
+predicate. Also re-run any_audit without its top-20 truncation to split
+the 3,826-line tail.
+
+ON 95%: needs 454,912 right lines = +16,756 from here. gap 7,386 +
+wrong 28,701 = 36,087 aligned non-right, so ~46% of everything left.
+This session's four builds averaged +52. At that rate 95% is ~320
+builds. It is a real target and it is not a one-session target; the
+honest framing is that the instrument change above is worth more than
+any single arm, because it is what makes the remaining population
+rankable at all.
