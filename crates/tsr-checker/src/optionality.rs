@@ -101,6 +101,13 @@ impl Checker<'_, '_> {
         ty: TypeId,
         declaration: NodeId,
     ) -> TypeId {
+        if std::env::var("TSR_DEBUG_832").is_ok() {
+            eprintln!(
+                "832: add_optionality_for_declaration kind={:?} optional={}",
+                self.nodes.kind(declaration),
+                self.is_optional_declaration(declaration)
+            );
+        }
         let is_property = self.is_property_for_optionality(declaration);
         // `includeOptionality` is true on this path and is therefore not a
         // parameter here; see the module docs.

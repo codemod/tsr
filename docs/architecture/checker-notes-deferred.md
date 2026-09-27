@@ -1781,3 +1781,107 @@ would have priced this off the board entirely.
 > mechanism was one character inside it**, which is the same failure mode as
 > case-name attribution, one level finer: *a want containing N signatures is not a
 > want blocked by signature printing.*
+
+---
+
+## §832 — an OPTIONAL METHOD's type carries `| undefined`
+
+The corrected near-miss census (see §831's measurement-defect note) puts a row at
+the top that the buggy strip had shown as 16 lines:
+
+```
+105 lines / 38 cases    want `(fn) | undefined`, got `fn`
+  optionalMethods 20, elementAccessChain 7, deleteChain 5, superMethodCall 5, …
+```
+
+### Two probes, and the second is the one that matters
+
+The property spelling **already works**:
+
+```ts
+interface I { f?: () => void; g?: string; }
+i.f   →  (() => void) | undefined     ✓
+i.g   →  string | undefined           ✓
+```
+
+The **method** spelling does not:
+
+```ts
+interface I { f?(): void; }
+i.f   →  () => void                   ✗  no `| undefined`
+```
+
+`is_optional_declaration` (`optionality.rs:218`) *does* list
+`MethodSignatureDeclaration` and `MethodDeclaration`, so the token is read. The
+question was whether the function is ever called for them — and
+`TSR_DEBUG_832` answers it:
+
+```
+832: add_optionality_for_declaration kind=VariableDeclaration optional=false   ×8
+832: add_optionality_for_declaration kind=Parameter           optional=false   ×3
+832: add_optionality_for_declaration kind=PropertyDeclaration optional=true    ×3
+832: add_optionality_for_declaration kind=PropertySignature   optional=true    ×1
+```
+
+**No method kind appears at all.** A method symbol's type is built by
+`get_type_of_func_class_enum_module_worker` (`symbols.rs:2448`, the
+`new_anonymous` signature type) and never passes through the optionality road —
+the same shape as §831, where the method half ignored `postfix_token` in the
+*print*; this is the *type*.
+
+Routing that site through `add_optionality_for_declaration` is a no-op for every
+non-optional declaration, and for an optional method gives
+`get_optional_type(ty, is_property = false)` — which adds `| undefined`, because
+upstream's `isProperty` (`checker.go:16674`) is `PropertyDeclaration ||
+PropertySignature` and a method is neither. That is the wanted spelling exactly.
+
+### The bar fired on both primary legs — REFUSED at −4, with the correct placement named
+
+```
+WRONG→RIGHT 28   |   RIGHT→WRONG 23   RIGHT→GAP 9   WRONG→GAP 1
+right 438,469 → 438,465   =  −4
+```
+
+| leg | bar | read | |
+|---|---|---|---|
+| 1 | gained ≥ 60 | **28** | **FIRED** |
+| 2 | RIGHT→WRONG ≤ 10 | **23** | **FIRED** |
+| 3 | the property spelling unchanged | held | PASS |
+| 4 | cases regressed ≤ 2 | 4 | FIRED |
+
+**Net negative, so reverted.** And leg 2 fired *exactly where it was written to*:
+the bar said *"an optional call `i.f?.()` must not show it"*, and the losses are
+`callChain.3` **10** — the optional-chain case — plus `assignmentCompatBug2` 8 and
+`unionTypeReduction2` 4, all positions that strip or reduce the `undefined` again.
+
+**The diagnosis stands; the placement was wrong.** Optionality on the *symbol's
+type* is too broad: every consumer sees it, including the ones upstream expects to
+strip it. Upstream does not put it there either — `getTypeOfFuncClassEnumModule`
+adds nothing, and the `| undefined` a corpus line wants arrives at the
+**property-access road**, which is also what lets an optional chain remove it
+again. That is where the next attempt belongs, and it is a different function.
+
+> **A process note worth more than the build.** The first measurement read **−4**
+> against a baseline I had not re-accepted after §831, so it silently contained
+> §831's +56 and the two were inseparable. Stashing §832, accepting the §831
+> baseline, and re-measuring gave the clean **28 / 23 / 9 / 1**. This is the §88
+> trap in its original form — *never measure against a baseline you have not
+> re-accepted since your last landing* — and it cost one confused reading even with
+> the rule written down two sections above.
+
+Both spellings are now pinned in
+`crates/tsr-checker/tests/conditional_alias_members.rs`: the property one as the
+control that works, the method one as the refusal, **as it behaves**, with the
+number and the correct placement in its doc comment.
+
+### The original bar, for the record
+
+- **Leg 1 (primary).** `gained ≥ 60` of the 105.
+- **Leg 2 (safety).** `RIGHT → WRONG ≤ 10`. The risk is adding `| undefined` in a
+  position that strips it — an optional *call* `i.f?.()` must not show it, and the
+  type-literal text `{ f?(): void; }` must keep §831's `?` **without** gaining a
+  union inside the braces (that text is built from the declaration, not the symbol
+  type, so the two should not collide — but "should not" is what leg 2 is for).
+- **Leg 3 (the control).** The property spelling must be unchanged: it already
+  answers correctly through a different road, and 0 lines may move there.
+- **Leg 4.** `cases regressed ≤ 2`.

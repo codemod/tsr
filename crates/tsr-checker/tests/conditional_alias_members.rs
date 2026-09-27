@@ -206,3 +206,30 @@ fn an_inherited_generic_method_keeps_its_own_type_parameters() {
          d.m;\n";
     assert_eq!(type_of_last_expression(source), "<U>(t: string, u: U) => string");
 }
+
+/// §832: the PROPERTY spelling of an optional function-typed member already
+/// answers correctly — the control that localised §832's defect to the METHOD
+/// spelling, and the reason placing optionality on the symbol's type was refused.
+#[test]
+fn an_optional_function_typed_property_carries_undefined() {
+    let source = "interface I { f?: () => void; g?: string; }\n\
+         declare const i: I;\n\
+         i.f;\n";
+    assert_eq!(type_of_last_expression(source), "(() => void) | undefined");
+}
+
+/// §832, REFUSED and pinned as it behaves: an optional METHOD's type does NOT
+/// carry `| undefined` here, where upstream's access road gives
+/// `(() => void) | undefined`.
+///
+/// Adding it to the symbol's type was built and **measured at −4** (28 gained
+/// against 32 right lines lost) — see `checker-notes-deferred.md` §832. The
+/// correct placement is the property-ACCESS road, which is also where upstream
+/// puts it and is why an optional CHAIN can strip it again.
+#[test]
+fn an_optional_method_does_not_yet_carry_undefined() {
+    let source = "interface I { f?(): void; g?: string; }\n\
+         declare const i: I;\n\
+         i.f;\n";
+    assert_eq!(type_of_last_expression(source), "() => void");
+}
