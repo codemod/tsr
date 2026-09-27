@@ -1696,3 +1696,88 @@ corpus has no generic method inherited through a generic base in its failing set
 > of a pair, fixing the sibling is free and the corpus will usually not show it** —
 > which is an argument for doing it anyway, with a test, rather than waiting for a
 > future session to rediscover the same bug through a different case.
+
+---
+
+## §831 — an OPTIONAL METHOD keeps its `?` in a type-literal print
+
+### How this was found, and a measurement defect of my own
+
+Chosen as *"overload-set printing"*, §825's named head. Sizing it found **998
+non-right lines across 191 cases** whose want holds two or more call signatures —
+the largest properly-measured population of this session. Sampling the 470 of
+those that answer *something* showed the actual difference is one character:
+
+```
+want  { f(n: number): number; g(s: string): number; m: number; n?: number; k?(a: any): any; }
+got   { f(n: number): number; g(s: string): number; m: number; n?: number; k(a: any): any; }
+```
+
+**An optional method loses its question mark.** Not overload sets.
+
+> **A defect in my own scratch censuses, recorded because several numbers in this
+> page came through it.** They stripped the `name : ` prefix with
+> `sub(/^[^:]*: */,"",w)`, which removes everything up to the **first** colon — and
+> in a signature text the first colon is inside `(values: …`. So long signature
+> wants were silently truncated mid-expression, which is why the first overload
+> census read **39 lines** where the correct strip reads **998**. The safe form only
+> removes a leading `^[A-Za-z_$][A-Za-z0-9_$]* : `. Any number in this page taken
+> from a long signature want should be re-derived with it.
+
+Isolated exactly — lines whose want equals our got after deleting every `?(`:
+
+```
+44 lines across 13 cases
+  typesWithOptionalProperty 7, assignmentCompatBug2 6, elementAccessChain 5,
+  methodSignaturesWithOverloads2 5, declarationEmitOptionalMethod 3, … 8 more
+```
+
+### The fix
+
+`get_type_from_type_literal` builds a method member as
+`(method.node_id, Some(name), "", true)` and renders `{prefix}{name}{text}` —
+`MethodSignatureDeclaration::postfix_token` is never read. The property half
+already honours it (§77's `written_type_text` reads `postfix_token` for a
+`PropertySignatureDeclaration`); the method half does not.
+
+### The bar, registered before the code
+
+- **Leg 1 (primary).** `gained ≥ 30` of the 44.
+- **Leg 2 (safety).** `RIGHT → WRONG ≤ 3`. The risk is emitting `?` where upstream
+  drops it.
+- **Leg 3 (the control).** A **non**-optional method must not gain a `?` — zero
+  lines may move in that direction, and since the whole change is one character
+  that control is what separates "reads the token" from "adds a character".
+- **Leg 4.** `cases regressed == 0`.
+
+### §831's score — LANDED at +56, all four legs pass, ZERO adverse
+
+```
+right 438,413 → 438,469  (+56)     wrong 28,544 → 28,488     gap unchanged
+WRONG→RIGHT 56   |   RIGHT→WRONG 0   GAP→WRONG 0
+gradient 91.55% → 91.57%
+```
+
+| leg | bar | read | |
+|---|---|---|---|
+| 1 | gained ≥ 30 | **56** — 127% of the sized 44 | PASS |
+| 2 | RIGHT→WRONG ≤ 3 | **0** | PASS |
+| 3 | no non-optional method gains a `?` | **0 adverse anywhere** | PASS |
+| 4 | cases regressed == 0 | 0 | PASS |
+
+`methodSignaturesWithOverloads2` 10, `callChain.3` 8, `typesWithOptionalProperty`
+7, and a tail — wider than the sized row because the same literal text is printed
+at many positions.
+
+**One character, +56 lines, zero risk.** The cheapest conversion of the session by
+a wide margin, and it was reachable only because the 998-line census was taken with
+a *correct* prefix strip: the buggy one read the same population as 39 lines and
+would have priced this off the board entirely.
+
+> **The sequence worth keeping.** *"Overload-set printing"* was the item §825 named
+> and this section set out to build. It does not exist as a defect here — what the
+> 998 lines contain is a missing `?`, and 470 of them were already printing every
+> signature correctly. **The item was named from the shape of the want and the
+> mechanism was one character inside it**, which is the same failure mode as
+> case-name attribution, one level finer: *a want containing N signatures is not a
+> want blocked by signature printing.*

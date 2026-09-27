@@ -1164,6 +1164,19 @@ impl<'a> Checker<'a, '_> {
                         // fixture that reaches this arm.
                         _ => return error,
                     };
+                    // §831: an OPTIONAL method keeps its `?` —
+                    // `{ k?(a: any): any; }`. `postfix_token` was never read on
+                    // this half, while the PROPERTY half has honoured it since
+                    // §77. Carried on the name so the member tuple keeps its
+                    // shape and the renderer needs no new field.
+                    let name = if method
+                        .postfix_token
+                        .is_some_and(|token| token.kind == SyntaxKind::QuestionToken)
+                    {
+                        format!("{name}?")
+                    } else {
+                        name
+                    };
                     // A method groups with the properties: see the doc comment.
                     Some((method.node_id, Some(name), "", true))
                 }
