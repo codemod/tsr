@@ -1161,22 +1161,58 @@ would be the mistake this board exists to prevent.** Sampled:
   … `argumentsReferenceInMethod3_Js`, all wanting `object | undefined` where the
   port says `object`. **`arguments` in a JS file.**
 
-#### The `arguments`-in-JS family, sized (§817)
+#### ~~The `arguments`-in-JS family~~ → **JSDoc types in JS files**, sized (§817)
 
-15 cases, **79 non-right lines**, and the sub-shapes say it is one mechanism
-seen from four angles:
+> **CORRECTED within the hour, and the error is the one this very board warns
+> about.** The paragraph struck through below read *"`arguments` in a JS file
+> types as `object`"*. **It has nothing to do with the `arguments` keyword.** The
+> attribution was made from the shape of the CASE NAMES —
+> `argumentsReferenceInConstructor1_Js` and friends — without opening one, which
+> is `docs/conventions.md`'s *a population identified by the shape of the answer
+> is not thereby attributed to a mechanism*, committed one level further out
+> still: a population identified by the shape of its **file names**.
+>
+> Opening them settles it. Every case in the family is a JS file carrying
+> **JSDoc** annotations, and `arguments` is incidental — these are old regression
+> tests about a *property named* `arguments`, and the types they assert are JSDoc
+> types:
+>
+> ```js
+> class A {
+>     /** @param {object} [foo={}] */
+>     constructor(foo = {}) {
+>         /** @type object */
+>         this.arguments = foo;      //  <- a PROPERTY named `arguments`
+>     }
+> }
+> ```
 
-| lines | want | got |
-|---:|---|---|
-| 28 | `object` | `any` |
-| 14 | `object` | `error` |
-| 10 | `object \| undefined` | `object` |
-| 10 | `object` | `{}; }` |
+The family is 15 cases and **79 non-right lines**, and it is **two** mechanisms,
+not one. Read off `argumentsReferenceInConstructor1_Js`, whose eight rows contain
+both and three RIGHT lines that bound them:
 
-So `arguments` in a **JS** file types as `object`, and this port answers `any`,
-`error` or `{}`. §37 landed `arguments` → `IArguments` for TypeScript (+637); this
-is the JS variant of the same road and it is **not** a copy of it — the answer is
-a different type. **Not built.** Sized at ~62 addressable lines of the 79.
+| row | want | got | |
+|---|---|---|---|
+| `foo` (the parameter declaration) | `object \| undefined` | `object` | mechanism 1 |
+| `this.arguments` (the access) | `object` | `error` | mechanism 2 |
+| `arguments` (that access's NAME) | `object` | `any` | mechanism 2 |
+| `this.arguments = foo`, `foo` (the use) | `object` | `object` | **already RIGHT** |
+
+1. **JSDoc bracket optionality, ~10 lines.** `@param {object} [foo={}]` marks the
+   parameter **optional**, and an optional parameter adds `| undefined` at its
+   declaration under `strictNullChecks`. This port reads the JSDoc *type* and not
+   the *brackets*.
+2. **An expando property declared by a JSDoc `@type`, ~42 lines** (28 wanting
+   `object` and answering `any`, 14 answering `error`). `this.x = foo` under
+   `/** @type object */` gives the property that type; the port answers `error`
+   at the access and `any` at its name. Note the assignment *expression* and
+   `foo`'s own use are **already right**, so the JSDoc type is being read — what
+   is missing is the expando property's own declared type at the access.
+
+**Not built.** ~52 of the 79 are addressable across the two. `§37`'s
+`arguments` → `IArguments` build is **not** prior art for either of them, which
+is the practical cost of the misattribution: it would have sent a session to the
+wrong road entirely.
 
 > **How to use this board.** A row here is a *candidate for a cheap build*, not a
 > population: the substring relation is evidence that the computation may already
