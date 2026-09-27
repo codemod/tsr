@@ -3632,53 +3632,113 @@ impl<'a> Checker<'a, '_> {
                 && let Some(extends_node) = conditional.extends_type
             {
                 let extends = self.get_type_from_type_node(extends_node);
-                // Both sides must sit in the relater's PROVEN domain —
-                // primitives, literals and unions of them. Outside it
-                // `is_type_assignable_to` answers `false` rather than
-                // guessing, which is a safe DECLINE but a confident WRONG
-                // DECISION here: false would pick the false branch.
-                // Measured: the ungated arm cost 58 adverse
-                // (conditionalTypes1 16, recursiveArrayNotCircular 15,
-                // unknownType2 13) against 47 gains.
-                let primitive_domain = |checker: &Self, id: crate::types::TypeId| {
-                    let flags = checker.store.get(id).flags;
-                    flags.intersects(crate::flags::TypeFlags::PRIMITIVE)
-                };
-                // SS177's REASON CORRECTED (checker-1's SS199 class: a
-                // refusal is protected from re-derivation, its stated reason
-                // is not). I recorded "`unknown extends unknown` DISTRIBUTES
-                // rather than tests" — **that is wrong**. Distribution needs
-                // `root.isDistributive` AND a check type that maps to a
-                // union or never (checker.go:22496-22504); `unknown` is
-                // neither a naked type parameter nor a union, so it does not
-                // distribute. The measurement below stands; its explanation
-                // does not, and the next attempt must find the real cause of
-                // unknownType2's 13 rather than build on this.
+                // §821 (`checker-notes-deferred.md`): upstream's own three
+                // outcomes, replacing the hand-rolled `primitive_domain` gate.
+                // `getConditionalType`'s non-deferred case
+                // (`checker.go:24372-24429`):
                 //
-                // SS177 (measured, reverted): widening the POSITIVE domain
-                // by provably-assignable cases — identity, and two
-                // references to one target with identical arguments — is
-                // ALSO unsafe here: +2/14 (unknownType2 13). `unknown
-                // extends unknown ? A : B` is not the true branch upstream,
-                // because a conditional whose check is `unknown` (or a
-                // naked parameter) DISTRIBUTES rather than tests. So the
-                // widening this gate needs is neither the ternary's
-                // negative side (checker-1: +29/24) nor bare positives —
-                // it is `isTypeRelatedTo`'s own domain plus the
-                // DISTRIBUTIVITY rule (checker.go's getConditionalType,
-                // the `checkType.flags&TypeFlagsInstantiable` head).
-                if extends != error
-                    && !self.mentions_any_type_parameter(check, 2)
-                    && primitive_domain(self, check)
-                    && primitive_domain(self, extends)
-                {
-                    let takes_true = self.is_type_assignable_to(check, extends);
-                    let branch =
-                        if takes_true { conditional.true_type } else { conditional.false_type };
-                    if let Some(branch) = branch {
-                        let evaluated = self.get_type_from_type_node(branch);
-                        if evaluated != error {
-                            result = Some(evaluated);
+                //   FALSE iff extends is NOT any/unknown AND not assignable
+                //   TRUE  iff extends IS any/unknown OR assignable
+                //   else  DEFERRED
+                //
+                // The primitive-domain gate existed because
+                // `is_type_assignable_to` answered `false` where it could not
+                // tell, and a `false` here is a confident WRONG branch rather
+                // than a decline. **That cost belonged to the BINARY relation**:
+                // `relate_ternary` (`d8590ff`, `bd tsr-kmzf`) answers
+                // `Unknown` instead, which maps exactly onto upstream's
+                // deferred outcome. The ungated binary arm measured 47 gains
+                // against 58 adverse; this replaces the gate rather than
+                // widening it.
+                //
+                // Rule 1 is structural and is what SS177 could not name:
+                // `extends` being `any`/`unknown` takes the TRUE branch with NO
+                // relation test — the first disjunct at `:24415`, and excluded
+                // from the false branch at `:24377`. So `T extends unknown ? A
+                // : B` is always `A` (`unknownType2`).
+                //
+                // NOT ported, and stated rather than approximated: upstream's
+                // `check is any` sub-rule unions BOTH branches through
+                // `extraTypes` (`:24383-24386`). That is a separate shape and
+                // folding it in would make this measurement unreadable, so an
+                // `any` check declines here.
+                // §821.1 gate (a), DISTRIBUTIVITY: BUILT, MEASURED AND
+                // REMOVED, with the number. Upstream's `root.isDistributive` is
+                // a property of the check NODE — a bare reference to a type
+                // parameter — and a distributive conditional over a `never` or
+                // union check DISTRIBUTES rather than testing, so declining that
+                // shape here looked obviously right: it removes
+                // `distributiveConditionalTypeNeverIntersection1`'s 2 adverse
+                // (`want never`/`want true` against an undistributed `false`).
+                //
+                // It cost **8 RIGHT→WRONG in `conditionalTypes1`** for those 2,
+                // and took the build from +37 to +14. The reason is that a
+                // distributive conditional whose check has been SUBSTITUTED to a
+                // concrete argument evaluates correctly by testing — which is
+                // what this road already did, and what `conditionalTypes1`'s
+                // eight lines were relying on. Distribution only changes the
+                // answer when the substituted check is a union or `never`, and
+                // that is a much narrower shape than "the node is a naked
+                // parameter".
+                //
+                // So the decline belongs on the SUBSTITUTED check being a union
+                // or `never`, not on the node — and that is a different build
+                // with its own measurement. The 2 stay as stated residue.
+                if extends != error && !self.mentions_any_type_parameter(check, 2) {
+                    let extends_is_any_or_unknown = self
+                        .store
+                        .get(extends)
+                        .flags
+                        .intersects(crate::flags::TypeFlags::ANY_OR_UNKNOWN);
+                    let check_is_any =
+                        self.store.get(check).flags.intersects(crate::flags::TypeFlags::ANY);
+                    let takes_true = if extends_is_any_or_unknown {
+                        Some(true)
+                    } else if check_is_any {
+                        // Upstream answers `true | false` here; declined.
+                        None
+                    } else {
+                        match self.relate_ternary(
+                            check,
+                            extends,
+                            crate::relater::Relation::Assignable,
+                        ) {
+                            crate::relater::Ternary::Related => Some(true),
+                            crate::relater::Ternary::NotRelated => Some(false),
+                            // Upstream's deferred outcome.
+                            crate::relater::Ternary::Unknown => None,
+                        }
+                    };
+                    if let Some(takes_true) = takes_true {
+                        let branch =
+                            if takes_true { conditional.true_type } else { conditional.false_type };
+                        if let Some(branch) = branch {
+                            let evaluated = self.get_type_from_type_node(branch);
+                            // §821.1 gate (b) was BUILT, MEASURED AND REMOVED,
+                            // and the number is the reason. It declined whenever
+                            // the evaluated branch still mentioned a type
+                            // parameter, on the argument that an unsubstituted
+                            // body is not an evaluation — which would have
+                            // removed `recursiveArrayNotCircular`'s 5 adverse
+                            // (it wanted `number`/`boolean`/`string` and got bare
+                            // `P`/`T`).
+                            //
+                            // It cost **8 RIGHT→WRONG in `conditionalTypes1`**
+                            // and took the build from +37 to +14, because **a
+                            // conditional's branch legitimately IS a type
+                            // parameter** in the deferred/generic shapes that
+                            // case is made of, and upstream prints it. The gate
+                            // could not tell "the frame failed to substitute"
+                            // from "the answer is a type parameter", and those
+                            // are different facts.
+                            //
+                            // `recursiveArrayNotCircular`'s 5 therefore stay as
+                            // §821's stated residue, and the real fix is for the
+                            // frame to reach nested parameters rather than for
+                            // this site to second-guess its own result.
+                            if evaluated != error {
+                                result = Some(evaluated);
+                            }
                         }
                     }
                 }

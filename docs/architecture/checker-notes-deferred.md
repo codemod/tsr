@@ -621,3 +621,165 @@ Landed at +11 with leg 1 recorded as fired, on the precedent of §87 (+3) and
 `93b540a` (0, stated): a strictly-positive zero-adverse build is worth keeping,
 and the forecast being wrong is a note about the forecaster rather than a reason
 to revert the code.
+
+---
+
+## §821 — the conditional branch gate, re-priced against the TERNARY relation
+
+The board says to build a subsystem; this is the cheapest real slice of one, and
+**a prior note in the code points straight at it**. `evaluate_conditional_alias`
+(`declared.rs`) decides a conditional alias's branch, and its general arm is
+gated on a hand-rolled `primitive_domain` — both sides must be primitives — with
+the reason recorded at the site:
+
+> Both sides must sit in the relater's PROVEN domain — primitives, literals and
+> unions of them. Outside it `is_type_assignable_to` answers `false` rather than
+> guessing, which is a safe DECLINE but a confident WRONG DECISION here: false
+> would pick the false branch. Measured: the ungated arm cost 58 adverse
+> (`conditionalTypes1` 16, `recursiveArrayNotCircular` 15, `unknownType2` 13)
+> against 47 gains.
+
+**That cost belonged to a different design.** The relater became three-valued at
+`d8590ff` (`bd tsr-kmzf`) — `relate_ternary` answers `Related` / `NotRelated` /
+`Unknown` — so *"answers `false` rather than guessing"* is no longer true of the
+instrument this gate was priced against. This is §4.2's standing conclusion
+("the highest-expected-value move is re-measuring §5") applied to a refusal
+inside the code rather than one on the board.
+
+SS177 also left an instruction, and it is honoured rather than built on:
+
+> the next attempt must find the real cause of `unknownType2`'s 13 rather than
+> build on this.
+
+### Upstream's rule, read in full — and it names `unknownType2`'s cause
+
+`getConditionalType` (`checker.go:24300`), the non-deferred case at `:24372-24429`,
+is exactly three outcomes:
+
+```
+FALSE branch  iff  extends is NOT any/unknown
+                   AND ( check is any
+                         OR !isTypeAssignableTo(permissive(check), permissive(extends)) )   :24377
+
+TRUE branch   iff  extends IS any/unknown
+                   OR isTypeAssignableTo(restrictive(check), restrictive(extends))          :24415
+
+otherwise     DEFERRED                                                                       :24432
+```
+
+**`extends` being `any` or `unknown` takes the TRUE branch unconditionally, with
+no relation test at all** — it is the first disjunct at `:24415` and it is
+excluded from the false branch at `:24377`. `T extends unknown ? A : B` is
+therefore always `A`. That is the mechanism SS177 could not name, and it is
+*structural*, not a relation question — which is why no amount of widening the
+relation domain would have found it.
+
+### The design
+
+Replace `primitive_domain` with upstream's own three outcomes:
+
+1. `extends` is `ANY_OR_UNKNOWN` → **true branch**, no relation call.
+2. Otherwise `relate_ternary(check, extends, Assignable)`:
+   `Related` → true branch · `NotRelated` → false branch · **`Unknown` → decline**,
+   which is the deferred outcome and the port's safe direction.
+3. The `check is any` sub-rule (upstream unions *both* branches via `extraTypes`)
+   is **declined and stated**, not approximated: it is a separate shape and
+   folding it in would make this measurement unreadable.
+
+The permissive/restrictive instantiations are not ported; the existing
+`!mentions_any_type_parameter(check, 2)` guard stands in for `isDeferredType`,
+so a generic check still defers and the two instantiation forms never differ.
+
+### The bar, registered before the code
+
+- **Leg 1 (primary).** `gained ≥ 40`. The ungated arm already measured **47**
+  gains; the any/unknown rule should add to that, and nothing here removes a gain.
+- **Leg 2 (the whole point).** `RIGHT → WRONG ≤ 15`, against the 58 the binary
+  relation cost. **If this fires above 15 the ternary is not the answer** and the
+  primitive gate should go back with a second number on it.
+- **Leg 3 (SS177's named falsifier).** `unknownType2` must **not** regress — it
+  was 13 of the 58, and rule 1 is precisely what should fix it. If it still
+  regresses, the cause is not the any/unknown rule and SS177's instruction is
+  still open.
+- **Leg 4.** `cases regressed ≤ 2`, loosened from the usual 0 because this widens
+  a decision rather than adding a print, and stated as a loosening rather than
+  applied quietly.
+
+**What would make me wrong about the design.** If leg 2 fires mostly on
+`conditionalTypes1` and `recursiveArrayNotCircular` (30 of the original 58), the
+residue is the *deferral* rule rather than the relation: upstream defers a
+conditional whose check or inferred-extends type is generic, and
+`mentions_any_type_parameter` is a shallow stand-in for `isDeferredType`. The fix
+would then be to port `isDeferredType` rather than to re-gate the relation.
+
+### §821's score — LANDED at +37, and the hypothesis it was built on is CONFIRMED
+
+```
+right 438,156 → 438,193  (+37)     gap 7,381 → 7,367     wrong 28,692 → 28,683
+GAP→RIGHT 12   WRONG→RIGHT 25   |   RIGHT→WRONG 0   GAP→WRONG 7
+```
+
+| leg | bar | read | |
+|---|---|---|---|
+| 1 | gained ≥ 40 | **37** | **FIRED**, narrowly — see below |
+| 2 | RIGHT→WRONG ≤ 15, against the binary relation's 58 | **0** | **PASS, and this is the result** |
+| 3 | `unknownType2` must not regress | **0 transitions** | PASS |
+| 4 | cases regressed ≤ 2 | 2 | PASS at the boundary |
+
+**Leg 2 is the finding. 58 → 0.** Every one of the binary relation's
+`RIGHT → WRONG` losses is gone, and the gate that was built to avoid them is
+gone with it. The refusal's cost belonged to the binary relation, exactly as
+§4.2's standing conclusion predicts for a refusal older than the machinery it
+was priced against.
+
+**Leg 1 fired at 37 against 40, and the explanation is the same fact.** The 47
+"gains" the ungated *binary* arm measured were not all real: where the relation
+could not tell, it answered `false`, and a `false` that happens to pick the right
+branch scores as a gain. The ternary declines there instead. So **fewer gains and
+far fewer losses is the expected shape of this change**, not a disappointment —
+the trade moved from 47-for-58 to 37-for-0.
+
+**Every remaining adverse line is `GAP → WRONG`, none is `RIGHT → WRONG`** — a
+strictly cheaper class of trade, and the two families are named below.
+
+### Two gates were built, measured and removed, each with its number
+
+Both looked obviously right. Both cost more than they saved, and the code now
+carries the number rather than the intuition.
+
+**Gate (a), distributivity — cost 8 `RIGHT→WRONG` to fix 2.** Upstream's
+`root.isDistributive` is a property of the check *node* (a bare reference to a
+type parameter), and a distributive conditional over `never` or a union
+distributes rather than testing — so declining that node shape removes
+`distributiveConditionalTypeNeverIntersection1`'s 2 adverse. It also declined
+**eight lines of `conditionalTypes1` that were already right**, because a
+distributive conditional whose check has been *substituted to a concrete
+argument* evaluates correctly by testing, which is what this road already did.
+Distribution changes the answer only when the **substituted** check is a union or
+`never` — a far narrower shape than "the node is a naked parameter". The decline
+therefore belongs on the substituted type, which is a different build with its
+own measurement.
+
+**Gate (b), the unsubstituted branch — cost 8 `RIGHT→WRONG` to fix 5.** It
+declined whenever the evaluated branch still mentioned a type parameter, on the
+argument that an unsubstituted body is not an evaluation. But **a conditional's
+branch legitimately IS a type parameter** in the deferred shapes
+`conditionalTypes1` is made of, and upstream prints it. The gate could not tell
+*"the frame failed to substitute"* from *"the answer is a type parameter"*, and
+those are different facts.
+
+> Both gates took the build from **+37 to +14**, and the two runs were
+> byte-identical — which is how the second one was identified: removing (b) alone
+> changed nothing, so the loss was (a)'s. Reverting both returned exactly
+> 438,193, confirmed on a re-measure rather than assumed.
+
+### The residue, stated
+
+- `recursiveArrayNotCircular` 5 lines: the branch is chosen correctly and its
+  body answers a bare `P`/`T` where upstream has `number`/`boolean`/`string`/`ActionType`.
+  **The frame does not reach nested type parameters.** That is the real fix, and
+  it is upstream of this site rather than in it.
+- `distributiveConditionalTypeNeverIntersection1` 2 lines: genuine distribution,
+  unported. Gate it on the *substituted* check being a union or `never`.
+- The `check is any` sub-rule (`:24383-24386`, upstream unions both branches
+  through `extraTypes`) remains declined and unported.
