@@ -2451,7 +2451,60 @@ impl<'a> Checker<'a, '_> {
         // (`bd tsr-0hc`). Both arms are recorded; the single/many distinction
         // is recovered from the length when the instantiated form re-renders.
         self.signature_types.insert(built, signatures);
+        // `checker.go:16930`: an OPTIONAL method carries `| undefined`.
+        //
+        // ```go
+        // if c.strictNullChecks && symbol.Flags&ast.SymbolFlagsOptional != 0 {
+        //     return c.getOptionalType(t /*isProperty*/, true)
+        // }
+        // ```
+        //
+        // §885. The arm this function's doc comment has recorded as unwritten —
+        // *"only the excuse expired"* — since the checker gained compiler
+        // options (ADR-0042).
+        //
+        // **Read off the declarations, not off the symbol.** Upstream's binder
+        // sets the flag from `getOptionalSymbolFlagForNode`
+        // (`binder.go:2727`), which is the declaration's postfix `?`; this
+        // binder declares `SymbolFlags::OPTIONAL` and sets it nowhere, so
+        // asking the flag would answer `false` everywhere. The flag is OR'd in
+        // per declaration upstream, so an overload set is optional when ANY
+        // declaration is — hence `any` rather than the value declaration alone.
+        //
+        // This is the whole of `declare const o5: { b?(): T }`: without it
+        // `o5.b` is `() => T`, and every row downstream of it — `o5.b?.()`,
+        // `o5.b?.()["c"]` — loses the chain's `undefined` too, because the
+        // call road's `chain_stripped` is computed from a callee type that
+        // never had anything to strip.
+        if self.strict_null_checks && self.symbol_declaration_is_optional(symbol) {
+            return self.get_optional_type(built, true);
+        }
         built
+    }
+
+    /// Upstream's `symbol.Flags&ast.SymbolFlagsOptional`, recovered from the
+    /// declarations because this binder does not set the flag. See the use in
+    /// [`Checker::get_type_of_func_class_enum_module_worker`].
+    ///
+    /// The predicate is `getOptionalSymbolFlagForNode` (`binder.go:2727`) —
+    /// **`node.PostfixToken()`, not `ast.HasQuestionToken`**. The two differ on
+    /// a parameter: `(x?: string) => void` carries a `QuestionToken` and no
+    /// postfix token, so it contributes no optionality to the *function's*
+    /// symbol. Using [`Checker::is_optional_declaration`] here instead measured
+    /// 24 adverse rows across `unionTypeReduction2`, `assignmentCompatBug2` and
+    /// `objectLitGetterSetter` — every one a function type with an optional
+    /// parameter, and none an optional member.
+    fn symbol_declaration_is_optional(&self, symbol: SymbolId) -> bool {
+        self.binder.symbols().get(symbol).declarations.iter().any(|&declaration| {
+            let postfix = match self.node_map.get(declaration) {
+                Some(Node::PropertyDeclaration(n)) => n.postfix_token,
+                Some(Node::PropertySignatureDeclaration(n)) => n.postfix_token,
+                Some(Node::MethodDeclaration(n)) => n.postfix_token,
+                Some(Node::MethodSignatureDeclaration(n)) => n.postfix_token,
+                _ => None,
+            };
+            postfix.is_some_and(|token| token.kind == SyntaxKind::QuestionToken)
+        })
     }
 
     /// Whether `symbolToTypeNode` would spell this symbol as something other than

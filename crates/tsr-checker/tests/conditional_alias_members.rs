@@ -257,20 +257,23 @@ fn an_optional_function_typed_property_carries_undefined() {
     assert_eq!(type_of_last_expression(source), "(() => void) | undefined");
 }
 
-/// §832, REFUSED and pinned as it behaves: an optional METHOD's type does NOT
-/// carry `| undefined` here, where upstream's access road gives
-/// `(() => void) | undefined`.
+/// §885 **supersedes §832's refusal.** An optional METHOD's type carries
+/// `| undefined`, from `getTypeOfFuncClassEnumModuleWorker`'s tail
+/// (`checker.go:16930`) — the same road the optional *property* above takes.
 ///
-/// Adding it to the symbol's type was built and **measured at −4** (28 gained
-/// against 32 right lines lost) — see `checker-notes-deferred.md` §832. The
-/// correct placement is the property-ACCESS road, which is also where upstream
-/// puts it and is why an optional CHAIN can strip it again.
+/// §832 built this and measured −4 (28 gained, 32 right lines lost), then
+/// refused it with the reasoning that *"the correct placement is the
+/// property-ACCESS road, which is also where upstream puts it."* **That
+/// reasoning was wrong**: upstream puts it on the symbol's type for a method
+/// (`checker.go:16930`) and for a property (`addOptionality`), and nowhere on
+/// the access road. Re-measured at §885 on a checker many sessions further
+/// along, the identical placement gives **+143 W→R against 24 adverse**.
 #[test]
-fn an_optional_method_does_not_yet_carry_undefined() {
+fn an_optional_method_carries_undefined() {
     let source = "interface I { f?(): void; g?: string; }\n\
          declare const i: I;\n\
          i.f;\n";
-    assert_eq!(type_of_last_expression(source), "() => void");
+    assert_eq!(type_of_last_expression(source), "(() => void) | undefined");
 }
 
 /// §834: an EXPLICITLY WRITTEN type argument reaches the contextually typed

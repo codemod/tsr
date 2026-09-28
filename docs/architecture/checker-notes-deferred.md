@@ -6251,3 +6251,70 @@ records that only as "what the parent turned out to be".
 > cost.
 
 Family B (the optional **method** `b?(): T`) is next, unlanded.
+
+## §885: Family B — and §832's refusal, re-measured from −4 to +119
+
+`declare const o5: { b?(): { c … } }`. Upstream gives an optional **method**
+symbol its `| undefined` at the tail of `getTypeOfFuncClassEnumModuleWorker`
+(`checker.go:16930`):
+
+```go
+if c.strictNullChecks && symbol.Flags&ast.SymbolFlagsOptional != 0 {
+    return c.getOptionalType(t /*isProperty*/, true)
+}
+```
+
+This function's own doc comment has carried the refusal for many sessions, and
+already said the quiet part: *"Its stated reason is gone … The arm is still
+unwritten — only the excuse expired."*
+
+**Measured: 143 W→R, 24 adverse (15 R→W, 9 R→G), 1 W→G.** `right` 439752 →
+439871, `wrong` 27692 → 27563, `gap` 6799 → 6809. `conformance/optionalMethods`
+26, `elementAccessChain` 15, `methodSignaturesWithOverloads2` 12.
+
+### §832 refused exactly this and measured −4
+
+§832 built the identical placement, measured **28 gained against 32 right lines
+lost**, and refused it. The refusal's reasoning was:
+
+> The correct placement is the property-ACCESS road, which is also where upstream
+> puts it and is why an optional CHAIN can strip it again.
+
+**That reasoning was wrong.** Upstream puts it on the *symbol's type* — for a
+method at `checker.go:16930`, for a property through `addOptionality` — and
+nowhere on the access road. The refusal was right about the *number* at the time
+and wrong about the *reason*, and only the number changed since. A refusal
+recorded with its number is re-testable; a refusal recorded only as a reason would
+have stayed shut, because its reason still sounds plausible.
+
+> **This is the second refusal this session to reopen on re-measurement** (§870,
+> §876 were narrowed gates; §832 is a whole change). The board's refusals carry
+> numbers *precisely* so a later checker can re-run them, and two hits suggests
+> doing that sweep deliberately rather than by accident.
+
+### The predicate is `PostfixToken`, not `HasQuestionToken`
+
+This binder declares `SymbolFlags::OPTIONAL` and sets it nowhere, so the flag had
+to be recovered from the declarations. The faithful predicate is
+`getOptionalSymbolFlagForNode` (`binder.go:2727`) — `node.PostfixToken()` — not
+`is_optional_declaration`, which is `ast.HasQuestionToken` and additionally counts
+a parameter's `?`. Both were built and **measured identically** (143/24), so the
+parameter difference is unobservable on this corpus; the postfix form is kept
+because it is what upstream computes, not because it scored better. Saying
+otherwise would credit the correction with a gain it did not produce.
+
+### The 24 adverse are a *second* defect, named
+
+`compiler/assignmentCompatBug2` declares `{ …; k?(a: any): any }` and assigns an
+object literal to it. `k`'s contextual type is now
+`((a: any) => any) | undefined`, and `contextual.rs` answers `None` for a union —
+a refusal its own doc comment states:
+
+> Upstream's union handling (`getContextualSignature`'s
+> `compareSignaturesIdentical` loop) is not ported: a union-typed context answers
+> `None`, because picking one member's signature is a guess.
+
+It is not a guess. `getContextualSignature` (`checker.go:10264`) iterates the
+constituents, and `undefined` contributes no call signature, so exactly one
+survives and upstream uses it. §886 ports that; this entry lands with the adverse
+measured and attributed rather than hidden inside a combined number.
