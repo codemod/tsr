@@ -7570,3 +7570,49 @@ Mapped and conditional types together (§905 + §906): **+539 right**, `gap` 6,7
 → 6,346, `wrong` 27,180 → 27,021. What remains is the two subsystems proper —
 `resolveMappedTypeMembers`, distribution, `infer` binding — and the 120 combined
 `GAP→WRONG` are their bill.
+
+## §907: §722 re-measured — the ratio has NOT moved. Refusal confirmed.
+
+`compiler/privacyLocalInternalReferenceImportWithExport` heads the board's
+non-advanced cases at **176 rows**, wanting an internal import alias's own name
+(`im_public_i_public`) where this port prints the qualified target
+(`m_public.i_public`). That is §722's shape, and §722 refused it **with a number
+and an explicit note that the number moves** — *"A refusal's ratio is not static;
+this one has moved from 26:130 to 59:130."*
+
+Re-measured, the way §832 rewarded this session. Every `best_name` call site
+flipped to `admit_local_import_equals = true`:
+
+```
+WRONG->RIGHT  59   importStatements 12, importInTypePosition 6, constEnumOnlyModuleMerging 4
+RIGHT->WRONG 130 ⚠ privacyImport 52, privacyImportParseErrors 52, privacyGloImport 13, privacyGloImportParseErrors 13
+```
+
+**Identical to §722's measurement. The ratio has not moved at all this time**
+(26:130 → 59:130 → 59:130), and the 130 are the same four cases. §722's argument
+stands unchanged: those lines become *knowingly incorrect output* —
+`typeof m1_im1_private` where upstream writes `typeof m1_M1_public` — and they
+look free only because their cases fail for other reasons.
+
+**Reverted. Refusal confirmed, with today's number beside the old one.**
+
+### And the 176-row case is not actually this
+
+Worth recording, because it is why the re-measurement was run: the widening gained
+**nothing** in `privacyLocalInternalReferenceImportWithExport`. Its rows want the
+alias name and did not move, so `best_name` is not on their road at all — they are
+a *third* mechanism, neither §722's filter nor §900's module printing.
+
+Two sessions could easily spend themselves assuming the biggest case on the board
+belongs to the nearest named refusal. It does not, and the check cost one build.
+
+### The correct fix for §722's family, named
+
+Upstream prints the alias name when the alias is **reachable from the reference
+site** and the target's name when it is not — `isTypeAccessible` /
+`getAccessibleSymbolChain`. §806 approximated exactly that distinction
+syntactically for indexed-access objects (*"an alias whose declaration has a
+function or block ancestor is not nameable from an arbitrary site"*). The blanket
+`true` has no such test, which is precisely why it is wrong for 130 lines. **§664
+sized `getAccessibleSymbolChain` and refused it; that remains the prerequisite**,
+and a §806-style syntactic approximation is the cheaper thing to try first.
