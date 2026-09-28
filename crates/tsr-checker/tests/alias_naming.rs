@@ -157,13 +157,11 @@ fn naming_pays_only_where_the_body_computes() {
         ),
         "X[]"
     );
-    assert_eq!(
-        type_of_last_annotation(
-            "type X = { a: string extends string ? 1 : 2 };\nvar v: X[];"
-        ),
-        "error",
-        "a conditional body is still unported, so the alias has nothing to name"
-    );
+    // A conditional body was added here alongside §905 and came due in the SAME
+    // session, at §906 — the frontier moved again before the ink dried. The
+    // stand-in that still holds is the `keyof string` line above, so this is
+    // removed rather than re-pointed at a fourth construct: one live stand-in is
+    // what the test needs, and a second is upkeep.
     // But a member that *does* compute carries the naming through, including a
     // generic reference — which is what makes the reachable set larger than the
     // gapped bodies suggest.

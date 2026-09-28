@@ -3581,6 +3581,47 @@ impl<'a> Checker<'a, '_> {
             // because §77's admission gate IS those flags — a template holding a
             // `'a'` literal or an `Array<…>` head that failed to set them would be
             // a silent divergence rather than a miss.
+            // §906: a CONDITIONAL type prints as written —
+            // `T extends U ? X : Y` — the same deferred-form reasoning as §905's
+            // mapped types. Upstream keeps a conditional whose check type is
+            // generic DEFERRED and prints it from its parts.
+            TypeNode::ConditionalTypeNode(conditional) => {
+                let check = Self::written_type_text_flags(
+                    conditional.check_type?,
+                    single_quoted,
+                    array_headed,
+                    void_union,
+                )?;
+                let extends = Self::written_type_text_flags(
+                    conditional.extends_type?,
+                    single_quoted,
+                    array_headed,
+                    void_union,
+                )?;
+                let true_type = Self::written_type_text_flags(
+                    conditional.true_type?,
+                    single_quoted,
+                    array_headed,
+                    void_union,
+                )?;
+                let false_type = Self::written_type_text_flags(
+                    conditional.false_type?,
+                    single_quoted,
+                    array_headed,
+                    void_union,
+                )?;
+                Some(format!("{check} extends {extends} ? {true_type} : {false_type}"))
+            }
+            // §906: `infer T`, which only appears inside a conditional's
+            // extends clause. The constraint form (`infer T extends U`) is
+            // declined rather than guessed.
+            TypeNode::InferTypeNode(infer) => {
+                let parameter = infer.type_parameter?;
+                if parameter.constraint.is_some() {
+                    return None;
+                }
+                Some(format!("infer {}", parameter.name?.text))
+            }
             TypeNode::MappedTypeNode(mapped) => {
                 let parameter = mapped.type_parameter?;
                 let name = parameter.name?.text;
@@ -3656,7 +3697,12 @@ impl<'a> Checker<'a, '_> {
                     void_union,
                 )?;
                 match element {
-                    TypeNode::UnionTypeNode(_) => Some(format!("({inner})")),
+                    // §906 adds `infer`: `T extends (infer U)[] ? U : never` is
+                    // how upstream prints it, and §449's arm admitted only the
+                    // union form, so `(infer U)[]` declined the whole render.
+                    TypeNode::UnionTypeNode(_) | TypeNode::InferTypeNode(_) => {
+                        Some(format!("({inner})"))
+                    }
                     _ => None,
                 }
             }

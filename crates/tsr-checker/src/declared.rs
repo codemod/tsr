@@ -311,7 +311,15 @@ impl<'a> Checker<'a, '_> {
             //
             // Declines whenever the renderer declines, which keeps the
             // admission set exactly §77's bounded one.
-            TypeNode::MappedTypeNode(_) => {
+            // §906: a CONDITIONAL TYPE takes the same print-only mint as §905's
+            // mapped type, and for the same reason — upstream keeps one whose
+            // check type is generic DEFERRED and prints it from its parts, which
+            // for an uninstantiated conditional are the written ones. **The
+            // alias road is untouched**: §92's `evaluate_conditional_alias` runs
+            // before any reference reaches here, and its deliberate `error` for
+            // an unevaluable conditional ALIAS in an alias-declared position is
+            // a decision about the alias, not about this node.
+            TypeNode::MappedTypeNode(_) | TypeNode::ConditionalTypeNode(_) => {
                 let mut single_quoted = false;
                 let mut array_headed = false;
                 match Self::written_type_text(node, &mut single_quoted, &mut array_headed) {

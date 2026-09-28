@@ -7515,3 +7515,58 @@ What remains of mapped types is the subsystem proper — `resolveMappedTypeMembe
 homomorphic instantiation, key remapping evaluation — and the 92 `GAP→WRONG` are
 its bill: positions that now carry a mapped type and are asked to do something
 with it.
+
+## §906: conditional types take the same mint — +123, and a stand-in that came due twice in one session
+
+§905's slice applied to the other deferred form. 348 non-RIGHT rows across 69
+cases have a conditional in the wanted text, and upstream's rule is the same:
+a conditional whose check type is generic stays **deferred** and prints from its
+parts, which for an uninstantiated one are the written ones.
+
+The renderer needed two new arms — `ConditionalTypeNode` and `InferTypeNode` —
+and one widening: §449's `ParenthesizedTypeNode` arm admitted only a wrapped
+**union**, so `(infer U)[]` declined the whole render and
+`T extends (infer U)[] ? U : never` was unreachable. A constrained infer
+(`infer U extends string`) is declined rather than guessed, which keeps §77's
+admission set bounded.
+
+**Measured: 75 `WRONG→RIGHT` + 46 `GAP→RIGHT` against 28 `GAP→WRONG` and 3
+`RIGHT→WRONG`. Net +123**, `right` 440,753 → 440,876.
+`distributiveConditionalTypeConstraints` 17, `infiniteConstraints` 14,
+`conditionalTypes1` 13, `reverseMappedTypeIntersectionConstraint` 12.
+
+**The alias road is untouched.** §92's `evaluate_conditional_alias` runs before
+any alias reference reaches this node, and its deliberate `error` for an
+unevaluable conditional *alias* in an alias-declared position is a decision about
+the alias, not about the node — the two do not meet.
+
+The mint merged with §905's: the two arms were byte-identical, which is the
+clearest possible statement that "deferred form prints as written" is one rule
+and not two.
+
+### A stand-in obsoleted twice in one session
+
+`type_predicates.rs` pins *"a construct refuses WHOLE"* using whatever type node
+is currently unported. Its history now reads:
+
+| stand-in | retired by |
+|---|---|
+| `keyof T` | §35's deferred print |
+| a mapped type | §905 |
+| a conditional type | §906 — **the same session, before the comment's ink was dry** |
+| `keyof` over a GENERIC operand | current |
+
+And `alias_naming.rs` needed its conditional line **removed** rather than
+re-pointed, because the `keyof string` stand-in above it still holds and one live
+stand-in is what the test needs.
+
+> **The tests were right to be written this way and the churn is the price.** A
+> stand-in test costs an edit every time the frontier moves — which is exactly
+> when you want to be told. The alternative, pinning to a capability gap with no
+> instructions, produces a test that silently asserts the wrong thing instead.
+> Both files said what to do; neither needed a judgement call.
+
+Mapped and conditional types together (§905 + §906): **+539 right**, `gap` 6,721
+→ 6,346, `wrong` 27,180 → 27,021. What remains is the two subsystems proper —
+`resolveMappedTypeMembers`, distribution, `infer` binding — and the 120 combined
+`GAP→WRONG` are their bill.

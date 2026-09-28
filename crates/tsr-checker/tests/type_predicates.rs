@@ -180,18 +180,22 @@ fn a_predicate_whose_type_is_unported_gaps_and_a_ported_one_does_not() {
     // that a construct refuses *whole*: a predicate whose own type node this
     // port cannot resolve is a gap, not `x is error` and not `x is any`.
     //
-    // A CONDITIONAL type is the unported type node used as the stand-in. **It
-    // has now come due twice**: `keyof T` was the original and §35
-    // (`checker-notes-callres.md`) landed its deferred print; a MAPPED type
-    // replaced it and §905 landed *its* print-only mint. Re-pointed again,
-    // exactly as the previous paragraph instructs — not deleted.
+    // A GENERIC `keyof` is the unported type node used as the stand-in. **It has
+    // now come due three times, twice in one session**: a plain `keyof T` was
+    // the original and §35 landed its deferred print; a MAPPED type replaced it
+    // and §905 minted that; a CONDITIONAL replaced that and §906 minted it too,
+    // before this comment's ink was dry.
+    //
+    // What still gaps is `keyof` over a GENERIC operand — §730's evaluator is
+    // gated on a concrete one — so that is the fourth stand-in. Re-pointed
+    // again, exactly as the original paragraph instructs: not deleted.
     //
     // The pair still discriminates what it was written for: the refused half is
     // the standing rule that a construct refuses WHOLE, so a predicate whose own
     // type node this port cannot resolve is a gap rather than `x is error`.
     assert_eq!(
         type_of_declaration(
-            "declare function f<T>(x: unknown, o: T): x is (T extends string ? 1 : 2);",
+            "declare function f<T>(x: unknown, o: T): x is { a: keyof T }[\"a\"];",
             "f"
         ),
         "error"

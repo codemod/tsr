@@ -592,3 +592,37 @@ fn a_key_remapping_as_clause_is_written_through() {
         "<T>(x: { [P in keyof T as P]: T[P]; }) => void"
     );
 }
+
+/// §906: a CONDITIONAL type mints a print-only type carrying its written form —
+/// the same slice §905 took for mapped types. Upstream keeps a conditional whose
+/// check type is generic DEFERRED and prints it from its parts.
+///
+/// Corpus effect: +117 net — 69 `WRONG->RIGHT`, 46 `GAP->RIGHT`, against 28
+/// `GAP->WRONG` and 3 `RIGHT->WRONG`.
+#[test]
+fn a_conditional_type_prints_its_written_form() {
+    let source = "declare function f<T>(x: T): T extends string ? 1 : 2;\nf;";
+    assert_eq!(type_of_last_expression_statement(source), "<T>(x: T) => T extends string ? 1 : 2");
+}
+
+/// `infer T` inside the extends clause travels with it.
+#[test]
+fn an_infer_clause_is_written_through() {
+    let source = "declare function f<T>(x: T): T extends (infer U)[] ? U : never;\nf;";
+    assert_eq!(
+        type_of_last_expression_statement(source),
+        "<T>(x: T) => T extends (infer U)[] ? U : never"
+    );
+}
+
+/// A CONSTRAINED infer (`infer U extends string`) is declined rather than
+/// guessed — the renderer's admission set stays bounded, which is §77's rule.
+#[test]
+fn a_constrained_infer_declines() {
+    let source =
+        "declare function f<T>(x: T): T extends (infer U extends string)[] ? U : never;\nf;";
+    assert_ne!(
+        type_of_last_expression_statement(source),
+        "<T>(x: T) => T extends (infer U extends string)[] ? U : never"
+    );
+}
