@@ -2968,7 +2968,7 @@ impl<'a> Checker<'a, '_> {
         Some(first)
     }
 
-    fn contextual_property_type(&mut self, t: TypeId, name: &str) -> Option<TypeId> {
+    pub(crate) fn contextual_property_type(&mut self, t: TypeId, name: &str) -> Option<TypeId> {
         match &self.store.get(t).data {
             crate::types::TypeData::Union { types, .. } => {
                 let constituents = types.clone();

@@ -472,6 +472,38 @@ impl<'a> Checker<'a, '_> {
         self.get_contextual_type(call)
     }
 
+    /// `compareSignaturesIdentical` (`relater.go:3103`) reduced to the question
+    /// [`Checker::contextual_signature`]'s union branch asks: may these two
+    /// contextual signatures be treated as one?
+    ///
+    /// Upstream's version is a full relation walk with a `Ternary` result and an
+    /// `IgnoreThisTypes`/`IgnoreReturnTypes` flag set. This is the conservative
+    /// core: same kind, same shape, and every corresponding type **the same
+    /// interned `TypeId`**. Structural-but-not-identical types therefore answer
+    /// `false` here where upstream may answer `true`, which costs a contextual
+    /// type and never invents one.
+    ///
+    /// Generic signatures decline outright: upstream relates them under a
+    /// unification of their type parameters, and comparing them by `TypeId`
+    /// would compare two *different* parameter symbols and wrongly say "not
+    /// identical" — or, worse, wrongly say identical if they happen to intern
+    /// together. A decline is the honest answer for a test this cannot make.
+    fn signatures_identical(left: &Signature, right: &Signature) -> bool {
+        if left.kind != right.kind
+            || !left.type_parameters.is_empty()
+            || !right.type_parameters.is_empty()
+            || left.r#type != right.r#type
+            || left.parameters.len() != right.parameters.len()
+            || left.this_parameter.is_some() != right.this_parameter.is_some()
+        {
+            return false;
+        }
+        left.parameters
+            .iter()
+            .zip(&right.parameters)
+            .all(|(a, b)| a.r#type == b.r#type && a.optional == b.optional && a.rest == b.rest)
+    }
+
     pub(crate) fn contextual_signature(&mut self, function: NodeId) -> Option<Signature> {
         let contextual = self.get_contextual_type(function)?;
         if let TypeData::Union { types, .. } = &self.store.get(contextual).data {
@@ -481,10 +513,28 @@ impl<'a> Checker<'a, '_> {
                 let Some(signature) = self.contextual_signature_of_type(constituent) else {
                     continue;
                 };
-                if found.is_some() {
-                    // Two constituents offer one: upstream compares them and may
-                    // build a union signature. Declining is the honest answer.
-                    return None;
+                if let Some(existing) = &found {
+                    // §927: upstream's `getContextualSignature`
+                    // (`checker.go:10281`) keeps going when the constituents
+                    // agree — `compareSignaturesIdentical` — and only builds a
+                    // `createUnionSignature` when they do not. This port used
+                    // to decline the moment a second constituent offered a
+                    // signature, which took out the whole
+                    // `I1<T> | I2<T>` family: two interfaces declaring the SAME
+                    // member is the shape the corpus writes, and the two
+                    // signatures are identical every time.
+                    //
+                    // The identity test is by resolved `TypeId`, which is this
+                    // port's canonical identity for an interned type, not by
+                    // printed text. **Non-identical constituents still
+                    // decline**: `createUnionSignature` (a union of the
+                    // parameter types, a union of the returns) is not ported,
+                    // and guessing one member's signature there is the guess the
+                    // old comment rightly refused.
+                    if !Self::signatures_identical(existing, &signature) {
+                        return None;
+                    }
+                    continue;
                 }
                 found = Some(signature);
             }
@@ -849,10 +899,22 @@ impl<'a> Checker<'a, '_> {
         let object_literal = self.nodes.parent(element)?;
         let contextual = self.get_contextual_type(object_literal)?;
         // `getTypeOfPropertyOfContextualTypeEx` (`checker.go:29932`). Upstream
-        // maps over a union here; this port does not, so a union-typed context
-        // finds nothing and gaps — which is the 20 rows in the table above.
-        let property = self.get_property_of_type(contextual, name)?;
-        let property_type = self.get_type_of_symbol(property);
+        // maps over a union here.
+        //
+        // **§927 corrects this comment**, which used to end *"this port does not,
+        // so a union-typed context finds nothing and gaps"*. The port does — as
+        // [`Checker::contextual_property_type`], carrying §98's discrimination
+        // guard and the intersection arm — and this caller simply did not reach
+        // for it. `var x: I1<number> | I2<number> = { m: a => a }` answered
+        // `error` for every member while the identical literal under a single
+        // constituent typed correctly.
+        //
+        // `get_property_of_type` stays FIRST so the single-constituent road is
+        // bit-for-bit what it was; the union walk is only consulted on a miss.
+        let property_type = match self.get_property_of_type(contextual, name) {
+            Some(property) => self.get_type_of_symbol(property),
+            None => self.union_contextual_property_type(contextual, name)?,
+        };
         // SS141: a reference context's member instantiates through the
         // reference (Computed<T>'s read serves () => T_call, not the
         // target's own parameter).
@@ -874,6 +936,69 @@ impl<'a> Checker<'a, '_> {
             }
         }
         Some(property_type)
+    }
+
+    /// [`Checker::contextual_property_type`] for an object literal's member,
+    /// under the two guards the corpus measured — §927.
+    ///
+    /// The undiscriminated union walk answers where upstream first runs
+    /// `discriminateTypeByDiscriminableItems` (`checker.go:30779`), which is not
+    /// ported. Both guards exist because the walk without them cost **19
+    /// `RIGHT->WRONG`**, in two families that name their own causes:
+    ///
+    /// 1. **A primitive constituent.** `compiler/contextualOverloadListFromUnion`
+    ///    `WithPrimitiveNoImplicitAny` is a regression test for exactly this:
+    ///    with `type Rule = string | FullRule`, upstream supplies **no**
+    ///    contextual type for `FullRule`'s members and the parameters are
+    ///    implicit `any` (the case is named for the `noImplicitAny` error). The
+    ///    walk found `FullRule`'s member and typed them, 4 rows R→W.
+    ///
+    /// 2. **A unit answer out of a multi-constituent union.** `missingDiscriminants`
+    ///    writes `const item1: Item = { subkind: 1, kind: "b" }` where `Item`'s
+    ///    constituents declare `subkind: 0` and `subkind: 1`. Discrimination on
+    ///    `kind: "b"` picks the constituent with **no** `subkind`, so upstream
+    ///    has no contextual type and the literal widens to `number`. The walk
+    ///    unions `0 | 1`, which keeps `1` fresh — 15 rows R→W across
+    ///    `missingDiscriminants`, `missingDiscriminants2`,
+    ///    `excessPropertyCheckWithUnions` and
+    ///    `excessPropertyCheckWithMultipleDiscriminants`.
+    ///
+    ///    **Whether a literal member survives is precisely what discrimination
+    ///    decides**, so this port declines it. That is §98's guard generalised:
+    ///    `mixed_unit_and_base` caught the literal-versus-base case, and this
+    ///    catches literal-versus-literal, which is the same question.
+    ///
+    /// Both guards would be removed by porting discrimination, and that is how
+    /// you would know this entry was a stopgap rather than an answer.
+    fn union_contextual_property_type(&mut self, contextual: TypeId, name: &str) -> Option<TypeId> {
+        let TypeData::Union { types, .. } = &self.store.get(contextual).data else {
+            return self.contextual_property_type(contextual, name);
+        };
+        let constituents = types.clone();
+        if constituents
+            .iter()
+            .any(|&c| self.store.get(c).flags.intersects(crate::flags::TypeFlags::PRIMITIVE))
+        {
+            return None;
+        }
+        let member = self.contextual_property_type(contextual, name)?;
+        // The unit may be a CONSTITUENT of the answer rather than the answer:
+        // `subkind: 0` and `subkind: 1` union to `0 | 1`, which is not itself a
+        // unit type. Testing the leaves is what `mixed_unit_and_base` does, and
+        // for the same reason.
+        let unit_leaf = match &self.store.get(member).data {
+            TypeData::Union { types, .. } => {
+                let leaves = types.clone();
+                leaves
+                    .iter()
+                    .any(|&l| self.store.get(l).flags.intersects(crate::flags::TypeFlags::UNIT))
+            }
+            _ => self.store.get(member).flags.intersects(crate::flags::TypeFlags::UNIT),
+        };
+        if constituents.len() > 1 && unit_leaf {
+            return None;
+        }
+        Some(member)
     }
 
     /// The type an expression is expected to have when it sits directly in the

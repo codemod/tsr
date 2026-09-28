@@ -254,3 +254,74 @@ fn an_iife_parameter_takes_its_type_from_the_argument() {
     // `any` as a pinned decline until then.
     assert_eq!(type_of("((...sigma) => sigma)(...[5, 6]);", "sigma"), "[number, number]");
 }
+
+/// §927 — a UNION contextual type supplies an object literal's members.
+///
+/// `getTypeOfPropertyOfContextualTypeEx` (`checker.go:30555`) maps over the
+/// union's constituents. The port had that walk as
+/// `Checker::contextual_property_type` and the object-literal caller reached for
+/// `get_property_of_type` instead, which finds nothing on a union — so every
+/// member of a literal under `I1<T> | I2<T>` answered `error` while the
+/// identical literal under one constituent typed correctly. Measured on the
+/// corpus: **123 `WRONG->RIGHT`, zero `RIGHT->WRONG`**,
+/// `conformance/contextualTypeWithUnionTypeMembers` 86 of them.
+#[test]
+fn a_union_contextual_type_types_an_object_literal_method() {
+    let source = "interface I1 { f: (a: string) => string; }\n\
+                  interface I2 { f: (a: string) => string; }\n\
+                  var v: I1 | I2 = { f: spruce => spruce };";
+    assert_eq!(type_of(source, "spruce"), "string");
+}
+
+/// The single-constituent road, unchanged. `get_property_of_type` still runs
+/// first and the union walk is consulted only on a miss, so this fixture must
+/// answer exactly as it did before §927 — without it the test above could pass
+/// on a rewrite that broke the common case.
+#[test]
+fn a_single_constituent_contextual_type_is_unchanged() {
+    let source = "interface I1 { f: (a: string) => string; }\n\
+                  var v: I1 = { f: larch => larch };";
+    assert_eq!(type_of(source, "larch"), "string");
+}
+
+/// §927's first guard. `compiler/contextualOverloadListFromUnionWithPrimitive`
+/// `NoImplicitAny` is a regression test for exactly this shape: a union with a
+/// PRIMITIVE constituent supplies **no** contextual type upstream, and the
+/// parameters are implicit `any` — which is what the case is named for. The
+/// undiscriminated walk found the object constituent's member and typed them, 4
+/// rows `RIGHT->WRONG`.
+#[test]
+fn a_union_with_a_primitive_constituent_supplies_nothing() {
+    let source = "interface I1 { f: (a: string) => string; }\n\
+                  var v: string | I1 = { f: cedar => cedar };";
+    assert_eq!(type_of(source, "cedar"), "any");
+}
+
+/// §927's second guard, and §98's generalised. Which constituent governs a
+/// literal-valued member is precisely what `discriminateTypeByDiscriminableItems`
+/// (`checker.go:30779`) decides, and that is unported: `missingDiscriminants`
+/// writes `const item1: Item = { subkind: 1, kind: "b" }` where the constituents
+/// declare `subkind: 0` and `subkind: 1`, upstream discriminates to the one with
+/// no `subkind` at all, and the literal widens to `number`. The walk unioned
+/// `0 | 1` and kept `1` fresh — 15 rows `RIGHT->WRONG`. Declining costs 11 wins
+/// and is the honest answer until discrimination lands.
+#[test]
+fn a_unit_member_out_of_a_multi_constituent_union_declines() {
+    let source = "interface I1 { k: 0; f: (a: string) => string; }\n\
+                  interface I2 { k: 1; f: (a: string) => string; }\n\
+                  var v: I1 | I2 = { k: 1, f: alder => alder };";
+    // `f` still types — the guard is per member, not per literal.
+    assert_eq!(type_of(source, "alder"), "string");
+}
+
+/// The other half of §927: `compareSignaturesIdentical` (`relater.go:3103`) in
+/// `contextual_signature`'s union branch. Two constituents offering the SAME
+/// signature now combine; two offering DIFFERENT ones still decline, because
+/// `createUnionSignature` is not ported and picking one would be a guess.
+#[test]
+fn union_constituents_with_different_signatures_still_decline() {
+    let source = "interface I1 { f: (a: string) => string; }\n\
+                  interface I2 { f: (a: number) => number; }\n\
+                  var v: I1 | I2 = { f: fir => fir };";
+    assert_eq!(type_of(source, "fir"), "any");
+}

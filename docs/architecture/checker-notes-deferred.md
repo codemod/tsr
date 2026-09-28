@@ -8612,3 +8612,115 @@ The falsifier resolved in favour of §925: its 48 converted exactly as predicted
   the other half of the same mechanism, and finishing it cost less than the
   entry arguing for accepting them. *An accepted adverse bucket with a named
   cause is a work item, not a conclusion.*
+
+## §927 — a union contextual type, and the two guards that made it safe (+129)
+
+### How the board was re-chosen
+
+§924 closed the probe loop over `gaproot`, and it was the wrong board. Measured
+at §926's commit:
+
+| pool | lines |
+|---|---|
+| gap (we answer `error`) | 6,195 (1.29%) |
+| **wrong (we answer something)** | **26,143 (5.46%)** |
+
+The gap pool is not large enough to matter. Clustering the wrong lines by the
+answer we print:
+
+```text
+15233  any          <- 58% of every wrong line
+  470  string
+  293  T
+  265  number
+```
+
+`any_audit` then splits that 15,233, and roughly **9,300 of them are the checker
+answering `error` with the producer printing `any`** — gaps wearing a costume.
+The true deficit is therefore ~15,500 lines, not 6,195, and it is diffuse: the
+largest single row is 1,692 lines over 372 cases with a top-1 share of 4.6%.
+
+**The instrument that found this entry was not a root-ranker but a clustering of
+the wrong answers themselves.** `gaproot` cannot see any of it, because none of
+these lines are gaps.
+
+### The defect
+
+`conformance/contextualTypeWithUnionTypeMembers` is 136 wrong lines, and
+`probefile` reduces it to five:
+
+```ts
+interface I1<T> { m(a: string): string; p: string; g(a: T): T; }
+interface I2<T> { m(a: string): string; p: string; g(a: T): T; }
+var single: I1<number>             = { m: a => a, p: "h", g: a => a };  // correct
+var both:   I1<number> | I2<number> = { m: a => a, p: "h", g: a => a };  // every member `error`
+```
+
+Two halves, both of them *a capability present and a caller that does not consult
+it* — the twelfth and thirteenth instances this session:
+
+1. `contextual_type_for_object_literal_element` called `get_property_of_type`,
+   which finds nothing on a union. `contextual_property_type` — the ported
+   `getTypeOfPropertyOfContextualTypeEx` union walk, complete with §98's guard
+   and an intersection arm — was sitting unused. **Its own comment said the port
+   did not map over unions.** It does; this caller did not reach for it.
+2. With the member type found, `contextual_signature`'s union branch declined the
+   moment a *second* constituent offered a signature. Two interfaces declaring
+   the same member is the shape the corpus writes, and the signatures are
+   identical every time. `compareSignaturesIdentical` (`relater.go:3103`) is now
+   ported as `signatures_identical`, conservatively: same kind and shape, every
+   corresponding type the same interned `TypeId`, and generics decline outright.
+
+**Measured alone, `signatures_identical` moves nothing.** It is only reachable
+once the first half supplies a union-derived member type — which is why the two
+land together.
+
+### The two guards, each named by the case that demanded it
+
+The unguarded pair measured **+133 with 19 `RIGHT->WRONG`**, in two families:
+
+- **A primitive constituent** (4 rows).
+  `compiler/contextualOverloadListFromUnionWithPrimitiveNoImplicitAny` is a
+  regression test for exactly this: with `type Rule = string | FullRule`,
+  upstream supplies *no* contextual type and the parameters are implicit `any`.
+  The case is named for the error it expects.
+- **A unit answer out of a multi-constituent union** (15 rows).
+  `missingDiscriminants` writes `const item1: Item = { subkind: 1, kind: "b" }`
+  where the constituents declare `subkind: 0` and `subkind: 1`. Upstream
+  discriminates on `kind: "b"` to the constituent with no `subkind` at all, so
+  there is no contextual type and the literal widens to `number`. The
+  undiscriminated walk unions `0 | 1` and keeps `1` fresh.
+
+  **Which constituent governs a literal-valued member is precisely what
+  `discriminateTypeByDiscriminableItems` (`checker.go:30779`) decides**, and it
+  is unported. This is §98's `mixed_unit_and_base` generalised from
+  literal-versus-base to literal-versus-literal — the same question.
+
+  The first draft of this guard tested whether the *answer* was a unit type; the
+  answer is `0 | 1`, a union **of** units. Testing the leaves is what
+  `mixed_unit_and_base` already does, and for this reason.
+
+Guard two costs 11 wins to remove 14 adverse rows. **Removing both guards is how
+you would know discrimination had landed** — they have no other purpose.
+
+### Final measurement
+
+**123 `WRONG->RIGHT` + 6 `GAP->RIGHT` against 3 `GAP->WRONG`, zero
+`RIGHT->WRONG`.** `right` 442,020. `contextualTypeWithUnionTypeMembers` 86,
+`contextualTypeBasedOnIntersectionWithAnyInTheMix4` 12,
+`checkExportsObjectAssignProperty` 8. The 3 adverse rows
+(`jsDeclarationsGetterSetter`) go `error` → `(v: any) => void` where upstream has
+`(v: number) => void` — §620's accepted direction.
+
+### The test harness caught us in its own documented trap
+
+`tests/contextual.rs` opens with a warning that its `type_of` walk returns the
+**first** symbol of a name, so a fixture naming its arrow parameter the same as
+the annotation's parameter "passed against a checker that could not have known
+the answer". Every fixture written for this entry did exactly that, and two of
+them failed *because* of it — asserting `any` while the annotation handed back
+`string`. `probefile` gave the real answers and the annotations were renamed.
+
+**A trap documented at the top of a file is not a trap that has been removed.**
+The fixtures here now name the annotation's parameter `a` and the arrow's
+parameter something that appears nowhere else.
