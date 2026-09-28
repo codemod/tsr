@@ -6357,11 +6357,28 @@ impl Checker<'_, '_> {
         })
     }
 
-    /// TS2454 — `Variable '{0}' is used before being assigned.`
+    /// Does this reference hit `checkIdentifier`'s uninitialized-variable arm?
     ///
-    /// `checkIdentifier` (`checker.go:11191`), the arm reached when
+    /// `checkIdentifier` (`checker.go:11189-11192`), the arm reached when
     /// `assumeInitialized` is false and the *flow* type carries `undefined`
-    /// while the declared type does not.
+    /// while the declared type does not. Upstream does **two** things there from
+    /// this one condition:
+    ///
+    /// ```go
+    /// c.error(node, diagnostics.Variable_0_is_used_before_being_assigned, ...)
+    /// // Return the declared type to reduce follow-on errors
+    /// return t
+    /// ```
+    ///
+    /// This port had only the diagnostic. The discarded narrowing is the whole
+    /// of §839 in `docs/architecture/checker-notes-deferred.md`: it is why
+    /// upstream answers `string | number` for `strOrNum` in the **else** branch
+    /// of `typeof strOrNum === "string"` while answering `string` in the true
+    /// branch — the else branch keeps `undefined` (`typeof undefined` is not
+    /// `"string"`), so the arm fires and the declared type replaces the
+    /// narrowing. The two consumers are
+    /// [`Checker::check_used_before_assigned`] and the identifier type road in
+    /// `crate::expressions`.
     ///
     /// # This is a bound, and the bound is `assumeInitialized`
     ///
@@ -6388,16 +6405,38 @@ impl Checker<'_, '_> {
     /// What the bound gives up is every `let x: T` referenced from inside a
     /// nested function — measured rather than assumed, in
     /// `docs/architecture/checker-notes-diag2.md` §8.
-    fn check_used_before_assigned(&mut self, node: NodeId, text: &str) {
+    pub(crate) fn uninitialized_variable_reads_declared(
+        &mut self,
+        node: NodeId,
+        text: &str,
+    ) -> bool {
         if self.file_has_parse_errors || !self.strict_null_checks || !self.is_value_reference(node)
         {
-            return;
+            return false;
+        }
+        // §839.1: a reference guarded by a condition that both names it **and**
+        // uses a narrowing this port does not model. Upstream removes
+        // `undefined` there and this port does not, so the arm would fire where
+        // upstream's does not and hand back the declared type.
+        //
+        // Measured, not assumed: without this the type road took
+        // `RIGHT->WRONG 67` — `typeGuardOfFormIsType` 37 (`isC1(c1Orc2) && …`),
+        // `typeGuardOfFormInstanceOf` 10, `parserindenter` 10 — against
+        // `WRONG->RIGHT 126`. Most of the 67 read `want string got any`, which
+        // is the *follow-on*: `c1Orc2.p1` off an un-narrowed `C1 | C2` is an
+        // error, and `errorType` prints `any`.
+        //
+        // The guard costs none of §839's wins because it already requires
+        // `subtree_has_unported_narrowing` — a pure `typeof` condition, which
+        // is every row of that family, does not match.
+        if self.reference_is_guarded_by_a_condition_on(node, text) {
+            return false;
         }
         // `assignmentKind == AssignmentKindDefinite` returns before the flow
         // section (`checker.go:11109`), so `x = 1` never reports even though the
         // flow type at `x` carries `undefined`.
         if self.is_definite_assignment_target(node) {
-            return;
+            return false;
         }
         // A **destructuring** target is a definite assignment too, and
         // `is_definite_assignment_target` only knows the `x = 1` spelling.
@@ -6409,17 +6448,17 @@ impl Checker<'_, '_> {
         // and `noUnusedLocals_destructuringAssignment` were 12 of this rule's
         // remaining wrong lines and all four are that shape.
         if self.is_write_only_access(node) {
-            return;
+            return false;
         }
         if self.is_inside_with_statement(node) || self.is_in_type_query_or_type_node(node) {
-            return;
+            return false;
         }
-        let Some(parent) = self.nodes.parent(node) else { return };
+        let Some(parent) = self.nodes.parent(node) else { return false };
         if matches!(
             self.nodes.kind(parent),
             SyntaxKind::ExportSpecifier | SyntaxKind::NonNullExpression
         ) {
-            return;
+            return false;
         }
         let Some(symbol) =
             // `getResolvedSymbol`'s meaning, per §251 — `EXPORT_VALUE` included.
@@ -6431,24 +6470,14 @@ impl Checker<'_, '_> {
                 SymbolFlags::VALUE | SymbolFlags::EXPORT_VALUE,
             )
         else {
-            return;
+            return false;
         };
         let Some(declaration) = self.binder.symbols().get(symbol).declarations.first().copied()
         else {
-            return;
+            return false;
         };
-        // A reference **guarded by a condition that mentions the same name** is
-        // one upstream has narrowed before it gets here, and the narrowings this
-        // port does not model all leave `undefined` in the flow type.
-        // `typeGuardOfFormIsType`'s `isC1(c1Orc2) && c1Orc2.p1` is the family:
-        // the user-defined predicate removes `undefined` upstream, and the
-        // second `c1Orc2` read as *used before being assigned* here. 43 of this
-        // rule's 114 wrong lines are that shape.
-        if self.reference_is_guarded_by_a_condition_on(node, text) {
-            return;
-        }
         let Some(Node::VariableDeclaration(variable)) = self.node_map.get(declaration) else {
-            return;
+            return false;
         };
         // No initialiser, no `!`, and an explicit annotation — the annotation is
         // what keeps the auto-typed path (`t == autoType`, a different
@@ -6457,7 +6486,7 @@ impl Checker<'_, '_> {
             || variable.exclamation_token.is_some()
             || variable.r#type.is_none()
         {
-            return;
+            return false;
         }
         // A `const` with no initialiser only occurs in an ambient context or
         // after a grammar error (TS1155), and upstream reaches neither: the
@@ -6465,9 +6494,9 @@ impl Checker<'_, '_> {
         // (`checker.go:11158`). `declare const b: B` supplied **227 of the
         // first measurement's 4,781 wrong lines from one case**
         // (`compiler/genericDefaults`), which is what put both tests here.
-        let Some(list) = self.nodes.parent(declaration) else { return };
+        let Some(list) = self.nodes.parent(declaration) else { return false };
         if self.nodes.flags(list).intersects(tsr_ast::NodeFlags::CONST) {
-            return;
+            return false;
         }
         if self.nodes.parent(list).and_then(|statement| self.node_map.get(statement)).is_some_and(
             |statement| match statement {
@@ -6477,7 +6506,7 @@ impl Checker<'_, '_> {
                 _ => false,
             },
         ) {
-            return;
+            return false;
         }
         // `for (x of …)` and `for (x in …)` assign on entry.
         if self.nodes.parent(list).is_some_and(|owner| {
@@ -6486,7 +6515,7 @@ impl Checker<'_, '_> {
                 SyntaxKind::ForInStatement | SyntaxKind::ForOfStatement
             )
         }) {
-            return;
+            return false;
         }
         // `isOuterVariable` (`checker.go:11128`) is a disjunct of
         // `assumeInitialized` **only when the variable is not never-initialized**:
@@ -6511,7 +6540,7 @@ impl Checker<'_, '_> {
             let is_never_initialized = self.is_mutable_local_variable_declaration(declaration)
                 && !self.is_symbol_assigned_definitely(symbol);
             if !is_never_initialized {
-                return;
+                return false;
             }
         }
         // The annotation is read directly rather than through
@@ -6529,11 +6558,32 @@ impl Checker<'_, '_> {
             || declared == self.intrinsics.void
             || self.contains_undefined_type(declared)
         {
-            return;
+            return false;
         }
         let initial = self.get_optional_type_unprinted(declared);
         let flow = self.get_flow_type_of_reference_ex(node, Some(symbol), declared, Some(initial));
         if flow == self.intrinsics.error || !self.contains_undefined_type(flow) {
+            return false;
+        }
+        true
+    }
+
+    /// TS2454 — `Variable '{0}' is used before being assigned.`
+    ///
+    /// The *reporting* half only. The condition itself lives in
+    /// [`Checker::uninitialized_variable_reads_declared`], because
+    /// `checkIdentifier` uses one condition for two answers and this port had
+    /// split them — see `docs/architecture/checker-notes-deferred.md` §839.
+    ///
+    /// The guard below is why the two roads cannot share a single entry point.
+    /// `reference_is_guarded_by_a_condition_on` stands in for the narrowings
+    /// this port does not model, all of which leave `undefined` in the flow
+    /// type; declining costs a *missing diagnostic*, which is the direction
+    /// this rule may safely fail in. Upstream has no such guard, and it returns
+    /// true for every row in §839's family — so the **type** road must ask the
+    /// structural question without it.
+    fn check_used_before_assigned(&mut self, node: NodeId, text: &str) {
+        if !self.uninitialized_variable_reads_declared(node, text) {
             return;
         }
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };

@@ -2455,3 +2455,175 @@ structurally distinguishable only by whether `IPromise<U>` should count as a
 > **Third row this session to dissolve into an existing subsystem** — after §833
 > (destructuring assignment) and §836's refusal. The reading cost four greps and no
 > code, which is the only reason it is cheap to have been wrong about.
+
+## §839: the `string |` narrowing family is not narrowing — it is `assumeInitialized`
+
+The largest unopened near-miss population was the `string |` rows, ~131 lines split
+in *two opposite directions*: 70 where the port **adds** `string |` (fails to narrow)
+and 61 where the port **omits** it (over-narrows). Two opposite directions from one
+shape is the signal that the shape is not the mechanism.
+
+### What the 61 actually are
+
+`typeGuardOfFormTypeOfString` supplies 14 of them, and all 14 are the **`else`
+branch** of a `typeof x === "string"` guard. Every true branch is RIGHT:
+
+```
+A20  >strOrNum : string            true branch  — RIGHT
+A23  >strOrNum : string | number   else branch  — want this, we answer `number`
+A33  >strOrBool : string | boolean else branch  — want this, we answer `boolean`
+```
+
+The test's own comments say `// number` and `// boolean`, so the baseline
+contradicts the test author's intent — which is what made this worth one more
+column. `narrowTypeByTypeof` is not the answer: its false arm is
+`getAdjustedTypeWithFacts(t, TypeFactsTypeofNEString)`
+(`vendor/typescript-go/internal/checker/flow.go:646-653`), which filters `string`
+out and would answer `number`.
+
+The `.errors.txt` baseline is the answer:
+
+```
+typeGuardOfFormTypeOfString.ts(23,13): error TS2454: Variable 'strOrNum' is used before being assigned.
+typeGuardOfFormTypeOfString.ts(29,5):  error TS2322: Type 'string | boolean' is not assignable to type 'boolean'.
+```
+
+Upstream *reports* the assignability error, so upstream's type at that reference
+really is the full declared union. `checkIdentifier`
+(`vendor/typescript-go/internal/checker/checker.go:11160-11192`), verbatim:
+
+```go
+default:
+    initialType = c.getOptionalType(t, false /*isProperty*/)
+...
+} else if !assumeInitialized && !c.containsUndefinedType(t) && c.containsUndefinedType(flowType) {
+    c.error(node, diagnostics.Variable_0_is_used_before_being_assigned, c.symbolToString(symbol))
+    // Return the declared type to reduce follow-on errors
+    return t
+}
+```
+
+The whole mechanism, and it explains the true/else asymmetry exactly:
+
+| | initial type | flow type | `undefined` survives? | answer |
+|---|---|---|---|---|
+| condition `typeof strOrNum` | `string \| number \| undefined` | unnarrowed | yes | **declared** `string \| number` |
+| true branch | `string \| number \| undefined` | `string` | no | `string` |
+| else branch | `string \| number \| undefined` | `number \| undefined` | **yes** | **declared** `string \| number` |
+
+An uninitialized annotated `var` under `strictNullChecks` starts the flow walk at
+`declared | undefined`; `TypeofNEString` keeps `undefined` because
+`typeof undefined !== "string"`; the surviving `undefined` trips the
+uninitialized-variable arm, which returns the **declared** type and discards the
+narrowing. There is no narrowing defect here at all.
+
+### Why the port cannot see it
+
+The port has both halves and they are not connected. `check.rs`'s
+`check_used_before_assigned` computes precisely `initial =
+get_optional_type_unprinted(declared)` and the same `contains_undefined(flow)`
+test (`crates/tsr-checker/src/check.rs:6534-6537`) — but it is a **diagnostic-only**
+pass: it `report`s and returns `()`. The type road
+(`crates/tsr-checker/src/expressions.rs:595`) calls
+`get_flow_type_of_reference(node_id, Some(symbol), start)` with **no initial type**,
+so the walk starts at `string | number`, `undefined` is never in play, and the else
+branch narrows to `number`. Upstream fuses the two in one function; the port split
+them, and the type half lost the rule.
+
+### Population
+
+WRONG lines whose `got` constituents are a **strict subset** of `want`'s: **278**.
+The top missing constituent is `undefined` at **104** — the same root cause visible
+directly, not via the return-declared-type half. The typeGuard family:
+
+```
+typeGuardOfFormNotExpr 16, typeGuardOfFormTypeOfBoolean 16,
+typeGuardOfFormTypeOfString 14, typeGuardOfFormTypeOfNumber 12,
+typeGuardsInModule 12, typeGuardOfFormTypeOfIsOrderIndependent 8,
+typeGuardRedundancy 6                                          = 84 lines
+```
+
+### The bar, registered before any code
+
+1. **Primary.** The 84-line typeGuard family: **≥ +50 net RIGHT**. Falsified below +30.
+2. **Safety.** `RIGHT→WRONG ≤ 20`. The mechanism *widens* (declared in place of
+   narrowed), so the exposure is every reference to an uninitialized annotated `var`
+   where this port keeps `undefined` but upstream removed it — i.e. exactly where the
+   port's narrowing is weaker. This is the leg that decides the build.
+3. **Falsifier.** If threading `initial = declared | undefined` leaves
+   `typeGuardOfFormTypeOfString` at 14 WRONG, the reading above is wrong and the
+   change is reverted unmeasured-for-gain.
+4. **Regression.** `cargo test -p tsr-checker` green; `clippy --all-targets -D warnings` clean.
+
+### A prediction I registered and then measured wrong
+
+I registered, as part of the bar, that the existing guard **must not be reused**:
+
+> `reference_is_guarded_by_a_condition_on` returns true for a reference inside the
+> branch of an `if` whose condition names the same identifier — i.e. for *every row in
+> this family*.
+
+That is false, and reading one function further would have shown it. The guard
+requires the condition to name the reference **and** to contain
+`subtree_has_unported_narrowing` — a call, an `instanceof`, or a `.constructor`
+comparison (`crates/tsr-checker/src/check.rs`). A pure `typeof` condition, which is
+every row of this family, does not match it. The guard was built for precisely the
+distinction this build needed, by whoever wrote §8 and §58.
+
+I built it the wrong way first and the corpus said so:
+
+| | `WRONG->RIGHT` | `RIGHT->WRONG` | net |
+|---|---|---|---|
+| type road, no guard | 126 | **67** | +59 |
+| type road, guard shared with the reporter | 126 | **20** | **+106** |
+
+The 67 were `typeGuardOfFormIsType` 37 (`isC1(c1Orc2) && c1Orc2.p1`),
+`typeGuardOfFormInstanceOf` 10, `parserindenter` 10 — the two un-modelled narrowings,
+exactly the population §8's comment already named. Most of those rows read
+`want string got any`, which is not a second mechanism but the **follow-on**:
+`c1Orc2.p1` off an un-narrowed `C1 | C2` is an error, and `errorType` prints `any`
+(ADR-0038). Sharing the guard cost **none** of the 126 wins.
+
+So this landed as one predicate,
+`Checker::uninitialized_variable_reads_declared`, holding the whole condition
+including the guard, with two consumers — `check_used_before_assigned` for the
+diagnostic and the identifier arm in `crate::expressions` for the type. That is also
+nearer upstream, which asks one question and answers two things with it.
+
+### Result
+
+All four legs pass.
+
+1. **Primary.** Predicted ≥ +50; measured **+106 net** (126 / 20). The six named
+   cases went `14 -> 0`, `16 -> 0`, `16 -> 0`, `12 -> 0`, `6 -> 0`, and
+   `typeGuardsInModule` `12 -> 6`.
+2. **Safety.** `RIGHT->WRONG 20`, exactly at the registered bar — not under it. The
+   residue is `parserindenter` 10, `typeGuardsInModule` 6,
+   `classDoesNotDependOnBaseTypes` 2, `typeGuardsInExternalModule` 2, all the same
+   over-widening: a narrowing upstream performs, this port does not, and
+   `subtree_has_unported_narrowing` does not yet name. **This is the list to read
+   before extending that mechanism set** — it is a ready-made falsifiable board for
+   the next hand, and adding a fourth mechanism there is scored by whether these 20
+   fall without disturbing the 126.
+3. **Falsifier.** Cleared: `typeGuardOfFormTypeOfString` went 14 WRONG to 0.
+4. **Regression.** `cargo test -p tsr-checker` 782 passed; `clippy --workspace
+   --all-targets -D warnings` clean.
+
+Pinned in `crates/tsr-checker/tests/uninitialized_reads_declared.rs` (5 tests: both
+branches, the initialized control, the already-contains-`undefined` control, and the
+§839.1 guard).
+
+### What this row cost, and the one lesson
+
+Eight tool calls of reading before any code: the branch asymmetry, the source, the
+`.types` baseline with assertions numbered, `narrowTypeByTypeof`,
+`getAdjustedTypeWithFacts`, the `.errors.txt`, `checkIdentifier`, and the port's two
+disconnected halves. The decisive one was the **`.errors.txt` baseline** — TS2322
+"Type 'string | boolean' is not assignable to type 'boolean'" proves upstream's type
+at that reference is the full union, which no amount of reading `narrowTypeByTypeof`
+would have revealed, because the narrowing is not where the answer comes from.
+
+The lesson is the session's lesson again, with a new edge: *when a population splits
+into two opposite directions, the shape is not the mechanism*. 131 lines that looked
+like one narrowing bug in two flavours were one initialization rule and, in the other
+70, presumably something else still unread.

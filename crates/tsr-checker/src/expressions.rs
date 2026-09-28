@@ -582,6 +582,31 @@ impl Checker<'_, '_> {
                                     }) {
                                         return declared;
                                     }
+                                    // §839: `checkIdentifier`'s
+                                    // uninitialized-variable arm
+                                    // (`checker.go:11189-11192`) returns the
+                                    // **declared** type and discards the
+                                    // narrowing — "Return the declared type to
+                                    // reduce follow-on errors". An uninitialized
+                                    // annotated `var` starts the walk at
+                                    // `declared | undefined`, and any branch
+                                    // where `undefined` survives the narrowing
+                                    // answers the declared type. That is why the
+                                    // `else` branch of
+                                    // `typeof strOrNum === "string"` is
+                                    // `string | number` upstream and the `then`
+                                    // branch is `string`.
+                                    //
+                                    // `declared` here is the printed type from
+                                    // `get_type_of_symbol`, not the predicate's
+                                    // unprinted annotation read: the two are the
+                                    // same type, and this road is the one that
+                                    // must print.
+                                    if self
+                                        .uninitialized_variable_reads_declared(node_id, node.text)
+                                    {
+                                        return declared;
+                                    }
                                     // §50 (`checker-notes-narrow.md`): a
                                     // dependent destructured local narrows
                                     // its PARENT at the use site and
