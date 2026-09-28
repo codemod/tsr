@@ -5919,3 +5919,59 @@ Set against the same period, §863–§876 landed **+311 lines** from the *other
 gates whose category or condition was narrower than upstream's. That lens is not
 exhausted: the `_ => false` sweep found 78 candidate sites and four of four audited
 so far paid.
+
+## §882: a census that names one function — 90 lines differing only by `?`
+
+The `_ => false` sweep was the plan; the census that came out of auditing
+`property_is_optional` is worth more. Querying the baseline for WRONG lines whose
+want and got differ **only in `?` placement**:
+
+```
+90 lines across 10 cases
+  48  sourceMapValidationDestructuringForObjectBindingPatternDefaultValues2
+  18  shorthandPropertyAssignmentsInDestructuring_ES6
+   7  contextuallyTypedIife          7  contextuallyTypedIifeStrict
+   3  assignmentTypeNarrowing        2  classExpressionNames
+```
+
+One shape:
+
+```
+want { skills?: { primary?: string; secondary?: string; }; }
+got  { skills?: { primary: string; secondary: string; }; }
+```
+
+Note the port gets the **outer** `skills?` right and the inner members wrong — so the
+optionality rule is applied somewhere and not everywhere.
+
+### The function it names
+
+`getTypeFromObjectBindingPattern` (`checker.go:17938`): a binding element that
+**writes a default** implies an **optional** member. This port has the rule for
+*matching* an object literal against an implied pattern —
+`implied_pattern_member_is_optional` (§489, `objects.rs`) — but not for **building a
+type from a pattern**, which is the direction the corpus needs. `render_binding_pattern`
+renders the pattern's *names* (`{ a, b }`), not its implied type, and nothing else in
+the port answers this.
+
+Ruled out on the way, each by reading rather than guessing:
+
+- **`property_is_optional`** covers `PropertySignature`, `PropertyDeclaration`,
+  `MethodSignature`, `MethodDeclaration` and not `ParameterDeclaration` — a real gap
+  for `constructor(public a?: string)`, but **invisible in the corpus**, because a
+  class type prints by name and optionality never reaches the text.
+- **`padObjectLiteralType`** is the neighbouring mechanism and is *not* this one: it
+  adds members that are **missing** from the initializer's type, whereas here the
+  members exist and only the `?` is absent.
+
+### Sized and specified
+
+**90 lines, 10 cases**, one function whose upstream body is 24 lines
+(`checker.go:16823-16847` for the padding sibling, `:17938` for this one), and the
+optionality predicate it needs already exists in this port at
+`objects.rs:1799`.
+
+Not implemented here: it is a new type-construction function in the destructuring
+area, and this session has already produced one unbalanced-brace build break from
+hand-editing under fatigue. **The right shape for it is its own session opening with
+this note**, and the bar is easy to write because the population is one query away.
