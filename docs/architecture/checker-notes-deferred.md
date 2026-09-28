@@ -7159,3 +7159,60 @@ The array-literal rows did not move. The port's element road *does* call
 widening is what strands them is the next question and is **not** answered here.
 
 The invalid-position half is §899's.
+
+## §899: `isValidESSymbolDeclaration` — +7, and the baseline overruled the source twice
+
+The second half of §898's split: `unique symbol` written where it may not be.
+`getESSymbolLikeTypeForNode` (`checker.go:22982`) mints the unique type only when
+`isValidESSymbolDeclaration` (`checker/utilities.go:961`) passes, and answers
+plain `symbol` otherwise — a three-arm syntactic predicate (a `const` in a
+variable statement, a `readonly static` property, a `readonly` property
+signature).
+
+Ported faithfully, it measured **40 W→R against 36 R→W.** Two corrections were
+needed, and both came from the *baselines* rather than from a closer reading of
+upstream.
+
+### Correction 1: unrecognised ≠ invalid
+
+Upstream answers `false` for anything it does not recognise, but its `node` is
+always the real declaration. This port reaches the declaration by climbing a
+syntactic parent chain, and **a JSDoc `@type` does not share it**:
+
+```js
+/** @type {unique symbol} */
+const x = Symbol()
+```
+
+puts a `JSDocTypeExpression` between the operator and the `const`, so the walk
+failed to recognise a valid position and answered `symbol` — 6 `RIGHT→WRONG` in
+`compiler/uniqueSymbolJs2`. Declining only where an *invalid* declaration is
+actually visible, and keeping the unique type otherwise, is the tri-state
+discipline the relater and `is_literal_of_contextual_type` already use.
+
+### Correction 2: a PARAMETER keeps the unique type, which the source denies
+
+`isValidESSymbolDeclaration` returns `false` for a parameter. The baseline does
+not agree:
+
+```
+>invalidArgType : (arg: unique symbol) => void
+```
+
+Upstream errors on the position and still **prints the written form**, because a
+signature's text comes from the node builder reusing the written annotation, not
+from the computed type. Declining there measured **10 `RIGHT→WRONG`**, all
+parameter or `this` positions in that one case.
+
+> **ADR-0006 in miniature.** The oracle is the generated baseline, not a reading
+> of the checker source. Twice in one entry the faithful reading of a predicate
+> produced the wrong answer, because what the baseline records is the *printed*
+> type and the printer does not always ask the checker.
+
+Final: **7 W→R, zero adverse.** The parameter arm would have been +5 raw lines
+better (22 W→R / 10 R→W) and is not taken — `RIGHT→WRONG` is the disqualifying
+direction, and the 5 lines are not worth 10 confident wrong ones.
+
+`unique symbol` after §898 + §899: **+23 of the family's 164**, with the
+array-literal residue (§898's note about the doubled `get_widened_literal_type`)
+still open.

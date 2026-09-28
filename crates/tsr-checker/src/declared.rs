@@ -225,6 +225,22 @@ impl<'a> Checker<'a, '_> {
             // per node (`checker-notes-callres.md` §27).
             TypeNode::TypeOperatorNode(node) if node.operator.kind == SyntaxKind::UniqueKeyword => {
                 let Some(id) = node.node_id else { return self.intrinsics.error };
+                // §899: `getESSymbolLikeTypeForNode` (`checker.go:22982`) mints
+                // the unique type **only in a valid declaration position**:
+                //
+                // ```go
+                // if isValidESSymbolDeclaration(node) { … return uniqueType }
+                // return c.esSymbolType
+                // ```
+                //
+                // `let x: unique symbol`, `var x: unique symbol` and a parameter
+                // `(arg: unique symbol)` are all errors upstream, and their type
+                // is plain `symbol`. The node upstream tests is
+                // `ast.WalkUpParenthesizedTypes(node.Parent)` — the declaration
+                // the operator is written in, not the operator itself.
+                if !self.unique_symbol_position_is_valid(id) {
+                    return self.intrinsics.es_symbol;
+                }
                 if let Some(&existing) = self.unique_symbol_nodes.get(&id) {
                     return existing;
                 }
@@ -4132,4 +4148,88 @@ fn has_top_level_arrow(text: &str) -> bool {
         }
     }
     false
+}
+
+impl Checker<'_, '_> {
+    /// Whether a written `unique symbol` sits in a position that may carry one.
+    ///
+    /// `isValidESSymbolDeclaration` (`checker/utilities.go:961`):
+    ///
+    /// ```go
+    /// if ast.IsVariableDeclaration(node) {
+    ///     return ast.IsVarConst(node) && ast.IsIdentifier(node.Name()) && isVariableDeclarationInVariableStatement(node)
+    /// }
+    /// if ast.IsPropertyDeclaration(node) {
+    ///     return hasReadonlyModifier(node) && ast.HasStaticModifier(node)
+    /// }
+    /// return ast.IsPropertySignatureDeclaration(node) && hasReadonlyModifier(node)
+    /// ```
+    ///
+    /// Reached from the operator node, so the walk is upstream's
+    /// `WalkUpParenthesizedTypes(node.Parent)`: `(unique symbol)` in a `const`
+    /// is still valid. §899.
+    fn unique_symbol_position_is_valid(&self, operator: tsr_ast::NodeId) -> bool {
+        let mut current = operator;
+        let declaration = loop {
+            let Some(parent) = self.nodes.parent(current) else { return false };
+            if self.nodes.kind(parent) == SyntaxKind::ParenthesizedType {
+                current = parent;
+                continue;
+            }
+            break parent;
+        };
+        let has = |modifiers: &[tsr_ast::ModifierLike<'_>], kind: SyntaxKind| {
+            modifiers.iter().any(|modifier| {
+                matches!(modifier, tsr_ast::ModifierLike::Token(token) if token.kind == kind)
+            })
+        };
+        // **Decidable positions only.** Upstream answers `false` for everything
+        // it does not recognise, but its `node` is always the real declaration;
+        // this walk climbs a syntactic parent chain that a JSDoc `@type` does
+        // not share — `/** @type {unique symbol} */ const x = Symbol()` puts a
+        // `JSDocTypeExpression` between the operator and the declaration, and
+        // treating "not recognised" as invalid answered `symbol` there where
+        // upstream answers `unique symbol` (6 `RIGHT→WRONG` in
+        // `compiler/uniqueSymbolJs2`). So this declines only where it can SEE an
+        // invalid declaration, and an unrecognised shape keeps the unique type —
+        // the tri-state discipline the relater and
+        // [`Checker::is_literal_of_contextual_type`] already use.
+        match self.node_map.get(declaration) {
+            Some(Node::VariableDeclaration(node)) => {
+                if !matches!(node.name, Some(tsr_ast::BindingName::Identifier(_))) {
+                    return false;
+                }
+                // `isVariableDeclarationInVariableStatement` AND `IsVarConst`,
+                // both read off the list: a `for (const x of …)` head is a
+                // declaration list whose parent is not a `VariableStatement`.
+                let Some(list) = self.nodes.parent(declaration) else { return false };
+                self.nodes.flags(list).intersects(tsr_ast::NodeFlags::CONST)
+                    && self
+                        .nodes
+                        .parent(list)
+                        .is_some_and(|s| self.nodes.kind(s) == SyntaxKind::VariableStatement)
+            }
+            Some(Node::PropertyDeclaration(node)) => {
+                has(node.modifiers, SyntaxKind::ReadonlyKeyword)
+                    && has(node.modifiers, SyntaxKind::StaticKeyword)
+            }
+            Some(Node::PropertySignatureDeclaration(node)) => {
+                has(node.modifiers, SyntaxKind::ReadonlyKeyword)
+            }
+            // **A PARAMETER keeps the unique type**, which is not what
+            // `isValidESSymbolDeclaration` answers — it returns `false` there —
+            // and the baselines are unambiguous:
+            // `conformance/uniqueSymbolsErrors` records
+            // `>invalidArgType : (arg: unique symbol) => void`. Upstream errors
+            // on the position and still PRINTS the written form, because the
+            // signature's text comes from the node builder reusing the written
+            // annotation rather than from the computed type. Declining here
+            // measured 10 `RIGHT→WRONG`, all of them parameter or `this`
+            // positions in that one case.
+            //
+            // This is the ADR-0006 rule in miniature: the oracle is the
+            // generated baseline, not a reading of the checker source.
+            _ => true,
+        }
+    }
 }

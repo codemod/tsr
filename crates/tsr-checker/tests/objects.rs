@@ -497,3 +497,34 @@ fn a_unique_symbol_widens_at_a_mutable_location() {
     let source = "declare const s: unique symbol;\nconst o = { a: s };";
     assert_eq!(type_of_initialiser_at(source, 1), "{ a: symbol; }");
 }
+
+/// §899: `getESSymbolLikeTypeForNode` (`checker.go:22982`) mints the unique type
+/// only in a valid declaration position — `isValidESSymbolDeclaration`
+/// (`checker/utilities.go:961`) — and answers plain `symbol` elsewhere.
+///
+/// A `const` in a variable statement is valid.
+#[test]
+fn a_unique_symbol_on_a_const_keeps_its_unique_type() {
+    assert_eq!(
+        type_of_last_expression_statement("declare const y: unique symbol;\ny;"),
+        "unique symbol"
+    );
+}
+
+/// A `let` is not: `IsVarConst` fails and the type is plain `symbol`.
+#[test]
+fn a_unique_symbol_on_a_let_is_plain_symbol() {
+    assert_eq!(type_of_last_expression_statement("let x: unique symbol;\nx;"), "symbol");
+}
+
+/// The predicate declines only where it can SEE an invalid declaration. An
+/// unrecognised shape keeps the unique type, because this walk climbs a
+/// syntactic parent chain that a JSDoc `@type` does not share — treating
+/// "not recognised" as invalid cost 6 `RIGHT→WRONG` in `compiler/uniqueSymbolJs2`.
+#[test]
+fn an_unrecognised_position_keeps_the_unique_type() {
+    assert_eq!(
+        type_of_last_expression_statement("declare function f(arg: unique symbol): void;\nf;"),
+        "(arg: unique symbol) => void"
+    );
+}
