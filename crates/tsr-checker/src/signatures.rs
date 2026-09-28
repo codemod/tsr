@@ -3069,7 +3069,23 @@ impl<'a> Checker<'a, '_> {
                     // `[number, number?]`, not `[number]`
                     // (`destructuringWithLiteralInitializers`).
                     if !self.nodes.parent(id).is_some_and(|f| match self.nodes.kind(f) {
-                        SyntaxKind::FunctionDeclaration | SyntaxKind::MethodDeclaration => true,
+                        // A declaration's parameters are never contextually
+                        // typed — and §875: neither are a function TYPE's,
+                        // because they live inside an annotation rather than an
+                        // expression. `getContextualType` dispatches on
+                        // expressions, and `getContextuallyTypedParameterType`
+                        // wants a function expression with a contextual
+                        // signature; neither can reach a type node. So the
+                        // type-position kinds join this arm unconditionally,
+                        // rather than the `has_no_contextual_type` one below.
+                        SyntaxKind::FunctionDeclaration
+                        | SyntaxKind::MethodDeclaration
+                        | SyntaxKind::FunctionType
+                        | SyntaxKind::ConstructorType
+                        | SyntaxKind::CallSignature
+                        | SyntaxKind::ConstructSignature
+                        | SyntaxKind::MethodSignature
+                        | SyntaxKind::IndexSignature => true,
                         // §561: an ARROW or FUNCTION EXPRESSION too, but ONLY
                         // where §94's predicate can SHOW there is no contextual
                         // type at its position. §429 excluded them wholesale and

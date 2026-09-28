@@ -5477,3 +5477,95 @@ it.
 
 `STATUS.md`'s own rule — *a number here without a fresh run behind it is worse than no
 number* — applies to these notes and not only to the dashboard.
+
+## §875: a parameter of a function TYPE has no contextual type, by construction
+
+§852's board, re-derived fresh (§874's lesson): `renamingDestructuredPropertyInFunctionType2`
+is **34 gaps, zero wrong** — third largest on the board and the largest that is not a
+known subsystem.
+
+The case walks the same construct through eight declarations, and the split is exact.
+F1–F5 annotate the parameter and are RIGHT:
+
+```ts
+type F2 = ({ a: string }: O) => any;     //  RIGHT
+```
+
+F6 onward drop the annotation and gap:
+
+```ts
+type F6 = ({ a: string }) => typeof string;            //  GAP from here
+type F7 = ({ a: string, b: number }) => typeof number;
+```
+
+An **unannotated binding-pattern parameter** — and §561's gate decides whether such a
+parameter may take the implicit `any`:
+
+```rust
+if !self.nodes.parent(id).is_some_and(|f| match self.nodes.kind(f) {
+    SyntaxKind::FunctionDeclaration | SyntaxKind::MethodDeclaration => true,
+    SyntaxKind::ArrowFunction | SyntaxKind::FunctionExpression => self.has_no_contextual_type(f),
+    _ => false,
+})
+```
+
+Every kind in that list is an **expression- or statement-position** function.
+A `FunctionType` node is neither: its parameters live inside a *type annotation*,
+where contextual typing does not apply at all — upstream's `getContextualType`
+dispatches on expressions, and `getContextuallyTypedParameterType` requires a
+function expression with a contextual signature. So these parameters are in
+`FunctionDeclaration`'s category — **unconditionally true**, not
+`has_no_contextual_type`'s.
+
+The type-position function-like kinds are `FunctionType`, `ConstructorType`,
+`CallSignature`, `ConstructSignature`, `MethodSignature` and `IndexSignature`.
+
+> This is the **third** gate in this session found listing expression kinds and
+> silently excluding a whole category — after §863's `PropertyAssignment` catch-all
+> and §870's unconditional async-generator-expression refusal. The shape is always
+> the same: a list written for the cases in front of its author, with a `false`
+> default that reads as caution and behaves as a refusal.
+
+### The bar
+
+1. **Primary.** `renamingDestructuredPropertyInFunctionType2`'s 34 gaps: ≥ **+20
+   lines, +1 case**.
+2. **Safety.** `RIGHT->WRONG ≤ 10`, `GAP->WRONG ≤ 30`.
+3. **Falsifier.** If the case does not move, the gate is not what refuses these.
+4. **Regression.** `cargo test --workspace`; clippy clean; §561's
+   `coAndContraVariantInferences3` must not lose lines.
+
+### §875 result — +10, zero `RIGHT->WRONG`, and the named case barely moved
+
+| leg | registered | measured |
+|---|---|---|
+| 1 primary | `renamingDestructuredPropertyInFunctionType2` ≥ +20 lines, +1 case | **2 of 34** — falsified |
+| 2 safety | `RIGHT->WRONG ≤ 10`, `GAP->WRONG ≤ 30` | **0** and **1** |
+| 3 falsifier | case must move | it moved, by 2 |
+| 4 regression | tests, clippy, §561's case | 145 suites, clean, absent from transitions |
+
+**+10 right lines** (`destructuringInFunctionType` 5,
+`renamingDestructuredPropertyInFunctionType` 2, `destructuringParameterDeclaration2`
+1, plus the 2), **not one right line lost**. The surfacing case is still 55 RIGHT /
+0 WRONG / 34 GAP — the gate was *a* refusal in its path, not *the* one.
+
+**Fifth time a bar's named case stayed shut while the change paid elsewhere** —
+§844, §846, §858, §861, §875. The rule §858 stated has held every time since, and
+§875 is the cleanest illustration yet: the change is a verbatim category correction,
+it pays in three other cases, and the case that revealed it keeps 32 of its 34 gaps.
+
+### The recurring shape, now three for three
+
+This is the third gate this session found listing expression kinds and silently
+excluding a category:
+
+| § | gate | excluded |
+|---|---|---|
+| §863 | `has_no_contextual_type`'s `_ => return false` | `PropertyAssignment` — every object-literal member |
+| §870 | the generator mint's `is_async && generator_expression` | every async generator expression, unconditionally |
+| §875 | §561's parameter gate | every function-**type** parameter |
+
+Each was a list written for the cases in front of its author with a `false` default
+that reads as caution and behaves as a refusal, and each was worth between +10 and
++187. **Grepping for `_ => false` in gates is now a demonstrated technique in this
+codebase, not a hunch.**
