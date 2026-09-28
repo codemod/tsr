@@ -2819,6 +2819,21 @@ impl<'a> Checker<'a, '_> {
                         _ => return true,
                     }
                 }
+                // §863: an object-literal member's context IS the literal's.
+                // `getContextualTypeForObjectLiteralElement` asks the object
+                // literal's own contextual type and looks the property up in
+                // it, so a member has none exactly when the literal has none —
+                // and the walk should CLIMB, as it already does for a
+                // parenthesized expression and a conditional branch, for the
+                // same reason. Falling into the catch-all below meant an
+                // object-literal member could never show absence, so
+                // `({ f: (c) => 1 })` gapped while `((c) => 1)` did not.
+                Some(Node::PropertyAssignment(assignment)) => {
+                    if assignment.initializer.and_then(|e| e.node_id()) != Some(position) {
+                        return false;
+                    }
+                }
+                Some(Node::ObjectLiteralExpression(_)) => {}
                 _ => return false,
             }
             position = parent;

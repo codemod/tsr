@@ -4792,3 +4792,107 @@ is the whole difference between a change that measured zero and one that measure
 
 `§861 + §862` together: **+16 lines, +2 cases**, from one upstream rule and its
 consequence.
+
+## §863: an object-literal member's arrow cannot show it has no contextual type
+
+Chasing §852's `callback(_this)` cluster (3 zero-wrong cases) to its cause, with the
+baseline opened first per §862. `noCollisionThisExpressionAndLocalVarInConstructor`
+gaps at A2 — the whole object literal:
+
+```
+A2   >x2 : { doStuff: (callback: any) => () => any; }
+A4   >doStuff : (callback: any) => () => any
+A6   >callback : any
+A10  >callback(_this) : any
+```
+
+Probing walked it somewhere much broader than the cluster:
+
+```
+((callback) => callback(1))     => (callback: any) => any    correct
+({ f: () => 1 })                => { f: () => number; }      correct
+({ f: (c) => 1 })               => error
+({ f: (c) => c(1) })            => error
+```
+
+**Any object-literal member whose value is an arrow with an implicitly-`any`
+parameter errors** — the same arrow standalone is fine.
+
+`signatures.rs` admits an implicit `any` for an arrow parameter only when
+`has_no_contextual_type` can **show** there is no contextual type at the arrow's
+position — §561's gate, whose own comment records that admitting them wholesale cost
+**78 gap→wrong** (`coAndContraVariantInferences3`). The walk
+(`has_no_contextual_type`) climbs through the arms of upstream's `getContextualType`
+that answer nil, and ends:
+
+```rust
+_ => return false,
+```
+
+A `PropertyAssignment` parent hits that catch-all, so an object-literal member can
+**never** show absence, and the gate correctly-but-uselessly declines.
+
+### The arm
+
+Upstream's contextual type for an object-literal element is
+`getContextualTypeForObjectLiteralElement`, which asks the **object literal's** own
+contextual type and looks the property up in it. So a member has no contextual type
+exactly when the literal has none — the walk should *climb* through
+`PropertyAssignment` and `ObjectLiteralExpression` rather than give up, which is what
+it already does for parenthesized expressions and conditional branches, and for the
+same reason.
+
+Two climbing arms make `({ f: (c) => 1 })` resolve: arrow → property → literal →
+parenthesized → expression statement → **no contextual type**. And
+`const x: { f: (c: string) => number } = { f: (c) => 1 }` still declines, because the
+climb reaches a `VariableDeclaration` *with* an annotation and the existing arm
+answers false.
+
+### The bar
+
+1. **Primary.** The 3 `callback(_this)` cases plus ≥ **+10 lines** corpus-wide.
+2. **Safety.** `RIGHT->WRONG ≤ 10`, `GAP->WRONG ≤ 40`.
+3. **Falsifier — §561's own, inherited verbatim.** *"If
+   `coAndContraVariantInferences3` loses lines, the predicate is not showing what it
+   claims and this comes straight back out."*
+4. **Regression.** `cargo test --workspace`; clippy clean.
+
+### §863 result — +187 lines, +10 cases, ZERO `RIGHT->WRONG`
+
+| leg | registered | measured |
+|---|---|---|
+| 1 primary | 3 cases + ≥ +10 lines | **+187 lines, +10 cases** |
+| 2 safety | `RIGHT->WRONG ≤ 10`, `GAP->WRONG ≤ 40` | **0** and **11** |
+| 3 falsifier | `coAndContraVariantInferences3` must not lose lines | **in no transition list** — clears |
+| 4 regression | tests + clippy + anchors | 145 suites, clean, 3,255 |
+
+`GAP->RIGHT 110` and `WRONG->RIGHT 77`, spread far past the cluster that surfaced it:
+`callSignaturesWithParameterInitializers` 30,
+`noCollisionThisExpressionAndLocalVarInAccessors` 16, `asyncFunctionsAcrossFiles` 14,
+`plusOperatorWithAnyOtherType` 11, `commentsAfterFunctionExpression1` 10.
+
+The 11 `GAP->WRONG` are JSDoc (`checkJsdocSatisfiesTag2` 7, `jsdocTemplateTag2` 4) —
+§620's accepted direction, and a family this port does not model.
+
+**The biggest landing since §841**, and it came from two climbing arms in a predicate
+that already climbed for parentheses.
+
+### Why §561's gate was right and still lost 187 lines
+
+The gate is not wrong: admitting an arrow's implicit `any` wholesale cost 78
+gap→wrong when §429 tried it, and `has_no_contextual_type` is the machinery that
+makes the admission safe. What was missing is that **the walk stopped at the first
+node kind nobody had added an arm for**, and its catch-all is `return false` —
+*cannot show absence*. That is the safe default, and it silently made an entire
+common position unreachable.
+
+> A conservative default in a *walk* is not conservative in the same way as a
+> conservative default in a *test*. The test declines one question; the walk declines
+> every question that passes through the node kind. `PropertyAssignment` is on the
+> path from most arrows in real code to their enclosing statement, so one missing arm
+> disabled the gate for a whole class of positions — 187 lines' worth, which nothing
+> in the gate's own reasoning would have predicted.
+
+Worth checking the other catch-alls in this walk for the same shape: any node kind
+that commonly sits between an arrow and its statement, and has no arm, is disabling
+§561's gate exactly as `PropertyAssignment` was.

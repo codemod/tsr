@@ -271,12 +271,39 @@ fn new_on_a_target_without_a_construct_signature_is_any() {
 #[test]
 fn calling_the_result_of_a_constructorless_new_is_any() {
     assert_eq!(type_of_last_expression("function f() { }\n((new f())());"), "any");
-    assert_eq!(
-        type_of_last_expression("function f(x: number) { }\n((new f(1))());"),
-        "any"
-    );
+    assert_eq!(type_of_last_expression("function f(x: number) { }\n((new f(1))());"), "any");
     // A real constructor is unaffected: its instance type has no call
     // signature, so the result is not callable and stays a gap rather than
     // becoming a confident `any`.
     assert_eq!(type_of_last_expression("class D { }\n(new D());"), "D");
+}
+
+/// §863: an object-literal member's arrow can show it has no contextual type.
+///
+/// `has_no_contextual_type` climbs the arms of upstream's `getContextualType`
+/// that answer nil. A `PropertyAssignment` parent used to hit its catch-all
+/// `_ => return false`, so an object-literal member could never show absence
+/// and §561's gate declined the implicit `any` — `({ f: (c) => 1 })` gapped
+/// while the identical `((c) => 1)` did not.
+///
+/// Upstream's `getContextualTypeForObjectLiteralElement` asks the LITERAL's
+/// contextual type and looks the property up in it, so a member has none
+/// exactly when the literal has none. The walk now climbs through the property
+/// and the literal, as it already did for parentheses.
+///
+/// Corpus effect: `+187` right lines (110 `GAP->RIGHT`, 77 `WRONG->RIGHT`)
+/// against 11 `GAP->WRONG` and zero `RIGHT->WRONG`.
+#[test]
+fn an_object_literal_member_arrow_gets_its_implicit_any() {
+    assert_eq!(type_of_last_expression("({ f: (c) => 1 });"), "{ f: (c: any) => number; }");
+    assert_eq!(type_of_last_expression("({ f: (c) => c(1) });"), "{ f: (c: any) => any; }");
+    // The control that keeps the gate honest: an ANNOTATED target supplies a
+    // contextual type, so absence is not showable and the implicit `any` is
+    // still refused rather than invented.
+    assert_eq!(
+        type_of_last_expression(
+            "declare const x: { f: (c: string) => number };\nconst y: typeof x = { f: (c) => 1 };\n(y);"
+        ),
+        "{ f: (c: string) => number; }"
+    );
 }
