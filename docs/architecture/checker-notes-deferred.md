@@ -5769,3 +5769,56 @@ this declaration and read which drops the constituent.
 Sized: 33 lines in the three chain cases, of a 103-line group, and those cases have
 **zero gaps** — so every line is a wrong-to-right conversion with no gap-to-wrong
 exposure at all.
+
+## §879: the same expression answers two different types in one run
+
+§878 named the declaration-name road as the suspect. It is not that either, and what
+the probe found instead is more interesting than the lead.
+
+Ruled out first, each by measurement:
+
+- **The reference road** — six harness probes print
+  `declare const o: { b: undefined | { c: string } }` correctly, written order and
+  all.
+- **`strictNullChecks`** — the same six, run with the flag off, print identically.
+- **A declaration-name branch in `types_producer`** — there is none; a variable's
+  name falls to the ordinary identifier road.
+
+So the producer was instrumented to check `o3` through `check_expression` at every
+position it asks about, in the real case. The result:
+
+```
+3  879 o3 via check_expression => { b: { c: string; }; }
+3  879 o3 via check_expression => { b: undefined | { c: string; }; }
+```
+
+**The same identifier, the same expression road, the same run — and two different
+answers, three times each.** One of them is right and one drops the `undefined`
+constituent of a member.
+
+### What that means
+
+This is not a missing rule; it is **ordering or caching**. This port stores a named
+object type as `TypeData::Named { text, members }` with the printed text computed
+**at creation** (ADR-0003's side tables, and the §800 note about
+`object_literal_members` records the same hazard from the other side). Two interned
+types with the same structure and different text can only come from the text being
+built at two different moments — one of them before the member's union is complete.
+
+That makes it a different class of defect from everything else in this session's
+chain: §863–§876 were all rules, gates or categories, and each was fixed by making
+one condition match upstream. This one cannot be fixed that way, because **both
+answers come from the same code path**.
+
+### Next probe, named
+
+Find the two interned `TypeId`s behind those answers and compare their creation
+sites — whichever builds `{ b: { c: string; }; }` is minting a member's text before
+the member's type is fully resolved. `text` computed at creation is the design
+(ADR-0003), so the fix is to establish *when* it is safe to compute it, not to
+recompute it later.
+
+Sized: the three chain cases hold 33 of the 103 missing-`undefined` lines and have
+**zero gaps**, so the whole group is wrong-to-right with no gap exposure — but the
+cause is shared with however many of the other 70 lines come from the same
+early-minted text, which is unknown until the creation sites are compared.
