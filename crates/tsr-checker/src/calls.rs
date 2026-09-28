@@ -989,7 +989,7 @@ impl Checker<'_, '_> {
         node: &TaggedTemplateExpression<'_>,
     ) -> TypeId {
         let error = self.intrinsics.error;
-        if node.question_dot_token.is_some() || !node.type_arguments.is_empty() {
+        if node.question_dot_token.is_some() {
             return error;
         }
         let Some(tag) = node.tag else { return error };
@@ -1020,16 +1020,104 @@ impl Checker<'_, '_> {
         if self.is_untyped_call_target(tag, tag_type) {
             return self.intrinsics.any;
         }
-        // `None` for the argument list: a tagged template's arguments are the
-        // template strings array and the substitutions, neither of which this
-        // port builds, so an overloaded tag stays a gap.
-        let Some(signature) = self.resolve_call_signature(tag_type, None) else {
+        // §914: an OVERLOADED tag is selected by ARITY, which a tagged template
+        // has even though this port cannot build its argument *expressions*.
+        //
+        // `getEffectiveCallArguments` (`checker.go`) for a tagged template is
+        //
+        // ```go
+        // args := []*ast.Node{createSyntheticExpression(template, c.getGlobalTemplateStringsArrayType())}
+        // for _, span := range template.AsTemplateExpression().TemplateSpans.Nodes {
+        //     args = append(args, span.Expression())
+        // }
+        // ```
+        //
+        // — a synthetic `TemplateStringsArray` followed by one argument per
+        // substitution. **The COUNT of that list needs no synthetic expression**:
+        // it is `1 + spans`, and `hasCorrectArity` is upstream's first pass in
+        // `chooseOverload`. A single arity survivor is the answer, exactly as it
+        // is for a call (`callres2` slice 1).
+        //
+        // Selection only. Argument *checking* and inference still need the
+        // expressions, so a generic survivor falls through to the type-argument
+        // road below or declines, and two survivors keep the gap.
+        let argument_count = 1 + match node.template {
+            Some(tsr_ast::TemplateLiteral::TemplateExpression(template)) => {
+                template.template_spans.len()
+            }
+            _ => 0,
+        };
+        let candidates = self.call_signatures_of_type(tag_type).unwrap_or_default();
+        let arity_pick = if candidates.len() > 1 {
+            let survivors: Vec<&Signature> = candidates
+                .iter()
+                .filter(|candidate| {
+                    candidate.this_parameter.is_none()
+                        && has_correct_arity(candidate, argument_count)
+                })
+                .collect();
+            match survivors.as_slice() {
+                [survivor] => Some((*survivor).clone()),
+                _ => None,
+            }
+        } else {
+            None
+        };
+        // `None` for the argument list: a tagged template's argument
+        // EXPRESSIONS are the strings array and the substitutions, neither of
+        // which this port builds, so an overloaded tag with no single arity
+        // survivor stays a gap.
+        let Some(signature) = arity_pick.or_else(|| self.resolve_call_signature(tag_type, None))
+        else {
             return error;
         };
         if !signature.type_parameters.is_empty() {
-            // A generic tag's return type depends on the inferred arguments,
-            // which for a tagged template means inferring from the template
-            // strings array and each substitution.
+            // §914: WRITTEN type arguments instantiate the return, exactly as a
+            // call's do (`checker.go`'s `fillMissingTypeArguments` half, ported
+            // for calls at `check_call_expression_worker`). A tagged template
+            // may carry them — `` f<number>`x` `` — and this road used to reject
+            // the whole expression the moment it saw any
+            // (`!node.type_arguments.is_empty() → error`), before resolving
+            // anything.
+            //
+            // Only the SURPLUS half, for the same reason calls take only that
+            // half: the missing half needs type-parameter DEFAULTS, which this
+            // port does not model, and filling with `any` measured 62
+            // `RIGHT→WRONG` in `genericDefaults` when the call road tried it.
+            // Re-fetched from `node_map` for its `'a` lifetime, exactly as the
+            // call road does at `check_call_expression_worker` — a `&node`
+            // borrowed here cannot outlive the `&mut self` the resolution needs.
+            if node.type_arguments.len() >= signature.type_parameters.len()
+                && let Some(parameters) = self.type_parameter_types(&signature)
+                && let Some(written_nodes) =
+                    node.node_id.and_then(|id| match self.node_map.get(id) {
+                        Some(tsr_ast::Node::TaggedTemplateExpression(fetched)) => {
+                            Some(fetched.type_arguments)
+                        }
+                        _ => None,
+                    })
+            {
+                let written: Vec<TypeId> = written_nodes
+                    .iter()
+                    .map(|&argument| self.get_type_from_type_node(argument))
+                    .collect();
+                if !written.contains(&error) {
+                    let names: Vec<&str> = signature
+                        .type_parameters
+                        .iter()
+                        .map(|parameter| parameter.name.as_str())
+                        .collect();
+                    let map: Vec<(TypeId, TypeId)> =
+                        parameters.iter().copied().zip(written.iter().copied()).collect();
+                    let answer = self.instantiate_type(signature.r#type, &map, &parameters, &names);
+                    if answer != error {
+                        return answer;
+                    }
+                }
+            }
+            // Without written arguments a generic tag's return depends on
+            // inference from the template strings array and each substitution,
+            // which this road does not build.
             return error;
         }
         signature.r#type

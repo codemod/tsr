@@ -788,3 +788,37 @@ fn a_non_union_contextual_type_keeps_any() {
          foo({ method() { this; } });";
     assert_eq!(type_of_last_this(source), "any");
 }
+
+/// §914: a tagged template's WRITTEN type arguments instantiate the return, as a
+/// call's do. This road used to reject the whole expression the moment it saw
+/// any — `!node.type_arguments.is_empty() → error` — before resolving anything.
+#[test]
+fn a_tagged_templates_written_type_arguments_instantiate_the_return() {
+    let source = "declare function f<T>(s: TemplateStringsArray): T;\n\
+         interface TemplateStringsArray { readonly raw: readonly string[]; }\n\
+         f<number>`x`;";
+    assert_eq!(type_of_last_expression_statement(source), "number");
+}
+
+/// §914: an OVERLOADED tag is selected by ARITY. A tagged template's argument
+/// count is `1 + spans` — a synthetic `TemplateStringsArray` plus one per
+/// substitution — and that count needs no synthetic expression, which is what
+/// made the selection reachable while argument CHECKING still is not.
+#[test]
+fn an_overloaded_tag_is_selected_by_arity() {
+    let source = "interface TemplateStringsArray { readonly raw: readonly string[]; }\n\
+         declare function f(s: TemplateStringsArray): string;\n\
+         declare function f(s: TemplateStringsArray, a: number): boolean;\n\
+         f`x${1}y`;";
+    assert_eq!(type_of_last_expression_statement(source), "boolean");
+}
+
+/// The zero-substitution form takes the one-parameter overload.
+#[test]
+fn an_overloaded_tag_with_no_substitutions_takes_arity_one() {
+    let source = "interface TemplateStringsArray { readonly raw: readonly string[]; }\n\
+         declare function f(s: TemplateStringsArray): string;\n\
+         declare function f(s: TemplateStringsArray, a: number): boolean;\n\
+         f`x`;";
+    assert_eq!(type_of_last_expression_statement(source), "string");
+}

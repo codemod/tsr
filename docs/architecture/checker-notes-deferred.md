@@ -7885,3 +7885,49 @@ reduction helper that was two files away.
 > discipline that would have prevented all three is to name the *function* that
 > would have to exist — `isTypeComparableTo` did, which is why one grep settled
 > it — rather than the capability in prose.
+
+## §914: tagged templates get type arguments and arity selection — +14
+
+**`taggedTemplate*` is 418 non-RIGHT rows across 16 cases**, all blocked by one
+sentence in `check_tagged_template_expression`: *"a tagged template's arguments
+are the template strings array and the substitutions, neither of which this port
+builds"*. It passed `None` for the argument list and, one line earlier, rejected
+the whole expression if it carried any written type arguments at all.
+
+Two slices need no argument *expressions*:
+
+1. **Written type arguments.** `` f<number>`x` `` instantiates the return exactly
+   as a call's do — the same `fillMissingTypeArguments` surplus-half the call road
+   ports, with the same refusal of the missing half (defaults are not modelled;
+   filling with `any` measured 62 `RIGHT→WRONG` when the call road tried it). The
+   guard `!node.type_arguments.is_empty() → error` fired *before* anything
+   resolved, so this was unreachable rather than unported.
+2. **Overload selection by ARITY.** `getEffectiveCallArguments` builds a synthetic
+   `TemplateStringsArray` plus one argument per substitution, and **the COUNT of
+   that list needs no synthetic expression**: it is `1 + spans`. `hasCorrectArity`
+   is upstream's first pass in `chooseOverload`, and a single survivor is the
+   answer — `callres2` slice 1's rule, reused.
+
+**+14, zero adverse.** `taggedTemplatesWithTypeArguments1` 4,
+`taggedTemplateStringsWithOverloadResolution1` 4 + 4,
+`taggedTemplateContextualTyping2` 2.
+
+A pinned test, `explicit_type_arguments_are_a_gap`, asserted the old refusal and
+is flipped; `a_generic_tag_is_a_gap` beside it still holds and is the honest live
+half.
+
+### What the other 404 rows need, precisely
+
+Argument *checking*, contextual typing and inference all need the expressions:
+
+- `contextual_type_for_argument` takes a `&CallExpression` and has no
+  tagged-template path, so a substitution is never contextually typed —
+  `taggedTemplateContextualTyping1/2`, 52 rows.
+- inference from the substitutions — `taggedTemplateStringsTypeArgumentInference`
+  and its ES6 twin, **146 rows** — needs the synthetic first argument to occupy
+  position 0 so substitution *i* pairs with parameter *i+1*.
+
+Neither is blocked on an idea; both are blocked on **giving the resolution road a
+notion of an argument that is a TYPE rather than an expression**. `choose_overload`
+and `check_generic_call` are both index-driven over `&[Expression]`. That is the
+one change, and it is the prerequisite for the remaining 404.

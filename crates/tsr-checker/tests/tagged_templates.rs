@@ -93,13 +93,21 @@ fn a_generic_tag_is_a_gap() {
     );
 }
 
+/// §914: **no longer a gap.** Written type arguments instantiate the return,
+/// exactly as a call's do. This road used to reject the whole expression the
+/// moment it saw any — `!node.type_arguments.is_empty() → error` — before it
+/// resolved anything, so the generic return above it never got a chance.
+///
+/// `a_generic_tag_is_a_gap` above still holds and is the live half: a generic
+/// tag with NO written arguments needs inference over the strings array and each
+/// substitution, which this road does not build.
 #[test]
-fn explicit_type_arguments_are_a_gap() {
+fn explicit_type_arguments_instantiate_the_return() {
     assert_eq!(
         type_of_last(
             "function tag<T>(s: any): T { return null as any; }\nconst x = tag<string>`hi`;"
         ),
-        "error"
+        "string"
     );
 }
 
