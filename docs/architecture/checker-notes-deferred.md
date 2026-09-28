@@ -5822,3 +5822,57 @@ Sized: the three chain cases hold 33 of the 103 missing-`undefined` lines and ha
 **zero gaps**, so the whole group is wrong-to-right with no gap exposure — but the
 cause is shared with however many of the other 70 lines come from the same
 early-minted text, which is unknown until the creation sites are compared.
+
+## §880: §879's "two answers" was three cases, and the real shape is one line
+
+§879 reported *"the same expression answers two different types in one run"* and
+concluded ordering or caching. **That conclusion was wrong, and the correction is
+mundane**: `TSR_FILTER=elementAccessChain` matches **three separate cases**, not one.
+
+```
+conformance/elementAccessChain     // @strict: true    104 RIGHT  27 WRONG
+conformance/elementAccessChain.2   // @strict: false    28 RIGHT   3 WRONG
+conformance/elementAccessChain.3   // @strict: true    143 RIGHT   0 WRONG
+```
+
+`TypeId(27) snc=false` is case `.2`, which declares `@strict: false`, and dropping
+`undefined` there is **correct** — upstream does the same
+(`checker.go:25783`: `if !c.strictNullChecks && flags&TypeFlagsNullable != 0 { … return }`),
+and the port's `unions.rs` carries that anchor already. Two answers, two cases, no
+caching defect. §879's "different class of defect" framing is withdrawn.
+
+### The real shape, from the strict case alone
+
+```
+7  want (() => { c: { d?: { e: string; }; }; }) | undefined   got () => { … }
+6  want string | undefined                                    got string
+4  want { d?: { e: string; }; } | undefined                    got { d?: { e: string; }; }
+4  want { c: string; } | undefined                             got { c: string; }
+4  want { c: { d?: { e: string; }; }; } | undefined             got { c: { … }; }
+2  want <T>() => undefined | ({ x: number; })                  got <T>() => { x: number; } | undefined
+```
+
+**Every line but the last two is `X | undefined` wanted and `X` given.** One
+mechanism. (The last two are a written-ORDER difference — upstream preserves
+`undefined | T` as written — and are a separate, smaller question.)
+
+### Five hypotheses, five refutations, all cheap
+
+| hypothesis | refuted by |
+|---|---|
+| the declaration-name road in `types_producer` | there is no such branch; a variable name takes the identifier road |
+| `strictNullChecks` handling | six probes, strict and loose, print the declaration correctly |
+| interning / caching order (§879) | two cases, not two answers |
+| the optional-chain re-union | the failing lines include non-chain positions |
+| the member lookup dropping `undefined` | `o["b"]`, `o.b`, `b?: T` and `b: T \| undefined` all print correctly |
+
+**The minimal harness reproduces every isolated shape correctly**, which is the
+finding that matters: the cause needs the whole file, not a fixture. That is a limit
+this session has now hit three times (§839's `lib.d.ts`, §877's class bodies, and
+here), and the answer is different each time — here it is not a missing harness
+feature but a genuinely context-dependent defect.
+
+**Next probe, named and different in kind:** instrument inside the conformance
+pipeline on the real case — print the type at each `o1`/`o2`/`o3` chain position with
+the declared type beside it — rather than trying to shrink the case to a fixture.
+Shrinking has failed five times and each failure cost a build.
