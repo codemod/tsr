@@ -6803,3 +6803,101 @@ instead of one that merely sounded right.
 same 22 rows, and the first two were wrong.** What distinguishes this one is that
 it made a falsifiable prediction and the prediction failed cleanly, which is worth
 more than the two that were merely plausible.
+
+## §893: the bar — a binding-pattern element with a DEFAULT is an optional member
+
+Sweeping the refreshed census for narrow want/got shapes turns up five small
+families; the largest is **75 rows across 9 cases where the oracle wants an
+OPTIONAL member and the port answers a required one**
+(`sourceMapValidationDestructuringForObjectBindingPatternDefaultValues2` 36,
+`shorthandPropertyAssignmentsInDestructuring_ES6` 18).
+
+```
+{ primary: "none", secondary: … }   want { primary?: string; secondary?: string; }
+                                    got  { primary: string; secondary: string; }
+```
+
+Upstream's `getTypeFromObjectBindingPattern` is one line (`checker.go:17938`):
+
+```go
+flags := ast.SymbolFlagsProperty | core.IfElse(e.Initializer() != nil, ast.SymbolFlagsOptional, 0)
+```
+
+and the member's type comes from `getTypeFromBindingElement`, whose first branch
+is the initializer's widened type.
+
+§429's arm in `symbols.rs` requires **every** element to satisfy
+`element.initializer.is_none()`, and says so in its own comment — *"defaults,
+rests and nested patterns keep the implicit any"* — so a pattern with any default
+declines whole. Another gate standing in for a rule it is narrower than, which is
+the shape this session has now hit seven times.
+
+### The bar
+
+- **Primary.** The two named cases close.
+- **Safety.** The change only *admits* patterns the gate previously refused, so a
+  row that has an answer today cannot move. Any adverse must therefore be
+  `GAP→`, §620's accepted direction — and if a `RIGHT→` appears, the relaxation
+  reached further than intended and comes straight back out.
+- **Falsifier.** If the cases stay shut, the defect is the member's TYPE or its
+  optional rendering, not the gate, and the remaining work is in
+  `getTypeFromBindingElement` rather than in the admission test.
+- **Regression.** Tests for a defaulted member, a plain one beside it, and the
+  array pattern that stays refused.
+
+**Scoped to OBJECT patterns.** An array pattern's defaulted element has its own
+upstream answer (the element type from the initializer, not `any`), and the
+existing arm fills `vec![any; len]`; admitting defaults there without also
+computing the element types would mint a confident wrong tuple. Named rather than
+bundled.
+
+## §893.1: landed at +39 with zero `RIGHT→` — and the primary leg failed
+
+`getTypeFromObjectBindingPattern`'s optionality line ported, scoped to object
+patterns, with the initializer read **syntactically**.
+
+### The stack overflow that set the shape
+
+The first build called `check_expression` on the initializer, as upstream's
+`checkDeclarationInitializer` does. It **overflows the stack**: a defaulted
+parameter's initializer is checked with the parameter's own contextual type,
+which is the implied type being computed. Upstream is re-entrant there; this port
+is not. The initializer is therefore read off its literal form — `= "none"`,
+`= 1`, `= true`, which is what the corpus holds — and anything else keeps §429's
+`any`. A real limitation, stated rather than hidden behind a passing number.
+
+### The two roads had to move together
+
+First measurement: **+19** (14 W→R, 5 G→R, 6 G→W). Only the *printed* member had
+changed; reading the binding still answered `any`, because `pattern_implied_members`
+stored **names only**. Its doc said why:
+
+> Only the names are stored: every member of a pattern-implied object is `any` by
+> construction … with no initializer to infer from.
+
+§893 admits elements that *do* have an initializer, so that reasoning expired with
+it — a second stale refusal-reason found the same way §885 found the first.
+Carrying the type in the table alongside the name took the measurement to
+**+39 (32 W→R, 7 G→R) against 4 G→W, zero `RIGHT→`**. The safety leg holds
+exactly as the bar predicted: the change only admits patterns that previously
+declined, so `GAP→` is its only possible direction.
+
+**The gain from consistency alone is +20 of the +39** — more than the printed
+change was worth by itself. §56's rule ("the print road moves WITH the symbol
+road") is not bookkeeping.
+
+### The primary leg failed, and that is the finding to carry
+
+The bar named `sourceMapValidationDestructuringForObjectBindingPatternDefaultValues2`
+(36 rows) and `shorthandPropertyAssignmentsInDestructuring_ES6` (18). **Neither
+moved.** The 75 rows that motivated the change are a *different* road — a
+destructuring assignment's implied type, not a parameter's binding pattern — and
+the 39 came from `destructuringWithLiteralInitializers`,
+`declarationsAndAssignments` and `contextuallyTypedParametersWithInitializers1`
+instead.
+
+That is now the **sixth** time this session a bar's named case stayed shut while
+the change paid elsewhere (§844, §846, §858, §861, §875, §893). The pattern is
+stable enough to state as a rule: **a case surfaces in a census because it has two
+defects, so the one you can name is rarely the one that closes it.** The census
+picks the target; it does not pick the fix.

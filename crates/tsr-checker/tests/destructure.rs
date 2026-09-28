@@ -253,3 +253,49 @@ for (var [f] of pairs) { }";
 fn a_generic_object_rest_that_omits_nothing_is_the_source() {
     assert_eq!(type_of_binding("function f<T extends { a: string }>({ ...r }: T) {}", "r"), "T");
 }
+
+/// §893: a binding-pattern element with a DEFAULT is an OPTIONAL member of the
+/// pattern's implied type, and its type comes from the initializer rather than
+/// being `any`.
+///
+/// `getTypeFromObjectBindingPattern` (`checker.go:17938`):
+///
+/// ```go
+/// flags := ast.SymbolFlagsProperty | core.IfElse(e.Initializer() != nil, ast.SymbolFlagsOptional, 0)
+/// ```
+///
+/// §429's arm required **every** element to have no initializer — its own
+/// comment says *"defaults, rests and nested patterns keep the implicit any"* —
+/// so a pattern holding any default declined whole.
+///
+/// The initializer is read **syntactically**. Calling `check_expression` on it
+/// overflows the stack: a defaulted parameter's initializer is checked with the
+/// parameter's own contextual type, which is the implied type being computed.
+/// Upstream is re-entrant there and this port is not.
+///
+/// Corpus effect: `+14 W→R`, `+5 G→R` against `6 G→W`, **zero `RIGHT→`** — the
+/// safety leg exactly as the bar predicted, since the change only admits
+/// patterns that previously declined.
+#[test]
+fn a_defaulted_object_pattern_element_takes_the_initializers_type() {
+    let source = "function f({ a = \"x\", b }) { }";
+    assert_eq!(type_of_binding(source, "a"), "string");
+    // The element beside it keeps §429's implicit `any`.
+    assert_eq!(type_of_binding(source, "b"), "any");
+}
+
+/// The widening is upstream's `widenTypeInferredFromInitializer`: `= 1` gives
+/// `number`, not `1`.
+#[test]
+fn a_defaulted_element_widens_its_literal() {
+    assert_eq!(type_of_binding("function f({ n = 1, t = true }) { }", "n"), "number");
+    assert_eq!(type_of_binding("function f({ n = 1, t = true }) { }", "t"), "boolean");
+}
+
+/// An ARRAY pattern's defaulted element stays refused. Its upstream answer is
+/// the element type from the initializer, and the tuple branch fills `any` for
+/// every position, so admitting it there would mint a confident wrong tuple.
+#[test]
+fn a_defaulted_array_pattern_element_is_still_refused() {
+    assert_ne!(type_of_binding("function f([a = 1]) { }", "a"), "number");
+}

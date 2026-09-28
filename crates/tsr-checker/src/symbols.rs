@@ -3689,15 +3689,28 @@ impl<'a> Checker<'a, '_> {
                         _ => false,
                     })
                     && let Some(tsr_ast::BindingName::BindingPattern(pattern)) = parameter.name
-                    && pattern.elements.iter().all(|element| {
-                        element.dot_dot_dot_token.is_none()
-                            && element.initializer.is_none()
-                            && element.property_name.is_none()
-                            && matches!(
-                                element.name,
-                                Some(tsr_ast::BindingName::Identifier(_))
-                            )
-                    })
+                    && {
+                        // §893: an element with a DEFAULT is admitted for an
+                        // OBJECT pattern, where upstream makes it an optional
+                        // member (`checker.go:17938`) typed from the
+                        // initializer. An ARRAY pattern's defaulted element has
+                        // its own upstream answer — the element type comes from
+                        // the initializer, not `any` — and the tuple branch
+                        // below fills `any` for every position, so admitting it
+                        // there would mint a confident wrong tuple.
+                        let object_pattern = pattern.node_id.is_some_and(|p| {
+                            self.nodes.kind(p) == SyntaxKind::ObjectBindingPattern
+                        });
+                        pattern.elements.iter().all(|element| {
+                            element.dot_dot_dot_token.is_none()
+                                && (object_pattern || element.initializer.is_none())
+                                && element.property_name.is_none()
+                                && matches!(
+                                    element.name,
+                                    Some(tsr_ast::BindingName::Identifier(_))
+                                )
+                        })
+                    }
                 // §455: the EMPTY pattern is served too —
                 // `getTypeFromBindingPattern`'s implied type of `{}` is the
                 // empty object literal and of `[]` the empty tuple
@@ -3772,28 +3785,53 @@ impl<'a> Checker<'a, '_> {
                         let elements = vec![any; pattern.elements.len()];
                         return self.create_tuple_type(elements, false);
                     }
-                    let members: Vec<crate::objects::Member> = pattern
-                        .elements
-                        .iter()
-                        .filter_map(|element| match element.name {
-                            Some(tsr_ast::BindingName::Identifier(name)) => {
-                                Some(crate::objects::Member::Property {
-                                    name: name.text.to_string(),
-                                    optional: false,
-                                    readonly: false,
-                                    printed: "any".to_string(),
-                                })
+                    // §893: `getTypeFromBindingElement` (`checker.go:17950`)
+                    // types a defaulted element from its INITIALIZER, widened —
+                    // `{ primary = "none" }` is `primary?: string`, not
+                    // `primary?: "none"` and not `primary: any`. An element
+                    // with no initializer keeps §429's implicit `any`.
+                    let mut members: Vec<crate::objects::Member> = Vec::new();
+                    let mut names: Vec<(String, TypeId)> = Vec::new();
+                    for element in pattern.elements {
+                        let Some(tsr_ast::BindingName::Identifier(name)) = element.name else {
+                            continue;
+                        };
+                        // The initializer is read SYNTACTICALLY, not through
+                        // `check_expression`. Upstream calls
+                        // `checkDeclarationInitializer`, and doing so here
+                        // **overflows the stack**: a defaulted parameter's
+                        // initializer is checked with the parameter's own
+                        // contextual type, which is the implied type being
+                        // computed. Upstream is re-entrant here and this port is
+                        // not, so the initializer's type is read off the literal
+                        // form — which covers `= "none"`, `= 1`, `= true`, the
+                        // shapes the corpus actually holds — and anything else
+                        // keeps §429's `any`.
+                        //
+                        // The widening is upstream's:
+                        // `widenTypeInferredFromInitializer` makes `= "none"`
+                        // give `string`, not `"none"`.
+                        let member_type = match element.initializer {
+                            Some(tsr_ast::Expression::StringLiteral(_)) => self.intrinsics.string,
+                            Some(tsr_ast::Expression::NumericLiteral(_)) => self.intrinsics.number,
+                            Some(tsr_ast::Expression::KeywordExpression(keyword))
+                                if matches!(
+                                    keyword.kind,
+                                    SyntaxKind::TrueKeyword | SyntaxKind::FalseKeyword
+                                ) =>
+                            {
+                                self.intrinsics.boolean
                             }
-                            _ => None,
-                        })
-                        .collect();
-                    let names: Vec<String> = members
-                        .iter()
-                        .filter_map(|member| match member {
-                            crate::objects::Member::Property { name, .. } => Some(name.clone()),
-                            _ => None,
-                        })
-                        .collect();
+                            _ => any,
+                        };
+                        names.push((name.text.to_string(), member_type));
+                        members.push(crate::objects::Member::Property {
+                            name: name.text.to_string(),
+                            optional: element.initializer.is_some(),
+                            readonly: false,
+                            printed: self.type_to_string(member_type),
+                        });
+                    }
                     let printed = crate::objects::render_object_type(&members);
                     let minted = self.store.new_named(TypeFlags::OBJECT, printed, None);
                     // §565: the members exist only in the printed text — the

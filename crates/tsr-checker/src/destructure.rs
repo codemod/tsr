@@ -950,16 +950,18 @@ impl Checker<'_, '_> {
         }
         // §565: a PATTERN-IMPLIED object type has no symbol and therefore no
         // members table, so the lookup above cannot see the members its own
-        // printed form shows. Every such member is `any` by construction
-        // (`getTypeFromObjectBindingPattern`, `checker.go:17938`, with no
-        // initializer to infer from), so the name being present IS the answer.
+        // printed form shows. §565 answered `any` for any name the pattern
+        // declares, because with no initializer every implied member IS `any`
+        // (`getTypeFromObjectBindingPattern`, `checker.go:17938`). §893 admits
+        // DEFAULTED elements, whose member type comes from the initializer, so
+        // the stored type is the answer and `any` is merely its commonest value.
         // A name the pattern does not declare keeps the gap.
-        if self
+        if let Some(member) = self
             .pattern_implied_members
             .get(&parent_type)
-            .is_some_and(|names| names.iter().any(|declared| declared == name))
+            .and_then(|names| names.iter().find(|(declared, _)| declared == name))
         {
-            return self.intrinsics.any;
+            return member.1;
         }
         // §303: the APPARENT-type hop the plain member road already takes —
         // `var { toExponential } = 0` reads `Number`'s member exactly as

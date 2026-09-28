@@ -581,11 +581,16 @@ pub struct Checker<'a, 'n> {
     /// road reading its tuple positionally and the object road having nothing
     /// to read.
     ///
-    /// Only the names are stored: every member of a pattern-implied object is
-    /// `any` by construction (`getTypeFromObjectBindingPattern`,
-    /// `checker.go:17938`, with no initializer to infer from), so the value
-    /// needs no table.
-    pub(crate) pattern_implied_members: rustc_hash::FxHashMap<crate::types::TypeId, Vec<String>>,
+    /// **Name and type.** §565 stored only names, on the reasoning that every
+    /// member of a pattern-implied object is `any` by construction
+    /// (`getTypeFromObjectBindingPattern`, `checker.go:17938`, *"with no
+    /// initializer to infer from"*). §893 admits elements that DO have an
+    /// initializer, so that reasoning expired with it and the type has to travel
+    /// with the name — otherwise the printed form says `a?: string` while
+    /// reading `a` answers `any`, which is §56's "the print road moves WITH the
+    /// symbol road" broken in one table.
+    pub(crate) pattern_implied_members:
+        rustc_hash::FxHashMap<crate::types::TypeId, Vec<(String, crate::types::TypeId)>>,
     /// §800: the MEMBERS an object literal printed, keyed by its minted type.
     ///
     /// `spread_members_of` can re-derive a member list from the `__object`
