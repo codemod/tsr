@@ -682,7 +682,7 @@ impl Checker<'_, '_> {
                             clean = false;
                             break;
                         }
-                        elements.push(self.get_widened_literal_type(element_type));
+                        elements.push(element_type);
                     }
                 }
             }
@@ -778,7 +778,7 @@ impl Checker<'_, '_> {
                                     return error;
                                 }
                                 let union = self.get_union_type(&elements);
-                                union_elements.push(self.get_widened_literal_type(union));
+                                union_elements.push(union);
                             } else if let Some(element_type) =
                                 self.array_spread_element_type(operand_type)
                             {
@@ -793,7 +793,7 @@ impl Checker<'_, '_> {
                             if element_type == error {
                                 return error;
                             }
-                            union_elements.push(self.get_widened_literal_type(element_type));
+                            union_elements.push(element_type);
                         }
                     }
                 }
@@ -819,7 +819,7 @@ impl Checker<'_, '_> {
                         if element_type == error {
                             return error;
                         }
-                        spliced.push(self.get_widened_literal_type(element_type));
+                        spliced.push(element_type);
                     }
                 }
             }

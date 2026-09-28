@@ -7216,3 +7216,70 @@ direction, and the 5 lines are not worth 10 confident wrong ones.
 `unique symbol` after §898 + §899: **+23 of the family's 164**, with the
 array-literal residue (§898's note about the doubled `get_widened_literal_type`)
 still open.
+
+## §900: the near-miss board, and why the `import("…")` family is not an arm
+
+**997 cases sit one or two non-RIGHT rows from passing** — 1,486 rows in total.
+That board is worth stating on its own: it is +997 cases (65.6% → ~76% pass rate)
+for 1,486 lines, a far better case-per-line ratio than anything else available.
+Grouped, it is heterogeneous (737 other-WRONG, 435 `any`, 310 declines), but
+scanning it for *repeated* micro-patterns gives:
+
+```
+123 rows / 103 cases   a bare identifier declines
+110 rows /  95 cases   a CALL answers any/error
+ 76 rows /  57 cases   want `typeof X`, got something else
+ 54 rows /  46 cases   got `typeof X`, want something else
+ 40 rows /  36 cases   `new X()` answers any/error
+ 38 rows /  28 cases   want an `import("…")` type
+```
+
+### The `import("…")` family, probed rather than assumed
+
+69 rows corpus-wide want `typeof import("…")` at the NAME of an ambient module.
+§143 already ports the *printing* (`getSpecifierForModuleSymbol`'s ambient half),
+so the obvious reading is that nothing reaches it from that position.
+
+**Built and measured: zero transitions.** Probed rather than left as a guess:
+
+- the arm **is** reachable — the node is a `StringLiteral`, its parent is a
+  `ModuleDeclaration`, and `binder.symbol_of(parent)` is `Some`;
+- it fires and returns the module symbol's type;
+- that type is `typeof "fs"` (the baked placeholder) in one case and **`error`**
+  in another.
+
+Neither reaches a baseline, because `type_to_string_at` intercepts the
+placeholder and answers `None`, which the producer renders as a gap — exactly the
+guard `checker.rs` documents. So the answer is unchanged and the score is
+unchanged.
+
+**Two real blockers, both downstream of the position:**
+
+1. **The module symbol's type is often `error`.** `get_type_of_symbol` on it does
+   not compute.
+2. **§143's printing gates out AUGMENTED ambients** — it requires
+   `[declaration]`, a single declaration — and most of this family is exactly
+   that: `ambientExternalModuleReopen`, `duplicateIdentifierRelatedSpans_moduleAugmentation`
+   and friends declare the module twice.
+
+So it is not an arm; it is the module-type road plus widening §143's gate to the
+multi-declaration case, with the alias-ambiguity question §143 deliberately
+declined. **Reverted by file**, and recorded here so the next attempt starts from
+the probe's three facts instead of re-deriving them.
+
+> Same shape as §896: the census sized the family correctly and located it
+> wrongly. The difference is that this time the location was checked with a probe
+> **before** anything was built on top of it, which cost one build instead of
+> three entries.
+
+### A hazard removed on the way past
+
+`array_literals.rs` applied `get_widened_literal_type` to the result of
+`check_expression_for_mutable_location` — a second widening upstream does not do
+(its element type is that call's result plus optionality). It was harmless while
+that function always widened. **§890 gave it two branches that deliberately KEEP
+a literal**, and a caller that immediately widens them away is a trap waiting for
+whichever array path first reaches one.
+
+Removed at all three sites. **Zero transitions**, which is the point: it is
+redundant today and would have been wrong tomorrow.
