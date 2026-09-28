@@ -403,3 +403,52 @@ fn a_literal_index_still_reads_through_the_members_road() {
         "string[]"
     );
 }
+
+/// §923: a member inherited through a GENERIC heritage entry needs TWO
+/// substitutions composed.
+///
+/// `generic_heritage_member` instantiated the inherited member for `base_type`
+/// — for `interface D<T> extends C<T>` that maps `C`'s `U := T`, which leaves
+/// `T`. The REFERENCE's own arguments (`D<string>`) are a separate map and
+/// nothing applied them, so `d.m` answered `(x: T) => T`.
+///
+/// **`extends C<string>` worked and hid it**: a concrete heritage argument needs
+/// no second step, so the road looked complete.
+///
+/// Corpus effect: 37 `WRONG->RIGHT`, 3 `GAP->RIGHT`, zero adverse —
+/// `builtinIterator` 10, `genericClasses3` 6, `genericTypeWithMultipleBases3` 6.
+#[test]
+fn an_inherited_generic_member_takes_the_references_arguments() {
+    // The heritage argument is the derived's OWN parameter — the failing shape.
+    assert_eq!(
+        type_of_last_array_literal(
+            "interface C<T> { m(x: T): T }\n             interface D<T> extends C<T> {}\n             declare const d: D<string>;\nconst r = [d.m];"
+        ),
+        "((x: string) => string)[]"
+    );
+    // Distinct parameter names: the same defect, so this is not name shadowing.
+    assert_eq!(
+        type_of_last_array_literal(
+            "interface C<U> { m(x: U): U }\n             interface D<T> extends C<T> {}\n             declare const d: D<string>;\nconst r = [d.m];"
+        ),
+        "((x: string) => string)[]"
+    );
+    // Classes take the same road.
+    assert_eq!(
+        type_of_last_array_literal(
+            "class C<U> { m(x: U): U { return x; } }\n             class D<T> extends C<T> {}\n             declare const d: D<string>;\nconst r = [d.m];"
+        ),
+        "((x: string) => string)[]"
+    );
+}
+
+/// The CONCRETE heritage argument, which always worked and is what masked it.
+#[test]
+fn a_concrete_heritage_argument_is_unchanged() {
+    assert_eq!(
+        type_of_last_array_literal(
+            "interface C<U> { m(x: U): U }\n             interface D extends C<string> {}\n             declare const d: D;\nconst r = [d.m];"
+        ),
+        "((x: string) => string)[]"
+    );
+}

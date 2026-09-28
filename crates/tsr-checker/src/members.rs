@@ -1223,6 +1223,30 @@ impl Checker<'_, '_> {
                             &shadowed_refs,
                         );
                         if instantiated != self.intrinsics.error {
+                            // §923: the SECOND substitution. The step above maps
+                            // the base's parameters onto the heritage entry's
+                            // arguments — for `interface D<T> extends C<T>` that
+                            // is `C`'s `U := T`, which leaves `T`. The
+                            // REFERENCE's own arguments (`D<string>`) are a
+                            // separate map and nothing applied them, so
+                            // `d.m` answered `(x: T) => T`.
+                            //
+                            // `extends C<string>` worked and hid it: a concrete
+                            // heritage argument needs no second step, so the
+                            // road looked complete.
+                            //
+                            // Instantiating for `id` composes the two. A
+                            // non-generic reference maps nothing and the result
+                            // is unchanged, so this cannot disturb the shapes
+                            // that already worked.
+                            let composed = self.instantiate_for_reference_shadowed(
+                                id,
+                                instantiated,
+                                &shadowed_refs,
+                            );
+                            if composed != self.intrinsics.error {
+                                return Some(composed);
+                            }
                             return Some(instantiated);
                         }
                     }

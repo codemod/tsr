@@ -8349,3 +8349,44 @@ which mounts `interface Array<T> {}`, every rest form is correct.
 > different libs. The check that costs nothing: **probe the thing you are not
 > testing first** — `g;` before `g(1)` — because a harness limitation shows up
 > there and a real defect does not.
+
+## §923: an inherited generic member needs TWO substitutions composed — +40
+
+The probe method again, on `gaproot`'s property-access root (418 lines, 122
+cases). Eight ordinary shapes — interface, merged, namespace, static, inherited,
+`extends`, nested namespace — **all correct**. Six generic-member shapes narrowed
+it to one:
+
+```
+iface_prop=string    iface_method=(x: string) => string    class_method=ok
+ret_self=ok          two_params=ok                         nested=(x: T) => T   ← 
+```
+
+`interface D<T> extends C<T> {}` reading an INHERITED member answers
+`(x: T) => T`.
+
+Four more fixtures killed the obvious theory (name shadowing between `D`'s `T`
+and `C`'s) and found the real split:
+
+| heritage entry | result |
+|---|---|
+| `extends C<string>` — concrete argument | **correct** |
+| `extends C<T>` — the derived's own parameter | `(x: T) => T` |
+
+`generic_heritage_member` instantiates the inherited member for **`base_type`**,
+which maps `C`'s `U := T` — the heritage entry's arguments. **The reference's own
+arguments (`D<string>`) are a different map and nothing applied them.** Composing
+the two, by instantiating the result for `id` as well, is the fix; a non-generic
+reference maps nothing, so it cannot disturb what already worked.
+
+**Measured: 37 `WRONG→RIGHT` + 3 `GAP→RIGHT`, zero adverse.** `builtinIterator`
+10, `genericClasses3` 6, `genericTypeWithMultipleBases3` 6.
+
+> **Three defects in a row now have the same signature: a road that is correct for
+> the shape it was written against and silently incomplete for the neighbouring
+> one** — §921's array road (literal index vs `number`), §922's `first()` (one
+> declaration vs merged), and §923's substitution (concrete heritage argument vs
+> the derived's parameter). In every case the working half is what hid the broken
+> one, and in every case **one batch of fixtures separated them in a single
+> build**. Reading the code found none of the three: each arm is correct about
+> what it does.
