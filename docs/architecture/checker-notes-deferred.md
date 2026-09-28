@@ -5252,3 +5252,67 @@ family is opened.
 is the second in two entries — §856.1's `has_step_arm` was a *duplicate* of a fact,
 and this was a *weaker* version of one. Both were invisible until something made the
 general form better than the copy.
+
+## §870–§871: async generator expressions, and the awaited yield
+
+§869 made `async function*() { yield 1; }` in callee position *showably*
+uncontextual, and the case still gapped. One more line explains it — in
+`crate::signatures`, the generator mint:
+
+```rust
+if (is_async && generator_expression)
+    || (!is_async && !generator_expression
+        && !self.declaration_takes_no_contextual_return(declaration, may_return_never))
+{
+    return None;
+}
+```
+
+The async-generator-**expression** half is **unconditional**, where every other arm
+in that condition asks `declaration_takes_no_contextual_return` first — which routes
+a function expression through `has_no_contextual_type`, the predicate §863–§866 and
+§869 grew from one node kind to twelve. The refusal was written when the question it
+wanted answered had no answer; it now has one.
+
+**§870** gates it the same way as the sync arm: **`GAP->RIGHT 43`**
+(`emitter.asyncGenerators.functionExpressions.es2015` 11, `…es2018` 11,
+`…classMethods.es2015` 3), **zero `RIGHT->WRONG`**, and `GAP->WRONG 18` — all in
+`types.asyncGenerators.es2018.1`, all one shape:
+`AsyncGenerator<Promise<number>, …>` where upstream records
+`AsyncGenerator<number, …>`.
+
+**§871** is that shape's rule, verbatim
+(`getYieldedTypeOfYieldExpression`, `checker.go:11026-11029`):
+
+```go
+if !isAsync { return yieldedType }
+return c.getAwaitedTypeEx(yieldedType, errorNode, …)
+```
+
+In an async generator the yielded type is **awaited**. Applied at the yield-slot
+push, with the operand's own type kept when the awaited type is not computable — the
+pre-§871 answer rather than a new guess.
+
+It converted **2** of the 18 and no more, so `awaited_type_no_alias` is not resolving
+the rest; three of the residue are a different shape again (`void` wanted, `any`
+given). Both are named residues rather than mysteries.
+
+### Together
+
+**+45 right lines, zero `RIGHT->WRONG`**, 18 `GAP->WRONG` confined to one case —
+§620's accepted direction. `coAndContraVariantInferences3` absent from every
+transition list.
+
+> **My §870 bar did not register a `GAP->WRONG` limit**, and should have: 18 is large
+> enough that a limit would have forced the §871 investigation *before* the landing
+> rather than after. The two arrived in the right order by luck, not by the bar.
+
+### The chain this closes
+
+§867 filed `yield*`-in-an-async-generator as needing the iteration-type subsystem and
+sized it at 11 cases. What it actually needed was: a `TReturn` read (§868, measured
+zero), a call-callee contextual arm (§869, +47), an unconditional refusal made
+conditional (§870, +43), and the awaited yield (§871, +2). **None of it was the
+subsystem §867 predicted** — and §867's estimate was wrong in the same direction as
+§852.1's, which §857 already corrected once: *the board's cases look like features
+and turn out to be gates.*

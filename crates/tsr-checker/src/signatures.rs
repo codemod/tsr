@@ -1144,7 +1144,21 @@ impl<'a> Checker<'a, '_> {
             // was written for the async NON-generator arm, whose contextual
             // return can turn `void` into `undefined`, and a generator's slots
             // do not go through that road.
-            if (is_async && generator_expression)
+            //
+            // §870: the async-generator-EXPRESSION half of this refusal was
+            // unconditional, where every other arm here asks
+            // `declaration_takes_no_contextual_return` first. That helper
+            // routes a function expression through `has_no_contextual_type`,
+            // which §863–§866 and §869 grew from one node kind to twelve — so
+            // the question the refusal wanted answered is now answerable.
+            //
+            // `async function*() { yield 1; }` as the callee of an IIFE is the
+            // witness: §869 made its position showably uncontextual, and this
+            // line still refused it, which is why §868's `yield*` arm had
+            // nothing to read and measured zero.
+            if (is_async
+                && generator_expression
+                && !self.declaration_takes_no_contextual_return(declaration, may_return_never))
                 || (!is_async
                     && !generator_expression
                     && !self.declaration_takes_no_contextual_return(declaration, may_return_never))
@@ -1582,6 +1596,25 @@ impl<'a> Checker<'a, '_> {
                 // `Generator<1 | 2, …>`), so widening per-operand and then
                 // deduping answered `number` there. The single-type case is
                 // the one `getWidenedType` widens, below.
+                // §871: in an ASYNC generator the yielded type is AWAITED.
+                // `getYieldedTypeOfYieldExpression` (`checker.go:11026-11029`):
+                //
+                // ```go
+                // if !isAsync { return yieldedType }
+                // return c.getAwaitedTypeEx(yieldedType, errorNode, …)
+                // ```
+                //
+                // Without it, §870's newly-minted async generator expressions
+                // answered `AsyncGenerator<Promise<number>, …>` where upstream
+                // records `AsyncGenerator<number, …>` — 18 of that shape in
+                // `types.asyncGenerators.es2018.1` alone. An operand whose
+                // awaited type this port cannot compute keeps its own type,
+                // which is the pre-§871 answer rather than a new guess.
+                let operand_type = if is_async {
+                    self.awaited_type_no_alias(operand_type).unwrap_or(operand_type)
+                } else {
+                    operand_type
+                };
                 if !operand_types.contains(&operand_type) {
                     operand_types.push(operand_type);
                 }
