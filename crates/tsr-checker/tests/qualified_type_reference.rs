@@ -105,15 +105,26 @@ fn a_three_segment_name_resolves_left_to_right() {
 /// qualifier needed* the moment a symbol table in scope holds the symbol
 /// itself, and inside `privateModule` one does.
 ///
-/// **This gap is not permanent and is not a claim that the name is
-/// unresolvable.** It is the position at which reprinting is the wrong
-/// mechanism; `getSymbolChain` (`nodebuilderimpl.go:1087`) is the right one and
-/// is unported. Removing the refusal turns this test green and adds **222**
-/// wrong lines to the corpus, measured.
+/// **§925: the refusal is LIFTED, and the number is why.** This test recorded
+/// *"removing the refusal turns this test green and adds 222 wrong lines to the
+/// corpus, measured"*, and explicitly said the gap was not permanent. Re-measured
+/// on a checker many entries further along, removal is **320 `WRONG->RIGHT` + 92
+/// `GAP->RIGHT` against 48 `GAP->WRONG` and 1 `RIGHT->WRONG`** —
+/// `bluebirdStaticThis` 69, `complexRecursiveCollections` 51,
+/// `resolvingClassDeclarationWhenInBaseTypeResolution` 51. The ratio has flipped
+/// from −222 to +411.
+///
+/// The correctness concern the refusal named is real and survives as the 48
+/// `GAP->WRONG`: inside `privateModule`, upstream prints `publicClass` where this
+/// port now prints `privateModule.publicClass`. That is `needsQualification`
+/// (`symbolaccessibility.go:688`) — *no qualifier needed once a symbol table in
+/// scope holds the symbol* — and it is the named completion. **48 knowingly
+/// imprecise names against 412 recovered ones is the trade taken**, and it is
+/// `GAP->WRONG`, §620's accepted direction, not `RIGHT->WRONG`.
 #[test]
-fn a_reference_inside_the_namespace_it_qualifies_is_refused() {
+fn a_reference_inside_the_namespace_it_qualifies_now_resolves() {
     let source = "namespace privateModule { export class publicClass { }\n export function f(param: privateModule.publicClass) { } }";
-    assert_eq!(type_of_reference(source, 0), "error");
+    assert_eq!(type_of_reference(source, 0), "privateModule.publicClass");
 }
 
 /// The **pair** of the test above: the same namespace and the same interface,

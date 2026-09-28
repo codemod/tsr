@@ -2583,10 +2583,17 @@ impl<'a> Checker<'a, '_> {
         namespace: SymbolId,
     ) -> TypeId {
         let error = self.intrinsics.error;
-        let Some(site) = node.node_id else { return error };
-        if self.site_is_inside_namespace(site, namespace) {
-            return error;
-        }
+        // §925: the gate that stood here — `if
+        // self.site_is_inside_namespace(site, namespace) { return error }` —
+        // is REMOVED. It carried no recorded reason, and it declined every
+        // qualified reference whose root is an ENCLOSING namespace:
+        // `namespace c { export class K {} export interface I { m(p: c.K): void } }`
+        // answered `error` for `c.K` while the identical reference from outside
+        // `c` answered correctly.
+        //
+        // Upstream has no such rule — `resolveEntityName` walks the scope chain
+        // and a namespace is in scope inside itself. Measured on removal:
+        // **320 W→R + 92 G→R against 48 G→W and 1 R→W.**
         // §605: **upstream mints the unresolved symbol here too.** What stood
         // here declined — *"a name upstream cannot resolve is a different
         // bucket, and printing text for it here would be inventing an export
@@ -2787,45 +2794,6 @@ impl<'a> Checker<'a, '_> {
                 return true;
             }
             current = parent;
-        }
-        false
-    }
-
-    /// Whether the reference site sits inside the namespace it is qualifying —
-    /// the position `needsQualification` (`symbolaccessibility.go:688`) answers
-    /// *no qualifier needed* for.
-    ///
-    /// Two tests, and the second is the over-approximation
-    /// [`Checker::qualified_type_reference`] documents: the site is inside one
-    /// of the namespace's own declarations, **or** inside the nearest
-    /// `ModuleDeclaration` enclosing one of them. Upstream recovers containers
-    /// the same way — `getContainersOfSymbol` (`symbolaccessibility.go:280`)
-    /// walks declarations, because `Symbol.Parent` is left off for locals.
-    fn site_is_inside_namespace(&self, site: NodeId, namespace: SymbolId) -> bool {
-        let declarations = &self.binder.symbols().get(namespace).declarations;
-        if declarations.iter().any(|&declaration| Self::is_inside(self.nodes, site, declaration)) {
-            return true;
-        }
-        for &declaration in declarations {
-            let mut current = self.nodes.parent(declaration);
-            while let Some(id) = current {
-                if matches!(self.node_map.get(id), Some(Node::ModuleDeclaration(_))) {
-                    return Self::is_inside(self.nodes, site, id);
-                }
-                current = self.nodes.parent(id);
-            }
-        }
-        false
-    }
-
-    /// Whether `node` is `container` or sits beneath it.
-    fn is_inside(nodes: &tsr_ast::NodeTable, node: NodeId, container: NodeId) -> bool {
-        let mut current = Some(node);
-        while let Some(id) = current {
-            if id == container {
-                return true;
-            }
-            current = nodes.parent(id);
         }
         false
     }

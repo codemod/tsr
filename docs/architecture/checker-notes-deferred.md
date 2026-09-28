@@ -8427,3 +8427,100 @@ them actually need:
 > been probed; what remains needs multi-file module fixtures, a real lib, or
 > generic inference — i.e. conformance-level fixtures, which is a different
 > instrument from the one that found §921–§923.
+
+## §925 — an undocumented gate that refused a namespace's own name (+411)
+
+§924 ended by naming the instrument the probe loop lacked: a way to run one file
+through the *real* corpus pipeline — libs mounted, `@Filename:` splits honoured —
+rather than through the lib-free single-file unit harness. `probefile`
+(`crates/tsr-conformance/examples/probefile.rs`) is that instrument. Its first use
+found this.
+
+### The measurement that started it
+
+`compiler/privacyFunctionParameterDeclFile` is the top case of the
+`reference, the name does not resolve` root that §924 recorded as **clean** at
+every shape the unit harness can express. Bisecting the file with `probefile`
+landed on **line 368**, inside `namespace privateModule`, and reduced to:
+
+```ts
+namespace c { export class K {} export interface I { m(p: c.K): void } }   // m : error
+namespace a { export class K {} }
+namespace b { export interface I { m(p: a.K): void } }                     // m : (p: a.K) => void
+```
+
+Same shape, same qualified name, two answers. The only difference is whether the
+reference is written *inside* the namespace it qualifies.
+
+### The cause
+
+`qualified_type_reference` in `crates/tsr-checker/src/declared.rs` opened with:
+
+```rust
+let Some(site) = node.node_id else { return error };
+if self.site_is_inside_namespace(site, namespace) {
+    return error;
+}
+```
+
+**Undocumented.** No upstream anchor, no ADR, no note here. Upstream has no such
+rule: `resolveEntityName` walks the scope chain, and a namespace is in scope
+inside itself.
+
+The gate *was* documented, in exactly one place — a comment in
+`crates/tsr-checker/tests/qualified_type_reference.rs`, which recorded
+*"Removing the refusal turns this test green and adds **222** wrong lines to the
+corpus, measured"*, and said in the same breath *"This gap is not permanent"*.
+That is the correct way to record a refusal; what was missing was the same note at
+the code it governs, where the next reader would meet it.
+
+### The ratio has flipped
+
+The −222 that justified the gate no longer holds. Measured at this commit,
+removing it:
+
+| transition | lines |
+|---|---|
+| `WRONG->RIGHT` | 320 (`bluebirdStaticThis` 69, `complexRecursiveCollections` 51, `resolvingClassDeclarationWhenInBaseTypeResolution` 51) |
+| `GAP->RIGHT` | 92 (`privacyFunctionParameterDeclFile` 50) |
+| `GAP->WRONG` | 48 |
+| `RIGHT->WRONG` | 1 |
+
+`right` 441,343 → **441,754**, net **+411**.
+
+Two years of unrelated fixes stand between the two measurements; the gate was
+paying for a deficiency elsewhere that has since been repaired. **A refusal
+measured once is a fact about that commit, not about the code.** The notes here
+carry dozens of them; this is the first to be re-measured and found inverted, and
+it will not be the last.
+
+### What was refused, and what survives
+
+The correctness concern the refusal named is real and survives as the 48
+`GAP->WRONG`: inside `privateModule`, upstream prints `publicClass` where this
+port now prints `privateModule.publicClass`. That is `needsQualification`
+(`vendor/typescript-go/internal/checker/symbolaccessibility.go:688`) — upstream
+emits the *shortest* name that resolves from the reference site, so a name already
+in scope needs no qualifier. Porting it converts those 48 directly, and it is the
+named completion of this entry.
+
+**48 knowingly imprecise names against 412 recovered ones is the trade taken**,
+and it is `GAP->WRONG` — §620's accepted adverse direction, not `RIGHT->WRONG`.
+The single `RIGHT->WRONG` row is inside that same printing question.
+
+### Falsifier
+
+If `needsQualification` lands and the 48 do *not* convert, the diagnosis of the
+adverse rows is wrong and this entry needs correcting, not extending.
+
+### Consequences
+
+- `site_is_inside_namespace` and its `is_inside` helper are now dead and deleted.
+- `tests/qualified_type_reference.rs`'s pinned refusal test is flipped to
+  `a_reference_inside_the_namespace_it_qualifies_now_resolves`, asserting
+  `"privateModule.publicClass"` — the *current* answer, imprecise name and all, so
+  that `needsQualification` landing shows up as a test that must be edited rather
+  than one that silently keeps passing.
+- `tests/objects.rs` gains `a_qualified_name_rooted_at_an_enclosing_namespace_resolves`
+  and `a_qualified_name_across_namespaces_is_unchanged` — the second is the
+  regression leg: the road that already worked must keep working.

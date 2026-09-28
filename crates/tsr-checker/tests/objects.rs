@@ -855,3 +855,38 @@ fn new_on_unmerged_classes_is_unchanged() {
         "D"
     );
 }
+
+/// §925: a qualified type name whose root is an ENCLOSING namespace.
+///
+/// `qualified_type_reference` opened with an **undocumented** gate —
+/// `if self.site_is_inside_namespace(site, namespace) { return error }` — so
+/// `c.K` written inside `namespace c` answered `error` while the identical
+/// reference from outside answered correctly. Upstream has no such rule:
+/// `resolveEntityName` walks the scope chain, and a namespace is in scope inside
+/// itself.
+///
+/// Corpus effect on removal: **320 `WRONG->RIGHT` + 92 `GAP->RIGHT`** against 48
+/// `GAP->WRONG` and 1 `RIGHT->WRONG` — `bluebirdStaticThis` 69,
+/// `complexRecursiveCollections` 51,
+/// `resolvingClassDeclarationWhenInBaseTypeResolution` 51.
+#[test]
+fn a_qualified_name_rooted_at_an_enclosing_namespace_resolves() {
+    // From INSIDE the namespace — the shape the gate declined.
+    let inside = "namespace c { export class K {} export interface I { m(p: c.K): void } }\n\
+         declare const v: c.I;\nv.m;";
+    assert_eq!(type_of_last_expression_statement(inside), "(p: c.K) => void");
+    // From a NESTED namespace, which the gate also declined.
+    let nested = "namespace e { export class K {} \
+         export namespace f { export interface I { m(p: e.K): void } } }\n\
+         declare const v: e.f.I;\nv.m;";
+    assert_eq!(type_of_last_expression_statement(nested), "(p: e.K) => void");
+}
+
+/// The cross-namespace form, which always worked and is what hid the gate.
+#[test]
+fn a_qualified_name_across_namespaces_is_unchanged() {
+    let source = "namespace a { export class K {} }\n\
+         namespace b { export interface I { m(p: a.K): void } }\n\
+         declare const v: b.I;\nv.m;";
+    assert_eq!(type_of_last_expression_statement(source), "(p: a.K) => void");
+}
