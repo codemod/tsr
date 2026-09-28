@@ -7616,3 +7616,53 @@ function or block ancestor is not nameable from an arbitrary site"*). The blanke
 `true` has no such test, which is precisely why it is wrong for 130 lines. **§664
 sized `getAccessibleSymbolChain` and refused it; that remains the prerequisite**,
 and a §806-style syntactic approximation is the cheaper thing to try first.
+
+## §908: paying §906's bill by evaluating at the node — built, 13 `RIGHT→WRONG`, REVERTED
+
+§905/§906 created a standing bill: **217 rows across 66 cases where the port now
+EMITS a mapped or conditional type and is wrong**, the largest shape being
+
+```
+aliasOfGenericFunctionWithRestBehavedSameAsUnaliased
+   want "y"   got a extends b ? "y" : "n"
+```
+
+— upstream resolved the conditional because its check type is concrete at that
+point, and §906's mint printed the deferred form for every conditional
+indiscriminately.
+
+The decision procedure already exists: §821's three outcomes inside
+`evaluate_conditional_alias`. Lifting it to a node-level
+`evaluate_conditional_type_node`, called from the mint before it prints, is the
+obvious payment.
+
+**Measured: +23 net (1 `GAP→RIGHT`, 15 `WRONG→RIGHT` equivalent) against 7
+`GAP→WRONG` and 13 `RIGHT→WRONG`.** Reverted.
+
+### Why it fails, which is the finding
+
+Two facts together:
+
+1. **The bill barely moved** — one row. The check types in
+   `aliasOfGenericFunctionWithRest…` are *not* decidable to this relater at the
+   node, so the evaluation declines exactly where it was supposed to pay.
+2. **It cost 13 `RIGHT→WRONG`** in `conditionalTypeAssignabilityWhenDeferred`,
+   `reverseMappedTypeIntersectionConstraint` and others.
+
+**§821's evaluation is safe because of where it runs, not because of what it
+does.** An alias evaluation carries a *binding frame* (`alias_evaluation_bindings`)
+that makes the check type genuinely concrete, so the relater's `Related` /
+`NotRelated` are trustworthy. At an arbitrary node there is no such frame: the
+check type is often a type parameter or a partially-instantiated reference, and
+this relater answers a confident `NotRelated` for pairs it cannot really decide —
+which is the exact hazard §821's own comment records having removed a gate for
+(*"a `false` here is a confident WRONG branch rather than a decline"*).
+
+The ternary's `Unknown` is supposed to absorb that, and for the alias road it
+does. Away from a binding frame it does not absorb enough.
+
+**Named prerequisite**: a relater whose `Unknown` is reliable for type-parameter
+and partially-instantiated operands — or, cheaper and more likely, a gate that
+runs the evaluation *only* where a binding frame is in scope, which is the
+condition §821 already satisfies structurally and would make this a no-op rather
+than a gain. **The bill is real and this is not how it gets paid.**
