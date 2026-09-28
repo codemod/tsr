@@ -7801,3 +7801,47 @@ constituent.
 > the position right and the missing piece was one step further in** — a road that
 > turns the input into the answer. Worth asking, before building: *is the thing I
 > am about to supply the answer, or an ingredient?*
+
+## §912: §911's prerequisite was already written — +24, zero `RIGHT→WRONG`
+
+§911 reverted and named its prerequisite: *"discriminated-union selection of a
+contextual type"*. **It exists.** `discriminate_union_root` (`symbols.rs`) has
+selected a union constituent by an object literal's own members since §750's
+family, and `check_this_expression` never called it.
+
+**Tenth instance this session of a capability present and a caller that does not
+consult it** — and the first found by reading a revert's own prerequisite line
+rather than by census.
+
+```ts
+function foo(bar: X | Y) { }
+foo({ type: 'y', value: 'done', method() { this } })   // this : Y
+```
+
+**Measured: 18 `WRONG→RIGHT` + 6 `GAP→RIGHT` against 4 `GAP→WRONG`, zero
+`RIGHT→WRONG`.** `contextualTypeShouldBeLiteral` 15 + 6 — the case §911 made
+*worse* by 5 — and `thisTypeInFunctions2` +2.
+
+### One restriction, measured into existence
+
+Unrestricted, this kept §911's 4 `RIGHT→WRONG` in `thisTypeInFunctions2`, whose
+literal is contextually typed by an interface with the index signature
+`((this: any, …args: any[]) => any)`. Upstream answers `any` there through its
+**first** branch — the method's own contextual SIGNATURE carrying a `this`
+parameter — which wins ahead of the literal branch entirely.
+
+That branch was written and **measured inert**: this port's
+`contextual_signature` cannot reach an index signature, so it answers `None` and
+the literal road ran anyway. Removed rather than kept.
+
+What works is restricting the literal road to a **union** contextual type — the
+shape discrimination is for, and the shape this arm exists to serve. It removes
+all four adverse rows and *gains* two in that same case. A non-union contextual
+type keeps `any`, which is what it answered before, so the restriction costs
+nothing measured.
+
+> **§911 → §912 is the session's cleanest example of a revert paying.** §911
+> measured +13 with 4 `RIGHT→WRONG` and wrote down one sentence about what it
+> lacked. That sentence was the search query. The rebuild took one grep, and the
+> difference between the two entries is entirely *which function computes the
+> answer* — the position, the gate and the input were right the first time.

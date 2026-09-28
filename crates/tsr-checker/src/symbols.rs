@@ -2797,7 +2797,7 @@ impl<'a> Checker<'a, '_> {
     /// answers, or an empty survivor set leave the root unchanged — the
     /// undiscriminated behaviour, never a guess. Nested levels are not
     /// discriminated (upstream re-discriminates per level; unported).
-    fn discriminate_union_root(&mut self, t: TypeId, literal: NodeId) -> TypeId {
+    pub(crate) fn discriminate_union_root(&mut self, t: TypeId, literal: NodeId) -> TypeId {
         use tsr_ast::SyntaxKind;
         let crate::types::TypeData::Union { types, .. } = &self.store.get(t).data else {
             return t;

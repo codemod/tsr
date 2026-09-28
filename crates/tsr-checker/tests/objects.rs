@@ -725,3 +725,66 @@ fn a_nested_literal_in_an_argument_keeps_its_literal_by_another_road() {
          f({ inner: { k: \"a\" } });";
     assert_eq!(type_of_last_object_literal(source), "{ inner: { k: \"a\"; }; }");
 }
+
+/// Type the last `this` expression in the fixture.
+fn type_of_last_this(source: &str) -> String {
+    let arena = Arena::new();
+    let parsed = tsr_parser::parse(&arena, source);
+    assert!(parsed.diagnostics.is_empty(), "fixture must parse");
+    let bound = tsr_binder::bind(
+        &arena,
+        parsed.source_file,
+        &parsed.nodes,
+        tsr_binder::FileInfo { name: "test.ts", text: source },
+    );
+    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+    let options = tsr_core::CompilerOptions {
+        no_implicit_this: tsr_core::Tristate::True,
+        ..Default::default()
+    };
+    checker.apply_compiler_options(&options);
+    let mut last = None;
+    for raw in 0..u32::try_from(parsed.nodes.len()).expect("fits") {
+        let id = tsr_ast::NodeId::new(raw);
+        if parsed.nodes.kind(id) == tsr_ast::SyntaxKind::ThisKeyword {
+            last = Some(id);
+        }
+    }
+    let id = last.expect("the fixture must contain `this`");
+    let ty = checker.check_this_expression_for_test(id);
+    checker.type_to_string(ty)
+}
+
+/// §912: `getContextualThisParameterType`'s `noImplicitThis` branch — `this`
+/// inside an object-literal method whose literal has a UNION contextual type is
+/// that union **discriminated by the literal's own members**.
+///
+/// §911 built this answering the whole union and measured 4 `RIGHT->WRONG` plus
+/// 5 `GAP->WRONG` **in the very case it was meant to fix**.
+/// `discriminate_union_root` has done that selection since §750's family and was
+/// never called from here — the tenth instance this session of a capability
+/// present and a caller that does not consult it.
+///
+/// Corpus effect: 18 `WRONG->RIGHT`, 6 `GAP->RIGHT` against 4 `GAP->WRONG`, zero
+/// `RIGHT->WRONG`.
+#[test]
+fn this_in_an_object_literal_method_is_the_discriminated_contextual_type() {
+    let source = "interface X { type: \"x\"; value: string; method(): void; }\n\
+         interface Y { type: \"y\"; value: number; method(): void; }\n\
+         declare function foo(bar: X | Y): void;\n\
+         foo({ type: \"y\", value: 1, method() { this; } });";
+    assert_eq!(type_of_last_this(source), "Y");
+}
+
+/// Restricted to a UNION contextual type. Upstream's first branch — the method's
+/// own contextual SIGNATURE carrying a `this` parameter — wins ahead of the
+/// literal one, and this port cannot reach an INDEX signature to find it, which
+/// is where `thisTypeInFunctions2` gets its `(this: any, …) => any`. A non-union
+/// contextual type keeps `any`, which is what it answered before.
+#[test]
+fn a_non_union_contextual_type_keeps_any() {
+    let source = "interface I { [k: string]: any; method(): void; }\n\
+         declare function foo(bar: I): void;\n\
+         foo({ method() { this; } });";
+    assert_eq!(type_of_last_this(source), "any");
+}
