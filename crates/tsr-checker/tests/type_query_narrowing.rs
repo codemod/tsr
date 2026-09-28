@@ -308,16 +308,35 @@ fn an_object_literal_member_arrow_gets_its_implicit_any() {
     );
 }
 
+/// §865: a `return` expression's contextual type is the containing function's
+/// return context.
+///
+/// `getContextualTypeForReturnExpression` (`checker.go:29621`) asks
+/// `getContextualReturnType` (`:29665`): an explicit return annotation IS a
+/// contextual type, and otherwise the function's own contextual signature is.
+/// So absence is showable exactly when there is no annotation and the function
+/// itself has no contextual type — this walk, one level out.
+///
+/// Corpus effect: `+84` right lines (38 `GAP->RIGHT`, 46 `WRONG->RIGHT`)
+/// against 4 `GAP->WRONG` and zero `RIGHT->WRONG`.
 #[test]
-fn probe_walk_catchalls() {
-    for (src, label) in [
-        ("([(c) => 1]);", "array literal element"),
-        ("(function () { return (c) => 1; });", "return statement"),
-        ("(((c) => 1) as any);", "as-expression"),
-        ("class K { m = (c) => 1; }\nnull;", "property declaration"),
-        ("({ f() { return (c) => 1; } });", "method return"),
-        ("(!((c) => 1));", "unary operand"),
-    ] {
-        eprintln!("{label:26} => {}", type_of_last_expression(src));
-    }
+fn a_returned_arrow_gets_its_implicit_any() {
+    assert_eq!(
+        type_of_last_expression("(function () { return (c) => 1; });"),
+        "() => (c: any) => number"
+    );
+    assert_eq!(
+        type_of_last_expression("({ f() { return (c) => 1; } });"),
+        "{ f(): (c: any) => number; }"
+    );
+    // The control: a RETURN ANNOTATION is itself a contextual type, so absence
+    // is not showable and the implicit `any` stays refused rather than
+    // invented. `getContextualReturnType` tests the annotation first, and so
+    // does the arm.
+    assert_eq!(
+        type_of_last_expression(
+            "(function (): (c: string) => number { return (c) => 1; });"
+        ),
+        "() => (c: string) => number"
+    );
 }

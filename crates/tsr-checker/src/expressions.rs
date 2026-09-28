@@ -3032,7 +3032,7 @@ impl Checker<'_, '_> {
     /// as transparent, and this does not — an arrow is a function for the
     /// purpose of "which function contains this node", which is exactly why a
     /// `yield` inside an arrow inside a generator is not the generator's yield.
-    fn containing_function(&self, node: NodeId) -> Option<NodeId> {
+    pub(crate) fn containing_function(&self, node: NodeId) -> Option<NodeId> {
         let mut current = self.nodes.parent(node);
         while let Some(id) = current {
             if matches!(

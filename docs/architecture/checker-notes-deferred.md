@@ -4947,3 +4947,91 @@ the audit already done and its negative already paid for.
 The `ReturnStatement` position remains unported — it needs the containing signature's
 return annotation rather than a climb, which is a different mechanism and has not
 been sized.
+
+## §865: a `return` expression's contextual type
+
+§864 left the `return` position unported, noting it *"needs the containing
+signature's return annotation rather than a climb"*. Upstream's rule is two
+functions and both are short.
+
+`getContextualTypeForReturnExpression` (`checker.go:29621`) takes the containing
+function and asks `getContextualReturnType` (`:29665`), whose first lines are the
+whole story:
+
+```go
+// If the containing function has a return type annotation, is a constructor, or is a get accessor whose
+// corresponding set accessor has a type annotation, return statements in the function are contextually typed
+returnType := c.getReturnTypeFromAnnotation(functionDecl)
+if returnType != nil {
+    return returnType
+}
+// Otherwise, if the containing function is contextually typed by a function type with exactly one call signature
+// and that call signature is non-generic, return statements are contextually typed by the return type of the signature
+signature := c.getContextualSignatureForFunctionLikeDeclaration(functionDecl)
+```
+
+So a return expression has **no** contextual type exactly when the containing
+function has **no return annotation** *and* has **no contextual signature** — and
+that second condition is `has_no_contextual_type(fn)`, this walk itself, one level
+out. The generator and async arms below only *narrow* a contextual return type; they
+never create one, so absence propagates through them unchanged.
+
+Both pieces already exist in this port: `containing_function`
+(`crate::expressions`), `signature_parts_of(..).return_annotation`, and
+`declaration_takes_no_contextual_return`, which already recurses into
+`has_no_contextual_type` for an arrow or function expression (§169 built it for the
+generator gate, for the same reason).
+
+**The annotation check is not in that helper** — it answers `true` for any
+`FunctionDeclaration` — so the arm tests the annotation itself before delegating,
+which is the order `getContextualReturnType` uses.
+
+### The bar
+
+1. **Primary.** ≥ **+20 lines**. `(function () { return (c) => 1; })` currently
+   answers `() => any` — the inner arrow gaps — and so does the method form.
+2. **Safety.** `RIGHT->WRONG ≤ 10`, `GAP->WRONG ≤ 40`.
+3. **Falsifier.** §561's, inherited for the third time: if
+   `coAndContraVariantInferences3` loses lines, out it comes. Plus §864's warning —
+   **an upstream dispatch arm justifies a climb but does not make it sound**, so a
+   negative here is expected to be possible and the measurement decides, not the
+   reading.
+4. **Regression.** `cargo test --workspace`; clippy clean.
+
+### §865 result — +84 lines, zero `RIGHT->WRONG`
+
+| leg | registered | measured |
+|---|---|---|
+| 1 primary | ≥ +20 lines | **+84** (`GAP->RIGHT` 38, `WRONG->RIGHT` 46) |
+| 2 safety | `RIGHT->WRONG ≤ 10`, `GAP->WRONG ≤ 40` | **0** and **4** |
+| 3 falsifier | `coAndContraVariantInferences3` must not lose lines | absent from every transition list |
+| 4 regression | tests + clippy + anchors | 145 suites, clean, 3,257 |
+
+`asyncMethodWithSuper_es6` 24 across both directions,
+`collisionThisExpressionAndLocalVarInMethod` 6,
+`noCollisionThisExpressionAndLocalVarInMethod` 6,
+`collisionThisExpressionAndPropertyNameAsConstuctorParameter` 8. The 4
+`GAP->WRONG` are `jsdocSignatureOnReturnedFunction` — §620's accepted direction, and
+JSDoc again.
+
+§864's warning was heeded and turned out not to bite: unlike the array climb, the
+return arm is not *"this port can show absence here because it can show absence
+there"* through a computation the port does differently — it is a syntactic test (is
+there a return annotation?) followed by the same walk on the enclosing function.
+**That is the distinction worth carrying**: a climb is sound when the step is
+syntactic or when the recursion is into this walk itself; it is unsound when it
+routes through a *type* this port computes its own way.
+
+### §863–§865 together
+
+Three entries, one predicate: **+272 lines, +10 cases, zero `RIGHT->WRONG` across
+all three**, from adding four arms and rejecting two. Every one of them was a node
+kind sitting between an arrow and its enclosing statement, where
+`has_no_contextual_type`'s `_ => return false` silently disabled §561's gate.
+
+The walk now handles: expression statement, variable declaration, parenthesized,
+conditional branch, binary operand, **property assignment**, **object literal**,
+**unary operand**, **return statement**. Still unhandled and unmeasured:
+`AsExpression`/`SatisfiesExpression` (upstream has arms at `:29368`/`:29396`),
+`TemplateSpan`, `JsxExpression`, `SpreadAssignment`, and array elements — the last
+**measured and rejected** at 0 : 3 in §864.

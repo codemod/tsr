@@ -2834,6 +2834,34 @@ impl<'a> Checker<'a, '_> {
                     }
                 }
                 Some(Node::ObjectLiteralExpression(_)) => {}
+                // §865: a `return` expression's context is the containing
+                // function's RETURN context. `getContextualTypeForReturnExpression`
+                // (`checker.go:29621`) -> `getContextualReturnType` (`:29665`):
+                // an explicit return annotation IS a contextual type, and
+                // otherwise the function's own contextual signature is. So
+                // absence is showable exactly when there is no annotation AND
+                // the function itself has no contextual type — this walk, one
+                // level out. The generator/async arms below only narrow a
+                // contextual return type; they never create one.
+                Some(Node::ReturnStatement(statement)) => {
+                    if statement.expression.and_then(|e| e.node_id()) != Some(position) {
+                        return false;
+                    }
+                    let Some(owner) = self.containing_function(position) else {
+                        return false;
+                    };
+                    // The annotation test is NOT inside
+                    // `declaration_takes_no_contextual_return` — that helper
+                    // answers `true` for any `FunctionDeclaration` — so it is
+                    // asked here, in `getContextualReturnType`'s own order.
+                    if self
+                        .signature_parts_of(owner)
+                        .is_some_and(|parts| parts.return_annotation.is_some())
+                    {
+                        return false;
+                    }
+                    return self.declaration_takes_no_contextual_return(owner, false);
+                }
                 // §864: a unary operand has **no arm at all** in
                 // `getContextualType`'s dispatch (`checker.go:29343`), so it
                 // answers nil — absence is showable, exactly as for an
