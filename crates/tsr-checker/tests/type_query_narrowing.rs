@@ -62,6 +62,25 @@ fn last_expression_statement<'a>(statements: &[Statement<'a>]) -> Option<tsr_ast
                     }
                 }
             }
+            // A CLASS body: several board cases put the shape under test inside
+            // a constructor or method, and without this the walker finds only
+            // the trailing `null;` and types that instead — which reads as a
+            // failing probe rather than an unreachable one.
+            Statement::ClassDeclaration(node) => {
+                for member in node.members {
+                    let body = match member {
+                        tsr_ast::ClassElement::MethodDeclaration(m) => m.body,
+                        tsr_ast::ClassElement::ConstructorDeclaration(m) => m.body,
+                        tsr_ast::ClassElement::GetAccessorDeclaration(m) => m.body,
+                        tsr_ast::ClassElement::SetAccessorDeclaration(m) => m.body,
+                        _ => None,
+                    };
+                    let Some(tsr_ast::FunctionBody::Block(block)) = body else { continue };
+                    if let Some(inner) = last_expression_statement(block.statements) {
+                        found = Some(inner);
+                    }
+                }
+            }
             // A `catch` clause body is where a destructured catch binding is
             // observable, and it is the only place it is.
             Statement::TryStatement(node) => {
@@ -389,5 +408,36 @@ fn a_pattern_named_default_types_outside_a_parameter() {
     assert_eq!(
         type_of_last_expression("declare const o: any;\nconst { s = { p: \"none\" } } = o;\n(s);"),
         "any"
+    );
+}
+
+/// §863's reach, pinned inside a CLASS — and the fixture that made the harness
+/// walk into one.
+///
+/// `collisionThisExpressionAndLocalVarInConstructor` and its siblings put the
+/// shape under test inside a constructor, and the walker used to stop at the
+/// top level: a fixture ending `class K { … }\nnull;` typed the `null`, which
+/// reads as a failing probe rather than an unreachable one. The walker now
+/// descends into method, constructor and accessor bodies.
+///
+/// All four shapes are correct today. The two gaps those corpus cases still
+/// carry are therefore NOT this construct, which is what this test records —
+/// a probe that passes is worth keeping when it rules something out.
+#[test]
+fn an_any_parameter_call_types_inside_a_class() {
+    assert_eq!(
+        type_of_last_expression("class K { m() { ((callback) => callback(1)); } }"),
+        "(callback: any) => any"
+    );
+    // `this` as the ARGUMENT changes nothing — the callee is what decides.
+    assert_eq!(
+        type_of_last_expression("class K { m() { ((callback) => callback(this)); } }"),
+        "(callback: any) => any"
+    );
+    // The corpus shape: an object-literal member whose arrow returns an arrow
+    // that calls the implicitly-`any` parameter. §863 is what made this type.
+    assert_eq!(
+        type_of_last_expression("class K { constructor() { ({ d: (cb) => () => cb(this) }); } }"),
+        "{ d: (cb: any) => () => any; }"
     );
 }

@@ -5667,3 +5667,47 @@ like a specification and is really a guess.
 
 *(Seventh and eighth test expectations written from intuition this session; the port
 was right both times. §7's running count.)*
+
+## §877: the probe harness could not see inside a class, and read as a failure when it did
+
+Working the small end of §852's board (206 cases with 1–3 gaps), the largest
+remaining cluster is `callback(this)` / `callback(_this)` — five zero-wrong cases,
+all wanting `any`. Every one puts the shape inside a **class constructor or method**.
+
+Probing them returned `null` for all three fixtures, which looks like "the port
+answers `null`" and is really "the harness never reached the node". The walker
+descended into blocks, `if` branches and `try`/`catch` bodies, but not class members
+— and worse, a fixture written `class K { … }\nnull;` types the trailing `null`,
+because the walker takes the *last* expression statement and the class contributed
+none.
+
+**Two failure modes in one:** unreachable, and silently reporting the wrong node's
+type as though it were the answer.
+
+Extended to method, constructor and accessor bodies. With that, all three shapes
+answer correctly:
+
+```
+class K { m() { ((callback) => callback(1)); } }                 => (callback: any) => any
+class K { m() { ((callback) => callback(this)); } }              => (callback: any) => any
+class K { constructor() { ({ d: (cb) => () => cb(this) }); } }   => { d: (cb: any) => () => any; }
+```
+
+The third is the corpus shape verbatim, and §863 is what made it type.
+
+### What that rules out
+
+The five `callback(this)` cases keep their 2 gaps each **and this construct is not
+why**. That is a negative worth having: it was the obvious suspect, it is now
+excluded by measurement, and the next reader does not spend the same three probes on
+it.
+
+Pinned as `an_any_parameter_call_types_inside_a_class` — **a probe that passes is
+worth keeping when it rules something out**, and it is also the only test exercising
+the new walker arm.
+
+> This is the second harness limitation this session to masquerade as a result. §839
+> recorded the first: the minimal harness has no `lib.d.ts`, so a probe of
+> `typeof x === "function"` narrowing answered `error` and looked like a defect. Both
+> times the tell was the same — **a probe answering something structurally unrelated
+> to the question** (`null` here, `error` there) rather than a plausible wrong type.
