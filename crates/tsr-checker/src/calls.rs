@@ -1663,7 +1663,7 @@ impl Checker<'_, '_> {
         let first_wins = match self.subtype_pass_outcome(candidates, candidates.len(), arguments) {
             SubtypePassOutcome::Picked(signature) => {
                 bump(&COUNTERS.selected);
-                return Some(signature);
+                return Some(*signature);
             }
             SubtypePassOutcome::AllRejected => true,
             SubtypePassOutcome::Undecidable => false,
@@ -2105,7 +2105,7 @@ impl Checker<'_, '_> {
         arguments: &[Expression<'_>],
     ) -> Option<Signature> {
         match self.subtype_pass_outcome(candidates, clean_len, arguments) {
-            SubtypePassOutcome::Picked(signature) => Some(signature),
+            SubtypePassOutcome::Picked(signature) => Some(*signature),
             _ => None,
         }
     }
@@ -2209,7 +2209,7 @@ impl Checker<'_, '_> {
                 Ternary::NotRelated => {}
                 // Upstream's pass one picks the FIRST subtype-related
                 // candidate; the tail never gets a turn.
-                Ternary::Related => return SubtypePassOutcome::Picked(candidate.clone()),
+                Ternary::Related => return SubtypePassOutcome::Picked(Box::new(candidate.clone())),
             }
         }
         if all_decidable {
@@ -2242,7 +2242,11 @@ impl Checker<'_, '_> {
 /// SS339: what the subtype pass concluded about a candidate set.
 enum SubtypePassOutcome {
     /// A candidate matched pass one; upstream's certain answer.
-    Picked(Signature),
+    ///
+    /// Boxed: a `Signature` is the only variant carrying data and it dwarfs the
+    /// other two, which `clippy::large_enum_variant` refuses once §926 widened
+    /// `TypePredicate`.
+    Picked(Box<Signature>),
     /// Every arity-matching candidate was DECIDABLY rejected - pass three's
     /// first-wins walk is licensed.
     AllRejected,
@@ -2260,7 +2264,8 @@ enum SubtypePassOutcome {
 /// of them.
 /// One pass of the §487 walk's verdict.
 enum OverloadPass {
-    Picked(Signature),
+    /// Boxed for the same reason as [`SubtypePassOutcome::Picked`].
+    Picked(Box<Signature>),
     AllRejected,
     Undecidable,
 }
@@ -2306,7 +2311,7 @@ impl Checker<'_, '_> {
         }
         for relation in [Relation::Subtype, Relation::Assignable] {
             match self.overload_pass(candidates, arguments, &argument_types, relation) {
-                OverloadPass::Picked(signature) => return Some(signature),
+                OverloadPass::Picked(signature) => return Some(*signature),
                 OverloadPass::AllRejected => {}
                 OverloadPass::Undecidable => return None,
             }
@@ -2396,7 +2401,7 @@ impl Checker<'_, '_> {
             match verdict {
                 Ternary::Unknown => return OverloadPass::Undecidable,
                 Ternary::NotRelated => {}
-                Ternary::Related => return OverloadPass::Picked(concrete),
+                Ternary::Related => return OverloadPass::Picked(Box::new(concrete)),
             }
         }
         OverloadPass::AllRejected

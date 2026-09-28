@@ -2689,7 +2689,16 @@ impl<'a> Checker<'a, '_> {
                     return regular;
                 }
             }
-            let Some(text) = Self::entity_name_text(node.type_name) else { return error };
+            let Some(written) = Self::entity_name_text(node.type_name) else { return error };
+            let text = match self.qualification_free_name(name, resolved) {
+                Some(bare) => {
+                    if let Some(id) = node.node_id {
+                        self.qualified_written_text.insert(id, written);
+                    }
+                    bare
+                }
+                None => written,
+            };
             let key = (text.clone(), resolved);
             if let Some(&existing) = self.qualified_reference_types.get(&key) {
                 return existing;
@@ -2712,10 +2721,38 @@ impl<'a> Checker<'a, '_> {
                 }
                 arguments.push(image);
             }
-            let Some(base) = Self::entity_name_text(node.type_name) else { return error };
+            let Some(written) = Self::entity_name_text(node.type_name) else { return error };
+            let base = self.qualification_free_name(name, resolved);
             let printed_arguments: Vec<String> =
                 arguments.iter().map(|&a| self.type_to_string(a)).collect();
-            let text = format!("{base}<{}>", printed_arguments.join(", "));
+            // §926: an argument that was itself shortened contributes its
+            // WRITTEN spelling to the written form — `C.A<C.B>` is the reused
+            // annotation even when `C.A` needed no shortening and only `C.B`
+            // did. Composing the written form out of the rendered arguments
+            // instead cost 26 R→W, every one of this shape.
+            let mut written_arguments = Vec::with_capacity(printed_arguments.len());
+            for (argument, printed) in node.type_arguments.iter().zip(&printed_arguments) {
+                let spelled = match argument {
+                    tsr_ast::TypeNode::TypeReferenceNode(reference) => reference
+                        .node_id
+                        .and_then(|id| self.qualified_written_text.get(&id))
+                        .cloned(),
+                    _ => None,
+                };
+                written_arguments.push(spelled.unwrap_or_else(|| printed.clone()));
+            }
+            let printed_text = format!(
+                "{}<{}>",
+                base.as_deref().unwrap_or(written.as_str()),
+                printed_arguments.join(", ")
+            );
+            let written_text = format!("{written}<{}>", written_arguments.join(", "));
+            if printed_text != written_text
+                && let Some(id) = node.node_id
+            {
+                self.qualified_written_text.insert(id, written_text);
+            }
+            let text = printed_text;
             let key = (text.clone(), resolved);
             if let Some(&existing) = self.qualified_reference_types.get(&key) {
                 return existing;
@@ -2802,6 +2839,49 @@ impl<'a> Checker<'a, '_> {
     ///
     /// Upstream builds the same string with `getSymbolPath` over the chain of
     /// unresolved parent symbols (`checker.go:23139`).
+    /// `needsQualification` (`symbolaccessibility.go:688`) — the printed name
+    /// of a qualified type reference is the SHORTEST one that resolves from the
+    /// reference site, not the one that was written.
+    ///
+    /// Upstream never prints the written text: `symbolToString` builds an
+    /// accessible symbol chain (`getAccessibleSymbolChain`), and
+    /// `canQualifySymbol` (`symbolaccessibility.go:676`) prepends the parent
+    /// only when `needsQualification` says the bare name is taken by something
+    /// else. Inside `namespace privateModule`, `privateModule.publicClass`
+    /// prints as `publicClass`, because `publicClass` is in scope there and
+    /// means that symbol.
+    ///
+    /// This is §925's named completion: removing the gate that refused a
+    /// namespace's own name recovered 412 lines and left 48 whose only fault is
+    /// carrying a qualifier upstream drops.
+    ///
+    /// **Only the bare/qualified decision is ported, not the chain.** Upstream's
+    /// `needsQualification` walks every symbol table in scope and, when the name
+    /// IS taken, recurses on the parent to build a possibly-shorter-than-written
+    /// chain. Here a taken name simply keeps the written text. The two agree
+    /// wherever the written path is already the accessible one, which is every
+    /// shape the corpus exercises; they would diverge on a reference written
+    /// through a longer path than the site needs (`A.B.C.T` from inside `A.B`,
+    /// where upstream prints `C.T`). Nothing in the corpus measured that, so it
+    /// is left out rather than guessed at — see the §926 entry.
+    fn qualification_free_name(
+        &self,
+        name: tsr_ast::EntityName<'a>,
+        resolved: SymbolId,
+    ) -> Option<String> {
+        let tsr_ast::EntityName::QualifiedName(qualified) = name else { return None };
+        let right = qualified.right?;
+        let found = self.binder.resolve_name(
+            self.nodes,
+            self.node_map,
+            right.node_id?,
+            right.text,
+            SymbolFlags::TYPE,
+        )?;
+        (self.binder.merged_symbol(found) == self.binder.merged_symbol(resolved))
+            .then(|| right.text.to_owned())
+    }
+
     fn entity_name_text(name: Option<tsr_ast::EntityName<'a>>) -> Option<String> {
         match name? {
             tsr_ast::EntityName::Identifier(identifier) => Some(identifier.text.to_owned()),

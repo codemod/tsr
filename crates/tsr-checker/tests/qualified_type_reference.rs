@@ -1,7 +1,15 @@
 //! A type reference `M.I` whose leftmost name **resolves as a namespace**
 //! prints the entity name that was written — **design W** of
-//! `docs/architecture/checker-notes-qualname.md` — and refuses to print it when
-//! the reference site is inside the namespace it qualifies.
+//! `docs/architecture/checker-notes-qualname.md` — **except where the bare name
+//! already resolves to the same symbol at the reference site**, which is
+//! `needsQualification` (`symbolaccessibility.go:688`) and is what §926 ported.
+//!
+//! §925 removed a gate that answered `error` for such a reference outright, and
+//! §926 replaced the over-qualified name it then printed with upstream's bare
+//! one. A signature containing the reference still shows the WRITTEN spelling,
+//! because the node builder reuses the annotation node there — see
+//! [`crate`]'s sibling test
+//! `signatures::tests::a_shortened_qualified_name_keeps_its_written_spelling_in_a_signature`.
 //!
 //! # Every fixture here is a real baseline, and two of them are refusals
 //!
@@ -121,10 +129,15 @@ fn a_three_segment_name_resolves_left_to_right() {
 /// scope holds the symbol* — and it is the named completion. **48 knowingly
 /// imprecise names against 412 recovered ones is the trade taken**, and it is
 /// `GAP->WRONG`, §620's accepted direction, not `RIGHT->WRONG`.
+///
+/// **§926 landed that completion**, so this test now asserts the *upstream*
+/// answer rather than the knowingly imprecise one: `publicClass`. The 48
+/// converted as the falsifier predicted, and the shortening measured **137
+/// `WRONG->RIGHT` with zero adverse rows**.
 #[test]
-fn a_reference_inside_the_namespace_it_qualifies_now_resolves() {
+fn a_reference_inside_the_namespace_it_qualifies_prints_the_bare_name() {
     let source = "namespace privateModule { export class publicClass { }\n export function f(param: privateModule.publicClass) { } }";
-    assert_eq!(type_of_reference(source, 0), "privateModule.publicClass");
+    assert_eq!(type_of_reference(source, 0), "publicClass");
 }
 
 /// The **pair** of the test above: the same namespace and the same interface,

@@ -8524,3 +8524,91 @@ adverse rows is wrong and this entry needs correcting, not extending.
 - `tests/objects.rs` gains `a_qualified_name_rooted_at_an_enclosing_namespace_resolves`
   and `a_qualified_name_across_namespaces_is_unchanged` — the second is the
   regression leg: the road that already worked must keep working.
+
+## §926 — `needsQualification`, and the reuse half that made it safe (+137, zero adverse)
+
+§925's named completion. The bar registered before code: **primary** — the 48
+`GAP->WRONG` §925 accepted convert; **safety** — zero `RIGHT->WRONG`;
+**falsifier** — if the 48 do not convert, §925's diagnosis of its own adverse
+rows was wrong; **regression** — a qualified name written from outside its
+namespace is unchanged.
+
+### The rule
+
+`symbolToString` never prints the written text. It builds an accessible symbol
+chain, and `canQualifySymbol` (`symbolaccessibility.go:676`) prepends the parent
+only when `needsQualification` (`:688`) finds the bare name taken by something
+else. Inside `namespace privateModule`, `privateModule.publicClass` prints as
+`publicClass`.
+
+Ported as `qualification_free_name` in `declared.rs`: resolve the RIGHTMOST
+identifier from the reference site with meaning `TYPE`; if it merges to the same
+symbol the qualified name resolved to, print the bare name.
+
+**Only the bare/qualified decision is ported, not the chain.** Upstream, when the
+name *is* taken, recurses on the parent and can still produce a chain shorter
+than what was written. Here a taken name simply keeps the written text. The two
+agree wherever the written path is already the accessible one; they diverge on
+`A.B.C.T` written from inside `A.B`, where upstream prints `C.T`. Nothing in the
+corpus measured that shape, so it is left out rather than guessed at.
+
+### The first measurement failed the safety leg, and said exactly why
+
++48 net, but **75 `RIGHT->WRONG`**. The diff is worth reproducing because the
+discriminator is visible on *adjacent rows of one file*:
+
+```text
+WR 354 | param : publicClass
+RW 356 | (param: privateModule.publicClass) => void
+WR 357 | param : publicClass
+```
+
+Same parameter, same symbol, two spellings. **Every `WRONG->RIGHT` was a
+standalone type print; every `RIGHT->WRONG` was inside a printed signature.**
+
+That is `serializeTypeForDeclaration` — building a signature node **reuses the
+written annotation node** rather than re-printing the computed type. The port
+already models this as `Parameter::written_text`; the field simply was not being
+populated for this case.
+
+So `qualified_written_text` (`NodeId -> String`) records the written spelling
+whenever the printed name was shortened, and `written_annotation_text` consults
+it. 75 adverse rows → **26**.
+
+### The 26 were one shape, and it named the composition bug
+
+All 26 were a shortened reference used as a **type argument**:
+`expected C.A<C.B>`, `got C.A<B>`. The generic mint was composing its written
+form out of the *rendered* arguments, which are already shortened. It now
+composes from the argument **nodes**, consulting the same map. 26 → **1**.
+
+### The last one, and a doc corrected
+
+`complexRecursiveCollections` wants `maybeRecord is Record.Instance<any>`. The
+rustdoc on `type_predicate_to_string` asserted that upstream renders a predicate
+from the **computed** type, "not the written node". That is right in general and
+wrong here; `TypePredicate` now carries the same `written_text`, populated only
+by the shortening. **One row is thin evidence for a rule**, so nothing else about
+predicate printing changed, and the doc now says so rather than being silently
+edited.
+
+### Final measurement
+
+**137 `WRONG->RIGHT`, zero `RIGHT->WRONG`, zero `GAP->WRONG`.** `right` 441,754 →
+**441,891**. `resolvingClassDeclarationWhenInBaseTypeResolution` 71,
+`privacyFunctionParameterDeclFile` 40, `privacyVarDeclFile` 20.
+
+The falsifier resolved in favour of §925: its 48 converted exactly as predicted.
+
+### Two consequences worth keeping
+
+- Widening `TypePredicate` by one `Option<String>` pushed `Signature` past
+  `clippy::large_enum_variant` in two local enums in `calls.rs`, now
+  `Picked(Box<Signature>)`. A three-field struct's size is load-bearing at a
+  distance; this is the note that says why the box is there.
+- **§925 and §926 together are one defect in two halves, and the first half
+  looked finished.** §925 landed +411 with 48 adverse rows it named, justified
+  and accepted under §620. Those 48 were not a residue to live with — they were
+  the other half of the same mechanism, and finishing it cost less than the
+  entry arguing for accepting them. *An accepted adverse bucket with a named
+  cause is a work item, not a conclusion.*

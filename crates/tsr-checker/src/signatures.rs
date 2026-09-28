@@ -144,6 +144,9 @@ pub struct TypePredicate {
     /// The predicate's type. `None` is bare `asserts x`, which upstream
     /// records with a nil `t` and prints without an `is` clause.
     pub r#type: Option<TypeId>,
+    /// §926: the written spelling of a qualified annotation whose printed name
+    /// was shortened, carried the same way [`Parameter::written_text`] is.
+    pub written_text: Option<String>,
 }
 
 /// A call signature.
@@ -822,7 +825,18 @@ impl<'a> Checker<'a, '_> {
             }
             None => None,
         };
-        Some(TypePredicate { asserts: node.asserts_modifier.is_some(), parameter_name, r#type })
+        let written_text = node.r#type.and_then(|annotation| match annotation {
+            TypeNode::TypeReferenceNode(reference) => {
+                reference.node_id.and_then(|id| self.qualified_written_text.get(&id)).cloned()
+            }
+            _ => None,
+        });
+        Some(TypePredicate {
+            asserts: node.asserts_modifier.is_some(),
+            parameter_name,
+            r#type,
+            written_text,
+        })
     }
 
     /// The text a predicate contributes in a signature's return position.
@@ -832,6 +846,13 @@ impl<'a> Checker<'a, '_> {
     /// (`printer.go:1869`). The type is rendered from the **computed** type,
     /// which is upstream's own choice at this site — `typeToTypeNode` and not
     /// the written node.
+    ///
+    /// **§926 qualifies that**, for the one case that measures it: a qualified
+    /// reference whose printed name was shortened keeps its written spelling
+    /// here too (`complexRecursiveCollections` wants
+    /// `maybeRecord is Record.Instance<any>`, not `is Instance<any>`). One row
+    /// is thin evidence for a rule, so only the shortening is carried — every
+    /// other predicate type still renders from the computed type.
     pub(crate) fn type_predicate_to_string(&self, predicate: &TypePredicate) -> String {
         let mut out = String::new();
         if predicate.asserts {
@@ -843,7 +864,10 @@ impl<'a> Checker<'a, '_> {
         }
         if let Some(id) = predicate.r#type {
             out.push_str(" is ");
-            out.push_str(&self.type_to_string(id));
+            match &predicate.written_text {
+                Some(written) => out.push_str(written),
+                None => out.push_str(&self.type_to_string(id)),
+            }
         }
         out
     }
@@ -945,6 +969,8 @@ impl<'a> Checker<'a, '_> {
                 asserts: false,
                 parameter_name: Some(name.text.to_string()),
                 r#type: Some(true_type),
+                // Inferred from a body, so there is no written annotation.
+                written_text: None,
             });
         }
         None
@@ -3275,6 +3301,18 @@ impl<'a> Checker<'a, '_> {
     /// lost. The admission-flag walk below (§77/§77.1/§108.1/§137) is the
     /// gate's home; `bd tsr-5o2`'s 9-line family stays recorded.
     pub(crate) fn written_annotation_text(&mut self, annotation: TypeNode<'a>) -> Option<String> {
+        // §926: a qualified type reference whose printed name was SHORTENED
+        // keeps its written spelling here. Upstream prints the same reference
+        // two ways — `param : publicClass` from the symbol, `myMethod : (param:
+        // privateModule.publicClass) => void` from the reused annotation node —
+        // and the corpus shows both on adjacent rows. See
+        // [`crate::checker::Checker::qualified_written_text`].
+        if let TypeNode::TypeReferenceNode(reference) = annotation
+            && let Some(id) = reference.node_id
+            && let Some(text) = self.qualified_written_text.get(&id)
+        {
+            return Some(text.clone());
+        }
         // §730: a written `keyof X` is returned unconditionally — the
         // single-quote / array-head / void-union gate below is about REUSING a
         // fresh render, a different question. Here the written operator IS the
@@ -4758,6 +4796,35 @@ mod tests {
     /// `getTypeFromTypeNode`'s function-type arm, inside this crate, and the
     /// whole reason this arm exists is so that arm does not rebuild a signature
     /// by hand.
+    /// §926's reuse leg. Inside `namespace m`, the *type* of `p` prints bare
+    /// (`needsQualification` — `m.K` is `K` in scope there), but the signature
+    /// containing it reuses the written annotation and keeps `m.K`. Upstream
+    /// prints both spellings on adjacent baseline rows; getting only the first
+    /// half cost 75 `RIGHT->WRONG` before the reuse landed.
+    ///
+    /// **This test alone cannot tell reuse from no-shortening** — both print
+    /// `m.K`. Its other half lives in
+    /// `tests/qualified_type_reference.rs::a_reference_inside_the_namespace_it_qualifies_prints_the_bare_name`,
+    /// which asserts the bare `K` for the same shape. The pair is the claim.
+    #[test]
+    fn a_shortened_qualified_name_keeps_its_written_spelling_in_a_signature() {
+        assert_eq!(
+            signature_of("namespace m { export class K {}\n export let f: (p: m.K) => void; }"),
+            "(p: m.K) => void"
+        );
+    }
+
+    /// The regression pair: a qualified name the shortening does **not** touch
+    /// is untouched here too. Without this the test above would pass equally
+    /// well if written reuse fired on every qualified reference.
+    #[test]
+    fn a_qualified_name_from_outside_prints_the_same_either_way() {
+        assert_eq!(
+            signature_of("namespace m { export class K {} }\nlet f: (p: m.K) => void;"),
+            "(p: m.K) => void"
+        );
+    }
+
     fn signature_of(source: &str) -> String {
         let arena = tsr_core::Arena::new();
         let parsed = tsr_parser::parse(&arena, source);

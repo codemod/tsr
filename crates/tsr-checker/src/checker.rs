@@ -163,6 +163,19 @@ pub struct Checker<'a, 'n> {
     /// One members-carrying qualified reference type per (namespace-site
     /// spelling, target symbol) — `checker-notes-narrow.md` §41.
     pub(crate) qualified_reference_types: FxHashMap<(String, SymbolId), TypeId>,
+    /// §926: the WRITTEN spelling of a qualified type reference whose printed
+    /// name [`Checker::qualification_free_name`] shortened, keyed by the
+    /// reference node.
+    ///
+    /// Upstream prints the same reference two ways and the corpus shows both on
+    /// adjacent rows: `param : publicClass` for the parameter's own type, and
+    /// `myMethod : (param: privateModule.publicClass) => void` for the signature
+    /// containing it. The standalone print goes through `symbolToString`, which
+    /// emits the shortest accessible name; the signature print goes through
+    /// `serializeTypeForDeclaration`, which **reuses the written annotation
+    /// node**. This map is the reuse half — `written_annotation_text` consults
+    /// it so a shortened name keeps its written spelling inside a signature.
+    pub(crate) qualified_written_text: FxHashMap<tsr_ast::NodeId, String>,
     /// Function/source-file roots whose assignments have been marked —
     /// `NodeCheckFlagsAssignmentsMarked`.
     pub(crate) assignments_marked: rustc_hash::FxHashSet<NodeId>,
@@ -982,6 +995,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             unique_symbol_nodes: FxHashMap::default(),
             this_type_nodes: FxHashMap::default(),
             qualified_reference_types: FxHashMap::default(),
+            qualified_written_text: FxHashMap::default(),
             assignments_marked: rustc_hash::FxHashSet::default(),
             definitely_assigned: rustc_hash::FxHashSet::default(),
             flow_loop_cache: FxHashMap::default(),
