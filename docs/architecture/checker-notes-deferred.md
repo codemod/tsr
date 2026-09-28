@@ -7972,3 +7972,52 @@ strings array can occupy position 0 and inference can run over the substitutions
 > capability's output is the ANSWER and not an ingredient is the same test §911
 > failed**, and I did not apply it here despite having written it down two entries
 > earlier.
+
+## §916: inference from a tagged template's substitutions — +77, and the offset was never needed
+
+§914 and §915 both pinned the same prerequisite: *"give the resolution road an
+argument that is a TYPE rather than an expression"*, so the synthetic
+`TemplateStringsArray` can occupy position 0 and substitution *i* can pair with
+parameter *i + 1*. I sized that as a refactor across `choose_overload` and
+`check_generic_call`, both index-driven over `&[Expression]`.
+
+**It was not needed.** Every pairing in that road is `parameters[i] ↔
+arguments[i]`, so the `+1` can come from either side — and **dropping the first
+parameter from the signature achieves it while touching nothing**:
+
+```rust
+let mut shifted = signature.clone();
+shifted.parameters.remove(0);
+self.check_generic_call(&shifted, node.node_id, &substitutions)
+```
+
+The remaining parameters line up with the substitutions by construction; the
+return type and type parameters are untouched, so the inference that runs is
+exactly upstream's over exactly the same pairs.
+
+**Measured: 64 `WRONG→RIGHT` + 13 `GAP→RIGHT` against 3 `GAP→WRONG`, zero
+`RIGHT→WRONG`. +77.** `taggedTemplateStringsTypeArgumentInference` **29** and its
+ES6 twin **29**, `parenthesizedContexualTyping3` 13,
+`taggedTemplateContextualTyping1` 2.
+
+What it gives up, stated: a tag whose FIRST parameter is generic
+(`tag<T>(s: T, …)`) loses that one inference site, where upstream infers
+`TemplateStringsArray` into it. No corpus tag is written that way.
+
+> **Two entries pinned a prerequisite that did not exist.** §914 and §915 both
+> reasoned from the shape of the code — *these functions index over expressions,
+> therefore a synthetic expression is required* — and neither asked whether the
+> index could be moved on the other side. **A prerequisite named twice is not
+> thereby confirmed**; the cheap check is to state what the machinery needs
+> (`parameters[i]` must be the substitution's parameter) rather than what it
+> currently has.
+
+### And a test expectation wrong again
+
+I asserted `tag\`a${42}b\`` gives `number`. It gives **`42`**, and the port was
+right: `getCovariantInference` widens a literal candidate only when
+`!primitiveConstraint && topLevel && (isFixed || !isTypeParameterAtTopLevelInReturnType)`,
+and `T` *is* the return type here, so no widening happens — the same rule that
+makes `f(42)` on `f<T>(x: T): T` record `42`. Corrected in the test with the rule
+beside it. **Ninth wrong expectation of the session**, all in the same direction:
+assuming a widening upstream does not perform.

@@ -1115,9 +1115,38 @@ impl Checker<'_, '_> {
                     }
                 }
             }
-            // Without written arguments a generic tag's return depends on
-            // inference from the template strings array and each substitution,
-            // which this road does not build.
+            // §916: inference from the SUBSTITUTIONS, without building a
+            // synthetic argument for the strings array.
+            //
+            // Upstream's argument list is `[TemplateStringsArray, ...spans]`, so
+            // substitution *i* pairs with parameter *i + 1*. Every index pairing
+            // in `check_generic_call` is `parameters[i] ↔ arguments[i]`, and
+            // threading an offset through all of them is one way to get the `+1`.
+            // **Dropping the first parameter from the signature is the same
+            // thing and touches nothing**: the remaining parameters line up with
+            // the substitutions by construction, and the return type and type
+            // parameters are untouched, so the inference that runs is exactly
+            // upstream's over the same pairs.
+            //
+            // What this gives up, stated: a tag whose FIRST parameter is generic
+            // (`tag<T>(s: T, …)`) loses that inference site. Upstream infers
+            // `TemplateStringsArray` into it; this port would need the synthetic
+            // argument to do the same, and no corpus tag is written that way.
+            if let Some(template) = node.template
+                && let tsr_ast::TemplateLiteral::TemplateExpression(expression) = template
+                && !signature.parameters.is_empty()
+            {
+                let substitutions: Vec<Expression<'_>> =
+                    expression.template_spans.iter().filter_map(|span| span.expression).collect();
+                if substitutions.len() == expression.template_spans.len() {
+                    let mut shifted = signature.clone();
+                    shifted.parameters.remove(0);
+                    let answer = self.check_generic_call(&shifted, node.node_id, &substitutions);
+                    if answer != error {
+                        return answer;
+                    }
+                }
+            }
             return error;
         }
         signature.r#type

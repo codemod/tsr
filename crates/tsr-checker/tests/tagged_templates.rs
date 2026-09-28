@@ -160,3 +160,62 @@ fn a_template_over_an_untypeable_span_is_still_string() {
 fn a_template_over_literal_spans_still_folds() {
     assert_eq!(type_of_last("const a = `x${1}y`;"), "\"x1y\"");
 }
+
+/// §916: inference from a tagged template's SUBSTITUTIONS.
+///
+/// Upstream's argument list is `[TemplateStringsArray, ...spans]`, so
+/// substitution *i* pairs with parameter *i + 1*. Every index pairing in
+/// `check_generic_call` is `parameters[i] ↔ arguments[i]`; threading an offset
+/// through all of them is one way to get the `+1`, and **dropping the first
+/// parameter from the signature is the same thing while touching nothing** — the
+/// remaining parameters line up with the substitutions by construction, and the
+/// return type and type parameters are untouched.
+///
+/// Corpus effect: 64 `WRONG->RIGHT`, 13 `GAP->RIGHT` against 3 `GAP->WRONG`, zero
+/// `RIGHT->WRONG`. `taggedTemplateStringsTypeArgumentInference` 29 and its ES6
+/// twin 29.
+#[test]
+fn a_generic_tag_infers_from_its_substitutions() {
+    assert_eq!(
+        type_of_last(
+            "interface TemplateStringsArray { readonly raw: readonly string[]; }\n\
+             declare function tag<T>(s: TemplateStringsArray, x: T): T;\n\
+             const x = tag`a${42}b`;"
+        ),
+        // **`42`, not `number`** — my first expectation here was wrong.
+        // `getCovariantInference` widens a literal candidate only when
+        // `!primitiveConstraint && topLevel && (isFixed || !isTypeParameterAtTopLevelInReturnType)`.
+        // `T` IS at top level in the return `T` and is not fixed, so
+        // `widenLiteralTypes` is false and the literal survives — the same rule
+        // that makes `f(42)` on `f<T>(x: T): T` record `42`.
+        "42"
+    );
+}
+
+/// Two substitutions pair with the second and third parameters.
+#[test]
+fn two_substitutions_pair_with_the_parameters_after_the_strings_array() {
+    assert_eq!(
+        type_of_last(
+            "interface TemplateStringsArray { readonly raw: readonly string[]; }\n\
+             declare function tag<T, U>(s: TemplateStringsArray, x: T, y: U): U;\n\
+             const x = tag`a${42}b${\"s\"}c`;"
+        ),
+        // `"s"` for the same reason as above: `U` is the return type.
+        "\"s\""
+    );
+}
+
+/// A tag with NO substitutions has nothing to infer from and keeps its gap —
+/// `a_generic_tag_is_a_gap` above states the same rule from the other side.
+#[test]
+fn a_generic_tag_with_no_substitutions_still_gaps() {
+    assert_eq!(
+        type_of_last(
+            "interface TemplateStringsArray { readonly raw: readonly string[]; }\n\
+             declare function tag<T>(s: TemplateStringsArray, x: T): T;\n\
+             const x = tag`ab`;"
+        ),
+        "error"
+    );
+}
