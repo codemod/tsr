@@ -4158,3 +4158,61 @@ Two of the last three bars have now been falsified by their own primary leg
 (§850, §855) and both changes were faithful ports of real upstream divergences. That
 is §848's finding continuing to hold: at this depth, *being right about upstream no
 longer predicts moving the corpus*, because the populations sit behind other defects.
+
+## §856: the gap-root board, re-read — where all 8,889 gap lines actually root
+
+§855's dead end argued for the instrument over case-by-case probing, so `depend.rs`
+was re-run. It follows declaration edges to the end of each gap's dependency chain
+and reports where the chain stops. Current reading:
+
+| root | lines | % | cases | top case |
+|---|---:|---:|---:|---|
+| `CallExpression` (root is here) | 1,245 | 14.0% | 278 | `typeParameterConstModifiersReturnsAndYields` |
+| **`Parameter` — no further dependency** | **987** | **11.1%** | **240** | `esDecorators-contextualTypes` |
+| `Identifier`, member name of `a.b` | 621 | 7.0% | 268 | `mixinAccessModifiers` |
+| `PropertyAccessExpression` | 573 | 6.4% | 182 | `esNextWeakRefs_IterableWeakMap` |
+| `Identifier`, symbol has no value declaration | 385 | 4.3% | 103 | `requireOfJsonFileTypes` |
+| `TypeReference` | 367 | 4.1% | 85 | `privacyFunctionParameterDeclFile` |
+| `BindingElement` cycle | 360 | 4.0% | 73 | `coAndContraVariantInferences3` |
+| `MappedType` — **no step arm** | 302 | 3.4% | 61 | `mappedTypes1` |
+| `ElementAccessExpression` | 293 | 3.3% | 67 | `genericRestParameters2` |
+| `NewExpression` | 263 | 3.0% | 65 | `mixinClassesMembers` |
+
+`Parameter — no further dependency` is the largest row whose root is *here* with
+nothing downstream to fix first, so it is the one to read. Its top case's gaps are:
+
+```
+want: (this: This, ...args: Args) => Return
+want: (t: typeof C, c: ClassDecoratorContext<typeof C>) => void
+want: (t: ClassAccessorDecoratorTarget<C, number>, c: ClassAccessorDecoratorContext<C, number> & { … }) => void
+```
+
+Decorator context types — **contextual typing**, `STATUS.md` §4's effort 5. And the
+row is a *thin* spread: 240 cases with a top-1 share of **4.3%**, so it is not one
+mechanism with a dominant witness but a long tail sharing a node kind.
+
+### What the board says as a whole
+
+Three rows are marked **"NO STEP ARM for this kind — not a finding"** — `MappedType`
+302, `YieldExpression` 107, `ConditionalType` 99, `TaggedTemplateExpression` 98,
+`SpreadAssignment` 95 — **701 lines the instrument cannot attribute at all**. That is
+`STATUS.md` §4.0's two deliberately-unmade `depend.rs` fixes still outstanding, and
+adding those arms is the cheapest remaining *instrument* work: it would re-root 701
+lines, which is 8% of the gap population, and might move some of them out of the
+"unattributed" column into something actionable.
+
+Everything the board *can* attribute roots in the priced subsystems: calls and
+`new` (overload selection and instantiation), parameters (contextual typing),
+property and element access (member resolution through generics), mapped and
+conditional types. **No row on this board is a mechanism-level item**, which is the
+same answer §847's arithmetic, §848's three failed legs and §851's survey each
+reached by a different route — now confirmed a fourth time, against the whole 8,889-line
+gap population rather than a sample.
+
+### The one piece of cheap work this leaves
+
+Adding `depend.rs` step arms for `MappedType`, `YieldExpression`, `ConditionalType`,
+`TaggedTemplateExpression` and `SpreadAssignment` — §4.0's outstanding item, 701
+lines re-rooted, no risk to the corpus because `depend.rs` is an instrument and not
+the checker. It should get §827's env-gate treatment (`TSR_NO_856=1`) so the
+re-rooting can be A/B'd against today's board rather than replacing it silently.
