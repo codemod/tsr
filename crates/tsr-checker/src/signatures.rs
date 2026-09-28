@@ -2834,6 +2834,42 @@ impl<'a> Checker<'a, '_> {
                     }
                 }
                 Some(Node::ObjectLiteralExpression(_)) => {}
+                // §866, and it is §865's soundness rule applied twice more.
+                //
+                // `SpreadAssignment` (`checker.go:29378`) is
+                // `return c.getContextualType(parent.Parent, ...)` — a climb to
+                // the object literal, which this walk already handles. Pure
+                // recursion into itself, so it is sound.
+                Some(Node::SpreadAssignment(spread)) => {
+                    if spread.expression.and_then(|e| e.node_id()) != Some(position) {
+                        return false;
+                    }
+                }
+                // `TemplateSpan` (`:29390`) routes to
+                // `getContextualTypeForSubstitutionExpression` (`:30030`),
+                // which is two lines: a TAGGED template delegates to the
+                // argument road, and everything else returns nil. So absence
+                // is showable for an UNTAGGED template, and the test is purely
+                // syntactic — §865's other sound shape.
+                //
+                // (The `ArrayLiteralExpression` arm at `:29380` is the
+                // counter-example that makes the rule worth stating: it goes
+                // through `getApparentTypeOfContextualType`, a TYPE this port
+                // computes its own way, and §864 measured that climb at
+                // **0 : 3**.)
+                Some(Node::TemplateSpan(_)) => {
+                    let tagged = self
+                        .nodes
+                        .parent(parent)
+                        .and_then(|template| self.nodes.parent(template))
+                        .is_some_and(|owner| {
+                            self.nodes.kind(owner) == SyntaxKind::TaggedTemplateExpression
+                        });
+                    if !tagged {
+                        return true;
+                    }
+                    return false;
+                }
                 // §865: a `return` expression's context is the containing
                 // function's RETURN context. `getContextualTypeForReturnExpression`
                 // (`checker.go:29621`) -> `getContextualReturnType` (`:29665`):

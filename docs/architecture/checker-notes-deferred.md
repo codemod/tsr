@@ -5035,3 +5035,43 @@ conditional branch, binary operand, **property assignment**, **object literal**,
 `AsExpression`/`SatisfiesExpression` (upstream has arms at `:29368`/`:29396`),
 `TemplateSpan`, `JsxExpression`, `SpreadAssignment`, and array elements — the last
 **measured and rejected** at 0 : 3 in §864.
+
+## §866: the last two sound arms, and the rule that predicted which ones
+
+§865 stated when a climb is sound: **the step is syntactic, or the recursion is into
+this walk itself** — and unsound when it routes through *a type this port computes
+its own way*. §866 is that rule used as a filter rather than discovered afterwards,
+over the four arms §865 listed as unhandled.
+
+| candidate | upstream's arm | rule says |
+|---|---|---|
+| `SpreadAssignment` (`:29378`) | `return c.getContextualType(parent.Parent, …)` | **sound** — pure recursion |
+| `TemplateSpan` (`:29390`) | tagged delegates, otherwise **nil** | **sound** — syntactic |
+| `AsExpression`/`SatisfiesExpression` (`:29368`, `:29396`) | returns the asserted type | no change needed: a contextual type *exists*, and the catch-all already answers `false` |
+| `JsxExpression` (`:29400`) | JSX contextual typing | **unsound by the rule** — routes through types |
+
+And the counter-example the rule was learned from is right there in the same
+dispatch: `ArrayLiteralExpression` (`:29380`) opens
+`t := c.getApparentTypeOfContextualType(parent, contextFlags)` — a type — which is
+exactly why §864 measured that climb at **0 : 3** while every syntactic-or-recursive
+arm has measured positive or neutral.
+
+**Measured: `+2`, zero adverse** (`templateStringWithEmbeddedArrowFunctionES6` 1,
+`templateStringWithEmbeddedArrowFunction` 1). The primary leg asked for ≥ +10 and is
+**falsified**; both arms are verbatim ports of two-line upstream functions, cost
+nothing, and are kept on §800's rule. The two gaining cases are both template
+strings, which names the `TemplateSpan` arm; the `SpreadAssignment` arm measured
+nothing and is faithful-but-unwitnessed.
+
+### The walk, finished
+
+`has_no_contextual_type` now has an arm for every node kind between an arrow and its
+statement that upstream's dispatch answers nil or a climb for: expression statement,
+variable declaration, parenthesized, conditional branch, binary operand, property
+assignment, object literal, spread assignment, template span, unary operand, return
+statement. The two it deliberately does **not** have — array element and
+`JsxExpression` — are both the type-routing shape, one measured at 0 : 3 and one
+predicted by the same rule.
+
+**§863–§866: +274 lines, +10 cases, zero `RIGHT->WRONG` across four entries**, from
+one predicate whose catch-all was `return false`.

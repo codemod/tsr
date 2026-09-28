@@ -334,9 +334,7 @@ fn a_returned_arrow_gets_its_implicit_any() {
     // invented. `getContextualReturnType` tests the annotation first, and so
     // does the arm.
     assert_eq!(
-        type_of_last_expression(
-            "(function (): (c: string) => number { return (c) => 1; });"
-        ),
+        type_of_last_expression("(function (): (c: string) => number { return (c) => 1; });"),
         "() => (c: string) => number"
     );
 }
