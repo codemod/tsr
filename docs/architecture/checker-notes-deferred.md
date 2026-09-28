@@ -4659,3 +4659,93 @@ same *answer `any` where this port gaps* shape that §257 refused for `+`, and i
 needs its own sizing and its own bar, with ADR-0038's question asked explicitly:
 whether upstream's line is deliberate recovery (as `anySignature` is) or a failure
 wearing `any`'s name.
+
+## §861: `new` on a target with no construct signature is `any`
+
+§860's real item, taken up with the baseline read first this time.
+`conformance/newWithSpread` is **310 RIGHT / 0 WRONG / 8 GAP** — a zero-risk case on
+§852's board — and every gap is the same shape:
+
+```ts
+function f(x: number, y: number, ...z: string[]) { }
+new f(1, 2, "string")        // >new f(1, 2, "string") : any
+new f(1, 2, ...a)            // >new f(1, 2, ...a) : any
+```
+
+`f` is a plain function declaration: **call signatures, no construct signature.**
+
+Upstream is explicit and deliberate (`checker.go:8334-8342`), and the comment is the
+specification:
+
+```go
+if ast.IsNewExpression(node) {
+    declaration := signature.declaration
+    if declaration != nil && !ast.IsConstructorDeclaration(declaration) &&
+        !ast.IsConstructSignatureDeclaration(declaration) && !ast.IsConstructorTypeNode(declaration) {
+        // When resolved signature is a call signature (and not a construct signature) the result type is any
+        if c.noImplicitAny {
+            c.error(node, diagnostics.X_new_expression_whose_target_lacks_a_construct_signature_implicitly_has_an_any_type)
+        }
+        return c.anyType
+    }
+}
+```
+
+**ADR-0038's question, asked explicitly because §860's note said to:** this is
+`anyType`, not `errorType`; it carries its own comment saying the result *is* any;
+and the diagnostic beside it is `noImplicitAny`-gated, which is what a deliberate
+recovery looks like rather than a failure wearing `any`'s name. It is the same
+standing as `anySignature` (`checker.go:1042`) that
+`docs/architecture/checker-notes-calleegap.md` already argues from. Portable.
+
+`resolveNewExpression` tries construct signatures first and falls back to call
+signatures (`checker.go:8603` then `:8632`), so upstream reaches that arm exactly
+when the target **has call signatures and no construct signature** — which is the
+condition expressible on the type here, without resolving a signature first.
+
+### The bar
+
+1. **Primary.** `newWithSpread`'s 8 gaps close: ≥ **+8 lines, +1 case**.
+2. **Safety.** `RIGHT->WRONG ≤ 5` and `GAP->WRONG ≤ 20`. The exposure is any `new`
+   this port currently answers from the class road that would now short-circuit —
+   which the class gate below is there to prevent.
+3. **Falsifier.** `new f()` on `function f() {}` must answer `any`.
+4. **Regression.** `cargo test --workspace`; clippy clean.
+
+### §861 result — +10, zero adverse, and the surfacing case shut for the FOURTH time
+
+| leg | registered | measured |
+|---|---|---|
+| 1 primary | `newWithSpread`'s 8 gaps close, +8 lines / +1 case | **0** — still 310 / 0 / 8 |
+| 2 safety | `RIGHT->WRONG ≤ 5`, `GAP->WRONG ≤ 20` | **0 and 0** |
+| 3 falsifier | `new f()` on `function f() {}` must answer `any` | **it does** |
+| 4 regression | tests + clippy + anchors | 145 suites, clean, 3,254 |
+
+`GAP->RIGHT 10` — `privateNameMethodCallExpression` 5,
+`privateNameStaticMethodCallExpression` 5 — **not one line lost**, and both controls
+hold: a class still resolves its declared instance type, a constructor type still
+resolves its construct signature's return.
+
+`newWithSpread`'s 8 gaps are blocked by something further in (its arguments carry
+spreads, which is the case's whole point). **Fourth consecutive bar whose named case
+stayed shut while the change paid elsewhere** — §844, §846, §858, §861 — and the
+rule §858 stated now has four data points behind it:
+
+> A surfacing case is usually the one with **two** defects. That is exactly why it is
+> still visible on a board everything else has fallen off, and it is why sizing a bar
+> by the case that surfaced the mechanism systematically under-predicts. **Register
+> the leg against the probe.**
+
+Every one of those four changes was kept, all four measured zero adverse lines, and
+three of the four paid in cases the board never named. The method is working; the
+*prediction* is what is wrong, and only in one direction.
+
+### ADR-0038, asked and answered
+
+§860's note said to ask it explicitly before porting an `any`. Done: upstream returns
+`anyType`, not `errorType`; it carries its own comment stating the result *is* any;
+and its diagnostic is `noImplicitAny`-gated. That is the standing of `anySignature`
+(`checker.go:1042`), which `checker-notes-calleegap.md` already argues is an honest
+computation rather than a gap wearing `any`'s name. This is the second `any` this
+session checked against that test — §257's `+` fallback failed it on measurement
+rather than on provenance, and this one passes both.

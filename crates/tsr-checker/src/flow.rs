@@ -2521,7 +2521,10 @@ impl Checker<'_, '_> {
     /// `getSignaturesOfType(t, SignatureKindCall)` over the two shapes this
     /// port keeps signatures in: an anonymous function type reads its
     /// symbol's declarations, a named type its interface members.
-    fn call_signatures_of_type(&mut self, t: TypeId) -> Option<Vec<crate::signatures::Signature>> {
+    pub(crate) fn call_signatures_of_type(
+        &mut self,
+        t: TypeId,
+    ) -> Option<Vec<crate::signatures::Signature>> {
         match self.store.get(t).data {
             TypeData::Anonymous { symbol, .. } => {
                 let signatures = self.get_signatures_of_symbol(symbol)?;

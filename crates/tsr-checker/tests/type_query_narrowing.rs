@@ -233,3 +233,28 @@ fn calling_the_result_of_a_call_on_any_is_any() {
     // function does not become an untyped call target.
     assert_eq!(type_of_last_expression("declare function g(): () => number;\n(g()());"), "number");
 }
+
+/// §861: `new` on a target with call signatures and no construct signature is
+/// `any` — upstream's deliberate recovery (`checker.go:8334-8342`), whose own
+/// comment reads *"When resolved signature is a call signature (and not a
+/// construct signature) the result type is any"*.
+///
+/// Not ADR-0038's forbidden rendering: it is `anyType` rather than `errorType`,
+/// and its diagnostic is `noImplicitAny`-gated — the standing of
+/// `anySignature`, not of a failure wearing `any`'s name.
+///
+/// The two controls are what keep the rule off the roads that already work: a
+/// class resolves its declared instance type, and a constructor type resolves
+/// its construct signature's return.
+///
+/// Corpus effect: `+10`, zero adverse.
+#[test]
+fn new_on_a_target_without_a_construct_signature_is_any() {
+    assert_eq!(type_of_last_expression("function f() { }\n(new f());"), "any");
+    assert_eq!(type_of_last_expression("function f(x: number) { }\n(new f(1));"), "any");
+    assert_eq!(type_of_last_expression("class D { }\n(new D());"), "D");
+    assert_eq!(
+        type_of_last_expression("declare const C: new () => { a: number };\n(new C());"),
+        "{ a: number; }"
+    );
+}

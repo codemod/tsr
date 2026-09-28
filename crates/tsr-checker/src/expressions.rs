@@ -2178,6 +2178,47 @@ impl Checker<'_, '_> {
         if self.is_untyped_call_target(callee, callee_type) {
             return self.intrinsics.any;
         }
+        // §861: `new` on a target that has CALL signatures and no CONSTRUCT
+        // signature is `any` — upstream's own deliberate recovery
+        // (`checker.go:8334-8342`), comment included:
+        //
+        // ```go
+        // // When resolved signature is a call signature (and not a construct signature) the result type is any
+        // if c.noImplicitAny {
+        //     c.error(node, diagnostics.X_new_expression_whose_target_lacks_a_construct_signature_implicitly_has_an_any_type)
+        // }
+        // return c.anyType
+        // ```
+        //
+        // `resolveNewExpression` tries construct signatures first and falls
+        // back to call signatures (`checker.go:8603`, then `:8632`), so that
+        // arm is reached exactly when the target has call signatures and no
+        // construct signature — the condition tested here, on the type,
+        // without resolving a signature first.
+        //
+        // **Not ADR-0038's forbidden rendering**: it is `anyType` and not
+        // `errorType`, it carries upstream's own comment saying the result IS
+        // any, and its diagnostic is `noImplicitAny`-gated — the same standing
+        // as `anySignature` that `checker-notes-calleegap.md` argues from.
+        //
+        // A CLASS is excluded: its static side is handled by the class road
+        // below, which resolves the declared instance type, and a class
+        // reaching here would short-circuit to `any`.
+        if !matches!(self.store.get(callee_type).data,
+            TypeData::Anonymous { symbol, .. }
+                if self.binder.symbols().get(self.binder.merged_symbol(symbol))
+                    .flags
+                    .intersects(SymbolFlags::CLASS))
+            && self
+                .signature_candidates_of_named_type(
+                    callee_type,
+                    crate::signatures::SignatureKind::Construct,
+                )
+                .is_none_or(|candidates| candidates.is_empty())
+            && self.call_signatures_of_type(callee_type).is_some_and(|c| !c.is_empty())
+        {
+            return self.intrinsics.any;
+        }
         // The callee's type is the class's *static* side, which
         // `getTypeOfFuncClassEnumModule` gives as an anonymous type carrying the
         // class symbol. Reaching the symbol through the type rather than through
