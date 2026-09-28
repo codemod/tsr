@@ -5075,3 +5075,54 @@ predicted by the same rule.
 
 **§863–§866: +274 lines, +10 cases, zero `RIGHT->WRONG` across four entries**, from
 one predicate whose catch-all was `return false`.
+
+## §867: located, not built — `yield*` in an async generator
+
+Grouping §852's zero-wrong board by **wanted type** (rather than by expression, which
+after §863–§866 is dominated by bare identifier names) surfaces the async-generator
+family at the top of the non-primitive wants:
+
+```
+  8 cases  AsyncGenerator<number, void, unknown>
+  8 cases  () => AsyncGenerator<number, void, unknown>
+```
+
+Corpus-wide, async generators **partly work** — lines wanting an `AsyncGenerator<…>`
+are 122 RIGHT / 107 GAP / 56 WRONG — and `crate::signatures` already has the mint
+(§640): `is_async` selects `AsyncGenerator` over `Generator`, with the
+`AsyncIterableIterator`/`IterableIterator` fallback §511 added.
+
+So the feature is present and something narrower fails. Reading the failing files of
+`emitter.asyncGenerators.functionDeclarations.es2018` (9 gaps, and the gaps are in
+files F4 and F5 of a seven-file case) gives it in one line each:
+
+```ts
+// F4.ts
+async function * f4() { const x = yield* [1]; }
+// F5.ts
+async function * f5() { const x = yield* (async function*() { yield 1; })(); }
+```
+
+**Both are `yield*`.** Every other file in the case — plain `yield`, `yield` with no
+operand, `await` inside an async generator — is RIGHT.
+
+### Why it is filed rather than built
+
+`yield*` needs the **iteration-type machinery**:
+`getIterationTypeOfGeneratorFunctionReturnType` and the async variant, which is what
+`getContextualReturnType` (`checker.go:29627-29640`) reaches for and what
+`checkYieldExpression`'s delegating half needs to compute the yielded and returned
+types of the *operand*. That is a subsystem this port does not have, and it is the
+same machinery the `regexMatchAll` cluster on this board needs (`[...matches]`,
+`array[0]` wanting `RegExpExecArray` — three more cases).
+
+Sized from the board: **8 async-generator cases plus 3 iterator-protocol cases**, and
+an unknown share of the 107 `AsyncGenerator` gaps corpus-wide. That makes it the
+largest single remaining item on the zero-wrong board, and a *feature* rather than a
+mechanism — which is §857's finding holding: the board's cases are not one-liners,
+and its value is in the mechanisms they surface, not the cases themselves.
+
+**Next step if taken up**: port `getIterationTypeOfGeneratorFunctionReturnType` and
+its async variant first, in isolation, with unit tests — they are pure functions over
+a type — and only then wire `yield*`. The board will show the result without any
+`RIGHT->WRONG` exposure, because all eleven cases have zero wrong lines.
