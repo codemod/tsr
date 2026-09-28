@@ -5368,3 +5368,112 @@ behind it is already minted. `crates/tsr-checker/src/signatures.rs` §809's guar
 the first suspect — it declines a function whose contextual signature does not
 materialise — though this function has no parameters, which is what §809's guard is
 about.
+
+## §873: the road is right and the producer does not use it — and the file gaps WHOLESALE
+
+§872 named `get_type_of_function_expression` as the only remaining candidate. Probed:
+
+```
+873 fn-expr kind=FunctionExpression => () => AsyncGenerator<number, void, unknown>
+```
+
+**The road returns exactly the wanted type.** `check_expression`'s
+`Expression::FunctionExpression` arm routes straight to it
+(`crates/tsr-checker/src/expressions.rs:863`), so the type is computed and printable.
+Positions 4:4 and 4:5 still report `error`.
+
+So the diagnosis moves again, and this time the shape is different from anything
+§867–§872 considered. Counting the gaps against the file:
+
+```
+F5.ts  assertions: f5, x, yield* …, (…)(), (…), async function*…, yield 1, 1
+gaps:  4:0 4:1 4:2 4:3 4:4 4:5 4:6     — SEVEN of them
+```
+
+**Essentially the whole of F5 gaps**, while F4 — the same construct without the IIFE
+— gaps only its two `yield*` lines. That is not a per-node failure. A file whose
+every assertion answers `error` looks like a *container-level* bail, and this port
+has one: `flow_disabled_containers` (§14), where "a reference inside a container whose
+analysis tripped the too-large bail answers `errorType`".
+
+### Why this matters beyond nine lines
+
+Every diagnosis in this chain was refuted by the next probe, and each refutation was
+cheap:
+
+| § | said | refuted by |
+|---|---|---|
+| §867 | needs the iteration-type subsystem | §868–§871 landed 90 lines without it |
+| §868 | the operand does not type | §869's gap list |
+| §870 | the mint refuses async generator expressions | probe: gate passes, `no_ctx=true` |
+| §872 | `get_type_of_function_expression` | probe: it returns the right type |
+
+**Four wrong diagnoses, four probes, and the residue got smaller and better placed
+every time.** The cost was four builds; the alternative — reasoning to a conclusion
+and building on it — is what §845 and §860 did, and both were reverted.
+
+**Next probe, named:** check whether `f5`'s container is in
+`flow_disabled_containers` during this case's run. If it is, the nine lines are §14's
+bail and not a generator question at all, and the *real* item is whatever trips the
+bail on a seven-line file — which would be a much larger finding than these nine
+lines, because §14's bail answers `errorType` for **every** reference in the
+container it fires on.
+
+## §874: §872 and §873 were written on a STALE reading, and both are corrected here
+
+Both entries opened with "the case kept its 9 gaps through §868–§871". **It did not.**
+That number was read from a `verdictdump` run taken immediately after committing
+§869, *before* §870 and §871 were built. The case's real state:
+
+```
+before §870:  RIGHT 18   WRONG 0   GAP 9
+now:          RIGHT 22   WRONG 0   GAP 5
+```
+
+So §870/§871 took **four** of this case's own lines as well as the 45 elsewhere, and
+the "residue" §872 and §873 were diagnosing was smaller than either of them said.
+
+§873's framing is worse than merely stale. It claimed:
+
+> Essentially the whole of F5 gaps … A file whose every assertion answers `error`
+> looks like a *container-level* bail.
+
+The per-file distribution says otherwise — **F5 is 5 RIGHT / 3 GAP**, not seven gaps
+out of eight:
+
+```
+file 0: 1 RIGHT              file 4 (F5): 5 RIGHT, 3 GAP
+file 1: 3 RIGHT              file 5: 4 RIGHT
+file 2: 4 RIGHT              file 6: 2 RIGHT
+file 3 (F4): 3 RIGHT, 2 GAP
+```
+
+I counted the `:4:` lines in a gap list I had already established was stale, and
+built a container-bail hypothesis on the count. The probe that followed refuted the
+hypothesis on its own terms — `flow_disabled_containers` never fires in this case —
+so the conclusion was not acted on, but the reasoning that produced it was worthless
+and the entry asserted it as fact.
+
+### What is actually true
+
+- `get_type_of_function_expression` returns the right type for the inner async
+  generator (§873's probe, and that measurement stands).
+- The case is 22 RIGHT / 5 GAP: two `yield*` lines in F4, and three lines in F5.
+- §14's flow bail is not involved.
+- The remaining five are **not** diagnosed, and nothing in §872–§873 diagnosed them.
+
+### The process failure, which is the point of writing this
+
+**I re-read a number I had already used, instead of re-measuring it after two
+landings changed it.** `scorepair` was re-run after §870 and §871 — that is how their
++43 and +2 were known — but the *case-level* figure was carried forward from before
+them.
+
+This session has now recorded five wrong diagnoses in this one chain (§867, §868,
+§870's suspicion, §872, §873) and every one was refuted by a cheap probe. Four of
+those were honest dead ends. **This one was avoidable arithmetic**, and it is worse,
+because a stale number in a note reads exactly like a fresh one to whoever inherits
+it.
+
+`STATUS.md`'s own rule — *a number here without a fresh run behind it is worse than no
+number* — applies to these notes and not only to the dashboard.
