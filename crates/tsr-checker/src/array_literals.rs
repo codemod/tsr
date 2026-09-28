@@ -521,11 +521,22 @@ impl Checker<'_, '_> {
     /// put those disagreements in play at the same time as the new coverage.
     ///
     /// The tuple test is `tuple_element_lists`, the same membership every
-    /// annotated arm above uses. Upstream's `someType` maps over a union's
-    /// constituents; a union is not handled here, which leaves
-    /// `[number, string] | undefined` contexts shut.
+    /// annotated arm above uses.
+    ///
+    /// §889 supplies the `someType` half: upstream's predicate is applied to a
+    /// union **constituent by constituent** (`someType` short-circuits on the
+    /// first that matches), so `[number, string] | undefined` is a tuple context
+    /// — which is exactly the shape §885 mints for an optional member.
+    /// `isGenericMappedType` remains unported.
     fn array_literal_has_a_tuple_contextual_type(&mut self, id: tsr_ast::NodeId) -> bool {
-        self.get_contextual_type(id).is_some_and(|t| self.tuple_element_lists.contains_key(&t))
+        let Some(contextual) = self.get_contextual_type(id) else { return false };
+        if self.tuple_element_lists.contains_key(&contextual) {
+            return true;
+        }
+        let crate::types::TypeData::Union { types, .. } = &self.store.get(contextual).data else {
+            return false;
+        };
+        types.iter().any(|t| self.tuple_element_lists.contains_key(t))
     }
 
     pub(crate) fn check_array_literal(&mut self, node: &ArrayLiteralExpression<'_>) -> TypeId {

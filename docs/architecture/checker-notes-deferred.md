@@ -6522,3 +6522,21 @@ rather than discovered later.
 
 Array-literal board after §887 + §888: **412 "want TUPLE, got array" rows, 119 of
 them closed.**
+
+## §889: `someType` maps over a union — the leg §888 named, closed
+
+§888 named it: *"upstream's `someType` maps over a union's constituents; this arm
+tests the contextual type whole, so `[number, string] | undefined` — precisely the
+shape §885 now mints for an optional member — is still not tuple context."*
+
+Ported. **3 W→R, zero adverse** — `typeInferenceLiteralUnion`,
+`unionOfArraysFilterCall`, `unionsOfTupleTypes1`, one row each. `right` 440015 →
+440018.
+
+Three lines is a fair return for three lines of code, and the point of recording
+it is not the number. **The leg was closed because §888 wrote down what it had
+left open, in the same commit, with the shape named.** The alternative — leaving
+it to be rediscovered by a future census — is how §872–§882 spent eight entries.
+
+`isGenericMappedType`, the other half of upstream's predicate, is still unported
+and now the only part of `inTupleContext` that is.

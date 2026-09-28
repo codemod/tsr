@@ -353,3 +353,21 @@ fn a_non_tuple_context_still_widens() {
     let source = "const o: { t: number[] } = { t: [1, 2] };\n";
     assert_eq!(type_of_last_array_literal(source), "number[]");
 }
+
+/// §889: upstream's predicate is applied through `someType`, which maps over a
+/// UNION's constituents. `[number, string] | undefined` is a tuple context —
+/// and that is exactly the shape §885 mints for an optional member.
+///
+/// Corpus effect: `WRONG->RIGHT 3`, zero adverse.
+#[test]
+fn a_union_containing_a_tuple_is_tuple_context() {
+    let source = "const o: { t?: [number, string] } = { t: [1, \"a\"] };\n";
+    assert_eq!(type_of_last_array_literal(source), "[number, string]");
+}
+
+/// The control: a union with no tuple constituent is not tuple context.
+#[test]
+fn a_union_without_a_tuple_still_widens() {
+    let source = "const o: { t: number[] | undefined } = { t: [1, 2] };\n";
+    assert_eq!(type_of_last_array_literal(source), "number[]");
+}
