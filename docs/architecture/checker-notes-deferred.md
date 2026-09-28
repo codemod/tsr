@@ -8273,3 +8273,44 @@ the test is flipped.
 > four-line probe that settled it cost one build. §911 and §915 both recorded the
 > same lesson; this is the first time this session I applied it *after* being
 > wrong rather than instead of.
+
+## §922: `new` on a class merged with a namespace — +80 from a wrong `first()`
+
+`gaproot`'s `NewExpression` root is 177 lines across 83 cases and reads as
+diffuse. **§921's method settled it in one build**: probe five `new` shapes at
+once rather than read the arm.
+
+```
+plain=C | ambient=D | ambient-extends=D | MERGED=error | generic=G<number>
+```
+
+Only the class **merged with a namespace** fails, and the arm that computes the
+answer is correct — its *input* is wrong:
+
+```rust
+let Some(declaration) = self.binder.symbols().get(symbol).declarations.first().copied()
+```
+
+A merged symbol carries both declarations, and `namespace D { … }` comes first in
+source order, so the match on `ClassDeclaration | ClassExpression` fell to `_` and
+returned `error`. `getDeclaredTypeOfSymbol` reads the class declaration wherever
+it sits; searching the declaration list for it is the whole fix.
+
+**Measured: 71 `WRONG→RIGHT` + 9 `GAP→RIGHT`, zero adverse.** `cloduleTest2` 12,
+`interfaceClassMerging2` 10, `targetTypeTest1` 10,
+`ambientClassDeclarationWithExtends` 2 — the case that started the probe, and by
+some distance the smallest beneficiary.
+
+> **`declarations.first()` is a claim that a symbol has one declaration.** It is
+> false for every merged symbol — class+namespace, function+namespace,
+> interface+class — and the corpus names those cases outright (`cloduleTest`,
+> `interfaceClassMerging`, `classFunctionMerging`). **Worth a sweep**: every
+> `declarations.first()` in the checker is a candidate for the same defect, and
+> this one had been costing 80 lines in eleven cases while reading as correct.
+
+### On method
+
+Three entries in a row were reverted for reasoning from the code's shape (§915,
+§919, §921's first attempt). This one reversed the order — five fixtures, one
+build, one failing shape — and the fix followed immediately. The arm's own text
+gave no hint, because **nothing about it is wrong**.

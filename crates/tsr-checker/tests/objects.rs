@@ -822,3 +822,36 @@ fn an_overloaded_tag_with_no_substitutions_takes_arity_one() {
          f`x`;";
     assert_eq!(type_of_last_expression_statement(source), "string");
 }
+
+/// §922: `new D()` where `D` is a class MERGED with a namespace.
+///
+/// One symbol carries both declarations and the namespace comes first in source
+/// order, so `declarations.first()` matched a `ModuleDeclaration`, fell to the
+/// `_` arm and answered `error` — while every unmerged form worked.
+/// `getDeclaredTypeOfSymbol` reads the class declaration wherever it sits, so
+/// the fix is to search for it.
+///
+/// **Found by probing five `new` shapes at once**, which isolated the one that
+/// fails; reading the arm would not have shown it, because the arm is correct
+/// and its input was wrong.
+///
+/// Corpus effect: 71 `WRONG->RIGHT`, 9 `GAP->RIGHT`, zero adverse —
+/// `cloduleTest2` 12, `interfaceClassMerging2` 10, `targetTypeTest1` 10.
+#[test]
+fn new_on_a_class_merged_with_a_namespace() {
+    let source = "declare class C {}\n         namespace D { var x: number; }\n         declare class D extends C {}\n         new D();";
+    assert_eq!(type_of_last_expression_statement(source), "D");
+}
+
+/// The unmerged forms, which always worked and are what hid it.
+#[test]
+fn new_on_unmerged_classes_is_unchanged() {
+    assert_eq!(type_of_last_expression_statement("class C {}\nnew C();"), "C");
+    assert_eq!(type_of_last_expression_statement("declare class D {}\nnew D();"), "D");
+    assert_eq!(
+        type_of_last_expression_statement(
+            "declare class C {}\ndeclare class D extends C {}\nnew D();"
+        ),
+        "D"
+    );
+}

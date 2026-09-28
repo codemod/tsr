@@ -2587,8 +2587,27 @@ impl Checker<'_, '_> {
             bump(&COUNTERS.new_callee_not_class);
             return error;
         }
-        let Some(declaration) = self.binder.symbols().get(symbol).declarations.first().copied()
-        else {
+        // §922: the CLASS declaration, not the first one.
+        //
+        // A class MERGED with a namespace — `namespace D { … }` beside
+        // `declare class D extends C {}` — carries both declarations on one
+        // symbol, and the namespace comes first in source order. Taking
+        // `declarations.first()` then matched a `ModuleDeclaration`, fell to the
+        // `_` arm and answered `error`, so `new D()` gapped while every
+        // unmerged form worked.
+        //
+        // Probed, not reasoned: `new C()`, `new D()` on an ambient class, and
+        // `new D()` on an ambient class with `extends` all answer correctly, and
+        // only the class+namespace merge fails. `getDeclaredTypeOfSymbol` reads
+        // the class declaration wherever it sits, so this searches for it.
+        let class_like =
+            self.binder.symbols().get(symbol).declarations.iter().copied().find(|&declaration| {
+                matches!(
+                    self.node_map.get(declaration),
+                    Some(Node::ClassDeclaration(_) | Node::ClassExpression(_))
+                )
+            });
+        let Some(declaration) = class_like else {
             bump(&COUNTERS.new_no_declaration);
             return error;
         };
