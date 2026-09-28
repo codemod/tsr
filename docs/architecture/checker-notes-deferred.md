@@ -3745,3 +3745,98 @@ The corpus could not have caught 2, 3 or 5 — all three measured zero transitio
 were masked by another defect — and unit tests caught all three. That is the
 strongest argument this session produced for testing a relation directly rather than
 only through the gradient.
+
+## §851: a survey of the six next-largest populations — none is cheap, and here is why each
+
+After §850 reverted, I surveyed the remaining boards rather than picking the next row
+by size. Recorded so the next session does not repeat the survey; each line is a
+population **checked and priced**, not a guess.
+
+| population | size | why it is not a mechanism-level item |
+|---|---:|---|
+| `tryCatchFinallyControlFlow` | 17 W | The port **already ports `bindTryStatement` whole**, "including the `ReduceLabel` trick" (`crates/tsr-binder/src/binder.rs`). The residue is a divergence inside a ported construct, not a missing one. Shape: we answer `0 \| 1` where upstream answers `1` — the `return` inside `try` should make the alternative unreachable. |
+| `controlFlowAliasing` | 19 W | Aliased conditional narrowing is **already partly ported** — `is_constant_reference` exists and §82.1 handles `&&`/`\|\|` inside an inlined aliased condition. Residue is in the discriminant half. |
+| `intersectionReduction` | 92 W | Two shapes at once (`1 -> error`, `never -> any`); intersection reduction is its own subsystem. |
+| `privacyFunctionParameterDeclFile` | **0 W / 90 GAP** | The best *profile* on the board — closing it wins the case with no wrong lines to lose. But the shapes it needs **already work**: a probe shows `(param: M.C) => void` renders correctly, and a namespace-qualified class reference resolves. Multi-file, and the cause is not the qualified-name road it looks like. |
+| `privacyLocalInternalReferenceImportWithExport` | 104 GAP / 72 W | Same family, but with 72 wrong lines it has no safe profile. |
+| `correlatedUnions` | 143 GAP | §806's case; the residue is generic instantiation. |
+
+The pattern across all six, and it is the same one §848 measured: **every population
+left at this size is either already partly ported with a deep residue, or behind a
+priced subsystem.** That is what §847's arithmetic predicted and what three
+successive failed primary legs demonstrated from the other side.
+
+> **The gap board is worth re-ranking after any large landing** — it is how §805 and
+> §806 were found, and it is a different lens from the wrong-line board. It was
+> re-run here and the top of it is `correlatedUnions` 143, generic instantiation
+> again.
+
+### The one genuinely new finding from the survey
+
+`privacyFunctionParameterDeclFile` is **605 RIGHT / 0 WRONG / 90 GAP**. A case with
+no wrong lines at all is the safest thing on any board: every line closed is a line
+gained and there is nothing to lose. It is worth checking whether other such cases
+exist, because the boards this project keeps rank by *wrong* lines and by *gap*
+lines, and neither surfaces "cases with gaps and no wrongs" as a class. That query is
+one awk line and has never been run.
+
+## §852: the board nobody had built — 344 cases with GAPS and ZERO wrong lines
+
+§851 ended by noting that this project's two boards rank by *wrong* lines and by
+*gap* lines, and that neither surfaces **"cases with gaps and no wrongs"** as a
+class. That query is one script. Run:
+
+```
+cases with GAPS and ZERO wrong lines: 344, worth 1,637 lines
+
+   90 gaps     605 right   compiler/privacyFunctionParameterDeclFile
+   39 gaps       4 right   conformance/mappedTypes1
+   34 gaps      55 right   compiler/renamingDestructuredPropertyInFunctionType2
+   28 gaps      99 right   conformance/inferingFromAny
+   26 gaps       5 right   compiler/readonlyFloat32ArrayAssignableWithFloat32Array
+   22 gaps      12 right   conformance/emitter.asyncGenerators.functionExpressions.es2018
+   22 gaps      12 right   conformance/emitter.asyncGenerators.functionExpressions.es2015
+   20 gaps      77 right   conformance/genericCallWithOverloadedFunctionTypedArguments
+   20 gaps      49 right   compiler/typedArrays-es6
+   20 gaps      34 right   compiler/noCollisionThisExpressionAndLocalVarInAccessors
+   19 gaps     143 right   conformance/assignmentCompatWithObjectMembers
+   18 gaps     307 right   compiler/sourceMapValidationDestructuringForObjectBindingPatternDefaultValues
+   18 gaps      77 right   conformance/optionalChainingInference
+   18 gaps      75 right   conformance/stringLiteralTypesOverloads02
+   17 gaps      18 right   compiler/nestedRecursiveLambda
+```
+
+### Why this is the best-shaped population left
+
+**Every one of these cases passes the moment its gaps close, and not one of them has
+a wrong line to lose.** That is a profile no other board on this page can offer:
+
+- A gap is an honest "not computed", so closing one can only move `GAP->RIGHT` or
+  `GAP->WRONG`, and §620 already established `GAP->WRONG` as this project's accepted
+  adverse direction. There is **no `RIGHT->WRONG` exposure at all** in a case with
+  zero wrong lines.
+- The case yield is extreme relative to the line count: **1,637 lines for up to 344
+  cases**, against the corpus's overall ratio of roughly 70 lines per case. These are
+  cases sitting one small fix away from passing.
+- For comparison, §847's arithmetic says 95% needs the ~230 *worst* cases fixed
+  completely. This board is 344 cases that are almost entirely correct already.
+
+It does not reach 95% — 1,637 lines is **0.34 points**, taking the gradient to about
+92.0% — but it would take the **case** rate from 64.8% to as much as 68.4%, which is
+the larger movement and the one `STATUS.md` §1's headline number tracks.
+
+### How to work it, and the one caution
+
+Rank by `gaps` ascending within the board, not descending: a case with 2 gaps and 300
+right lines is a single missing arm, and there are many more of those than there are
+90-gap cases. The list above is the head; the tail is where the ratio is best.
+
+**The caution, measured:** `privacyFunctionParameterDeclFile` heads the board at 90
+gaps and is *not* the place to start. Probes show the two shapes it appears to need —
+a namespace-qualified class reference in a signature, and a `namespace`-declared
+class — **already work**, so its cause is something else and it is multi-file. Size
+at the top of this board is not a proxy for tractability; the same trap §851 records
+for the wrong-line board applies here.
+
+This board has never existed before, which is why a 344-case population was invisible
+to every session that came before this one.
