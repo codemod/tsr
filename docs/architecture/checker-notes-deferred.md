@@ -5316,3 +5316,55 @@ conditional (§870, +43), and the awaited yield (§871, +2). **None of it was th
 subsystem §867 predicted** — and §867's estimate was wrong in the same direction as
 §852.1's, which §857 already corrected once: *the board's cases look like features
 and turn out to be gates.*
+
+## §872: the async-generator IIFE residue, localised to one road
+
+`emitter.asyncGenerators.functionDeclarations.es2018` kept its 9 gaps through §868–
+§871, and three probe runs narrow the cause to a single road rather than leaving it
+as "the case still gaps".
+
+The shape is `async function* f5() { const x = yield* (async function*() { yield 1; })(); }`,
+and the gaps include the **inner** function expression's own type (positions 4:4 and
+4:5, both wanting `() => AsyncGenerator<number, void, unknown>`).
+
+Probe 1 — the §870 gate:
+
+```
+872 async gen expr: parent=Some(ParenthesizedExpression) no_ctx=true
+```
+
+**The gate passes.** §869's call-callee arm does what it was built to do: the inner
+expression's position is showably uncontextual, so §870's refusal does not fire.
+
+Probe 2 — the mint itself:
+
+```
+872 reached mint: AsyncGenerator=true yields=1 returns=0
+```
+
+**The mint is reached and succeeds.** `AsyncGenerator` resolves at arity 3, one yield
+type was collected, no return types — everything `createGeneratorType` needs.
+
+And the positions still answer `error`.
+
+### What that leaves
+
+The generator return type **is computed** and the function expression's own type road
+does not use it. That is not the mint, not the gate, and not §869's predicate — all
+three are now known-good by measurement. It is
+`get_type_of_function_expression` or whatever the expression road consults between
+them, and it is the **only** remaining candidate for these nine lines.
+
+> Worth stating because the obvious diagnosis was wrong three times running here:
+> §867 said *subsystem*, §868's arm said *operand doesn't type*, §870's refusal
+> looked like the gate. Each was refuted by one probe, and the residue is smaller and
+> better placed each time. **A case that survives four landings is not evidence the
+> landings were wrong** — §868–§871 took 43 of this family's lines elsewhere while
+> these nine stayed put.
+
+**Next probe, named:** instrument `get_type_of_function_expression` for this
+declaration and read which of its guards answers `error` when the generator type
+behind it is already minted. `crates/tsr-checker/src/signatures.rs` §809's guard is
+the first suspect — it declines a function whose contextual signature does not
+materialise — though this function has no parameters, which is what §809's guard is
+about.
