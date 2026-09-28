@@ -8390,3 +8390,40 @@ reference maps nothing, so it cannot disturb what already worked.
 > one, and in every case **one batch of fixtures separated them in a single
 > build**. Reading the code found none of the three: each arm is correct about
 > what it does.
+
+## §924: the probe loop run over `gaproot`'s top roots — three paid, three clean, and the method's limit
+
+§921–§923 each landed by probing a root rather than reading it. Running that loop
+across the board's ranking:
+
+| root | lines | probe result |
+|---|---|---|
+| `ElementAccessExpression` | 256 | **§921** — the array road unreachable from the branch needing it, +14 |
+| `NewExpression` | 177 | **§922** — `declarations.first()` on a merged symbol, +80, +14 cases |
+| property access | 418 | **§923** — inherited generic member needs two substitutions, +40, +7 cases |
+| `ArrowFunction` | 935 | **clean** — arg, overload, two-arg, second-arg, object property, nested property all correct |
+| `ObjectLiteralExpression` | 135 | **clean** — plain, method, getter, setter, shorthand, spread, computed, nested all correct |
+| `reference, the name does not resolve` | 165 | **clean at the shape**: signature parameters type correctly in a function declaration, an interface method, a call signature, a construct signature and a type literal |
+
+**134 lines and 21 cases from three roots; three came back clean.**
+
+### The limit, stated
+
+The clean three are not defect-free — they hold 1,718 gap lines between them. They
+are clean *at every shape a unit harness can express*. What the failing rows in
+them actually need:
+
+- `ArrowFunction`'s residue is generic inference and overload agreement, which
+  needs a contextual signature to materialise — §809's guard declines precisely
+  there, and deliberately.
+- `reference, the name does not resolve`'s top case (`privacyFunctionParameterDeclFile`,
+  90 lines, 63% of the root) is an **external module** with `@Filename:` and
+  `@module: commonjs`; its names are module-scoped. The unit harness binds one
+  file with no module semantics, so the shape cannot be built there at all — and
+  §907 already established its 176-line sibling is a third, separate mechanism.
+
+> **The probe loop is bounded by the harness's expressiveness, and that bound is
+> now reached.** Every root whose failing shape fits in a single lib-free file has
+> been probed; what remains needs multi-file module fixtures, a real lib, or
+> generic inference — i.e. conformance-level fixtures, which is a different
+> instrument from the one that found §921–§923.
