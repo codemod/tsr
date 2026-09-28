@@ -8201,3 +8201,30 @@ measurement of the same guess.
 > a reader would otherwise have re-derived. **A refusal whose cause is wrong is
 > still a refusal — but it sends the next attempt at the wrong prerequisite**,
 > and this one had already sent one.
+
+### §920.1: the `ReturnType` bit traced to the resolution site — no population
+
+§920 left open whether to build the one priority bit this port can source. Traced
+before building, which is the whole lesson of §919 and §915:
+
+- `check_generic_call_with` builds `return_mapper` separately from `infos`;
+- at the resolution site the candidate list is `flatten_infos(&infos)`
+  (`inference.rs:676`) — **`return_mapper` is not in it**;
+- the return mapper's entries reach only `partial`, the *serve* map for deferred
+  arguments, and fill only parameters the arguments left empty.
+
+So a `ReturnType` priority bit on `InferenceInfo` would be read at a site its
+candidates never reach. **It would have measured a clean zero**, and the reason
+would have looked like "the rule does not pay here" rather than "the bit has no
+population" — which is §888's `Iterable` shape and §904's inert-arm shape both
+over again.
+
+**The priority model has to start with a bit whose candidates reach
+`covariant_combination`**, and those are argument-side: `MappedTypeConstraint` and
+`LiteralKeyof`, neither of which this port computes. That is the real prerequisite
+for §802's family, and it is now traced rather than guessed.
+
+> Three entries in a row (§918, §919, §920.1) ended by *not* building something,
+> each after locating exactly why. That is a worse-looking session log and a
+> better-informed next one; the alternative was three more clean zeros with three
+> more plausible explanations.
