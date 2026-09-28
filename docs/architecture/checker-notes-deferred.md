@@ -3218,3 +3218,76 @@ relater-depth effort.
 `is_type_related_to(<a function type>, <global Function>, StrictSubtype)` directly in
 a test with `lib.d.ts` available, and read which of `properties_related_to`'s
 branches answers.
+
+## §845: diagnosed, not built — the `& Function` rows are the `CallableFunction` fallback
+
+§844's exposed defect, taken to its cause with two probe runs and no code.
+
+`narrow_type_by_type_facts` takes upstream's third arm and intersects, because its
+first arm's test fails. Instrumenting all three branches over
+`typeGuardOfFormTypeOfFunction`:
+
+```
+845 t=() => string  implied=Function -> (() => string) & Function | strict=false subtype=false assignable=false
+845 t={ s: string; } implied=Function -> never                     | strict=false subtype=false assignable=false
+845 t=unknown        implied=Function -> Function                  | strict=false subtype=false assignable=false
+```
+
+A function type is unrelated to `Function` at **every** relation, not merely
+`StrictSubtype`. That rules out the relation's strictness and points at the
+comparison itself.
+
+The second probe asked what the source's `Function`-members resolve to:
+
+```
+src.bind = { <T>(this: T, thisArg: ThisParameterType<T>): OmitThisParameter<T>;
+             <T, A extends any[], B extends any[], R>(this: (this: T, ...args: [...A, ...B]) => R,
+                                                      thisArg: T, ...args: A): (...args: B) => R; }
+src.name = string
+```
+
+**They resolve.** The lookup chain is not the gap — `src.name` is `string` and
+matches `Function.name` trivially. The gap is `bind`: the port answers
+**`CallableFunction`'s** two generic `this`-parameter overloads, and the target
+`Function` declares `bind(this: Function, thisArg: any, ...argArray: any[]): any`.
+Relating those two structurally is a hard question, and the port's relater answers
+`false`. Upstream never asks it, because `getPropertyOfTypeEx` falls back to
+**`globalFunctionType` only** — so upstream compares `Function.bind` with
+`Function.bind`, which is identity.
+
+### The cause, stated
+
+`crates/tsr-checker/src/members.rs` builds its fallback chain as
+
+```
+CallableFunction | NewableFunction,  Function,  Object
+```
+
+and upstream's is `Function, Object`. The `CallableFunction`/`NewableFunction` entry
+is a port-specific prepend. Upstream reaches those two types by a **different road**:
+`bind`/`call`/`apply` under `strictBindCallApply` are resolved through
+`getBindCallApplySignature`, not through the property fallback chain.
+
+### Why this is filed rather than built
+
+Removing the prepend is one line and would very likely fix the 50–60 `& Function`
+lines — **and it is the road `strictBindCallApply1` (204 WRONG lines, one of the
+corpus's largest single cases) depends on.** The two are the same line of code
+pulling in opposite directions, so this is not a one-line change with a small blast
+radius; it is "port `getBindCallApplySignature` and then remove the prepend", in that
+order.
+
+**Sizing both sides before touching it is the whole of the next session's first
+step**, and it is now cheap, because the diagnosis above is the part that cost
+anything:
+
+| | |
+|---|---:|
+| `… & Function` WRONG lines | 28 measured, plus ~12 §844 converted, plus dependent `void` lines |
+| `strictBindCallApply1` | 204 WRONG lines, unknown how many depend on the prepend |
+| falsifier for the whole theory | delete the prepend, run `scorepair`, read both numbers |
+
+That falsifier is one build and one run, and it answers the trade directly rather
+than by argument. I did not run it because it belongs to a bar of its own, and
+because a change that moves two large populations in opposite directions should not
+be measured at the end of a session and landed on the strength of one number.
