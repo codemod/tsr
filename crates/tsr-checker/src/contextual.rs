@@ -569,7 +569,7 @@ impl<'a> Checker<'a, '_> {
     ///
     /// A `NewExpression` shares upstream's `CallExpression` arm and would cost
     /// one pattern here, but it is not measured separately, so it is a gap.
-    fn get_contextual_type(&mut self, node: NodeId) -> Option<TypeId> {
+    pub(crate) fn get_contextual_type(&mut self, node: NodeId) -> Option<TypeId> {
         let parent = self.nodes.parent(node)?;
         match self.node_map.get(parent)? {
             // `getContextualTypeForInitializerExpression` (`checker.go:29423`) →

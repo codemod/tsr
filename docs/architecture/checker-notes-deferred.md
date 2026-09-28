@@ -6475,3 +6475,50 @@ half and is **not** attempted here: this port's contextual road covers "three of
 its twenty arms", so whether it subsumes the seven is a measurement. It is now the
 best-sized remaining item on the array-literal board (412 rows want a tuple; 59 of
 them just closed).
+
+## §888: the seven-arm list gets the question it was approximating — +60, zero regressions
+
+§887 ported `inTupleContext`'s first disjunct. This is the second, the one the
+seven hand-rolled parent-kind arms exist to approximate:
+
+```go
+contextualType != nil && someType(contextualType, func(t *Type) bool {
+    return c.isTupleLikeType(t) || …
+})
+```
+
+One line: **ask `get_contextual_type` and test tuple-likeness.** That road
+dispatches on the parent too, but covers a *strict superset* of the seven —
+adding `SatisfiesExpression`, `PropertyDeclaration`, `NewExpression`,
+`ConditionalExpression`, `PropertyAssignment`, `ParenthesizedExpression`, an
+enclosing `ArrayLiteralExpression`, and an arrow's expression body.
+
+**Measured: 60 W→R against one W→G. Zero `RIGHT→` of either kind.**
+`conformance/genericCallWithTupleType` 18, `destructuringParameterDeclaration1ES5`
+4, `…ES5iterable` 4. `right` 439955 → 440015.
+
+### Why it was added behind the seven arms rather than replacing them
+
+Not caution for its own sake. The two roads **disagree about which type a shared
+parent kind yields**: the hand-rolled arms read the written annotation *node*
+(`get_type_from_type_node`), while `get_contextual_type` may answer an inferred or
+instantiated type for the same position. Replacing would put those disagreements
+in play simultaneously with the new coverage, and a mixed measurement cannot be
+attributed. Consulted only where the list said `No`, the arm can only widen, and
+the 60/0/1 reading is unambiguous.
+
+Deleting the seven arms is now a **separable** follow-up with its own falsifier:
+it should measure zero if the two roads agree wherever both answer, and whatever
+it does measure is exactly the disagreement, isolated. That is a better experiment
+than it would have been bundled here.
+
+### What stays shut
+
+Upstream's `someType` maps over a **union's** constituents; this arm tests the
+contextual type whole, so `[number, string] | undefined` — precisely the shape
+§885 now mints for an optional member — is still not tuple context. The
+`isGenericMappedType` half of the predicate is also unported. Both are named here
+rather than discovered later.
+
+Array-literal board after §887 + §888: **412 "want TUPLE, got array" rows, 119 of
+them closed.**

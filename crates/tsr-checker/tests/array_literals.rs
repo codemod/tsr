@@ -323,3 +323,33 @@ fn a_spread_into_an_array_literal_is_not_tuple_context() {
     let source = "const outer = [...[1, 2]];\n";
     assert_eq!(type_of_last_array_literal(source), "number[]");
 }
+
+/// §888: upstream's second `inTupleContext` disjunct (`checker.go:8029`) — *is
+/// the contextual type tuple-like?* — asked once through `get_contextual_type`
+/// rather than approximated by the seven hand-rolled parent-kind arms.
+///
+/// A `satisfies` expression is one of the eight parent kinds the generic road
+/// covers and the hand-rolled list does not.
+///
+/// Corpus effect when this landed: `WRONG->RIGHT 60` against one `WRONG->GAP`.
+#[test]
+fn a_satisfies_annotation_supplies_tuple_context() {
+    let source = "const a = [1, 2] satisfies [number, number];\n";
+    assert_eq!(type_of_last_array_literal(source), "[number, number]");
+}
+
+/// A PROPERTY ASSIGNMENT inside an annotated object literal — another parent
+/// kind reached only through the generic road.
+#[test]
+fn a_property_assignment_supplies_tuple_context() {
+    let source = "const o: { t: [number, string] } = { t: [1, \"a\"] };\n";
+    assert_eq!(type_of_last_array_literal(source), "[number, string]");
+}
+
+/// The control: with no tuple anywhere in the contextual type, the literal still
+/// widens. The generic arm must not make every literal a tuple.
+#[test]
+fn a_non_tuple_context_still_widens() {
+    let source = "const o: { t: number[] } = { t: [1, 2] };\n";
+    assert_eq!(type_of_last_array_literal(source), "number[]");
+}

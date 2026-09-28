@@ -322,7 +322,7 @@ impl Checker<'_, '_> {
         {
             return TupleContext::Destructured;
         }
-        'context: {
+        let decided = 'context: {
             let Some(id) = node.node_id else { break 'context TupleContext::No };
             let Some(parent) = self.nodes.parent(id) else {
                 break 'context TupleContext::No;
@@ -483,7 +483,49 @@ impl Checker<'_, '_> {
                 }
                 _ => TupleContext::No,
             }
+        };
+        if decided != TupleContext::No {
+            return decided;
         }
+        // §888: the generic question, behind the seven arms.
+        match node.node_id {
+            Some(id) if self.array_literal_has_a_tuple_contextual_type(id) => {
+                TupleContext::Annotated
+            }
+            _ => TupleContext::No,
+        }
+    }
+
+    /// §888: upstream's SECOND `inTupleContext` disjunct (`checker.go:8029`) —
+    /// *is the contextual type tuple-like?* — asked once, generically.
+    ///
+    /// ```go
+    /// contextualType != nil && someType(contextualType, func(t *Type) bool {
+    ///     return c.isTupleLikeType(t) || …
+    /// })
+    /// ```
+    ///
+    /// [`Checker::array_literal_tuple_context_kind`] approximates this with seven
+    /// hand-rolled parent-kind arms, each re-deriving an annotation. This asks
+    /// [`Checker::get_contextual_type`] instead, which dispatches on the parent
+    /// too but covers a **strict superset**: it adds `SatisfiesExpression`,
+    /// `PropertyDeclaration`, `NewExpression`, `ConditionalExpression`,
+    /// `PropertyAssignment`, `ParenthesizedExpression`, an enclosing
+    /// `ArrayLiteralExpression` and an arrow's expression body.
+    ///
+    /// **Consulted only where the seven arms already answered `No`**, so it can
+    /// only widen. That is deliberate and not merely cautious: the two roads
+    /// disagree on *which type* a shared parent kind yields (the hand-rolled arms
+    /// read the written annotation node; `get_contextual_type` may return an
+    /// inferred or instantiated type), and replacing rather than extending would
+    /// put those disagreements in play at the same time as the new coverage.
+    ///
+    /// The tuple test is `tuple_element_lists`, the same membership every
+    /// annotated arm above uses. Upstream's `someType` maps over a union's
+    /// constituents; a union is not handled here, which leaves
+    /// `[number, string] | undefined` contexts shut.
+    fn array_literal_has_a_tuple_contextual_type(&mut self, id: tsr_ast::NodeId) -> bool {
+        self.get_contextual_type(id).is_some_and(|t| self.tuple_element_lists.contains_key(&t))
     }
 
     pub(crate) fn check_array_literal(&mut self, node: &ArrayLiteralExpression<'_>) -> TypeId {
