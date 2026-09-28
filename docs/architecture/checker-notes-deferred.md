@@ -6901,3 +6901,39 @@ the change paid elsewhere (§844, §846, §858, §861, §875, §893). The patter
 stable enough to state as a rule: **a case surfaces in a census because it has two
 defects, so the one you can name is rarely the one that closes it.** The census
 picks the target; it does not pick the fix.
+
+## §894: renamed elements too (+10, zero adverse) — and what still blocks the 75
+
+Reading the case §893's bar named
+(`sourceMapValidationDestructuringForObjectBindingPatternDefaultValues2`) with
+the expression column shows exactly two remaining blockers:
+
+```
+{ primary: primaryA = "none", secondary: secondaryA = "none" }   ← RENAMED elements
+{ skills: { primary: … } }                                        ← NESTED pattern
+```
+
+**Renamed elements ported.** §429 excluded them for a reason its code makes
+plain: it read `element.name` for both the member's name and the binding's, and
+for `{ primary: p }` those differ — the member is `primary`, the binding is `p`.
+Admitting them means keying the member (and §565's side table) by the *property*
+name while the local identifier stays the binding. **+7 W→R, +3 G→R, zero
+adverse.**
+
+**Nested patterns stay refused, and this is the named blocker for the 75.** A
+nested element's member type is the inner pattern's own implied type, i.e. this
+builder applied recursively — and the builder is written inline inside
+`get_type_of_symbol`'s body, keyed off a `ParameterDeclaration`, with no form that
+takes a pattern and returns a type. **Extracting it is the prerequisite**, and it
+is a refactor rather than an arm, which is why it is recorded here rather than
+attempted at the end of a long thread.
+
+Its falsifier is cheap once extracted: the 36 rows of that case should close, and
+if they do not, the remaining defect is the *outer* member's optionality
+(`skills?`), which comes from a `= {}` default on the pattern itself rather than
+from any element.
+
+### The thread's arithmetic
+
+§893 + §894: **+49 right, 4 `GAP→WRONG`, zero `RIGHT→`.** The 75 rows that started
+it are still open, and every line gained came from somewhere else.

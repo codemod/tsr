@@ -3704,7 +3704,23 @@ impl<'a> Checker<'a, '_> {
                         pattern.elements.iter().all(|element| {
                             element.dot_dot_dot_token.is_none()
                                 && (object_pattern || element.initializer.is_none())
-                                && element.property_name.is_none()
+                                // §894: a RENAMED element (`{ primary: p }`) is
+                                // admitted for an object pattern. The member's
+                                // name is the PROPERTY name and the binding's is
+                                // the local one, which is the whole reason §429
+                                // excluded them — it read `element.name` for
+                                // both. Only the names this port can key a
+                                // member by are admitted, matching
+                                // `hasBindableName`'s reduction elsewhere.
+                                && (element.property_name.is_none()
+                                    || (object_pattern
+                                        && matches!(
+                                            element.property_name,
+                                            Some(
+                                                tsr_ast::PropertyName::Identifier(_)
+                                                    | tsr_ast::PropertyName::StringLiteral(_)
+                                            )
+                                        )))
                                 && matches!(
                                     element.name,
                                     Some(tsr_ast::BindingName::Identifier(_))
@@ -3793,8 +3809,18 @@ impl<'a> Checker<'a, '_> {
                     let mut members: Vec<crate::objects::Member> = Vec::new();
                     let mut names: Vec<(String, TypeId)> = Vec::new();
                     for element in pattern.elements {
-                        let Some(tsr_ast::BindingName::Identifier(name)) = element.name else {
+                        let Some(tsr_ast::BindingName::Identifier(local)) = element.name else {
                             continue;
+                        };
+                        // §894: the MEMBER is named by the property name where
+                        // there is one; the local binding name is what the
+                        // destructuring read looks up, and §565's side table
+                        // keys by the member. `{ primary: p = "none" }` declares
+                        // `primary?: string` and binds `p`.
+                        let member_name = match element.property_name {
+                            Some(tsr_ast::PropertyName::Identifier(name)) => name.text,
+                            Some(tsr_ast::PropertyName::StringLiteral(name)) => name.text,
+                            _ => local.text,
                         };
                         // The initializer is read SYNTACTICALLY, not through
                         // `check_expression`. Upstream calls
@@ -3824,9 +3850,9 @@ impl<'a> Checker<'a, '_> {
                             }
                             _ => any,
                         };
-                        names.push((name.text.to_string(), member_type));
+                        names.push((member_name.to_string(), member_type));
                         members.push(crate::objects::Member::Property {
-                            name: name.text.to_string(),
+                            name: member_name.to_string(),
                             optional: element.initializer.is_some(),
                             readonly: false,
                             printed: self.type_to_string(member_type),

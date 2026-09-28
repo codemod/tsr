@@ -299,3 +299,15 @@ fn a_defaulted_element_widens_its_literal() {
 fn a_defaulted_array_pattern_element_is_still_refused() {
     assert_ne!(type_of_binding("function f([a = 1]) { }", "a"), "number");
 }
+
+/// §894: a RENAMED element is admitted too. The member is named by the PROPERTY
+/// name and the local binding by the other — which is exactly why §429 excluded
+/// them: it read `element.name` for both.
+///
+/// Corpus effect: `+7 W→R`, `+3 G→R`, zero adverse.
+#[test]
+fn a_renamed_defaulted_element_names_the_member_by_its_property() {
+    let source = "function f({ primary: p = \"none\" }) { }";
+    // The LOCAL name is what a read of the binding resolves.
+    assert_eq!(type_of_binding(source, "p"), "string");
+}
