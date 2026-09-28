@@ -371,3 +371,35 @@ fn a_union_without_a_tuple_still_widens() {
     let source = "const o: { t: number[] | undefined } = { t: [1, 2] };\n";
     assert_eq!(type_of_last_array_literal(source), "number[]");
 }
+
+/// §921: the `Array<T>`/tuple numeric road, reached from the branch that needs
+/// it.
+///
+/// `array_or_tuple_element_access` sits at the TAIL of `element_access_lookup`,
+/// after `let Some(name) = … else { … }`, so it was reachable only when the index
+/// NAMES A PROPERTY. A plain `number` index names none — which is exactly the
+/// case the road exists for — so `a[i]` on a `string[]` returned `error` and
+/// never got there.
+///
+/// **`a[0]` worked and hid it**: a numeric LITERAL does name a property and
+/// answers through the members table above, so the road looked live.
+///
+/// Corpus effect: `WRONG->RIGHT 14`, zero adverse (`indexerWithTuple` 12).
+#[test]
+fn a_number_typed_index_reads_an_arrays_element() {
+    assert_eq!(
+        type_of_last_array_literal(
+            "declare const i: number;\ndeclare const a: string[];\nconst r = [a[i]];"
+        ),
+        "string[]"
+    );
+}
+
+/// The literal-index form, which always worked and is what masked the gap.
+#[test]
+fn a_literal_index_still_reads_through_the_members_road() {
+    assert_eq!(
+        type_of_last_array_literal("declare const a: string[];\nconst r = [a[0]];"),
+        "string[]"
+    );
+}

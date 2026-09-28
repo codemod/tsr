@@ -368,6 +368,24 @@ impl Checker<'_, '_> {
             if let Some(deferred) = self.deferred_indexed_access(object_type, index_type) {
                 return deferred;
             }
+            // §921: the `Array<T>`/tuple numeric road, reached from the branch
+            // that actually needs it.
+            //
+            // `array_or_tuple_element_access` sits at the TAIL of this function,
+            // after `let Some(name) = … else { … }` — so it is reachable only
+            // when the index NAMES A PROPERTY. A plain `number` index names
+            // none, which is precisely the case the road exists for: `a[i]` on
+            // `string[]` with `i: number` returned `error` here and never got
+            // there. Probed rather than reasoned — the road's own entry never
+            // fired for that shape.
+            //
+            // `a[0]` worked and hid it: a numeric LITERAL does name a property,
+            // takes the road above, and answers through the members table.
+            if let Some(found) =
+                self.array_or_tuple_element_access(object_type, index_type, include_undefined)
+            {
+                return found;
+            }
             return error;
         };
         // Through [`Checker::get_type_of_property_of_type`] rather than
@@ -622,10 +640,24 @@ impl Checker<'_, '_> {
         index_type: TypeId,
         include_undefined: bool,
     ) -> Option<TypeId> {
-        // Plain `number` only: a literal index already answered through the
-        // property-name road (in-range) or wants `undefined` (out of range —
-        // `indexerWithTuple`, the §28 measurement's only movement).
-        if index_type != self.intrinsics.number {
+        // §921: plain `number`, **or a number LITERAL into an `Array<T>`**.
+        //
+        // §28's gate was `index_type != number → None`, justified by *"a literal
+        // index already answered through the property-name road (in-range)"*.
+        // True of a TUPLE — position `0` is a real member — and false of
+        // `Array<T>`, which has no property named `"0"`. Both halves were
+        // broken and each hid the other: the literal form died on this gate,
+        // and the `number` form never reached this function at all (the call
+        // site sat past an earlier `return error`).
+        //
+        // Tuples keep the exclusion: their literal indices are positional, the
+        // property road answers them, and the out-of-range `undefined` §28
+        // measured (`indexerWithTuple`) belongs to that road.
+        let numeric_literal =
+            self.store.get(index_type).flags.contains(crate::flags::TypeFlags::NUMBER_LITERAL);
+        let is_tuple = self.tuple_element_lists.contains_key(&object_type);
+        let admits = index_type == self.intrinsics.number || (numeric_literal && !is_tuple);
+        if !admits {
             return None;
         }
         let element = if let Some((elements, _)) = self.tuple_element_lists.get(&object_type) {

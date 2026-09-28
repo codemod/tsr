@@ -8228,3 +8228,48 @@ for §802's family, and it is now traced rather than guessed.
 > each after locating exactly why. That is a worse-looking session log and a
 > better-informed next one; the alternative was three more clean zeros with three
 > more plausible explanations.
+
+## §921: the array/tuple numeric road was unreachable from the branch that needed it — +14
+
+`gaproot`'s most concentrated root after array literals is
+`expression answered error: ElementAccessExpression` (256 lines, 55 cases, top-10
+51%). Probing it produced a correction to my own first attempt and then the real
+defect.
+
+**First attempt, from reading:** `array_or_tuple_element_access` opens with
+`if index_type != number { return None }`, justified as *"a literal index already
+answered through the property-name road (in-range)"*. True for a TUPLE, false for
+`Array<T>`, which has no property `"0"` — so I admitted numeric literals.
+**Measured zero.**
+
+**Then I probed instead of reasoning**, and the probe said the opposite of what I
+had assumed: `a[0]` answered `string` and `a[i]` with `i: number` answered
+`error`. Three more probes — at the road, at the lookup, at the access — located
+it:
+
+> `array_or_tuple_element_access` is called at the TAIL of
+> `element_access_lookup`, **after** `let Some(name) = … else { … return error }`.
+> So it is reachable only when the index NAMES A PROPERTY — and a plain `number`
+> index names none, which is exactly the case the road exists for.
+
+The road had been dead for its own purpose since it was written. Calling it from
+the else-branch, before that `return error`, is the fix.
+
+**And the two halves hid each other.** With the call site fixed, `a[0]` still
+failed — the literal form dies on the gate above — and the first attempt's
+numeric-literal admission is what serves it. Each fix alone reads as "no change";
+together they are the road working.
+
+**Measured: 14 `WRONG→RIGHT`, zero adverse.** `conformance/indexerWithTuple` 12,
+`unionsOfTupleTypes1` 2.
+
+A pinned refusal went with it: `tests/tuples.rs` asserted `t[idx0]` on a tuple as
+`error` under §8's PAIR rule (*"the unported case asserted beside the ported
+ones"*). It answers `string | number` now, which is upstream's element union, and
+the test is flipped.
+
+> **One probe would have replaced the first attempt entirely.** I read the gate,
+> built a theory of which half was broken, and was wrong about which — while the
+> four-line probe that settled it cost one build. §911 and §915 both recorded the
+> same lesson; this is the first time this session I applied it *after* being
+> wrong rather than instead of.

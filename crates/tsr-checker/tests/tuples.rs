@@ -176,10 +176,13 @@ fn a_tuple_element_access_answers_the_element() {
     assert_eq!(type_of_declaration(source, "e1"), "number");
     assert_eq!(type_of_declaration(source, "e2"), "undefined");
     assert_eq!(type_of_declaration(source, "e5"), "string");
-    // The `tuple[number]` form needs the union of the element types and is
-    // refused in §8 — the PAIR rule: the unported case asserted beside the
-    // ported ones.
-    assert_eq!(type_of_declaration(source, "e3"), "error");
+    // §921: the `tuple[number]` form is no longer refused. §8's pair asserted
+    // it as the unported case beside the ported ones; the union of the element
+    // types is what `array_or_tuple_element_access` computes, and the reason it
+    // never ran is that its call site sat past an earlier `return error` in the
+    // branch for an index that names no property — which is every non-literal
+    // index.
+    assert_eq!(type_of_declaration(source, "e3"), "string | number");
 }
 
 /// §770: a tuple's non-numeric members come from `Array<T>`.
