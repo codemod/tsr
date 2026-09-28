@@ -2834,6 +2834,31 @@ impl<'a> Checker<'a, '_> {
                     }
                 }
                 Some(Node::ObjectLiteralExpression(_)) => {}
+                // §869: a call's CALLEE, and a tagged template's TAG, have no
+                // contextual type — upstream says so in a comment on the line
+                // that returns nil (`getContextualTypeForArgument`,
+                // `checker.go:29762-29768`):
+                //
+                // ```go
+                // argIndex := slices.Index(args, arg)
+                // // -1 for e.g. the expression of a CallExpression, or the tag of a TaggedTemplateExpression
+                // if argIndex == -1 {
+                //     return nil
+                // }
+                // ```
+                //
+                // An ARGUMENT is contextually typed by the parameter, so it
+                // answers false. Purely positional, so §865's soundness rule
+                // admits it.
+                Some(Node::CallExpression(call)) => {
+                    return call.expression.and_then(|e| e.node_id()) == Some(position);
+                }
+                Some(Node::NewExpression(new)) => {
+                    return new.expression.and_then(|e| e.node_id()) == Some(position);
+                }
+                Some(Node::TaggedTemplateExpression(tagged)) => {
+                    return tagged.tag.and_then(|e| e.node_id()) == Some(position);
+                }
                 // §866, and it is §865's soundness rule applied twice more.
                 //
                 // `SpreadAssignment` (`checker.go:29378`) is

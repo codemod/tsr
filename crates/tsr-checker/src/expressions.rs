@@ -2905,8 +2905,13 @@ impl Checker<'_, '_> {
         // there it asks whether a YIELD has a contextual type, here whether its
         // CONTAINER does. Both are `getContextualType`'s parent switch, and
         // both are written as declines so a mistake costs a gap.
-        let contextualised =
-            contextualisable && !self.container_is_provably_uncontextualised(container);
+        // §869: `has_no_contextual_type` replaces the one-shape predicate that
+        // stood in for it. `container_is_provably_uncontextualised` recognised
+        // exactly `var x = function*() { }` — a variable declaration with no
+        // annotation — where the general walk now answers for eleven node
+        // kinds (§863–§866, §869). It is the same question §169 and §561
+        // already route through this predicate, asked here too.
+        let contextualised = contextualisable && !self.has_no_contextual_type(container);
         // §225: an ANNOTATED generator's yield type is the annotation's NEXT
         // type, and for the shape the corpus actually writes that is readable
         // without `getIterationTypesOfGeneratorFunctionReturnType`. The
@@ -3001,28 +3006,55 @@ impl Checker<'_, '_> {
                     return self.intrinsics.undefined;
                 }
             }
+            // §868: the delegated iterable's RETURN type, read off the
+            // `Generator` family's declared `TReturn` slot.
+            //
+            // `checkYieldExpression` (`checker.go:10998-11001`) answers
+            // `getIterationTypeOfIterable(use, IterationTypeKindReturn, …)`
+            // for a `yield*`, and every one of
+            //
+            //     Generator<T, TReturn, TNext>   AsyncGenerator<T, TReturn, TNext>
+            //     IterableIterator<…>            AsyncIterableIterator<…>
+            //     Iterator<…>                    AsyncIterator<…>
+            //
+            // declares `TReturn` as its **second** type argument — so when the
+            // operand is a reference to one of them the answer is readable
+            // without the `[Symbol.iterator]` walk that late binding blocks.
+            // That is the same sidestep `for_of_element_type`
+            // (`crate::symbols`) already takes for the FIRST slot, at index 1
+            // instead of index 0.
+            //
+            // Async-ness is MATCHED rather than ignored, because
+            // `IterationUseAsyncYieldStar` and `IterationUseYieldStar` are
+            // what upstream distinguishes.
+            if let Some(operand) = node.expression {
+                let operand_type = self.check_expression(operand);
+                let families: &[&str] = if is_async {
+                    &["AsyncGenerator", "AsyncIterableIterator", "AsyncIterator"]
+                } else {
+                    &["Generator", "IterableIterator", "Iterator"]
+                };
+                if let Some((target, arguments)) =
+                    self.type_reference_targets.get(&operand_type).cloned()
+                    && arguments.len() >= 2
+                {
+                    let target = self.binder.merged_symbol(target);
+                    for family in families {
+                        if self
+                            .global_type_symbol(family)
+                            .is_some_and(|declared| self.binder.merged_symbol(declared) == target)
+                        {
+                            return arguments[1];
+                        }
+                    }
+                }
+            }
             return error;
         }
         if contextualised {
             return error;
         }
         any
-    }
-
-    /// Whether a contextualisable function-like container provably has **no**
-    /// contextual type, so [`Self::check_yield_expression`] may take upstream's
-    /// `anyType` fallback rather than gapping. §224.
-    ///
-    /// Only the one shape, deliberately: the initialiser of a
-    /// `VariableDeclaration` that carries no type annotation. Every other
-    /// position is left to the existing refusal — this is a widening with a
-    /// witness, not an attempt at `getContextualType`.
-    fn container_is_provably_uncontextualised(&self, container: NodeId) -> bool {
-        let Some(parent) = self.nodes.parent(container) else { return false };
-        matches!(
-            self.node_map.get(parent),
-            Some(Node::VariableDeclaration(declaration)) if declaration.r#type.is_none()
-        )
     }
 
     /// `ast.GetContainingFunction` (`utilities.go`).

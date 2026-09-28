@@ -5126,3 +5126,129 @@ and its value is in the mechanisms they surface, not the cases themselves.
 its async variant first, in isolation, with unit tests — they are pure functions over
 a type — and only then wire `yield*`. The board will show the result without any
 `RIGHT->WRONG` exposure, because all eleven cases have zero wrong lines.
+
+## §868: `yield*` reads the delegated iterable's `TReturn` slot
+
+§867 located the board's largest item to `yield*` in an async generator and filed it
+as needing the iteration-type subsystem. Reading the port's existing arm shows a
+narrower step is available first.
+
+`checkYieldExpression` (`checker.go:10998-11001`):
+
+```go
+if node.AsYieldExpression().AsteriskToken != nil {
+    use := core.IfElse(isAsync, IterationUseAsyncYieldStar, IterationUseYieldStar)
+    return core.OrElse(c.getIterationTypeOfIterable(use, IterationTypeKindReturn, yieldExpressionType, node.Expression()), c.anyType)
+}
+```
+
+So `yield* X` **is** the *return* iteration type of `X`. This port's unannotated arm
+(§349) handles exactly one shape — **sync generator, `Array` operand → `undefined`**,
+the lib's `ArrayIterator` TReturn — and answers `error` for everything else, which is
+why `async function* f5() { yield* (async function*() { yield 1; })(); }` gaps.
+
+But the whole `Generator` family declares `TReturn` **as its second type argument**:
+
+```
+Generator<T, TReturn, TNext>          AsyncGenerator<T, TReturn, TNext>
+IterableIterator<T, TReturn, TNext>   AsyncIterableIterator<T, TReturn, TNext>
+Iterator<T, TReturn, TNext>           AsyncIterator<T, TReturn, TNext>
+```
+
+so when the operand is a reference to one of them the return iteration type is
+readable **without** the `[Symbol.iterator]` walk — the same sidestep
+`for_of_element_type` already takes for the *first* slot (`crate::symbols`, whose
+comment records that late binding blocks the protocol walk and that the lib's own
+declaration makes the answer readable anyway). This is that argument at index 1
+instead of index 0.
+
+`emitter.asyncGenerators.functionDeclarations.es2018`'s F5 is exactly it:
+`(async function*() { yield 1; })()` is `AsyncGenerator<number, void, unknown>`, and
+the baseline wants `yield* … : void` — argument 1.
+
+**Async-ness is matched**, not ignored: an async container reads the `Async*`
+families and a sync container the sync ones, because `IterationUseAsyncYieldStar`
+and `IterationUseYieldStar` are what upstream distinguishes.
+
+**F4 is deliberately left out.** `async function* f4() { yield* [1]; }` wants `any`,
+and the sync equivalent wants `undefined` — the async delegator's `TReturn` differs
+from the array iterator's. Reading that from the lib needs the protocol walk this
+sidestep is avoiding, and hardcoding `any` for async-plus-array would be a guess
+about a declaration rather than a read of one.
+
+### The bar
+
+1. **Primary.** ≥ **+8 lines**; the async-generator board cases must move.
+2. **Safety.** `RIGHT->WRONG ≤ 5`. The existing sync/Array road is strictly ahead of
+   the new arm, so it keeps its answer.
+3. **Falsifier.** If nothing moves, the operand is not typing as a `Generator`-family
+   reference and the sidestep does not apply.
+4. **Regression.** `cargo test --workspace`; clippy clean.
+
+### §868 measured at zero, and §869 is why
+
+§868's `TReturn` read measured **no transitions**, and its own falsifier said what
+that meant: *"the operand is not typing as a `Generator`-family reference"*. The gap
+list for F5 confirms it — `(async function*() { yield 1; })()` **gaps**, and so does
+the inner `async function*() { yield 1; }` itself. The operand chain is broken from
+the inside, so nothing downstream of it could fire.
+
+The inner one is a function **expression**, and the yield road refused every
+`contextualisable` container through a predicate called
+`container_is_provably_uncontextualised` — which recognised exactly **one** shape:
+
+```rust
+matches!(self.node_map.get(parent),
+    Some(Node::VariableDeclaration(declaration)) if declaration.r#type.is_none())
+```
+
+`var x = function*() { }`, and nothing else. Meanwhile §863–§866 had just finished
+building the general form of that same question for eleven node kinds.
+
+## §869: the callee has no contextual type, and the one-shape predicate retires
+
+Two changes, one bar.
+
+**The arm.** A call's callee and a tagged template's tag have no contextual type, and
+upstream says so in a comment on the line that returns nil
+(`getContextualTypeForArgument`, `checker.go:29762-29768`):
+
+```go
+argIndex := slices.Index(args, arg)
+// -1 for e.g. the expression of a CallExpression, or the tag of a TaggedTemplateExpression
+if argIndex == -1 {
+    return nil
+}
+```
+
+An *argument* is contextually typed by its parameter and answers false. Purely
+positional — §865's soundness rule admits it.
+
+**The retirement.** `container_is_provably_uncontextualised` is replaced by
+`has_no_contextual_type`. It is the same question §169 and §561 already route through
+that predicate; the yield road had its own one-shape copy.
+
+| leg | registered | measured |
+|---|---|---|
+| 1 primary | ≥ +10 lines, F5's lines move | **+47** (`GAP->RIGHT` 28, `WRONG->RIGHT` 19) |
+| 2 safety | `RIGHT->WRONG ≤ 10`, `GAP->WRONG ≤ 40` | **0** and **8** |
+| 3 falsifier | `coAndContraVariantInferences3` | absent from every transition list |
+| 4 regression | tests + clippy + anchors | 145 suites, clean, 3,258 |
+
+`types.asyncGenerators.es2018.1` 7, `targetTypeCalls` 8,
+`capturedParametersInInitializers1` 5, `contextuallyTypedIife`/`…Strict` 6 across
+both directions.
+
+The 8 `GAP->WRONG` are **IIFEs** (`asyncIIFE` 3, `contextualReturnTypeOfIIFE` 3,
+`contextuallyTypedIife` 2), and they are a real tension worth naming: an IIFE's
+function expression *is* a callee, so upstream's rule says it has no contextual type
+— yet §768/§809 built a separate road that gives an IIFE's parameters their types
+from the call's **arguments**. Both are faithful; they are different mechanisms
+answering different questions, and this change makes the first one visible where the
+second does not reach. §620's accepted direction, and the next thing to read if this
+family is opened.
+
+**One-shape predicates standing in for a general one are worth grepping for.** This
+is the second in two entries — §856.1's `has_step_arm` was a *duplicate* of a fact,
+and this was a *weaker* version of one. Both were invisible until something made the
+general form better than the copy.
