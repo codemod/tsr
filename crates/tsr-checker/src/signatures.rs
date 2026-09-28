@@ -2236,7 +2236,7 @@ impl<'a> Checker<'a, '_> {
     ///
     /// `maybeTypeOfKind` on the candidate is the recursive any-constituent
     /// test, inlined here as [`Checker::maybe_type_of_kind`].
-    fn is_literal_of_contextual_type(
+    pub(crate) fn is_literal_of_contextual_type(
         &mut self,
         candidate: TypeId,
         contextual: TypeId,

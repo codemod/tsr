@@ -1727,13 +1727,108 @@ impl Checker<'_, '_> {
     ///
     /// **This is the property boundary freshness stops at.** `const n = 1` is
     /// `1`, and `const o = { a: 1 }` is `{ a: number; }`.
+    ///
+    /// # §890: all three branches
+    ///
+    /// The doc above described the third branch with `nil` for the contextual
+    /// type, which is what this function used to be. Upstream has three, and the
+    /// first two are the ones that *keep* a literal:
+    ///
+    /// ```go
+    /// case c.isConstContext(node):   return c.getRegularTypeOfLiteralType(t)
+    /// case isTypeAssertion(node):    return t
+    /// default:                       return c.getWidenedLiteralLikeTypeForContextualType(t,
+    ///     c.instantiateContextualType(c.getContextualType(node, …), node, …))
+    /// ```
+    ///
+    /// With a real contextual type the third branch keeps a literal too:
+    /// `{ largestUnit: "hour" }` against a parameter
+    /// `{ largestUnit: "hour" | "minute" }` records `{ largestUnit: "hour"; }`.
+    ///
+    /// `isTypeAssertion` is `IsAssertionExpression(SkipParentheses(node))`
+    /// (`utilities.go:347`) — an `as` or angle-bracket assertion, reached
+    /// through parentheses.
+    ///
+    /// **`instantiateContextualType` is not ported**, so the raw contextual type
+    /// is passed. An undecidable `is_literal_of_contextual_type` (`None`) widens,
+    /// which is this function's previous behaviour: the tri-state's other callers
+    /// keep a gap instead, but there is no gap to keep here and declining would
+    /// print `error` where a widened literal is at worst a near miss.
     pub(crate) fn check_expression_for_mutable_location(
         &mut self,
         expression: tsr_ast::Expression<'_>,
     ) -> TypeId {
+        use crate::flags::TypeFlags as TF;
         let id = self.check_expression(expression);
+        let node_id = tsr_ast::Node::from(expression).node_id();
+        if node_id.is_some_and(|node| self.is_const_context(node)) {
+            return self.get_regular_type_of_literal_type(id);
+        }
+        if expression_is_a_type_assertion(expression) {
+            return id;
+        }
+        // Ask for the contextual type ONLY when the candidate could possibly
+        // keep a literal. `is_literal_of_contextual_type` answers `Some(true)`
+        // solely through a `maybe_type_of_kind(candidate, …literal…)` conjunct,
+        // so for a candidate with no literal-flavoured constituent the result is
+        // `Some(false)` or `None`, and both widen. **The short-circuit therefore
+        // cannot change an answer** — it only skips a call whose result is
+        // discarded.
+        //
+        // It is not an optimisation. `get_contextual_type` on an object-literal
+        // member re-enters contextual signature resolution, and where that
+        // re-entry hits an in-flight guard it answers `any`. The first build
+        // measured 26 `RIGHT→WRONG` from exactly that — `bbb : () => void`,
+        // `tag : string` and `value : number` collapsing to `any` in
+        // `thislessFunctionsNotContextSensitive1/2` — on members that could
+        // never have kept a literal anyway. Upstream computes the contextual
+        // type unconditionally because its resolution is re-entrant-safe; this
+        // port's is not yet, and the honest way to say so is to not ask a
+        // question whose answer is already determined.
+        let literalish = TF::STRING_LITERAL
+            .union(TF::NUMBER_LITERAL)
+            .union(TF::BIG_INT_LITERAL)
+            .union(TF::BOOLEAN_LITERAL)
+            .union(TF::UNIQUE_ES_SYMBOL);
+        let in_call_argument = node_id.is_some_and(|n| {
+            self.nodes.ancestors(n).any(|a| {
+                matches!(
+                    self.nodes.kind(a),
+                    tsr_ast::SyntaxKind::CallExpression | tsr_ast::SyntaxKind::NewExpression
+                )
+            })
+        });
+        let keeps_literal = if !in_call_argument && self.maybe_type_of_kind(id, literalish) {
+            node_id
+                .and_then(|node| self.get_contextual_type(node))
+                .and_then(|contextual| self.is_literal_of_contextual_type(id, contextual))
+        } else {
+            Some(false)
+        };
+        if keeps_literal == Some(true) {
+            return self.get_regular_type_of_literal_type(id);
+        }
         let widened = self.get_widened_literal_type(id);
         self.get_regular_type_of_literal_type(widened)
+    }
+}
+
+/// `isTypeAssertion` (`utilities.go:347`):
+/// `ast.IsAssertionExpression(ast.SkipParentheses(node))`. A free function
+/// because it reads no checker state.
+fn expression_is_a_type_assertion(expression: tsr_ast::Expression<'_>) -> bool {
+    let mut current = expression;
+    loop {
+        match current {
+            tsr_ast::Expression::AsExpression(_) | tsr_ast::Expression::TypeAssertion(_) => {
+                return true;
+            }
+            tsr_ast::Expression::ParenthesizedExpression(inner) => match inner.expression {
+                Some(inner) => current = inner,
+                None => return false,
+            },
+            _ => return false,
+        }
     }
 }
 

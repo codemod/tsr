@@ -373,3 +373,36 @@ fn a_mixed_literal_still_gaps() {
         "error"
     );
 }
+
+/// §890: `checkExpressionForMutableLocation` (`checker.go:13878`) has three
+/// branches and this port wrote only the third, with `nil` hardcoded for the
+/// contextual type — so every object-literal member widened unconditionally.
+///
+/// Branch one: a CONST CONTEXT keeps the literal.
+#[test]
+fn a_const_context_keeps_a_members_literal_type() {
+    assert_eq!(type_of_initialiser("const o = { a: 1 } as const;"), "{ readonly a: 1; }");
+}
+
+/// Branch two: a TYPE ASSERTION returns the checked type untouched.
+/// `isTypeAssertion` is `IsAssertionExpression(SkipParentheses(node))`.
+#[test]
+fn a_type_assertion_member_is_returned_untouched() {
+    assert_eq!(type_of_initialiser("const o = { a: 1 as 1 };"), "{ a: 1; }");
+}
+
+/// Branch three with a real contextual type: `isLiteralOfContextualType` keeps a
+/// literal whose contextual type is a literal of the same flavour.
+#[test]
+fn a_literal_contextual_type_keeps_the_members_literal() {
+    let source = "const o: { a: \"x\" | \"y\" } = { a: \"x\" };";
+    assert_eq!(type_of_initialiser(source), "{ a: \"x\"; }");
+}
+
+/// The control, and the rule the module header states: freshness stops at the
+/// property boundary. With no const context, no assertion and no literal in the
+/// contextual type, the member still widens.
+#[test]
+fn a_member_with_no_literal_context_still_widens() {
+    assert_eq!(type_of_initialiser("const o: { a: number } = { a: 1 };"), "{ a: number; }");
+}

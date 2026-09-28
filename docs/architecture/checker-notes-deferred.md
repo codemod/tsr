@@ -6540,3 +6540,160 @@ it to be rediscovered by a future census — is how §872–§882 spent eight en
 
 `isGenericMappedType`, the other half of upstream's predicate, is still unported
 and now the only part of `inTupleContext` that is.
+
+## §890: the bar — `checkExpressionForMutableLocation` has three branches and the port wrote one
+
+Continuing §887's corpus-wide census. Classifying every WRONG row by whether the
+port's answer is the **oracle's answer with its literal types widened**
+(`"hour"`→`string`, `true`→`boolean`, `1`→`number`):
+
+```
+1239 rows across 207 cases — the port widened a literal the oracle kept
+   161  compiler/temporal            45  compiler/staticFieldWithInterfaceContext
+    47  compiler/reverseMappedType…   40  compiler/excessPropertyCheck…
+    30  conformance/typeParameterConstModifiers
+```
+
+**Larger than the whole array-literal tuple family** (412), and one concept.
+
+`objects.rs` names the cause in its own doc comment, which is why finding it took
+a census and not an investigation:
+
+> `getWidenedLiteralLikeTypeForContextualType(t, nil)` reduces to
+> `getRegularTypeOfLiteralType(getWidenedLiteralType(t))` … when there is **no
+> contextual type**.
+
+Upstream (`checker.go:13878`):
+
+```go
+switch {
+case c.isConstContext(node):   return c.getRegularTypeOfLiteralType(t)
+case isTypeAssertion(node):    return t
+default:                       return c.getWidenedLiteralLikeTypeForContextualType(t,
+    c.instantiateContextualType(c.getContextualType(node, ContextFlagsNone), node, ContextFlagsNone))
+}
+```
+
+Three branches. **This port wrote the third with `nil` hardcoded**, so it widens
+unconditionally. `{ largestUnit: "hour" }` passed where the parameter is
+`{ largestUnit: "hour" | "minute" }` records `{ largestUnit: "hour"; }` upstream
+and `{ largestUnit: string; }` here.
+
+### Every piece already exists
+
+- `is_const_context` — **written**, and used by `array_literals.rs`, never here.
+- `is_literal_of_contextual_type` — **written**, tri-state, in `signatures.rs`,
+  faithful down to `core.Some`'s short-circuit.
+- `get_contextual_type` — written, and made `pub(crate)` by §888.
+
+Only the wiring is missing. That is now the sixth instance this session of *a
+capability present and a caller that does not consult it*.
+
+### The bar
+
+- **Primary.** `compiler/temporal`'s literal rows close; `typeParameterConstModifiers`
+  moves, since a `const` type parameter is precisely a literal-keeping context.
+- **Safety.** No `RIGHT→` of either kind. Each branch only *keeps* a literal the
+  port currently widens, so a row whose want is the widened type must not move —
+  if one does, the contextual type being consulted is not the one upstream passes.
+- **Falsifier.** If `temporal` stays shut, its literals come from
+  `instantiateContextualType` (unported) rather than from the contextual type as
+  this port computes it, and the branch is correct but starved.
+- **Regression.** Tests for all three branches and for a control that must still
+  widen.
+
+**Undecidable (`None`) is treated as `false` — widen, i.e. today's behaviour.**
+The tri-state's other callers keep a gap instead, but there is no gap to keep at
+this position; declining here would print `error` where a widened literal is at
+worst a near miss. Recorded so the alternative stays visible.
+
+`instantiateContextualType` is **not** ported; the raw contextual type is passed.
+Named now rather than discovered later (§889's lesson).
+
+## §890.1: two of the three branches land at 71:2 — and the third is split off, measured
+
+Built as specified. **The full change measured 151 W→R against 26 R→W**, and the
+bar's safety leg said *no `RIGHT→` of either kind*. It was not honoured, so it is
+reported rather than quietly relaxed.
+
+### The 26, read
+
+`compiler/thislessFunctionsNotContextSensitive2` supplied 22 of them, all of the
+shape `tag : string → any`, `value : number → any`, `bbb : () => void → any` —
+rows that were RIGHT collapsing to `any`.
+
+```ts
+const result1 = defineOptions({          // defineOptions<Context, Data>
+  context: { tag: "A", value: 1 },
+  produce() { return 42; },
+});
+```
+
+**The returned value is not the problem.** `get_contextual_type` on a member
+inside an argument whose signature is being resolved re-enters
+`contextual_type_for_argument`, whose §469 sentinel answers
+`Some(intrinsics.any)` (`contextual.rs:930`) — and `is_literal_of_contextual_type("A", any)`
+is `Some(false)`, so the member widens to `string` exactly as before. The damage
+is the **side effect**: §890 introduces a *new, earlier entry point* into
+signature resolution, and what that resolution memoises while the object literal
+is half-checked is read by the outer pass. **This port's contextual resolution is
+order-dependent, and the census change exposed it.**
+
+A first attempt short-circuited the contextual lookup for candidates carrying no
+literal-flavoured constituent — answer-preserving, since `Some(true)` is reachable
+only through a `maybe_type_of_kind(candidate, …literal…)` conjunct. It recovered
+**one** row of 26. Kept anyway: it is free and it is correct.
+
+### The split, and what it measures
+
+Excluding members under a call or `new`:
+
+| scope | W→R | R→W |
+|---|---|---|
+| all positions | 151 | 26 |
+| **excluding call/new arguments** | **71** | **2** |
+| (the difference: call arguments) | 80 | 24 |
+
+**The 71:2 half landed.** The exclusion is **not upstream-faithful** — upstream has
+no such condition — and saying otherwise would be the worst kind of quiet. It is a
+deliberate scoping so that the order-dependent half carries its own number instead
+of being averaged into this one.
+
+The remaining 2 are `conformance/declarationsAndAssignments`:
+`[a = 1, b = "abc"] = [2, "def"]`, where the RHS now keeps `[2, "def"]`. The
+contextual type comes from the destructuring TARGET, whose element types this port
+computes as the defaults' literal types where upstream widens them to
+`[number, string]`. **A second defect in the target, surfaced — not a defect in
+this branch.**
+
+### Named prerequisite for the other half
+
+The call-argument leg is worth **+57 net** and is blocked on one thing: making
+contextual/signature resolution order-independent, so that asking for a contextual
+type earlier cannot change what a later pass reads. That is the falsifier too — if
+the leg is re-measured after such a change and still shows ~24 R→W, the cause was
+never re-entrancy.
+
+### §890.2: the order-dependence, named exactly
+
+The prerequisite in §890.1 can be stated more precisely than "resolution is
+order-dependent", because `contextual.rs` says it outright at line ~979, inside
+`contextual_type_for_argument_resolving`:
+
+> This road fires **only when NO memo exists**, i.e. no pass-1 candidates were
+> collected for this call, so the fill is total: `someGenerics6(n => n, …)` wants
+> `(n: unknown) => unknown`, not the adopted `(n: A) => A`.
+
+**A branch selected by whether a memo has been populated yet.** §890 asks for a
+contextual type at a *new, earlier* moment — while the object literal is being
+checked, before pass-1 has collected candidates for the enclosing call — so this
+road takes the fixing/`unknown` leg, and what it leaves behind is what the later
+pass reads. That is the whole of the 24.
+
+It is a correct implementation of upstream's fixing mapper *given* upstream's call
+order, and this port now has a second caller with a different order. The fix is
+not to remove the memo test but to make the contextual query **not** count as
+pass-1 — i.e. distinguish "no candidates were collected" from "candidates have not
+been collected yet". That is the shape of the follow-up, and it is a
+one-distinction change rather than a re-architecture, which is worth knowing
+before anyone budgets for it.
