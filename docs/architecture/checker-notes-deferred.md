@@ -3471,3 +3471,59 @@ subsystem rather than eight mechanisms.
 stop treating it as a gradient target reachable by accumulating small faithful
 fixes.** Recorded here so the next session does not re-derive it; the arithmetic
 above is one script and should be re-run rather than trusted after any large landing.
+
+## §848: row 6's refusal was broader than upstream's shape
+
+`structured_type_related_to` refuses a pair when **either** side bears signatures:
+
+```rust
+if self.signature_bearing(source) || self.signature_bearing(target) {
+    reasons::note(reasons::Site::SignatureBearing);
+    return Ternary::Unknown;
+}
+```
+
+`signaturesRelatedTo` (`vendor/typescript-go/internal/checker/relater.go:4441`)
+starts at `TernaryTrue` and every one of its three branches iterates the **target's**
+signature list. A target with no signatures is therefore vacuously related on the
+signature axis, and the pair is decided by `propertiesRelatedTo` alone. So a
+signature-bearing *source* against a plain object target is decidable, and refusing
+it was this port's over-reach rather than row 6's.
+
+Narrowed to `signature_bearing(target)`. A signature-bearing target still refuses —
+that is the real `signatureRelatedTo` this port does not have.
+
+**+4, zero adverse** (`narrowingMutualSubtypes`).
+
+### This is the third falsified primary leg in a row, and that is the finding
+
+| | registered | measured | adverse | kept |
+|---|---|---:|---:|---|
+| §844 | `nonNullReferenceMatching` ≥ +12 | 0 | 0 | yes, +18 elsewhere |
+| §846 | `… & Function` ≥ +40 | 0 | 0 | yes, +9 elsewhere |
+| §848 | ≥ +20 | +4 | 0 | yes |
+
+Three bars, three failed primary legs, three correct changes, **zero adverse lines
+between them**. Earlier in this session the same method produced §839 (+106), §841
+(+310) and §843 (+10 of 10) with primary legs that hit or beat their predictions.
+
+The difference is not that the changes got worse. It is that **the populations these
+bars were sized against are blocked behind a subsystem, so fixing one link in the
+chain moves nothing visible.** The `& Function` rows need `signatureRelatedTo`; until
+that exists, every correct fix upstream of it pays only where some *other* path
+already reached the answer — which is why all three landed small and clean rather
+than large or negative.
+
+That is §847's conclusion arriving from the other direction, and it is stronger
+evidence than the arithmetic was: **my sizing predictions stopped working exactly
+when the remaining work stopped being mechanism-shaped.** A bar that keeps failing
+its primary leg while its changes keep being right is a measurement telling you the
+items are no longer where you are looking.
+
+### What actually unblocks the `& Function` rows
+
+`signatureRelatedTo` — comparing a generic overload set against
+`(this: Function, thisArg: any, ...argArray: any[]) => any`. It is the same machinery
+overload selection needs (`STATUS.md` §4.2, effort 5), and it is the *only* thing
+between this port and ~50–60 lines here plus the much larger overload populations.
+Three entries in a row now point at it from different directions.

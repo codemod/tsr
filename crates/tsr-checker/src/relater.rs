@@ -954,7 +954,18 @@ impl Relater<'_, '_, '_> {
             // not decided at all, and letting it reach `properties_related_to`
             // would produce a confident answer from a comparison that ignored
             // the members that distinguish the two types.
-            if self.signature_bearing(source) || self.signature_bearing(target) {
+            // §848 narrows row 6 to what upstream's shape actually requires.
+            // `signaturesRelatedTo` (`relater.go:4441`) starts at
+            // `TernaryTrue` and every one of its branches iterates the
+            // **target's** signature list, so a target with no signatures is
+            // vacuously related on the signature axis and the pair is decided
+            // by `propertiesRelatedTo` alone. A signature-bearing SOURCE
+            // against a plain object target is therefore decidable, and
+            // refusing it was this port's own over-reach rather than row 6's.
+            //
+            // A signature-bearing TARGET still refuses: that is the real
+            // `signatureRelatedTo` this port does not have.
+            if self.signature_bearing(target) {
                 reasons::note(reasons::Site::SignatureBearing);
                 return Ternary::Unknown;
             }
