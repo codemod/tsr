@@ -4300,3 +4300,49 @@ otherwise.
 > **What is genuinely left that is cheap and safe**: nothing on the instrument side.
 > §856 closed it. The remaining work is §852's 336-case board (bounded, zero
 > `RIGHT->WRONG` risk, ~0.3 gradient points) and the priced subsystems.
+
+## §857: a CORRECTION to §852.1 — the board's cases are not one-liners
+
+§852.1 priced the zero-wrong board as *"42 separate one-line diagnoses, not one fix
+… still an excellent ratio, roughly one case per gap line … a grind with a known
+good yield"*, and I have been recommending it as the handoff on that basis.
+
+**Having now worked thirteen of its cases beyond §853, that estimate is too
+optimistic and should not be inherited as written.** The tally:
+
+| case(s) | outcome |
+|---|---|
+| nullable object-literal member | **§853 landed: +108 lines, +16 cases** |
+| `1 + {}` ×3 | **refused** — §257, twice-measured, reopening condition named |
+| JSON module ×4 | another crate — `resolveJsonModule` in `tsr-compiler` |
+| destructured `catch` ×2 | **§855 falsified** — the obvious divergence is real but is not the blocker; cause still unknown |
+| `Symbol()` wanting `unique symbol` | needs the `unique symbol` machinery |
+| `{ ...value }` wanting `{}` | JSDoc `@template` generics in a `.js` file |
+| implicit-`any` parameters ×2 | work correctly in isolation; the corpus gap is elsewhere in those cases |
+
+So of thirteen sampled: **one mechanism landed, three refused, four belong to another
+crate, and five need a feature or a diagnosis deeper than one line.** The
+one-case-per-line ratio holds for *counting* the board, not for working it.
+
+### What survives of §852, and it is still the best thing left
+
+The board's two structural properties are unchanged and are what make it worth
+inheriting:
+
+- **Zero `RIGHT->WRONG` exposure**, because these cases have no wrong lines to lose.
+  That is a property of the selection, not of my estimate.
+- **The case yield when a mechanism does land is extreme.** §853 returned **16
+  cases** from one gated condition, and *thirteen of those sixteen were cases the
+  board never named* — the board pointed at three nearly-right cases and the
+  mechanism paid everywhere else.
+
+That second point is the real value and it survives the correction: the board is a
+**mechanism-finder**, not a queue of one-liners. Worked that way — read a cluster,
+find the shared cause, measure corpus-wide — it produced the session's second-best
+landing. Worked as a checklist it will disappoint.
+
+> **Why this correction is recorded rather than quietly dropped**: §852.1's number
+> is the one a future session would plan against, and planning a grind that turns
+> out to need four features is how a session gets spent with nothing to show.
+> `STATUS.md`'s own rule — *correct the record when a number turns out to be wrong,
+> and note that it was corrected.*
