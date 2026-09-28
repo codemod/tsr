@@ -247,7 +247,7 @@ impl Checker<'_, '_> {
     ///
     /// Walk out of every enclosing binding pattern to the declaration that
     /// owns the whole destructuring — a parameter or a variable declaration.
-    fn root_declaration_of(&self, node: NodeId) -> NodeId {
+    pub(crate) fn root_declaration_of(&self, node: NodeId) -> NodeId {
         let mut at = node;
         while self.nodes.kind(at) == SyntaxKind::BindingElement {
             let Some(pattern) = self.nodes.parent(at) else { break };

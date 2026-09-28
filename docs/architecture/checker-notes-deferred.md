@@ -5569,3 +5569,101 @@ Each was a list written for the cases in front of its author with a `false` defa
 that reads as caution and behaves as a refusal, and each was worth between +10 and
 +187. **Grepping for `_ => false` in gates is now a demonstrated technique in this
 codebase, not a hunch.**
+
+## §876: a pattern-named default is refused for a reason that only applies to PARAMETERS
+
+`sourceMapValidationDestructuringForObjectBindingPatternDefaultValues` is **18 gaps,
+zero wrong** on §852's board. Probing separates the shape in four runs:
+
+```
+const { s: { p: pA } } = o;                      => any     correct (nesting alone is fine)
+const { s = { p: "none" } } = o;                 => any     correct (a default alone is fine)
+const { s: { p: pA } = { p: "n" } } = o;         => error   <- a PATTERN carrying a default
+const { s: { p: pA } = { p: "n" } } = typed;     => error   <- and it is not about the source type
+```
+
+`crate::destructure` refuses it outright, and names its reason:
+
+```rust
+// The element's name must still be an identifier: a pattern-named default takes
+// upstream through `padObjectLiteralType`/`padTupleType` (`checker.go:16808`), unported.
+if element.initializer.is_some()
+    && !matches!(element.name, Some(tsr_ast::BindingName::Identifier(_)))
+{
+    return error;
+}
+```
+
+The mechanism it names is real. **The condition guarding it upstream is not the one
+the refusal assumes** (`checkDeclarationInitializer`, `checker.go:16796-16820`):
+
+```go
+if ast.IsParameterDeclaration(ast.GetRootDeclaration(declaration)) {
+    name := declaration.Name()
+    switch name.Kind {
+    case ast.KindObjectBindingPattern:
+        if isObjectLiteralType(t) { return c.padObjectLiteralType(t, name) }
+    case ast.KindArrayBindingPattern:
+        if isTupleType(t) { return c.padTupleType(t, name) }
+    }
+}
+return t
+```
+
+Padding runs **only when the root declaration is a parameter**, and only when the
+initializer's type is an object literal or tuple respectively. For a `const`, `let`
+or `for` destructuring the padding never runs and `checkDeclarationInitializer`
+simply returns the initializer's type — which is exactly the corpus case
+(`for (let { skills: { … } = { … } } of …)`).
+
+So the refusal is correct for a parameter and unnecessary everywhere else. **Fourth
+instance this session of a gate whose kind- or shape-list is narrower than the
+condition it stands for** (§863, §870, §875, §876).
+
+### The bar
+
+1. **Primary.** The case's 18 gaps: ≥ **+10 lines, +1 case**.
+2. **Safety.** `RIGHT->WRONG ≤ 10`, `GAP->WRONG ≤ 30`. The exposure is a
+   pattern-named default whose initializer this port types differently from
+   upstream's padded form — which is why the parameter half keeps the refusal.
+3. **Falsifier.** If the probe's two failing lines do not move, the guard is not what
+   refuses them.
+4. **Regression.** `cargo test --workspace`; clippy clean.
+
+### §876 result — +37, zero adverse, and the named case CLOSED
+
+| leg | registered | measured |
+|---|---|---|
+| 1 primary | the case's 18 gaps, ≥ +10 lines / +1 case | **+37 lines**, and the case's 18 gaps **all closed** |
+| 2 safety | `RIGHT->WRONG ≤ 10`, `GAP->WRONG ≤ 30` | **0** and **0** |
+| 3 falsifier | the probe's failing lines must move | moved |
+| 4 regression | tests, clippy, anchors | 145 suites, clean, 3,259 |
+
+`GAP->RIGHT 26` (`sourceMapValidationDestructuringForObjectBindingPatternDefaultValues`
+18, `…VariableStatementNestedObjectBindingPatternWithDefaultValues` 6) and
+`WRONG->RIGHT 11` (`declarationsAndAssignments` 6,
+`declarationEmitDestructuringArrayPattern2` 3), **not one line lost anywhere**.
+
+**The first bar in six whose named case closed completely** — after §844, §846, §858,
+§861 and §875 all paid elsewhere while their surfacing case stayed shut. The
+difference is worth naming: those five were gates whose *category* was too narrow, so
+the surfacing case had a second defect behind the first. This one was a refusal whose
+*condition* was too broad — the mechanism it named was real and simply guarded
+differently upstream — and removing the over-reach left nothing behind it.
+
+### A test expectation I got wrong twice
+
+My first assertion claimed `const { s: { p: pA } = { p: "n" } } = o` with `o: any`
+answers `string`. It answers `any`, correctly: an `any` source destructures to `any`
+through the nested pattern and the default is never reached. I then wrote the corpus
+shape — with the inner binding carrying its own default too — and asserted `string`
+for that, and it is also `any` in this harness.
+
+Both are pinned as they behave, with the reason: the corpus case reaches `string`
+through a `for…of` head over a typed source that this harness does not reproduce.
+**The witness for §876 is the corpus — 18 gaps closed in the surfacing case — not
+these two lines**, and saying so in the test is better than an assertion that looks
+like a specification and is really a guess.
+
+*(Seventh and eighth test expectations written from intuition this session; the port
+was right both times. §7's running count.)*

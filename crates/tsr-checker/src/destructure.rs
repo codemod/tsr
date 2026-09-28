@@ -112,8 +112,20 @@ impl Checker<'_, '_> {
         // name must still be an identifier: a pattern-named default takes
         // upstream through `padObjectLiteralType`/`padTupleType`
         // (`checker.go:16808`), unported. `checker-notes-destructure.md` §6.
+        //
+        // §876: that padding runs **only for a PARAMETER**.
+        // `checkDeclarationInitializer` (`checker.go:16806`) guards it with
+        // `ast.IsParameterDeclaration(ast.GetRootDeclaration(declaration))`,
+        // and for a `const`/`let`/`for` destructuring it simply returns the
+        // initializer's type. So the refusal is right for a parameter-rooted
+        // element and unnecessary everywhere else — `for (let { s: { p } = { … } } of …)`
+        // never reaches `padObjectLiteralType` upstream at all.
         if element.initializer.is_some()
             && !matches!(element.name, Some(tsr_ast::BindingName::Identifier(_)))
+            && element.node_id.is_some_and(|id| {
+                let root = self.root_declaration_of(id);
+                self.nodes.kind(root) == tsr_ast::SyntaxKind::Parameter
+            })
         {
             return error;
         }

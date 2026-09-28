@@ -338,3 +338,56 @@ fn a_returned_arrow_gets_its_implicit_any() {
         "() => (c: string) => number"
     );
 }
+
+/// §876: a pattern-named default is only padded for a PARAMETER.
+///
+/// `crate::destructure` refused every binding element whose name is a pattern
+/// and which carries an initializer, because upstream routes such a thing
+/// through `padObjectLiteralType`/`padTupleType`. It does — but only under
+/// `ast.IsParameterDeclaration(ast.GetRootDeclaration(declaration))`
+/// (`checker.go:16806`). For a `const`, `let` or `for` destructuring,
+/// `checkDeclarationInitializer` simply returns the initializer's type, so the
+/// refusal was unnecessary there.
+///
+/// Corpus effect: `+37` right lines (26 `GAP->RIGHT`, 11 `WRONG->RIGHT`), zero
+/// adverse, and the surfacing case's 18 gaps all closed.
+#[test]
+fn a_pattern_named_default_types_outside_a_parameter() {
+    // An `any` source destructures to `any` through the nested pattern — the
+    // default is not reached, so this is `any` and not `string`. (My first
+    // expectation here said `string`, confusing this with the corpus shape,
+    // where the INNER binding carries its own default as well.)
+    assert_eq!(
+        type_of_last_expression(
+            "declare const o: any;\nconst { s: { p: pA } = { p: \"n\" } } = o;\n(pA);"
+        ),
+        "any"
+    );
+    // The inner binding's own default does not change that under an `any`
+    // source — pinned as it behaves. The corpus case that records
+    // `primaryA : string` reaches `string` by a route this harness does not
+    // reproduce (a `for…of` head over a typed source), and the witness for
+    // §876 is the corpus: 18 gaps closed in that case, +37 lines overall.
+    assert_eq!(
+        type_of_last_expression(
+            "declare const o: any;\nconst { s: { p: pA = \"x\" } = { p: \"n\" } } = o;\n(pA);"
+        ),
+        "any"
+    );
+    assert_eq!(
+        type_of_last_expression(
+            "declare const o: { s: { p: string } };\nconst { s: { p: pA } = { p: \"n\" } } = o;\n(pA);"
+        ),
+        "string"
+    );
+    // The controls that were already right and must stay so: nesting alone,
+    // and a default alone.
+    assert_eq!(
+        type_of_last_expression("declare const o: any;\nconst { s: { p: pA } } = o;\n(pA);"),
+        "any"
+    );
+    assert_eq!(
+        type_of_last_expression("declare const o: any;\nconst { s = { p: \"none\" } } = o;\n(s);"),
+        "any"
+    );
+}
