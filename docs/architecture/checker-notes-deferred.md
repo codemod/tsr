@@ -3984,3 +3984,76 @@ That is the argument for the board in one data point: **it finds mechanisms by
 pointing at cases that are nearly right, and the mechanism then pays everywhere
 else.** The same shape as §841 (+310 from a residue named in advance), reached by a
 different instrument.
+
+## §854: the next two clusters on §852's board — one already refused, one not a checker item
+
+After §853, the board is **336 zero-wrong gap cases / 1,615 lines, 168 of them 1–2
+gaps from passing.** Re-deriving it and grouping the 1–2-gap cases by their *failing
+assertion text* surfaces the clusters directly:
+
+```
+  6  >a : any
+  4  >b : { a: boolean; b: string; }
+  3  >x : any
+  3  >1 + {} : any
+  2  >data[0]() : any     2  >"A" : typeof import("A")     2  >$ : { x: number; }
+```
+
+### `1 + {}` — three cases, and **§257 already refused it, twice, with numbers**
+
+Probed first: `1 + {}` and `{} + 1` answer `error` where upstream answers `any`;
+`'a' + {}` is `string` and `1 + 1` is `number`, both right. Upstream's line is
+unambiguous (`checker.go:12455`), inside `checkBinaryLikeExpression`'s `+` arm:
+
+```go
+if resultType == nil {
+    c.reportOperatorError(...)
+    return c.anyType
+}
+```
+
+**And `crates/tsr-checker/src/binary.rs` already carries the refusal, with its
+measurements:**
+
+| attempt | result |
+|---|---|
+| whole fallback → `any` | +4 cases, `GAP->RIGHT` 10, `WRONG->RIGHT` 12, **`GAP->WRONG` 57** |
+| narrowed to non-literal operands | +0 cases, `WRONG->RIGHT` 12, **`GAP->WRONG` 32** |
+
+The adverse population is **literal and enum-literal arithmetic**, where upstream
+computes a real `number`/`string` and this port cannot; every line reaching the
+fallback from there is a gap this port owns, and answering `any` replaces it with a
+confident wrong answer. §257's stated reopening condition: *"revisited when literal
+arithmetic lands — at which point the adverse population stops reaching here at all
+— and not before."*
+
+> **This is the record paying for itself.** The cluster looked like three free cases
+> and one verbatim upstream line; the refusal note turned that into a two-minute read
+> instead of a build and a full `scorepair`. `STATUS.md`'s rule — *a refused item
+> deleted rather than recorded costs the next session a cycle rediscovering the same
+> negative* — is exactly what was avoided, and this would have been the **fourth**
+> attempt.
+
+Recorded here as well as in `binary.rs` because the *board* will keep surfacing this
+cluster: it is three zero-wrong cases and will look inviting to every future session
+that ranks by tractability.
+
+### `{ a: boolean; b: string; }` — four cases, and not a checker item
+
+`requireOfJsonFileWithModuleEmitUndefined` and its two siblings, plus
+`isolatedModules_resolveJsonModule_strict_outDir_commonJS`. They need
+**`resolveJsonModule`** — importing a `.json` file and typing the module as the
+literal shape of its contents. That is `crates/tsr-compiler`'s loader and resolver,
+not the checker; nothing in the checker gaps here.
+
+`requireOfJsonFileWithModuleEmitUndefined` is **0 RIGHT / 0 WRONG / 1 GAP** — the
+whole case is one assertion — so the four are cheap *if* the loader feature lands,
+and unreachable from this workstream until it does. Filed against
+`crates/tsr-compiler`, not here.
+
+### Where that leaves the board
+
+Two of the three largest clusters on §852's board are now priced: one refused with a
+named reopening condition, one owned by another crate. The `>a : any` cluster (6
+cases) and the `>x : any` cluster (3) remain unread, and §852.1's finding stands —
+they are likely to be separate one-line causes rather than a shared mechanism.
