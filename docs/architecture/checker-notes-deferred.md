@@ -5711,3 +5711,61 @@ the new walker arm.
 > `typeof x === "function"` narrowing answered `error` and looked like a defect. Both
 > times the tell was the same — **a probe answering something structurally unrelated
 > to the question** (`null` here, `error` there) rather than a plausible wrong type.
+
+## §878: the near-miss census, re-run — and the largest group located to a road
+
+The board's small end is now mostly shapes needing `Promise`/`Array` from a
+`lib.d.ts` the probe harness does not have (§839's limitation, hit four times in one
+batch), so this switches lens back to the near-miss census that produced §839.
+
+Fresh run:
+
+```
+port OMITS constituents:  179 lines / 57 cases    — 103 of them missing `undefined`
+port ADDS  constituents:  482 lines / 120 cases   —  83 of them extra `undefined`
+```
+
+**103 lines where the only missing constituent is `undefined`** is the largest
+coherent near-miss group left, and a third of it sits in three optional-chain cases:
+`elementAccessChain` 18, `propertyAccessChain` 9, `deleteChain` 6.
+
+`elementAccessChain` (275 RIGHT / 30 WRONG / 0 GAP) carries **two** shapes, not one:
+
+```
+want { b: undefined | { c: string; }; }            got { b: { c: string; }; }
+want { d?: { e: string; }; } | undefined           got { d?: { e: string; }; }
+```
+
+The second is the optional chain's own result — `a?.b` must re-union `undefined`,
+which `checker-notes-callres.md` §22 records as ported for **calls**.
+
+The first is not a chain question at all. The source is
+
+```ts
+declare const o3: { b: undefined | { c: string } };
+>o3 : { b: undefined | { c: string; }; }      <- A19, and the port drops the `undefined`
+```
+
+### Located, and it is not where it looks
+
+Six probes say the port prints this correctly:
+
+```
+declare const o: { b: undefined | { c: string } };  (o);  => { b: undefined | { c: string; }; }
+declare const o: { b: { c: string } | undefined };  (o);  => { b: { c: string; } | undefined; }
+declare const o: { b?: string };                    (o);  => { b?: string; }
+```
+
+Written order preserved, `undefined` kept, optional members unaffected. **The
+failing positions are declaration NAME nodes** (A19 is the `o3` of
+`declare const o3: …`), and the harness types *references*. So the reference road is
+right and the declaration-name road is not — the same split §841 found for
+`QualifiedName` and fixed for **+310**.
+
+**Next probe, named:** `types_producer`'s declaration-name branch, which types a
+name through `get_type_of_symbol` rather than `check_expression`. Compare the two for
+this declaration and read which drops the constituent.
+
+Sized: 33 lines in the three chain cases, of a 103-line group, and those cases have
+**zero gaps** — so every line is a wrong-to-right conversion with no gap-to-wrong
+exposure at all.
