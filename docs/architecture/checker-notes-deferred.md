@@ -7111,3 +7111,51 @@ started it account for 66. The three entries that missed were not wasted — §8
 extraction is what made the recursion possible and §896's location is what made
 §897 a 60-line search instead of a fourth guess — but the ledger is honest: three
 entries of the five aimed at the wrong road.
+
+## §898: `getWidenedUniqueESSymbolType` — +16, and a regression that had nothing to do with symbols
+
+The `unique symbol` family is **164 wrong rows across 8 cases**, 115 of them in
+three (`uniqueSymbolsErrors` 41, `uniqueSymbols` 39, `uniqueSymbolsDeclarations`
+35). Located at the source rather than guessed at (§897's lesson), it splits in
+two, and the port already has the type node itself (§595):
+
+1. **74 rows: the port KEEPS `unique symbol` where upstream widens it to
+   `symbol`.** `const a = [s]` is `symbol[]` upstream and `(unique symbol)[]`
+   here.
+2. the rest: `unique symbol` written in an **invalid** position.
+
+This entry is (1). `getWidenedUniqueESSymbolType` (`checker.go:25505`) was absent,
+and upstream has exactly one call site — the `getWidenedLiteralType` pair inside
+`getWidenedLiteralLikeTypeForContextualType`, which is
+`check_expression_for_mutable_location`'s tail here.
+
+**+16 W→R, zero adverse.**
+
+### The union branch rebuilt a union it had not changed
+
+The first build measured **4 `RIGHT→WRONG`** in
+`conformance/assignmentCompatWithDiscriminatedUnion`:
+
+```
+{ type: IAxisType; }   →   { type: "categorical" | "linear"; }
+```
+
+Nothing to do with `unique symbol`. `mapType` hands back its input when the
+mapper changes nothing; this port's branch called `get_union_type` on the mapped
+constituents unconditionally, and **a union carries its alias name while a freshly
+minted one does not**. Returning `id` when `widened == constituents` fixed it.
+
+> **The lesson is about rebuilding, not about symbols.** Any helper that maps over
+> a union's constituents and re-mints must check whether it changed anything
+> first, because the name is carried by the type and not by the constituents.
+> Worth checking the other `get_union_type` callers that map-then-rebuild.
+
+### Why only 16 of the 74
+
+The array-literal rows did not move. The port's element road *does* call
+`check_expression_for_mutable_location` — and then applies
+`get_widened_literal_type` to the result a second time, which upstream does not
+(its element type is that call's result plus optionality). Whether the second
+widening is what strands them is the next question and is **not** answered here.
+
+The invalid-position half is §899's.

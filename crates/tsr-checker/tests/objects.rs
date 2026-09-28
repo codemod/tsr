@@ -485,3 +485,15 @@ fn an_assignment_pattern_without_a_default_leaves_the_member_required() {
     let source = "let x;\nconst r = ({ a: x } = { a: 2 });";
     assert_eq!(type_of_initialiser_at(source, 1), "{ a: number; }");
 }
+
+/// §898: `getWidenedUniqueESSymbolType` (`checker.go:25505`) — a `unique symbol`
+/// widens to plain `symbol` at a mutable location. Upstream has exactly one call
+/// site, `getWidenedLiteralLikeTypeForContextualType` (`checker.go:25517`),
+/// where it pairs with `getWidenedLiteralType`.
+///
+/// Corpus effect: `WRONG->RIGHT 16`, zero adverse.
+#[test]
+fn a_unique_symbol_widens_at_a_mutable_location() {
+    let source = "declare const s: unique symbol;\nconst o = { a: s };";
+    assert_eq!(type_of_initialiser_at(source, 1), "{ a: symbol; }");
+}

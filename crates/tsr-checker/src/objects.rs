@@ -1897,7 +1897,11 @@ impl Checker<'_, '_> {
         if keeps_literal == Some(true) {
             return self.get_regular_type_of_literal_type(id);
         }
+        // §898: upstream's pair — `getWidenedUniqueESSymbolType(getWidenedLiteralType(t))`
+        // (`checker.go:25517`). A `unique symbol` widens to plain `symbol` at a
+        // mutable location, which is the only place upstream calls it.
         let widened = self.get_widened_literal_type(id);
+        let widened = self.get_widened_unique_es_symbol_type(widened);
         self.get_regular_type_of_literal_type(widened)
     }
 }

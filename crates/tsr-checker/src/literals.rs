@@ -71,6 +71,53 @@ impl Checker<'_, '_> {
         self.get_declared_type_of_symbol(owner)
     }
 
+    /// `getWidenedUniqueESSymbolType` (`checker.go:25505`): a `unique symbol`
+    /// widens to plain `symbol` at a mutable location.
+    ///
+    /// ```go
+    /// case t.flags&TypeFlagsUniqueESSymbol != 0: return c.esSymbolType
+    /// case t.flags&TypeFlagsUnion != 0:          return c.mapType(t, c.getWidenedUniqueESSymbolType)
+    /// ```
+    ///
+    /// Upstream has exactly **one** call site —
+    /// `getWidenedLiteralLikeTypeForContextualType` (`checker.go:25517`), where
+    /// it pairs with `getWidenedLiteralType`:
+    ///
+    /// ```go
+    /// t = c.getWidenedUniqueESSymbolType(c.getWidenedLiteralType(t))
+    /// ```
+    ///
+    /// §898. Without it `const s: unique symbol = …; const a = [s];` printed
+    /// `(unique symbol)[]` where upstream prints `symbol[]` — the element keeps
+    /// a type only a `const` declaration position may carry.
+    pub(crate) fn get_widened_unique_es_symbol_type(&mut self, id: TypeId) -> TypeId {
+        let ty = self.store.get(id);
+        if ty.flags.intersects(crate::flags::TypeFlags::UNIQUE_ES_SYMBOL) {
+            return self.intrinsics.es_symbol;
+        }
+        let crate::types::TypeData::Union { types, .. } = &ty.data else {
+            return id;
+        };
+        let constituents = types.clone();
+        let widened: Vec<TypeId> = constituents
+            .iter()
+            .map(|&constituent| self.get_widened_unique_es_symbol_type(constituent))
+            .collect();
+        // **Return the original when nothing changed.** `mapType`
+        // (`checker.go`) hands back its input rather than rebuilding it, and
+        // rebuilding is not free here: a union carries its ALIAS NAME, and
+        // `get_union_type` on the same constituents mints a fresh one without it
+        // — `{ type: IAxisType; }` printed as `{ type: "categorical" | "linear"; }`,
+        // measured as 4 `RIGHT→WRONG` in
+        // `conformance/assignmentCompatWithDiscriminatedUnion` on the build that
+        // rebuilt unconditionally. Nothing to do with `unique symbol`: it was a
+        // union being remade for no reason.
+        if widened == constituents {
+            return id;
+        }
+        self.get_union_type(&widened)
+    }
+
     /// The widened form of a literal type.
     ///
     /// Ported from `Checker.getWidenedLiteralType` (`checker.go:25487`).
