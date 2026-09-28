@@ -3417,3 +3417,57 @@ line.
 
 The `& Function` row remains open, now correctly located, at an honest size: **~50–60
 lines, in the relater's signature comparison**, which is `STATUS.md` §4.2's territory.
+
+## §847: what 95% actually costs, measured
+
+The session goal was 95% on `checker_types`' line gradient. This is what that is,
+computed from the accepted baseline at 439,105 / 478,855 = **91.70%**.
+
+```
+need for 95%                   +15,807 lines
+non-right in the compared set   35,132 lines across 3,215 cases
+
+  top   10 cases =  1,971 lines   12% of what 95% needs
+  top   25 cases =  3,950 lines   25%
+  top   50 cases =  6,397 lines   40%
+  top  100 cases =  9,845 lines   62%
+  top  200 cases = 14,314 lines   91%
+  top  400 cases = 19,504 lines  123%
+  ALL 3,215 cases = 35,132 lines  222%
+```
+
+**95% requires completely fixing the ~230 worst cases** — every wrong and every gap
+line in each — which is **45% of all remaining non-right lines in the corpus**.
+
+The shape of that is the important part. There is no long-tail shortcut: fixing the
+top 100 cases *perfectly* reaches 62% of the target. And the top of the list is not a
+list of items, it is a list of subsystems:
+
+```
+variadicTuples1 265, temporal 223, complexRecursiveCollections 221,
+strictBindCallApply1 204, genericFunctionInference1 202, genericRestParameters1 161,
+conditionalTypes1 148, thisTypeInFunctions 141, inferFromGenericFunctionReturnTypes2 139,
+contextualTypeWithUnionTypeMembers 136, genericDefaults 135, promisePermutations 134
+```
+
+Variadic tuples, generic inference, conditional and mapped types, contextual typing,
+overload selection, `this` types, type-argument instantiation. `STATUS.md` §4 already
+prices each at effort 5, and each is a multi-session port, not a slice.
+
+### What this session is evidence for
+
+Ten entries, **+487 lines and +39 cases**, at 91.46% → 91.70%. Every one came from
+the same method — read one column further than the population's shape suggests — and
+the largest, §841 at +310, came from a residue a previous bar had explicitly declined
+to claim. That rate is real and it is worth continuing.
+
+It is also **0.24 percentage points**. At this session's rate, 95% is on the order of
+**fourteen more sessions of the same quality**, and only if the mechanism supply
+holds — which the numbers above say it will not, because the remaining mass is
+concentrated in exactly the places where a session's worth of reading produces one
+subsystem rather than eight mechanisms.
+
+**The honest plan for 95% is to port the subsystems in §4, in priced order, and to
+stop treating it as a gradient target reachable by accumulating small faithful
+fixes.** Recorded here so the next session does not re-derive it; the arithmetic
+above is one script and should be re-run rather than trusted after any large landing.
