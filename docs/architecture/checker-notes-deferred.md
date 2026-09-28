@@ -7711,3 +7711,54 @@ meets undecidable check types where this relater answers a confident
 > the payment needs machinery the port does not have. Worth knowing before the
 > next deferred form is minted: **ask which of the two the wanted text is, because
 > only one of them is cheap.**
+
+## §910: §890's blocked half, finally — +78, and the cycle needed TWO literals
+
+§890 excluded call arguments from `checkExpressionForMutableLocation`'s third
+branch and sized the loss at +57. Three entries then failed to recover it:
+§890.2's diagnosis (the memo-selected branch) was wrong, §891's probe flag was
+inert, §892's symbol cache was circular by construction.
+
+All three looked for the cycle in the wrong place. Reading what §890 actually
+lost — **every row a member of `context: { tag: "A", value: 1 }`** — gives it:
+
+```ts
+defineOptions({
+  context: { tag: "A", value: 1 },   // ← the members that broke
+  produce() { return 42; },
+})
+```
+
+**The re-entry needs two levels of object literal.** Checking the INNER literal's
+member asks for its contextual type, which asks for the inner literal's, which
+asks for the OUTER literal's — and the outer literal is the argument whose
+signature is being resolved. A member of the argument literal *itself* is one hop
+short of that.
+
+So the exclusion narrows from *"anywhere under a call"* to *"under a nested object
+literal in a call argument"*.
+
+**Measured: 81 `WRONG→RIGHT` against 3 `RIGHT→WRONG`.** `compiler/temporal` **63**
+— the case that has headed the literal-widening family since §890 and resisted
+three attempts — plus `inferFromGenericFunctionReturnTypes3` 6,
+`destructuringParameterProperties1` 5. The 3 adverse are
+`contextualTypingOfOptionalMembers`, `state : number` answered as `100`: a literal
+kept where upstream widens, a near miss rather than a wild answer.
+
+### The control test corrected me
+
+I wrote the control asserting that a member of a nested argument literal *widens*,
+since branch 3 no longer runs for it. It does not — it keeps its literal through
+§56's `annotation_member_context`, which reads the written annotation **without
+asking for a contextual type**.
+
+That is the sharper statement of what the exclusion does: it does not decide
+whether these members keep literals. **It keeps branch 3 from asking a question at
+a position where the question re-enters**, and §56 answers the same question
+another way. The assertion was corrected to the measured value and the comment
+now says which road supplies it.
+
+> **Four entries to find a two-level condition.** §890.2, §891 and §892 each named
+> a mechanism and each was wrong; what settled it was reading the *fixture* of the
+> rows that broke rather than the machinery they broke in. The same correction
+> §896 recorded, in a different subsystem, one session later.

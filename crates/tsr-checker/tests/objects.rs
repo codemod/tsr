@@ -665,3 +665,63 @@ fn a_non_generic_conditional_alias_is_not_named() {
     let source = "type C = string extends string ? 1 : 2;\ndeclare const c: C;\nc;";
     assert_ne!(type_of_last_expression_statement(source), "C");
 }
+
+/// Type the LAST object literal in the fixture, wherever it sits — an argument
+/// literal is not reachable through an initialiser.
+fn type_of_last_object_literal(source: &str) -> String {
+    let arena = Arena::new();
+    let parsed = tsr_parser::parse(&arena, source);
+    assert!(parsed.diagnostics.is_empty(), "fixture must parse");
+    let bound = tsr_binder::bind(
+        &arena,
+        parsed.source_file,
+        &parsed.nodes,
+        tsr_binder::FileInfo { name: "test.ts", text: source },
+    );
+    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+    let mut last = None;
+    for raw in 0..u32::try_from(parsed.nodes.len()).expect("fits") {
+        let id = tsr_ast::NodeId::new(raw);
+        if parsed.nodes.kind(id) == tsr_ast::SyntaxKind::ObjectLiteralExpression {
+            last = Some(id);
+        }
+    }
+    let id = last.expect("the fixture must contain an object literal");
+    let node = parsed.node_map.get(id).expect("the literal is in the map");
+    let expression = tsr_ast::Expression::try_from(node).expect("an expression");
+    let ty = checker.check_expression(expression);
+    checker.type_to_string(ty)
+}
+
+/// §910: §890's call-argument exclusion narrowed from "anywhere under a call" to
+/// "under a NESTED object literal in a call argument".
+///
+/// Every row §890 lost was a member of `context: { tag: "A", value: 1 }` — a
+/// literal INSIDE the argument literal — and the re-entry needs that second
+/// level: checking the inner literal asks for its contextual type, which asks
+/// for the outer literal's, which is the argument whose signature is being
+/// resolved. A member of the argument literal ITSELF is one hop short of the
+/// cycle.
+///
+/// Corpus effect: 81 `WRONG->RIGHT` against 3 `RIGHT->WRONG`, including
+/// `compiler/temporal` 63 — blocked since §890.
+#[test]
+fn an_argument_literals_own_member_keeps_its_contextual_literal() {
+    let source = "declare function f(o: { largestUnit: \"hour\" | \"minute\" }): void;\n         f({ largestUnit: \"hour\" });";
+    assert_eq!(type_of_last_object_literal(source), "{ largestUnit: \"hour\"; }");
+}
+
+/// The control, and it needed correcting from what I first assumed: a member of
+/// a NESTED literal inside a call argument is excluded from **branch 3**, and it
+/// still keeps its literal — through §56's `annotation_member_context`, a
+/// different road that reads the written annotation directly.
+///
+/// So the exclusion is narrower than "these members widen": it only keeps branch
+/// 3 from *asking for a contextual type* at a position where that question
+/// re-enters. §56 answers the same question from the annotation without asking.
+#[test]
+fn a_nested_literal_in_an_argument_keeps_its_literal_by_another_road() {
+    let source = "declare function f(o: { inner: { k: \"a\" | \"b\" } }): void;\n\
+         f({ inner: { k: \"a\" } });";
+    assert_eq!(type_of_last_object_literal(source), "{ inner: { k: \"a\"; }; }");
+}

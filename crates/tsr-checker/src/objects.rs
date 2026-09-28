@@ -1879,13 +1879,38 @@ impl Checker<'_, '_> {
         // read by it — circular by construction. Removing the exclusion on top
         // of §892 measures 122 W→R / 28 R→W, with the same 22
         // `thislessFunctionsNotContextSensitive2` rows §890 declined.
+        // §910: the exclusion narrowed from "anywhere under a call" to "under a
+        // NESTED object literal in a call argument". Every row §890 lost was a
+        // member of `context: { tag: "A", value: 1 }` — a literal INSIDE the
+        // argument literal — and the re-entry needs that second level: checking
+        // the inner literal asks for its contextual type, which asks for the
+        // outer literal's, which is the argument whose signature is being
+        // resolved. A member of the argument literal ITSELF is one hop short of
+        // the cycle.
         let in_call_argument = node_id.is_some_and(|n| {
-            self.nodes.ancestors(n).any(|a| {
-                matches!(
-                    self.nodes.kind(a),
-                    tsr_ast::SyntaxKind::CallExpression | tsr_ast::SyntaxKind::NewExpression
-                )
-            })
+            let mut seen_literal = false;
+            for ancestor in self.nodes.ancestors(n) {
+                match self.nodes.kind(ancestor) {
+                    tsr_ast::SyntaxKind::ObjectLiteralExpression => {
+                        if seen_literal {
+                            // A second enclosing literal: this member is nested.
+                            return self.nodes.ancestors(ancestor).any(|a| {
+                                matches!(
+                                    self.nodes.kind(a),
+                                    tsr_ast::SyntaxKind::CallExpression
+                                        | tsr_ast::SyntaxKind::NewExpression
+                                )
+                            });
+                        }
+                        seen_literal = true;
+                    }
+                    tsr_ast::SyntaxKind::CallExpression | tsr_ast::SyntaxKind::NewExpression => {
+                        return false;
+                    }
+                    _ => {}
+                }
+            }
+            false
         });
         let keeps_literal = if !in_call_argument && self.maybe_type_of_kind(id, literalish) {
             node_id
