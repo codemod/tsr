@@ -4556,3 +4556,106 @@ point of the exercise: **§257 saved this session a fourth attempt at the `1 + {
 fallback because its numbers were recorded in the code**. This one now has the same
 protection, and §851's survey shows how quickly a plausible-looking cluster comes
 back around.
+
+## §860: calling the result of a call or `new` on an `any`
+
+The `newWithSpread` cluster from §852's board — `new f(1, 2, ...a)()` wanting `any`
+in two zero-wrong cases. Probing separates it cleanly:
+
+```
+declare const f: any;  f()        => any      correct
+declare const f: any;  f.x()      => any      correct
+declare const f: any;  f()()      => error
+declare const f: any; (new f())() => error
+```
+
+So calling an `any` works, and calling **the result of a call or `new`** does not,
+even though that result is itself `any`.
+
+`is_untyped_call_target` (`crates/tsr-checker/src/calls.rs`) requires
+`any_is_written_in_an_annotation(callee)`, and that narrowing is load-bearing — its
+own comment records the measurement:
+
+> NARROWED after the first run measured **248 gap→wrong** against a bar of 20. …
+> the test is not "is the type `any`" but "did the source **say** `any`". That is
+> the only form in which this port's `any` and upstream's are the same claim.
+
+For `f()()` the inner `any` comes from a call *result*, so the provenance test fails
+and the outer call falls through to signature resolution on `any`, which gaps.
+
+### The extension, and why it keeps the narrowing's guarantee
+
+Upstream does not ask where the `any` came from — `resolveCallExpression` tests
+`isTypeAny(funcType)` and answers `anySignature`. This port asks because its own
+`any` is often an unported mechanism rather than a claim.
+
+**A call or `new` whose own callee was an untyped call target is upstream's `any`
+transitively.** The provenance is still *written*; it is one hop further out, which
+is exactly the shape the function already handles for casts — its comment covers
+`var u = (a2 as any); u()` as "the same written any one hop later". Recursing
+through a call/new callee extends that reasoning without weakening it: the base case
+is still a written annotation or an `as any`.
+
+### The bar
+
+1. **Primary.** `newWithSpread`'s 2 cases plus ≥ **+8 lines** corpus-wide.
+   Falsified if the probe does not move.
+2. **Safety.** `RIGHT->WRONG ≤ 10` **and `GAP->WRONG ≤ 30`**. The second is the real
+   one: the narrowing this extends exists because the unrestricted version cost 248
+   gap→wrong, and a transitive rule must not reopen that.
+3. **Falsifier.** `f()()` must answer `any`.
+4. **Regression.** `cargo test --workspace`; clippy clean.
+
+### §860 result — the probe moved, the corpus did not, and I had misread the cluster
+
+| leg | registered | measured |
+|---|---|---|
+| 1 primary | `newWithSpread`'s 2 cases + ≥ +8 lines | **0** |
+| 2 safety | `RIGHT->WRONG ≤ 10`, `GAP->WRONG ≤ 30` | **0 and 0** |
+| 3 falsifier | `f()()` must answer `any` | **it does** — `error -> any` |
+| 4 regression | tests + clippy | 7 tests in the file, 145 suites |
+
+The falsifier passed and the primary failed, which is the signature of a correct
+change aimed at the wrong population — and here the misreading is mine and worth
+naming.
+
+**I read the cluster from its expression text and never opened the baseline.** The
+clustering printed `new f(1, 2, ...a, "string")()`, and I took the trailing `()` to
+mean *calling the result of a `new`*. The baseline says otherwise:
+
+```
+>new f(1, 2, "string") : any
+>new f(1, 2, ...a) : any
+>new f(1, 2, ...a, "string") : any
+```
+
+`f` is a **function declaration**, not an `any`. Upstream answers `any` because
+`new` on a value with no construct signature is error recovery, and that is a
+different rule entirely from the one I built. The cluster's 8 gaps in
+`conformance/newWithSpread` (310 RIGHT / 0 WRONG / 8 GAP) belong to it.
+
+> **Fifth time this session that acting on an unverified link cost a build.** The
+> rule §846 earned — *every link a bar depends on must be read or measured in this
+> session* — has a corollary I keep missing: **a clustering instrument reports a
+> string, and a string is not a reading.** Opening the baseline is one command and
+> it was skipped because the cluster looked self-explanatory.
+
+### Kept anyway, and why
+
+`declare const f: any; f()()` answering `error` is a real divergence — upstream's
+`resolveCallExpression` tests `isTypeAny(funcType)` and answers `anySignature`
+regardless of provenance. The extension fires (the probe moved), costs nothing
+measured, and preserves the narrowing's guarantee: the base case is still a written
+annotation or an `as any`, so a chain qualifies only if its root does. §800's rule —
+*the corpus is the arbiter of VALUE, not of CORRECTNESS* — and the test is the
+witness the corpus does not provide.
+
+### The real item, identified
+
+**`new` on a value with no construct signature answers `any`.** `newWithSpread` is
+310 RIGHT / 0 WRONG / 8 GAP, so it is a zero-risk case on §852's board, and the rule
+is upstream's error recovery in `resolveNewExpression`. Not built here — it is the
+same *answer `any` where this port gaps* shape that §257 refused for `+`, and it
+needs its own sizing and its own bar, with ADR-0038's question asked explicitly:
+whether upstream's line is deliberate recovery (as `anySignature` is) or a failure
+wearing `any`'s name.

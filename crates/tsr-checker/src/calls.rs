@@ -1763,6 +1763,28 @@ impl Checker<'_, '_> {
         if Self::is_written_any_cast(stripped) {
             return true;
         }
+        // §860: a call or `new` whose OWN callee was an untyped call target
+        // answers upstream's `any` transitively, so the provenance is still
+        // *written* — one hop further out, exactly as the cast comment above
+        // treats `var u = (a2 as any); u()`.
+        //
+        // This keeps the narrowing's guarantee rather than weakening it: the
+        // base case is unchanged (a written annotation or an `as any`), and a
+        // chain only qualifies if its root does. Without it,
+        // `declare const f: any; f()()` gapped while `f()` answered `any`.
+        match stripped {
+            Expression::CallExpression(call) => {
+                return call
+                    .expression
+                    .is_some_and(|inner| self.any_is_written_in_an_annotation(inner));
+            }
+            Expression::NewExpression(new) => {
+                return new
+                    .expression
+                    .is_some_and(|inner| self.any_is_written_in_an_annotation(inner));
+            }
+            _ => {}
+        }
         let callee = stripped;
         let Expression::Identifier(identifier) = callee else { return false };
         let Some(id) = identifier.node_id else { return false };

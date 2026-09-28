@@ -206,3 +206,30 @@ fn element_access_with_a_literal_key_takes_the_apparent_type() {
         "() => string"
     );
 }
+
+/// §860: calling the RESULT of a call or `new` on a written `any` answers
+/// `any`, transitively.
+///
+/// `is_untyped_call_target` requires the `any` to have been *written* — a
+/// narrowing whose own comment records that the unrestricted version measured
+/// **248 gap→wrong**. A call result is not a written annotation, so
+/// `declare const f: any; f()()` gapped while `f()` answered `any`.
+///
+/// A call or `new` whose own callee was an untyped call target is upstream's
+/// `any` one hop further out, which is the same reasoning the predicate
+/// already applies to `var u = (a2 as any); u()`. The base case is unchanged,
+/// so a chain qualifies only if its root does — which the last assertion pins.
+///
+/// **Zero corpus transitions.** Kept on §800's rule: the corpus is the arbiter
+/// of value, not of correctness, and this is a real divergence from upstream
+/// that nothing in the corpus happens to exercise.
+#[test]
+fn calling_the_result_of_a_call_on_any_is_any() {
+    assert_eq!(type_of_last_expression("declare const f: any; (f());"), "any");
+    assert_eq!(type_of_last_expression("declare const f: any; (f()());"), "any");
+    assert_eq!(type_of_last_expression("declare const f: any; ((new f())());"), "any");
+    assert_eq!(type_of_last_expression("declare const f: any; (new f(1, 2)());"), "any");
+    // The root still has to be a written `any`: a call on a properly typed
+    // function does not become an untyped call target.
+    assert_eq!(type_of_last_expression("declare function g(): () => number;\n(g()());"), "number");
+}
