@@ -9124,3 +9124,63 @@ Three floors, two refusals, one of them without a measurement and saying why.
 *The argument that produced the session's largest win is also the argument that
 bounds it*, and writing the boundary down is what stops the next session
 re-deriving it from a −315.
+
+## §931 — `getUnionSignatures`, attempted and refused (−20)
+
+The board's largest remaining root is `expression answered any: CallExpression`,
+1,650 lines over 372 cases. Its most *nameable* case is
+`conformance/unionTypeCallSignatures` (45 lines), and it is adjacent to §927:
+§439 already handles a union callee, but only when every constituent's return
+**agrees**.
+
+Upstream does not require agreement. `getUnionSignatures` (`checker.go:9560`)
+keeps the signature set when it is identical *ignoring return types* and unions
+the returns:
+
+```ts
+declare var u: { (a: number): number } | { (a: number): Date };
+u(10)   // number | Date
+```
+
+§927's `signatures_identical` minus its return comparison is exactly upstream's
+predicate, so the widening looked like a three-line change on top of work already
+done.
+
+### Measured: 6 `WRONG->RIGHT` against 26 `RIGHT->WRONG`
+
+`unionTypeCallSignatures4` 12, `mismatchedExplicitTypeParameterAndArgumentType`
+4, `functionCallOnConstrainedTypeVariable` 2. Reverted.
+
+### Why the shortcut is not the mechanism
+
+§439's arm asks each constituent to resolve a signature **independently** and then
+combines what comes back. Upstream builds the union type's **own signature list**
+first and runs *one* overload resolution over it, with argument assignability
+deciding which member applies. The two diverge the moment two constituents would
+select *different* overloads for the same argument list: the arm then unions two
+returns upstream never combines.
+
+The regressed rows print `any` where upstream prints a real type. An
+`any`-returning-constituent guard was tried against them and changed **nothing** —
+which is the tell. *The `any` was never coming from the union; the synthetic
+signature was simply the wrong signature.* A guard that fixes none of the rows it
+was written for is evidence about the diagnosis, not a knob to keep turning.
+
+**Reopening condition: `getUnionSignatures` proper** — build the union's signature
+list, then run the existing overload road over it. Not a wider return rule.
+
+### The predicate was deleted, not parked
+
+`signatures_identical_ignoring_return` is correct and now unreachable, so it is
+gone. Keeping a correct-but-dead helper "for later" is the liability §929 named
+when it declined to keep its own zero-measuring copy: three lines cost less to
+rewrite than a dead function costs to keep trusting — and `clippy -D warnings`
+agrees, which is how the choice surfaced at all.
+
+### Three refusals in a row, and what that says
+
+§930.2 (measured, −315), §930.3 (refused on shape, unmeasured), §931 (measured,
+−20). The structural seam §929 opened is **worked out**: of five floors tried,
+two paid (+543 together) and three do not. What is left on this board is the
+mechanism itself — `getUnionSignatures`, `discriminateTypeByDiscriminableItems`,
+`inferTypes` for non-bare positions — and each is a real port, not a routing fix.

@@ -1257,6 +1257,45 @@ impl Checker<'_, '_> {
         // call signature with ONE agreed return answers that return —
         // upstream builds union signatures; the agreeing-return slice needs
         // no selection ('fUnion(\"\") : void', `unionTypeCallSignatures3/5`).
+        //
+        // # §931 tried to widen this to a UNION of the returns, and it is refused
+        //
+        // `getUnionSignatures` (`checker.go:9560`) does not require the returns
+        // to agree: when the signature sets are identical *ignoring return
+        // types* it keeps the set and gives each result a union of the returns,
+        // so `{ (a: number): number } | { (a: number): Date }` called with `10`
+        // is `number | Date`. §927's `signatures_identical` minus its return
+        // check is the right predicate, and it was added
+        // (`signatures_identical_ignoring_return`).
+        //
+        // **Measured: 6 `WRONG->RIGHT` against 26 `RIGHT->WRONG`**
+        // (`unionTypeCallSignatures4` 12, `mismatchedExplicitTypeParameter`
+        // `AndArgumentType` 4, `functionCallOnConstrainedTypeVariable` 2).
+        // Reverted — **and the predicate is deleted with it.** Keeping a
+        // correct-but-unreachable helper "for later" is the liability §929
+        // named when it declined to keep its own zero-measuring copy; the
+        // three lines cost less to rewrite than a dead function costs to keep
+        // trusting. It was `signatures_identical` with the return comparison
+        // dropped.
+        //
+        // **Why the shortcut is not the mechanism.** This arm asks each
+        // constituent to resolve a signature *independently*, then unions what
+        // comes back. Upstream builds the union type's OWN signature list first
+        // and then runs one overload resolution over it, with argument
+        // assignability deciding which member applies. Those differ the moment
+        // two constituents would select *different* overloads for the same
+        // argument list — the arm then unions two returns upstream never
+        // combines, and the regressed rows print `any` where upstream prints a
+        // real type.
+        //
+        // An `any`-returning-constituent guard was tried against the adverse
+        // rows and changed **nothing**, which is the tell: the `any` is not
+        // coming from the union at all, it is the synthetic signature being the
+        // wrong signature.
+        //
+        // Reopening condition: `getUnionSignatures` proper — the union's own
+        // signature list, then the existing overload road over it. Not a wider
+        // return rule.
         if let TypeData::Union { types, .. } = &self.store.get(callee).data {
             let constituents = types.clone();
             let mut agreed: Option<TypeId> = None;
