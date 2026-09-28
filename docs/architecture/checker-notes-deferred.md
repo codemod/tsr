@@ -8143,3 +8143,61 @@ deferred-argument pass agreeing, and each was measured alone.
 > them — §916 came directly from §915's sentence — but that *"X is the
 > prerequisite"* should be written as *"X is A prerequisite"* unless it has been
 > measured with the others already in place.
+
+## §920: §802's refusal is right and its DIAGNOSIS is wrong — upstream gates on inference PRIORITY
+
+The `gaproot` board — used for the first time this session — ranks gap roots by
+lines unblocked, and `expression answered error: ArrayLiteralExpression` is its
+most concentrated: **147 lines, 16 cases, top-10 = 94.6%**. Its largest case is
+`conformance/heterogeneousArrayLiterals` (20), which is §802's family.
+
+§802 refused replacing `single_common_supertype`'s leftmost fallback with a union
+at **−23** (29 `RIGHT→WRONG` against 6 `WRONG→RIGHT`), and diagnosed it:
+
+> upstream's rule is narrower than "union whenever no candidate dominates".
+> `getUnionType` there runs under `UnionReductionSubtype` …
+
+It then **built that prerequisite and re-measured identically**, and concluded
+*"upstream is picking a single candidate there for some reason that is **not**
+`UnionReductionSubtype`"* — correctly, and without finding the reason.
+
+**The reason is in `getCovariantInference` (`inference.go:1455`):**
+
+```go
+// If all inferences were made from a position that implies a combined result, infer a union type.
+// Otherwise, infer a common supertype.
+if inference.priority&InferencePriorityPriorityImpliesCombination != 0 {
+    unwidenedType = c.getUnionTypeEx(baseCandidates, UnionReductionSubtype, nil, nil)
+} else {
+    unwidenedType = c.getCommonSupertype(baseCandidates)
+}
+```
+
+with `PriorityImpliesCombination = ReturnType | MappedTypeConstraint | LiteralKeyof`
+(`checker.go:317`).
+
+**Upstream unions or takes a common supertype according to WHERE the candidates
+came from, not according to what they are.** §802 and its follow-up both searched
+the candidates for the discriminator; it is not in them. That is why building
+`UnionReductionSubtype` changed nothing: the two readings agree on every candidate
+set and disagree only on provenance.
+
+### What this makes the prerequisite
+
+An **inference priority** on `InferenceInfo` — at minimum the `ReturnType` bit,
+which this port already has the collection for (`return_mapper` in
+`check_generic_call_with` is exactly *"inferred from the contextual return
+type"*). `MappedTypeConstraint` and `LiteralKeyof` have no counterpart here yet.
+
+**Not built.** The port's `InferenceInfo` carries `is_fixed` and `top_level` and
+no priority, and the 6 conversions §802 measured are in
+`inferentialTypingWithObjectLiteralProperties` — an ARGUMENT-side family, so the
+bit that would serve them is likelier `MappedTypeConstraint` or `LiteralKeyof`
+than `ReturnType`. Building only the bit I can source would be a third
+measurement of the same guess.
+
+> **§802's refusal stands; its number was never in doubt.** What is corrected is
+> the *account of why*, which two entries had left as an open question and which
+> a reader would otherwise have re-derived. **A refusal whose cause is wrong is
+> still a refusal — but it sends the next attempt at the wrong prerequisite**,
+> and this one had already sent one.
