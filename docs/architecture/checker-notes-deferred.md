@@ -6988,3 +6988,51 @@ What did pay: `destructuringWithLiteralInitializers`, `declarationsAndAssignment
 `emitArrowFunctionES6` — all genuine binding patterns.
 
 **§893 + §894 + §895: +70 right, 4 `GAP→WRONG`, zero `RIGHT→`.**
+
+## §896: the 75 rows, finally located — an ASSIGNMENT pattern as a contextual type
+
+Having confirmed the road (§895), the case's residue resolves completely. Its
+outer member is already right:
+
+```
+{ skills: { primary: primaryA = "primary" } = { primary: "none" } } = multiRobot
+                                  ↑ want { skills?: { primary?: string; … } }
+                                    got  { skills?: { primary: string; … } }
+```
+
+`skills?` **is** optional here — §365's `inDestructuringPattern && hasDefaultValue`
+works, and the member's optionality proves the assignment-target predicate climbs
+nesting correctly. What is wrong is the member's *type*.
+
+The member's initializer is the BinaryExpression `{…} = {…}`, and an assignment
+yields its **right-hand** type (`binary.rs`, upstream's own rule). So the member's
+type is the type of the RHS literal `{ primary: "none", secondary: "none" }` —
+which is row 4 of the residue, wanting `{ primary?: string; secondary?: string; }`
+and getting required members.
+
+Upstream gets that from `contextualTypeHasPattern` (`checker.go:13252`): the RHS
+literal is contextually typed by the **LHS assignment pattern**, whose defaulted
+properties are optional, and each property copies
+`impliedProp.Flags & SymbolFlagsOptional`.
+
+**§489 ported exactly this copy — for a BINDING pattern only.** Its
+`contextual_binding_pattern` finds the pattern syntactically as *"the initializer
+of a variable declaration whose name is such a pattern"*, or a property value
+inside one. An assignment pattern is neither: it is an `ObjectLiteralExpression`
+on the left of `=`, which that search does not look for.
+
+**The whole of the 75 rows is §489's search, extended to find an assignment
+pattern.** The optionality copy, the member loop and the `hasDefaultValue` test are
+all already written and all already correct.
+
+Not attempted here: the contextual type is the LHS pattern's own literal type, so
+the extension has to type the LHS while checking the RHS of the same assignment —
+the same re-entrancy question §890–§892 spent three entries on, and it deserves
+its own bar rather than the tail of this one.
+
+### The thread, in full
+
+Four entries (§893–§896) aimed at 75 rows. **They closed zero of them** and
+landed **+70 elsewhere**, all from genuine binding patterns. The rows are now
+located precisely for the first time, which is what §896 is: a location, not a
+change.
