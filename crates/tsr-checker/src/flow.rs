@@ -2770,12 +2770,25 @@ impl Checker<'_, '_> {
     /// so-far under-accumulation) are priced in
     /// `docs/architecture/checker-notes-narrow.md` §12.6.
     fn get_type_at_flow_loop_label(&mut self, state: &mut FlowState, flow: FlowId) -> FlowType {
+        // §839.3: the INITIAL TYPE is part of the key.
+        //
+        // Upstream never needs it, because `checkIdentifier` walks once and
+        // uses the one answer for both the type and the uninitialized-variable
+        // diagnostic. This port asks twice — the type road from the declared
+        // type, `check_used_before_assigned` from `declared | undefined` — and
+        // a two-element key `(flow, symbol)` lets the second walk's loop result
+        // be replayed as the first's. Measured at **10 lines in
+        // `parserindenter`**, a `while (parent != null && …)` over a
+        // `var parent: ParseNode;`: the walk seeded with `| undefined` cached
+        // the loop, the type query replayed it, and `parent` answered `any` at
+        // nine sites plus one enclosing condition.
         let key = (
             tsr_core::index::Idx::index(flow),
             match state.symbol {
                 Some(symbol) => symbol.index() as u64,
                 None => (1 << 63) | u64::from(state.reference.as_u32()),
             },
+            state.initial_type,
         );
         if let Some((cached, elements)) = self.flow_loop_cache.get(&key) {
             let (cached, elements) = (*cached, elements.clone());

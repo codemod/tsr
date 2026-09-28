@@ -2695,3 +2695,63 @@ So of §839's 20-line leg-2 cost, 8 were a bug in the change, 2 are a downstream
 made visible, and 10 are unread. **A leg that lands exactly at its bar is worth
 reading line by line rather than accepting**: the bar said 20 and the honest number
 was 10, and the difference was a symbol argument.
+
+## §839.3: the loop cache was keyed by `(flow, symbol)` and not by the initial type
+
+The last 10 of §839's residue were `parserindenter`, and they were **not** an
+over-widening either. §839's type road never fires in that case at all — a probe at
+the `return declared` site printed nothing for the whole file.
+
+Three A/B runs located it, and the first two were wrong because of how they were
+written:
+
+1. Gating the type road as
+   `uninitialized_variable_reads_declared(…) && env::var_os("TSR_NO_839").is_none()`
+   changed nothing. **Rust's `&&` evaluates left to right**, so the predicate still
+   *ran*; only its answer was discarded. The gate tested the wrong thing and read as
+   "the type road is not the cause", which was true but not what the run showed.
+2. Gating §839.2's symbol substitution changed nothing.
+3. Returning `false` from the top of the predicate recovered all 10
+   (`RIGHT 2036 -> 2046`).
+
+So the cost is **the predicate's flow walk itself**, not its answer. The predicate is
+now invoked from `check_expression_worker`, and it calls
+`get_flow_type_of_reference_ex` with `initial = declared | undefined`.
+
+`flow_loop_cache` is keyed `(flow node, symbol)` (`crates/tsr-checker/src/checker.rs`)
+— **the initial type is not in the key**. `parserindenter` is
+`while (parent != null && !parent.CanIndent())` over a `var parent: ParseNode;`. The
+predicate's walk, seeded with `ParseNode | undefined`, converged and cached the loop
+result; the real type query for the same `(flow, symbol)` replayed it; `parent`
+answered `any` at nine sites plus the enclosing condition.
+
+Upstream never needs the initial type in its key because `checkIdentifier` **walks
+once** and uses the single answer for both the type and the diagnostic. This port
+asks twice. Adding `state.initial_type` to the key is the minimum that makes two
+callers safe: **+10, zero adverse**.
+
+> The faithful alternative is to ask once — compute the flow type with the optional
+> initial type on the type road and derive both answers from it, as
+> `checker.go:11173-11192` does. That is the better shape and is not what landed
+> here, because the two roads run in different traversals in this port and merging
+> them is a larger change than this residue justified. **What would make it win**:
+> a second consumer of the predicate, or any other measured cache interaction of
+> this kind. Filed as reasoning rather than as a claim that the current shape is
+> right.
+
+### What §839 actually cost
+
+| | |
+|---|---:|
+| §839 gross | **+126** |
+| §839.1 (share the guard) | avoided **−47** |
+| §839.2 (flow symbol) | **+8** |
+| §839.3 (cache key) | **+10** |
+| **net** | **+124** |
+| genuine remaining cost | **2** (`classDoesNotDependOnBaseTypes`, a downstream indexed-access gap made visible, not an over-widening) |
+
+The registered safety leg said "≤ 20" and the landing measured exactly 20. **None of
+those 20 was the thing the bar was written about.** Eight were a symbol argument, ten
+were a cache key, two were a pre-existing downstream gap. A leg that lands exactly at
+its bound is the least informative outcome a bar can produce, and the only way to
+tell it apart from a real cost is to read every line of it.

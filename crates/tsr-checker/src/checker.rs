@@ -191,7 +191,7 @@ pub struct Checker<'a, 'n> {
     /// list (`controlFlowArrays` f10, `want=(string | number)[] got=any[]`).
     /// A hit replays the slice into the querying state; empty off the array
     /// track.
-    pub(crate) flow_loop_cache: FxHashMap<(usize, u64), (TypeId, Vec<TypeId>)>,
+    pub(crate) flow_loop_cache: FxHashMap<(usize, u64, TypeId), (TypeId, Vec<TypeId>)>,
     /// `isReachableFlowNode`'s cache over SHARED flow nodes — upstream's
     /// `flowNodeReachable` (`checker.go`, keyed by `*ast.FlowNode`). §743.
     pub(crate) flow_node_reachable: FxHashMap<usize, bool>,
@@ -199,7 +199,7 @@ pub struct Checker<'a, 'n> {
     /// upstream's `flowLoopKeys`/`flowLoopTypes` stacks. Non-empty means the
     /// checker is in a transient fixpoint pass, and `check_expression` must
     /// not persist results (`checker-notes-narrow.md` §12.6).
-    pub(crate) flow_loop_stack: Vec<((usize, u64), Vec<TypeId>)>,
+    pub(crate) flow_loop_stack: Vec<((usize, u64, TypeId), Vec<TypeId>)>,
     /// `(generic symbol, type arguments) -> the instantiated reference`,
     /// upstream's `d.instantiations` keyed by `getTypeListKey`
     /// (`checker.go:17342`).
