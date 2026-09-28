@@ -4346,3 +4346,98 @@ landing. Worked as a checklist it will disappoint.
 > out to need four features is how a session gets spent with nothing to show.
 > `STATUS.md`'s own rule — *correct the record when a number turns out to be wrong,
 > and note that it was corrected.*
+
+## §858: element access with a literal key does not take the APPARENT type
+
+Found by working §852's board as §857 says to — hunting a shared cause rather than a
+queue. Grouping every zero-wrong gap line by its failing *expression text* across
+distinct cases surfaces this immediately:
+
+```
+ 3 cases  x['doStuff']()            extendBooleanInterface, extendNumberInterface, extendStringInterface
+ 3 cases  x['doStuff']
+ 3 cases  x['doOtherStuff']('hm')
+ 3 cases  x['doOtherStuff']
+```
+
+Three cases, **4 gaps each, zero wrong lines** — `RIGHT 23 / WRONG 0 / GAP 4` for
+each of `extendBooleanInterface`, `extendNumberInterface`, `extendStringInterface`.
+
+The baseline shows the split precisely. For `interface Number { doStuff(): string }`
+and `var x = 1`:
+
+```
+A8   >x.doStuff : () => string        <- RIGHT
+A18  >x['doStuff']() : string         <- GAP
+```
+
+**The dotted form works and the element-access form does not.** Four probes confirm
+the boundary is the *receiver*, not the syntax:
+
+```
+dot on number          => () => string     correct
+index on number        => error
+index on interface     => () => string     correct
+index on literal type  => () => string     correct
+```
+
+So element access with a string-literal key resolves members fine — except on a
+primitive, where the member lives on the global wrapper interface. `access_member_lookup`
+reaches it through `get_apparent_type`; `element_access_lookup` passes `object_type`
+straight to `get_type_of_property_of_type`.
+
+This port's `apparent_type` is the **primitive arms only** (`crates/tsr-checker/src/members.rs`
+documents exactly that), so it returns every non-primitive unchanged — which makes
+the change additive rather than a redirection.
+
+### The bar
+
+1. **Primary.** The three cases close: **+12 lines, +3 cases**. Falsified if none moves.
+2. **Safety.** `RIGHT->WRONG ≤ 5`. The arm now resolves members on primitive
+   receivers where it gapped, so the available direction is `GAP->RIGHT` or §620's
+   accepted `GAP->WRONG`.
+3. **Falsifier.** If the cases do not move, the apparent type is not what the lookup
+   is missing.
+4. **Regression.** `cargo test --workspace`; clippy clean.
+
+### §858 result — +84, zero adverse, and the named cases did NOT close
+
+| leg | registered | measured |
+|---|---|---|
+| 1 primary | the three cases close, +12 lines / +3 cases | **0** — all three still `RIGHT 23 / WRONG 0 / GAP 4` |
+| 2 safety | `RIGHT->WRONG` ≤ 5 | **0** |
+| 3 falsifier | if the cases do not move, the apparent type is not what is missing | see below |
+| 4 regression | tests + clippy | 145 suites, clippy clean |
+
+**`GAP->RIGHT 67` and `WRONG->RIGHT 17` — +84 right lines, not one lost** — in cases
+the board never named: `propertyAccessOnTypeParameterWithConstraints` 14+10,
+`propertyAccessOnTypeParameterWithConstraints2` 12, `optionalChainingInference` 10,
+`stringPropertyAccessWithError` 3.
+
+The falsifier needs care rather than a mechanical revert, and the probe is what
+decides it. **The probe moved**: `index on number` went `error -> () => string`. So
+the apparent type *was* missing and the fix *is* the fix — it simply is not the
+*only* thing wrong in the three surfacing cases.
+
+The difference between probe and corpus is `lib.d.ts`. In the corpus, `interface
+Number { doStuff(): string }` is a **declaration merge** into the global `Number`,
+and this port's `apparent_type` maps `number` to a `Number` symbol that does not
+carry the local augmentation. The dotted road reaches it — A8 is RIGHT — so the two
+roads resolve the global interface differently, and *that* is the second blocker.
+
+Kept, because unlike §855 the mechanism **demonstrably fires** (§823's rule), it is
+a verbatim alignment with `access_member_lookup`, and it measures +84/0.
+
+> **Third time this session that a bar's named cases stayed shut while the change
+> paid elsewhere** (§844, §846, §858). The pattern is now unmistakable and worth
+> stating as a rule: **at this depth a surfacing case is usually the one with TWO
+> defects — that is why it was still visible on a board everything else had fallen
+> off.** Sizing a bar by the case that surfaced the mechanism systematically
+> under-predicts, and the leg should be registered against the *probe*, not the case.
+
+### The residue, located
+
+`extendBooleanInterface` / `extendNumberInterface` / `extendStringInterface`, 12
+lines, 3 cases: **global-interface declaration merging as seen by `apparent_type`**.
+The next probe is to ask `apparent_type(number)` for its symbol's declarations in a
+corpus run and compare against what `access_member_lookup`'s fallback chain reaches.

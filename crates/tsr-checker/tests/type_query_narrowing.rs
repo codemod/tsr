@@ -164,3 +164,45 @@ fn a_nullable_member_does_not_poison_a_literal_under_strict() {
         "{ a: number; b: undefined; }"
     );
 }
+
+/// §858: element access with a literal key reaches a PRIMITIVE's members
+/// through the apparent type, exactly as property access does.
+///
+/// `access_member_lookup` reaches them via `get_apparent_type`, which is what
+/// makes `x.doStuff` work on a `number` when `interface Number` declares it.
+/// `element_access_lookup` passed the receiver straight to
+/// `get_type_of_property_of_type`, so the dotted form resolved and the indexed
+/// form gapped.
+///
+/// The boundary is the RECEIVER, not the syntax — an interface or type-literal
+/// receiver already worked, which is what the two controls pin.
+///
+/// Corpus effect: `+84` right lines (67 `GAP->RIGHT`, 17 `WRONG->RIGHT`), zero
+/// adverse.
+#[test]
+fn element_access_with_a_literal_key_takes_the_apparent_type() {
+    assert_eq!(
+        type_of_last_expression(
+            "interface Number { doStuff(): string; }\nvar x = 1;\n(x['doStuff']);"
+        ),
+        "() => string"
+    );
+    // The dotted form, which always worked — if this ever diverges from the
+    // line above, the two roads have drifted apart again.
+    assert_eq!(
+        type_of_last_expression(
+            "interface Number { doStuff(): string; }\nvar x = 1;\n(x.doStuff);"
+        ),
+        "() => string"
+    );
+    // Controls: a non-primitive receiver was never affected, because this
+    // port's `apparent_type` is the primitive arms only.
+    assert_eq!(
+        type_of_last_expression("interface I { m(): string }\ndeclare const o: I;\n(o['m']);"),
+        "() => string"
+    );
+    assert_eq!(
+        type_of_last_expression("declare const o: { m(): string };\n(o['m']);"),
+        "() => string"
+    );
+}

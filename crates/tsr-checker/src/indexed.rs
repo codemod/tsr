@@ -392,8 +392,20 @@ impl Checker<'_, '_> {
                     .value_declaration
                     .is_some_and(|declaration| self.declaration_names_a_private(declaration))
             });
+        // §858: through the APPARENT type. `access_member_lookup` reaches a
+        // primitive's members via `get_apparent_type` — that is what makes
+        // `x.doStuff` work on a `number` when `interface Number` declares it —
+        // and this road passed `object_type` straight through, so the dotted
+        // form resolved and `x['doStuff']` gapped
+        // (`extendNumberInterface` and its `Boolean`/`String` siblings, 4 gaps
+        // and zero wrong lines each).
+        //
+        // Additive rather than a redirection: this port's `apparent_type` is
+        // the primitive arms only (`crate::members` says so), so every
+        // non-primitive receiver answers exactly as before.
+        let apparent = self.apparent_type(object_type);
         if !names_a_private_member
-            && let Some(property_type) = self.get_type_of_property_of_type(object_type, &name)
+            && let Some(property_type) = self.get_type_of_property_of_type(apparent, &name)
         {
             return property_type;
         }
