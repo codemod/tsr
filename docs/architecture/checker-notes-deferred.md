@@ -6366,3 +6366,112 @@ Across §885 + §886 the pair is **+144 right, −140 wrong, −4 gap**.
 Three cases from §885 are not recovered and stay on the board:
 `conformance/unionTypeReduction2` (4), `conformance/controlFlowSuperPropertyAccess`
 (3), `compiler/interfaceClassMerging` (1).
+
+## §887: the bar — an array literal spread into a call is in tuple context
+
+### First, a refusal, measured and recorded
+
+`compiler/parsingDeepParenthensizedExpression` heads the "want `error`, got
+something" board with **136 of that family's 153 rows**. Its baseline records
+`>T : error` inside a ~40-deep parenthesised assignment chain and `>T : any` for
+the *same variable* elsewhere in the same file. Nothing about `T` differs; what
+differs is the depth. **Upstream is hitting its own complexity limit and printing
+`errorType` where it gives up.** Matching it would mean reproducing a limit, not
+porting a rule, and the limit's exact threshold is not a documented interface.
+**REFUSED by §887 at 136 lines.** Reopen only if upstream's depth cutoff turns out
+to be a named constant this port can read. (Also: that baseline has
+megabyte-long lines — read it with `grep -c`, never `sed -n`.)
+
+### The array-literal board
+
+Grouping every WRONG row by the SHAPE of §883's expression column, then by the
+want/got relationship, over the whole corpus:
+
+```
+16192  got `any`          (across 1730 cases, top case 221 — no seam, diffuse)
+  841  array literal      of which 412 are "want TUPLE, got array"
+```
+
+The `any` bucket is 59% of all wrong lines and has no dominant cause; saying so is
+the finding. The array-literal bucket does have one:
+
+| want | got | expression |
+|---|---|---|
+| `[symbol, false]` | `(symbol \| boolean)[]` | `[s, false]` |
+| `[0]` | `number[]` | `[0]` |
+| `[number, true]` | `(number \| boolean)[]` | `[1, true]` |
+| `[]` | `never[]` | `[]` |
+
+Upstream decides this in one line (`checker.go:8029`):
+
+```go
+inTupleContext := isSpreadIntoCallOrNew(node) || contextualType != nil && someType(contextualType, func(t *Type) bool {
+    return c.isTupleLikeType(t) || …
+})
+```
+
+**One question: is the contextual type tuple-like?** This port's
+`array_literal_tuple_context_kind` instead enumerates **seven parent kinds** —
+type assertion, `as`, variable declaration, assignment target, call argument
+(twice), return statement — each re-deriving an annotation by hand, ending in
+`_ => TupleContext::No`. It is the session's recurring shape at its largest: a
+gate whose *category list* stands in for a question upstream asks generically.
+
+**`isSpreadIntoCallOrNew` is absent entirely**, and it is three lines upstream:
+
+```go
+parent := ast.WalkUpParenthesizedExpressions(node.Parent)
+return ast.IsSpreadElement(parent) && ast.IsCallOrNewExpression(parent.Parent)
+```
+
+`conformance/arraySpreadInCall` — `f(...[1, 2])` — is the array-literal board's
+**top case at 24 rows**.
+
+### The bar
+
+- **Primary.** `conformance/arraySpreadInCall`'s 24 rows close.
+- **Safety.** The arm is purely additive: it is consulted only where the seven-arm
+  list already answered `No`, so a row it does not touch cannot move.
+- **Falsifier.** If `arraySpreadInCall` stays shut, tuple *context* is not what the
+  case lacks — the spread element's own type is — and the generic contextual
+  fallback below would be equally pointless.
+- **Regression.** A unit test for `f(...[1, 2])` and one for `f([1, 2])` (which
+  must keep its existing answer).
+
+The generic `get_contextual_type` fallback is the larger half and lands separately
+if at all: this port's contextual road is itself partial ("three of its twenty
+arms are here"), so whether it subsumes the seven hand-rolled arms is a
+measurement, not a reading.
+
+## §887.1: the spread arm landed — +59, zero adverse, and a pinned decline lifted
+
+`isSpreadIntoCallOrNew` ported as written. **59 W→R, zero adverse.**
+`conformance/arraySpreadInCall` 37, `conformance/callChain` 12,
+`conformance/typeParameterConstModifiers` 6. The bar's primary leg closes and the
+safety leg holds exactly as predicted — the arm is consulted only where the
+seven-arm list already answered `No`, so nothing it does not touch can move.
+
+A unit test in `tests/contextual.rs` had pinned the old answer as a decline:
+
+```rust
+// A SPREAD argument still declines — the variadic legs are not ported.
+assert_eq!(type_of("((...sigma) => sigma)(...[5, 6]);", "sigma"), "any");
+```
+
+two lines below the positional form asserting `[number, number]`. The spread form
+now gives the same answer, which is what it should always have been — the decline
+was the array literal widening to `number[]` before the rest parameter ever saw
+it. **A pinned decline sitting beside the working case is the cheapest possible
+signal, and it went unread for however many sessions it has been there.** The
+adjacent assertion was the specification.
+
+### On the seven-arm list
+
+The arm ported here is the disjunct that reads no contextual type. The other
+disjunct — `contextualType != nil && someType(contextualType, isTupleLikeType)` —
+is what the seven hand-rolled parent-kind arms approximate one parent at a time.
+Replacing them with one `get_contextual_type` question is the larger, riskier
+half and is **not** attempted here: this port's contextual road covers "three of
+its twenty arms", so whether it subsumes the seven is a measurement. It is now the
+best-sized remaining item on the array-literal board (412 rows want a tuple; 59 of
+them just closed).

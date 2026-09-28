@@ -247,6 +247,10 @@ fn an_iife_parameter_takes_its_type_from_the_argument() {
     // §768 asserted `any` here and said the arm declined; that decline ended
     // when §770 unblocked it.
     assert_eq!(type_of("((...omega) => omega)(5, 6);", "omega"), "[number, number]");
-    // A SPREAD argument still declines — the variadic legs are not ported.
-    assert_eq!(type_of("((...sigma) => sigma)(...[5, 6]);", "sigma"), "any");
+    // §887 ends that decline. A SPREAD argument reaches the same answer as the
+    // positional one above, because `isSpreadIntoCallOrNew` (`checker.go:8117`)
+    // puts the spread literal in TUPLE context, so `[5, 6]` arrives as
+    // `[number, number]` rather than widened to `number[]`. This line asserted
+    // `any` as a pinned decline until then.
+    assert_eq!(type_of("((...sigma) => sigma)(...[5, 6]);", "sigma"), "[number, number]");
 }

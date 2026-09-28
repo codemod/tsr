@@ -14,6 +14,50 @@ use tsr_core::Arena;
 const LIB: &str = "interface Array<T> {}\ninterface ReadonlyArray<T> {}\n";
 
 /// The printed type of the first statement's first declaration's initialiser.
+/// Type the LAST array literal in the fixture, wherever it sits. §887's arm is
+/// about a literal in argument position, which no initialiser-shaped fixture can
+/// reach.
+fn type_of_last_array_literal(source: &str) -> String {
+    let arena = Arena::new();
+    let mut nodes = NodeTable::new();
+    let mut node_map = NodeMap::new();
+    let options = tsr_parser::ParseOptions::default();
+    let lib = tsr_parser::parse_into(&arena, LIB, options, &mut nodes, &mut node_map);
+    let file = tsr_parser::parse_into(&arena, source, options, &mut nodes, &mut node_map);
+    assert!(
+        file.diagnostics.is_empty(),
+        "fixture must parse: {:?}",
+        file.diagnostics.iter().map(tsr_diagnostics::Diagnostic::text).collect::<Vec<_>>()
+    );
+    let bound = tsr_binder::bind_into(
+        tsr_binder::BindResult::empty(),
+        &arena,
+        lib.source_file,
+        &nodes,
+        tsr_binder::FileInfo { name: "lib.d.ts", text: LIB },
+    );
+    let bound = tsr_binder::bind_into(
+        bound,
+        &arena,
+        file.source_file,
+        &nodes,
+        tsr_binder::FileInfo { name: "test.ts", text: source },
+    );
+    let mut checker = Checker::new(&bound, &nodes, &node_map);
+    let mut last = None;
+    for raw in 0..u32::try_from(nodes.len()).expect("fits") {
+        let id = tsr_ast::NodeId::new(raw);
+        if nodes.kind(id) == tsr_ast::SyntaxKind::ArrayLiteralExpression {
+            last = Some(id);
+        }
+    }
+    let id = last.expect("the fixture must contain an array literal");
+    let node = node_map.get(id).expect("the literal is in the map");
+    let expression = tsr_ast::Expression::try_from(node).expect("an expression");
+    let ty = checker.check_expression(expression);
+    checker.type_to_string(ty)
+}
+
 fn type_of_initialiser(source: &str) -> String {
     let arena = Arena::new();
     let mut nodes = NodeTable::new();
@@ -240,4 +284,42 @@ fn an_elision_contributes_undefined_rather_than_gapping_the_array() {
 #[test]
 fn an_array_of_only_elisions_is_still_an_array_of_undefined() {
     assert_eq!(type_of_initialiser("const a = [, ,];"), "undefined[]");
+}
+
+/// §887: `isSpreadIntoCallOrNew` (`checker.go:8117`), the first disjunct of
+/// upstream's `inTupleContext`. A literal spread into a call keeps its positions
+/// — widening to `number[]` discards exactly what the call is about to consume.
+///
+/// Corpus effect when this landed: `WRONG->RIGHT 59`, zero adverse,
+/// `conformance/arraySpreadInCall` 37.
+#[test]
+fn a_literal_spread_into_a_call_is_a_tuple() {
+    let source = "declare function f(a: number, b: number): void;\nf(...[1, 2]);\n";
+    assert_eq!(type_of_last_array_literal(source), "[number, number]");
+}
+
+/// Upstream walks up parentheses explicitly (`WalkUpParenthesizedExpressions`),
+/// so unlike the optional chain's flag a parenthesis does NOT break this.
+#[test]
+fn a_parenthesis_does_not_break_the_spread_context() {
+    let source = "declare function f(a: number, b: number): void;\nf(...([1, 2]));\n";
+    assert_eq!(type_of_last_array_literal(source), "[number, number]");
+}
+
+/// The control: the SAME literal passed without a spread is not in tuple context
+/// from this arm, and keeps whatever the other seven arms decide.
+#[test]
+fn a_literal_passed_without_a_spread_is_unaffected() {
+    let source = "declare function f(a: number[]): void;\nf([1, 2]);\n";
+    assert_eq!(type_of_last_array_literal(source), "number[]");
+}
+
+/// A spread into something that is neither a call nor a `new` — another array
+/// literal — is not tuple context. The fixture holds two literals and the helper
+/// types one of them; the assertion is deliberately the answer that must hold for
+/// BOTH, since neither the inner `[1, 2]` nor the outer may become a tuple here.
+#[test]
+fn a_spread_into_an_array_literal_is_not_tuple_context() {
+    let source = "const outer = [...[1, 2]];\n";
+    assert_eq!(type_of_last_array_literal(source), "number[]");
 }

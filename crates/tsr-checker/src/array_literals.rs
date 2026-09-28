@@ -291,6 +291,28 @@ impl Checker<'_, '_> {
         self.array_literal_tuple_context_kind(node) != TupleContext::No
     }
 
+    /// `isSpreadIntoCallOrNew` (`checker.go:8117`). A parenthesis does NOT break
+    /// this one — upstream walks up through them explicitly, unlike the optional
+    /// chain's flag, which a parenthesis stops.
+    fn array_literal_is_spread_into_call_or_new(&self, id: tsr_ast::NodeId) -> bool {
+        let mut current = id;
+        while let Some(parent) = self.nodes.parent(current) {
+            if matches!(self.node_map.get(parent), Some(tsr_ast::Node::ParenthesizedExpression(_)))
+            {
+                current = parent;
+                continue;
+            }
+            if !matches!(self.node_map.get(parent), Some(tsr_ast::Node::SpreadElement(_))) {
+                return false;
+            }
+            return matches!(
+                self.nodes.parent(parent).map(|g| self.nodes.kind(g)),
+                Some(tsr_ast::SyntaxKind::CallExpression | tsr_ast::SyntaxKind::NewExpression)
+            );
+        }
+        false
+    }
+
     fn array_literal_tuple_context_kind(
         &mut self,
         node: &ArrayLiteralExpression<'_>,
@@ -305,6 +327,25 @@ impl Checker<'_, '_> {
             let Some(parent) = self.nodes.parent(id) else {
                 break 'context TupleContext::No;
             };
+            // §887: `isSpreadIntoCallOrNew` (`checker.go:8117`), the FIRST
+            // disjunct of upstream's `inTupleContext` and the one arm of it that
+            // reads no contextual type at all:
+            //
+            // ```go
+            // parent := ast.WalkUpParenthesizedExpressions(node.Parent)
+            // return ast.IsSpreadElement(parent) && ast.IsCallOrNewExpression(parent.Parent)
+            // ```
+            //
+            // `f(...[1, 2])` records `[number, number]` for the literal. The
+            // spread is how a call consumes positions, so the positions have to
+            // survive — widening to `number[]` loses exactly the information the
+            // call is about to use. Every other arm below reads an ANNOTATION,
+            // and a spread argument has none, so this position could not be
+            // reached however it was spelled — the same gap §793 found for a
+            // variadic parameter.
+            if self.array_literal_is_spread_into_call_or_new(id) {
+                break 'context TupleContext::Annotated;
+            }
             // §793: a CALL ARGUMENT whose parameter is spelled `[...T]` is in
             // TUPLE context. `f<T extends unknown[]>(t: [...T])` called with
             // `f([1, 2])` records `[number, number]` for the literal upstream,
