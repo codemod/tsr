@@ -8053,3 +8053,42 @@ type, no new enum, and no change to the machinery that consumes it.
 
 §914 and §915 both named the argument-side refactor as the prerequisite. It was
 never required, and two entries asserting it did not make it true.
+
+## §918: §915's arm re-measured after §916 — still zero, and now for a known reason
+
+§915 built a `TemplateSpan` arm in `get_contextual_type`, measured zero, and
+diagnosed it: *"the substitution is what DRIVES the inference that gives `T` a
+value"*. §916 made the substitutions drive inference, which should have removed
+that blocker — the §832 re-measurement pattern that has paid twice this session.
+
+**Re-measured: still zero** (same 3 `WRONG→GAP` in `taggedTemplatesWithTypeArguments1`,
+which prove the arm fires). Reverted again.
+
+### The reason, this time located rather than reasoned
+
+`taggedTemplateStringsTypeArgumentInference` — the 29-row case whose `n => n`
+rows want `(n: unknown) => unknown` — is built almost entirely of tags whose
+**first** parameter is generic:
+
+```ts
+function noParams<T>(n: T) { }                       noParams ``;
+function someGenerics1a<T, U>(n: T, m: number) { }   someGenerics1a `${3}`;
+```
+
+That is **exactly the limitation §916 recorded** — *"a tag whose FIRST parameter
+is generic loses that inference site, where upstream infers
+`TemplateStringsArray` into it"* — written when I thought no corpus tag was
+shaped that way. **It was wrong: the largest remaining case is nothing but that
+shape.** Corrected here.
+
+So these rows need the thing §916 showed was unnecessary for the *other* slices:
+a real argument at position 0, carrying the global `TemplateStringsArray` type, so
+inference can flow into a generic first parameter. That is a genuine prerequisite
+for **this** sub-family, and §916/§917 are the evidence that it is not one for the
+rest.
+
+> **Two re-measurements, two different outcomes.** §832's refusal reopened because
+> the checker had moved underneath it; §915's did not, because its blocker was
+> only half removed. Re-measuring a revert is cheap and worth doing — and the
+> result is only informative if the entry says *which* blocker it was testing.
+> §915 did, which is why one build settled it.
